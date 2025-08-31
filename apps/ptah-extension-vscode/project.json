@@ -1,0 +1,108 @@
+{
+  "name": "ptah-extension-vscode",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/ptah-extension-vscode/src",
+  "projectType": "application",
+  "tags": ["scope:extension", "type:application"],
+  "targets": {
+    "build": {
+      "executor": "@nx/webpack:webpack",
+      "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
+      "options": {
+        "target": "node",
+        "compiler": "tsc",
+        "outputPath": "dist/apps/ptah-extension-vscode",
+        "webpackConfig": "apps/ptah-extension-vscode/webpack.config.js",
+        "tsConfig": "apps/ptah-extension-vscode/tsconfig.app.json",
+        "generatePackageJson": true
+      },
+      "configurations": {
+        "development": {
+          "mode": "development",
+          "optimization": false,
+          "sourceMap": true
+        },
+        "production": {
+          "mode": "production",
+          "optimization": true,
+          "sourceMap": false,
+          "extractLicenses": false
+        }
+      }
+    },
+    "prune-lockfile": {
+      "dependsOn": ["build"],
+      "cache": true,
+      "executor": "@nx/js:prune-lockfile",
+      "outputs": [
+        "{workspaceRoot}/dist/apps/ptah-extension-vscode/package.json",
+        "{workspaceRoot}/dist/apps/ptah-extension-vscode/package-lock.json"
+      ],
+      "options": {
+        "buildTarget": "build"
+      }
+    },
+    "copy-workspace-modules": {
+      "dependsOn": ["build"],
+      "cache": true,
+      "outputs": [
+        "{workspaceRoot}/dist/apps/ptah-extension-vscode/workspace_modules"
+      ],
+      "executor": "@nx/js:copy-workspace-modules",
+      "options": {
+        "buildTarget": "build"
+      }
+    },
+    "prune": {
+      "dependsOn": ["prune-lockfile", "copy-workspace-modules"],
+      "executor": "nx:noop"
+    },
+    "serve": {
+      "continuous": true,
+      "executor": "@nx/js:node",
+      "defaultConfiguration": "development",
+      "dependsOn": ["build"],
+      "options": {
+        "buildTarget": "ptah-extension-vscode:build",
+        "runBuildTargetDependencies": false
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "ptah-extension-vscode:build:development"
+        },
+        "production": {
+          "buildTarget": "ptah-extension-vscode:build:production"
+        }
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project apps/ptah-extension-vscode/tsconfig.app.json"
+      }
+    },
+    "copy-assets": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "commands": [
+          "cp -r apps/ptah-extension-vscode/src/assets dist/apps/ptah-extension-vscode/",
+          "cp apps/ptah-extension-vscode/package.json dist/apps/ptah-extension-vscode/"
+        ],
+        "parallel": false
+      }
+    },
+    "package": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["copy-assets"],
+      "options": {
+        "command": "npx @vscode/vsce package --no-dependencies",
+        "cwd": "dist/apps/ptah-extension-vscode"
+      }
+    }
+  }
+}

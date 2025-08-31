@@ -1,1 +1,116 @@
 /* You can add global styles to this file, and also import other style files */
+/* VS Code Design System - Pure CSS Variables */
+
+/* Import Google Fonts for VS Code integration */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* VS Code integration utility classes */
+.vscode-bg {
+  background-color: var(--vscode-editor-background);
+}
+.vscode-fg {
+  color: var(--vscode-editor-foreground);
+}
+.vscode-border {
+  border-color: var(--vscode-widget-border);
+}
+.vscode-input-bg {
+  background-color: var(--vscode-input-background);
+}
+.vscode-input-fg {
+  color: var(--vscode-input-foreground);
+}
+.vscode-input-border {
+  border-color: var(--vscode-input-border);
+}
+.vscode-button-bg {
+  background-color: var(--vscode-button-background);
+}
+.vscode-button-fg {
+  color: var(--vscode-button-foreground);
+}
+.vscode-button-hover {
+  background-color: var(--vscode-button-hoverBackground);
+}
+.vscode-focus {
+  border-color: var(--vscode-focusBorder);
+  box-shadow: 0 0 0 1px var(--vscode-focusBorder);
+}
+.vscode-hover-bg {
+  background-color: var(--vscode-list-hoverBackground);
+}
+.vscode-selection-bg {
+  background-color: var(--vscode-list-activeSelectionBackground);
+}
+.vscode-error {
+  color: var(--vscode-errorForeground);
+}
+.vscode-description {
+  color: var(--vscode-descriptionForeground);
+}
+
+/* Global reset and base styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-family);
+  font-size: var(--font-size);
+  line-height: 1.6;
+  background-color: var(--vscode-editor-background);
+  color: var(--vscode-editor-foreground);
+  overflow: hidden;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--vscode-scrollbar-shadow);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--vscode-scrollbarSlider-background);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--vscode-scrollbarSlider-hoverBackground);
+}
+
+/* Accessibility: Respect user's motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Focus and accessibility styles */
+button:focus,
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+/* Utility classes for accessibility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

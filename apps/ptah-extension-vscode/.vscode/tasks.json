@@ -1,0 +1,74 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "nx: build extension",
+      "type": "shell",
+      "command": "npx nx build ptah-extension-vscode && npx nx copy-assets ptah-extension-vscode",
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "silent",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": false
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/../.."
+      },
+      "problemMatcher": ["$tsc", "$eslint-stylish"]
+    },
+    {
+      "label": "nx: build extension (dev)",
+      "type": "shell",
+      "command": "npx nx build ptah-extension-vscode:development && npx nx copy-assets ptah-extension-vscode",
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "silent",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": false
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/../.."
+      },
+      "problemMatcher": ["$tsc", "$eslint-stylish"]
+    },
+    {
+      "label": "nx: watch extension",
+      "type": "shell",
+      "command": "npx nx serve ptah-extension-vscode",
+      "group": "build",
+      "isBackground": true,
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "dedicated"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/../.."
+      },
+      "problemMatcher": [
+        {
+          "pattern": [
+            {
+              "regexp": ".",
+              "file": 1,
+              "location": 2,
+              "message": 3
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "webpack.*compiled",
+            "endsPattern": "webpack.*compiled.*successfully"
+          }
+        }
+      ]
+    }
+  ]
+}

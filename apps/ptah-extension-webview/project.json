@@ -10,7 +10,7 @@
       "executor": "@angular/build:application",
       "outputs": ["{options.outputPath}"],
       "options": {
-        "outputPath": "dist/apps/ptah-extension-webview",
+        "outputPath": "dist/apps/ptah-extension-vscode/webview",
         "browser": "apps/ptah-extension-webview/src/main.ts",
         "polyfills": ["zone.js"],
         "tsConfig": "apps/ptah-extension-webview/tsconfig.app.json",
@@ -41,7 +41,8 @@
         "development": {
           "optimization": false,
           "extractLicenses": false,
-          "sourceMap": true
+          "sourceMap": true,
+          "outputHashing": "all"
         }
       },
       "defaultConfiguration": "production"
@@ -81,8 +82,14 @@
       "executor": "@nx/web:file-server",
       "options": {
         "buildTarget": "ptah-extension-webview:build",
-        "staticFilePath": "dist/apps/ptah-extension-webview/browser",
+        "staticFilePath": "dist/apps/ptah-extension-vscode/webview/browser",
         "spa": true
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project apps/ptah-extension-webview/tsconfig.app.json"
       }
     }
   }

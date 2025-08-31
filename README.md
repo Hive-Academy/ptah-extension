@@ -1,82 +1,172 @@
-# PtahExtension
+# 📜 Ptah - Claude Code GUI
 
-<a alt="Nx logo" href="https://nx.dev" target="_blank" rel="noreferrer"><img src="https://raw.githubusercontent.com/nrwl/nx/master/images/nx-logo.png" width="45"></a>
+**The complete visual interface for Claude Code CLI within VS Code**
 
-✨ Your new, shiny [Nx workspace](https://nx.dev) is almost ready ✨.
+Transform your Claude Code experience with Ptah, the first and only VS Code extension that makes Claude Code's full power accessible through native, integrated visual interfaces.
 
-[Learn more about this workspace setup and its capabilities](https://nx.dev/getting-started/tutorials/angular-monorepo-tutorial?utm_source=nx_project&amp;utm_medium=readme&amp;utm_campaign=nx_projects) or run `npx nx graph` to visually explore what was created. Now, let's get you up to speed!
+## 🚀 Features
 
-## Finish your CI setup
+### ⭐ Core Features
 
-[Click here to finish setting up your workspace!](https://cloud.nx.app/connect/MqVK4acJnj)
+- **Integrated Chat Sidebar** - Native VS Code chat interface with Claude Code
+- **Visual Command Builder** - Build Claude commands through intuitive UI forms
+- **Smart Context Management** - Visual file inclusion/exclusion with optimization suggestions
+- **Session Management** - Multiple sessions with workspace awareness
+- **Real-time Analytics** - Token usage, cost tracking, and productivity insights
 
+### 🎯 Quick Actions
 
-## Run tasks
+- **Instant Code Review** - Right-click any file for immediate Claude analysis
+- **Test Generation** - Generate comprehensive tests for your code
+- **Bug Detection** - AI-powered bug finding and security analysis
+- **Documentation** - Auto-generate docs for functions and classes
+- **Code Optimization** - Performance and style improvements
 
-To run the dev server for your app, use:
+## 📦 Installation
 
-```sh
-npx nx serve ptah-extension-webview
+### Prerequisites
+
+1. **VS Code** 1.74.0 or higher
+2. **Claude Code CLI** - [Installation Guide](https://github.com/anthropics/claude-code#installation)
+
+### Install Extension
+
+1. Open VS Code
+2. Go to Extensions (Ctrl+Shift+X)
+3. Search for "Ptah - Claude Code GUI"
+4. Click Install
+
+### First Run
+
+1. Open any workspace in VS Code
+2. Click the Ptah icon (📜) in the Activity Bar
+3. Follow the welcome guide to configure your Claude CLI path
+
+## 🏗️ Development
+
+### Setup Development Environment
+
+```bash
+# Clone the repository
+git clone https://github.com/your-org/ptah-claude-code.git
+cd ptah-claude-code
+
+# Install dependencies
+npm install
+
+# Compile TypeScript
+npm run compile
+
+# Start development
+code .
 ```
 
-To create a production bundle:
+### Running the Extension
 
-```sh
-npx nx build ptah-extension-webview
+1. Open the project in VS Code
+2. Press `F5` to launch Extension Development Host
+3. Test the extension in the new VS Code window
+
+### Available Scripts
+
+```bash
+npm run compile     # Compile TypeScript
+npm run watch      # Watch mode for development
+npm run test       # Run test suite
+npm run lint       # Lint TypeScript code
 ```
 
-To see all available targets to run for a project, run:
+## 🎨 Architecture
 
-```sh
-npx nx show project ptah-extension-webview
+### Core Components
+
+- **Extension Host** (`src/extension.ts`) - Main entry point
+- **Core Services** (`src/services/`) - Claude CLI, Session, Context management
+- **UI Providers** (`src/providers/`) - Webview providers for chat, analytics
+- **Type Definitions** (`src/types/`) - TypeScript interfaces
+
+### Key Services
+
+- **ClaudeCliService** - Integration with Claude Code CLI
+- **SessionManager** - Multi-session support with persistence
+- **ContextManager** - Smart file inclusion and optimization
+- **WorkspaceManager** - Project type detection and workspace integration
+
+## 🔧 Configuration
+
+### Extension Settings
+
+```json
+{
+  "ptah.claudeCliPath": "claude",
+  "ptah.defaultProvider": "anthropic",
+  "ptah.maxTokens": 200000,
+  "ptah.autoIncludeOpenFiles": true,
+  "ptah.contextOptimization": true,
+  "ptah.analyticsEnabled": true
+}
 ```
 
-These targets are either [inferred automatically](https://nx.dev/concepts/inferred-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) or defined in the `project.json` or `package.json` files.
+### Workspace Settings
 
-[More about running tasks in the docs &raquo;](https://nx.dev/features/run-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+Project-specific context rules and session preferences are automatically saved to workspace settings.
 
-## Add new projects
+## 📚 Usage Guide
 
-While you could add new projects to your workspace manually, you might want to leverage [Nx plugins](https://nx.dev/concepts/nx-plugins?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) and their [code generation](https://nx.dev/features/generate-code?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) feature.
+### Basic Chat
 
-Use the plugin's generator to create new projects.
+1. Click Ptah icon in Activity Bar
+2. Type your question in the chat input
+3. Press Enter or click Send
 
-To generate a new application, use:
+### Code Review
 
-```sh
-npx nx g @nx/angular:app demo
-```
+1. Right-click any file in Explorer
+2. Select "Ptah: Review Current File"
+3. View analysis in chat sidebar
 
-To generate a new library, use:
+### Context Management
 
-```sh
-npx nx g @nx/angular:lib mylib
-```
+1. Open Context Files tree view
+2. Click checkmarks to include/exclude files
+3. View token usage and optimization suggestions
 
-You can use `npx nx list` to get a list of installed plugins. Then, run `npx nx list <plugin-name>` to learn about more specific capabilities of a particular plugin. Alternatively, [install Nx Console](https://nx.dev/getting-started/editor-setup?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) to browse plugins and generators in your IDE.
+### Command Builder
 
-[Learn more about Nx plugins &raquo;](https://nx.dev/concepts/nx-plugins?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) | [Browse the plugin registry &raquo;](https://nx.dev/plugin-registry?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+1. Press `Ctrl+Shift+P` > "Ptah: Build Command"
+2. Select template from gallery
+3. Fill in parameters through visual form
+4. Execute command in chat
 
+## 🤝 Contributing
 
-[Learn more about Nx on CI](https://nx.dev/ci/intro/ci-with-nx#ready-get-started-with-your-provider?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-## Install Nx Console
+### Development Workflow
 
-Nx Console is an editor extension that enriches your developer experience. It lets you run tasks, generate code, and improves code autocompletion in your IDE. It is available for VSCode and IntelliJ.
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
 
-[Install Nx Console &raquo;](https://nx.dev/getting-started/editor-setup?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+## 📄 License
 
-## Useful links
+MIT License - see [LICENSE](LICENSE) for details.
 
-Learn more:
+## 🔗 Links
 
-- [Learn more about this workspace setup](https://nx.dev/getting-started/tutorials/angular-monorepo-tutorial?utm_source=nx_project&amp;utm_medium=readme&amp;utm_campaign=nx_projects)
-- [Learn about Nx on CI](https://nx.dev/ci/intro/ci-with-nx?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Releasing Packages with Nx release](https://nx.dev/features/manage-releases?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [What are Nx plugins?](https://nx.dev/concepts/nx-plugins?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+- [Claude Code CLI](https://github.com/anthropics/claude-code)
+- [VS Code Extension API](https://code.visualstudio.com/api)
+- [Issue Tracker](https://github.com/your-org/ptah-claude-code/issues)
+- [Marketplace Page](https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-claude-code)
 
-And join the Nx community:
-- [Discord](https://go.nx.dev/community)
-- [Follow us on X](https://twitter.com/nxdevtools) or [LinkedIn](https://www.linkedin.com/company/nrwl)
-- [Our Youtube channel](https://www.youtube.com/@nxdevtools)
-- [Our blog](https://nx.dev/blog?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+## 🆘 Support
+
+- **Documentation**: [Wiki](https://github.com/your-org/ptah-claude-code/wiki)
+- **Issues**: [GitHub Issues](https://github.com/your-org/ptah-claude-code/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/your-org/ptah-claude-code/discussions)
+
+---
+
+**Made with ❤️ for the VS Code community**
