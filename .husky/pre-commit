@@ -1,12 +1,12 @@
 
-
 echo "🔍 Running pre-commit checks..."
 
 # Run lint-staged
 npx lint-staged
 
-# Validate that all affected libraries can build
-echo "🏗️  linting affected libraries..."
-npx nx affected:lint --base=HEAD~1
+# Validate that all affected libraries can build and lint
+echo "🏗️ Building and linting affected projects..."
+npx nx affected -t lint --base=HEAD~1
+npx nx affected -t build --base=HEAD~1
 
 echo "✅ Pre-commit checks passed!"

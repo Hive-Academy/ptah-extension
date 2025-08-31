@@ -37,7 +37,8 @@
     "affected:lint": "nx affected -t lint",
     "package": "nx build ptah-extension-vscode && nx build ptah-extension-webview && vsce package --out dist/",
     "serve:webview": "nx serve ptah-extension-webview",
-    "serve:extension": "nx serve ptah-extension-vscode"
+    "serve:extension": "nx serve ptah-extension-vscode",
+    "prepare": "husky"
   },
   "private": true,
   "dependencies": {
