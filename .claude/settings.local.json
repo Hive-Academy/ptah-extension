@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(npm run compile:*)",
+      "Bash(npm run build:webview:*)",
+      "Bash(npm run build:all:*)",
+      "mcp__sequential-thinking__sequentialthinking",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(mkdir:*)",
+      "Bash(touch:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(cat:*)"
+    ],
+    "deny": [],
+    "ask": [],
+    "additionalDirectories": [
+      "d:\\projects\\Ptah"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "browser",
+    "sequential-thinking",
+    "nx-mcp",
+    "angular-cli",
+    "neo4j-graph-data-modeling",
+    "chroma"
+  ],
+  "statusLine": {
+    "type": "command",
+    "command": "powershell.exe -ExecutionPolicy Bypass -File \"D:\\projects\\Ptah\\.claude\\status-line.ps1\""
+  }
+}

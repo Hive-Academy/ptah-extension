@@ -1,0 +1,12 @@
+
+
+echo "🔍 Running pre-commit checks..."
+
+# Run lint-staged
+npx lint-staged
+
+# Validate that all affected libraries can build
+echo "🏗️  linting affected libraries..."
+npx nx affected:lint --base=HEAD~1
+
+echo "✅ Pre-commit checks passed!"

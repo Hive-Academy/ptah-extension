@@ -1,0 +1,6 @@
+{
+  "*.{ts,js,json,md}": ["prettier --write"],
+  "*.{ts,js}": ["eslint --fix"],
+  "libs/*/package.json": ["npm run validate:package-json"],
+  "libs/**/*.ts": ["node scripts/typescript-fixes/validate-types.js typescript"]
+}

@@ -1,0 +1,18 @@
+
+
+echo "🚀 Running pre-push checks..."
+
+# Get the current branch
+current_branch=$(git rev-parse --abbrev-ref HEAD)
+
+# Only run checks if pushing to main or develop
+if [ "$current_branch" = "main" ] || [ "$current_branch" = "develop" ]; then
+
+  echo "🏗️  Building affected projects..."
+  npx nx affected:build  --base=$current_branch
+
+  echo "📦 Testing publish process (dry run)..."
+  npx nx affected --target=publish --dry-run --base=$current_branch
+fi
+
+echo "✅ Pre-push checks passed!"
