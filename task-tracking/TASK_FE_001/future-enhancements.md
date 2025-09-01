@@ -92,6 +92,7 @@ Based on comprehensive analysis of Angular webview architecture improvements, th
 **Detailed Implementation Plan**:
 
 #### Phase 1: Domain Libraries (Week 1-2)
+
 ```
 libs/
 ├── ptah-chat/                   # Chat domain library
@@ -120,6 +121,7 @@ libs/
 ```
 
 #### Phase 2: Infrastructure Libraries (Week 3-4)
+
 ```
 libs/
 ├── ptah-core/                   # Core services & utilities
@@ -138,6 +140,7 @@ libs/
 ```
 
 #### Phase 3: Advanced Libraries (Week 5-6)
+
 ```
 libs/
 ├── ptah-testing/                # Testing utilities
@@ -154,7 +157,8 @@ libs/
     └── types/                   # CLI-specific types
 ```
 
-#### Implementation Commands:
+#### Implementation Commands
+
 ```bash
 # Step 1: Create Shared UI Library
 nx generate @nx/angular:library ptah-shared-ui --standalone
@@ -172,7 +176,8 @@ nx generate @nx/angular:library ptah-shared-data --standalone
 nx generate @nx/angular:library ptah-shared-types --standalone
 ```
 
-#### Dependency Graph Rules:
+#### Dependency Graph Rules
+
 ```typescript
 // nx.json or .eslintrc.json
 {
