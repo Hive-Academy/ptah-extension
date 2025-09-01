@@ -50,6 +50,7 @@ export interface SessionManagerConfig {
 @Component({
   selector: 'vscode-session-manager',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, SessionSelectorComponent, SessionCardComponent],
   template: `
     <div class="session-manager-container" [attr.data-mode]="config().displayMode">
@@ -126,7 +127,7 @@ export interface SessionManagerConfig {
             <div class="session-view-controls">
               <button
                 class="session-view-btn"
-                [class.active]="sortMode() === 'recent'"
+                [class.active]="sortMode === 'recent'"
                 (click)="setSortMode('recent')"
                 type="button"
               >
@@ -134,7 +135,7 @@ export interface SessionManagerConfig {
               </button>
               <button
                 class="session-view-btn"
-                [class.active]="sortMode() === 'alphabetical'"
+                [class.active]="sortMode === 'alphabetical'"
                 (click)="setSortMode('alphabetical')"
                 type="button"
               >
@@ -142,7 +143,7 @@ export interface SessionManagerConfig {
               </button>
               <button
                 class="session-view-btn"
-                [class.active]="sortMode() === 'usage'"
+                [class.active]="sortMode === 'usage'"
                 (click)="setSortMode('usage')"
                 type="button"
               >
@@ -157,8 +158,8 @@ export interface SessionManagerConfig {
               <vscode-session-card
                 [session]="session"
                 [isCurrent]="session.id === currentSession()?.id"
-                [isLoading]="loadingSessionId() === session.id"
-                [showDetails]="selectedSessionId() === session.id"
+                [isLoading]="loadingSessionId === session.id"
+                [showDetails]="selectedSessionId === session.id"
                 [enableQuickSwitch]="config().enableQuickActions"
                 (actionRequested)="onSessionAction($event.action, $event.session)"
                 (nameChanged)="onRenameSession($event.sessionId, $event.newName)"
@@ -168,10 +169,10 @@ export interface SessionManagerConfig {
           </div>
 
           <!-- Load More Button -->
-          @if (hasMoreSessions()) {
+          @if (hasMoreSessions) {
             <div class="session-load-more-section">
               <button class="session-load-more-btn" (click)="loadMoreSessions()" type="button">
-                Show {{ remainingSessionCount() }} more sessions
+                Show {{ remainingSessionCount }} more sessions
               </button>
             </div>
           }
@@ -179,7 +180,7 @@ export interface SessionManagerConfig {
       }
 
       <!-- Empty State -->
-      @if (allSessions().length === 0 && !isLoading()) {
+      @if (allSessions().length === 0 && !isLoading) {
         <div class="session-empty-state">
           <div class="session-empty-icon">
             <svg width="48" height="48" viewBox="0 0 16 16" fill="currentColor">
@@ -206,7 +207,7 @@ export interface SessionManagerConfig {
       }
 
       <!-- Loading State -->
-      @if (isLoading() && allSessions().length === 0) {
+      @if (isLoading && allSessions().length === 0) {
         <div class="session-loading-state">
           <div class="session-loading-spinner">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none">

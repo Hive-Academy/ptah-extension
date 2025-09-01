@@ -44,7 +44,8 @@ import { ClaudeMessageTransformerService } from '../../core/services/claude-mess
       [class.complete]="message().isComplete"
     >
       <!-- Message Header -->
-      <div class="message-header" *ngIf="showHeader">
+      @if (showHeader) {
+      <div class="message-header">
         <div class="message-metadata">
           <span class="message-role" [class]="message().role">
             {{ getRoleIcon(message().role) }} {{ message().role }}

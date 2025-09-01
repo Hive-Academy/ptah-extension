@@ -17,12 +17,12 @@ export class ChatStateManagerService {
   private appState = inject(AppStateManager);
   private destroy$ = new Subject<void>();
 
-  // Private signals
-  private _availableSessions = signal<StrictChatSession[]>([]);
-  private _isSessionLoading = signal(false);
-  private _showSessionManager = signal(false);
-  private _selectedAgent = signal<string>('general');
-  private _currentMessage = signal<string>('');
+  // Private signals - Phase 1.2: Add readonly modifiers for immutability
+  private readonly _availableSessions = signal<StrictChatSession[]>([]);
+  private readonly _isSessionLoading = signal(false);
+  private readonly _showSessionManager = signal(false);
+  private readonly _selectedAgent = signal<string>('general');
+  private readonly _currentMessage = signal<string>('');
 
   // Public readonly signals
   readonly availableSessions = computed(() => {

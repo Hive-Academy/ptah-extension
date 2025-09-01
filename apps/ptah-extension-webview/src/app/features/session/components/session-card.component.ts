@@ -20,6 +20,7 @@ export interface SessionAction {
 @Component({
   selector: 'vscode-session-card',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule],
 
   template: `
@@ -32,7 +33,7 @@ export interface SessionAction {
       <div class="session-card-header">
         <div class="session-card-info">
           <div class="session-card-name">
-            @if (isEditing()) {
+            @if (isEditing) {
               <input
                 #nameInput
                 class="session-name-input"
@@ -132,7 +133,7 @@ export interface SessionAction {
         <div class="session-card-details">
           <!-- Session Statistics -->
           <div class="session-details-stats">
-            @if (sessionStats().tokenUsage) {
+            @if (sessionStats.tokenUsage) {
               <div class="session-stat">
                 <span class="session-stat-label">Input Tokens</span>
                 <span class="session-stat-value">{{ sessionStats().tokenUsage!.input }}</span>

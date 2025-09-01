@@ -13,9 +13,9 @@ import { VSCodeService } from './core/services/vscode.service';
 import { WebviewNavigationService } from './core/services/webview-navigation.service';
 import { Subject } from 'rxjs';
 // Components
-import { VSCodeChatComponent } from './smart-components/chat/chat.component';
-import { AnalyticsComponent } from './smart-components/analytics/analytics.component';
-import { VSCodeLoadingSpinnerComponent } from './dumb-components';
+import { VSCodeChatComponent } from './features/chat/containers/chat.component';
+import { AnalyticsComponent } from './features/analytics/containers/analytics.component';
+import { VSCodeLoadingSpinnerComponent } from './shared/components/ui/loading-spinner.component';
 
 @Component({
   selector: 'app-root',

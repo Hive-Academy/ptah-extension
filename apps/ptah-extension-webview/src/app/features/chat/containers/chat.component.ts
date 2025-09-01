@@ -9,14 +9,14 @@ import {
   ViewChild,
 } from '@angular/core';
 import { filter, Subject, takeUntil } from 'rxjs';
-import { LoggingService } from '../../core/services/logging.service';
+import { LoggingService } from '../../../core/services/logging.service';
 
 // Core Services
-import { AppStateManager } from '../../core/services/app-state.service';
-import { EnhancedChatService } from '../../core/services/enhanced-chat.service';
-import { MessageHandlerService } from '../../core/services/message-handler.service';
-import { VSCodeService } from '../../core/services/vscode.service';
-import { ChatStateManagerService } from '../../core/services/chat-state-manager.service';
+import { AppStateManager } from '../../../core/services/app-state.service';
+import { EnhancedChatService } from '../../../core/services/enhanced-chat.service';
+import { MessageHandlerService } from '../../../core/services/message-handler.service';
+import { VSCodeService } from '../../../core/services/vscode.service';
+import { ChatStateManagerService } from '../../../core/services/chat-state-manager.service';
 import {
   StrictMessage,
   MessagePayloadMap,
@@ -43,10 +43,10 @@ import {
   type PermissionResponse,
   type ProviderStatus,
   type ChatStatusMetrics,
-} from '../../dumb-components';
+} from '../components';
 
 // Smart Layout Components
-import { ProviderManagerComponent } from '../providers/provider-manager.component';
+import { ProviderManagerComponent } from '../../providers/containers/provider-manager.component';
 import { ProcessedClaudeMessage } from '@ptah-extension/shared';
 
 /**

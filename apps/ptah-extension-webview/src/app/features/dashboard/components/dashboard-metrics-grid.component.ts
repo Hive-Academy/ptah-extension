@@ -1,4 +1,4 @@
-import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
+import { Component, Input, ChangeDetectionStrategy, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
   LucideAngularModule,
@@ -23,60 +23,61 @@ import { type DashboardMetrics } from '@ptah-extension/shared';
 @Component({
   selector: 'vscode-dashboard-metrics-grid',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, LucideAngularModule],
 
   template: `
-    <div class="vscode-metrics-grid" [class]="getGridClass()">
+    <div class="vscode-metrics-grid" [class]="gridClass()">
       <!-- Current Latency -->
-      <article class="vscode-metric-card" [class]="getLatencyStatusClass()">
+      <article class="vscode-metric-card" [class]="latencyStatusClass()">
         <header class="vscode-metric-header">
           <lucide-angular [img]="ClockIcon" class="vscode-metric-icon"></lucide-angular>
           <span class="vscode-metric-label">Response Time</span>
         </header>
         <div class="vscode-metric-content">
           <div class="vscode-metric-value">
-            {{ formatLatency(metrics.performance.currentLatency) }}
+            {{ formattedCurrentLatency() }}
           </div>
           <div class="vscode-metric-detail">
-            Avg: {{ formatLatency(metrics.performance.averageLatency) }}
+            Avg: {{ formattedAverageLatency() }}
           </div>
         </div>
       </article>
 
       <!-- Memory Usage -->
-      <article class="vscode-metric-card" [class]="getMemoryStatusClass()">
+      <article class="vscode-metric-card" [class]="memoryStatusClass()">
         <header class="vscode-metric-header">
           <lucide-angular [img]="MemoryStickIcon" class="vscode-metric-icon"></lucide-angular>
           <span class="vscode-metric-label">Memory Usage</span>
         </header>
         <div class="vscode-metric-content">
-          <div class="vscode-metric-value">{{ metrics.performance.memoryUsage.toFixed(1) }}MB</div>
-          <div class="vscode-metric-detail">{{ getMemoryPercentage() }}% of limit</div>
+          <div class="vscode-metric-value">{{ formattedMemoryUsage() }}MB</div>
+          <div class="vscode-metric-detail">{{ memoryPercentage() }}% of limit</div>
         </div>
       </article>
 
       <!-- Throughput -->
-      <article class="vscode-metric-card" [class]="getThroughputStatusClass()">
+      <article class="vscode-metric-card" [class]="throughputStatusClass()">
         <header class="vscode-metric-header">
           <lucide-angular [img]="TrendingUpIcon" class="vscode-metric-icon"></lucide-angular>
           <span class="vscode-metric-label">Throughput</span>
         </header>
         <div class="vscode-metric-content">
           <div class="vscode-metric-value">
-            {{ metrics.performance.messagesPerMinute.toFixed(1) }}/min
+            {{ formattedThroughput() }}/min
           </div>
           <div class="vscode-metric-detail">Messages per minute</div>
         </div>
       </article>
 
       <!-- Success Rate -->
-      <article class="vscode-metric-card" [class]="getSuccessStatusClass()">
+      <article class="vscode-metric-card" [class]="successStatusClass()">
         <header class="vscode-metric-header">
           <lucide-angular [img]="ActivityIcon" class="vscode-metric-icon"></lucide-angular>
           <span class="vscode-metric-label">Success Rate</span>
         </header>
         <div class="vscode-metric-content">
-          <div class="vscode-metric-value">{{ metrics.performance.successRate.toFixed(1) }}%</div>
+          <div class="vscode-metric-value">{{ formattedSuccessRate() }}%</div>
           <div class="vscode-metric-detail">System reliability</div>
         </div>
       </article>
@@ -90,7 +91,7 @@ import { type DashboardMetrics } from '@ptah-extension/shared';
             <span class="vscode-metric-label">Commands</span>
           </header>
           <div class="vscode-metric-content">
-            <div class="vscode-metric-value">{{ formatNumber(metrics.usage.commandsRun) }}</div>
+            <div class="vscode-metric-value">{{ formattedCommandsRun() }}</div>
             <div class="vscode-metric-detail">Total executed</div>
           </div>
         </article>
@@ -102,7 +103,7 @@ import { type DashboardMetrics } from '@ptah-extension/shared';
             <span class="vscode-metric-label">Tokens</span>
           </header>
           <div class="vscode-metric-content">
-            <div class="vscode-metric-value">{{ formatNumber(metrics.usage.tokensUsed) }}</div>
+            <div class="vscode-metric-value">{{ formattedTokensUsed() }}</div>
             <div class="vscode-metric-detail">Total consumed</div>
           </div>
         </article>
@@ -114,7 +115,7 @@ import { type DashboardMetrics } from '@ptah-extension/shared';
             <span class="vscode-metric-label">Messages</span>
           </header>
           <div class="vscode-metric-content">
-            <div class="vscode-metric-value">{{ formatNumber(metrics.usage.totalMessages) }}</div>
+            <div class="vscode-metric-value">{{ formattedTotalMessages() }}</div>
             <div class="vscode-metric-detail">Total processed</div>
           </div>
         </article>
@@ -331,55 +332,64 @@ export class VSCodeDashboardMetricsGridComponent {
   readonly MessageCircleIcon = MessageCircleIcon;
   readonly CalendarIcon = CalendarIcon;
 
-  getGridClass(): string {
-    return `vscode-metrics-grid--${this.displayMode}`;
-  }
+  // Convert template functions to computed signals for Angular reactivity
+  readonly gridClass = computed(() => `vscode-metrics-grid--${this.displayMode}`);
 
-  getLatencyStatusClass(): string {
+  readonly latencyStatusClass = computed(() => {
     const latency = this.metrics.performance.currentLatency;
     if (latency === 0) return '';
     if (latency < 500) return 'vscode-metric-card--excellent';
     if (latency < 1000) return 'vscode-metric-card--good';
     if (latency < 2000) return 'vscode-metric-card--warning';
     return 'vscode-metric-card--critical';
-  }
+  });
 
-  getMemoryStatusClass(): string {
+  readonly memoryStatusClass = computed(() => {
     const usage = this.metrics.performance.memoryUsage;
     const percentage = (usage / 30) * 100; // Assuming 30MB target limit
     if (percentage < 50) return 'vscode-metric-card--excellent';
     if (percentage < 70) return 'vscode-metric-card--good';
     if (percentage < 85) return 'vscode-metric-card--warning';
     return 'vscode-metric-card--critical';
-  }
+  });
 
-  getThroughputStatusClass(): string {
+  readonly throughputStatusClass = computed(() => {
     const throughput = this.metrics.performance.messagesPerMinute;
     if (throughput > 10) return 'vscode-metric-card--excellent';
     if (throughput > 5) return 'vscode-metric-card--good';
     if (throughput > 1) return 'vscode-metric-card--warning';
     return '';
-  }
+  });
 
-  getSuccessStatusClass(): string {
+  readonly successStatusClass = computed(() => {
     const successRate = this.metrics.performance.successRate;
     if (successRate >= 99) return 'vscode-metric-card--excellent';
     if (successRate >= 95) return 'vscode-metric-card--good';
     if (successRate >= 85) return 'vscode-metric-card--warning';
     return 'vscode-metric-card--critical';
-  }
+  });
 
-  getMemoryPercentage(): number {
+  readonly memoryPercentage = computed(() => {
     return Math.round((this.metrics.performance.memoryUsage / 30) * 100);
-  }
+  });
 
-  formatLatency(ms: number): string {
+  // Formatted value computed signals
+  readonly formattedCurrentLatency = computed(() => this.formatLatency(this.metrics.performance.currentLatency));
+  readonly formattedAverageLatency = computed(() => this.formatLatency(this.metrics.performance.averageLatency));
+  readonly formattedMemoryUsage = computed(() => this.metrics.performance.memoryUsage.toFixed(1));
+  readonly formattedThroughput = computed(() => this.metrics.performance.messagesPerMinute.toFixed(1));
+  readonly formattedSuccessRate = computed(() => this.metrics.performance.successRate.toFixed(1));
+  readonly formattedCommandsRun = computed(() => this.formatNumber(this.metrics.usage.commandsRun));
+  readonly formattedTokensUsed = computed(() => this.formatNumber(this.metrics.usage.tokensUsed));
+  readonly formattedTotalMessages = computed(() => this.formatNumber(this.metrics.usage.totalMessages));
+
+  private formatLatency(ms: number): string {
     if (ms === 0) return '0ms';
     if (ms < 1000) return `${Math.round(ms)}ms`;
     return `${(ms / 1000).toFixed(1)}s`;
   }
 
-  formatNumber(value: number): string {
+  private formatNumber(value: number): string {
     if (value >= 1000000) {
       return (value / 1000000).toFixed(1) + 'M';
     }

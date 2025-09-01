@@ -16,7 +16,7 @@ import {
   PerformanceData,
   ActivityItem,
   HistoricalDataPoint,
-} from '../../dumb-components/dashboard/dashboard.types';
+} from '../../features/dashboard/components/dashboard.types';
 import { CorrelationId } from '@ptah-extension/shared';
 
 export interface AnalyticsData {
