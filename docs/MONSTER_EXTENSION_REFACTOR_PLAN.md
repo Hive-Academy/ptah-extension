@@ -49,67 +49,89 @@ npm install -D prettier eslint-config-prettier
 
 ## **Architecture Overview**
 
-### **New Workspace Library Structure**
+### **New Workspace Library Structure (Unified with Angular Enhancements)**
 
 ```
 libs/
+├── shared/                          # EXISTING - Your excellent types! (PRESERVED)
+│   └── src/                        # All branded types, Zod schemas, message types
+│       └── lib/types/              # StrictMessageType, SessionId, etc.
+│
 ├── vscode-core/                     # Pure VS Code infrastructure abstraction
 │   ├── src/
 │   │   ├── di/                      # TSyringe DI container setup
-│   │   ├── messaging/               # RxJS event bus with your types
+│   │   ├── messaging/               # RxJS event bus (uses shared types)
 │   │   ├── lifecycle/               # Extension lifecycle management
 │   │   ├── api-wrappers/           # VS Code API abstractions
 │   │   │   ├── command-manager.ts  # Command registration
-│   │   │   ├── webview-manager.ts  # Webview lifecycle
+│   │   │   ├── webview-manager.ts  # Webview lifecycle + signal support
 │   │   │   ├── workspace-api.ts    # Workspace operations
 │   │   │   └── language-features.ts # Language server protocol
-│   │   └── types/                   # VS Code-specific types
+│   │   └── signal-adapters/        # Angular signal compatibility
 │   └── project.json
 │
 ├── ai-providers-core/               # Provider system (domain agnostic)
 │   ├── src/
 │   │   ├── interfaces/             # Provider contracts
-│   │   │   ├── provider.interface.ts
-│   │   │   └── strategy.interface.ts
 │   │   ├── strategies/             # Intelligent selection strategies
-│   │   │   ├── intelligent-provider-strategy.ts
-│   │   │   └── fallback-strategy.ts
 │   │   ├── health/                 # Health monitoring
 │   │   ├── context/                # Context window management
-│   │   │   └── context-window-manager.ts
 │   │   ├── mcp/                    # Model Context Protocol
-│   │   │   ├── mcp-manager.ts
-│   │   │   └── mcp-server.interface.ts
-│   │   └── factory/                # Provider factory
+│   │   └── ui-contracts/           # Contracts for Angular UI layer
+│   └── project.json
+│
+├── ptah-chat/                       # Chat domain (from Angular enhancements)
+│   ├── src/
+│   │   ├── components/             # Shared chat components
+│   │   ├── services/               # Chat services (signal-based)
+│   │   ├── models/                 # Chat types & interfaces
+│   │   └── streaming/              # Stream processing
+│   └── project.json
+│
+├── ptah-analytics/                  # Analytics domain (from Angular enhancements)
+│   ├── src/
+│   │   ├── services/               # Analytics services
+│   │   ├── models/                 # Analytics types
+│   │   └── components/             # Analytics UI components
+│   └── project.json
+│
+├── ptah-session/                    # Session management (unified)
+│   ├── src/
+│   │   ├── backend/                # Extension-side session logic
+│   │   ├── frontend/               # Angular session components
+│   │   └── shared/                 # Shared session types
+│   └── project.json
+│
+├── ptah-shared-ui/                  # Angular UI components (from enhancements)
+│   ├── src/
+│   │   ├── forms/                  # Signal-based form components
+│   │   ├── overlays/               # Modals, sheets, popups
+│   │   ├── layout/                 # Layout components
+│   │   └── ui/                     # Basic UI elements
+│   └── project.json
+│
+├── ptah-theming/                    # VS Code theme integration (from enhancements)
+│   ├── src/
+│   │   ├── tokens/                 # Design tokens
+│   │   ├── themes/                 # Theme definitions
+│   │   └── components/             # Themed base components
 │   └── project.json
 │
 ├── claude-domain/                   # Claude-specific business logic
 │   ├── src/
 │   │   ├── cli/                    # CLI integration
-│   │   │   ├── claude-cli-adapter.ts
-│   │   │   └── cli-detector.ts
-│   │   ├── streaming/              # Stream processing
-│   │   │   ├── stream-parser.ts
-│   │   │   └── message-processor.ts
-│   │   ├── sessions/               # Session management
-│   │   │   └── claude-session-manager.ts
 │   │   └── permissions/            # Permission handling
-│   │       └── permission-handler.ts
 │   └── project.json
 │
-├── workspace-intelligence/          # Workspace understanding
-│   ├── src/
-│   │   ├── project-analysis/       # Project type detection
-│   │   ├── file-indexing/          # Smart file discovery
-│   │   ├── code-understanding/     # AST analysis, symbol extraction
-│   │   └── optimization/           # Performance suggestions
-│   └── project.json
-│
-└── shared/                          # Your existing excellent types!
-    └── src/                        # Keep all branded types, Zod schemas
+└── workspace-intelligence/          # Workspace understanding
+    ├── src/
+    │   ├── project-analysis/       # Project type detection
+    │   ├── file-indexing/          # Smart file discovery
+    │   └── optimization/           # Performance suggestions
+    └── project.json
 ```
 
-## **Phase 1: Foundation & Infrastructure (Weeks 1-3)**
+## **Phase 1: Foundation & Infrastructure with Angular Integration (Weeks 1-3)**
 
 ### **Week 1: Clean Slate Dependencies & Workspace Setup**
 
@@ -185,7 +207,7 @@ export class DIContainer {
 }
 ```
 
-#### **2.2 RxJS Event Bus Implementation**
+#### **2.2 RxJS Event Bus Implementation (Angular Compatible)**
 
 **libs/vscode-core/src/messaging/event-bus.ts**
 
@@ -193,7 +215,12 @@ export class DIContainer {
 import { EventEmitter } from "eventemitter3";
 import { injectable } from "tsyringe";
 import { Observable, fromEvent, filter, map } from "rxjs";
-import type { MessagePayloadMap, StrictMessageType } from "@ptah-extension/shared";
+import type { 
+  MessagePayloadMap, 
+  StrictMessageType,
+  ProcessedClaudeMessage,
+  StrictChatMessage 
+} from "@ptah-extension/shared";
 
 export interface TypedEvent<T extends keyof MessagePayloadMap = keyof MessagePayloadMap> {
   type: T;
@@ -327,7 +354,7 @@ export class CommandManager {
 }
 ```
 
-#### **3.2 Webview Manager**
+#### **3.2 Webview Manager with Angular Signal Support**
 
 **libs/vscode-core/src/api-wrappers/webview-manager.ts**
 
@@ -335,7 +362,7 @@ export class CommandManager {
 import * as vscode from "vscode";
 import { injectable, inject } from "tsyringe";
 import { EventBus, TOKENS } from "../di/container";
-import type { WebviewMessage } from "@ptah-extension/shared";
+import type { WebviewMessage, StrictMessageType } from "@ptah-extension/shared";
 
 @injectable() 
 export class WebviewManager {
@@ -392,7 +419,7 @@ export class WebviewManager {
 }
 ```
 
-## **Phase 2: Provider System Refactor (Weeks 4-6)**
+## **Phase 2: Provider System with Angular UI Support (Weeks 4-6)**
 
 ### **Week 4: Provider Core Infrastructure**
 
@@ -821,11 +848,167 @@ export class ProviderManager {
 }
 ```
 
-## **Phase 3: VS Code API Integration (Weeks 7-9)**
+## **Phase 3: Angular Feature Integration & Advanced Libraries (Weeks 7-9)**
 
-### **Week 7: Command System Enhancement**
+### **Week 7: Angular Signal Migration & Modern Control Flow**
 
-#### **7.1 AI Commands Provider**
+#### **7.1 Signal-Based Component Migration**
+
+```typescript
+// Convert all Angular components to use signals
+// Before: @Input() data: string;
+// After: readonly data = input<string>();
+
+// Before: @Output() event = new EventEmitter();
+// After: readonly event = output<EventType>();
+```
+
+#### **7.2 Modern Control Flow Migration**
+
+```typescript
+// Migrate all templates from structural directives to control flow
+// Before: *ngIf="condition"
+// After: @if (condition) { }
+
+// Before: *ngFor="let item of items"
+// After: @for (item of items; track item.id) { }
+```
+
+### **Week 8: Performance Monitoring System**
+
+#### **8.1 Performance Monitor Implementation**
+
+```typescript
+// libs/vscode-core/src/monitoring/performance-monitor.ts
+@injectable()
+export class PerformanceMonitor {
+  private metrics = new Map<string, PerformanceMetric>();
+  
+  measureChangeDetection(): void {
+    // Monitor Angular change detection cycles
+  }
+  
+  trackSignalUpdates(): void {
+    // Track signal update frequency and performance
+  }
+}
+```
+
+### **Week 9: VS Code Theme Integration & Advanced Features**
+
+#### **9.1 VS Code Theme System**
+
+```typescript
+// libs/ptah-theming/src/theme-manager.ts
+@injectable()
+export class VSCodeThemeManager {
+  extractThemeTokens(): ThemeTokens {
+    // Extract VS Code theme colors
+  }
+  
+  applyToWebview(tokens: ThemeTokens): void {
+    // Apply theme to Angular components
+  }
+}
+```
+
+## **Phase 4: Long-term Enhancements (Months 3-12)**
+
+### **Quarter 1 Focus (After Initial 9 Weeks)**
+
+- Complete Nx library structure implementation
+- Micro-frontend architecture foundation
+- Advanced provider strategies
+
+### **Quarter 2-3 Focus**
+
+- AI-powered code generation integration
+- Cross-platform extension architecture research
+- Real-time collaboration features exploration
+
+## **Success Metrics**
+
+### **Immediate (Weeks 1-9)**
+
+- ✅ Zero `any` types in codebase
+- ✅ 100% type safety across extension ↔ webview boundary
+- ✅ Angular signals fully implemented
+- ✅ Modern control flow syntax adopted
+- ✅ All components using OnPush change detection
+
+### **Short-term (Quarter 1)**
+
+- 30% performance improvement from control flow migration
+- Complete library structure implementation
+- Full signal-based architecture
+- Provider system fully operational
+
+### **Long-term (Quarters 2-4)**
+
+- Micro-frontend architecture supporting multi-team development
+- Native VS Code theme integration
+- Advanced debugging tools for signals
+- AI-powered development assistance
+
+## **Implementation Roadmap**
+
+### **Week-by-Week Breakdown**
+
+**Weeks 1-3: Foundation**
+
+- Install dependencies (TSyringe, RxJS, etc.)
+- Create base library structure
+- Implement DI container and messaging
+- VS Code API abstraction with Angular support
+
+**Weeks 4-6: Provider System**
+
+- Provider core infrastructure
+- Angular UI contracts
+- Claude domain separation
+- Multi-provider management
+
+**Weeks 7-9: Angular Integration**
+
+- Signal migrations
+- Modern control flow
+- Performance monitoring
+- Theme integration
+
+**Months 3-6: Advanced Features**
+
+- Micro-frontend architecture
+- Advanced debugging tools
+- AI integration research
+
+**Months 6-12: Innovation**
+
+- Cross-platform support
+- Real-time collaboration
+- Next-generation features
+
+## **Critical Angular Compatibility Notes**
+
+### **Preserved Systems**
+
+- ✅ All `@ptah-extension/shared` types remain untouched
+- ✅ Existing `StrictMessageType` system is reused, not replaced
+- ✅ Angular's signal-based architecture fully supported
+- ✅ Current webview message handlers compatible
+
+### **Enhanced Systems**
+
+- RxJS EventBus wraps existing message types
+- Signal ↔ Observable adapters for seamless integration
+- Provider UI contracts for Angular components
+- Performance monitoring for signal updates
+
+### **Migration Strategy**
+
+1. Direct migration to new architecture (no backward compatibility)
+2. Clean slate implementation with modern patterns
+3. Feature flags for phased rollout
+4. Focus on forward-looking design
 
 **apps/ptah-extension-vscode/src/commands/ai-commands.ts**
 
@@ -911,3 +1094,18 @@ export class AICommandProvider {
   }
 }
 ```
+
+---
+
+## **Summary**
+
+This unified MONSTER plan now incorporates all Angular webview enhancements, ensuring:
+
+1. **Complete Angular Compatibility**: Preserves existing types, supports signals, maintains message system
+2. **Unified Library Structure**: Combines backend infrastructure with Angular UI libraries
+3. **Phased Implementation**: 9-week core refactor followed by long-term enhancements
+4. **Clean Architecture**: Modern patterns without legacy baggage
+5. **Performance Focus**: 30%+ improvements through modern Angular patterns
+6. **Future-Ready Architecture**: Supports micro-frontends, AI integration, and cross-platform expansion
+
+The plan transforms Ptah from a mixed-concern extension into an enterprise-grade, type-safe VS Code extension with a modern Angular webview, ready to rival Cline and GitHub Copilot.
