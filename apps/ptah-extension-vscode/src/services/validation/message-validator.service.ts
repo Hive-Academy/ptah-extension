@@ -120,7 +120,9 @@ export class MessageValidatorService {
       throw new MessageValidationError(
         `Unexpected validation error for ${expectedType}`,
         expectedType,
-        { originalError: error instanceof Error ? error.message : String(error) }
+        {
+          originalError: error instanceof Error ? error.message : String(error),
+        }
       );
     }
   }
@@ -152,7 +154,9 @@ export class MessageValidatorService {
   /**
    * Get appropriate Zod schema for message type
    */
-  private static getPayloadSchemaForType(messageType: StrictMessageType): z.ZodSchema {
+  private static getPayloadSchemaForType(
+    messageType: StrictMessageType
+  ): z.ZodSchema {
     switch (messageType) {
       case 'chat:sendMessage':
         return ChatSendMessagePayloadSchema;
@@ -208,7 +212,9 @@ export class MessageValidatorService {
       case 'providers:switch':
         return z.object({
           providerId: z.string(),
-          reason: z.enum(['user-request', 'auto-fallback', 'error-recovery']).optional(),
+          reason: z
+            .enum(['user-request', 'auto-fallback', 'error-recovery'])
+            .optional(),
         });
       case 'providers:getHealth':
         return z.object({
@@ -237,7 +243,13 @@ export class MessageValidatorService {
         return z.object({
           providerId: z.string(),
           health: z.object({
-            status: z.enum(['available', 'unavailable', 'error', 'initializing', 'disabled']),
+            status: z.enum([
+              'available',
+              'unavailable',
+              'error',
+              'initializing',
+              'disabled',
+            ]),
             lastCheck: z.number(),
             errorMessage: z.string().optional(),
             responseTime: z.number().optional(),
@@ -262,7 +274,13 @@ export class MessageValidatorService {
             z.object({
               id: z.string(),
               name: z.string(),
-              status: z.enum(['available', 'unavailable', 'error', 'initializing', 'disabled']),
+              status: z.enum([
+                'available',
+                'unavailable',
+                'error',
+                'initializing',
+                'disabled',
+              ]),
             })
           ),
         });
@@ -494,7 +512,7 @@ export class MessageValidatorService {
           timestamp: z.number(),
         });
 
-      default:
+      default: {
         // Check if it's an invalid message type that should be filtered
         const messageTypeStr = String(messageType);
         if (messageTypeStr === 'agent:showContext') {
@@ -506,7 +524,10 @@ export class MessageValidatorService {
           );
         }
 
-        throw new ValidationError(`No payload schema defined for message type: ${messageType}`);
+        throw new ValidationError(
+          `No payload schema defined for message type: ${messageType}`
+        );
+      }
     }
   }
 
@@ -524,7 +545,17 @@ export class MessageValidatorService {
         });
       }
 
-      return result.data;
+      // Ensure 'id' is present and not undefined
+      if (!result.data.id) {
+        throw new ValidationError(
+          'Chat message is missing required "id" property',
+          {
+            received: data,
+          }
+        );
+      }
+
+      return result.data as StrictChatMessage;
     } catch (error) {
       Logger.error('Chat message validation failed:', error);
       throw error;
@@ -545,7 +576,7 @@ export class MessageValidatorService {
         });
       }
 
-      return result.data;
+      return result.data as StrictChatSession;
     } catch (error) {
       Logger.error('Chat session validation failed:', error);
       throw error;
@@ -566,7 +597,7 @@ export class MessageValidatorService {
         });
       }
 
-      return result.data;
+      return result.data as MessageResponse;
     } catch (error) {
       Logger.error('Message response validation failed:', error);
       throw error;
@@ -622,13 +653,18 @@ export class MessageValidatorService {
     }
 
     // Check if it's a valid message type
-    const validTypes = Object.keys({} as MessagePayloadMap) as (keyof MessagePayloadMap)[];
+    const validTypes = Object.keys(
+      {} as MessagePayloadMap
+    ) as (keyof MessagePayloadMap)[];
 
     if (!validTypes.includes(messageType as keyof MessagePayloadMap)) {
       return null;
     }
 
-    const validatedMessage = this.safeValidateMessage(data, messageType as keyof MessagePayloadMap);
+    const validatedMessage = this.safeValidateMessage(
+      data,
+      messageType as keyof MessagePayloadMap
+    );
     if (!validatedMessage) {
       return null;
     }
@@ -643,7 +679,9 @@ export class MessageValidatorService {
    * Format validation errors for debugging
    */
   static formatValidationError(error: ZodError): string {
-    return error.errors.map((err) => `${err.path.join('.')}: ${err.message}`).join('; ');
+    return error.errors
+      .map((err) => `${err.path.join('.')}: ${err.message}`)
+      .join('; ');
   }
 
   /**

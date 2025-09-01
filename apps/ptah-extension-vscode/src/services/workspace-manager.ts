@@ -26,19 +26,34 @@ export class WorkspaceManager implements vscode.Disposable {
       if (files.includes('package.json')) {
         const packageJson = this.readPackageJson(workspacePath);
         if (packageJson) {
-          if (packageJson.dependencies?.react || packageJson.devDependencies?.react) {
+          if (
+            packageJson.dependencies?.react ||
+            packageJson.devDependencies?.react
+          ) {
             return 'react';
           }
-          if (packageJson.dependencies?.vue || packageJson.devDependencies?.vue) {
+          if (
+            packageJson.dependencies?.vue ||
+            packageJson.devDependencies?.vue
+          ) {
             return 'vue';
           }
-          if (packageJson.dependencies?.angular || packageJson.devDependencies?.angular) {
+          if (
+            packageJson.dependencies?.angular ||
+            packageJson.devDependencies?.angular
+          ) {
             return 'angular';
           }
-          if (packageJson.dependencies?.next || packageJson.devDependencies?.next) {
+          if (
+            packageJson.dependencies?.next ||
+            packageJson.devDependencies?.next
+          ) {
             return 'nextjs';
           }
-          if (packageJson.dependencies?.express || packageJson.devDependencies?.express) {
+          if (
+            packageJson.dependencies?.express ||
+            packageJson.devDependencies?.express
+          ) {
             return 'express';
           }
           return 'node';
@@ -58,12 +73,17 @@ export class WorkspaceManager implements vscode.Disposable {
       if (files.includes('pom.xml')) {
         return 'maven';
       }
-      if (files.includes('build.gradle') || files.includes('build.gradle.kts')) {
+      if (
+        files.includes('build.gradle') ||
+        files.includes('build.gradle.kts')
+      ) {
         return 'gradle';
       }
 
       // .NET projects
-      if (files.some((file) => file.endsWith('.csproj') || file.endsWith('.sln'))) {
+      if (
+        files.some((file) => file.endsWith('.csproj') || file.endsWith('.sln'))
+      ) {
         return 'dotnet';
       }
 
@@ -91,13 +111,19 @@ export class WorkspaceManager implements vscode.Disposable {
       if (files.includes('angular.json')) {
         return 'angular';
       }
-      if (files.includes('nuxt.config.js') || files.includes('nuxt.config.ts')) {
+      if (
+        files.includes('nuxt.config.js') ||
+        files.includes('nuxt.config.ts')
+      ) {
         return 'nuxt';
       }
       if (files.includes('gatsby-config.js')) {
         return 'gatsby';
       }
-      if (files.includes('vite.config.js') || files.includes('vite.config.ts')) {
+      if (
+        files.includes('vite.config.js') ||
+        files.includes('vite.config.ts')
+      ) {
         return 'vite';
       }
       if (files.includes('webpack.config.js')) {
@@ -131,38 +157,53 @@ export class WorkspaceManager implements vscode.Disposable {
         case 'react':
         case 'vue':
         case 'angular':
-        case 'nextjs':
+        case 'nextjs': {
           const packageJson = this.readPackageJson(workspacePath);
           if (packageJson) {
             projectInfo.version = packageJson.version;
             projectInfo.description = packageJson.description;
-            projectInfo.dependencies = Object.keys(packageJson.dependencies || {});
-            projectInfo.devDependencies = Object.keys(packageJson.devDependencies || {});
+            projectInfo.dependencies = Object.keys(
+              packageJson.dependencies || {}
+            );
+            projectInfo.devDependencies = Object.keys(
+              packageJson.devDependencies || {}
+            );
           }
           break;
+        }
 
         case 'python':
-          projectInfo.pythonFiles = this.countFilesByExtension(workspacePath, ['.py']);
+          projectInfo.pythonFiles = this.countFilesByExtension(workspacePath, [
+            '.py',
+          ]);
           break;
 
         case 'java':
         case 'maven':
         case 'gradle':
-          projectInfo.javaFiles = this.countFilesByExtension(workspacePath, ['.java']);
+          projectInfo.javaFiles = this.countFilesByExtension(workspacePath, [
+            '.java',
+          ]);
           break;
 
         case 'rust':
-          projectInfo.rustFiles = this.countFilesByExtension(workspacePath, ['.rs']);
+          projectInfo.rustFiles = this.countFilesByExtension(workspacePath, [
+            '.rs',
+          ]);
           break;
 
         case 'go':
-          projectInfo.goFiles = this.countFilesByExtension(workspacePath, ['.go']);
+          projectInfo.goFiles = this.countFilesByExtension(workspacePath, [
+            '.go',
+          ]);
           break;
       }
 
       // Add general statistics
       projectInfo.totalFiles = this.countAllFiles(workspacePath);
-      projectInfo.gitRepository = fs.existsSync(path.join(workspacePath, '.git'));
+      projectInfo.gitRepository = fs.existsSync(
+        path.join(workspacePath, '.git')
+      );
     } catch (error) {
       Logger.warn('Failed to gather additional project info', error);
     }
@@ -205,7 +246,9 @@ export class WorkspaceManager implements vscode.Disposable {
     try {
       const analysis = {
         projectType: this.currentWorkspaceInfo.type,
-        structure: await this.getDirectoryStructure(this.currentWorkspaceInfo.path),
+        structure: await this.getDirectoryStructure(
+          this.currentWorkspaceInfo.path
+        ),
         recommendations: this.getContextRecommendations(),
       };
 
@@ -229,7 +272,9 @@ export class WorkspaceManager implements vscode.Disposable {
         type: projectType,
       };
 
-      Logger.info(`Workspace detected: ${workspaceFolder.name} (${projectType})`);
+      Logger.info(
+        `Workspace detected: ${workspaceFolder.name} (${projectType})`
+      );
     } else {
       this.currentWorkspaceInfo = undefined;
       Logger.info('No workspace folder detected');
@@ -323,8 +368,8 @@ export class WorkspaceManager implements vscode.Disposable {
 
   private async getDirectoryStructure(
     dirPath: string,
-    maxDepth: number = 3,
-    currentDepth: number = 0
+    maxDepth = 3,
+    currentDepth = 0
   ): Promise<any> {
     if (currentDepth >= maxDepth) {
       return null;

@@ -3,8 +3,16 @@ import { spawn, ChildProcess } from 'child_process';
 import { Readable } from 'stream';
 import { Logger } from '../core/logger';
 import { CommandResult } from '@ptah-extension/shared';
-import { ClaudeCliDetector, ClaudeInstallation } from './claude-cli-detector.service';
-import { SessionId, MessageId, CorrelationId, BrandedTypeValidator } from '@ptah-extension/shared';
+import {
+  ClaudeCliDetector,
+  ClaudeInstallation,
+} from './claude-cli-detector.service';
+import {
+  SessionId,
+  MessageId,
+  CorrelationId,
+  BrandedTypeValidator,
+} from '@ptah-extension/shared';
 import { StrictChatMessage, MessageResponse } from '@ptah-extension/shared';
 
 export class ClaudeCliService implements vscode.Disposable {
@@ -30,7 +38,9 @@ export class ClaudeCliService implements vscode.Disposable {
       Logger.info('🔍 Verifying Claude Code CLI installation...');
 
       if (this.claudeInstallation) {
-        const isValid = await this.detector.validateInstallation(this.claudeInstallation);
+        const isValid = await this.detector.validateInstallation(
+          this.claudeInstallation
+        );
         if (isValid) {
           Logger.info(
             `✅ Existing Claude CLI installation verified: ${this.claudeInstallation.path}`
@@ -67,7 +77,9 @@ export class ClaudeCliService implements vscode.Disposable {
     message: string,
     sessionId?: SessionId | string,
     resumeSessionId?: string,
-    sessionManager?: { setClaudeSessionId: (sessionId: string, claudeSessionId: string) => void }
+    sessionManager?: {
+      setClaudeSessionId: (sessionId: string, claudeSessionId: string) => void;
+    }
   ): Promise<Readable> {
     if (!this.claudeInstallation) {
       throw new Error('Claude CLI not found. Please install Claude Code.');
@@ -81,7 +93,12 @@ export class ClaudeCliService implements vscode.Disposable {
       : SessionId.create();
 
     // Build args following working example pattern
-    const args: string[] = ['-p', '--output-format', 'stream-json', '--verbose'];
+    const args: string[] = [
+      '-p',
+      '--output-format',
+      'stream-json',
+      '--verbose',
+    ];
 
     // Add resume flag if we have a session to continue
     if (resumeSessionId) {
@@ -92,7 +109,9 @@ export class ClaudeCliService implements vscode.Disposable {
     const cwd = workspaceRoot || process.cwd();
 
     Logger.info(
-      `Sending message to Claude CLI${resumeSessionId ? ` (resuming session: ${resumeSessionId})` : ''}`
+      `Sending message to Claude CLI${
+        resumeSessionId ? ` (resuming session: ${resumeSessionId})` : ''
+      }`
     );
     Logger.info(`Command: ${this.claudeInstallation.path} ${args.join(' ')}`);
 
@@ -128,7 +147,11 @@ export class ClaudeCliService implements vscode.Disposable {
     this.activeProcesses.set(validatedSessionId, childProcess);
 
     // Create simplified streaming pipeline
-    return this.createSimplifiedStreamPipeline(childProcess, validatedSessionId, sessionManager);
+    return this.createSimplifiedStreamPipeline(
+      childProcess,
+      validatedSessionId,
+      sessionManager
+    );
   }
 
   /**
@@ -138,7 +161,9 @@ export class ClaudeCliService implements vscode.Disposable {
   private createSimplifiedStreamPipeline(
     childProcess: ChildProcess,
     sessionId: SessionId,
-    sessionManager?: { setClaudeSessionId: (sessionId: string, claudeSessionId: string) => void }
+    sessionManager?: {
+      setClaudeSessionId: (sessionId: string, claudeSessionId: string) => void;
+    }
   ): Readable {
     if (!childProcess.stdout) {
       throw new Error('Child process stdout is null');
@@ -146,6 +171,7 @@ export class ClaudeCliService implements vscode.Disposable {
 
     const outputStream = new Readable({
       objectMode: true,
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
       read() {},
     });
 
@@ -166,18 +192,34 @@ export class ClaudeCliService implements vscode.Disposable {
           const json = JSON.parse(trimmed);
 
           // Track session ID from init message
-          if (json.type === 'system' && json.subtype === 'init' && json.session_id) {
+          if (
+            json.type === 'system' &&
+            json.subtype === 'init' &&
+            json.session_id
+          ) {
             currentSessionId = json.session_id;
-            Logger.info(`Received session ID from Claude CLI: ${currentSessionId}`);
+            Logger.info(
+              `Received session ID from Claude CLI: ${currentSessionId}`
+            );
 
             // Notify session manager if available
-            if (sessionManager && sessionManager.setClaudeSessionId && currentSessionId) {
-              sessionManager.setClaudeSessionId(sessionId.toString(), currentSessionId);
+            if (
+              sessionManager &&
+              sessionManager.setClaudeSessionId &&
+              currentSessionId
+            ) {
+              sessionManager.setClaudeSessionId(
+                sessionId.toString(),
+                currentSessionId
+              );
             }
           }
 
           // Convert to your message format and push to stream
-          const messageResponse = this.convertClaudeJsonToMessageResponse(json, sessionId);
+          const messageResponse = this.convertClaudeJsonToMessageResponse(
+            json,
+            sessionId
+          );
           if (messageResponse) {
             outputStream.push(messageResponse);
           }
@@ -192,7 +234,10 @@ export class ClaudeCliService implements vscode.Disposable {
       if (buffer.trim()) {
         try {
           const json = JSON.parse(buffer.trim());
-          const messageResponse = this.convertClaudeJsonToMessageResponse(json, sessionId);
+          const messageResponse = this.convertClaudeJsonToMessageResponse(
+            json,
+            sessionId
+          );
           if (messageResponse) {
             outputStream.push(messageResponse);
           }
@@ -313,7 +358,11 @@ export class ClaudeCliService implements vscode.Disposable {
               toolDisplay += '\nTodo List Update:';
               for (const todo of content.input.todos) {
                 const status =
-                  todo.status === 'completed' ? '✅' : todo.status === 'in_progress' ? '🔄' : '⏳';
+                  todo.status === 'completed'
+                    ? '✅'
+                    : todo.status === 'in_progress'
+                    ? '🔄'
+                    : '⏳';
                 toolDisplay += `\n${status} ${todo.content}`;
               }
             }
@@ -350,7 +399,10 @@ export class ClaudeCliService implements vscode.Disposable {
             // Handle permission requests (is_error: true)
             if (content.is_error) {
               if (content.content.includes('Claude requested permissions')) {
-                const permissionResult = this.handlePermissionRequest(content, sessionId);
+                const permissionResult = this.handlePermissionRequest(
+                  content,
+                  sessionId
+                );
                 if (permissionResult) {
                   return permissionResult;
                 }
@@ -419,7 +471,9 @@ export class ClaudeCliService implements vscode.Disposable {
           type: 'system',
           id: MessageId.create(),
           sessionId,
-          content: `✅ Session completed. Tokens: ${json.usage?.input_tokens || 0}/${json.usage?.output_tokens || 0}`,
+          content: `✅ Session completed. Tokens: ${
+            json.usage?.input_tokens || 0
+          }/${json.usage?.output_tokens || 0}`,
           timestamp: Date.now(),
           streaming: false,
           isComplete: true,
@@ -463,9 +517,12 @@ export class ClaudeCliService implements vscode.Disposable {
     });
 
     // Extract tool information from permission message
-    const toolMatch = permissionMessage.match(/Claude requested permissions for: (.+?)$/m);
+    const toolMatch = permissionMessage.match(
+      /Claude requested permissions for: (.+?)$/m
+    );
     const actionMatch =
-      permissionMessage.match(/Action: (.+?)$/m) || permissionMessage.match(/to (.+?)$/m);
+      permissionMessage.match(/Action: (.+?)$/m) ||
+      permissionMessage.match(/to (.+?)$/m);
 
     const permissionData = {
       id: `perm_${sessionId}_${Date.now()}`,
@@ -495,14 +552,18 @@ export class ClaudeCliService implements vscode.Disposable {
       const extension = PtahExtension.instance;
 
       if (!extension) {
-        Logger.warn('PtahExtension instance not available for permission request');
+        Logger.warn(
+          'PtahExtension instance not available for permission request'
+        );
         return;
       }
 
       const services = extension.getServices();
 
       if (!services?.angularWebviewProvider) {
-        Logger.warn('AngularWebviewProvider not available for permission request');
+        Logger.warn(
+          'AngularWebviewProvider not available for permission request'
+        );
         return;
       }
 
@@ -526,7 +587,10 @@ export class ClaudeCliService implements vscode.Disposable {
       Logger.error('Failed to send permission request to webview:', error);
 
       // Fallback: Log detailed permission info for debugging
-      Logger.info('Permission request details (fallback logging):', permissionData);
+      Logger.info(
+        'Permission request details (fallback logging):',
+        permissionData
+      );
     }
   }
 
@@ -537,19 +601,27 @@ export class ClaudeCliService implements vscode.Disposable {
     sessionId: SessionId,
     response: 'allow' | 'always_allow' | 'deny'
   ): Promise<void> {
-    const pendingRequest = this.pendingPermissionRequests.get(sessionId.toString());
+    const pendingRequest = this.pendingPermissionRequests.get(
+      sessionId.toString()
+    );
     if (!pendingRequest) {
-      Logger.warn(`No pending permission request found for session: ${sessionId}`);
+      Logger.warn(
+        `No pending permission request found for session: ${sessionId}`
+      );
       return;
     }
 
     try {
-      Logger.info(`Responding to permission request for session ${sessionId} with: ${response}`);
+      Logger.info(
+        `Responding to permission request for session ${sessionId} with: ${response}`
+      );
 
       // Get the active process for this session
       const activeProcess = this.activeProcesses.get(sessionId);
       if (!activeProcess || !activeProcess.stdin) {
-        Logger.error(`No active Claude CLI process found for session: ${sessionId}`);
+        Logger.error(
+          `No active Claude CLI process found for session: ${sessionId}`
+        );
         return;
       }
 
@@ -583,7 +655,10 @@ export class ClaudeCliService implements vscode.Disposable {
       // Clear the pending request
       this.pendingPermissionRequests.delete(sessionId.toString());
     } catch (error) {
-      Logger.error(`Error responding to permission request for session ${sessionId}:`, error);
+      Logger.error(
+        `Error responding to permission request for session ${sessionId}:`,
+        error
+      );
     }
   }
 
@@ -642,7 +717,9 @@ export class ClaudeCliService implements vscode.Disposable {
 
   endSession(sessionId: SessionId | string): void {
     const validatedSessionId =
-      typeof sessionId === 'string' ? BrandedTypeValidator.validateSessionId(sessionId) : sessionId;
+      typeof sessionId === 'string'
+        ? BrandedTypeValidator.validateSessionId(sessionId)
+        : sessionId;
 
     const process = this.activeProcesses.get(validatedSessionId);
     if (process && !process.killed) {

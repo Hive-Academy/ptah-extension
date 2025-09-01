@@ -165,7 +165,7 @@ export class AnalyticsDataCollector implements vscode.Disposable {
   /**
    * Track response time for performance metrics
    */
-  trackResponseTime(responseTime: number, success: boolean = true): void {
+  trackResponseTime(responseTime: number, success = true): void {
     this.performanceMetrics.responseTimes.push(responseTime);
 
     if (success) {
@@ -177,8 +177,11 @@ export class AnalyticsDataCollector implements vscode.Disposable {
     this.performanceMetrics.lastUpdate = Date.now();
 
     // Trim metrics if they exceed maximum entries
-    if (this.performanceMetrics.responseTimes.length > this.MAX_METRICS_ENTRIES) {
-      this.performanceMetrics.responseTimes = this.performanceMetrics.responseTimes.slice(-1000);
+    if (
+      this.performanceMetrics.responseTimes.length > this.MAX_METRICS_ENTRIES
+    ) {
+      this.performanceMetrics.responseTimes =
+        this.performanceMetrics.responseTimes.slice(-1000);
     }
   }
 
@@ -207,16 +210,24 @@ export class AnalyticsDataCollector implements vscode.Disposable {
    * Get real performance metrics
    */
   private getPerformanceMetrics(): AnalyticsData['performance'] {
-    const totalRequests = this.performanceMetrics.successCount + this.performanceMetrics.errorCount;
+    const totalRequests =
+      this.performanceMetrics.successCount + this.performanceMetrics.errorCount;
     const avgResponseTime =
       this.performanceMetrics.responseTimes.length > 0
-        ? this.performanceMetrics.responseTimes.reduce((sum, time) => sum + time, 0) /
-          this.performanceMetrics.responseTimes.length
+        ? this.performanceMetrics.responseTimes.reduce(
+            (sum, time) => sum + time,
+            0
+          ) / this.performanceMetrics.responseTimes.length
         : 0;
 
     const successRate =
-      totalRequests > 0 ? this.performanceMetrics.successCount / totalRequests : 1.0;
-    const errorRate = totalRequests > 0 ? this.performanceMetrics.errorCount / totalRequests : 0.0;
+      totalRequests > 0
+        ? this.performanceMetrics.successCount / totalRequests
+        : 1.0;
+    const errorRate =
+      totalRequests > 0
+        ? this.performanceMetrics.errorCount / totalRequests
+        : 0.0;
 
     // Simple service availability check
     const serviceAvailable = errorRate < 0.8; // Consider service available if error rate < 80%
@@ -263,7 +274,11 @@ export class AnalyticsDataCollector implements vscode.Disposable {
     let fileCount = 0;
     try {
       if (workspaceFolder) {
-        const files = await vscode.workspace.findFiles('**/*', '**/node_modules/**', 5000);
+        const files = await vscode.workspace.findFiles(
+          '**/*',
+          '**/node_modules/**',
+          5000
+        );
         fileCount = files.length;
       }
     } catch (error) {
@@ -293,7 +308,10 @@ export class AnalyticsDataCollector implements vscode.Disposable {
         lastUsed: (template as any).lastUsed,
       }));
 
-      const totalExecutions = topCommands.reduce((sum, cmd) => sum + cmd.usageCount, 0);
+      const totalExecutions = topCommands.reduce(
+        (sum, cmd) => sum + cmd.usageCount,
+        0
+      );
       const avgExecutionTime = this.calculateAvgCommandExecutionTime();
 
       return {
@@ -319,8 +337,12 @@ export class AnalyticsDataCollector implements vscode.Disposable {
     const dayAgo = now - 24 * 60 * 60 * 1000;
 
     // Filter recent activity
-    const recentMessages = this.activityData.messageTimestamps.filter((ts) => ts > dayAgo);
-    const recentSessions = this.activityData.sessionCreationTimestamps.filter((ts) => ts > dayAgo);
+    const recentMessages = this.activityData.messageTimestamps.filter(
+      (ts) => ts > dayAgo
+    );
+    const recentSessions = this.activityData.sessionCreationTimestamps.filter(
+      (ts) => ts > dayAgo
+    );
 
     // Calculate peak hour
     const peakHour = this.calculatePeakActivityHour(recentMessages);
@@ -358,7 +380,11 @@ export class AnalyticsDataCollector implements vscode.Disposable {
     let totalTime = 0;
     let intervals = 0;
 
-    for (let i = 1; i < this.activityData.commandExecutionTimestamps.length; i++) {
+    for (
+      let i = 1;
+      i < this.activityData.commandExecutionTimestamps.length;
+      i++
+    ) {
       const interval =
         this.activityData.commandExecutionTimestamps[i] -
         this.activityData.commandExecutionTimestamps[i - 1];
@@ -375,7 +401,10 @@ export class AnalyticsDataCollector implements vscode.Disposable {
   /**
    * Calculate peak activity hour
    */
-  private calculatePeakActivityHour(timestamps: number[]): { hour: number; messageCount: number } {
+  private calculatePeakActivityHour(timestamps: number[]): {
+    hour: number;
+    messageCount: number;
+  } {
     const hourlyCounts = new Map<number, number>();
 
     timestamps.forEach((timestamp) => {
@@ -409,7 +438,8 @@ export class AnalyticsDataCollector implements vscode.Disposable {
 
     for (let i = 1; i < this.activityData.messageTimestamps.length; i++) {
       const interval =
-        this.activityData.messageTimestamps[i] - this.activityData.messageTimestamps[i - 1];
+        this.activityData.messageTimestamps[i] -
+        this.activityData.messageTimestamps[i - 1];
 
       if (interval > 300000) {
         // 5 minutes gap = new session
@@ -420,8 +450,9 @@ export class AnalyticsDataCollector implements vscode.Disposable {
 
     // Add current session time
     activeTime +=
-      this.activityData.messageTimestamps[this.activityData.messageTimestamps.length - 1] -
-      sessionStart;
+      this.activityData.messageTimestamps[
+        this.activityData.messageTimestamps.length - 1
+      ] - sessionStart;
 
     return activeTime;
   }
@@ -446,28 +477,29 @@ export class AnalyticsDataCollector implements vscode.Disposable {
    * Setup periodic cleanup of old metrics data
    */
   private setupPeriodicCleanup(): void {
-    this.metricsCleanupTimer = setInterval(
-      () => {
-        this.cleanupOldMetrics();
-      },
-      60 * 60 * 1000
-    ); // Every hour
+    this.metricsCleanupTimer = setInterval(() => {
+      this.cleanupOldMetrics();
+    }, 60 * 60 * 1000); // Every hour
   }
 
   /**
    * Clean up metrics older than retention period
    */
   private cleanupOldMetrics(): void {
-    const retentionTime = Date.now() - this.METRICS_RETENTION_HOURS * 60 * 60 * 1000;
+    const retentionTime =
+      Date.now() - this.METRICS_RETENTION_HOURS * 60 * 60 * 1000;
 
     // Clean up activity timestamps
-    this.activityData.messageTimestamps = this.activityData.messageTimestamps.filter(
-      (ts) => ts > retentionTime
-    );
+    this.activityData.messageTimestamps =
+      this.activityData.messageTimestamps.filter((ts) => ts > retentionTime);
     this.activityData.sessionCreationTimestamps =
-      this.activityData.sessionCreationTimestamps.filter((ts) => ts > retentionTime);
+      this.activityData.sessionCreationTimestamps.filter(
+        (ts) => ts > retentionTime
+      );
     this.activityData.commandExecutionTimestamps =
-      this.activityData.commandExecutionTimestamps.filter((ts) => ts > retentionTime);
+      this.activityData.commandExecutionTimestamps.filter(
+        (ts) => ts > retentionTime
+      );
 
     // Reset performance metrics if they're too old
     if (this.performanceMetrics.lastUpdate < retentionTime) {
@@ -503,16 +535,16 @@ export class AnalyticsDataCollector implements vscode.Disposable {
       performanceData.successRate >= 0.95
         ? 'excellent'
         : performanceData.successRate >= 0.85
-          ? 'good'
-          : 'degraded';
+        ? 'good'
+        : 'degraded';
 
     // Map system status based on success rate
     const systemStatus =
       performanceData.successRate >= 0.95
         ? 'operational'
         : performanceData.successRate >= 0.85
-          ? 'degraded'
-          : 'critical';
+        ? 'degraded'
+        : 'critical';
 
     return {
       performance: {
@@ -548,7 +580,9 @@ export class AnalyticsDataCollector implements vscode.Disposable {
   private calculateMessagesPerMinute(): number {
     const now = Date.now();
     const oneMinuteAgo = now - 60000;
-    const recentMessages = this.activityData.messageTimestamps.filter((ts) => ts >= oneMinuteAgo);
+    const recentMessages = this.activityData.messageTimestamps.filter(
+      (ts) => ts >= oneMinuteAgo
+    );
     return recentMessages.length;
   }
 
@@ -568,7 +602,8 @@ export class AnalyticsDataCollector implements vscode.Disposable {
 
     for (let i = 19; i >= 0; i--) {
       const timestamp = now - i * interval;
-      const relevantResponses = this.performanceMetrics.responseTimes.slice(-20);
+      const relevantResponses =
+        this.performanceMetrics.responseTimes.slice(-20);
       const latency = relevantResponses[19 - i] || 0;
 
       dataPoints.push({
@@ -601,34 +636,40 @@ export class AnalyticsDataCollector implements vscode.Disposable {
       return { latency: 'stable', memory: 'stable', throughput: 'stable' };
     }
 
-    const avgRecentLatency = recent.reduce((sum, d) => sum + d.latency, 0) / recent.length;
-    const avgOlderLatency = older.reduce((sum, d) => sum + d.latency, 0) / older.length;
+    const avgRecentLatency =
+      recent.reduce((sum, d) => sum + d.latency, 0) / recent.length;
+    const avgOlderLatency =
+      older.reduce((sum, d) => sum + d.latency, 0) / older.length;
 
-    const avgRecentMemory = recent.reduce((sum, d) => sum + d.memoryUsage, 0) / recent.length;
-    const avgOlderMemory = older.reduce((sum, d) => sum + d.memoryUsage, 0) / older.length;
+    const avgRecentMemory =
+      recent.reduce((sum, d) => sum + d.memoryUsage, 0) / recent.length;
+    const avgOlderMemory =
+      older.reduce((sum, d) => sum + d.memoryUsage, 0) / older.length;
 
-    const avgRecentThroughput = recent.reduce((sum, d) => sum + d.throughput, 0) / recent.length;
-    const avgOlderThroughput = older.reduce((sum, d) => sum + d.throughput, 0) / older.length;
+    const avgRecentThroughput =
+      recent.reduce((sum, d) => sum + d.throughput, 0) / recent.length;
+    const avgOlderThroughput =
+      older.reduce((sum, d) => sum + d.throughput, 0) / older.length;
 
     return {
       latency:
         avgRecentLatency < avgOlderLatency * 0.9
           ? 'improving'
           : avgRecentLatency > avgOlderLatency * 1.1
-            ? 'degrading'
-            : 'stable',
+          ? 'degrading'
+          : 'stable',
       memory:
         avgRecentMemory < avgOlderMemory * 0.9
           ? 'improving'
           : avgRecentMemory > avgOlderMemory * 1.1
-            ? 'degrading'
-            : 'stable',
+          ? 'degrading'
+          : 'stable',
       throughput:
         avgRecentThroughput > avgOlderThroughput * 1.1
           ? 'improving'
           : avgRecentThroughput < avgOlderThroughput * 0.9
-            ? 'degrading'
-            : 'stable',
+          ? 'degrading'
+          : 'stable',
     };
   }
 
@@ -666,7 +707,8 @@ export class AnalyticsDataCollector implements vscode.Disposable {
     });
 
     // Add recent session activities
-    const recentSessions = this.activityData.sessionCreationTimestamps.slice(-3);
+    const recentSessions =
+      this.activityData.sessionCreationTimestamps.slice(-3);
     recentSessions.forEach((ts, i) => {
       activities.push({
         id: `session-${ts}`,
@@ -679,7 +721,8 @@ export class AnalyticsDataCollector implements vscode.Disposable {
     });
 
     // Add recent command activities
-    const recentCommands = this.activityData.commandExecutionTimestamps.slice(-3);
+    const recentCommands =
+      this.activityData.commandExecutionTimestamps.slice(-3);
     recentCommands.forEach((ts, i) => {
       activities.push({
         id: `cmd-${ts}`,

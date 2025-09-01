@@ -17,8 +17,26 @@ export default [
           allow: ['^.*/eslint(\\.base)?\\.config\\.[cm]?[jt]s$'],
           depConstraints: [
             {
-              sourceTag: '*',
-              onlyDependOnLibsWithTags: ['*'],
+              sourceTag: 'scope:shared',
+              onlyDependOnLibsWithTags: ['scope:shared'],
+            },
+            {
+              sourceTag: 'scope:extension',
+              onlyDependOnLibsWithTags: ['scope:shared', 'scope:extension'],
+            },
+            {
+              sourceTag: 'scope:webview',
+              onlyDependOnLibsWithTags: ['scope:shared', 'scope:webview'],
+            },
+
+            {
+              sourceTag: 'type:application',
+              onlyDependOnLibsWithTags: [
+                'type:feature',
+                'type:data-access',
+                'type:ui',
+                'type:util',
+              ],
             },
           ],
         },

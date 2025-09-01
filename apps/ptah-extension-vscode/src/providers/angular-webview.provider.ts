@@ -19,7 +19,11 @@ import {
   ProviderMessageHandler,
 } from '../services/webview-message-handlers';
 import { Logger } from '../core/logger';
-import { WebviewMessage, isSystemMessage, isRoutableMessage } from '@ptah-extension/shared';
+import {
+  WebviewMessage,
+  isSystemMessage,
+  isRoutableMessage,
+} from '@ptah-extension/shared';
 
 /**
  * Workspace information interface
@@ -68,10 +72,17 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
 
     // Register all message handlers with explicit type casting for compatibility
     this.messageRouter.registerHandler(
-      new ChatMessageHandler(postMessageFn, this.sessionManager, this.claudeService) as any
+      new ChatMessageHandler(
+        postMessageFn,
+        this.sessionManager,
+        this.claudeService
+      ) as any
     );
     this.messageRouter.registerHandler(
-      new CommandMessageHandler(postMessageFn, this.commandBuilderService) as any
+      new CommandMessageHandler(
+        postMessageFn,
+        this.commandBuilderService
+      ) as any
     );
     this.messageRouter.registerHandler(
       new ContextMessageHandler(postMessageFn, this.contextManager) as any
@@ -84,8 +95,12 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         this.analyticsDataCollector
       ) as any
     );
-    this.messageRouter.registerHandler(new StateMessageHandler(postMessageFn, this.context) as any);
-    this.messageRouter.registerHandler(new ViewMessageHandler(postMessageFn) as any);
+    this.messageRouter.registerHandler(
+      new StateMessageHandler(postMessageFn, this.context) as any
+    );
+    this.messageRouter.registerHandler(
+      new ViewMessageHandler(postMessageFn) as any
+    );
     this.messageRouter.registerHandler(
       new ConfigMessageHandler(postMessageFn, this.context) as any
     );
@@ -111,9 +126,16 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [
-        vscode.Uri.joinPath(this.context.extensionUri, 'out', 'webview', 'browser'),
+        vscode.Uri.joinPath(
+          this.context.extensionUri,
+          'dist',
+          'apps',
+          'ptah-extension-vscode',
+          'webview',
+          'browser'
+        ),
         vscode.Uri.joinPath(this.context.extensionUri, 'media'),
-        vscode.Uri.joinPath(this.context.extensionUri, 'out'),
+        vscode.Uri.joinPath(this.context.extensionUri, 'dist'),
       ],
     };
 
@@ -162,9 +184,16 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         enableScripts: true,
         retainContextWhenHidden: true,
         localResourceRoots: [
-          vscode.Uri.joinPath(this.context.extensionUri, 'out', 'webview'),
+          vscode.Uri.joinPath(
+            this.context.extensionUri,
+            'dist',
+            'apps',
+            'ptah-extension-vscode',
+            'webview',
+            'browser'
+          ),
           vscode.Uri.joinPath(this.context.extensionUri, 'media'),
-          vscode.Uri.joinPath(this.context.extensionUri, 'out'),
+          vscode.Uri.joinPath(this.context.extensionUri, 'dist'),
         ],
       }
     );
@@ -220,7 +249,9 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
    */
   private async handleWebviewMessage(message: WebviewMessage): Promise<void> {
     try {
-      Logger.info(`Received webview message: ${message.type}`, { hasPayload: !!message.payload });
+      Logger.info(`Received webview message: ${message.type}`, {
+        hasPayload: !!message.payload,
+      });
 
       // Handle special system messages first
       if (message.type === 'ready') {
@@ -246,8 +277,13 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         const registeredHandlers = this.messageRouter.getRegisteredHandlers();
         Logger.info(`Available handlers: ${registeredHandlers.join(', ')}`);
 
-        const response = await this.messageRouter.routeMessage(message.type, message.payload);
-        Logger.info(`Message ${message.type} handled successfully`, { success: response.success });
+        const response = await this.messageRouter.routeMessage(
+          message.type,
+          message.payload
+        );
+        Logger.info(`Message ${message.type} handled successfully`, {
+          success: response.success,
+        });
       } else {
         // System message already handled above, log if unrecognized
         Logger.warn(`Unrecognized system message type: ${message.type}`);
@@ -340,11 +376,16 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       // Check for package.json first
       const packageJsonPath = path.join(workspacePath, 'package.json');
       if (fs.existsSync(packageJsonPath)) {
-        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+        const packageJson = JSON.parse(
+          fs.readFileSync(packageJsonPath, 'utf8')
+        );
 
         // Check for specific framework indicators
         if (packageJson.dependencies || packageJson.devDependencies) {
-          const allDeps = { ...packageJson.dependencies, ...packageJson.devDependencies };
+          const allDeps = {
+            ...packageJson.dependencies,
+            ...packageJson.devDependencies,
+          };
 
           if (allDeps['@angular/core']) return 'angular';
           if (allDeps['react']) return 'react';
@@ -361,10 +402,13 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       }
 
       // Check for other project indicators
-      if (fs.existsSync(path.join(workspacePath, 'angular.json'))) return 'angular';
+      if (fs.existsSync(path.join(workspacePath, 'angular.json')))
+        return 'angular';
       if (fs.existsSync(path.join(workspacePath, 'nx.json'))) return 'nx';
-      if (fs.existsSync(path.join(workspacePath, 'pom.xml'))) return 'java-maven';
-      if (fs.existsSync(path.join(workspacePath, 'build.gradle'))) return 'java-gradle';
+      if (fs.existsSync(path.join(workspacePath, 'pom.xml')))
+        return 'java-maven';
+      if (fs.existsSync(path.join(workspacePath, 'build.gradle')))
+        return 'java-gradle';
       if (fs.existsSync(path.join(workspacePath, 'Cargo.toml'))) return 'rust';
       if (fs.existsSync(path.join(workspacePath, 'go.mod'))) return 'go';
       if (
@@ -373,7 +417,8 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       )
         return 'python';
       if (fs.existsSync(path.join(workspacePath, 'Gemfile'))) return 'ruby';
-      if (fs.existsSync(path.join(workspacePath, 'composer.json'))) return 'php';
+      if (fs.existsSync(path.join(workspacePath, 'composer.json')))
+        return 'php';
       if (
         fs.existsSync(path.join(workspacePath, '.csproj')) ||
         fs.existsSync(path.join(workspacePath, '*.sln'))
@@ -396,7 +441,9 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     if (this.context.extensionMode === vscode.ExtensionMode.Development) {
       const webviewDistPath = vscode.Uri.joinPath(
         this.context.extensionUri,
-        'out',
+        'dist',
+        'apps',
+        'ptah-extension-vscode',
         'webview',
         'browser'
       );
@@ -406,7 +453,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         new vscode.RelativePattern(webviewDistPath, '**/*'),
         false, // Don't ignore creates
         false, // Don't ignore changes
-        false  // Don't ignore deletes
+        false // Don't ignore deletes
       );
 
       // Handle webview file changes
@@ -425,7 +472,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
    */
   private async handleWebviewFileChange(uri: vscode.Uri): Promise<void> {
     // Debounce rapid file changes
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     try {
       Logger.info(`Webview file changed: ${uri.fsPath} - Reloading webview`);
@@ -440,8 +487,13 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
    */
   private async reloadWebview(): Promise<void> {
     const workspaceInfo = this.getWorkspaceInfo();
+    const webview = this._panel?.webview || this._view?.webview;
+    if (!webview) {
+      Logger.warn('No webview available to reload.');
+      return;
+    }
     const newHtml = this.htmlGenerator.generateAngularWebviewContent(
-      this._panel?.webview || this._view?.webview!,
+      webview,
       workspaceInfo
     );
 
@@ -458,7 +510,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     // Send refresh signal to Angular app
     this.postMessage({
       type: 'refresh',
-      payload: { reason: 'hot-reload', timestamp: Date.now() }
+      payload: { reason: 'hot-reload', timestamp: Date.now() },
     });
   }
 
@@ -476,13 +528,13 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
    */
   dispose(): void {
     Logger.info('Disposing Angular Webview Provider...');
-    
+
     // Dispose file watcher
     if (this.fileWatcher) {
       this.fileWatcher.dispose();
       this.fileWatcher = undefined;
     }
-    
+
     // Dispose all other resources
     this._disposables.forEach((d) => d.dispose());
     this._disposables = [];

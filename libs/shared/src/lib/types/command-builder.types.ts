@@ -84,10 +84,10 @@ export interface CommandResult {
   output?: string;
   error?: string;
   duration?: number;
-  timestamp: Date;
+  timestamp?: Date;
   stdout?: string;
   stderr?: string;
-  code?: string;
+  code?: number;
 }
 
 export interface CommandBuildResult {

@@ -5,5 +5,8 @@
   "type": "commonjs",
   "main": "./index.cjs",
   "types": "./index.d.ts",
-  "dependencies": {}
+  "dependencies": {
+    "uuid": "^11.1.0",
+    "zod": "^3.25.76"
+  }
 }

@@ -12,7 +12,10 @@ import {
 import { CorrelationId } from '@ptah-extension/shared';
 import { SessionManager } from '../session-manager';
 import { CommandBuilderService } from '../command-builder.service';
-import { AnalyticsDataCollector, AnalyticsData } from '../analytics-data-collector';
+import {
+  AnalyticsDataCollector,
+  AnalyticsData,
+} from '../analytics-data-collector';
 import { Logger } from '../../core/logger';
 
 /**
@@ -52,7 +55,8 @@ export class AnalyticsMessageHandler
           throw new Error(`Unknown analytics message type: ${messageType}`);
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Analytics handler error';
+      const errorMessage =
+        error instanceof Error ? error.message : 'Analytics handler error';
       return {
         requestId: CorrelationId.create(),
         success: false,
@@ -69,9 +73,14 @@ export class AnalyticsMessageHandler
     }
   }
 
-  private async handleTrackEvent(payload: AnalyticsEventPayload): Promise<MessageResponse> {
+  private async handleTrackEvent(
+    payload: AnalyticsEventPayload
+  ): Promise<MessageResponse> {
     try {
-      Logger.info(`Tracking analytics event: ${payload.event}`, payload.properties);
+      Logger.info(
+        `Tracking analytics event: ${payload.event}`,
+        payload.properties
+      );
 
       // Track specific events with the data collector
       switch (payload.event) {
@@ -84,13 +93,17 @@ export class AnalyticsMessageHandler
         case 'command_executed':
           this.analyticsDataCollector.trackCommandExecution();
           break;
-        case 'response_received':
+        case 'response_received': {
           const responseTime = payload.properties.responseTime as number;
           const success = payload.properties.success as boolean;
           if (typeof responseTime === 'number') {
-            this.analyticsDataCollector.trackResponseTime(responseTime, success);
+            this.analyticsDataCollector.trackResponseTime(
+              responseTime,
+              success
+            );
           }
           break;
+        }
       }
 
       const responseData = { tracked: true, event: payload.event };
@@ -107,7 +120,8 @@ export class AnalyticsMessageHandler
         },
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to track event';
+      const errorMessage =
+        error instanceof Error ? error.message : 'Failed to track event';
       Logger.error('Analytics event tracking failed', error);
       this.sendErrorResponse('analytics:trackEvent', errorMessage);
       return {
@@ -129,7 +143,8 @@ export class AnalyticsMessageHandler
   private async handleGetAnalyticsData(): Promise<MessageResponse> {
     try {
       Logger.info('Fetching real-time analytics data');
-      const analyticsData = await this.analyticsDataCollector.getAnalyticsData();
+      const analyticsData =
+        await this.analyticsDataCollector.getAnalyticsData();
       const responseData = { data: analyticsData };
 
       this.sendSuccessResponse('analytics:getData', responseData);
@@ -145,7 +160,8 @@ export class AnalyticsMessageHandler
         },
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to get analytics data';
+      const errorMessage =
+        error instanceof Error ? error.message : 'Failed to get analytics data';
       Logger.error('Analytics data collection failed', error);
 
       // Fallback to basic session statistics if real analytics fail
@@ -153,7 +169,8 @@ export class AnalyticsMessageHandler
         const fallbackData = this.getFallbackAnalyticsData();
         const responseData = {
           data: fallbackData,
-          warning: 'Using fallback data - full analytics temporarily unavailable',
+          warning:
+            'Using fallback data - full analytics temporarily unavailable',
         };
 
         this.sendSuccessResponse('analytics:getData', responseData);
