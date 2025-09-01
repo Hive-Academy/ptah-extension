@@ -14,11 +14,14 @@
       "Bash(find:*)",
       "Bash(grep:*)",
       "Bash(cat:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Read(d:\\projects\\ptah-extension\\docs/**)"
     ],
     "deny": [],
     "ask": [],
-    "additionalDirectories": ["d:\\projects\\Ptah"]
+    "additionalDirectories": [
+      "d:\\projects\\Ptah"
+    ]
   },
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
