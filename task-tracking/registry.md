@@ -1,0 +1,1 @@
+# Task Registry\n\n| Task ID | Description | Status | Agent | Created | Last Updated |\n|---------|-------------|--------|-------|---------|---------------|\n| TASK_FE_001 | Evaluate Angular webview architecture and restructure with proper feature/domain organization | 🔄 In Progress | orchestrator | 2025-09-01 | 2025-09-01 04:19:25 |

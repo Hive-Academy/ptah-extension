@@ -13,13 +13,12 @@
       "Bash(touch:*)",
       "Bash(find:*)",
       "Bash(grep:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": [],
-    "additionalDirectories": [
-      "d:\\projects\\Ptah"
-    ]
+    "additionalDirectories": ["d:\\projects\\Ptah"]
   },
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
