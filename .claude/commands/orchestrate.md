@@ -32,6 +32,8 @@ Phase 5: senior-tester → business-analyst → [CONTINUE/REWORK]
 Phase 6: code-reviewer → business-analyst → [CONTINUE/REWORK]
     ↓
 Phase 7: Task Completion (PR Creation + Registry Update)
+    ↓
+Phase 8: Future Work Consolidation (project-manager)
 ```
 
 ---
@@ -531,6 +533,97 @@ echo "Next Steps:"
 echo "1. Review and merge PR: $PR_URL"
 echo "2. Deploy changes if approved"
 echo "3. Close task branch after merge"
+```
+
+---
+
+## Phase 8: Future Work Consolidation
+
+### 8.1 Invoke Project Manager for Future Work Scanning
+
+```bash
+Use the Task tool to invoke the project-manager agent:
+
+**Prompt:**
+```
+
+You are the project-manager for $TASK_ID - Future Work Consolidation Phase.
+
+## ORIGINAL USER REQUEST
+
+$USER_REQUEST
+
+## YOUR SINGLE RESPONSIBILITY
+
+Scan ALL task deliverables and extract future work recommendations into consolidated, visible format.
+
+## DOCUMENTS TO SCAN
+
+- task-tracking/$TASK_ID/task-description.md
+- task-tracking/$TASK_ID/research-report.md (if exists)
+- task-tracking/$TASK_ID/implementation-plan.md
+- task-tracking/$TASK_ID/progress.md
+- task-tracking/$TASK_ID/test-report.md
+- task-tracking/$TASK_ID/code-review.md
+
+## DELIVERABLES
+
+1. Create: task-tracking/$TASK_ID/future-enhancements.md
+2. Update: task-tracking/registry.md with properly categorized future tasks
+3. Create/Update: task-tracking/future-work-dashboard.md (project-wide view)
+
+## OUTPUT FORMAT REQUIREMENTS
+
+**future-enhancements.md structure:**
+
+- **Immediate Opportunities** (1-2 weeks effort)
+- **Strategic Enhancements** (3-8 weeks effort)
+- **Advanced Architecture** (2-6 months effort)
+- **Research & Innovation** (exploratory)
+
+Each item must include: Priority, Effort, Dependencies, Business Value, Implementation Notes
+
+Focus on making future work highly visible and actionable.
+
+### 8.2 Validate Future Work Consolidation
+
+```bash
+Use the Task tool to invoke the business-analyst agent:
+
+**Prompt:**
+```
+
+You are the business-analyst for $TASK_ID - Future Work Consolidation Validation Phase.
+
+## VALIDATION TARGET
+
+**Agent**: project-manager
+**Deliverable**: task-tracking/$TASK_ID/future-enhancements.md
+
+## VALIDATION FOCUS
+
+1. **Completeness**: All future recommendations from task deliverables captured?
+2. **Visibility**: Future work properly categorized and prioritized?
+3. **Actionability**: Each item has clear effort estimates and business value?
+
+## VALIDATION DECISION REQUIRED
+
+- APPROVE ✅: Future work properly consolidated and visible
+- REJECT ❌: Re-delegate to project-manager with consolidation improvements
+
+Return validation decision confirming future work visibility.
+
+### 8.3 Process Future Work Validation
+
+```bash
+if [VALIDATION_RESULT == "APPROVE"]; then
+    echo "✅ Future work consolidation complete - highly visible for planning"
+    echo "📋 Future enhancements documented in: task-tracking/$TASK_ID/future-enhancements.md"
+    echo "🎯 Registry updated with prioritized future tasks"
+else
+    echo "❌ Future work consolidation failed - re-delegating"
+    # Re-invoke project-manager with business-analyst feedback
+fi
 ```
 
 ---
