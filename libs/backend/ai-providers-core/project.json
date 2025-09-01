@@ -3,7 +3,7 @@
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/backend/ai-providers-core/src",
   "projectType": "library",
-  "tags": [],
+  "tags": ["scope:extension", "type:util"],
   "targets": {
     "build": {
       "executor": "@nx/esbuild:esbuild",

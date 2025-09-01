@@ -15,7 +15,11 @@
       "Bash(grep:*)",
       "Bash(cat:*)",
       "Bash(git checkout:*)",
-      "Read(d:\\projects\\ptah-extension\\docs/**)"
+      "Read(d:\\projects\\ptah-extension\\docs/**)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run test:*)",
+      "Bash(npx nx test:*)",
+      "Bash(npx jest:*)"
     ],
     "deny": [],
     "ask": [],

@@ -3,7 +3,7 @@
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/backend/workspace-intelligence/src",
   "projectType": "library",
-  "tags": [],
+  "tags": ["scope:extension", "type:feature"],
   "targets": {
     "build": {
       "executor": "@nx/esbuild:esbuild",

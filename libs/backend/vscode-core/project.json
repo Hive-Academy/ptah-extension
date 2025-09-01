@@ -3,7 +3,7 @@
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/backend/vscode-core/src",
   "projectType": "library",
-  "tags": [],
+  "tags": ["scope:extension", "type:util"],
   "targets": {
     "build": {
       "executor": "@nx/esbuild:esbuild",
@@ -14,7 +14,8 @@
         "tsConfig": "libs/backend/vscode-core/tsconfig.lib.json",
         "assets": ["libs/backend/vscode-core/*.md"],
         "format": ["cjs"],
-        "generatePackageJson": true
+        "generatePackageJson": true,
+        "external": ["vscode", "tsyringe", "eventemitter3", "rxjs"]
       }
     },
     "test": {
