@@ -16,6 +16,7 @@
 
 | TASK_ID       | Description                                                          | Status    | Agent              | Priority | Effort    | Business Value                    | Dependencies             |
 | ------------- | -------------------------------------------------------------------- | --------- | ------------------ | -------- | --------- | --------------------------------- | ------------------------ |
+| TASK_FE_005   | Convert decorators to signal-based APIs (input, output, viewChild)   | 📋 Future | frontend-developer | HIGH     | 2 weeks   | Modern patterns, better reactivity | None                     |
 | TASK_ARCH_001 | Advanced Nx library structure implementation (3-phase approach)      | 📋 Future | software-architect | HIGH     | 4-6 weeks | Scalable architecture, code reuse | Feature-domain structure |
 | TASK_QA_001   | Comprehensive testing strategy overhaul (E2E + Component testing)    | 📋 Future | senior-tester      | HIGH     | 3-4 weeks | Reduced regression risk           | Library structure        |
 | TASK_PERF_001 | Performance monitoring system with advanced metrics and optimization | 📋 Future | frontend-developer | MEDIUM   | 2-3 weeks | Continuous optimization           | None                     |

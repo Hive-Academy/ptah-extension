@@ -539,15 +539,15 @@ echo "3. Close task branch after merge"
 
 ## Phase 8: Future Work Consolidation
 
-### 8.1 Invoke Project Manager for Future Work Scanning
+### 8.1 Invoke Modernization Detector for Future Work Consolidation
 
 ```bash
-Use the Task tool to invoke the project-manager agent:
+Use the Task tool to invoke the modernization-detector agent:
 
 **Prompt:**
 ```
 
-You are the project-manager for $TASK_ID - Future Work Consolidation Phase.
+You are the modernization-detector for $TASK_ID.
 
 ## ORIGINAL USER REQUEST
 
@@ -555,35 +555,13 @@ $USER_REQUEST
 
 ## YOUR SINGLE RESPONSIBILITY
 
-Scan ALL task deliverables and extract future work recommendations into consolidated, visible format.
-
-## DOCUMENTS TO SCAN
-
-- task-tracking/$TASK_ID/task-description.md
-- task-tracking/$TASK_ID/research-report.md (if exists)
-- task-tracking/$TASK_ID/implementation-plan.md
-- task-tracking/$TASK_ID/progress.md
-- task-tracking/$TASK_ID/test-report.md
-- task-tracking/$TASK_ID/code-review.md
+Consolidate all future work opportunities from task deliverables and identify additional modernization opportunities from implemented code.
 
 ## DELIVERABLES
 
 1. Create: task-tracking/$TASK_ID/future-enhancements.md
 2. Update: task-tracking/registry.md with properly categorized future tasks
 3. Create/Update: task-tracking/future-work-dashboard.md (project-wide view)
-
-## OUTPUT FORMAT REQUIREMENTS
-
-**future-enhancements.md structure:**
-
-- **Immediate Opportunities** (1-2 weeks effort)
-- **Strategic Enhancements** (3-8 weeks effort)
-- **Advanced Architecture** (2-6 months effort)
-- **Research & Innovation** (exploratory)
-
-Each item must include: Priority, Effort, Dependencies, Business Value, Implementation Notes
-
-Focus on making future work highly visible and actionable.
 
 ### 8.2 Validate Future Work Consolidation
 
@@ -597,7 +575,7 @@ You are the business-analyst for $TASK_ID - Future Work Consolidation Validation
 
 ## VALIDATION TARGET
 
-**Agent**: project-manager
+**Agent**: modernization-detector
 **Deliverable**: task-tracking/$TASK_ID/future-enhancements.md
 
 ## VALIDATION FOCUS
@@ -609,7 +587,7 @@ You are the business-analyst for $TASK_ID - Future Work Consolidation Validation
 ## VALIDATION DECISION REQUIRED
 
 - APPROVE ✅: Future work properly consolidated and visible
-- REJECT ❌: Re-delegate to project-manager with consolidation improvements
+- REJECT ❌: Re-delegate to modernization-detector with consolidation improvements
 
 Return validation decision confirming future work visibility.
 
@@ -622,7 +600,7 @@ if [VALIDATION_RESULT == "APPROVE"]; then
     echo "🎯 Registry updated with prioritized future tasks"
 else
     echo "❌ Future work consolidation failed - re-delegating"
-    # Re-invoke project-manager with business-analyst feedback
+    # Re-invoke modernization-detector with business-analyst feedback
 fi
 ```
 

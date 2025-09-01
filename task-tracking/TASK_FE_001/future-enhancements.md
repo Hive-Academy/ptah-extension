@@ -60,26 +60,143 @@ Based on comprehensive analysis of Angular webview architecture improvements, th
 
 ## Strategic Enhancements (3-8 weeks effort)
 
-### 4. Advanced Nx Library Structure Implementation
+### 4. Convert Decorators to Signal-Based APIs
+
+**Priority**: HIGH  
+**Effort**: 2 weeks  
+**Dependencies**: None  
+**Business Value**: Modern Angular patterns, improved reactivity, better debugging
+
+**Context**: Angular 17+ provides signal-based alternatives to decorators (@Input → input(), @Output → output(), @ViewChild → viewChild()).
+
+**Implementation Notes**:
+
+- Convert all `@Input()` decorators to `input()` signals
+- Convert all `@Output()` decorators to `output()` signals  
+- Convert all `@ViewChild()` decorators to `viewChild()` signals
+- Update component templates to use signal syntax
+- Maintain backward compatibility during migration
+- Expected improvement in change detection efficiency
+
+**Source**: Angular 17+ best practices, signal-first architecture
+
+### 5. Advanced Nx Library Structure Implementation
 
 **Priority**: HIGH  
 **Effort**: 4-6 weeks  
 **Dependencies**: Current feature-domain architecture  
 **Business Value**: Scalable architecture, improved code reuse, enforced boundaries
 
-**Context**: Foundation established through feature-domain restructuring. Ready for library extraction.
+**Context**: Foundation established through feature-domain restructuring. Detailed architecture designed in progress.md.
 
-**Implementation Notes**:
+**Detailed Implementation Plan**:
 
-- **Phase 1**: Shared UI library extraction (1 week)
-- **Phase 2**: Feature domain libraries (chat, analytics, dashboard) (2-3 weeks)
-- **Phase 3**: Core services and infrastructure libraries (1-2 weeks)
-- Nx boundary rules for dependency management
-- Independent testing and deployment capabilities
+#### Phase 1: Domain Libraries (Week 1-2)
+```
+libs/
+├── ptah-chat/                   # Chat domain library
+│   ├── src/
+│   │   ├── lib/
+│   │   │   ├── components/      # Chat UI components (15 components)
+│   │   │   ├── containers/      # Chat smart components
+│   │   │   ├── services/        # Chat-specific services
+│   │   │   ├── models/          # Chat types & interfaces
+│   │   │   └── index.ts         # Public API
+│   │   └── index.ts
+│   └── project.json
+├── ptah-analytics/              # Analytics domain library
+├── ptah-dashboard/              # Dashboard domain library  
+├── ptah-session/                # Session management library
+├── ptah-providers/              # Provider management library
+└── ptah-shared-ui/              # Shared UI components library
+    ├── src/
+    │   ├── lib/
+    │   │   ├── forms/           # Form components (9 components)
+    │   │   ├── ui/              # Basic UI components
+    │   │   ├── overlays/        # Modal/overlay components
+    │   │   └── layout/          # Layout components
+    │   └── index.ts
+    └── project.json
+```
 
-**Source**: progress.md, Library Structure Design
+#### Phase 2: Infrastructure Libraries (Week 3-4)
+```
+libs/
+├── ptah-core/                   # Core services & utilities
+│   ├── services/                # VSCode integration, logging
+│   ├── guards/                  # Route guards
+│   ├── interceptors/            # HTTP interceptors
+│   └── utils/                   # Utility functions
+├── ptah-shared-data/            # Data access layer
+│   ├── services/                # API services
+│   ├── models/                  # Shared data models
+│   └── state/                   # State management
+└── ptah-shared-types/           # Shared TypeScript interfaces
+    ├── common.types.ts
+    ├── api.types.ts
+    └── ui.types.ts
+```
 
-### 5. Comprehensive Component Testing Strategy
+#### Phase 3: Advanced Libraries (Week 5-6)
+```
+libs/
+├── ptah-testing/                # Testing utilities
+│   ├── fixtures/                # Test data fixtures
+│   ├── mocks/                   # Service mocks
+│   └── helpers/                 # Testing helper functions
+├── ptah-theming/                # VS Code theme system
+│   ├── tokens/                  # Design tokens
+│   ├── themes/                  # Theme definitions
+│   └── components/              # Themed base components
+└── ptah-cli-integration/        # Claude CLI specific logic
+    ├── services/                # CLI communication
+    ├── transformers/            # Message transformers
+    └── types/                   # CLI-specific types
+```
+
+#### Implementation Commands:
+```bash
+# Step 1: Create Shared UI Library
+nx generate @nx/angular:library ptah-shared-ui --standalone
+
+# Step 2: Create Feature Libraries
+nx generate @nx/angular:library ptah-chat --standalone
+nx generate @nx/angular:library ptah-analytics --standalone
+nx generate @nx/angular:library ptah-dashboard --standalone
+nx generate @nx/angular:library ptah-session --standalone
+nx generate @nx/angular:library ptah-providers --standalone
+
+# Step 3: Create Infrastructure Libraries
+nx generate @nx/angular:library ptah-core --standalone
+nx generate @nx/angular:library ptah-shared-data --standalone
+nx generate @nx/angular:library ptah-shared-types --standalone
+```
+
+#### Dependency Graph Rules:
+```typescript
+// nx.json or .eslintrc.json
+{
+  "@nx/enforce-module-boundaries": [
+    {
+      "allow": [],
+      "depConstraints": [
+        {
+          "sourceTag": "scope:ptah-chat",
+          "onlyDependOnLibsWithTags": ["scope:ptah-shared-ui", "scope:ptah-core", "scope:ptah-shared-types"]
+        },
+        {
+          "sourceTag": "scope:ptah-shared-ui", 
+          "onlyDependOnLibsWithTags": ["scope:ptah-shared-types"]
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Source**: progress.md, Library Structure Design (detailed architecture)
+
+### 6. Comprehensive Component Testing Strategy
 
 **Priority**: HIGH  
 **Effort**: 3-4 weeks  
@@ -98,7 +215,7 @@ Based on comprehensive analysis of Angular webview architecture improvements, th
 
 **Source**: test-report.md, Quality Assessment
 
-### 6. Performance Monitoring System
+### 7. Performance Monitoring System
 
 **Priority**: MEDIUM  
 **Effort**: 2-3 weeks  
@@ -119,7 +236,7 @@ Based on comprehensive analysis of Angular webview architecture improvements, th
 
 ## Advanced Architecture (2-6 months effort)
 
-### 7. Micro-Frontend Architecture with Component Federation
+### 8. Micro-Frontend Architecture with Component Federation
 
 **Priority**: MEDIUM  
 **Effort**: 8-12 weeks  
@@ -138,7 +255,7 @@ Based on comprehensive analysis of Angular webview architecture improvements, th
 
 **Source**: implementation-plan.md, Future Work Registry
 
-### 8. VS Code Theme Integration System
+### 9. VS Code Theme Integration System
 
 **Priority**: MEDIUM  
 **Effort**: 6-8 weeks  
@@ -157,7 +274,7 @@ Based on comprehensive analysis of Angular webview architecture improvements, th
 
 **Source**: progress.md, Advanced Libraries (Long term)
 
-### 9. Advanced Signal Debugging DevTools
+### 10. Advanced Signal Debugging DevTools
 
 **Priority**: LOW  
 **Effort**: 4-6 weeks  
@@ -178,7 +295,7 @@ Based on comprehensive analysis of Angular webview architecture improvements, th
 
 ## Research & Innovation (exploratory)
 
-### 10. AI-Powered Code Generation Integration
+### 11. AI-Powered Code Generation Integration
 
 **Priority**: LOW  
 **Effort**: 8-12 weeks (exploratory)  
@@ -197,7 +314,7 @@ Based on comprehensive analysis of Angular webview architecture improvements, th
 
 **Source**: Strategic analysis of extension's AI integration potential
 
-### 11. Cross-Platform Extension Architecture
+### 12. Cross-Platform Extension Architecture
 
 **Priority**: LOW  
 **Effort**: 12-16 weeks (exploratory)  
@@ -216,7 +333,7 @@ Based on comprehensive analysis of Angular webview architecture improvements, th
 
 **Source**: Strategic architectural analysis
 
-### 12. Real-time Collaboration Features
+### 13. Real-time Collaboration Features
 
 **Priority**: LOW  
 **Effort**: 16-20 weeks (exploratory)  
@@ -241,6 +358,7 @@ Based on comprehensive analysis of Angular webview architecture improvements, th
 
 - Complete modern control flow migration (1 week)
 - TrackBy functions implementation (1 week)
+- Convert decorators to signal-based APIs (2 weeks)
 - Advanced Nx library structure (4-6 weeks)
 - Performance monitoring system (2-3 weeks)
 
