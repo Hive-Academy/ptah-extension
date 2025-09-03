@@ -17,6 +17,11 @@ export const MESSAGE_ROUTER = Symbol('MessageRouter');
 export const AI_PROVIDER_FACTORY = Symbol('AIProviderFactory');
 export const AI_PROVIDER_MANAGER = Symbol('AIProviderManager');
 
+// API wrapper service tokens
+export const OUTPUT_MANAGER = Symbol('OutputManager');
+export const STATUS_BAR_MANAGER = Symbol('StatusBarManager');
+export const FILE_SYSTEM_MANAGER = Symbol('FileSystemManager');
+
 // Business logic service tokens
 export const CLAUDE_SERVICE = Symbol('ClaudeService');
 export const SESSION_MANAGER = Symbol('SessionManager');
@@ -35,6 +40,11 @@ export const TOKENS = {
   // Messaging
   EVENT_BUS,
   MESSAGE_ROUTER,
+  
+  // API Wrappers
+  OUTPUT_MANAGER,
+  STATUS_BAR_MANAGER,
+  FILE_SYSTEM_MANAGER,
   
   // Providers
   AI_PROVIDER_FACTORY,

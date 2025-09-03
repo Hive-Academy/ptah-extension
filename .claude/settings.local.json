@@ -19,7 +19,9 @@
       "Bash(npx tsc:*)",
       "Bash(npm run test:*)",
       "Bash(npx nx test:*)",
-      "Bash(npx jest:*)"
+      "Bash(npx jest:*)",
+      "Bash(npm run typecheck:all:*)",
+      "Bash(npx nx build:*)"
     ],
     "deny": [],
     "ask": [],

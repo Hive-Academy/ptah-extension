@@ -14,7 +14,13 @@ export type {
 } from './messaging/event-bus';
 
 // API Wrappers
-export { CommandManager, WebviewManager } from './api-wrappers';
+export { 
+  CommandManager, 
+  WebviewManager, 
+  OutputManager, 
+  StatusBarManager, 
+  FileSystemManager 
+} from './api-wrappers';
 export type {
   CommandDefinition,
   CommandExecutedPayload,
@@ -22,5 +28,22 @@ export type {
   WebviewPanelConfig,
   WebviewMessagePayload,
   WebviewCreatedPayload,
-  WebviewDisposedPayload
+  WebviewDisposedPayload,
+  OutputChannelConfig,
+  WriteOptions,
+  OutputMessagePayload,
+  OutputChannelCreatedPayload,
+  OutputChannelErrorPayload,
+  StatusBarItemConfig,
+  StatusBarItemUpdate,
+  StatusBarItemCreatedPayload,
+  StatusBarItemUpdatedPayload,
+  StatusBarItemClickedPayload,
+  StatusBarItemErrorPayload,
+  FileOperationType,
+  FileOperationOptions,
+  FileWatcherConfig,
+  FileOperationPayload,
+  FileWatcherEventPayload,
+  FileSystemErrorPayload
 } from './api-wrappers';

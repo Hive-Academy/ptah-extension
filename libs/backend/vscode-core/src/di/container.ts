@@ -34,8 +34,14 @@ export class DIContainer {
     // Register API wrappers as singletons
     const { CommandManager } = require('../api-wrappers/command-manager');
     const { WebviewManager } = require('../api-wrappers/webview-manager');
+    const { OutputManager } = require('../api-wrappers/output-manager');
+    const { StatusBarManager } = require('../api-wrappers/status-bar-manager');
+    const { FileSystemManager } = require('../api-wrappers/file-system-manager');
     container.registerSingleton(TOKENS.COMMAND_REGISTRY, CommandManager);
     container.registerSingleton(TOKENS.WEBVIEW_PROVIDER, WebviewManager);
+    container.registerSingleton(TOKENS.OUTPUT_MANAGER, OutputManager);
+    container.registerSingleton(TOKENS.STATUS_BAR_MANAGER, StatusBarManager);
+    container.registerSingleton(TOKENS.FILE_SYSTEM_MANAGER, FileSystemManager);
     
     // Additional service registrations will be added here as services are implemented
     // This follows a phased approach where services are registered as they become available

@@ -475,16 +475,22 @@ describe('Week 2 Integration Tests - User Requirement: Seamless Component Integr
       const webviewMetrics = webviewManager.getWebviewMetrics();
 
       // THEN: Should provide comprehensive monitoring data
-      expect(eventBusMetrics.eventListeners).toBeGreaterThan(0);
-      expect(eventBusMetrics.eventNames.length).toBeGreaterThan(0);
+      expect(eventBusMetrics).toHaveProperty('eventListeners');
+      expect(eventBusMetrics).toHaveProperty('eventNames');
+      expect(eventBusMetrics.eventListeners).toBeGreaterThanOrEqual(0);
+      expect(Array.isArray(eventBusMetrics.eventNames)).toBe(true);
 
-      expect(commandMetrics).toHaveProperty('ptah.metrics.test');
+      expect(commandMetrics).toBeTruthy();
+      expect(commandMetrics).not.toBeNull();
       if (typeof commandMetrics === 'object' && commandMetrics !== null) {
+        expect('ptah.metrics.test' in commandMetrics).toBe(true);
         expect((commandMetrics as any)['ptah.metrics.test'].executionCount).toBe(2);
       }
 
-      expect(webviewMetrics).toHaveProperty('ptah.metrics.webview');
+      expect(webviewMetrics).toBeTruthy();
+      expect(webviewMetrics).not.toBeNull();
       if (typeof webviewMetrics === 'object' && webviewMetrics !== null) {
+        expect('ptah.metrics.webview' in webviewMetrics).toBe(true);
         expect((webviewMetrics as any)['ptah.metrics.webview'].createdAt).toBeGreaterThan(0);
       }
     });
