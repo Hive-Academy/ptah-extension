@@ -9,6 +9,7 @@
     "@ptah-extension/shared": "0.0.1",
     "tsyringe": "^4.10.0",
     "rxjs": "~7.8.0",
-    "@ptah-extension/vscode-core": "0.0.1"
+    "@ptah-extension/vscode-core": "0.0.1",
+    "vscode": "^1.1.37"
   }
 }

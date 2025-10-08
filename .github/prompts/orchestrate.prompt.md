@@ -2,7 +2,7 @@
 mode: agent
 description: Orchestrates complete development workflow with sequential agent phases
 tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
-model: GPT-5 mini (copilot)
+model: Claude Sonnet 4.5 (Preview) (copilot)
 ---
 
 # Orchestrate Development Workflow

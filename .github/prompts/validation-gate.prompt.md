@@ -4,7 +4,7 @@ description: Validation Gate - Business Analyst reviews deliverables## Critical 
 
 tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
 
-model: GPT-4.1 (copilot)
+model: GPT-5 (copilot)
 ---
 
 Perform validation now and output your decision.
