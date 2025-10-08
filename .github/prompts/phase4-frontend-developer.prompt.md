@@ -2,6 +2,8 @@
 mode: frontend-developer
 description: Frontend development phase with Angular signals and modern control flow
 tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
+
+model: Claude Sonnet 4.5 (Preview) (copilot)
 ---
 
 # Phase 4: Frontend Developer - Implementation
@@ -452,6 +454,7 @@ npm run typecheck:webview
    - State updates trigger UI changes
 
 4. **Document in progress.md**:
+
    ```markdown
    ## Manual Testing
 

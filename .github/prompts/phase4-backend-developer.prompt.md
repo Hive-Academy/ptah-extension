@@ -2,6 +2,7 @@
 mode: backend-developer
 description: Backend development phase with strict type safety and error boundaries
 tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
+model: Claude Sonnet 4.5 (Preview) (copilot)
 ---
 
 # Phase 4: Backend Developer - Implementation
@@ -128,8 +129,9 @@ import { Logger } from '../core/logger';
 
 @injectable()
 export class MyService {
-  constructor(private readonly logger: Logger) // Inject dependencies - NO direct imports of services
-  {}
+  constructor(
+    private readonly logger: Logger // Inject dependencies - NO direct imports of services
+  ) {}
 
   async initialize(): Promise<void> {
     this.logger.info('MyService initializing...');

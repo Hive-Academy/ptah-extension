@@ -78,34 +78,72 @@ interface ScopeDecision {
   criticalForUserRequest: boolean; // Blocks user's functionality if not done
   researchPriority: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
   timeEstimate: 'hours' | 'days' | 'weeks';
+  isSubtask: boolean; // Is this a subtask of the user's main request?
 }
 
 // INCLUDE IN CURRENT PLAN IF:
-// userRequested OR (criticalForUserRequest AND researchPriority >= HIGH)
+// userRequested OR criticalForUserRequest OR isSubtask === true
 
-// MOVE TO REGISTRY.MD IF:
-// timeEstimate === 'weeks' OR researchPriority === 'LOW'
+// MOVE TO REGISTRY.MD ONLY IF:
+// (NOT userRequested) AND (NOT criticalForUserRequest) AND (NOT isSubtask) AND (timeEstimate === 'weeks' OR researchPriority === 'LOW')
 ```
 
 **Example Scope Decisions:**
 
+- ✅ **INCLUDE**: User asked for "provider infrastructure" - includes interfaces, manager, AND provider implementations (userRequested + isSubtask)
 - ✅ **INCLUDE**: Fix critical runtime crash (CRITICAL + blocks user's functionality)
-- ✅ **INCLUDE**: Remove duplicate type definitions (HIGH + causes import conflicts)
-- ❌ **REGISTRY**: Service decomposition for "better architecture" (weeks + not user-requested)
-- ❌ **REGISTRY**: File restructuring for "clean organization" (weeks + not blocking user)
+- ✅ **INCLUDE**: Claude CLI adapter when user asks for "provider infrastructure" (isSubtask of main request)
+- ❌ **REGISTRY**: Performance monitoring dashboard (NOT userRequested + enhancement + can be done later)
+- ❌ **REGISTRY**: Cost optimization features (NOT userRequested + nice-to-have + low priority)
+- ❌ **REGISTRY**: Advanced load balancing (NOT userRequested + optimization beyond basic needs)
 
 ### **3. Registry Integration for Future Work**
 
-**MANDATORY**: If you identify work >1 week effort, add to registry.md:
+**WHAT BELONGS IN REGISTRY.MD:**
+
+The registry is for **truly separate future work**, NOT for breaking down the current user request into pieces:
+
+✅ **DO move to registry**:
+
+- **Out-of-scope enhancements**: Features user didn't request (e.g., "also add performance monitoring dashboard")
+- **Low-priority optimizations**: Nice-to-have improvements that aren't blocking (e.g., "refactor for better code organization")
+- **Long-term architectural improvements**: Large refactors >2 weeks (e.g., "migrate entire codebase to microservices")
+- **Follow-up features**: Natural next steps AFTER current request is complete (e.g., "after basic auth, add OAuth support")
+
+❌ **DO NOT move to registry**:
+
+- **Core components of user's request**: If user asks for "provider infrastructure", that includes both the manager AND the providers themselves
+- **Essential dependencies**: Components needed to make the user's request actually work
+- **Implementation subtasks**: Breaking a 1-week task into Day 1/Day 2/Day 3 subtasks is NOT "future work"
+- **Multi-week user requests**: If user explicitly requested something estimated at 2-3 weeks, plan it as phases within current task (under 2 weeks total if possible, or ask user for prioritization)
+
+**CRITICAL DISTINCTION:**
+
+```typescript
+// User Request: "Build provider infrastructure"
+// This is ONE TASK with multiple subtasks (NOT separate registry tasks):
+Phase 1: Provider interfaces (2 days)
+Phase 2: Provider manager (2 days)
+Phase 3: Claude CLI provider implementation (1-2 days) ✅ INCLUDED
+Phase 4: VS Code LM provider implementation (1-2 days) ✅ INCLUDED
+Phase 5: Testing (1 day)
+Total: 7-9 days ✅ Under 2 weeks, all in TASK_PRV_001
+
+// Future work to ADD TO REGISTRY:
+TASK_PRV_002: "Add cost tracking dashboard for providers" ✅ NOT requested, enhancement
+TASK_PRV_003: "Implement load balancing across providers" ✅ NOT requested, optimization
+```
+
+**MANDATORY**: If you identify work >2 weeks total effort OR not requested by user, add to registry.md:
 
 ```markdown
 ## Future Task Registry Integration
 
-| TASK_ID       | Description                                                                   | Status    | Agent              | Date       | Priority | Effort    |
-| ------------- | ----------------------------------------------------------------------------- | --------- | ------------------ | ---------- | -------- | --------- |
-| TASK_ARCH_001 | Service decomposition for oversized service (1000+ lines → multiple services) | 📋 Future | software-architect | 2025-08-31 | Medium   | 2-3 weeks |
-| TASK_ARCH_002 | File size compliance - split oversized modules                                | 📋 Future | backend-developer  | 2025-08-31 | Low      | 1-2 weeks |
-| TASK_ARCH_003 | Performance optimization patterns implementation                              | 📋 Future | software-architect | 2025-08-31 | Low      | 1 week    |
+| TASK_ID       | Description                                                            | Status    | Agent              | Date       | Priority | Effort    |
+| ------------- | ---------------------------------------------------------------------- | --------- | ------------------ | ---------- | -------- | --------- |
+| TASK_ARCH_001 | Performance monitoring dashboard (not requested, enhancement)          | 📋 Future | software-architect | 2025-10-08 | Low      | 1-2 weeks |
+| TASK_ARCH_002 | Cost optimization with budget tracking (not requested, future feature) | 📋 Future | backend-developer  | 2025-10-08 | Medium   | 2-3 weeks |
+| TASK_ARCH_003 | Advanced load balancing algorithms (not requested, optimization)       | 📋 Future | software-architect | 2025-10-08 | Low      | 1 week    |
 ```
 
 ## 📋 IMPLEMENTATION PLAN STRUCTURE

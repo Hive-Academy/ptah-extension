@@ -16,6 +16,7 @@ export const MESSAGE_ROUTER = Symbol('MessageRouter');
 // Provider system tokens
 export const AI_PROVIDER_FACTORY = Symbol('AIProviderFactory');
 export const AI_PROVIDER_MANAGER = Symbol('AIProviderManager');
+export const PROVIDER_STRATEGY = Symbol('ProviderStrategy');
 
 // API wrapper service tokens
 export const OUTPUT_MANAGER = Symbol('OutputManager');
@@ -36,24 +37,25 @@ export const TOKENS = {
   EXTENSION_CONTEXT,
   WEBVIEW_PROVIDER,
   COMMAND_REGISTRY,
-  
+
   // Messaging
   EVENT_BUS,
   MESSAGE_ROUTER,
-  
+
   // API Wrappers
   OUTPUT_MANAGER,
   STATUS_BAR_MANAGER,
   FILE_SYSTEM_MANAGER,
-  
+
   // Providers
   AI_PROVIDER_FACTORY,
   AI_PROVIDER_MANAGER,
-  
+  PROVIDER_STRATEGY,
+
   // Business Logic
   CLAUDE_SERVICE,
   SESSION_MANAGER,
-  WORKSPACE_ANALYZER
+  WORKSPACE_ANALYZER,
 } as const;
 
 /**

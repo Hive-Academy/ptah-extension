@@ -5,5 +5,10 @@
   "type": "commonjs",
   "main": "./index.cjs",
   "types": "./index.d.ts",
-  "dependencies": {}
+  "dependencies": {
+    "@ptah-extension/shared": "0.0.1",
+    "tsyringe": "^4.10.0",
+    "rxjs": "~7.8.0",
+    "@ptah-extension/vscode-core": "0.0.1"
+  }
 }
