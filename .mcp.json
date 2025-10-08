@@ -4,7 +4,6 @@
       "command": "cmd.exe",
       "args": ["/c", "npx", "-y", "@agent-infra/mcp-server-browser@latest"]
     },
-
     "sequential-thinking": {
       "command": "cmd.exe",
       "args": [
@@ -14,29 +13,20 @@
         "@modelcontextprotocol/server-sequential-thinking"
       ]
     },
-
     "nx-mcp": {
-      "command": "cmd.exe",
-      "args": [
-        "/c",
-        "C://Program Files/nodejs/npx.cmd",
-        "-y",
-        "nx-mcp@latest",
-        "D://projects/Ptah"
-      ]
+      "type": "stdio",
+      "command": "npx",
+      "args": ["nx", "mcp"]
     },
-
     "angular-cli": {
       "command": "cmd.exe",
       "args": ["/c", "npx", "-y", "@angular/cli", "mcp"]
     },
-
     "neo4j-graph-data-modeling": {
       "command": "uvx",
       "args": ["mcp-neo4j-data-modeling@0.1.1"],
       "disabled": true
     },
-
     "chroma": {
       "command": "uvx",
       "args": [

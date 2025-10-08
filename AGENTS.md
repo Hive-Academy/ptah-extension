@@ -175,15 +175,21 @@ vscode.postMessage({ type: 'sendMessage', data: { content: 'message' } });
 
 ## ⚡ AGENT WORKFLOW ORCHESTRATION
 
+### Modular Phase-Based System
+
+**IMPLEMENTATION**: The Ptah extension uses a modular orchestration system where each development phase is an independent `.prompt.md` file.
+
+**For complete implementation details, see**: [MODULAR_ORCHESTRATION_SYSTEM.md](docs/MODULAR_ORCHESTRATION_SYSTEM.md)
+
 ### Sequential Execution Framework
 
 **MANDATORY**: All agent workflows follow this pattern:
 
-1. **User Request** → **Claude Code Main Thread** → **Registry Check**
-2. **Route Decision** → **Agent Selection** → **Single Agent Execution**
-3. **Agent Completion** → **Business Analyst Validation** → **[APPROVE/REJECT]**
-4. **If APPROVE** → **Next Agent Selection** OR **Task Completion**
-5. **If REJECT** → **Re-delegate to Same Agent with Corrections**
+1. **User Request** → `/orchestrate "task description"` → **Task Initialization (Git + Registry)**
+2. **Phase Execution** → **Phase-Specific Agent** → **Deliverable Creation**
+3. **Phase Completion** → **Business Analyst Validation** → **[APPROVE/REJECT]**
+4. **If APPROVE** → **Next Phase Execution** OR **Task Completion**
+5. **If REJECT** → **Re-execute Same Phase with Corrections**
 
 ### Core Agent Roles (Technology Agnostic)
 
@@ -198,20 +204,35 @@ vscode.postMessage({ type: 'sendMessage', data: { content: 'message' } });
 | **senior-tester**      | 🧪     | Quality assurance, testing strategy       | After implementation                  |
 | **code-reviewer**      | 🔍     | Final quality validation                  | Before task completion                |
 
-### Delegation Protocol
+### Modular Phase Invocation
 
-**Standard Format for Agent Handoffs:**
+**Phase Prompts in** `.github/prompts/`:
+
+- `phase1-project-manager.prompt.md` - Requirements analysis
+- `phase2-researcher-expert.prompt.md` - Technical research (conditional)
+- `phase3-software-architect.prompt.md` - Architecture planning
+- `phase4-backend-developer.prompt.md` - Backend implementation
+- `phase4-frontend-developer.prompt.md` - Frontend implementation
+- `phase5-senior-tester.prompt.md` - Quality assurance
+- `phase6-code-reviewer.prompt.md` - Final review
+- `phase8-modernization-detector.prompt.md` - Future work consolidation
+- `validation-gate.prompt.md` - Reusable validation (parameterized)
+
+**Invocation Pattern** (in orchestrator):
 
 ```markdown
-## DELEGATION REQUEST
+**Execute Phase Prompt**: /phase1-project-manager
 
-**Next Agent**: [agent-name]
-**Task Focus**: [specific deliverable]
-**Context**: [key information to pass]
-**Success Criteria**: [what constitutes success]
-**Quality Requirements**: [specific standards]
-**Time Budget**: [expected duration]
+**Context Variables**:
+
+- TASK_ID: {from initialization}
+- USER_REQUEST: {from user}
+- BRANCH_NAME: {from git setup}
+
+**Wait for**: Phase completion signal
 ```
+
+**For detailed phase architecture, see**: [MODULAR_ORCHESTRATION_SYSTEM.md](docs/MODULAR_ORCHESTRATION_SYSTEM.md)
 
 ---
 

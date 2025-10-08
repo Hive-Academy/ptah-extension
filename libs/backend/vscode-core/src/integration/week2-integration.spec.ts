@@ -9,12 +9,20 @@ import * as vscode from 'vscode';
 import { firstValueFrom, take, timeout } from 'rxjs';
 import { DIContainer, TOKENS } from '../di/container';
 import { EventBus } from '../messaging/event-bus';
-import { CommandManager, CommandDefinition } from '../api-wrappers/command-manager';
-import { WebviewManager, WebviewPanelConfig } from '../api-wrappers/webview-manager';
+import {
+  CommandManager,
+  CommandDefinition,
+} from '../api-wrappers/command-manager';
+import {
+  WebviewManager,
+  WebviewPanelConfig,
+} from '../api-wrappers/webview-manager';
 
 // Mock VS Code API
 const mockDisposable = { dispose: jest.fn() };
-const mockCommands = { registerCommand: jest.fn().mockReturnValue(mockDisposable) };
+const mockCommands = {
+  registerCommand: jest.fn().mockReturnValue(mockDisposable),
+};
 const mockWebview = {
   postMessage: jest.fn().mockResolvedValue(undefined),
   onDidReceiveMessage: jest.fn(),
@@ -29,7 +37,9 @@ const mockWebviewPanel = {
   dispose: jest.fn(),
   visible: true,
 };
-const mockWindow = { createWebviewPanel: jest.fn().mockReturnValue(mockWebviewPanel) };
+const mockWindow = {
+  createWebviewPanel: jest.fn().mockReturnValue(mockWebviewPanel),
+};
 const mockUri = { joinPath: jest.fn().mockReturnValue({} as vscode.Uri) };
 
 jest.mock('vscode', () => ({
@@ -51,7 +61,10 @@ jest.mock('@ptah-extension/shared', () => ({
   StrictMessageType: {},
 }));
 
-const { isSystemMessage, isRoutableMessage } = require('@ptah-extension/shared');
+const {
+  isSystemMessage,
+  isRoutableMessage,
+} = require('@ptah-extension/shared');
 
 describe('Week 2 Integration Tests - User Requirement: Seamless Component Integration', () => {
   let mockContext: vscode.ExtensionContext;
@@ -61,28 +74,103 @@ describe('Week 2 Integration Tests - User Requirement: Seamless Component Integr
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    
+
     // Clear DI container
     DIContainer.clear();
 
     mockContext = {
       subscriptions: [],
-      workspaceState: { get: jest.fn(), update: jest.fn(), keys: jest.fn().mockReturnValue([]) },
-      globalState: { get: jest.fn(), update: jest.fn(), setKeysForSync: jest.fn(), keys: jest.fn().mockReturnValue([]) },
-      secrets: { get: jest.fn(), store: jest.fn(), delete: jest.fn(), onDidChange: jest.fn() },
-      extensionUri: { scheme: 'file', authority: '', path: '/test', query: '', fragment: '', fsPath: '/test', with: jest.fn(), toString: jest.fn(), toJSON: jest.fn() },
+      workspaceState: {
+        get: jest.fn(),
+        update: jest.fn(),
+        keys: jest.fn().mockReturnValue([]),
+      },
+      globalState: {
+        get: jest.fn(),
+        update: jest.fn(),
+        setKeysForSync: jest.fn(),
+        keys: jest.fn().mockReturnValue([]),
+      },
+      secrets: {
+        get: jest.fn(),
+        store: jest.fn(),
+        delete: jest.fn(),
+        onDidChange: jest.fn(),
+      },
+      extensionUri: {
+        scheme: 'file',
+        authority: '',
+        path: '/test',
+        query: '',
+        fragment: '',
+        fsPath: '/test',
+        with: jest.fn(),
+        toString: jest.fn(),
+        toJSON: jest.fn(),
+      },
       extensionPath: '/test/extension/path',
-      environmentVariableCollection: { persistent: false, replace: jest.fn(), append: jest.fn(), prepend: jest.fn(), get: jest.fn(), forEach: jest.fn(), delete: jest.fn(), clear: jest.fn() },
+      environmentVariableCollection: {
+        persistent: false,
+        replace: jest.fn(),
+        append: jest.fn(),
+        prepend: jest.fn(),
+        get: jest.fn(),
+        forEach: jest.fn(),
+        delete: jest.fn(),
+        clear: jest.fn(),
+      },
       storagePath: '/test/storage/path',
       globalStoragePath: '/test/global/storage/path',
       logPath: '/test/log/path',
       extensionMode: 1,
-      logUri: { scheme: 'file', authority: '', path: '/test/log', query: '', fragment: '', fsPath: '/test/log', with: jest.fn(), toString: jest.fn(), toJSON: jest.fn() },
-      storageUri: { scheme: 'file', authority: '', path: '/test/storage', query: '', fragment: '', fsPath: '/test/storage', with: jest.fn(), toString: jest.fn(), toJSON: jest.fn() },
-      globalStorageUri: { scheme: 'file', authority: '', path: '/test/global', query: '', fragment: '', fsPath: '/test/global', with: jest.fn(), toString: jest.fn(), toJSON: jest.fn() },
+      logUri: {
+        scheme: 'file',
+        authority: '',
+        path: '/test/log',
+        query: '',
+        fragment: '',
+        fsPath: '/test/log',
+        with: jest.fn(),
+        toString: jest.fn(),
+        toJSON: jest.fn(),
+      },
+      storageUri: {
+        scheme: 'file',
+        authority: '',
+        path: '/test/storage',
+        query: '',
+        fragment: '',
+        fsPath: '/test/storage',
+        with: jest.fn(),
+        toString: jest.fn(),
+        toJSON: jest.fn(),
+      },
+      globalStorageUri: {
+        scheme: 'file',
+        authority: '',
+        path: '/test/global',
+        query: '',
+        fragment: '',
+        fsPath: '/test/global',
+        with: jest.fn(),
+        toString: jest.fn(),
+        toJSON: jest.fn(),
+      },
       asAbsolutePath: jest.fn(),
-      extension: { id: 'test.extension', extensionUri: { scheme: 'file', path: '/test', fsPath: '/test' } as any, extensionPath: '/test', isActive: true, packageJSON: {}, exports: undefined, activate: jest.fn(), extensionKind: 1 },
-      languageModelAccessInformation: { onDidChange: jest.fn(), canSendRequest: jest.fn().mockReturnValue(true) }
+      extension: {
+        id: 'test.extension',
+        extensionUri: { scheme: 'file', path: '/test', fsPath: '/test' } as any,
+        extensionPath: '/test',
+        isActive: true,
+        packageJSON: {},
+        exports: undefined,
+        activate: jest.fn(),
+        extensionKind: 1,
+      },
+      languageModelAccessInformation: {
+        onDidChange: jest.fn(),
+        canSendRequest: jest.fn().mockReturnValue(true),
+      },
     } as any;
 
     // Set up complete DI container with all services
@@ -90,8 +178,12 @@ describe('Week 2 Integration Tests - User Requirement: Seamless Component Integr
 
     // Resolve all services from DI container
     eventBus = DIContainer.resolve<EventBus>(TOKENS.EVENT_BUS);
-    commandManager = DIContainer.resolve<CommandManager>(TOKENS.COMMAND_REGISTRY);
-    webviewManager = DIContainer.resolve<WebviewManager>(TOKENS.WEBVIEW_PROVIDER);
+    commandManager = DIContainer.resolve<CommandManager>(
+      TOKENS.COMMAND_REGISTRY
+    );
+    webviewManager = DIContainer.resolve<WebviewManager>(
+      TOKENS.WEBVIEW_PROVIDER
+    );
 
     // Reset shared library mocks
     isSystemMessage.mockReset();
@@ -137,10 +229,12 @@ describe('Week 2 Integration Tests - User Requirement: Seamless Component Integr
 
       // WHEN: Registering and executing command
       commandManager.registerCommand(commandDefinition);
-      
+
       // Set up event listener before execution
       const eventPromise = firstValueFrom(
-        eventBus.subscribe('commands:executeCommand').pipe(take(1), timeout(1000))
+        eventBus
+          .subscribe('commands:executeCommand')
+          .pipe(take(1), timeout(1000))
       );
 
       // Execute the command
@@ -177,7 +271,7 @@ describe('Week 2 Integration Tests - User Requirement: Seamless Component Integr
       const messageHandler = mockWebview.onDidReceiveMessage.mock.calls[0][0];
       const testMessage = {
         type: 'chat:sendMessage',
-        payload: { content: 'Integration test message', files: [] }
+        payload: { content: 'Integration test message', files: [] },
       };
 
       messageHandler(testMessage);
@@ -202,9 +296,9 @@ describe('Week 2 Integration Tests - User Requirement: Seamless Component Integr
             messageId: 'test-message' as any,
             content: 'Data from command',
             isComplete: false,
-            streaming: true
+            streaming: true,
           });
-        }
+        },
       };
 
       const webviewConfig: WebviewPanelConfig = {
@@ -217,24 +311,30 @@ describe('Week 2 Integration Tests - User Requirement: Seamless Component Integr
       webviewManager.createWebviewPanel(webviewConfig);
 
       // Set up event listener that forwards to webview
-      const messageSubscription = eventBus.subscribe('chat:messageChunk').subscribe(event => {
-        webviewManager.sendMessage('ptah.receiver', 'chat:messageChunk', event.payload);
-      });
+      const messageSubscription = eventBus
+        .subscribe('chat:messageChunk')
+        .subscribe((event) => {
+          webviewManager.sendMessage(
+            'ptah.receiver',
+            'chat:messageChunk',
+            event.payload
+          );
+        });
 
       // Execute command
       const vsCodeHandler = mockCommands.registerCommand.mock.calls[0][1];
       await vsCodeHandler();
 
       // Small delay for async propagation
-      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       // THEN: Message should reach webview
       expect(mockWebview.postMessage).toHaveBeenCalledWith({
         type: 'chat:messageChunk',
         payload: expect.objectContaining({
           content: 'Data from command',
-          streaming: true
-        })
+          streaming: true,
+        }),
       });
 
       messageSubscription.unsubscribe();
@@ -248,7 +348,7 @@ describe('Week 2 Integration Tests - User Requirement: Seamless Component Integr
         title: 'Respond to Webview',
         handler: async () => {
           commandExecuted = true;
-        }
+        },
       };
 
       const webviewConfig: WebviewPanelConfig = {
@@ -261,16 +361,19 @@ describe('Week 2 Integration Tests - User Requirement: Seamless Component Integr
       webviewManager.createWebviewPanel(webviewConfig);
 
       // Set up event listener that triggers command
-      const eventSubscription = eventBus.subscribe('commands:executeCommand').subscribe(event => {
-        if (event.payload.templateId === 'ptah.respond.to.webview') {
-          // Find and execute the command
-          const vsCodeHandler = mockCommands.registerCommand.mock.calls
-            .find(call => call[0] === 'ptah.respond.to.webview')?.[1];
-          if (vsCodeHandler) {
-            vsCodeHandler();
+      const eventSubscription = eventBus
+        .subscribe('commands:executeCommand')
+        .subscribe((event) => {
+          if (event.payload.templateId === 'ptah.respond.to.webview') {
+            // Find and execute the command
+            const vsCodeHandler = mockCommands.registerCommand.mock.calls.find(
+              (call) => call[0] === 'ptah.respond.to.webview'
+            )?.[1];
+            if (vsCodeHandler) {
+              vsCodeHandler();
+            }
           }
-        }
-      });
+        });
 
       // Simulate webview requesting command execution
       isSystemMessage.mockReturnValue(false);
@@ -281,12 +384,12 @@ describe('Week 2 Integration Tests - User Requirement: Seamless Component Integr
         type: 'commands:executeCommand',
         payload: {
           templateId: 'ptah.respond.to.webview',
-          parameters: {}
-        }
+          parameters: {},
+        },
       });
 
       // Small delay for async propagation
-      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       // THEN: Command should be executed
       expect(commandExecuted).toBe(true);
@@ -304,17 +407,19 @@ describe('Week 2 Integration Tests - User Requirement: Seamless Component Integr
       webviewManager.createWebviewPanel(webviewConfig);
 
       // Set up responder
-      const responseSubscription = eventBus.subscribe('context:getFiles').subscribe(async request => {
-        // Simulate async processing
-        setTimeout(() => {
-          if ('correlationId' in request) {
-            eventBus.respond(request as any, {
-              files: ['file1.ts', 'file2.ts'],
-              totalCount: 2
-            });
-          }
-        }, 10);
-      });
+      const responseSubscription = eventBus
+        .subscribe('context:getFiles')
+        .subscribe(async (request) => {
+          // Simulate async processing
+          setTimeout(() => {
+            if ('correlationId' in request) {
+              eventBus.respond(request as any, {
+                files: ['file1.ts', 'file2.ts'],
+                totalCount: 2,
+              });
+            }
+          }, 10);
+        });
 
       // WHEN: Making request through event bus
       const response = await eventBus.request('context:getFiles', {}, 1000);
@@ -322,7 +427,7 @@ describe('Week 2 Integration Tests - User Requirement: Seamless Component Integr
       // THEN: Should receive response
       expect(response).toEqual({
         files: ['file1.ts', 'file2.ts'],
-        totalCount: 2
+        totalCount: 2,
       });
 
       responseSubscription.unsubscribe();
@@ -336,7 +441,7 @@ describe('Week 2 Integration Tests - User Requirement: Seamless Component Integr
       const commandDefinition: CommandDefinition = {
         id: 'ptah.error.test',
         title: 'Error Test',
-        handler: jest.fn().mockRejectedValue(new Error(errorMessage))
+        handler: jest.fn().mockRejectedValue(new Error(errorMessage)),
       };
 
       commandManager.registerCommand(commandDefinition);
@@ -382,7 +487,7 @@ describe('Week 2 Integration Tests - User Requirement: Seamless Component Integr
       const messageHandler = mockWebview.onDidReceiveMessage.mock.calls[0][0];
       messageHandler({
         type: 'invalid:message:type',
-        payload: { data: 'test' }
+        payload: { data: 'test' },
       });
 
       // THEN: Error should be published
@@ -399,7 +504,7 @@ describe('Week 2 Integration Tests - User Requirement: Seamless Component Integr
       const commandDefinition: CommandDefinition = {
         id: 'ptah.cleanup.test',
         title: 'Cleanup Test',
-        handler: jest.fn()
+        handler: jest.fn(),
       };
 
       const webviewConfig: WebviewPanelConfig = {
@@ -411,10 +516,16 @@ describe('Week 2 Integration Tests - User Requirement: Seamless Component Integr
       webviewManager.createWebviewPanel(webviewConfig);
 
       // Set up cross-component subscriptions
-      const eventSubscription = eventBus.subscribe('chat:sendMessage').subscribe(() => {});
+      const eventSubscription = eventBus
+        .subscribe('chat:sendMessage')
+        .subscribe(() => {
+          // Event handled
+        });
 
       // Verify everything is set up
-      expect(commandManager.getRegisteredCommands()).toContain('ptah.cleanup.test');
+      expect(commandManager.getRegisteredCommands()).toContain(
+        'ptah.cleanup.test'
+      );
       expect(webviewManager.hasWebview('ptah.cleanup.webview')).toBe(true);
       expect(eventBus.getMetrics().eventListeners).toBeGreaterThan(0);
 
@@ -435,8 +546,12 @@ describe('Week 2 Integration Tests - User Requirement: Seamless Component Integr
       // GIVEN: Multiple service resolutions
       const eventBus1 = DIContainer.resolve<EventBus>(TOKENS.EVENT_BUS);
       const eventBus2 = DIContainer.resolve<EventBus>(TOKENS.EVENT_BUS);
-      const commandManager1 = DIContainer.resolve<CommandManager>(TOKENS.COMMAND_REGISTRY);
-      const commandManager2 = DIContainer.resolve<CommandManager>(TOKENS.COMMAND_REGISTRY);
+      const commandManager1 = DIContainer.resolve<CommandManager>(
+        TOKENS.COMMAND_REGISTRY
+      );
+      const commandManager2 = DIContainer.resolve<CommandManager>(
+        TOKENS.COMMAND_REGISTRY
+      );
 
       // WHEN: Resolving services multiple times
       // THEN: Should return same instances (singleton behavior)
@@ -453,7 +568,7 @@ describe('Week 2 Integration Tests - User Requirement: Seamless Component Integr
       const commandDefinition: CommandDefinition = {
         id: 'ptah.metrics.test',
         title: 'Metrics Test',
-        handler: jest.fn().mockResolvedValue(undefined)
+        handler: jest.fn().mockResolvedValue(undefined),
       };
 
       const webviewConfig: WebviewPanelConfig = {
@@ -484,14 +599,18 @@ describe('Week 2 Integration Tests - User Requirement: Seamless Component Integr
       expect(commandMetrics).not.toBeNull();
       if (typeof commandMetrics === 'object' && commandMetrics !== null) {
         expect('ptah.metrics.test' in commandMetrics).toBe(true);
-        expect((commandMetrics as any)['ptah.metrics.test'].executionCount).toBe(2);
+        expect(
+          (commandMetrics as any)['ptah.metrics.test'].executionCount
+        ).toBe(2);
       }
 
       expect(webviewMetrics).toBeTruthy();
       expect(webviewMetrics).not.toBeNull();
       if (typeof webviewMetrics === 'object' && webviewMetrics !== null) {
         expect('ptah.metrics.webview' in webviewMetrics).toBe(true);
-        expect((webviewMetrics as any)['ptah.metrics.webview'].createdAt).toBeGreaterThan(0);
+        expect(
+          (webviewMetrics as any)['ptah.metrics.webview'].createdAt
+        ).toBeGreaterThan(0);
       }
     });
 
@@ -500,23 +619,25 @@ describe('Week 2 Integration Tests - User Requirement: Seamless Component Integr
       const eventCount = 100;
       let receivedCount = 0;
 
-      const subscription = eventBus.subscribe('analytics:trackEvent').subscribe(() => {
-        receivedCount++;
-      });
+      const subscription = eventBus
+        .subscribe('analytics:trackEvent')
+        .subscribe(() => {
+          receivedCount++;
+        });
 
       // WHEN: Publishing many events rapidly
       const startTime = Date.now();
-      
+
       for (let i = 0; i < eventCount; i++) {
         eventBus.publish('analytics:trackEvent', {
           event: `test-event-${i}`,
-          properties: { iteration: i }
+          properties: { iteration: i },
         });
       }
 
       // Wait for all events to propagate
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
       const duration = Date.now() - startTime;
 
       // THEN: Should handle efficiently
@@ -536,7 +657,7 @@ describe('Week 2 Integration Tests - User Requirement: Seamless Component Integr
         handler: async (filePath: string) => {
           // Publish type-safe event
           eventBus.publish('context:includeFile', { filePath });
-        }
+        },
       };
 
       const webviewConfig: WebviewPanelConfig = {
@@ -562,13 +683,17 @@ describe('Week 2 Integration Tests - User Requirement: Seamless Component Integr
       expect(receivedEvent.payload.filePath).toBe('/path/to/file.ts');
 
       // Send type-safe message to webview
-      await webviewManager.sendMessage('ptah.typesafe.webview', 'context:includeFile', {
-        filePath: '/another/file.ts'
-      });
+      await webviewManager.sendMessage(
+        'ptah.typesafe.webview',
+        'context:includeFile',
+        {
+          filePath: '/another/file.ts',
+        }
+      );
 
       expect(mockWebview.postMessage).toHaveBeenCalledWith({
         type: 'context:includeFile',
-        payload: { filePath: '/another/file.ts' }
+        payload: { filePath: '/another/file.ts' },
       });
     });
   });

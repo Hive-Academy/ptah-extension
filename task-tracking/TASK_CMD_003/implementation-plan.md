@@ -20,13 +20,15 @@
 ### Task 1.1: OutputManager Core Implementation
 
 **Complexity**: MEDIUM
-**Files to Modify**: 
+**Files to Modify**:
+
 - `libs/backend/vscode-core/src/api-wrappers/output-manager.ts` (create)
 - `libs/backend/vscode-core/src/api-wrappers/output-manager.spec.ts` (create)
-**Expected Outcome**: VS Code output channel wrapper with event integration and centralized management
-**Developer Assignment**: backend-developer
+  **Expected Outcome**: VS Code output channel wrapper with event integration and centralized management
+  **Developer Assignment**: backend-developer
 
 **Implementation Details**:
+
 - Follow CommandManager pattern: @injectable decorator, DI injection for context and eventBus
 - Wrap vscode.window.createOutputChannel with enhanced configuration
 - Track output metrics (message count, log levels, last activity)
@@ -40,12 +42,14 @@
 
 **Complexity**: MEDIUM
 **Files to Modify**:
+
 - `libs/backend/vscode-core/src/api-wrappers/status-bar-manager.ts` (create)
 - `libs/backend/vscode-core/src/api-wrappers/status-bar-manager.spec.ts` (create)
-**Expected Outcome**: VS Code status bar wrapper with reactive state management and event integration
-**Developer Assignment**: backend-developer
+  **Expected Outcome**: VS Code status bar wrapper with reactive state management and event integration
+  **Developer Assignment**: backend-developer
 
 **Implementation Details**:
+
 - Follow WebviewManager pattern: DI injection, event integration, metrics tracking
 - Wrap vscode.window.createStatusBarItem with enhanced lifecycle management
 - Track status bar item state changes and click events
@@ -59,12 +63,14 @@
 
 **Complexity**: HIGH
 **Files to Modify**:
+
 - `libs/backend/vscode-core/src/api-wrappers/file-system-manager.ts` (create)
 - `libs/backend/vscode-core/src/api-wrappers/file-system-manager.spec.ts` (create)
-**Expected Outcome**: VS Code file system wrapper with comprehensive error handling and workspace intelligence
-**Developer Assignment**: backend-developer
+  **Expected Outcome**: VS Code file system wrapper with comprehensive error handling and workspace intelligence
+  **Developer Assignment**: backend-developer
 
 **Implementation Details**:
+
 - Follow CommandManager error handling patterns with comprehensive try-catch
 - Wrap vscode.workspace.fs operations with enhanced error categorization
 - Track file operations for analytics and optimization insights
@@ -78,14 +84,16 @@
 
 **Complexity**: LOW
 **Files to Modify**:
+
 - `libs/backend/vscode-core/src/di/tokens.ts` (add OUTPUT_MANAGER, STATUS_BAR_MANAGER, FILE_SYSTEM_MANAGER tokens)
 - `libs/backend/vscode-core/src/di/container.ts` (register new managers as singletons)
 - `libs/backend/vscode-core/src/api-wrappers/index.ts` (export new managers and their interfaces)
 - `libs/backend/vscode-core/src/index.ts` (export from library)
-**Expected Outcome**: All three managers available through dependency injection system
-**Developer Assignment**: backend-developer
+  **Expected Outcome**: All three managers available through dependency injection system
+  **Developer Assignment**: backend-developer
 
 **Implementation Details**:
+
 - Add three new Symbol-based tokens following existing pattern
 - Register managers in DIContainer.setup() method using same pattern as CommandManager
 - Export all interfaces and classes from index files
@@ -94,7 +102,7 @@
 ## Success Criteria
 
 - [ ] OutputManager provides centralized output channel management with event integration
-- [ ] StatusBarManager offers reactive status bar management with full lifecycle control  
+- [ ] StatusBarManager offers reactive status bar management with full lifecycle control
 - [ ] FileSystemManager wraps all file operations with comprehensive monitoring
 - [ ] All managers follow CommandManager/WebviewManager architectural patterns exactly
 - [ ] Zero 'any' types - all operations use strict typing from shared types
@@ -105,13 +113,15 @@
 ## Developer Handoff
 
 **Next Agent**: backend-developer
-**Priority Order**: 
+**Priority Order**:
+
 1. OutputManager (simpler pattern, builds confidence)
 2. StatusBarManager (intermediate complexity)
 3. FileSystemManager (most complex, requires careful error handling)
 4. DI integration (final integration step)
 
 **Pattern Following Requirements**:
+
 - Clone CommandManager structure for OutputManager and FileSystemManager
 - Clone WebviewManager structure for StatusBarManager (has panel lifecycle)
 - Use exact same DI injection pattern: @injectable, @inject(TOKENS.X)
@@ -120,6 +130,7 @@
 - Use exact same disposal patterns: dispose() method with cleanup
 
 **Quality Requirements**:
+
 - Follow existing code style and patterns exactly
 - Maintain test coverage equivalent to CommandManager tests
 - Use MessagePayloadMap types for all event payloads
