@@ -23,15 +23,14 @@
 - [x] Create `libs/backend/claude-domain/src/events/claude-domain.events.ts`
 - [ ] Unit tests for launcher, permissions, events
 
-### Step 3: Integration (Wire into Extension)
+### Step 3: DI Container Integration (MONSTER Week 5)
 
-- [ ] Create `libs/backend/claude-domain/src/index.ts` barrel exports
-- [ ] Update `libs/shared/src/index.ts` to export new claude-domain types
-- [ ] Modify `apps/ptah-extension-vscode/src/services/claude-cli.service.ts` (deprecation shim)
-- [ ] Modify `apps/ptah-extension-vscode/src/services/claude-cli-detector.service.ts` (alias)
-- [ ] Modify `apps/ptah-extension-vscode/src/services/ai-providers/provider-factory.ts`
-- [ ] Modify `apps/ptah-extension-vscode/src/services/ai-providers/claude-cli-provider-adapter.ts`
-- [ ] Modify `libs/backend/ai-providers-core/src/adapters/claude-cli-adapter.ts`
+- [x] Create `libs/backend/claude-domain/src/index.ts` barrel exports
+- [x] Update `libs/shared/src/index.ts` to export new claude-domain types
+- [ ] Add claude-domain tokens to `libs/backend/vscode-core/src/di/tokens.ts`
+- [ ] Register claude-domain services in `libs/backend/vscode-core/src/di/container.ts`
+- [ ] Update `libs/backend/ai-providers-core` to use claude-domain via DI
+- [ ] Wire claude-domain events into EventBus for webview communication
 
 ### Step 4: Testing & Validation
 
@@ -78,7 +77,28 @@
 
 ## Current Focus
 
-Step 2 complete. Starting Step 3: Integration with extension
+✅ **Steps 1-2 Complete**: Foundation & core functionality built
+🔄 **Step 3 In Progress**: DI container integration (MONSTER Week 5)
+⏭️ **Next**: Register claude-domain services with TSyringe DI container
+
+## Context
+
+**MONSTER Architecture Status**:
+
+- ✅ Weeks 1-4: TSyringe DI, RxJS EventBus, VS Code API wrappers, Provider infrastructure - COMPLETE
+- 🔄 Week 5: Claude Domain Separation - IN PROGRESS (foundation complete, integration pending)
+
+**What We Built**:
+
+- `libs/backend/claude-domain/` with 11 modules (~1,800 LOC)
+- WSL-aware CLI detection, session management with resume, YOLO permissions
+- JSONL stream parsing, typed events, process lifecycle management
+
+**What's Next**:
+
+- Register claude-domain services in DI container (not shim old services)
+- Wire into NEW provider system via TSyringe dependency injection
+- Integrate events with RxJS EventBus for webview communication
 
 ## Blockers
 
@@ -87,4 +107,7 @@ None at this time.
 ## Time Tracking
 
 - Pre-implementation review: 10 min
-- Type setup: (in progress)
+- Type setup & Step 1 (foundation): 2 hours
+- Step 2 (core functionality): 2.5 hours
+- **Total so far**: ~5 hours
+- **Remaining**: Step 3 DI integration (~1.5 hours), Step 4 testing (~1 hour)
