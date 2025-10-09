@@ -22,8 +22,14 @@ export {
   FileSystemService,
   FileSystemError,
 } from './services/file-system.service';
+
+// Project analysis exports
+export { ProjectDetectorService } from './project-analysis/project-detector.service';
+
+// DI tokens
+export * from './di/tokens';
+
 // TODO: Uncomment as services are implemented
-// export { ProjectDetectorService } from './services/project-detector.service';
 // export { PatternMatcherService } from './services/pattern-matcher.service';
 // export { FileIndexerService } from './services/file-indexer.service';
 // export { WorkspaceAnalyzerService } from './services/workspace-analyzer.service';

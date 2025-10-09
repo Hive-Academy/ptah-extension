@@ -107,12 +107,17 @@ export class DIContainer {
     const {
       TokenCounterService,
       FileSystemService,
+      ProjectDetectorService,
     } = require('@ptah-extension/workspace-intelligence');
     container.registerSingleton(
       TOKENS.TOKEN_COUNTER_SERVICE,
       TokenCounterService
     );
     container.registerSingleton(TOKENS.FILE_SYSTEM_SERVICE, FileSystemService);
+    container.registerSingleton(
+      TOKENS.PROJECT_DETECTOR_SERVICE,
+      ProjectDetectorService
+    );
 
     return container;
   }
