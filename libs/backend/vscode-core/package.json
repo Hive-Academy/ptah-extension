@@ -6,10 +6,10 @@
   "main": "./index.cjs",
   "types": "./index.d.ts",
   "dependencies": {
-    "@types/vscode": "^1.103.0",
     "tsyringe": "^4.10.0",
     "@ptah-extension/shared": "0.0.1",
     "eventemitter3": "^5.0.1",
-    "rxjs": "~7.8.0"
+    "rxjs": "~7.8.0",
+    "@ptah-extension/claude-domain": "0.0.1"
   }
 }

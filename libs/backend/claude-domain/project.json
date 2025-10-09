@@ -3,35 +3,30 @@
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/backend/claude-domain/src",
   "projectType": "library",
-  "tags": [
-    "scope:extension",
-    "type:feature"
-  ],
+  "tags": ["scope:extension", "type:feature"],
   "targets": {
     "build": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": [
-        "{options.outputPath}"
-      ],
+      "outputs": ["{options.outputPath}"],
       "options": {
         "outputPath": "dist/libs/backend/claude-domain",
         "main": "libs/backend/claude-domain/src/index.ts",
         "tsConfig": "libs/backend/claude-domain/tsconfig.lib.json",
-        "assets": [
-          "libs/backend/claude-domain/*.md"
-        ],
-        "format": [
-          "cjs"
-        ]
+        "assets": ["libs/backend/claude-domain/*.md"],
+        "format": ["cjs"]
       }
     },
     "test": {
       "executor": "@nx/jest:jest",
-      "outputs": [
-        "{workspaceRoot}/coverage/{projectRoot}"
-      ],
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
       "options": {
         "jestConfig": "libs/backend/claude-domain/jest.config.ts"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project libs/backend/claude-domain/tsconfig.lib.json"
       }
     }
   }
