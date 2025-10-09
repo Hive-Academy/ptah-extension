@@ -16,14 +16,14 @@ export class DIContainer {
   /**
    * Setup the DI container with VS Code extension context
    * Registers core services and prepares container for service resolution
-   * 
+   *
    * @param context - VS Code extension context for lifecycle management
    * @returns Configured DependencyContainer instance
    */
   static setup(context: vscode.ExtensionContext): DependencyContainer {
     // Register VS Code extension context as singleton
-    container.register(TOKENS.EXTENSION_CONTEXT, { 
-      useValue: context 
+    container.register(TOKENS.EXTENSION_CONTEXT, {
+      useValue: context
     });
 
     // Register event bus as singleton
@@ -42,17 +42,60 @@ export class DIContainer {
     container.registerSingleton(TOKENS.OUTPUT_MANAGER, OutputManager);
     container.registerSingleton(TOKENS.STATUS_BAR_MANAGER, StatusBarManager);
     container.registerSingleton(TOKENS.FILE_SYSTEM_MANAGER, FileSystemManager);
-    
+
+    // Register Claude domain services (MONSTER Week 5)
+    const { ClaudeCliDetector } = require('../../../../../../libs/backend/claude-domain/src/detector/claude-cli-detector');
+    const { ClaudeCliLauncher } = require('../../../../../../libs/backend/claude-domain/src/cli/claude-cli-launcher');
+    const { SessionManager: ClaudeSessionManager } = require('../../../../../../libs/backend/claude-domain/src/session/session-manager');
+    const { PermissionService } = require('../../../../../../libs/backend/claude-domain/src/permissions/permission-service');
+    const { ProcessManager } = require('../../../../../../libs/backend/claude-domain/src/cli/process-manager');
+    const { ClaudeDomainEventPublisher } = require('../../../../../../libs/backend/claude-domain/src/events/claude-domain.events');
+    const { InMemoryPermissionRulesStore } = require('../../../../../../libs/backend/claude-domain/src/permissions/permission-rules.store');
+
+    // Register permission rules store
+    container.register('IPermissionRulesStore', {
+      useValue: new InMemoryPermissionRulesStore()
+    });
+
+    // Register event bus adapter for claude-domain
+    container.register('IEventBus', {
+      useFactory: (c) => {
+        const eventBus = c.resolve(TOKENS.EVENT_BUS) as EventBus;
+        return {
+          publish: <T>(topic: string, payload: T) => {
+            eventBus.publish(topic, payload);
+          }
+        };
+      }
+    });
+
+    container.registerSingleton(TOKENS.CLAUDE_CLI_DETECTOR, ClaudeCliDetector);
+    container.registerSingleton(TOKENS.CLAUDE_SESSION_MANAGER, ClaudeSessionManager);
+    container.registerSingleton(TOKENS.CLAUDE_PROCESS_MANAGER, ProcessManager);
+    container.registerSingleton(TOKENS.CLAUDE_DOMAIN_EVENT_PUBLISHER, ClaudeDomainEventPublisher);
+    container.registerSingleton(TOKENS.CLAUDE_PERMISSION_SERVICE, PermissionService);
+    // Note: ClaudeCliLauncher requires dependencies, so we register it with factory
+    container.register(TOKENS.CLAUDE_CLI_LAUNCHER, {
+      useFactory: (c) => {
+        return new ClaudeCliLauncher({
+          sessionManager: c.resolve(TOKENS.CLAUDE_SESSION_MANAGER),
+          permissionService: c.resolve(TOKENS.CLAUDE_PERMISSION_SERVICE),
+          processManager: c.resolve(TOKENS.CLAUDE_PROCESS_MANAGER),
+          eventPublisher: c.resolve(TOKENS.CLAUDE_DOMAIN_EVENT_PUBLISHER),
+        });
+      }
+    });
+
     // Additional service registrations will be added here as services are implemented
     // This follows a phased approach where services are registered as they become available
-    
+
     return container;
   }
 
   /**
    * Get the global container instance
    * Provides access to the configured container for service resolution
-   * 
+   *
    * @returns The global DependencyContainer instance
    */
   static getContainer(): DependencyContainer {
@@ -62,7 +105,7 @@ export class DIContainer {
   /**
    * Resolve a service by its token
    * Type-safe service resolution using Symbol-based tokens
-   * 
+   *
    * @param token - The Symbol token for the service to resolve
    * @returns The resolved service instance
    */
@@ -73,7 +116,7 @@ export class DIContainer {
   /**
    * Check if a service is registered
    * Useful for conditional service resolution and validation
-   * 
+   *
    * @param token - The Symbol token to check
    * @returns True if the service is registered, false otherwise
    */

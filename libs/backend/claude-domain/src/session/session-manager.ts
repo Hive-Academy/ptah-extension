@@ -3,6 +3,7 @@
  * SOLID: Single Responsibility - Only manages session lifecycle
  */
 
+import { injectable } from 'tsyringe';
 import { SessionId, ClaudeSessionResume } from '@ptah-extension/shared';
 
 export interface SessionMetadata {
@@ -17,6 +18,7 @@ export interface SessionMetadata {
 /**
  * Manages Claude CLI session state for resumption
  */
+@injectable()
 export class SessionManager {
   private sessions = new Map<SessionId, SessionMetadata>();
 

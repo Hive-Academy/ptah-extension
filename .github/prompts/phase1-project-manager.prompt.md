@@ -3,7 +3,7 @@ mode: product-manager
 description: Phase 1 - Project Manager creates task requirements
 tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
 
-model: GPT-5 (copilot)
+model: Claude Sonnet 4.5 (Preview) (copilot)
 ---
 
 # Phase 1: Project Manager - Requirements Analysis

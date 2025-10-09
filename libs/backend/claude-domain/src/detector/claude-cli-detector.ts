@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawn } from 'child_process';
+import { injectable } from 'tsyringe';
 import { ClaudeCliHealth } from '@ptah-extension/shared';
 
 export interface ClaudeInstallation {
@@ -33,6 +34,7 @@ interface CommandResult {
 /**
  * Claude CLI Detection Service with WSL-aware path resolution
  */
+@injectable()
 export class ClaudeCliDetector {
   private cachedInstallation: ClaudeInstallation | null = null;
   private readonly isWSLEnvironment: boolean;

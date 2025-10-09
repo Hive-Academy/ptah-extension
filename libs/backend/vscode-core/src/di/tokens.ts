@@ -28,6 +28,14 @@ export const CLAUDE_SERVICE = Symbol('ClaudeService');
 export const SESSION_MANAGER = Symbol('SessionManager');
 export const WORKSPACE_ANALYZER = Symbol('WorkspaceAnalyzer');
 
+// Claude domain service tokens (MONSTER Week 5)
+export const CLAUDE_CLI_DETECTOR = Symbol('ClaudeCliDetector');
+export const CLAUDE_CLI_LAUNCHER = Symbol('ClaudeCliLauncher');
+export const CLAUDE_SESSION_MANAGER = Symbol('ClaudeSessionManager');
+export const CLAUDE_PERMISSION_SERVICE = Symbol('ClaudePermissionService');
+export const CLAUDE_PROCESS_MANAGER = Symbol('ClaudeProcessManager');
+export const CLAUDE_DOMAIN_EVENT_PUBLISHER = Symbol('ClaudeDomainEventPublisher');
+
 /**
  * TOKENS constant for convenient access to all DI tokens
  * Provides a single source of truth for all dependency injection symbols
@@ -56,6 +64,14 @@ export const TOKENS = {
   CLAUDE_SERVICE,
   SESSION_MANAGER,
   WORKSPACE_ANALYZER,
+
+  // Claude Domain (MONSTER Week 5)
+  CLAUDE_CLI_DETECTOR,
+  CLAUDE_CLI_LAUNCHER,
+  CLAUDE_SESSION_MANAGER,
+  CLAUDE_PERMISSION_SERVICE,
+  CLAUDE_PROCESS_MANAGER,
+  CLAUDE_DOMAIN_EVENT_PUBLISHER,
 } as const;
 
 /**

@@ -2,6 +2,8 @@
 description: Elite Software Architect for sophisticated system design and strategic planning
 
 tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
+
+model: Claude Sonnet 4.5 (Preview) (copilot)
 ---
 
 # Software Architect Agent - Evidence-Based Design Expert

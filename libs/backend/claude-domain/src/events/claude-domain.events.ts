@@ -3,6 +3,7 @@
  * SOLID: Single Responsibility - Only event definition and emission helpers
  */
 
+import { injectable, inject } from 'tsyringe';
 import {
   SessionId,
   ClaudeContentChunk,
@@ -101,8 +102,9 @@ export interface IEventBus {
 /**
  * Event publishers - convenience functions for emitting typed events
  */
+@injectable()
 export class ClaudeDomainEventPublisher {
-  constructor(private readonly eventBus: IEventBus) {}
+  constructor(@inject('IEventBus') private readonly eventBus: IEventBus) {}
 
   emitContentChunk(sessionId: SessionId, chunk: ClaudeContentChunk): void {
     this.eventBus.publish<ClaudeContentChunkEvent>(CLAUDE_DOMAIN_EVENTS.CONTENT_CHUNK, {

@@ -3,6 +3,7 @@
  * SOLID: Single Responsibility - Only manages process lifecycle
  */
 
+import { injectable } from 'tsyringe';
 import { ChildProcess } from 'child_process';
 import { SessionId } from '@ptah-extension/shared';
 
@@ -17,6 +18,7 @@ export interface ProcessMetadata {
 /**
  * Manages active Claude CLI child processes
  */
+@injectable()
 export class ProcessManager {
   private processes = new Map<SessionId, ProcessMetadata>();
 

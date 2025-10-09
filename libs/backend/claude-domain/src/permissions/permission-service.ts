@@ -3,6 +3,7 @@
  * SOLID: Single Responsibility - Only manages permission decisions
  */
 
+import { injectable, inject } from 'tsyringe';
 import { minimatch } from 'minimatch';
 import {
   ClaudePermissionRule,
@@ -20,16 +21,19 @@ export interface PermissionServiceConfig {
 /**
  * Manages Claude CLI tool execution permissions
  */
+@injectable()
 export class PermissionService {
   private yoloMode: boolean;
+  private readonly defaultScope: 'workspace' | 'user' | 'session';
   private rules: ClaudePermissionRule[] = [];
   private pendingRequests = new Map<string, ClaudePermissionRequest>();
 
   constructor(
-    private readonly store: IPermissionRulesStore,
-    private readonly config: PermissionServiceConfig
+    @inject('IPermissionRulesStore') private readonly store: IPermissionRulesStore,
+    config?: PermissionServiceConfig
   ) {
-    this.yoloMode = config.yoloMode;
+    this.yoloMode = config?.yoloMode ?? false;
+    this.defaultScope = config?.defaultScope ?? 'workspace';
   }
 
   /**
@@ -120,7 +124,7 @@ export class PermissionService {
     const rule: ClaudePermissionRule = {
       id: `rule-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       pattern: this.generatePattern(request),
-      scope: this.config.defaultScope,
+      scope: this.defaultScope,
       createdAt: Date.now(),
     };
 
