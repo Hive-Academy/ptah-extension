@@ -5,5 +5,8 @@
   "type": "commonjs",
   "main": "./index.cjs",
   "types": "./index.d.ts",
-  "dependencies": {}
+  "dependencies": {
+    "@ptah-extension/shared": "*",
+    "picomatch": "^4.0.2"
+  }
 }

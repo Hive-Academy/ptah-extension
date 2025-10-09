@@ -11,3 +11,8 @@
 | TASK_PRV_002 | Provider Angular UI Integration - Provider selection and health monitoring components         | ⏸️ Paused      | frontend-developer | 2025-09-01 | 2025-10-08 00:00:00 |
 | TASK_PRV_003 | Provider Testing & Optimization - Load balancing and intelligent routing                      | 📋 Future      | senior-tester      | 2025-09-01 | 2025-09-01 17:30:00 |
 | TASK_SES_001 | Phase 2 Session Management Architecture - Multi-workspace and cross-session features          | 📋 Future      | software-architect | 2025-09-01 | 2025-09-01 17:30:00 |
+| TASK_WI_001  | Advanced ML-based file relevance scoring with neural embeddings                               | 📋 Future      | software-architect | 2025-10-09 | -                   |
+| TASK_WI_002  | Real-time incremental indexing with file watcher integration                                  | 📋 Future      | backend-developer  | 2025-10-09 | -                   |
+| TASK_WI_003  | Context caching layer with Redis/SQLite for large workspaces                                  | 📋 Future      | software-architect | 2025-10-09 | -                   |
+| TASK_WI_004  | Language-specific context extractors (TypeScript, Python, Go)                                 | 📋 Future      | backend-developer  | 2025-10-09 | -                   |
+| TASK_WI_005  | Workspace intelligence dashboard in Angular UI                                                | 📋 Future      | frontend-developer | 2025-10-09 | -                   |
