@@ -81,29 +81,29 @@ Extract workspace management logic from the main extension and organize into thr
 **Daily Breakdown**:
 
 - **Day 1 (8 hours)**: Extract existing workspace-manager logic + basic project type detection
-  - Extract workspace folder detection, file system operations
-  - Create library structure with 3 domain modules
-  - Implement project type detector (leverage existing code)
-  - Unit tests for project type detection
+    - Extract workspace folder detection, file system operations
+    - Create library structure with 3 domain modules
+    - Implement project type detector (leverage existing code)
+    - Unit tests for project type detection
 
 - **Day 2 (8 hours)**: Framework detection + dependency analysis
-  - Extract and enhance framework detection logic
-  - Implement dependency analyzer (package.json, requirements.txt, go.mod, Cargo.toml)
-  - Add monorepo detection (Nx, Lerna, Rush)
-  - Unit tests for framework and dependency detection
+    - Extract and enhance framework detection logic
+    - Implement dependency analyzer (package.json, requirements.txt, go.mod, Cargo.toml)
+    - Add monorepo detection (Nx, Lerna, Rush)
+    - Unit tests for framework and dependency detection
 
 - **Day 3 (8 hours)**: File indexing with ignore patterns + file type classification
-  - Implement workspace indexer with glob pattern matching
-  - Create ignore pattern resolver (.gitignore, .vscodeignore, .prettierignore)
-  - Build file type classifier with heuristics
-  - Integration tests with real workspace scenarios
+    - Implement workspace indexer with glob pattern matching
+    - Create ignore pattern resolver (.gitignore, .vscodeignore, .prettierignore)
+    - Build file type classifier with heuristics
+    - Integration tests with real workspace scenarios
 
 - **Day 4 (8 hours)**: Context optimization + testing + integration
-  - Implement context size optimizer with token estimation
-  - Build file relevance scorer (TF-IDF or keyword matching)
-  - Complete test suite (≥80% coverage)
-  - Integration with `ai-providers-core` for context optimization
-  - Documentation for each module
+    - Implement context size optimizer with token estimation
+    - Build file relevance scorer (TF-IDF or keyword matching)
+    - Complete test suite (≥80% coverage)
+    - Integration with `ai-providers-core` for context optimization
+    - Documentation for each module
 
 **Hard Deadline**: Must complete within 2 weeks per universal constraint (buffer for unexpected issues)
 
@@ -356,24 +356,52 @@ export interface ContextOptimizationResult {
 
 ## Next Phase Recommendation
 
-**Recommended Next Phase**: ✅ **software-architect**
+**Recommended Next Phase**: ✅ **researcher-expert**
 
 **Rationale**:
 
-1. **Requirements are clear** - Detailed extraction scope from existing code
-2. **No research needed** - Working implementation exists; standard patterns apply
-3. **Well-defined architecture** - Library structure and interfaces outlined above
-4. **Ready for design** - Software architect can proceed with detailed implementation plan
+1. **VS Code API Evolution (2025)** - Significant enhancements since original implementation; need to research latest capabilities
+2. **Modern Workspace Intelligence** - Language Server Protocol advancements, new file watching APIs, improved workspace context APIs
+3. **Enhanced Integration Opportunities** - VS Code's AI/ML features, improved language detection, semantic search capabilities
+4. **Performance Optimizations** - New VS Code APIs for efficient file indexing and workspace analysis
 
-**Skip Research Phase** - The workspace intelligence domain is well-understood:
-- File system operations are standard
-- Glob pattern matching has established libraries
-- Token estimation can use simple heuristics
-- No unknown technologies or approaches
+**Research Focus Areas**:
 
-**Architect's Focus Areas**:
-- Type system design (extend existing `@ptah-extension/shared` types)
-- Integration points with `ai-providers-core`
-- Migration strategy from `workspace-manager.ts` to new library
-- Testing strategy (unit, integration, performance)
-- Error handling and graceful degradation
+1. **VS Code Workspace APIs (2025 updates)**:
+   - Latest `vscode.workspace` capabilities for multi-root workspace support
+   - New file system provider APIs and virtual file systems
+   - Workspace trust and security model integration
+   - Improved file watching with better performance characteristics
+
+2. **Language Intelligence**:
+   - VS Code's language detection improvements
+   - Language Server Protocol (LSP) integration for better context understanding
+   - Semantic token provider for intelligent file classification
+   - Tree-sitter integration possibilities
+
+3. **AI/ML Integration**:
+   - VS Code's built-in AI capabilities we can leverage
+   - Language model API enhancements for context optimization
+   - Semantic search and similarity matching features
+   - Token counting utilities in VS Code API
+
+4. **Performance & Optimization**:
+   - Modern glob pattern matching libraries (latest benchmarks)
+   - Efficient file indexing strategies (incremental indexing, caching)
+   - Worker thread support for large workspace processing
+   - Memory-efficient streaming approaches
+
+5. **Ignore Pattern Evolution**:
+   - `.gitignore` spec updates and edge cases
+   - VS Code-specific ignore patterns (`.vscodeignore`, settings.json excludes)
+   - Modern monorepo tool conventions (Nx, Turborepo, pnpm workspaces)
+
+**Expected Research Deliverables**:
+
+- Comprehensive VS Code API comparison (2025 vs legacy)
+- Recommended libraries and approaches with evidence
+- Performance benchmarks and trade-off analysis
+- Integration strategy with latest VS Code features
+- Future-proofing recommendations
+
+**After Research**: Architect will design implementation leveraging latest findings
