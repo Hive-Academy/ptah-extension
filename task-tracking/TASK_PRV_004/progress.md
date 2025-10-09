@@ -27,8 +27,8 @@
 
 - [x] Create `libs/backend/claude-domain/src/index.ts` barrel exports
 - [x] Update `libs/shared/src/index.ts` to export new claude-domain types
-- [ ] Add claude-domain tokens to `libs/backend/vscode-core/src/di/tokens.ts`
-- [ ] Register claude-domain services in `libs/backend/vscode-core/src/di/container.ts`
+- [x] Add claude-domain tokens to `libs/backend/vscode-core/src/di/tokens.ts`
+- [x] Register claude-domain services in `libs/backend/vscode-core/src/di/container.ts`
 - [ ] Update `libs/backend/ai-providers-core` to use claude-domain via DI
 - [ ] Wire claude-domain events into EventBus for webview communication
 
@@ -65,21 +65,23 @@
 
 - [x] `libs/shared/src/lib/types/claude-domain.types.ts` - Created comprehensive permission, tool event, and CLI types
 - [x] `libs/shared/src/index.ts` - Exported new claude-domain types
-- [x] `libs/backend/claude-domain/src/detector/claude-cli-detector.ts` - Created WSL-aware detector
-- [x] `libs/backend/claude-domain/src/session/session-manager.ts` - Session lifecycle management with resume support
+- [x] `libs/backend/claude-domain/src/detector/claude-cli-detector.ts` - Created WSL-aware detector + @injectable
+- [x] `libs/backend/claude-domain/src/session/session-manager.ts` - Session lifecycle management with resume support + @injectable
 - [x] `libs/backend/claude-domain/src/cli/jsonl-stream-parser.ts` - JSONL parser with event callbacks
-- [x] `libs/backend/claude-domain/src/cli/process-manager.ts` - Child process lifecycle management
+- [x] `libs/backend/claude-domain/src/cli/process-manager.ts` - Child process lifecycle management + @injectable
 - [x] `libs/backend/claude-domain/src/cli/claude-cli-launcher.ts` - Main orchestrator integrating all services
-- [x] `libs/backend/claude-domain/src/permissions/permission-service.ts` - YOLO mode + always-allow rules
+- [x] `libs/backend/claude-domain/src/permissions/permission-service.ts` - YOLO mode + always-allow rules + @injectable
 - [x] `libs/backend/claude-domain/src/permissions/permission-rules.store.ts` - Permission persistence abstraction
-- [x] `libs/backend/claude-domain/src/events/claude-domain.events.ts` - Typed event publishers
+- [x] `libs/backend/claude-domain/src/events/claude-domain.events.ts` - Typed event publishers + @injectable
 - [x] `libs/backend/claude-domain/src/index.ts` - Barrel exports for all public APIs
+- [x] `libs/backend/vscode-core/src/di/tokens.ts` - Added 6 new DI tokens for claude-domain
+- [x] `libs/backend/vscode-core/src/di/container.ts` - Registered all claude-domain services with TSyringe
 
 ## Current Focus
 
 ✅ **Steps 1-2 Complete**: Foundation & core functionality built
-🔄 **Step 3 In Progress**: DI container integration (MONSTER Week 5)
-⏭️ **Next**: Register claude-domain services with TSyringe DI container
+🔄 **Step 3 In Progress**: DI container integration (60% complete)
+⏭️ **Next**: Update ai-providers-core to consume claude-domain via DI
 
 ## Context
 
