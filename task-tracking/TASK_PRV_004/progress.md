@@ -10,8 +10,8 @@
 
 - [x] Create `libs/shared/src/lib/types/claude-domain.types.ts` with permission & tool event types
 - [x] Create `libs/backend/claude-domain/src/detector/claude-cli-detector.ts`
-- [ ] Create `libs/backend/claude-domain/src/session/session-manager.ts`
-- [ ] Create `libs/backend/claude-domain/src/cli/jsonl-stream-parser.ts`
+- [x] Create `libs/backend/claude-domain/src/session/session-manager.ts`
+- [x] Create `libs/backend/claude-domain/src/cli/jsonl-stream-parser.ts`
 - [ ] Unit tests for detector, session manager, parser
 
 ### Step 2: Core Functionality (Launcher & Permissions)
@@ -67,10 +67,12 @@
 - [x] `libs/shared/src/lib/types/claude-domain.types.ts` - Created comprehensive permission, tool event, and CLI types
 - [x] `libs/shared/src/index.ts` - Exported new claude-domain types
 - [x] `libs/backend/claude-domain/src/detector/claude-cli-detector.ts` - Created WSL-aware detector
+- [x] `libs/backend/claude-domain/src/session/session-manager.ts` - Session lifecycle management with resume support
+- [x] `libs/backend/claude-domain/src/cli/jsonl-stream-parser.ts` - JSONL parser with event callbacks
 
 ## Current Focus
 
-Step 1 in progress: Creating session manager and JSONL parser
+Step 1 complete. Starting Step 2: Core functionality (launcher, process manager, permissions)
 
 ## Blockers
 
