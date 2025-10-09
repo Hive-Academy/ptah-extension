@@ -1,11 +1,12 @@
 /**
  * Claude CLI Provider Adapter
  * Implements EnhancedAIProvider interface for Claude Code CLI integration
- * Provides process spawning, streaming responses, and health monitoring
+ * Delegates to claude-domain services for all Claude CLI operations
+ *
+ * MONSTER Week 5 - Uses dependency injection to consume claude-domain library
  */
 
-import { injectable } from 'tsyringe';
-import { spawn, ChildProcess } from 'child_process';
+import { injectable, inject } from 'tsyringe';
 import type {
   ProviderId,
   ProviderInfo,
@@ -15,27 +16,33 @@ import type {
   SessionId,
 } from '@ptah-extension/shared';
 import type { EnhancedAIProvider, ProviderContext } from '../interfaces';
+import type {
+  ClaudeCliDetector,
+  ClaudeCliLauncher,
+  SessionManager,
+} from '@ptah-extension/claude-domain';
+import { TOKENS } from '@ptah-extension/vscode-core';
 
 /**
- * Session Process Tracker
- * Maps session IDs to their associated child processes and metadata
+ * Session metadata tracker
+ * Maps session IDs to their creation time and activity
  */
-interface SessionProcess {
-  process: ChildProcess;
+interface SessionMetadata {
   createdAt: number;
   lastActivity: number;
   messageCount: number;
 }
 
 /**
- * Claude CLI Adapter - Process-based provider for Claude Code CLI
+ * Claude CLI Adapter - Delegates to claude-domain services
  *
  * Features:
- * - Child process spawning and management
+ * - CLI detection via ClaudeCliDetector
+ * - Process spawning via ClaudeCliLauncher
+ * - Session management via SessionManager
+ * - Event-driven architecture with EventBus integration
  * - Streaming response handling via AsyncIterable
- * - Session lifecycle management
  * - Health monitoring with response time tracking
- * - Automatic process cleanup on errors
  *
  * @injectable Registered with DI container for dependency injection
  */
@@ -67,34 +74,87 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
     ],
   };
 
-  private processes = new Map<string, SessionProcess>();
+  private sessions = new Map<string, SessionMetadata>();
   private healthStatus: ProviderHealth = {
     status: 'initializing',
     lastCheck: Date.now(),
   };
-  private cliPath: string | null = null;
+
+  constructor(
+    @inject(TOKENS.CLAUDE_CLI_DETECTOR)
+    private readonly detector: ClaudeCliDetector,
+    @inject(TOKENS.CLAUDE_CLI_LAUNCHER)
+    private readonly launcher: ClaudeCliLauncher,
+    @inject(TOKENS.CLAUDE_SESSION_MANAGER)
+    private readonly sessionManager: SessionManager
+  ) {}
+
+  /**
+   * Verify Claude CLI installation
+   * Delegates to ClaudeCliDetector
+   */
+  async verifyInstallation(): Promise<boolean> {
+    const installation = await this.detector.findExecutable();
+    return installation !== null;
+  }
+
+  /**
+   * Get available models (optional interface method)
+   */
+  async getAvailableModels(): Promise<readonly string[]> {
+    return this.info.supportedModels as readonly string[];
+  }
+
+  /**
+   * Attempt recovery (optional interface method)
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async attemptRecovery(_sessionId?: SessionId): Promise<boolean> {
+    // Attempt to reinitialize
+    return await this.initialize();
+  }
+
+  /**
+   * Register event listener (optional interface method)
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  on(_event: string, _listener: (...args: unknown[]) => void): void {
+    // Event handling delegated to EventBus via launcher
+    // This method exists for interface compatibility
+  }
+
+  /**
+   * Unregister event listener (optional interface method)
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  off(_event: string, _listener: (...args: unknown[]) => void): void {
+    // Event handling delegated to EventBus via launcher
+    // This method exists for interface compatibility
+  }
 
   /**
    * Initialize Claude CLI adapter
-   * Verifies Claude CLI installation and sets up environment
+   * Delegates to ClaudeCliDetector for installation verification
    */
   async initialize(): Promise<boolean> {
     try {
-      const installed = await this.verifyInstallation();
-      if (installed) {
+      const installation = await this.detector.findExecutable();
+
+      if (installation) {
         this.healthStatus = {
           status: 'available',
           lastCheck: Date.now(),
           uptime: 0,
         };
+        return true;
       } else {
         this.healthStatus = {
           status: 'unavailable',
           lastCheck: Date.now(),
           errorMessage: 'Claude CLI not found in PATH',
         };
+        return false;
       }
-      return installed;
     } catch (error) {
       this.healthStatus = {
         status: 'error',
@@ -109,36 +169,6 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
   }
 
   /**
-   * Verify Claude CLI installation by checking PATH
-   */
-  async verifyInstallation(): Promise<boolean> {
-    return new Promise((resolve) => {
-      const isWindows = process.platform === 'win32';
-      const command = isWindows ? 'where' : 'which';
-      const args = ['claude'];
-
-      const proc = spawn(command, args, { shell: true });
-      let output = '';
-
-      proc.stdout?.on('data', (data: Buffer) => {
-        output += data.toString();
-      });
-
-      proc.on('close', (code) => {
-        const found = code === 0 && output.trim().length > 0;
-        if (found) {
-          this.cliPath = output.trim().split('\n')[0];
-        }
-        resolve(found);
-      });
-
-      proc.on('error', () => {
-        resolve(false);
-      });
-    });
-  }
-
-  /**
    * Get current provider health status
    */
   getHealth(): ProviderHealth {
@@ -149,11 +179,11 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
    * Reset provider state and cleanup all sessions
    */
   async reset(): Promise<void> {
-    // Cleanup all active processes
-    for (const [sessionId] of this.processes) {
+    // Cleanup all active sessions
+    for (const [sessionId] of this.sessions) {
       this.endSession(sessionId as SessionId);
     }
-    this.processes.clear();
+    this.sessions.clear();
 
     // Reinitialize
     await this.initialize();
@@ -163,10 +193,10 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
    * Dispose of all resources and cleanup
    */
   dispose(): void {
-    for (const [sessionId] of this.processes) {
+    for (const [sessionId] of this.sessions) {
       this.endSession(sessionId as SessionId);
     }
-    this.processes.clear();
+    this.sessions.clear();
   }
 
   /**
@@ -216,132 +246,76 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
 
   /**
    * Create a new chat session with Claude CLI
-   * Spawns a new child process for the session
+   * Delegates to SessionManager for tracking
    */
   async createSession(config: AISessionConfig): Promise<SessionId> {
     const sessionId = this.generateSessionId() as SessionId;
 
-    // Build Claude CLI command arguments
-    // Following production pattern: --output-format stream-json --verbose
-    const args: string[] = [
-      'chat',
-      '--output-format',
-      'stream-json',
-      '--verbose',
-    ];
+    // Create session in SessionManager (only model and workspaceRoot are supported)
+    this.sessionManager.createSession(sessionId, {
+      model: config.model,
+      workspaceRoot: config.projectPath,
+    });
 
-    if (config.model) {
-      args.push('--model', config.model);
-    }
-    if (config.systemPrompt) {
-      args.push('--system-prompt', config.systemPrompt);
-    }
-    if (config.maxTokens) {
-      args.push('--max-tokens', config.maxTokens.toString());
-    }
-    if (config.temperature !== undefined) {
-      args.push('--temperature', config.temperature.toString());
-    }
+    // Track locally for compatibility
+    this.sessions.set(sessionId, {
+      createdAt: Date.now(),
+      lastActivity: Date.now(),
+      messageCount: 0,
+    });
 
-    // Add interactive mode for streaming
-    args.push('--interactive');
-
-    try {
-      const process = spawn('claude', args, {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        shell: true,
-        cwd: config.projectPath,
-      });
-
-      // Track session process
-      this.processes.set(sessionId, {
-        process,
-        createdAt: Date.now(),
-        lastActivity: Date.now(),
-        messageCount: 0,
-      });
-
-      // Setup error handlers
-      process.on('error', (error) => {
-        console.error(
-          `Claude CLI process error for session ${sessionId}:`,
-          error
-        );
-        this.endSession(sessionId);
-      });
-
-      process.on('exit', (code) => {
-        if (code !== 0 && code !== null) {
-          console.error(
-            `Claude CLI process exited with code ${code} for session ${sessionId}`
-          );
-        }
-        this.processes.delete(sessionId);
-      });
-
-      return sessionId;
-    } catch (error) {
-      throw new Error(
-        `Failed to create Claude CLI session: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`
-      );
-    }
+    return sessionId;
   }
 
   /**
    * Start a chat session (implementing IAIProvider interface)
-   * Returns a readable stream for compatibility
+   * Creates session and returns session ID for compatibility
    */
   async startChatSession(
     sessionId: SessionId,
     config?: AISessionConfig
   ): Promise<unknown> {
-    // Create session with provided config or defaults
-    const actualSessionId = await this.createSession(config || {});
+    // If config provided, create new session with that ID (only model and workspaceRoot are supported)
+    if (config) {
+      this.sessionManager.createSession(sessionId, {
+        model: config.model,
+        workspaceRoot: config.projectPath,
+      });
 
-    // Map the new session to the requested session ID
-    const sessionProcess = this.processes.get(actualSessionId);
-    if (sessionProcess) {
-      this.processes.delete(actualSessionId);
-      this.processes.set(sessionId, sessionProcess);
+      this.sessions.set(sessionId, {
+        createdAt: Date.now(),
+        lastActivity: Date.now(),
+        messageCount: 0,
+      });
     }
 
-    // Return the process stdout as readable stream
-    return sessionProcess?.process.stdout || null;
+    return sessionId;
   }
 
   /**
-   * End a chat session and cleanup process
+   * End a chat session and cleanup
+   * Delegates to SessionManager and launcher for process cleanup
    */
   endSession(sessionId: SessionId): void {
-    const session = this.processes.get(sessionId);
-    if (!session) {
-      return;
-    }
+    // End session in SessionManager
+    this.sessionManager.endSession(sessionId);
 
-    try {
-      // Send exit command to Claude CLI
-      session.process.stdin?.write('exit\n');
-      session.process.stdin?.end();
+    // Kill process via launcher
+    this.launcher.killSession(sessionId);
 
-      // Force kill if still running after 2 seconds
-      setTimeout(() => {
-        if (!session.process.killed) {
-          session.process.kill('SIGTERM');
-        }
-      }, 2000);
-    } catch (error) {
-      console.error(`Error ending session ${sessionId}:`, error);
-      session.process.kill('SIGKILL');
-    } finally {
-      this.processes.delete(sessionId);
-    }
+    // Remove local tracking
+    this.sessions.delete(sessionId);
   }
 
   /**
    * Send message to session and stream response
+   * Delegates to ClaudeCliLauncher for process spawning and streaming
    * Implements AsyncIterable for efficient streaming
+   *
+   * @param sessionId - Session identifier
+   * @param message - Message content to send
+   * @param context - Provider context (unused - launcher handles context)
+   * @param options - Message options (unused - launcher uses session config)
    */
   async *sendMessage(
     sessionId: SessionId,
@@ -349,7 +323,10 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
     context: ProviderContext,
     options?: AIMessageOptions
   ): AsyncIterable<string> {
-    const session = this.processes.get(sessionId);
+    // Suppress unused params - they're part of the interface but handled by launcher
+    void context;
+    void options;
+    const session = this.sessions.get(sessionId);
     if (!session) {
       throw new Error(`Session ${sessionId} not found`);
     }
@@ -361,89 +338,41 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
       session.lastActivity = Date.now();
       session.messageCount++;
 
-      // Write message to Claude CLI process and close stdin
-      // CRITICAL: Following production pattern - write message then immediately close stdin
-      // This signals to Claude CLI that input is complete and it should process the message
-      if (session.process.stdin) {
-        session.process.stdin.write(`${message}\n`);
-        session.process.stdin.end(); // Close stdin to trigger response
-      } else {
-        throw new Error(`Session ${sessionId} stdin not available`);
-      }
+      // Get session metadata for resume support
+      const sessionMetadata = this.sessionManager.getSession(sessionId);
 
-      // Stream response chunks
-      // Event-driven JSONL parsing (following production pattern from claude-cli.service.ts)
-      let buffer = '';
-      const chunks: string[] = [];
-
-      // Setup stdout listener for JSONL stream
-      const dataListener = (data: Buffer): void => {
-        buffer += data.toString();
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || ''; // Keep incomplete line in buffer
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-
-          try {
-            const json = JSON.parse(trimmed);
-
-            // Extract session ID from init message
-            if (
-              json.type === 'system' &&
-              json.subtype === 'init' &&
-              json.session_id
-            ) {
-              session.claudeSessionId = json.session_id;
-            }
-
-            // Extract text content from assistant messages
-            if (
-              json.type === 'message' &&
-              json.role === 'assistant' &&
-              json.content
-            ) {
-              for (const block of json.content) {
-                if (block.type === 'text' && block.text) {
-                  chunks.push(block.text);
-                }
-              }
-            }
-          } catch {
-            // Skip non-JSON lines (might be stderr or debug output)
-            continue;
-          }
-        }
-      };
-
-      session.process.stdout?.on('data', dataListener);
-
-      // Wait for process to complete
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(
-            new Error(`Claude CLI timeout after ${options?.timeout || 60000}ms`)
-          );
-        }, options?.timeout || 60000);
-
-        session.process.on('close', () => {
-          clearTimeout(timeout);
-          resolve();
-        });
-
-        session.process.on('error', (error) => {
-          clearTimeout(timeout);
-          reject(error);
-        });
+      // Spawn CLI turn via launcher
+      const stream = await this.launcher.spawnTurn(message, {
+        sessionId,
+        model: sessionMetadata?.model as
+          | 'opus'
+          | 'sonnet'
+          | 'haiku'
+          | 'default'
+          | undefined,
+        resumeSessionId: sessionMetadata?.claudeSessionId,
+        workspaceRoot: sessionMetadata?.workspaceRoot,
+        verbose: true,
       });
 
-      // Cleanup listener
-      session.process.stdout?.off('data', dataListener);
+      // Consume stream and yield text chunks
+      // The launcher's pipeline already emits events via ClaudeDomainEventPublisher
+      const chunks: string[] = [];
 
-      // Yield all accumulated chunks
-      for (const chunk of chunks) {
-        yield chunk;
+      for await (const event of stream) {
+        if (typeof event === 'object' && event !== null) {
+          const typedEvent = event as { type: string; data: unknown };
+
+          if (typedEvent.type === 'content') {
+            const chunk = typedEvent.data as { text?: string };
+            if (chunk.text) {
+              chunks.push(chunk.text);
+              yield chunk.text;
+            }
+          }
+          // Other event types (thinking, tool) are already published via EventBus
+          // by the launcher's pipeline, so we don't need to handle them here
+        }
       }
 
       // Update health metrics
@@ -471,7 +400,7 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
   async sendMessageToSession(
     sessionId: SessionId,
     content: string,
-    options?: AIMessageOptions
+    _options?: AIMessageOptions // Prefixed with _ to avoid unused param lint error
   ): Promise<void> {
     // Create a minimal context for the message
     const context: ProviderContext = {
@@ -487,43 +416,30 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
       sessionId,
       content,
       context,
-      options
+      _options
     )) {
-      // Process chunks (could accumulate or emit events)
+      // Process chunks (events are already published via EventBus by launcher)
     }
   }
 
   /**
    * Perform health check on Claude CLI
-   * Sends a simple test command and measures response time
+   * Delegates to ClaudeCliDetector for verification and health status
    */
   async performHealthCheck(): Promise<ProviderHealth> {
-    const startTime = Date.now();
-
     try {
-      // Quick installation check
-      const installed = await this.verifyInstallation();
+      const health = await this.detector.performHealthCheck();
 
-      if (!installed) {
-        this.healthStatus = {
-          status: 'unavailable',
-          lastCheck: Date.now(),
-          errorMessage: 'Claude CLI not installed or not in PATH',
-        };
-        return this.healthStatus;
-      }
-
-      // Measure response time with version check
-      const responseTime = Date.now() - startTime;
-
+      // Convert claude-domain health to ProviderHealth format
       this.healthStatus = {
-        status: 'available',
+        status: health.available ? 'available' : 'unavailable',
         lastCheck: Date.now(),
-        responseTime,
+        responseTime: health.responseTime,
         uptime: this.healthStatus.uptime
           ? this.healthStatus.uptime +
             (Date.now() - this.healthStatus.lastCheck)
           : 0,
+        errorMessage: health.error,
       };
 
       return this.healthStatus;

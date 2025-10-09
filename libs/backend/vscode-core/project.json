@@ -1,26 +1,41 @@
 {
-  "name": "vscode-core",
+  "name": "@ptah-extension/vscode-core",
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/backend/vscode-core/src",
   "projectType": "library",
-  "tags": ["scope:extension", "type:util"],
+  "tags": [
+    "scope:extension",
+    "type:util"
+  ],
   "targets": {
     "build": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": ["{options.outputPath}"],
+      "outputs": [
+        "{options.outputPath}"
+      ],
       "options": {
         "outputPath": "dist/libs/backend/vscode-core",
         "main": "libs/backend/vscode-core/src/index.ts",
         "tsConfig": "libs/backend/vscode-core/tsconfig.lib.json",
-        "assets": ["libs/backend/vscode-core/*.md"],
-        "format": ["cjs"],
-        "generatePackageJson": true,
-        "external": ["vscode", "tsyringe", "eventemitter3", "rxjs"]
+        "assets": [
+          "libs/backend/vscode-core/*.md"
+        ],
+        "format": [
+          "cjs"
+        ],
+        "external": [
+          "vscode",
+          "tsyringe",
+          "eventemitter3",
+          "rxjs"
+        ]
       }
     },
     "test": {
       "executor": "@nx/jest:jest",
-      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "outputs": [
+        "{workspaceRoot}/coverage/{projectRoot}"
+      ],
       "options": {
         "jestConfig": "libs/backend/vscode-core/jest.config.ts"
       }

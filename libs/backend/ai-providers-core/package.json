@@ -10,6 +10,7 @@
     "tsyringe": "^4.10.0",
     "rxjs": "~7.8.0",
     "@ptah-extension/vscode-core": "0.0.1",
-    "vscode": "^1.1.37"
+    "vscode": "^1.1.37",
+    "@ptah-extension/claude-domain": "0.0.1"
   }
 }

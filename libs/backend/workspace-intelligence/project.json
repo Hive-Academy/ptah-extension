@@ -1,25 +1,35 @@
 {
-  "name": "workspace-intelligence",
+  "name": "@ptah-extension/workspace-intelligence",
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/backend/workspace-intelligence/src",
   "projectType": "library",
-  "tags": ["scope:extension", "type:feature"],
+  "tags": [
+    "scope:extension",
+    "type:feature"
+  ],
   "targets": {
     "build": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": ["{options.outputPath}"],
+      "outputs": [
+        "{options.outputPath}"
+      ],
       "options": {
         "outputPath": "dist/libs/backend/workspace-intelligence",
         "main": "libs/backend/workspace-intelligence/src/index.ts",
         "tsConfig": "libs/backend/workspace-intelligence/tsconfig.lib.json",
-        "assets": ["libs/backend/workspace-intelligence/*.md"],
-        "format": ["cjs"],
-        "generatePackageJson": true
+        "assets": [
+          "libs/backend/workspace-intelligence/*.md"
+        ],
+        "format": [
+          "cjs"
+        ]
       }
     },
     "test": {
       "executor": "@nx/jest:jest",
-      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "outputs": [
+        "{workspaceRoot}/coverage/{projectRoot}"
+      ],
       "options": {
         "jestConfig": "libs/backend/workspace-intelligence/jest.config.ts"
       }

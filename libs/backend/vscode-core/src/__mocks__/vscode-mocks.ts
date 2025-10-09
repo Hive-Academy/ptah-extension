@@ -14,19 +14,19 @@ export function createMockExtensionContext(): vscode.ExtensionContext {
     workspaceState: {
       get: jest.fn(),
       update: jest.fn(),
-      keys: jest.fn().mockReturnValue([])
+      keys: jest.fn().mockReturnValue([]),
     } as any,
     globalState: {
       get: jest.fn(),
       update: jest.fn(),
       setKeysForSync: jest.fn(),
-      keys: jest.fn().mockReturnValue([])
+      keys: jest.fn().mockReturnValue([]),
     } as any,
     secrets: {
       get: jest.fn(),
       store: jest.fn(),
       delete: jest.fn(),
-      onDidChange: jest.fn()
+      onDidChange: jest.fn(),
     } as any,
     extensionUri: createMockUri('/test/extension/path'),
     extensionPath: '/test/extension/path',
@@ -38,7 +38,7 @@ export function createMockExtensionContext(): vscode.ExtensionContext {
       get: jest.fn(),
       forEach: jest.fn(),
       delete: jest.fn(),
-      clear: jest.fn()
+      clear: jest.fn(),
     } as any,
     storagePath: '/test/storage/path',
     globalStoragePath: '/test/global/storage/path',
@@ -47,7 +47,11 @@ export function createMockExtensionContext(): vscode.ExtensionContext {
     logUri: createMockUri('/test/log/path'),
     storageUri: createMockUri('/test/storage/path'),
     globalStorageUri: createMockUri('/test/global/storage/path'),
-    asAbsolutePath: jest.fn().mockImplementation((relativePath: string) => `/test/extension/path/${relativePath}`),
+    asAbsolutePath: jest
+      .fn()
+      .mockImplementation(
+        (relativePath: string) => `/test/extension/path/${relativePath}`
+      ),
     extension: {
       id: 'test.extension',
       extensionUri: createMockUri('/test/extension/path'),
@@ -56,12 +60,12 @@ export function createMockExtensionContext(): vscode.ExtensionContext {
       packageJSON: { name: 'test-extension', version: '1.0.0' },
       exports: undefined,
       activate: jest.fn(),
-      extensionKind: 1
+      extensionKind: 1,
     } as any,
     languageModelAccessInformation: {
       onDidChange: jest.fn(),
-      canSendRequest: jest.fn().mockReturnValue(true)
-    } as any
+      canSendRequest: jest.fn().mockReturnValue(true),
+    } as any,
   };
 }
 
@@ -74,7 +78,7 @@ export function createMockWebviewPanel(): vscode.WebviewPanel {
     html: '',
     onDidReceiveMessage: jest.fn(),
     postMessage: jest.fn().mockResolvedValue(true),
-    asWebviewUri: jest.fn()
+    asWebviewUri: jest.fn(),
   } as any;
 
   return {
@@ -88,14 +92,14 @@ export function createMockWebviewPanel(): vscode.WebviewPanel {
     onDidDispose: jest.fn(),
     onDidChangeViewState: jest.fn(),
     reveal: jest.fn(),
-    dispose: jest.fn()
+    dispose: jest.fn(),
   } as vscode.WebviewPanel;
 }
 
 /**
  * Mock VS Code Uri
  */
-export function createMockUri(path: string = '/test/path'): vscode.Uri {
+export function createMockUri(path = '/test/path'): vscode.Uri {
   return {
     scheme: 'file',
     authority: '',
@@ -110,8 +114,8 @@ export function createMockUri(path: string = '/test/path'): vscode.Uri {
       authority: '',
       path,
       query: '',
-      fragment: ''
-    })
+      fragment: '',
+    }),
   } as vscode.Uri;
 }
 
@@ -120,7 +124,7 @@ export function createMockUri(path: string = '/test/path'): vscode.Uri {
  */
 export function createMockDisposable(): vscode.Disposable {
   return {
-    dispose: jest.fn()
+    dispose: jest.fn(),
   };
 }
 
@@ -131,37 +135,44 @@ export const vscodeModuleMock = {
   ExtensionContext: jest.fn().mockImplementation(createMockExtensionContext),
   commands: {
     registerCommand: jest.fn().mockImplementation(() => createMockDisposable()),
-    executeCommand: jest.fn()
+    executeCommand: jest.fn(),
   },
   window: {
-    createWebviewPanel: jest.fn().mockImplementation(() => createMockWebviewPanel()),
+    createWebviewPanel: jest
+      .fn()
+      .mockImplementation(() => createMockWebviewPanel()),
     showErrorMessage: jest.fn(),
     showInformationMessage: jest.fn(),
-    showWarningMessage: jest.fn()
+    showWarningMessage: jest.fn(),
   },
   ViewColumn: {
     One: 1,
     Two: 2,
     Three: 3,
     Active: -1,
-    Beside: -2
+    Beside: -2,
   },
   Uri: {
     file: jest.fn().mockImplementation((path: string) => createMockUri(path)),
     parse: jest.fn().mockImplementation((uri: string) => createMockUri(uri)),
-    joinPath: jest.fn().mockImplementation((base: vscode.Uri, ...paths: string[]) => 
-      createMockUri(`${base.path}/${paths.join('/')}`))
+    joinPath: jest
+      .fn()
+      .mockImplementation((base: vscode.Uri, ...paths: string[]) =>
+        createMockUri(`${base.path}/${paths.join('/')}`)
+      ),
   },
   Disposable: {
-    from: jest.fn().mockImplementation((...disposables: vscode.Disposable[]) => ({
-      dispose: () => disposables.forEach(d => d.dispose())
-    }))
+    from: jest
+      .fn()
+      .mockImplementation((...disposables: vscode.Disposable[]) => ({
+        dispose: () => disposables.forEach((d) => d.dispose()),
+      })),
   },
   EventEmitter: jest.fn().mockImplementation(() => ({
     event: jest.fn(),
     fire: jest.fn(),
-    dispose: jest.fn()
+    dispose: jest.fn(),
   })),
   WebviewOptions: {},
-  WebviewPanelOptions: {}
+  WebviewPanelOptions: {},
 };

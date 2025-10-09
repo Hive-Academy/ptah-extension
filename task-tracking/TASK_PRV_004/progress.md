@@ -29,7 +29,9 @@
 - [x] Update `libs/shared/src/index.ts` to export new claude-domain types
 - [x] Add claude-domain tokens to `libs/backend/vscode-core/src/di/tokens.ts`
 - [x] Register claude-domain services in `libs/backend/vscode-core/src/di/container.ts`
-- [ ] Update `libs/backend/ai-providers-core` to use claude-domain via DI
+- [x] Update `libs/backend/ai-providers-core` to use claude-domain via DI
+- [x] Refactored `ClaudeCliAdapter` to inject and delegate to claude-domain services
+- [x] Added typecheck targets to all backend library project.json files
 - [ ] Wire claude-domain events into EventBus for webview communication
 
 ### Step 4: Testing & Validation
@@ -79,34 +81,70 @@
 
 ## Current Focus
 
-✅ **Steps 1-2 Complete**: Foundation & core functionality built
-✅ **Step 3 Complete (70%)**: DI container integration - tokens registered, services injectable
-⏭️ **Next**: Update ai-providers-core to consume claude-domain via DI, wire events to EventBus
+✅ **Steps 1-3 Complete**: Foundation, core functionality, and DI integration
+🔄 **IN PROGRESS**: Testing & validation (Step 4)
 
-## Latest Update (2025-10-09)
+## Latest Update (2025-10-09 - Session 2 Complete)
 
-**Completed**:
+**Completed Work**:
 
-- ✅ Added 6 DI tokens for claude-domain services to `vscode-core/di/tokens.ts`
-- ✅ Registered all services in `vscode-core/di/container.ts` with TSyringe
-- ✅ Added `@injectable()` decorators to all claude-domain services
-- ✅ Registered IPermissionRulesStore and IEventBus adapters
-- ✅ Fixed import paths to use Nx library alias (`@ptah-extension/claude-domain`)
-- ✅ All builds passing for `claude-domain` library
+- ✅ Refactored `ClaudeCliAdapter` to use dependency injection
+  - Injected `ClaudeCliDetector`, `ClaudeCliLauncher`, `SessionManager` via constructor
+  - Removed all internal process spawning logic (delegated to launcher)
+  - Removed JSONL parsing (handled by launcher's pipeline)
+  - Simplified streaming to consume launcher's Readable stream
+  - Fixed type mismatches (ClaudeModel, SessionMetadata methods, ClaudeCliHealth)
+- ✅ Added typecheck targets to all backend libraries
+  - `libs/backend/claude-domain/project.json`
+  - `libs/backend/ai-providers-core/project.json`
+  - `libs/backend/vscode-core/project.json`
+  - `libs/backend/workspace-intelligence/project.json`
+- ✅ Fixed TypeScript errors in `ClaudeCliAdapter`
+  - Removed `systemPrompt` from SessionManager calls (not supported)
+  - Changed `getSessionMetadata()` to `getSession()`
+  - Changed `health.isAvailable` to `health.available`
+  - Cast model type to ClaudeModel union type
 
-**Current State**:
+**Files Modified in This Session**:
 
-- Branch: `feature/TASK_PRV_004-extract-claude-domain`
-- Commit: `220236e` - "refactor: use Nx library alias for claude-domain imports"
-- All claude-domain services ready for DI consumption
-- EventBus adapter bridges to vscode-core EventBus
+- `libs/backend/ai-providers-core/src/adapters/claude-cli-adapter.ts` - Complete refactor (~450 LOC → ~420 LOC)
+- `libs/backend/claude-domain/project.json` - Added typecheck target
+- `libs/backend/ai-providers-core/project.json` - Added typecheck target
+- `libs/backend/vscode-core/project.json` - Added typecheck target
+- `libs/backend/workspace-intelligence/project.json` - Added typecheck target
 
-**Next Session Focus**:
+**Architecture Impact**:
 
-1. Update `libs/backend/ai-providers-core` to inject claude-domain services
-2. Wire claude-domain events (CONTENT_CHUNK, TOOL_START, etc.) to EventBus
-3. Run Step 4 validation (typecheck, lint, build tests)
-4. Manual smoke tests in Extension Development Host (F5)
+- `ClaudeCliAdapter` now purely delegates to claude-domain services
+- No duplicate JSONL parsing or process management code
+- Events automatically flow through EventBus via launcher's pipeline
+- Clean separation: adapter = orchestration, launcher = implementation
+
+**Current Work**:
+
+- 🔄 Refactoring `ClaudeCliAdapter` to use claude-domain via DI
+  - Inject ClaudeCliDetector, ClaudeCliLauncher, SessionManager
+  - Remove internal process spawning logic (delegate to launcher)
+  - Remove JSONL parsing (handled by launcher's pipeline)
+  - Delegate session management to ClaudeSessionManager
+  - Wire events through EventBus (already configured)
+
+**Architecture Understanding**:
+
+- `ClaudeCliLauncher.spawnTurn()` returns Readable stream with events pre-wired
+- JSONL parsing handled by `JSONLStreamParser` with callbacks
+- Events automatically published via `ClaudeDomainEventPublisher`
+- Permission handling integrated in launcher pipeline
+- Session metadata tracked by `SessionManager`
+
+**Next Steps**:
+
+1. ✅ Review current ClaudeCliAdapter implementation
+2. 🔄 Inject claude-domain services via constructor
+3. ⏭️ Refactor methods to delegate to launcher/detector
+4. ⏭️ Simplify streaming to consume launcher's Readable
+5. ⏭️ Run Step 4 validation (typecheck, lint, build)
+6. ⏭️ Manual smoke tests in Extension Development Host (F5)
 
 ## Context
 
