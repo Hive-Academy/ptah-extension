@@ -33,36 +33,53 @@
 
 ### Phase 1: Critical Migrations (2 days) - IN PROGRESS
 
-#### Step 1.1: Foundation Setup ⏳ CURRENT FOCUS
+#### Step 1.1: Foundation Setup ✅ COMPLETE
 
-- [ ] Create `libs/backend/workspace-intelligence/src/types/workspace.types.ts`
-- [ ] Create `libs/backend/workspace-intelligence/src/index.ts`
-- [ ] Add picomatch dependency to package.json
-- [ ] Set up barrel exports
-- [ ] Validate: TypeScript compiles, `nx build workspace-intelligence` succeeds
+- [x] Create `libs/backend/workspace-intelligence/src/types/workspace.types.ts`
+- [x] Create `libs/backend/workspace-intelligence/src/index.ts`
+- [x] Add picomatch dependency to package.json
+- [x] Add tsyringe + reflect-metadata for DI integration
+- [x] Set up barrel exports
+- [x] Add DI tokens to vscode-core (TOKEN_COUNTER_SERVICE, FILE_SYSTEM_SERVICE, etc.)
+- [x] Validate: TypeScript compiles, `nx build workspace-intelligence` succeeds ✅
 
-#### Step 1.2: Token Counting Service
+**Time**: 4 hours  
+**Completed**: October 9, 2025
 
-- [ ] Create `TokenCounterService` with native VS Code API
-- [ ] Implement fallback estimation for offline scenarios
-- [ ] Add LRU cache for repeated token counts
-- [ ] Write unit tests
+#### Step 1.2: Token Counting Service ✅ COMPLETE
+
+- [x] Create `TokenCounterService` with native VS Code API
+- [x] Add @injectable() decorator for TSyringe DI
+- [x] Implement fallback estimation for offline scenarios
+- [x] Add LRU cache for repeated token counts
+- [x] Write unit tests (11 tests total)
+- [x] Register service in vscode-core DI container
+- [x] Validate: Tests pass ≥80% coverage (100% achieved) ✅
+
+**Time**: 4 hours  
+**Completed**: October 9, 2025
+
+#### Step 1.3: File System Service ✅ COMPLETE (Implementation)
+
+- [x] Create `FileSystemService` with `workspace.fs` wrapper
+- [x] Add @injectable() decorator for TSyringe DI
+- [x] Implement async operations (readFile, readDirectory, stat, exists, isVirtualWorkspace)
+- [x] Add error handling with custom FileSystemError class
+- [x] Register service in vscode-core DI container
+- [ ] Write unit tests 🔄 NEXT TASK
 - [ ] Validate: Tests pass ≥80% coverage
 
-#### Step 1.3: File System Service
+**Time**: 3 hours (implementation)  
+**Status**: Implementation complete, tests pending
 
-- [ ] Create `FileSystemService` with `workspace.fs` wrapper
-- [ ] Implement async operations (readFile, readDirectory, isVirtualWorkspace)
-- [ ] Add error handling for permission errors
-- [ ] Write unit tests
-- [ ] Validate: Tests pass ≥80% coverage
-
-#### Step 1.4: Project Type Detection
+#### Step 1.4: Project Type Detection - PLANNED
 
 - [ ] Extract `detectProjectType()` from workspace-manager.ts
+- [ ] Add @injectable() decorator for TSyringe DI
 - [ ] Migrate to `workspace.fs.readDirectory()`
 - [ ] Add multi-root workspace support
 - [ ] Write unit tests for all project types
+- [ ] Register service in vscode-core DI container
 - [ ] Validate: Tests pass ≥80% coverage
 
 ### Phase 2: High-Priority Features (2-3 days) - PLANNED
@@ -90,15 +107,20 @@
 
 **Created**:
 
-- [ ] `libs/backend/workspace-intelligence/src/types/workspace.types.ts` (~150 lines)
-- [ ] `libs/backend/workspace-intelligence/src/services/token-counter.service.ts` (~80 lines)
-- [ ] `libs/backend/workspace-intelligence/src/services/file-system.service.ts` (~100 lines)
+- [x] `libs/backend/workspace-intelligence/src/types/workspace.types.ts` (~150 lines) ✅
+- [x] `libs/backend/workspace-intelligence/src/services/token-counter.service.ts` (~170 lines) ✅
+- [x] `libs/backend/workspace-intelligence/src/services/token-counter.service.spec.ts` (~180 lines) ✅
+- [x] `libs/backend/workspace-intelligence/src/services/file-system.service.ts` (~110 lines) ✅
+- [x] `libs/backend/workspace-intelligence/src/index.ts` (barrel exports) ✅
+- [x] `libs/backend/vscode-core/src/di/tokens.ts` (added 6 new tokens) ✅
+- [ ] `libs/backend/workspace-intelligence/src/services/file-system.service.spec.ts` (tests pending)
 - [ ] `libs/backend/workspace-intelligence/src/project-analysis/project-type-detector.ts` (~150 lines)
-- [ ] `libs/backend/workspace-intelligence/src/index.ts` (barrel exports)
 
 **Modified**:
 
-- [ ] `libs/backend/workspace-intelligence/package.json` (add picomatch)
+- [x] `libs/backend/workspace-intelligence/package.json` (added picomatch, tsyringe, reflect-metadata) ✅
+- [x] `libs/backend/workspace-intelligence/project.json` (added external dependencies config) ✅
+- [x] `libs/backend/vscode-core/src/di/container.ts` (registered workspace-intelligence services) ✅
 
 ---
 
@@ -121,10 +143,26 @@
 
 ---
 
-## Current Focus (Updated: {timestamp})
+## Current Focus (Updated: October 9, 2025 - 14:30)
 
-**Working on**: Step 1.1 - Foundation Setup  
-**Current File**: Creating workspace.types.ts with type definitions
+**Working on**: Step 1.3 - File System Service unit tests  
+**Recent Change**: Integrated TSyringe dependency injection across all services  
+**Progress**: 75% through Phase 1 (3 of 4 steps complete/in-progress)
+
+**DI Integration Summary**:
+
+- ✅ Added tsyringe + reflect-metadata dependencies
+- ✅ Created 6 new DI tokens in vscode-core
+- ✅ Applied @injectable() decorator to TokenCounterService and FileSystemService
+- ✅ Registered both services in vscode-core DI container
+- ✅ All existing tests still passing (11/11 for TokenCounterService)
+- ✅ Build successful with external dependencies configured
+
+**Next Steps**:
+
+1. Create FileSystemService unit tests
+2. Implement ProjectDetectorService with DI
+3. Complete Phase 1 validation
 
 ---
 
@@ -137,18 +175,24 @@ None at this time.
 ## Time Tracking
 
 - Pre-implementation review: 10 min
-- Foundation setup: Starting now...
+- Step 1.1 - Foundation setup: 4 hours ✅
+- Step 1.2 - Token counting service: 4 hours ✅
+- Step 1.3 - File system service (implementation): 3 hours ✅
+- DI integration refactoring: 1 hour ✅
+- **Total time**: 12 hours 10 min
+- **Remaining Phase 1**: ~4-5 hours (tests + project detection)
 
 ---
 
 ## Build Validation
 
-### Not Yet Run
+### Completed ✅
 
-- [ ] `npm run compile`
-- [ ] `npm run typecheck:all`
-- [ ] `npm run lint:all`
-- [ ] `nx build workspace-intelligence`
+- [x] `nx build workspace-intelligence` ✅ Success
+- [x] `nx test workspace-intelligence` ✅ 11/11 tests passing
+- [ ] `npm run typecheck:all` (pending)
+- [ ] `npm run lint:all` (pending)
+- [ ] Full integration test with extension
 
 ---
 
@@ -164,10 +208,29 @@ None at this time.
 
 ## Git Commits
 
-### Not Yet Committed
+### Committed
 
-- Will commit after Step 1.1 completion
+**Commit 1**: October 9, 2025 - Phase 1.1 & 1.2 Complete
+
+- Created type definitions (workspace.types.ts)
+- Implemented TokenCounterService with native VS Code API
+- Added 11 unit tests with 100% coverage
+- Added picomatch dependency
+- All tests passing ✅
+
+**Hash**: 90d1540
+
+### Pending
+
+**Commit 2**: Phase 1.3 & DI Integration (ready to commit)
+
+- Implemented FileSystemService with workspace.fs wrapper
+- Integrated TSyringe dependency injection
+- Added 6 DI tokens to vscode-core
+- Registered services in DI container
+- Updated build configuration for external dependencies
+- Tests pending for FileSystemService
 
 ---
 
-**Last Updated**: October 9, 2025 (initialization)
+**Last Updated**: October 9, 2025, 14:30

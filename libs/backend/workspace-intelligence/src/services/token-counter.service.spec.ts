@@ -2,6 +2,7 @@
  * Token Counter Service Tests
  */
 
+import 'reflect-metadata'; // Required for tsyringe
 import { TokenCounterService } from './token-counter.service';
 import * as vscode from 'vscode';
 

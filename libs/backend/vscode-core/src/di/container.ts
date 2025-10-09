@@ -23,7 +23,7 @@ export class DIContainer {
   static setup(context: vscode.ExtensionContext): DependencyContainer {
     // Register VS Code extension context as singleton
     container.register(TOKENS.EXTENSION_CONTEXT, {
-      useValue: context
+      useValue: context,
     });
 
     // Register event bus as singleton
@@ -36,7 +36,9 @@ export class DIContainer {
     const { WebviewManager } = require('../api-wrappers/webview-manager');
     const { OutputManager } = require('../api-wrappers/output-manager');
     const { StatusBarManager } = require('../api-wrappers/status-bar-manager');
-    const { FileSystemManager } = require('../api-wrappers/file-system-manager');
+    const {
+      FileSystemManager,
+    } = require('../api-wrappers/file-system-manager');
     container.registerSingleton(TOKENS.COMMAND_REGISTRY, CommandManager);
     container.registerSingleton(TOKENS.WEBVIEW_PROVIDER, WebviewManager);
     container.registerSingleton(TOKENS.OUTPUT_MANAGER, OutputManager);
@@ -57,7 +59,7 @@ export class DIContainer {
 
     // Register permission rules store
     container.register('IPermissionRulesStore', {
-      useValue: new InMemoryPermissionRulesStore()
+      useValue: new InMemoryPermissionRulesStore(),
     });
 
     // Register event bus adapter for claude-domain
@@ -67,16 +69,25 @@ export class DIContainer {
         return {
           publish: <T>(topic: string, payload: T) => {
             eventBus.publish(topic, payload);
-          }
+          },
         };
-      }
+      },
     });
 
     container.registerSingleton(TOKENS.CLAUDE_CLI_DETECTOR, ClaudeCliDetector);
-    container.registerSingleton(TOKENS.CLAUDE_SESSION_MANAGER, ClaudeSessionManager);
+    container.registerSingleton(
+      TOKENS.CLAUDE_SESSION_MANAGER,
+      ClaudeSessionManager
+    );
     container.registerSingleton(TOKENS.CLAUDE_PROCESS_MANAGER, ProcessManager);
-    container.registerSingleton(TOKENS.CLAUDE_DOMAIN_EVENT_PUBLISHER, ClaudeDomainEventPublisher);
-    container.registerSingleton(TOKENS.CLAUDE_PERMISSION_SERVICE, PermissionService);
+    container.registerSingleton(
+      TOKENS.CLAUDE_DOMAIN_EVENT_PUBLISHER,
+      ClaudeDomainEventPublisher
+    );
+    container.registerSingleton(
+      TOKENS.CLAUDE_PERMISSION_SERVICE,
+      PermissionService
+    );
     // Note: ClaudeCliLauncher requires dependencies, so we register it with factory
     container.register(TOKENS.CLAUDE_CLI_LAUNCHER, {
       useFactory: (c) => {
@@ -86,11 +97,22 @@ export class DIContainer {
           processManager: c.resolve(TOKENS.CLAUDE_PROCESS_MANAGER),
           eventPublisher: c.resolve(TOKENS.CLAUDE_DOMAIN_EVENT_PUBLISHER),
         });
-      }
+      },
     });
 
     // Additional service registrations will be added here as services are implemented
     // This follows a phased approach where services are registered as they become available
+
+    // Register workspace intelligence services (TASK_PRV_005)
+    const {
+      TokenCounterService,
+      FileSystemService,
+    } = require('@ptah-extension/workspace-intelligence');
+    container.registerSingleton(
+      TOKENS.TOKEN_COUNTER_SERVICE,
+      TokenCounterService
+    );
+    container.registerSingleton(TOKENS.FILE_SYSTEM_SERVICE, FileSystemService);
 
     return container;
   }

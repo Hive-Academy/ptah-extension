@@ -13,7 +13,8 @@
         "main": "libs/backend/workspace-intelligence/src/index.ts",
         "tsConfig": "libs/backend/workspace-intelligence/tsconfig.lib.json",
         "assets": ["libs/backend/workspace-intelligence/*.md"],
-        "format": ["cjs"]
+        "format": ["cjs"],
+        "external": ["vscode", "tsyringe", "reflect-metadata"]
       }
     },
     "test": {

@@ -8,9 +8,25 @@
 // Type exports
 export * from './types/workspace.types';
 
-// Services will be exported as they are implemented
-// export * from './services/token-counter.service';
-// export * from './services/file-system.service';
+/**
+ * Workspace Intelligence Library
+ * Public API exports
+ */
+
+// Type exports
+export * from './types/workspace.types';
+
+// Service exports (gradual implementation - uncomment as services are implemented)
+export { TokenCounterService } from './services/token-counter.service';
+export {
+  FileSystemService,
+  FileSystemError,
+} from './services/file-system.service';
+// TODO: Uncomment as services are implemented
+// export { ProjectDetectorService } from './services/project-detector.service';
+// export { PatternMatcherService } from './services/pattern-matcher.service';
+// export { FileIndexerService } from './services/file-indexer.service';
+// export { WorkspaceAnalyzerService } from './services/workspace-analyzer.service';
 
 // Project analysis will be exported as implemented
 // export * from './project-analysis/project-type-detector';

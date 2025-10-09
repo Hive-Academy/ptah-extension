@@ -34,7 +34,17 @@ export const CLAUDE_CLI_LAUNCHER = Symbol('ClaudeCliLauncher');
 export const CLAUDE_SESSION_MANAGER = Symbol('ClaudeSessionManager');
 export const CLAUDE_PERMISSION_SERVICE = Symbol('ClaudePermissionService');
 export const CLAUDE_PROCESS_MANAGER = Symbol('ClaudeProcessManager');
-export const CLAUDE_DOMAIN_EVENT_PUBLISHER = Symbol('ClaudeDomainEventPublisher');
+export const CLAUDE_DOMAIN_EVENT_PUBLISHER = Symbol(
+  'ClaudeDomainEventPublisher'
+);
+
+// Workspace intelligence service tokens (TASK_PRV_005)
+export const TOKEN_COUNTER_SERVICE = Symbol('TokenCounterService');
+export const FILE_SYSTEM_SERVICE = Symbol('FileSystemService');
+export const PROJECT_DETECTOR_SERVICE = Symbol('ProjectDetectorService');
+export const PATTERN_MATCHER_SERVICE = Symbol('PatternMatcherService');
+export const FILE_INDEXER_SERVICE = Symbol('FileIndexerService');
+export const WORKSPACE_ANALYZER_SERVICE = Symbol('WorkspaceAnalyzerService');
 
 /**
  * TOKENS constant for convenient access to all DI tokens
@@ -72,6 +82,14 @@ export const TOKENS = {
   CLAUDE_PERMISSION_SERVICE,
   CLAUDE_PROCESS_MANAGER,
   CLAUDE_DOMAIN_EVENT_PUBLISHER,
+
+  // Workspace Intelligence (TASK_PRV_005)
+  TOKEN_COUNTER_SERVICE,
+  FILE_SYSTEM_SERVICE,
+  PROJECT_DETECTOR_SERVICE,
+  PATTERN_MATCHER_SERVICE,
+  FILE_INDEXER_SERVICE,
+  WORKSPACE_ANALYZER_SERVICE,
 } as const;
 
 /**

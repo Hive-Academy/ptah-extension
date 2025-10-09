@@ -8,6 +8,7 @@
  * Evidence: VS Code 2025 LanguageModelChat.countTokens() provides actual tokenizer accuracy
  */
 
+import { injectable } from 'tsyringe';
 import * as vscode from 'vscode';
 
 /**
@@ -23,6 +24,7 @@ interface CacheEntry {
 /**
  * Token counter with native API support and fallback estimation
  */
+@injectable()
 export class TokenCounterService {
   private cache = new Map<string, CacheEntry>();
   private readonly cacheMaxSize = 1000;

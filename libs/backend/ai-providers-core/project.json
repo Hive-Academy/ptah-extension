@@ -13,7 +13,8 @@
         "main": "libs/backend/ai-providers-core/src/index.ts",
         "tsConfig": "libs/backend/ai-providers-core/tsconfig.lib.json",
         "assets": ["libs/backend/ai-providers-core/*.md"],
-        "format": ["cjs"]
+        "format": ["cjs"],
+        "external": ["vscode", "tsyringe", "reflect-metadata"]
       }
     },
     "test": {
