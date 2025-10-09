@@ -44,13 +44,16 @@ export class DIContainer {
     container.registerSingleton(TOKENS.FILE_SYSTEM_MANAGER, FileSystemManager);
 
     // Register Claude domain services (MONSTER Week 5)
-    const { ClaudeCliDetector } = require('../../../../../../libs/backend/claude-domain/src/detector/claude-cli-detector');
-    const { ClaudeCliLauncher } = require('../../../../../../libs/backend/claude-domain/src/cli/claude-cli-launcher');
-    const { SessionManager: ClaudeSessionManager } = require('../../../../../../libs/backend/claude-domain/src/session/session-manager');
-    const { PermissionService } = require('../../../../../../libs/backend/claude-domain/src/permissions/permission-service');
-    const { ProcessManager } = require('../../../../../../libs/backend/claude-domain/src/cli/process-manager');
-    const { ClaudeDomainEventPublisher } = require('../../../../../../libs/backend/claude-domain/src/events/claude-domain.events');
-    const { InMemoryPermissionRulesStore } = require('../../../../../../libs/backend/claude-domain/src/permissions/permission-rules.store');
+    // Use Nx library alias instead of relative paths
+    const {
+      ClaudeCliDetector,
+      ClaudeCliLauncher,
+      SessionManager: ClaudeSessionManager,
+      PermissionService,
+      ProcessManager,
+      ClaudeDomainEventPublisher,
+      InMemoryPermissionRulesStore,
+    } = require('@ptah-extension/claude-domain');
 
     // Register permission rules store
     container.register('IPermissionRulesStore', {
@@ -60,7 +63,7 @@ export class DIContainer {
     // Register event bus adapter for claude-domain
     container.register('IEventBus', {
       useFactory: (c) => {
-        const eventBus = c.resolve(TOKENS.EVENT_BUS) as EventBus;
+        const eventBus = c.resolve(TOKENS.EVENT_BUS) as typeof EventBus;
         return {
           publish: <T>(topic: string, payload: T) => {
             eventBus.publish(topic, payload);
