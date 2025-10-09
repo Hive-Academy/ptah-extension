@@ -80,8 +80,33 @@
 ## Current Focus
 
 ✅ **Steps 1-2 Complete**: Foundation & core functionality built
-🔄 **Step 3 In Progress**: DI container integration (60% complete)
-⏭️ **Next**: Update ai-providers-core to consume claude-domain via DI
+✅ **Step 3 Complete (70%)**: DI container integration - tokens registered, services injectable
+⏭️ **Next**: Update ai-providers-core to consume claude-domain via DI, wire events to EventBus
+
+## Latest Update (2025-10-09)
+
+**Completed**:
+
+- ✅ Added 6 DI tokens for claude-domain services to `vscode-core/di/tokens.ts`
+- ✅ Registered all services in `vscode-core/di/container.ts` with TSyringe
+- ✅ Added `@injectable()` decorators to all claude-domain services
+- ✅ Registered IPermissionRulesStore and IEventBus adapters
+- ✅ Fixed import paths to use Nx library alias (`@ptah-extension/claude-domain`)
+- ✅ All builds passing for `claude-domain` library
+
+**Current State**:
+
+- Branch: `feature/TASK_PRV_004-extract-claude-domain`
+- Commit: `220236e` - "refactor: use Nx library alias for claude-domain imports"
+- All claude-domain services ready for DI consumption
+- EventBus adapter bridges to vscode-core EventBus
+
+**Next Session Focus**:
+
+1. Update `libs/backend/ai-providers-core` to inject claude-domain services
+2. Wire claude-domain events (CONTENT_CHUNK, TOOL_START, etc.) to EventBus
+3. Run Step 4 validation (typecheck, lint, build tests)
+4. Manual smoke tests in Extension Development Host (F5)
 
 ## Context
 
