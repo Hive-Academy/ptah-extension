@@ -1,7 +1,7 @@
 # Implementation Progress - TASK_PRV_004
 
-**Task**: Extract Claude Domain Services to libs/backend/claude-domain/  
-**Started**: 2025-10-09  
+**Task**: Extract Claude Domain Services to libs/backend/claude-domain/
+**Started**: 2025-10-09
 **Current Phase**: Backend Development (Phase 4)
 
 ## Implementation Checklist
@@ -16,11 +16,11 @@
 
 ### Step 2: Core Functionality (Launcher & Permissions)
 
-- [ ] Create `libs/backend/claude-domain/src/cli/claude-cli-launcher.ts`
-- [ ] Create `libs/backend/claude-domain/src/cli/process-manager.ts`
-- [ ] Create `libs/backend/claude-domain/src/permissions/permission-service.ts`
-- [ ] Create `libs/backend/claude-domain/src/permissions/permission-rules.store.ts`
-- [ ] Create `libs/backend/claude-domain/src/events/claude-domain.events.ts`
+- [x] Create `libs/backend/claude-domain/src/cli/claude-cli-launcher.ts`
+- [x] Create `libs/backend/claude-domain/src/cli/process-manager.ts`
+- [x] Create `libs/backend/claude-domain/src/permissions/permission-service.ts`
+- [x] Create `libs/backend/claude-domain/src/permissions/permission-rules.store.ts`
+- [x] Create `libs/backend/claude-domain/src/events/claude-domain.events.ts`
 - [ ] Unit tests for launcher, permissions, events
 
 ### Step 3: Integration (Wire into Extension)
@@ -69,10 +69,16 @@
 - [x] `libs/backend/claude-domain/src/detector/claude-cli-detector.ts` - Created WSL-aware detector
 - [x] `libs/backend/claude-domain/src/session/session-manager.ts` - Session lifecycle management with resume support
 - [x] `libs/backend/claude-domain/src/cli/jsonl-stream-parser.ts` - JSONL parser with event callbacks
+- [x] `libs/backend/claude-domain/src/cli/process-manager.ts` - Child process lifecycle management
+- [x] `libs/backend/claude-domain/src/cli/claude-cli-launcher.ts` - Main orchestrator integrating all services
+- [x] `libs/backend/claude-domain/src/permissions/permission-service.ts` - YOLO mode + always-allow rules
+- [x] `libs/backend/claude-domain/src/permissions/permission-rules.store.ts` - Permission persistence abstraction
+- [x] `libs/backend/claude-domain/src/events/claude-domain.events.ts` - Typed event publishers
+- [x] `libs/backend/claude-domain/src/index.ts` - Barrel exports for all public APIs
 
 ## Current Focus
 
-Step 1 complete. Starting Step 2: Core functionality (launcher, process manager, permissions)
+Step 2 complete. Starting Step 3: Integration with extension
 
 ## Blockers
 
