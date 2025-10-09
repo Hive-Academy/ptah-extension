@@ -9,11 +9,13 @@
 ## 📋 Tasks Created
 
 ### TASK_PRV_004: Extract Claude Domain Services (Week 5)
+
 **Status**: 📋 Planned  
 **Timeline**: 2-3 days  
 **Agent**: orchestrator
 
 **Scope**:
+
 - Extract `claude-cli.service.ts` (690 lines) → `libs/backend/claude-domain/`
 - Extract `claude-cli-detector.service.ts` (150 lines)
 - Preserve critical production features:
@@ -24,6 +26,7 @@
   - JSONL parsing and process spawning
 
 **Target Structure**:
+
 ```
 libs/backend/claude-domain/
 ├── cli/          # Process management, JSONL parsing, CLI detection
@@ -34,11 +37,13 @@ libs/backend/claude-domain/
 ```
 
 ### TASK_PRV_005: Extract Workspace Intelligence (Week 6)
+
 **Status**: 📋 Planned  
 **Timeline**: 3-4 days  
 **Agent**: orchestrator
 
 **Scope**:
+
 - Extract `workspace-manager.ts` (~300 lines) → `libs/backend/workspace-intelligence/`
 - Enhance with intelligent features:
   - Project type detection (npm, Python, Go, Rust, Java)
@@ -50,6 +55,7 @@ libs/backend/claude-domain/
   - File relevance scorer
 
 **Target Structure**:
+
 ```
 libs/backend/workspace-intelligence/
 ├── project-analysis/  # Type detection, dependency analyzer, framework detector
@@ -64,12 +70,12 @@ libs/backend/workspace-intelligence/
 
 ### Task Status Changes
 
-| Task ID | Old Status | New Status | Reason |
-|---------|-----------|------------|--------|
+| Task ID      | Old Status     | New Status   | Reason                                           |
+| ------------ | -------------- | ------------ | ------------------------------------------------ |
 | TASK_PRV_001 | 🔄 In Progress | ✅ Completed | Phase 8 complete, future-enhancements.md created |
-| TASK_PRV_002 | 🔄 In Progress | ⏸️ Paused | Blocked by TASK_PRV_004 and TASK_PRV_005 |
-| TASK_PRV_004 | N/A | 📋 Planned | New task created |
-| TASK_PRV_005 | N/A | 📋 Planned | New task created |
+| TASK_PRV_002 | 🔄 In Progress | ⏸️ Paused    | Blocked by TASK_PRV_004 and TASK_PRV_005         |
+| TASK_PRV_004 | N/A            | 📋 Planned   | New task created                                 |
+| TASK_PRV_005 | N/A            | 📋 Planned   | New task created                                 |
 
 ### Current Registry Order
 
@@ -88,7 +94,9 @@ libs/backend/workspace-intelligence/
 ## 🎯 Implementation Strategy
 
 ### Option A Selected: MONSTER Plan Compliance
+
 **Rationale** (from gap analysis):
+
 1. ✅ Aligns with explicit plan requirements ("extract and enhance")
 2. ✅ Preserves production-tested code (690 lines of working CLI integration)
 3. ✅ Proper separation of concerns (claude-domain vs. ai-providers-core)
@@ -99,17 +107,20 @@ libs/backend/workspace-intelligence/
 ### Sequential Execution Plan
 
 **Week 1 (TASK_PRV_004)**:
+
 - Day 1: Extract CLI process management and JSONL parsing
 - Day 2: Extract permissions, tools, and session resumption
 - Day 3: Testing, integration, and documentation
 
 **Week 2 (TASK_PRV_005)**:
+
 - Day 1: Extract workspace-manager + project type detection
 - Day 2: Framework detection + dependency analysis
 - Day 3: File indexing + ignore patterns + file classification
 - Day 4: Context optimization + relevance scoring + testing
 
 **Week 3 (Resume TASK_PRV_002)**:
+
 - Continue with Angular UI using new backend libraries
 - Provider selection UI with real backend integration
 - Health monitoring with actual provider data
@@ -118,13 +129,13 @@ libs/backend/workspace-intelligence/
 
 ## 📚 Reference Documents
 
-| Document | Purpose |
-|----------|---------|
-| `docs/BACKEND_LIBRARY_GAP_ANALYSIS.md` | Detailed analysis and migration plan |
-| `docs/MONSTER_EXTENSION_REFACTOR_PLAN.md` | Master architecture plan (Weeks 5-6) |
-| `task-tracking/TASK_PRV_004/context.md` | Claude Domain task specification |
-| `task-tracking/TASK_PRV_005/context.md` | Workspace Intelligence task specification |
-| `task-tracking/TASK_PRV_001/future-enhancements.md` | Phase 8 consolidation output |
+| Document                                            | Purpose                                   |
+| --------------------------------------------------- | ----------------------------------------- |
+| `docs/BACKEND_LIBRARY_GAP_ANALYSIS.md`              | Detailed analysis and migration plan      |
+| `docs/MONSTER_EXTENSION_REFACTOR_PLAN.md`           | Master architecture plan (Weeks 5-6)      |
+| `task-tracking/TASK_PRV_004/context.md`             | Claude Domain task specification          |
+| `task-tracking/TASK_PRV_005/context.md`             | Workspace Intelligence task specification |
+| `task-tracking/TASK_PRV_001/future-enhancements.md` | Phase 8 consolidation output              |
 
 ---
 
@@ -139,6 +150,7 @@ libs/backend/workspace-intelligence/
 ### For Orchestrator
 
 When ready to start TASK_PRV_004:
+
 ```bash
 # Create feature branch
 git checkout -b feature/TASK_PRV_004-extract-claude-domain
