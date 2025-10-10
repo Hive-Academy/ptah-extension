@@ -516,9 +516,56 @@ export interface ContextOptimizationResult {
 
 ---
 
-### Phase 3: Context Optimization (2 days)
+### Phase 3: Context Optimization & Integration (2 days)
 
-#### Step 3.1: File Relevance Scorer (6 hours)
+#### Step 3.1: DI Container Registration (2 hours)
+
+- **Files**:
+  - `libs/backend/vscode-core/src/di/container.ts` (modify)
+  - `libs/backend/vscode-core/src/di/tokens.ts` (add new tokens if needed)
+  - `libs/backend/workspace-intelligence/src/index.ts` (ensure all services exported)
+- **Task**:
+  - Add missing service tokens to vscode-core DI tokens (if not already present)
+  - Register all implemented workspace-intelligence services in DIContainer.setup():
+    - `FrameworkDetectorService` → `TOKENS.FRAMEWORK_DETECTOR_SERVICE`
+    - `DependencyAnalyzerService` → `TOKENS.DEPENDENCY_ANALYZER_SERVICE`
+    - `MonorepoDetectorService` → `TOKENS.MONOREPO_DETECTOR_SERVICE`
+  - Export newly implemented services from workspace-intelligence barrel export
+  - Verify all services use @injectable() decorator and proper DI tokens
+  - Update container initialization to use lazy loading for optional services
+- **Validation**:
+  - `DIContainer.isRegistered()` returns true for all workspace-intelligence tokens
+  - All services resolve correctly via `DIContainer.resolve(TOKENS.X)`
+  - `nx build vscode-core` succeeds without circular dependency warnings
+  - Extension launches in Development Host without DI errors
+
+**Time**: 2 hours  
+**Priority**: CRITICAL - blocks Phase 3 integration
+
+#### Step 3.2: Service Export Finalization (2 hours)
+
+- **Files**:
+  - `libs/backend/workspace-intelligence/src/index.ts` (modify)
+  - `libs/backend/workspace-intelligence/README.md` (create/update)
+- **Task**:
+  - Export all implemented services from barrel file:
+    ```typescript
+    export { FrameworkDetectorService } from './project-analysis/framework-detector.service';
+    export { DependencyAnalyzerService } from './project-analysis/dependency-analyzer.service';
+    export { MonorepoDetectorService } from './project-analysis/monorepo-detector.service';
+    ```
+  - Document public API surface in README.md with usage examples
+  - Add JSDoc comments to all exported services for IntelliSense
+  - Create simple integration example showing DI usage
+- **Validation**:
+  - All services can be imported via `@ptah-extension/workspace-intelligence`
+  - TypeScript auto-completion works for all exported services
+  - README.md has clear usage examples
+  - `nx build workspace-intelligence` succeeds
+
+**Time**: 2 hours
+
+#### Step 3.3: File Relevance Scorer (4 hours)
 
 - **Files**:
   - `libs/backend/workspace-intelligence/src/optimization/file-relevance-scorer.ts`
@@ -528,12 +575,15 @@ export interface ContextOptimizationResult {
   - Alternative: Simple keyword matching if TF-IDF is complex
   - Score files based on query terms (e.g., "React component" → prioritize .tsx files)
   - Return ranked list of files with relevance scores
+  - Add @injectable() decorator for DI integration
 - **Validation**:
   - Relevance scores are reasonable (manual review)
   - Query-specific file selection improves context quality
   - Tests pass with ≥80% coverage
 
-#### Step 3.2: Context Size Optimizer (6 hours)
+**Time**: 4 hours
+
+#### Step 3.4: Context Size Optimizer (4 hours)
 
 - **Files**:
   - `libs/backend/workspace-intelligence/src/optimization/context-size-optimizer.ts`
@@ -544,12 +594,15 @@ export interface ContextOptimizationResult {
   - Select top N files that fit within token budget
   - Use `TokenCounterService` for accurate token counting
   - Return `ContextOptimizationResult` with selected files + total tokens
+  - Add @injectable() decorator and register in DI container
 - **Validation**:
   - Token budget respected (total tokens ≤ budget)
   - Highest relevance files selected first
   - Tests pass with ≥80% coverage
 
-#### Step 3.3: Semantic Context Extractor (6 hours)
+**Time**: 4 hours
+
+#### Step 3.5: Semantic Context Extractor (4 hours)
 
 - **Files**:
   - `libs/backend/workspace-intelligence/src/optimization/semantic-context-extractor.ts`
@@ -559,29 +612,61 @@ export interface ContextOptimizationResult {
   - Extract function/class names from semantic tokens
   - Build smart context summaries (only declarations, not full file content)
   - Integrate with `ContextSizeOptimizer` to optimize token usage
+  - Add @injectable() decorator and register in DI container
 - **Validation**:
   - Semantic tokens extracted correctly for TypeScript, JavaScript, Python
   - Context summaries are meaningful (manual review)
   - Token usage reduced by 30-50% compared to full file content
   - Tests pass with ≥80% coverage
 
-#### Step 3.4: Integration & Deprecation (6 hours)
+**Time**: 4 hours
+
+#### Step 3.6: Workspace Manager Deprecation Wrapper (4 hours)
 
 - **Files**:
   - `apps/ptah-extension-vscode/src/services/workspace-manager.ts` (modify)
   - `libs/backend/workspace-intelligence/src/index.ts` (finalize exports)
-  - Integration tests
 - **Task**:
-  - Create forwarding wrapper in old `workspace-manager.ts` that delegates to new library
-  - Update extension code to use new library services
-  - Verify zero regression in extension functionality
-  - Add deprecation notice in workspace-manager.ts comments
-  - Write integration tests for full workflow (project detection → file indexing → context optimization)
+  - Create forwarding wrapper in old `workspace-manager.ts` that delegates to new library services
+  - Resolve services via DI container instead of direct instantiation:
+    ```typescript
+    import { DIContainer, TOKENS } from '@ptah-extension/vscode-core/di';
+    const projectDetector = DIContainer.resolve(TOKENS.PROJECT_DETECTOR_SERVICE);
+    ```
+  - Add deprecation notice JSDoc comments with migration guide
+  - Update extension code to use new library services via DI
+  - Maintain backward compatibility for gradual migration
 - **Validation**:
   - All extension features work with new library
   - No breaking changes for existing code
-  - Integration tests pass
-  - `nx test workspace-intelligence` shows ≥80% coverage
+  - DI container resolves all services correctly
+  - Extension launches without errors in Development Host
+
+**Time**: 4 hours
+
+#### Step 3.7: Integration Testing & Validation (4 hours)
+
+- **Files**:
+  - `libs/backend/workspace-intelligence/src/integration/workspace-intelligence.integration.spec.ts` (create)
+  - `apps/ptah-extension-vscode/src/integration-tests/` (existing integration test suite)
+- **Task**:
+  - Write end-to-end integration tests:
+    - Project detection → Framework detection → Dependency analysis → Monorepo detection
+    - Full workflow with DI container resolution
+    - Multi-root workspace scenarios
+  - Test DI container initialization with all workspace-intelligence services
+  - Verify no circular dependencies in service graph
+  - Performance benchmark: index 1000+ file workspace in <500ms
+  - Memory leak testing with repeated service resolution
+- **Validation**:
+  - All integration tests pass
+  - DI container resolves services without errors
+  - No memory leaks detected
+  - Performance targets met
+  - `nx test workspace-intelligence` shows ≥80% overall coverage
+
+**Time**: 4 hours  
+**Final Step**: Marks Phase 3 complete ✅
 
 ---
 

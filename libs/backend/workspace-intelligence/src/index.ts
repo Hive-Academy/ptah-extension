@@ -25,28 +25,12 @@ export {
 
 // Project analysis exports
 export { ProjectDetectorService } from './project-analysis/project-detector.service';
+export { FrameworkDetectorService } from './project-analysis/framework-detector.service';
+export { DependencyAnalyzerService } from './project-analysis/dependency-analyzer.service';
+export { MonorepoDetectorService } from './project-analysis/monorepo-detector.service';
+
+// File indexing exports
+export { PatternMatcherService } from './file-indexing/pattern-matcher.service';
 
 // DI tokens
 export * from './di/tokens';
-
-// TODO: Uncomment as services are implemented
-// export { PatternMatcherService } from './services/pattern-matcher.service';
-// export { FileIndexerService } from './services/file-indexer.service';
-// export { WorkspaceAnalyzerService } from './services/workspace-analyzer.service';
-
-// Project analysis will be exported as implemented
-// export * from './project-analysis/project-type-detector';
-// export * from './project-analysis/framework-detector';
-// export * from './project-analysis/dependency-analyzer';
-// export * from './project-analysis/monorepo-detector';
-
-// File indexing will be exported as implemented
-// export * from './file-indexing/pattern-matcher.service';
-// export * from './file-indexing/ignore-pattern-resolver';
-// export * from './file-indexing/workspace-indexer';
-// export * from './file-indexing/file-type-classifier';
-
-// Context optimization will be exported as implemented
-// export * from './optimization/context-size-optimizer';
-// export * from './optimization/file-relevance-scorer';
-// export * from './optimization/semantic-context-extractor';

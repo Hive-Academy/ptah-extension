@@ -88,6 +88,7 @@
     "@swc/helpers": "~0.5.11",
     "@types/jest": "^30.0.0",
     "@types/node": "20.19.9",
+    "@types/picomatch": "^4.0.2",
     "@types/uuid": "^10.0.0",
     "@types/vscode": "^1.103.0",
     "@typescript-eslint/utils": "^8.29.0",

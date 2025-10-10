@@ -42,9 +42,15 @@ export const CLAUDE_DOMAIN_EVENT_PUBLISHER = Symbol(
 export const TOKEN_COUNTER_SERVICE = Symbol('TokenCounterService');
 export const FILE_SYSTEM_SERVICE = Symbol('FileSystemService');
 export const PROJECT_DETECTOR_SERVICE = Symbol('ProjectDetectorService');
+export const FRAMEWORK_DETECTOR_SERVICE = Symbol('FrameworkDetectorService');
+export const DEPENDENCY_ANALYZER_SERVICE = Symbol('DependencyAnalyzerService');
+export const MONOREPO_DETECTOR_SERVICE = Symbol('MonorepoDetectorService');
 export const PATTERN_MATCHER_SERVICE = Symbol('PatternMatcherService');
 export const FILE_INDEXER_SERVICE = Symbol('FileIndexerService');
 export const WORKSPACE_ANALYZER_SERVICE = Symbol('WorkspaceAnalyzerService');
+export const FILE_RELEVANCE_SCORER = Symbol('FileRelevanceScorer');
+export const CONTEXT_SIZE_OPTIMIZER = Symbol('ContextSizeOptimizer');
+export const SEMANTIC_CONTEXT_EXTRACTOR = Symbol('SemanticContextExtractor');
 
 /**
  * TOKENS constant for convenient access to all DI tokens
@@ -87,9 +93,15 @@ export const TOKENS = {
   TOKEN_COUNTER_SERVICE,
   FILE_SYSTEM_SERVICE,
   PROJECT_DETECTOR_SERVICE,
+  FRAMEWORK_DETECTOR_SERVICE,
+  DEPENDENCY_ANALYZER_SERVICE,
+  MONOREPO_DETECTOR_SERVICE,
   PATTERN_MATCHER_SERVICE,
   FILE_INDEXER_SERVICE,
   WORKSPACE_ANALYZER_SERVICE,
+  FILE_RELEVANCE_SCORER,
+  CONTEXT_SIZE_OPTIMIZER,
+  SEMANTIC_CONTEXT_EXTRACTOR,
 } as const;
 
 /**

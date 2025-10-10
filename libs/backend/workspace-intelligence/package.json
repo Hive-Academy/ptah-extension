@@ -8,6 +8,7 @@
   "dependencies": {
     "@ptah-extension/shared": "*",
     "@types/vscode": "^1.103.0",
+    "picomatch": "^4.0.2",
     "tsyringe": "^4.8.0"
   }
 }
