@@ -2,55 +2,74 @@
  * DI Token Symbols - Type-safe dependency injection tokens
  * Eliminates string-based tokens to prevent typos and improve type safety
  * Based on MONSTER_EXTENSION_REFACTOR_PLAN lines 176-194
+ *
+ * Note: Uses Symbol.for() instead of Symbol() to create global symbols that can be
+ * shared across module boundaries. This allows workspace-intelligence and other
+ * libraries to use local token definitions without circular dependencies.
  */
 
 // VS Code API tokens
-export const EXTENSION_CONTEXT = Symbol('ExtensionContext');
-export const WEBVIEW_PROVIDER = Symbol('WebviewProvider');
-export const COMMAND_REGISTRY = Symbol('CommandRegistry');
+export const EXTENSION_CONTEXT = Symbol.for('ExtensionContext');
+export const WEBVIEW_PROVIDER = Symbol.for('WebviewProvider');
+export const COMMAND_REGISTRY = Symbol.for('CommandRegistry');
 
 // Messaging system tokens
-export const EVENT_BUS = Symbol('EventBus');
-export const MESSAGE_ROUTER = Symbol('MessageRouter');
+export const EVENT_BUS = Symbol.for('EventBus');
+export const MESSAGE_ROUTER = Symbol.for('MessageRouter');
 
 // Provider system tokens
-export const AI_PROVIDER_FACTORY = Symbol('AIProviderFactory');
-export const AI_PROVIDER_MANAGER = Symbol('AIProviderManager');
-export const PROVIDER_STRATEGY = Symbol('ProviderStrategy');
+export const AI_PROVIDER_FACTORY = Symbol.for('AIProviderFactory');
+export const AI_PROVIDER_MANAGER = Symbol.for('AIProviderManager');
+export const PROVIDER_STRATEGY = Symbol.for('ProviderStrategy');
 
 // API wrapper service tokens
-export const OUTPUT_MANAGER = Symbol('OutputManager');
-export const STATUS_BAR_MANAGER = Symbol('StatusBarManager');
-export const FILE_SYSTEM_MANAGER = Symbol('FileSystemManager');
+export const OUTPUT_MANAGER = Symbol.for('OutputManager');
+export const STATUS_BAR_MANAGER = Symbol.for('StatusBarManager');
+export const FILE_SYSTEM_MANAGER = Symbol.for('FileSystemManager');
 
 // Business logic service tokens
-export const CLAUDE_SERVICE = Symbol('ClaudeService');
-export const SESSION_MANAGER = Symbol('SessionManager');
-export const WORKSPACE_ANALYZER = Symbol('WorkspaceAnalyzer');
+export const CLAUDE_SERVICE = Symbol.for('ClaudeService');
+export const SESSION_MANAGER = Symbol.for('SessionManager');
+export const WORKSPACE_ANALYZER = Symbol.for('WorkspaceAnalyzer');
 
 // Claude domain service tokens (MONSTER Week 5)
-export const CLAUDE_CLI_DETECTOR = Symbol('ClaudeCliDetector');
-export const CLAUDE_CLI_LAUNCHER = Symbol('ClaudeCliLauncher');
-export const CLAUDE_SESSION_MANAGER = Symbol('ClaudeSessionManager');
-export const CLAUDE_PERMISSION_SERVICE = Symbol('ClaudePermissionService');
-export const CLAUDE_PROCESS_MANAGER = Symbol('ClaudeProcessManager');
-export const CLAUDE_DOMAIN_EVENT_PUBLISHER = Symbol(
+export const CLAUDE_CLI_DETECTOR = Symbol.for('ClaudeCliDetector');
+export const CLAUDE_CLI_LAUNCHER = Symbol.for('ClaudeCliLauncher');
+export const CLAUDE_SESSION_MANAGER = Symbol.for('ClaudeSessionManager');
+export const CLAUDE_PERMISSION_SERVICE = Symbol.for('ClaudePermissionService');
+export const CLAUDE_PROCESS_MANAGER = Symbol.for('ClaudeProcessManager');
+export const CLAUDE_DOMAIN_EVENT_PUBLISHER = Symbol.for(
   'ClaudeDomainEventPublisher'
 );
 
 // Workspace intelligence service tokens (TASK_PRV_005)
-export const TOKEN_COUNTER_SERVICE = Symbol('TokenCounterService');
-export const FILE_SYSTEM_SERVICE = Symbol('FileSystemService');
-export const PROJECT_DETECTOR_SERVICE = Symbol('ProjectDetectorService');
-export const FRAMEWORK_DETECTOR_SERVICE = Symbol('FrameworkDetectorService');
-export const DEPENDENCY_ANALYZER_SERVICE = Symbol('DependencyAnalyzerService');
-export const MONOREPO_DETECTOR_SERVICE = Symbol('MonorepoDetectorService');
-export const PATTERN_MATCHER_SERVICE = Symbol('PatternMatcherService');
-export const FILE_INDEXER_SERVICE = Symbol('FileIndexerService');
-export const WORKSPACE_ANALYZER_SERVICE = Symbol('WorkspaceAnalyzerService');
-export const FILE_RELEVANCE_SCORER = Symbol('FileRelevanceScorer');
-export const CONTEXT_SIZE_OPTIMIZER = Symbol('ContextSizeOptimizer');
-export const SEMANTIC_CONTEXT_EXTRACTOR = Symbol('SemanticContextExtractor');
+export const TOKEN_COUNTER_SERVICE = Symbol.for('TokenCounterService');
+export const FILE_SYSTEM_SERVICE = Symbol.for('FileSystemService');
+export const PROJECT_DETECTOR_SERVICE = Symbol.for('ProjectDetectorService');
+export const FRAMEWORK_DETECTOR_SERVICE = Symbol.for(
+  'FrameworkDetectorService'
+);
+export const DEPENDENCY_ANALYZER_SERVICE = Symbol.for(
+  'DependencyAnalyzerService'
+);
+export const MONOREPO_DETECTOR_SERVICE = Symbol.for('MonorepoDetectorService');
+export const PATTERN_MATCHER_SERVICE = Symbol.for('PatternMatcherService');
+export const IGNORE_PATTERN_RESOLVER_SERVICE = Symbol.for(
+  'IgnorePatternResolverService'
+);
+export const FILE_TYPE_CLASSIFIER_SERVICE = Symbol.for(
+  'FileTypeClassifierService'
+);
+export const WORKSPACE_INDEXER_SERVICE = Symbol.for('WorkspaceIndexerService');
+export const FILE_INDEXER_SERVICE = Symbol.for('FileIndexerService');
+export const WORKSPACE_ANALYZER_SERVICE = Symbol.for(
+  'WorkspaceAnalyzerService'
+);
+export const FILE_RELEVANCE_SCORER = Symbol.for('FileRelevanceScorer');
+export const CONTEXT_SIZE_OPTIMIZER = Symbol.for('ContextSizeOptimizer');
+export const SEMANTIC_CONTEXT_EXTRACTOR = Symbol.for(
+  'SemanticContextExtractor'
+);
 
 /**
  * TOKENS constant for convenient access to all DI tokens
@@ -97,6 +116,9 @@ export const TOKENS = {
   DEPENDENCY_ANALYZER_SERVICE,
   MONOREPO_DETECTOR_SERVICE,
   PATTERN_MATCHER_SERVICE,
+  IGNORE_PATTERN_RESOLVER_SERVICE,
+  FILE_TYPE_CLASSIFIER_SERVICE,
+  WORKSPACE_INDEXER_SERVICE,
   FILE_INDEXER_SERVICE,
   WORKSPACE_ANALYZER_SERVICE,
   FILE_RELEVANCE_SCORER,

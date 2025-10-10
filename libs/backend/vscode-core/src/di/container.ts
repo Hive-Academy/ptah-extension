@@ -108,7 +108,15 @@ export class DIContainer {
       TokenCounterService,
       FileSystemService,
       ProjectDetectorService,
+      FrameworkDetectorService,
+      DependencyAnalyzerService,
+      MonorepoDetectorService,
+      PatternMatcherService,
+      IgnorePatternResolverService,
+      FileTypeClassifierService,
+      WorkspaceIndexerService,
     } = require('@ptah-extension/workspace-intelligence');
+
     container.registerSingleton(
       TOKENS.TOKEN_COUNTER_SERVICE,
       TokenCounterService
@@ -117,6 +125,34 @@ export class DIContainer {
     container.registerSingleton(
       TOKENS.PROJECT_DETECTOR_SERVICE,
       ProjectDetectorService
+    );
+    container.registerSingleton(
+      TOKENS.FRAMEWORK_DETECTOR_SERVICE,
+      FrameworkDetectorService
+    );
+    container.registerSingleton(
+      TOKENS.DEPENDENCY_ANALYZER_SERVICE,
+      DependencyAnalyzerService
+    );
+    container.registerSingleton(
+      TOKENS.MONOREPO_DETECTOR_SERVICE,
+      MonorepoDetectorService
+    );
+    container.registerSingleton(
+      TOKENS.PATTERN_MATCHER_SERVICE,
+      PatternMatcherService
+    );
+    container.registerSingleton(
+      TOKENS.IGNORE_PATTERN_RESOLVER_SERVICE,
+      IgnorePatternResolverService
+    );
+    container.registerSingleton(
+      TOKENS.FILE_TYPE_CLASSIFIER_SERVICE,
+      FileTypeClassifierService
+    );
+    container.registerSingleton(
+      TOKENS.WORKSPACE_INDEXER_SERVICE,
+      WorkspaceIndexerService
     );
 
     return container;

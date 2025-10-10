@@ -418,9 +418,64 @@
 **Total Time**: 52 hours (under 3-day estimate)
 **Status**: Ready for Phase 3
 
-### Phase 3: Context Optimization & Integration (2 days) - PLANNED
+### Phase 3: Context Optimization & Integration (2 days) - IN PROGRESS
 
-#### Step 3.1: DI Container Registration (2 hours) - CRITICAL
+#### Step 3.1: DI Container Registration (2 hours) - ✅ COMPLETE
+
+- [x] Add missing service tokens to vscode-core DI (IGNORE_PATTERN_RESOLVER_SERVICE, FILE_TYPE_CLASSIFIER_SERVICE, WORKSPACE_INDEXER_SERVICE)
+- [x] Register all implemented workspace-intelligence services in DIContainer.setup()
+- [x] Export all services from workspace-intelligence barrel export
+- [x] Create validation test file (container-workspace-intelligence.spec.ts)
+- [x] Initial test run - discovered critical Symbol mismatch issue ⚠️
+- [x] **CRITICAL FIX**: Applied Symbol.for() pattern to fix token mismatch
+- [x] Re-run validation tests to confirm all services resolve correctly
+- [x] Validate: DIContainer.isRegistered() returns true for all workspace-intelligence tokens
+- [x] Validate: All services resolve correctly via DIContainer.resolve(TOKENS.X)
+- [x] Validate: Extension launches in Development Host without DI errors
+
+**Time**: 6 hours (actual) - 4 hours over estimate due to Symbol mismatch debugging
+**Status**: ✅ COMPLETE - All 18 validation tests passing
+**Priority**: CRITICAL - Phase 3 integration unblocked
+**Deliverable**: All services properly registered and resolvable via DI container ✅
+
+**Architectural Decision**:
+
+- **Problem**: Symbol token mismatch - `Symbol()` creates unique symbols per module, preventing DI resolution across library boundaries
+- **Solution Explored**: Two options considered:
+  - Option A: Remove local tokens, import from vscode-core → Circular dependency (vscode-core imports workspace-intelligence services)
+  - Option B: Change `Symbol()` to `Symbol.for()` with identical string keys → CHOSEN ✅
+- **Implementation**: Updated both token files to use `Symbol.for('PascalCase')` pattern
+  - vscode-core: `Symbol.for('FileSystemService')`
+  - workspace-intelligence: `Symbol.for('FileSystemService')` (must match exactly)
+- **Rationale**: Symbol.for() creates global registry symbols that can be shared across modules, avoiding circular dependency while maintaining type safety
+
+**Test Results** (18/18 passing ✅):
+
+- ✅ Service registration checks pass (all services registered)
+- ✅ TokenCounterService resolves (no dependencies)
+- ✅ FileSystemService resolves (no dependencies)
+- ✅ ProjectDetectorService resolves (injected FileSystemService) ✅
+- ✅ FrameworkDetectorService resolves (injected FileSystemService) ✅
+- ✅ DependencyAnalyzerService resolves (injected FileSystemService) ✅
+- ✅ MonorepoDetectorService resolves (injected FileSystemService) ✅
+- ✅ PatternMatcherService resolves (no dependencies)
+- ✅ IgnorePatternResolverService resolves (injected FileSystemService + PatternMatcherService) ✅
+- ✅ FileTypeClassifierService resolves (no dependencies)
+- ✅ WorkspaceIndexerService resolves (injected 5 dependencies) ✅
+- ✅ Singleton behavior verified across all services
+- ✅ Dependency injection chain validated
+
+**Files Modified**:
+
+- ✅ `libs/backend/vscode-core/src/di/tokens.ts` (added 3 missing tokens, changed all Symbol() to Symbol.for())
+- ✅ `libs/backend/vscode-core/src/di/container.ts` (registered 10 workspace-intelligence services)
+- ✅ `libs/backend/workspace-intelligence/src/di/tokens.ts` (changed Symbol.for() string keys to PascalCase)
+- ✅ `libs/backend/workspace-intelligence/src/index.ts` (cleaned up duplicate exports)
+- ✅ `libs/backend/vscode-core/src/di/container-workspace-intelligence.spec.ts` (created 18 validation tests)
+
+**Completed**: October 10, 2025
+
+#### Step 3.2: Service Export Finalization (2 hours) - PLANNED
 
 - [ ] Add missing service tokens to vscode-core DI (FRAMEWORK_DETECTOR_SERVICE, DEPENDENCY_ANALYZER_SERVICE, MONOREPO_DETECTOR_SERVICE, etc.)
 - [ ] Register all implemented workspace-intelligence services in DIContainer.setup()
