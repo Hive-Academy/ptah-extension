@@ -43,6 +43,16 @@ export {
   FileTypeClassifierService,
   type FileClassificationResult,
 } from './context-analysis/file-type-classifier.service';
+export {
+  FileRelevanceScorerService,
+  type FileRelevanceResult,
+} from './context-analysis/file-relevance-scorer.service';
+export {
+  ContextSizeOptimizerService,
+  type ContextOptimizationRequest,
+  type OptimizedContext,
+  type ContextOptimizationStats,
+} from './context-analysis/context-size-optimizer.service';
 
 // DI tokens
 export * from './di/tokens';

@@ -548,15 +548,19 @@ export interface ContextOptimizationResult {
   - `libs/backend/workspace-intelligence/src/index.ts` (modify)
   - `libs/backend/workspace-intelligence/README.md` (create/update)
 - **Task**:
+
   - Export all implemented services from barrel file:
-    ```typescript
-    export { FrameworkDetectorService } from './project-analysis/framework-detector.service';
-    export { DependencyAnalyzerService } from './project-analysis/dependency-analyzer.service';
-    export { MonorepoDetectorService } from './project-analysis/monorepo-detector.service';
-    ```
+
+  ```typescript
+  export { FrameworkDetectorService } from './project-analysis/framework-detector.service';
+  export { DependencyAnalyzerService } from './project-analysis/dependency-analyzer.service';
+  export { MonorepoDetectorService } from './project-analysis/monorepo-detector.service';
+  ```
+
   - Document public API surface in README.md with usage examples
   - Add JSDoc comments to all exported services for IntelliSense
   - Create simple integration example showing DI usage
+
 - **Validation**:
   - All services can be imported via `@ptah-extension/workspace-intelligence`
   - TypeScript auto-completion works for all exported services
@@ -627,15 +631,19 @@ export interface ContextOptimizationResult {
   - `apps/ptah-extension-vscode/src/services/workspace-manager.ts` (modify)
   - `libs/backend/workspace-intelligence/src/index.ts` (finalize exports)
 - **Task**:
+
   - Create forwarding wrapper in old `workspace-manager.ts` that delegates to new library services
   - Resolve services via DI container instead of direct instantiation:
-    ```typescript
-    import { DIContainer, TOKENS } from '@ptah-extension/vscode-core/di';
-    const projectDetector = DIContainer.resolve(TOKENS.PROJECT_DETECTOR_SERVICE);
-    ```
+
+  ```typescript
+  import { DIContainer, TOKENS } from '@ptah-extension/vscode-core/di';
+  const projectDetector = DIContainer.resolve(TOKENS.PROJECT_DETECTOR_SERVICE);
+  ```
+
   - Add deprecation notice JSDoc comments with migration guide
   - Update extension code to use new library services via DI
   - Maintain backward compatibility for gradual migration
+
 - **Validation**:
   - All extension features work with new library
   - No breaking changes for existing code
