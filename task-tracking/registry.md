@@ -8,14 +8,26 @@
 
 ## 📊 Active MONSTER Plan Tasks
 
-| Task ID        | MONSTER Week | Description                                                                          | Status        | Agent              | Created    | Estimated Days |
-| -------------- | ------------ | ------------------------------------------------------------------------------------ | ------------- | ------------------ | ---------- | -------------- |
-| TASK_CORE_001  | Weeks 1-6    | Complete ALL deferred infrastructure (vscode-core, ai-providers-core, claude-domain) | � In Progress | backend-developer  | 2025-10-10 | 8-10 days      |
-| TASK_SES_001   | Week 7       | Extract ptah-session library - Session management services                           | 📋 Planned    | backend-developer  | 2025-10-10 | 3-4 days       |
-| TASK_ANLYT_001 | Week 7       | Extract ptah-analytics library - Analytics and telemetry services                    | 📋 Planned    | backend-developer  | 2025-10-10 | 3-4 days       |
-| TASK_PERF_001  | Week 8       | Performance Monitoring System - Observability and metrics dashboard                  | 📋 Planned    | backend-developer  | 2025-10-10 | 5 days         |
-| TASK_THEME_001 | Week 9       | VS Code Theme Integration - Design tokens and themed components                      | 📋 Planned    | frontend-developer | 2025-10-10 | 5 days         |
-| TASK_INT_001   | Post-Week 9  | Final Library Integration - Clean main app and integrate ALL libraries               | 📋 Planned    | orchestrator       | 2025-10-10 | 8-12 hours     |
+| Task ID        | MONSTER Week | Description                                                                          | Status         | Agent              | Created    | Estimated Days |
+| -------------- | ------------ | ------------------------------------------------------------------------------------ | -------------- | ------------------ | ---------- | -------------- |
+| TASK_CORE_001  | Weeks 1-6    | Complete ALL deferred infrastructure (vscode-core, ai-providers-core, claude-domain) | 🔄 In Progress | backend-developer  | 2025-10-10 | 3 days         |
+| TASK_SES_001   | Week 7       | Extract ptah-session library - Session management services                           | 📋 Planned     | backend-developer  | 2025-10-10 | 3-4 days       |
+| TASK_ANLYT_001 | Week 7       | Extract ptah-analytics library - Analytics and telemetry services                    | 📋 Planned     | backend-developer  | 2025-10-10 | 3-4 days       |
+| TASK_PERF_001  | Week 8       | Performance Monitoring System - Observability and metrics dashboard                  | 📋 Planned     | backend-developer  | 2025-10-10 | 5 days         |
+| TASK_THEME_001 | Week 9       | VS Code Theme Integration - Design tokens and themed components                      | 📋 Planned     | frontend-developer | 2025-10-10 | 5 days         |
+| TASK_INT_001   | Post-Week 9  | Final Library Integration - Clean main app and integrate ALL libraries               | 📋 Planned     | orchestrator       | 2025-10-10 | 8-12 hours     |
+
+---
+
+## 🔮 Future Enhancement Tasks (Post-Integration)
+
+| Task ID       | Description                                   | Status    | Agent             | Created    | Effort | Priority |
+| ------------- | --------------------------------------------- | --------- | ----------------- | ---------- | ------ | -------- |
+| TASK_CORE_002 | Additional provider selection strategies      | 📋 Future | backend-developer | 2025-10-10 | 1-2d   | Medium   |
+| TASK_CORE_003 | Performance monitoring for DI container       | 📋 Future | backend-developer | 2025-10-10 | 1d     | Low      |
+| TASK_CORE_004 | Advanced logging features (rotation, remote)  | 📋 Future | backend-developer | 2025-10-10 | 2d     | Low      |
+| TASK_CORE_005 | Configuration validation and migration system | 📋 Future | backend-developer | 2025-10-10 | 1-2d   | Medium   |
+| TASK_CORE_006 | Error tracking and analytics integration      | 📋 Future | backend-developer | 2025-10-10 | 2d     | Low      |
 
 ---
 
