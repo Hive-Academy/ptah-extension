@@ -17,6 +17,11 @@ export const PROJECT_DETECTOR_SERVICE = Symbol.for('PROJECT_DETECTOR_SERVICE');
 /** Pattern matching service for glob patterns */
 export const PATTERN_MATCHER_SERVICE = Symbol.for('PATTERN_MATCHER_SERVICE');
 
+/** Ignore pattern resolver service for .gitignore, .prettierignore, etc. */
+export const IGNORE_PATTERN_RESOLVER_SERVICE = Symbol.for(
+  'IGNORE_PATTERN_RESOLVER_SERVICE'
+);
+
 /** File indexer service for workspace file scanning */
 export const FILE_INDEXER_SERVICE = Symbol.for('FILE_INDEXER_SERVICE');
 

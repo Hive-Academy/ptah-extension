@@ -31,6 +31,7 @@ export { MonorepoDetectorService } from './project-analysis/monorepo-detector.se
 
 // File indexing exports
 export { PatternMatcherService } from './file-indexing/pattern-matcher.service';
+export { IgnorePatternResolverService } from './file-indexing/ignore-pattern-resolver.service';
 
 // DI tokens
 export * from './di/tokens';
