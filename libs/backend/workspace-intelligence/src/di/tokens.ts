@@ -27,6 +27,11 @@ export const FILE_TYPE_CLASSIFIER_SERVICE = Symbol.for(
   'FILE_TYPE_CLASSIFIER_SERVICE'
 );
 
+/** Workspace indexer service for file discovery and indexing */
+export const WORKSPACE_INDEXER_SERVICE = Symbol.for(
+  'WORKSPACE_INDEXER_SERVICE'
+);
+
 /** File indexer service for workspace file scanning */
 export const FILE_INDEXER_SERVICE = Symbol.for('FILE_INDEXER_SERVICE');
 

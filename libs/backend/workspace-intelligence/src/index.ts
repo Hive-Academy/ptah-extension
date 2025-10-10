@@ -32,6 +32,11 @@ export { MonorepoDetectorService } from './project-analysis/monorepo-detector.se
 // File indexing exports
 export { PatternMatcherService } from './file-indexing/pattern-matcher.service';
 export { IgnorePatternResolverService } from './file-indexing/ignore-pattern-resolver.service';
+export {
+  WorkspaceIndexerService,
+  type WorkspaceIndexOptions,
+  type IndexingProgress,
+} from './file-indexing/workspace-indexer.service';
 
 // Context analysis exports
 export {
