@@ -22,6 +22,11 @@ export const IGNORE_PATTERN_RESOLVER_SERVICE = Symbol.for(
   'IGNORE_PATTERN_RESOLVER_SERVICE'
 );
 
+/** File type classifier service for categorizing files */
+export const FILE_TYPE_CLASSIFIER_SERVICE = Symbol.for(
+  'FILE_TYPE_CLASSIFIER_SERVICE'
+);
+
 /** File indexer service for workspace file scanning */
 export const FILE_INDEXER_SERVICE = Symbol.for('FILE_INDEXER_SERVICE');
 

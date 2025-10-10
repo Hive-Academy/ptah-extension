@@ -33,5 +33,11 @@ export { MonorepoDetectorService } from './project-analysis/monorepo-detector.se
 export { PatternMatcherService } from './file-indexing/pattern-matcher.service';
 export { IgnorePatternResolverService } from './file-indexing/ignore-pattern-resolver.service';
 
+// Context analysis exports
+export {
+  FileTypeClassifierService,
+  type FileClassificationResult,
+} from './context-analysis/file-type-classifier.service';
+
 // DI tokens
 export * from './di/tokens';
