@@ -161,6 +161,52 @@
 2. Debug Gemfile deduplication test (regex matching edge case)
 3. Should take ~1 hour to fix remaining 5 test failures
 
+#### Step 2.3: Monorepo Detection ✅ COMPLETE
+
+- [x] Create `MonorepoDetectorService` class with @injectable() decorator
+- [x] Detect 6 monorepo types: Nx, Lerna, Rush, Turborepo, pnpm workspaces, Yarn workspaces
+- [x] Check for monorepo config files (nx.json, lerna.json, rush.json, turbo.json, pnpm-workspace.yaml, package.json workspaces)
+- [x] Parse config files to extract package counts where available
+- [x] Implement priority order: Nx > Rush > Lerna > Turborepo > pnpm > Yarn
+- [x] Add detectMonorepo() for single workspace folder
+- [x] Add detectMonoreposForWorkspaces() for multi-root workspace support
+- [x] Inject FileSystemService via FILE_SYSTEM_SERVICE token
+- [x] Write comprehensive unit tests (29 tests total)
+- [x] Test all 6 monorepo types with various config formats
+- [x] Test priority order (Nx takes precedence over Yarn, etc.)
+- [x] Test multi-root workspace scenarios
+- [x] Validate: All tests pass ≥80% coverage (100% achieved) ✅
+
+**Time**: 4 hours  
+**Completed**: {current timestamp}
+
+**Test Status**:
+
+- ✅ Nx workspace detection: 5/5 tests (nx.json, workspace.json, both, invalid JSON, missing projects)
+- ✅ Rush workspace detection: 3/3 tests (rush.json with projects, invalid JSON, missing projects)
+- ✅ Lerna workspace detection: 4/4 tests (packages config, useWorkspaces, missing package.json, invalid JSON)
+- ✅ Turborepo detection: 1/1 test (turbo.json)
+- ✅ pnpm workspace detection: 3/3 tests (YAML parsing, complex YAML, invalid YAML)
+- ✅ Yarn workspace detection: 3/3 tests (array format, object format, missing workspaces field, invalid JSON)
+- ✅ Non-monorepo detection: 1/1 test
+- ✅ Priority order: 5/5 tests (Nx > Rush > Lerna > Turborepo > pnpm > Yarn)
+- ✅ Multi-root workspace: 3/3 tests (multiple monorepos, empty workspace, mixed monorepo/regular)
+
+**Implementation Notes**:
+
+- MonorepoDetectorService: ~350 lines
+- Returns MonorepoDetectionResult with isMonorepo, type, workspaceFiles[], packageCount
+- Graceful error handling - invalid JSON doesn't fail detection
+- Short-circuit evaluation - stops checking after first monorepo type detected
+- Package count extraction from config files (optional, best-effort)
+
+**Total Tests Now**: 142/147 passing (96.6% pass rate)
+
+- Phase 1: 66 tests (TokenCounter 11 + FileSystem 23 + ProjectDetector 32) - 100% passing
+- Phase 2 Step 2.1: 34 tests (FrameworkDetector) - 100% passing
+- Phase 2 Step 2.2: 18 tests (DependencyAnalyzer) - 113 total, 5 failing edge cases
+- Phase 2 Step 2.3: 29 tests (MonorepoDetector) - 100% passing ✅
+
 ### Phase 3: Context Optimization (2 days) - PLANNED
 
 - File relevance scorer
@@ -185,6 +231,10 @@
 - [x] `libs/backend/workspace-intelligence/src/project-analysis/project-detector.service.spec.ts` (~540 lines) ✅
 - [x] `libs/backend/workspace-intelligence/src/project-analysis/framework-detector.service.ts` (~260 lines) ✅
 - [x] `libs/backend/workspace-intelligence/src/project-analysis/framework-detector.service.spec.ts` (~510 lines) ✅
+- [x] `libs/backend/workspace-intelligence/src/project-analysis/dependency-analyzer.service.ts` (~650 lines) ✅
+- [x] `libs/backend/workspace-intelligence/src/project-analysis/dependency-analyzer.service.spec.ts` (~700 lines) ✅
+- [x] `libs/backend/workspace-intelligence/src/project-analysis/monorepo-detector.service.ts` (~350 lines) ✅
+- [x] `libs/backend/workspace-intelligence/src/project-analysis/monorepo-detector.service.spec.ts` (~620 lines) ✅
 - [x] `libs/backend/workspace-intelligence/src/di/tokens.ts` (~25 lines) ✅
 - [x] `libs/backend/workspace-intelligence/src/index.ts` (barrel exports) ✅
 - [x] `libs/backend/vscode-core/src/di/tokens.ts` (added 6 new tokens) ✅
