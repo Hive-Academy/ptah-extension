@@ -59,3 +59,6 @@ export const WORKSPACE_ANALYZER_SERVICE = Symbol.for(
 
 /** Workspace management service for workspace information and analysis */
 export const WORKSPACE_SERVICE = Symbol.for('WorkspaceService');
+
+/** Context service for file context management and AI interactions */
+export const CONTEXT_SERVICE = Symbol.for('ContextService');

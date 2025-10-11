@@ -17,6 +17,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import * as vscode from 'vscode';
+import { ProjectType } from '../types/workspace.types';
 import {
   FILE_SYSTEM_SERVICE,
   PROJECT_DETECTOR_SERVICE,
@@ -32,8 +33,8 @@ import type { FrameworkDetectorService } from '../project-analysis/framework-det
 import type { DependencyAnalyzerService } from '../project-analysis/dependency-analyzer.service';
 import type {
   WorkspaceService,
-  WorkspaceAnalysisResult,
   ProjectInfo,
+  WorkspaceStructureAnalysis,
 } from '../workspace/workspace.service';
 import type { ContextService } from '../context/context.service';
 import type { WorkspaceIndexerService } from '../file-indexing/workspace-indexer.service';
@@ -126,91 +127,51 @@ export class WorkspaceAnalyzerService implements vscode.Disposable {
   }
 
   /**
-   * Detect project type for a workspace path
+   * Detect project type for a specific workspace path
    * Delegates to ProjectDetectorService
    *
    * @param workspacePath - Path to analyze
-   * @returns Project type string (e.g., 'vscode-extension', 'react-app', 'angular-app')
+   * @returns Project type enum value
    */
-  async detectProjectType(workspacePath: string): Promise<string> {
-    const detected = await this.projectDetector.detectProjectType(
-      workspacePath
-    );
-    return detected.type;
+  async detectProjectType(workspacePath: string): Promise<ProjectType> {
+    const workspaceUri = vscode.Uri.file(workspacePath);
+    return await this.projectDetector.detectProjectType(workspaceUri);
   }
 
   /**
    * Get comprehensive project information
    * Combines data from multiple detection services
    *
-   * @returns Project info with type, frameworks, dependencies
+   * @returns Project info with type, dependencies, file statistics
    */
   async getProjectInfo(): Promise<ProjectInfo> {
-    const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspacePath) {
+    const projectInfo = await this.workspaceService.getProjectInfo();
+
+    if (!projectInfo) {
       throw new Error('No workspace folder open');
     }
 
-    // Get analysis from WorkspaceService
-    const analysis = await this.workspaceService.analyzeWorkspace(
-      workspacePath
-    );
-
-    return {
-      name: analysis.name,
-      type: analysis.type,
-      path: workspacePath,
-      frameworks: analysis.frameworks,
-      buildSystem: analysis.buildSystem,
-      packageManager: analysis.packageManager,
-      hasTypeScript: analysis.hasTypeScript,
-      isMonorepo: analysis.isMonorepo,
-      rootFiles: analysis.rootFiles,
-    };
+    return projectInfo;
   }
 
   /**
    * Get recommended context template based on project type
    * Uses framework detection and project analysis
    *
-   * @returns Context template string (e.g., 'typescript-react', 'angular-nx')
+   * @returns Context template string (e.g., 'python', 'react', 'node')
    */
   async getRecommendedContextTemplate(): Promise<string> {
-    const info = await this.getProjectInfo();
-
-    // Build template from project type and frameworks
-    const parts: string[] = [];
-
-    if (info.hasTypeScript) {
-      parts.push('typescript');
-    }
-
-    if (info.frameworks.length > 0) {
-      parts.push(info.frameworks[0].toLowerCase());
-    } else {
-      parts.push(info.type.toLowerCase());
-    }
-
-    if (info.isMonorepo) {
-      parts.push('monorepo');
-    }
-
-    return parts.join('-');
+    return this.workspaceService.getRecommendedContextTemplate();
   }
 
   /**
    * Analyze complete workspace structure
    * Delegates to WorkspaceService for comprehensive analysis
    *
-   * @returns Workspace analysis with file counts, structure, and metadata
+   * @returns Workspace structure analysis with project type and recommendations
    */
-  async analyzeWorkspaceStructure(): Promise<WorkspaceAnalysisResult> {
-    const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspacePath) {
-      throw new Error('No workspace folder open');
-    }
-
-    return await this.workspaceService.analyzeWorkspace(workspacePath);
+  async analyzeWorkspaceStructure(): Promise<WorkspaceStructureAnalysis | null> {
+    return await this.workspaceService.analyzeWorkspaceStructure();
   }
 
   /**
@@ -234,14 +195,10 @@ export class WorkspaceAnalyzerService implements vscode.Disposable {
 
     // Build recommendations based on project type
     const criticalFiles = this.getCriticalFiles(info);
-    const frameworkSpecific = this.getFrameworkSpecificFiles(info);
+    const frameworkSpecific = await this.getFrameworkSpecificFiles();
 
     // Get additional recommended files from context service
-    const contextFiles = await this.contextService.getAllFiles(workspacePath, {
-      includePatterns: ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx'],
-      excludePatterns: ['**/node_modules/**', '**/dist/**'],
-      maxFiles: 50,
-    });
+    const contextFiles = await this.contextService.getAllFiles(false, 0, 100);
 
     return {
       recommendedFiles: contextFiles.map((f) => f.relativePath),
@@ -262,13 +219,37 @@ export class WorkspaceAnalyzerService implements vscode.Disposable {
 
     try {
       const info = await this.getProjectInfo();
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      if (!workspaceFolder) {
+        this.workspaceInfo = undefined;
+        return;
+      }
+
+      // Detect project types and frameworks for this workspace
+      const projectType = await this.projectDetector.detectProjectType(
+        workspaceFolder.uri
+      );
+      const projectTypesMap = new Map<vscode.Uri, ProjectType>();
+      projectTypesMap.set(workspaceFolder.uri, projectType);
+
+      const frameworksMap = await this.frameworkDetector.detectFrameworks(
+        projectTypesMap
+      );
+      const framework = frameworksMap.get(workspaceFolder.uri);
+
+      // Check for TypeScript by looking at dependencies or file statistics
+      const hasTypeScript =
+        info.dependencies.some((dep) => dep === 'typescript') ||
+        info.devDependencies.some((dep) => dep === 'typescript') ||
+        Object.keys(info.fileStatistics).some((key) => key.includes('.ts'));
+
       this.workspaceInfo = {
         name: info.name,
         path: info.path,
         projectType: info.type,
-        frameworks: info.frameworks,
-        hasPackageJson: info.rootFiles.includes('package.json'),
-        hasTsConfig: info.hasTypeScript,
+        frameworks: framework ? [framework] : [],
+        hasPackageJson: info.dependencies.length > 0, // If we have dependencies, package.json exists
+        hasTsConfig: hasTypeScript,
       };
     } catch (error) {
       console.error('Failed to update workspace info:', error);
@@ -280,20 +261,31 @@ export class WorkspaceAnalyzerService implements vscode.Disposable {
    * Get critical files for a project type
    */
   private getCriticalFiles(info: ProjectInfo): string[] {
-    const critical: string[] = ['README.md', 'package.json'];
+    const critical: string[] = ['README.md'];
 
-    if (info.hasTypeScript) {
+    // Add package.json if we have dependencies (indicates it exists)
+    if (info.dependencies.length > 0 || info.devDependencies.length > 0) {
+      critical.push('package.json');
+    }
+
+    // Check for TypeScript by looking at dependencies
+    const hasTypeScript =
+      info.dependencies.some((dep) => dep === 'typescript') ||
+      info.devDependencies.some((dep) => dep === 'typescript');
+
+    if (hasTypeScript) {
       critical.push('tsconfig.json');
     }
 
-    if (info.type === 'vscode-extension') {
-      critical.push('package.json', 'tsconfig.json', 'src/extension.ts');
-    } else if (info.type === 'react-app') {
+    // Use ProjectType enum values
+    if (info.type === ProjectType.Node) {
+      critical.push('package.json', 'tsconfig.json');
+    } else if (info.type === ProjectType.React) {
       critical.push('src/App.tsx', 'src/index.tsx');
-    } else if (info.type === 'angular-app') {
+    } else if (info.type === ProjectType.Angular) {
       critical.push('angular.json', 'src/main.ts');
-    } else if (info.type === 'nx-workspace') {
-      critical.push('nx.json', 'workspace.json');
+    } else if (info.type === ProjectType.NextJS) {
+      critical.push('next.config.js', 'pages/_app.tsx');
     }
 
     return critical;
@@ -301,28 +293,49 @@ export class WorkspaceAnalyzerService implements vscode.Disposable {
 
   /**
    * Get framework-specific files
+   * Note: This method needs workspace URI to detect frameworks
    */
-  private getFrameworkSpecificFiles(info: ProjectInfo): string[] {
+  private async getFrameworkSpecificFiles(): Promise<string[]> {
     const files: string[] = [];
 
-    for (const framework of info.frameworks) {
-      switch (framework.toLowerCase()) {
-        case 'react':
-          files.push('src/**/*.tsx', 'src/**/*.jsx');
-          break;
-        case 'angular':
-          files.push('src/**/*.component.ts', 'src/**/*.service.ts');
-          break;
-        case 'vue':
-          files.push('src/**/*.vue');
-          break;
-        case 'next.js':
-          files.push('pages/**/*.tsx', 'app/**/*.tsx');
-          break;
-        case 'nest.js':
-          files.push('src/**/*.controller.ts', 'src/**/*.service.ts');
-          break;
-      }
+    // Get frameworks from framework detector
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+      return files;
+    }
+
+    // Detect project type and frameworks
+    const projectType = await this.projectDetector.detectProjectType(
+      workspaceFolder.uri
+    );
+    const projectTypesMap = new Map<vscode.Uri, ProjectType>();
+    projectTypesMap.set(workspaceFolder.uri, projectType);
+
+    const frameworksMap = await this.frameworkDetector.detectFrameworks(
+      projectTypesMap
+    );
+    const framework = frameworksMap.get(workspaceFolder.uri);
+
+    if (!framework) {
+      return files;
+    }
+
+    switch (framework) {
+      case 'react':
+        files.push('src/**/*.tsx', 'src/**/*.jsx');
+        break;
+      case 'angular':
+        files.push('src/**/*.component.ts', 'src/**/*.service.ts');
+        break;
+      case 'vue':
+        files.push('src/**/*.vue');
+        break;
+      case 'nextjs':
+        files.push('pages/**/*.tsx', 'app/**/*.tsx');
+        break;
+      case 'express':
+        files.push('src/**/*.controller.ts', 'src/**/*.service.ts');
+        break;
     }
 
     return files;

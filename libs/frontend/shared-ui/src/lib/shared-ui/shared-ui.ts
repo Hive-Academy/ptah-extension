@@ -1,7 +1,7 @@
 import { Component } from '@angular/core';
 
 @Component({
-  selector: 'ptah',
+  selector: 'ptah-shared-ui',
   imports: [],
   template: `<p>SharedUi works!</p>`,
   styles: ``,

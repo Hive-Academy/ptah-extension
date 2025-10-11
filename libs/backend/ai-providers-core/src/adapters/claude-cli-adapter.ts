@@ -249,22 +249,30 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
    * Delegates to SessionManager for tracking
    */
   async createSession(config: AISessionConfig): Promise<SessionId> {
-    const sessionId = this.generateSessionId() as SessionId;
-
-    // Create session in SessionManager (only model and workspaceRoot are supported)
-    this.sessionManager.createSession(sessionId, {
-      model: config.model,
-      workspaceRoot: config.projectPath,
+    // Create session in SessionManager with optional name
+    const session = await this.sessionManager.createSession({
+      name: config.model ? `Claude ${config.model} Session` : undefined,
+      workspaceId: config.projectPath,
     });
 
     // Track locally for compatibility
-    this.sessions.set(sessionId, {
+    this.sessions.set(session.id, {
       createdAt: Date.now(),
       lastActivity: Date.now(),
       messageCount: 0,
     });
 
-    return sessionId;
+    // Store Claude session info if we have config details
+    if (config.model || config.projectPath) {
+      this.sessionManager.setClaudeSessionInfo(session.id, {
+        model: config.model || 'default',
+        tools: [],
+        cwd: config.projectPath || process.cwd(),
+        capabilities: {},
+      });
+    }
+
+    return session.id;
   }
 
   /**
@@ -275,14 +283,14 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
     sessionId: SessionId,
     config?: AISessionConfig
   ): Promise<unknown> {
-    // If config provided, create new session with that ID (only model and workspaceRoot are supported)
+    // If config provided, create new session with that ID
     if (config) {
-      this.sessionManager.createSession(sessionId, {
-        model: config.model,
-        workspaceRoot: config.projectPath,
+      const session = await this.sessionManager.createSession({
+        name: config.model ? `Claude ${config.model} Session` : undefined,
+        workspaceId: config.projectPath,
       });
 
-      this.sessions.set(sessionId, {
+      this.sessions.set(session.id, {
         createdAt: Date.now(),
         lastActivity: Date.now(),
         messageCount: 0,
@@ -297,8 +305,8 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
    * Delegates to SessionManager and launcher for process cleanup
    */
   endSession(sessionId: SessionId): void {
-    // End session in SessionManager
-    this.sessionManager.endSession(sessionId);
+    // Delete session in SessionManager
+    this.sessionManager.deleteSession(sessionId);
 
     // Kill process via launcher
     this.launcher.killSession(sessionId);
@@ -338,20 +346,22 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
       session.lastActivity = Date.now();
       session.messageCount++;
 
-      // Get session metadata for resume support
+      // Get session metadata and Claude CLI info for resume support
       const sessionMetadata = this.sessionManager.getSession(sessionId);
+      const claudeInfo = this.sessionManager.getClaudeSessionInfo(sessionId);
+      const claudeSessionId = this.sessionManager.getClaudeSessionId(sessionId);
 
       // Spawn CLI turn via launcher
       const stream = await this.launcher.spawnTurn(message, {
         sessionId,
-        model: sessionMetadata?.model as
+        model: claudeInfo?.model as
           | 'opus'
           | 'sonnet'
           | 'haiku'
           | 'default'
           | undefined,
-        resumeSessionId: sessionMetadata?.claudeSessionId,
-        workspaceRoot: sessionMetadata?.workspaceRoot,
+        resumeSessionId: claudeSessionId,
+        workspaceRoot: claudeInfo?.cwd || sessionMetadata?.workspaceId,
         verbose: true,
       });
 
