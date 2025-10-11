@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ServiceDependencies } from '../core/service-registry';
+import { ServiceDependencies } from '../core/ptah-extension';
 import { Logger } from '../core/logger';
 import { WebviewDiagnostic } from '../services/webview-diagnostic';
 
@@ -40,7 +40,9 @@ export class CommandHandlers {
       // Ensure we have a session for the review
       let currentSession = this.services.sessionManager.getCurrentSession();
       if (!currentSession) {
-        currentSession = await this.services.sessionManager.createSession('Code Review');
+        currentSession = await this.services.sessionManager.createSession(
+          'Code Review'
+        );
       }
 
       // Send review message to chat
@@ -50,7 +52,9 @@ export class CommandHandlers {
       // Open chat to show the review
       await this.quickChat();
 
-      vscode.window.showInformationMessage('Code review request sent to Claude');
+      vscode.window.showInformationMessage(
+        'Code review request sent to Claude'
+      );
     } catch (error) {
       Logger.error('Failed to review current file', error);
       vscode.window.showErrorMessage('Failed to send review request');
@@ -63,7 +67,9 @@ export class CommandHandlers {
   async generateTests(): Promise<void> {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
-      vscode.window.showWarningMessage('No file is currently open to generate tests for.');
+      vscode.window.showWarningMessage(
+        'No file is currently open to generate tests for.'
+      );
       return;
     }
 
@@ -77,7 +83,9 @@ export class CommandHandlers {
       // Ensure we have a session for test generation
       let currentSession = this.services.sessionManager.getCurrentSession();
       if (!currentSession) {
-        currentSession = await this.services.sessionManager.createSession('Test Generation');
+        currentSession = await this.services.sessionManager.createSession(
+          'Test Generation'
+        );
       }
 
       // Send test generation message
@@ -87,7 +95,9 @@ export class CommandHandlers {
       // Open chat to show the generated tests
       await this.quickChat();
 
-      vscode.window.showInformationMessage('Test generation request sent to Claude');
+      vscode.window.showInformationMessage(
+        'Test generation request sent to Claude'
+      );
     } catch (error) {
       Logger.error('Failed to generate tests', error);
       vscode.window.showErrorMessage('Failed to send test generation request');
@@ -113,7 +123,9 @@ export class CommandHandlers {
 
     try {
       const session = await this.services.sessionManager.createSession();
-      vscode.window.showInformationMessage(`New session created: ${session.name}`);
+      vscode.window.showInformationMessage(
+        `New session created: ${session.name}`
+      );
 
       // Open chat sidebar to show the new session
       await this.quickChat();
@@ -209,7 +221,8 @@ export class CommandHandlers {
     Logger.info('Showing context optimization suggestions');
 
     try {
-      const suggestions = await this.services.contextManager.getOptimizationSuggestions();
+      const suggestions =
+        await this.services.contextManager.getOptimizationSuggestions();
 
       if (suggestions.length === 0) {
         vscode.window.showInformationMessage('Context is already optimized!');
@@ -229,7 +242,9 @@ export class CommandHandlers {
 
       if (selected) {
         // Apply the optimization (this would need to be implemented in ContextManager)
-        vscode.window.showInformationMessage(`Applied optimization: ${selected.label}`);
+        vscode.window.showInformationMessage(
+          `Applied optimization: ${selected.label}`
+        );
       }
     } catch (error) {
       Logger.error('Failed to show context optimization', error);
@@ -245,7 +260,9 @@ export class CommandHandlers {
 
     try {
       WebviewDiagnostic.createDiagnosticWebview(this.services.context);
-      vscode.window.showInformationMessage('Diagnostic webview created. Check the new panel.');
+      vscode.window.showInformationMessage(
+        'Diagnostic webview created. Check the new panel.'
+      );
     } catch (error) {
       Logger.error('Failed to create diagnostic webview', error);
       vscode.window.showErrorMessage('Failed to create diagnostic webview');

@@ -27,6 +27,13 @@ export const OUTPUT_MANAGER = Symbol.for('OutputManager');
 export const STATUS_BAR_MANAGER = Symbol.for('StatusBarManager');
 export const FILE_SYSTEM_MANAGER = Symbol.for('FileSystemManager');
 
+// Core infrastructure service tokens (TASK_CORE_001)
+export const LOGGER = Symbol.for('Logger');
+export const ERROR_HANDLER = Symbol.for('ErrorHandler');
+export const CONFIG_MANAGER = Symbol.for('ConfigManager');
+export const MESSAGE_VALIDATOR = Symbol.for('MessageValidator');
+export const CONTEXT_MANAGER = Symbol.for('ContextManager');
+
 // Business logic service tokens
 export const CLAUDE_SERVICE = Symbol.for('ClaudeService');
 export const SESSION_MANAGER = Symbol.for('SessionManager');
@@ -45,6 +52,7 @@ export const CLAUDE_DOMAIN_EVENT_PUBLISHER = Symbol.for(
 // Workspace intelligence service tokens (TASK_PRV_005)
 export const TOKEN_COUNTER_SERVICE = Symbol.for('TokenCounterService');
 export const FILE_SYSTEM_SERVICE = Symbol.for('FileSystemService');
+export const CONTEXT_SERVICE = Symbol.for('ContextService');
 export const PROJECT_DETECTOR_SERVICE = Symbol.for('ProjectDetectorService');
 export const FRAMEWORK_DETECTOR_SERVICE = Symbol.for(
   'FrameworkDetectorService'
@@ -65,11 +73,30 @@ export const FILE_INDEXER_SERVICE = Symbol.for('FileIndexerService');
 export const WORKSPACE_ANALYZER_SERVICE = Symbol.for(
   'WorkspaceAnalyzerService'
 );
+export const WORKSPACE_SERVICE = Symbol.for('WorkspaceService');
 export const FILE_RELEVANCE_SCORER = Symbol.for('FileRelevanceScorer');
 export const CONTEXT_SIZE_OPTIMIZER = Symbol.for('ContextSizeOptimizer');
 export const SEMANTIC_CONTEXT_EXTRACTOR = Symbol.for(
   'SemanticContextExtractor'
 );
+
+// Claude domain orchestration service tokens (MAIN_APP_CLEANUP Phase 1-2)
+export const CHAT_ORCHESTRATION_SERVICE = Symbol.for(
+  'ChatOrchestrationService'
+);
+export const PROVIDER_ORCHESTRATION_SERVICE = Symbol.for(
+  'ProviderOrchestrationService'
+);
+export const ANALYTICS_ORCHESTRATION_SERVICE = Symbol.for(
+  'AnalyticsOrchestrationService'
+);
+export const CONFIG_ORCHESTRATION_SERVICE = Symbol.for(
+  'ConfigOrchestrationService'
+);
+export const CONTEXT_ORCHESTRATION_SERVICE = Symbol.for(
+  'ContextOrchestrationService'
+);
+export const MESSAGE_HANDLER_SERVICE = Symbol.for('MessageHandlerService');
 
 /**
  * TOKENS constant for convenient access to all DI tokens
@@ -89,6 +116,13 @@ export const TOKENS = {
   OUTPUT_MANAGER,
   STATUS_BAR_MANAGER,
   FILE_SYSTEM_MANAGER,
+
+  // Core Infrastructure (TASK_CORE_001)
+  LOGGER,
+  ERROR_HANDLER,
+  CONFIG_MANAGER,
+  MESSAGE_VALIDATOR,
+  CONTEXT_MANAGER,
 
   // Providers
   AI_PROVIDER_FACTORY,
@@ -111,6 +145,7 @@ export const TOKENS = {
   // Workspace Intelligence (TASK_PRV_005)
   TOKEN_COUNTER_SERVICE,
   FILE_SYSTEM_SERVICE,
+  CONTEXT_SERVICE,
   PROJECT_DETECTOR_SERVICE,
   FRAMEWORK_DETECTOR_SERVICE,
   DEPENDENCY_ANALYZER_SERVICE,
@@ -121,9 +156,18 @@ export const TOKENS = {
   WORKSPACE_INDEXER_SERVICE,
   FILE_INDEXER_SERVICE,
   WORKSPACE_ANALYZER_SERVICE,
+  WORKSPACE_SERVICE,
   FILE_RELEVANCE_SCORER,
   CONTEXT_SIZE_OPTIMIZER,
   SEMANTIC_CONTEXT_EXTRACTOR,
+
+  // Claude Orchestration Services (MAIN_APP_CLEANUP Phase 1-2)
+  CHAT_ORCHESTRATION_SERVICE,
+  PROVIDER_ORCHESTRATION_SERVICE,
+  ANALYTICS_ORCHESTRATION_SERVICE,
+  CONFIG_ORCHESTRATION_SERVICE,
+  CONTEXT_ORCHESTRATION_SERVICE,
+  MESSAGE_HANDLER_SERVICE,
 } as const;
 
 /**

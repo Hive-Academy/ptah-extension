@@ -54,7 +54,13 @@ export interface JSONLPermissionMessage {
 }
 
 export interface ParsedEvent {
-  readonly type: 'content' | 'thinking' | 'tool' | 'permission' | 'system' | 'unknown';
+  readonly type:
+    | 'content'
+    | 'thinking'
+    | 'tool'
+    | 'permission'
+    | 'system'
+    | 'unknown';
   readonly data: unknown;
   readonly rawJson: unknown;
 }
@@ -72,12 +78,40 @@ export interface JSONLParserCallbacks {
 }
 
 /**
+ * Configuration for tool filtering and formatting
+ */
+export interface ToolFilterConfig {
+  /** Tools to hide from output (e.g., verbose internal tools) */
+  readonly hiddenTools?: readonly string[];
+  /** Enable special formatting for specific tools */
+  readonly enableSpecialFormatting?: boolean;
+}
+
+/**
  * Streaming JSONL parser with event callbacks
  */
 export class JSONLStreamParser {
   private buffer = '';
+  private readonly config: ToolFilterConfig;
 
-  constructor(private readonly callbacks: JSONLParserCallbacks) {}
+  // Default hidden tools (verbose internal tools that clutter the UI)
+  private static readonly DEFAULT_HIDDEN_TOOLS = [
+    'Read',
+    'Edit',
+    'MultiEdit',
+    'TodoWrite',
+  ];
+
+  constructor(
+    private readonly callbacks: JSONLParserCallbacks,
+    config?: ToolFilterConfig
+  ) {
+    this.config = {
+      hiddenTools:
+        config?.hiddenTools ?? JSONLStreamParser.DEFAULT_HIDDEN_TOOLS,
+      enableSpecialFormatting: config?.enableSpecialFormatting ?? true,
+    };
+  }
 
   /**
    * Process incoming chunk of data
@@ -125,9 +159,7 @@ export class JSONLStreamParser {
       this.handleMessage(json);
     } catch (error) {
       this.callbacks.onError?.(
-        error instanceof Error
-          ? error
-          : new Error('JSON parse error'),
+        error instanceof Error ? error : new Error('JSON parse error'),
         trimmed
       );
     }
@@ -220,13 +252,20 @@ export class JSONLStreamParser {
       return;
     }
 
+    const toolName = msg.tool || 'unknown';
+
+    // Apply tool filtering - skip hidden tools
+    if (this.shouldHideTool(toolName, msg.subtype)) {
+      return;
+    }
+
     switch (msg.subtype) {
       case 'start': {
         const event: ClaudeToolEvent = {
           type: 'start',
           toolCallId: msg.tool_call_id,
-          tool: msg.tool || 'unknown',
-          args: msg.args || {},
+          tool: toolName,
+          args: this.formatToolArgs(toolName, msg.args || {}),
           timestamp,
         };
         this.callbacks.onTool?.(event);
@@ -248,7 +287,7 @@ export class JSONLStreamParser {
         const event: ClaudeToolEvent = {
           type: 'result',
           toolCallId: msg.tool_call_id,
-          output: msg.output,
+          output: this.formatToolOutput(toolName, msg.output),
           duration: 0, // Duration not provided by CLI
           timestamp,
         };
@@ -267,6 +306,85 @@ export class JSONLStreamParser {
         break;
       }
     }
+  }
+
+  /**
+   * Determine if a tool should be hidden from output
+   */
+  private shouldHideTool(toolName: string, subtype: string): boolean {
+    // Only hide result messages (keep start/error for transparency)
+    if (subtype !== 'result') {
+      return false;
+    }
+
+    return this.config.hiddenTools?.includes(toolName) ?? false;
+  }
+
+  /**
+   * Format tool arguments with special formatting
+   */
+  private formatToolArgs(
+    toolName: string,
+    args: Record<string, unknown>
+  ): Record<string, unknown> {
+    if (!this.config.enableSpecialFormatting) {
+      return args;
+    }
+
+    // Add special formatting for specific tools if needed
+    // Currently args are passed through unchanged
+    return args;
+  }
+
+  /**
+   * Format tool output with special formatting (e.g., TodoWrite)
+   */
+  private formatToolOutput(toolName: string, output: unknown): unknown {
+    if (!this.config.enableSpecialFormatting) {
+      return output;
+    }
+
+    // Special formatting for TodoWrite
+    if (toolName === 'TodoWrite' && this.isTodoWriteOutput(output)) {
+      return this.formatTodoWriteOutput(output);
+    }
+
+    return output;
+  }
+
+  /**
+   * Check if output is TodoWrite format
+   */
+  private isTodoWriteOutput(
+    output: unknown
+  ): output is { todos: Array<{ content: string; status: string }> } {
+    return (
+      typeof output === 'object' &&
+      output !== null &&
+      'todos' in output &&
+      Array.isArray((output as { todos?: unknown }).todos)
+    );
+  }
+
+  /**
+   * Format TodoWrite output with checkmarks
+   */
+  private formatTodoWriteOutput(output: {
+    todos: Array<{ content: string; status: string }>;
+  }): string {
+    let formatted = '📝 Todo List Update:\n';
+
+    for (const todo of output.todos) {
+      const status =
+        todo.status === 'completed'
+          ? '✅'
+          : todo.status === 'in_progress'
+          ? '🔄'
+          : '⏳';
+      formatted += `${status} ${todo.content}\n`;
+    }
+
+    return formatted.trim();
   }
 
   /**

@@ -449,7 +449,7 @@ export class ContextManager {
 
 ## 🎯 What ACTUALLY STAYS in Main App (Minimal!)
 
-### ONLY These Files Stay:
+### ONLY These Files Stay
 
 ```
 apps/ptah-extension-vscode/src/

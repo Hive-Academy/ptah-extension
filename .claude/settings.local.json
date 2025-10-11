@@ -2,44 +2,21 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
-      "Bash(npm run compile:*)",
-      "Bash(npm run build:webview:*)",
-      "Bash(npm run build:all:*)",
       "mcp__sequential-thinking__sequentialthinking",
-      "WebSearch",
-      "WebFetch(domain:github.com)",
-      "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(mkdir:*)",
-      "Bash(touch:*)",
-      "Bash(find:*)",
-      "Bash(grep:*)",
       "Bash(cat:*)",
-      "Bash(git checkout:*)",
-      "Read(d:\\projects\\ptah-extension\\docs/**)",
-      "Bash(npx tsc:*)",
-      "Bash(npm run test:*)",
-      "Bash(npx nx test:*)",
-      "Bash(npx jest:*)",
-      "Bash(npm run typecheck:all:*)",
-      "Bash(npx nx build:*)"
+      "Bash(npx nx build:*)",
+      "Bash(npx tsc:*)"
     ],
     "deny": [],
     "ask": [],
-    "additionalDirectories": [
-      "d:\\projects\\Ptah"
-    ]
+    "additionalDirectories": ["D:\\projects\\nestjs-ai-saas-starter"]
   },
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
-    "browser",
     "sequential-thinking",
     "nx-mcp",
     "angular-cli",
-    "neo4j-graph-data-modeling",
-    "chroma"
+    "fetch"
   ],
-  "statusLine": {
-    "type": "command",
-    "command": "powershell.exe -ExecutionPolicy Bypass -File \"D:\\projects\\Ptah\\.claude\\status-line.ps1\""
-  }
+  "outputStyle": "default"
 }

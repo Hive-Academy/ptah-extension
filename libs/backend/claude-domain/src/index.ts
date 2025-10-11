@@ -9,7 +9,123 @@ export type { ClaudeInstallation } from './detector/claude-cli-detector';
 
 // Session Management
 export { SessionManager } from './session/session-manager';
-export type { SessionMetadata } from './session/session-manager';
+export type {
+  SessionUIData,
+  ClaudeSessionInfo,
+  CreateSessionOptions,
+  AddMessageOptions,
+  SessionStatistics,
+  BulkDeleteResult,
+  IEventBus as SessionIEventBus,
+  IStorageService,
+} from './session/session-manager';
+
+// Command Execution
+export { CommandService } from './commands/command.service';
+export type {
+  CommandExecutionResult,
+  CodeReviewRequest,
+  TestGenerationRequest,
+  FileContextOperation,
+  OptimizationSuggestion,
+  IContextService,
+  IClaudeCliLauncher,
+} from './commands/command.service';
+
+// Chat Orchestration
+export { ChatOrchestrationService } from './chat/chat-orchestration.service';
+export type {
+  SendMessageRequest,
+  SendMessageResult,
+  CreateSessionRequest,
+  SessionCreationResult,
+  SwitchSessionRequest,
+  SessionOperationResult,
+  RenameSessionRequest,
+  RenameSessionResult,
+  DeleteSessionRequest,
+  DeleteSessionResult,
+  BulkDeleteSessionsRequest,
+  BulkDeleteSessionsResult,
+  GetHistoryRequest,
+  HistoryResult,
+  SessionStatsResult,
+  PermissionResponseRequest,
+  PermissionResponseResult,
+  StopStreamRequest,
+  StopStreamResult,
+  IClaudeCliService,
+} from './chat/chat-orchestration.service';
+
+// Provider Orchestration
+export {
+  ProviderOrchestrationService,
+  PROVIDER_MANAGER,
+} from './provider/provider-orchestration.service';
+export type {
+  ProviderData,
+  GetAvailableProvidersRequest,
+  GetAvailableProvidersResult,
+  GetCurrentProviderRequest,
+  GetCurrentProviderResult,
+  SwitchProviderRequest,
+  SwitchProviderResult,
+  GetProviderHealthRequest,
+  GetProviderHealthResult,
+  GetAllProviderHealthRequest,
+  GetAllProviderHealthResult,
+  SetDefaultProviderRequest,
+  SetDefaultProviderResult,
+  EnableFallbackRequest,
+  EnableFallbackResult,
+  SetAutoSwitchRequest,
+  SetAutoSwitchResult,
+  ProviderEventCallback,
+} from './provider/provider-orchestration.service';
+
+// Analytics Orchestration
+export {
+  AnalyticsOrchestrationService,
+  ANALYTICS_DATA_COLLECTOR,
+} from './analytics/analytics-orchestration.service';
+export type {
+  IAnalyticsDataCollector,
+  AnalyticsData,
+  TrackEventRequest,
+  TrackEventResult,
+  GetAnalyticsDataRequest,
+  GetAnalyticsDataResult,
+} from './analytics/analytics-orchestration.service';
+
+// Config Orchestration
+export {
+  ConfigOrchestrationService,
+  CONFIGURATION_PROVIDER,
+} from './config/config-orchestration.service';
+export type {
+  IConfigurationProvider,
+  WorkspaceConfiguration,
+  GetConfigRequest,
+  GetConfigResult,
+  SetConfigRequest,
+  SetConfigResult,
+  UpdateConfigRequest,
+  UpdateConfigResult,
+  RefreshConfigRequest,
+  RefreshConfigResult,
+} from './config/config-orchestration.service';
+
+// Message Handler Service (Router)
+export {
+  MessageHandlerService,
+  EVENT_BUS,
+  CONTEXT_ORCHESTRATION_SERVICE,
+} from './messaging/message-handler.service';
+export type {
+  IEventBus,
+  IContextOrchestrationService,
+  TypedEvent,
+} from './messaging/message-handler.service';
 
 // CLI Launcher & Process Management
 export { ClaudeCliLauncher } from './cli/claude-cli-launcher';
@@ -41,7 +157,6 @@ export {
 export {
   ClaudeDomainEventPublisher,
   CLAUDE_DOMAIN_EVENTS,
-  type IEventBus,
 } from './events/claude-domain.events';
 export type {
   ClaudeContentChunkEvent,
@@ -54,3 +169,10 @@ export type {
   ClaudeHealthUpdateEvent,
   ClaudeErrorEvent,
 } from './events/claude-domain.events';
+
+// DI registration bootstrap function
+export {
+  registerClaudeDomainServices,
+  type ClaudeDomainTokens,
+  type IEventBus as DI_IEventBus,
+} from './di/register';

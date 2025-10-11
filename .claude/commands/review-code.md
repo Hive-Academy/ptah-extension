@@ -11,6 +11,7 @@
 **Before reviewing code quality, analyze the codebase to understand:**
 
 1. **Primary Language & Framework Detection**:
+
    - Examine package.json, requirements.txt, go.mod, Cargo.toml, etc.
    - Identify main dependencies and frameworks
    - Analyze file extensions and project structure
@@ -70,21 +71,20 @@ Apply these language-agnostic principles regardless of technology stack:
 
 **Dynamically apply based on detected stack:**
 
-### Frontend Frameworks
+### Frontend Architecture Patterns
 
-- **React**: Component composition, hooks usage, state management patterns, performance optimization
-- **Vue**: Composition API usage, reactivity patterns, component lifecycle management
-- **Angular**: Dependency injection, change detection strategies, reactive forms, lifecycle hooks
-- **Svelte**: Store patterns, component communication, reactivity declarations
+- **Component Architecture**: Component composition, lifecycle management, state management patterns, performance optimization
+- **Reactive Patterns**: State reactivity, change detection strategies, data binding patterns
+- **Dependency Management**: Service injection, module organization, component communication
+- **State Management**: Store patterns, data flow, reactivity declarations
 
-### Backend Frameworks
+### Backend Architecture Patterns
 
-- **Node.js/Express**: Middleware patterns, async/await usage, error handling middleware
-- **NestJS**: Decorator usage, module organization, dependency injection, guards/interceptors
-- **Django**: Model design, view patterns, middleware usage, ORM best practices
-- **Flask**: Blueprint organization, request handling, extension integration
-- **FastAPI**: Dependency injection, async patterns, Pydantic model usage
-- **Spring Boot**: Annotation usage, bean management, AOP patterns
+- **Request Processing**: Middleware patterns, async/await usage, error handling middleware
+- **Service Architecture**: Decorator usage, module organization, dependency injection, guards/interceptors
+- **Data Layer**: Model design, repository patterns, ORM best practices
+- **API Design**: Request handling, dependency injection, async patterns, data validation
+- **Enterprise Patterns**: Annotation usage, bean management, AOP patterns
 
 ### Database & ORM Patterns
 

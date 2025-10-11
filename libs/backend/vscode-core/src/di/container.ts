@@ -45,115 +45,40 @@ export class DIContainer {
     container.registerSingleton(TOKENS.STATUS_BAR_MANAGER, StatusBarManager);
     container.registerSingleton(TOKENS.FILE_SYSTEM_MANAGER, FileSystemManager);
 
-    // Register Claude domain services (MONSTER Week 5)
-    // Use Nx library alias instead of relative paths
+    // Register core infrastructure services (TASK_CORE_001)
+    // Logger, ErrorHandler, ConfigManager, MessageValidator
+    const { Logger } = require('../logging/logger');
+    const { ErrorHandler } = require('../error-handling/error-handler');
+    const { ConfigManager } = require('../config/config-manager');
     const {
-      ClaudeCliDetector,
-      ClaudeCliLauncher,
-      SessionManager: ClaudeSessionManager,
-      PermissionService,
-      ProcessManager,
-      ClaudeDomainEventPublisher,
-      InMemoryPermissionRulesStore,
-    } = require('@ptah-extension/claude-domain');
+      MessageValidatorService,
+    } = require('../validation/message-validator.service');
+    container.registerSingleton(TOKENS.LOGGER, Logger);
+    container.registerSingleton(TOKENS.ERROR_HANDLER, ErrorHandler);
+    container.registerSingleton(TOKENS.CONFIG_MANAGER, ConfigManager);
+    container.registerSingleton(
+      TOKENS.MESSAGE_VALIDATOR,
+      MessageValidatorService
+    );
 
-    // Register permission rules store
-    container.register('IPermissionRulesStore', {
-      useValue: new InMemoryPermissionRulesStore(),
-    });
-
-    // Register event bus adapter for claude-domain
-    container.register('IEventBus', {
-      useFactory: (c) => {
-        const eventBus = c.resolve(TOKENS.EVENT_BUS) as typeof EventBus;
-        return {
-          publish: <T>(topic: string, payload: T) => {
-            eventBus.publish(topic, payload);
-          },
-        };
-      },
-    });
-
-    container.registerSingleton(TOKENS.CLAUDE_CLI_DETECTOR, ClaudeCliDetector);
-    container.registerSingleton(
-      TOKENS.CLAUDE_SESSION_MANAGER,
-      ClaudeSessionManager
-    );
-    container.registerSingleton(TOKENS.CLAUDE_PROCESS_MANAGER, ProcessManager);
-    container.registerSingleton(
-      TOKENS.CLAUDE_DOMAIN_EVENT_PUBLISHER,
-      ClaudeDomainEventPublisher
-    );
-    container.registerSingleton(
-      TOKENS.CLAUDE_PERMISSION_SERVICE,
-      PermissionService
-    );
-    // Note: ClaudeCliLauncher requires dependencies, so we register it with factory
-    container.register(TOKENS.CLAUDE_CLI_LAUNCHER, {
-      useFactory: (c) => {
-        return new ClaudeCliLauncher({
-          sessionManager: c.resolve(TOKENS.CLAUDE_SESSION_MANAGER),
-          permissionService: c.resolve(TOKENS.CLAUDE_PERMISSION_SERVICE),
-          processManager: c.resolve(TOKENS.CLAUDE_PROCESS_MANAGER),
-          eventPublisher: c.resolve(TOKENS.CLAUDE_DOMAIN_EVENT_PUBLISHER),
-        });
-      },
-    });
-
-    // Additional service registrations will be added here as services are implemented
-    // This follows a phased approach where services are registered as they become available
-
-    // Register workspace intelligence services (TASK_PRV_005)
-    const {
-      TokenCounterService,
-      FileSystemService,
-      ProjectDetectorService,
-      FrameworkDetectorService,
-      DependencyAnalyzerService,
-      MonorepoDetectorService,
-      PatternMatcherService,
-      IgnorePatternResolverService,
-      FileTypeClassifierService,
-      WorkspaceIndexerService,
-    } = require('@ptah-extension/workspace-intelligence');
-
-    container.registerSingleton(
-      TOKENS.TOKEN_COUNTER_SERVICE,
-      TokenCounterService
-    );
-    container.registerSingleton(TOKENS.FILE_SYSTEM_SERVICE, FileSystemService);
-    container.registerSingleton(
-      TOKENS.PROJECT_DETECTOR_SERVICE,
-      ProjectDetectorService
-    );
-    container.registerSingleton(
-      TOKENS.FRAMEWORK_DETECTOR_SERVICE,
-      FrameworkDetectorService
-    );
-    container.registerSingleton(
-      TOKENS.DEPENDENCY_ANALYZER_SERVICE,
-      DependencyAnalyzerService
-    );
-    container.registerSingleton(
-      TOKENS.MONOREPO_DETECTOR_SERVICE,
-      MonorepoDetectorService
-    );
-    container.registerSingleton(
-      TOKENS.PATTERN_MATCHER_SERVICE,
-      PatternMatcherService
-    );
-    container.registerSingleton(
-      TOKENS.IGNORE_PATTERN_RESOLVER_SERVICE,
-      IgnorePatternResolverService
-    );
-    container.registerSingleton(
-      TOKENS.FILE_TYPE_CLASSIFIER_SERVICE,
-      FileTypeClassifierService
-    );
-    container.registerSingleton(
-      TOKENS.WORKSPACE_INDEXER_SERVICE,
-      WorkspaceIndexerService
-    );
+    // ========================================
+    // END OF INFRASTRUCTURE SETUP
+    // Domain services registered by main app
+    // ========================================
+    //
+    // NOTE: Domain services (claude-domain, workspace-intelligence, etc.)
+    // are NO LONGER registered here to maintain proper layer separation.
+    //
+    // Per LIBRARY_INTEGRATION_ARCHITECTURE.md:
+    // - vscode-core = infrastructure only
+    // - Domain libraries = self-contained with bootstrap functions
+    // - Main app = orchestrator that calls bootstrap functions
+    //
+    // See: docs/LIBRARY_INTEGRATION_ARCHITECTURE.md
+    // See: task-tracking/TASK_CORE_001/architectural-alignment-strategy.md
+    //
+    // Domain service registration now handled in:
+    // - apps/ptah-extension-vscode/src/main.ts
 
     return container;
   }

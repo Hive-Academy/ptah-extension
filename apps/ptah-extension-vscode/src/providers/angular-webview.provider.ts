@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import { StrictPostMessageFunction } from '../services/webview-message-handlers/base-message-handler';
 import { SessionManager } from '../services/session-manager';
 import { ClaudeCliService } from '../services/claude-cli.service';
 import { ContextManager } from '../services/context-manager';
@@ -7,23 +6,9 @@ import { CommandBuilderService } from '../services/command-builder.service';
 import { AnalyticsDataCollector } from '../services/analytics-data-collector';
 import { ProviderManager } from '../services/ai-providers';
 import { WebviewHtmlGenerator } from '../services/webview-html-generator';
-import {
-  WebviewMessageRouter,
-  ChatMessageHandler,
-  CommandMessageHandler,
-  ContextMessageHandler,
-  AnalyticsMessageHandler,
-  StateMessageHandler,
-  ViewMessageHandler,
-  ConfigMessageHandler,
-  ProviderMessageHandler,
-} from '../services/webview-message-handlers';
 import { Logger } from '../core/logger';
-import {
-  WebviewMessage,
-  isSystemMessage,
-  isRoutableMessage,
-} from '@ptah-extension/shared';
+import { WebviewMessage, isRoutableMessage } from '@ptah-extension/shared';
+import { EventBus } from '@ptah-extension/vscode-core';
 
 /**
  * Workspace information interface
@@ -35,16 +20,17 @@ interface WorkspaceInfo {
 }
 
 /**
- * Unified Angular Webview Provider - REFACTORED with SOLID principles
- * Single Responsibility: Manage webview lifecycle and coordinate message handling
- * Follows Dependency Inversion: Depends on abstractions, not concrete implementations
+ * Unified Angular Webview Provider - REFACTORED with EventBus Architecture
+ * Single Responsibility: Manage webview lifecycle and publish messages to EventBus
+ * Follows Dependency Inversion: Depends on EventBus abstraction
+ *
+ * ARCHITECTURE: Webview → EventBus → MessageHandlerService → Orchestration Services
  */
 export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _disposables: vscode.Disposable[] = [];
   private _panel?: vscode.WebviewPanel;
   private htmlGenerator: WebviewHtmlGenerator;
-  private messageRouter: WebviewMessageRouter;
   private fileWatcher?: vscode.FileSystemWatcher;
 
   constructor(
@@ -54,71 +40,20 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     private contextManager: ContextManager,
     private commandBuilderService: CommandBuilderService,
     private analyticsDataCollector: AnalyticsDataCollector,
+    private eventBus: EventBus,
     private providerManager?: ProviderManager
   ) {
     this.htmlGenerator = new WebviewHtmlGenerator(context);
-    this.messageRouter = new WebviewMessageRouter();
-    this.initializeMessageHandlers();
     this.initializeDevelopmentWatcher();
-  }
-
-  /**
-   * Initialize message handlers - follows Open/Closed Principle
-   * New handlers can be added without modifying existing code
-   * Now with strict typing - eliminates 'any' types
-   */
-  private initializeMessageHandlers(): void {
-    const postMessageFn = this.postMessage.bind(this);
-
-    // Register all message handlers with explicit type casting for compatibility
-    this.messageRouter.registerHandler(
-      new ChatMessageHandler(
-        postMessageFn,
-        this.sessionManager,
-        this.claudeService
-      ) as any
+    Logger.info(
+      'AngularWebviewProvider initialized with EventBus architecture'
     );
-    this.messageRouter.registerHandler(
-      new CommandMessageHandler(
-        postMessageFn,
-        this.commandBuilderService
-      ) as any
-    );
-    this.messageRouter.registerHandler(
-      new ContextMessageHandler(postMessageFn, this.contextManager) as any
-    );
-    this.messageRouter.registerHandler(
-      new AnalyticsMessageHandler(
-        postMessageFn,
-        this.sessionManager,
-        this.commandBuilderService,
-        this.analyticsDataCollector
-      ) as any
-    );
-    this.messageRouter.registerHandler(
-      new StateMessageHandler(postMessageFn, this.context) as any
-    );
-    this.messageRouter.registerHandler(
-      new ViewMessageHandler(postMessageFn) as any
-    );
-    this.messageRouter.registerHandler(
-      new ConfigMessageHandler(postMessageFn, this.context) as any
-    );
-
-    // Register provider handler if provider manager is available
-    if (this.providerManager) {
-      this.messageRouter.registerHandler(
-        new ProviderMessageHandler(postMessageFn, this.providerManager) as any
-      );
-    }
-
-    Logger.info('All message handlers initialized');
   }
 
   resolveWebviewView(
     webviewView: vscode.WebviewView,
-    context: vscode.WebviewViewResolveContext<unknown>,
-    token: vscode.CancellationToken
+    _context: vscode.WebviewViewResolveContext<unknown>,
+    _token: vscode.CancellationToken
   ): void | Thenable<void> {
     this._view = webviewView;
 
@@ -238,14 +173,16 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
    * Send message directly to Angular webview
    * Public interface for external services to communicate with the webview
    */
-  public sendMessage(message: any): void {
+  public sendMessage(message: WebviewMessage): void {
     this.postMessage(message);
   }
 
   /**
-   * Handle messages from Angular application using the router
-   * Follows Single Responsibility - just coordinates, doesn't handle business logic
-   * IMPROVED: Added requestInitialData handler based on research findings
+   * Handle messages from Angular application using EventBus
+   * Single Responsibility: Receive webview messages and publish to EventBus
+   * MessageHandlerService subscribes to EventBus and routes to orchestration services
+   *
+   * ARCHITECTURE: Webview → this.eventBus.publish() → MessageHandlerService → Orchestration Services
    */
   private async handleWebviewMessage(message: WebviewMessage): Promise<void> {
     try {
@@ -253,39 +190,34 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         hasPayload: !!message.payload,
       });
 
-      // Handle special system messages first
-      if (message.type === 'ready') {
+      // Handle special system messages locally (don't publish to EventBus)
+      if (message.type === 'ready' || message.type === 'webview-ready') {
+        Logger.info('Webview ready signal received');
         await this.sendInitialData();
         return;
       }
 
-      if (message.type === 'webview-ready') {
-        Logger.info('Webview ready signal received');
-        return;
-      }
-
-      // RESEARCH FINDING: Handle requestInitialData message that Angular sends
       if (message.type === 'requestInitialData') {
         Logger.info('Angular requested initial data');
         await this.sendInitialData();
         return;
       }
 
-      // Route routable messages to appropriate handlers
+      // Publish all routable messages to EventBus
+      // MessageHandlerService will handle routing to appropriate orchestration services
       if (isRoutableMessage(message)) {
-        Logger.info(`Routing message to handler: ${message.type}`);
-        const registeredHandlers = this.messageRouter.getRegisteredHandlers();
-        Logger.info(`Available handlers: ${registeredHandlers.join(', ')}`);
+        Logger.info(`Publishing message to EventBus: ${message.type}`);
 
-        const response = await this.messageRouter.routeMessage(
-          message.type,
-          message.payload
+        // Publish to EventBus with webview as source
+        this.eventBus.publish(
+          message.type as keyof import('@ptah-extension/shared').MessagePayloadMap,
+          message.payload,
+          'webview'
         );
-        Logger.info(`Message ${message.type} handled successfully`, {
-          success: response.success,
-        });
+
+        Logger.info(`Message ${message.type} published to EventBus`);
       } else {
-        // System message already handled above, log if unrecognized
+        // System message not handled above
         Logger.warn(`Unrecognized system message type: ${message.type}`);
       }
     } catch (error) {
@@ -340,16 +272,15 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Send message to Angular application - Now with strict typing
-   * Implements StrictPostMessageFunction interface
+   * Send message to Angular application - Type-safe messaging
    */
-  private postMessage: StrictPostMessageFunction = (message) => {
+  private postMessage(message: WebviewMessage): void {
     if (this._panel?.webview) {
       this._panel.webview.postMessage(message);
     } else if (this._view?.webview) {
       this._view.webview.postMessage(message);
     }
-  };
+  }
 
   /**
    * Get workspace information

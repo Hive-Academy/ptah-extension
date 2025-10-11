@@ -56,3 +56,6 @@ export const FILE_INDEXER_SERVICE = Symbol.for('FileIndexerService');
 export const WORKSPACE_ANALYZER_SERVICE = Symbol.for(
   'WorkspaceAnalyzerService'
 );
+
+/** Workspace management service for workspace information and analysis */
+export const WORKSPACE_SERVICE = Symbol.for('WorkspaceService');

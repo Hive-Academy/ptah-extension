@@ -1,6 +1,6 @@
 /**
  * AI Providers Core - Public API
- * Exports interfaces, strategies, manager, and adapters for multi-provider AI system
+ * Exports interfaces, strategies, manager, adapters, and context management for multi-provider AI system
  */
 
 // Core interfaces
@@ -19,3 +19,10 @@ export { ProviderManager } from './manager';
 
 // Provider adapters (concrete implementations)
 export { ClaudeCliAdapter, VsCodeLmAdapter } from './adapters';
+
+// Context management
+export {
+  ContextManager,
+  type FileSearchResult,
+  type FileSearchOptions,
+} from './context';

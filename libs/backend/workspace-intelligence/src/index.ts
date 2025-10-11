@@ -23,6 +23,45 @@ export {
   FileSystemError,
 } from './services/file-system.service';
 
+// Context service - Main application business logic
+export {
+  ContextService,
+  type FileSearchResult,
+  type FileSearchOptions,
+} from './context/context.service';
+
+// Context Orchestration
+export {
+  ContextOrchestrationService,
+  CONTEXT_SERVICE,
+} from './context/context-orchestration.service';
+export type {
+  VsCodeUri,
+  GetContextFilesRequest,
+  GetContextFilesResult,
+  IncludeFileRequest,
+  IncludeFileResult,
+  ExcludeFileRequest,
+  ExcludeFileResult,
+  SearchFilesRequest,
+  SearchFilesResult,
+  GetAllFilesRequest,
+  GetAllFilesResult,
+  GetFileSuggestionsRequest,
+  GetFileSuggestionsResult,
+  SearchImagesRequest,
+  SearchImagesResult,
+} from './context/context-orchestration.service';
+
+// Workspace service - Workspace management and analysis
+export {
+  WorkspaceService,
+  type WorkspaceAnalysisResult,
+  type ProjectInfo,
+  type DirectoryStructure,
+  type WorkspaceStructureAnalysis,
+} from './workspace/workspace.service';
+
 // Project analysis exports
 export { ProjectDetectorService } from './project-analysis/project-detector.service';
 export { FrameworkDetectorService } from './project-analysis/framework-detector.service';
@@ -54,5 +93,18 @@ export {
   type ContextOptimizationStats,
 } from './context-analysis/context-size-optimizer.service';
 
+// Composite services - Unified facades
+export {
+  WorkspaceAnalyzerService,
+  type WorkspaceInfo,
+  type ContextRecommendations,
+} from './composite/workspace-analyzer.service';
+
 // DI tokens
 export * from './di/tokens';
+
+// DI registration bootstrap function
+export {
+  registerWorkspaceIntelligenceServices,
+  type WorkspaceIntelligenceTokens,
+} from './di/register';

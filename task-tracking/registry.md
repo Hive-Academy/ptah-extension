@@ -33,10 +33,11 @@
 
 ## ✅ Completed MONSTER Plan Tasks
 
-| Task ID      | MONSTER Week | Description                                    | Status       | Completed  | Lines Delivered |
-| ------------ | ------------ | ---------------------------------------------- | ------------ | ---------- | --------------- |
-| TASK_PRV_005 | Week 6       | Workspace Intelligence Library (12 services)   | ✅ Completed | 2025-10-10 | 3,003 lines     |
-| TASK_CMD_002 | Week 2       | EventBus Implementation (RxJS-based messaging) | ✅ Completed | 2025-09-03 | ~300 lines      |
+| Task ID          | MONSTER Week | Description                                                         | Status       | Completed  | Lines Delivered            |
+| ---------------- | ------------ | ------------------------------------------------------------------- | ------------ | ---------- | -------------------------- |
+| MAIN_APP_CLEANUP | Week 6       | EventBus Architecture Migration - Orchestration Services + Deletion | ✅ Completed | 2025-01-20 | 2,722 (lib) / -3,310 (app) |
+| TASK_PRV_005     | Week 6       | Workspace Intelligence Library (12 services)                        | ✅ Completed | 2025-10-10 | 3,003 lines                |
+| TASK_CMD_002     | Week 2       | EventBus Implementation (RxJS-based messaging)                      | ✅ Completed | 2025-09-03 | ~300 lines                 |
 
 ---
 

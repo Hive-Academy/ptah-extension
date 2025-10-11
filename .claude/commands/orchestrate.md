@@ -1,6 +1,6 @@
 # Orchestrate Development Workflow
 
-Orchestrates clean, sequential agent workflow with validation gates and trunk-based development.
+Intelligent multi-phase development workflow orchestration with dynamic task-type strategies, validation gates, and sequential agent execution managed through an iterative coordinator-executor pattern.
 
 ## Usage
 
@@ -9,648 +9,305 @@ Orchestrates clean, sequential agent workflow with validation gates and trunk-ba
 Examples:
 
 - `/orchestrate implement real-time messaging for user notifications`
-- `/orchestrate TASK_CMD_009`
-- `/orchestrate continue` (continues last incomplete task)
+- `/orchestrate fix authentication token expiration bug`
+- `/orchestrate refactor user service to use repository pattern`
+- `/orchestrate TASK_2025_001` (continue existing task)
 
 ---
 
-## 🎯 WORKFLOW OVERVIEW
+## Architecture: Hybrid Orchestrator-Executor Pattern
 
-```pseudocode
-Phase 0: Task Initialization (Registry + Git Setup)
-    ↓
-Phase 1: project-manager → business-analyst → [CONTINUE/REWORK]
-    ↓
-Phase 2: researcher-expert → business-analyst → [CONTINUE/REWORK]
-    ↓
-Phase 3: software-architect → business-analyst → [CONTINUE/REWORK]
-    ↓
-Phase 4: backend/frontend-developer → business-analyst → [CONTINUE/REWORK]
-    ↓
-Phase 5: senior-tester → business-analyst → [CONTINUE/REWORK]
-    ↓
-Phase 6: code-reviewer → business-analyst → [CONTINUE/REWORK]
-    ↓
-Phase 7: Task Completion (PR Creation + Registry Update)
-    ↓
-Phase 8: Future Work Consolidation (project-manager)
-```
+This command implements a sophisticated orchestration pattern where:
 
----
+1. **workflow-orchestrator agent** = Intelligent GPS Coordinator
 
-## Phase 0: Task Initialization
+   - Analyzes task type and complexity
+   - Executes Phase 0 (git operations, task setup)
+   - Creates dynamic execution strategy based on task type
+   - Provides turn-by-turn guidance for each phase
+   - Validates outputs and adapts strategy as needed
 
-### Task Setup & Git Operations
+2. **You (main Claude Code thread)** = Execution Engine
 
-```bash
-# Task initiation
-USER_REQUEST="$ARGUMENTS"
-echo "=== ORCHESTRATOR INITIATED ==="
-echo "User Request: $USER_REQUEST"
-echo "Timestamp: $(date '+%Y-%m-%d %H:%M:%S')"
+   - Invokes workflow-orchestrator initially
+   - Follows orchestrator's step-by-step guidance
+   - Invokes recommended specialist agents sequentially
+   - Returns agent results to orchestrator for next step
+   - Handles PR creation when orchestrator signals complete
 
-# Git status check
-git branch --show-current
-git status --short
-
-# Clean git state (commit any pending work)
-if ! git diff --quiet; then
-    echo "Committing pending work before new task..."
-    git add .
-    git commit -m "chore: checkpoint before starting new task"
-fi
-
-# Generate TASK_ID
-DOMAIN=$(determine_domain "$USER_REQUEST")  # CMD, INT, FE, BE, DOC, BUG
-TASK_NUMBER=$(get_next_task_number "$DOMAIN")
-TASK_ID="TASK_${DOMAIN}_${TASK_NUMBER}"
-
-# Create feature branch (trunk-based development)
-BRANCH_NAME="feature/${TASK_ID}-$(echo "$USER_REQUEST" | sed 's/[^a-zA-Z0-9]/-/g' | cut -c1-30)"
-git checkout -b "$BRANCH_NAME"
-git push -u origin "$BRANCH_NAME"
-
-# Update task registry
-echo "| $TASK_ID | $USER_REQUEST | 🔄 In Progress | orchestrator | $(date '+%Y-%m-%d') | $(date '+%Y-%m-%d %H:%M:%S') |" >> task-tracking/registry.md
-
-# Create task folder structure
-mkdir -p "task-tracking/$TASK_ID"
-echo "User Request: $USER_REQUEST" > "task-tracking/$TASK_ID/context.md"
-
-# Commit task setup
-git add .
-git commit -m "feat($TASK_ID): initialize task - $USER_REQUEST"
-git push origin "$BRANCH_NAME"
-
-echo "✅ Task $TASK_ID initialized on branch $BRANCH_NAME"
-```
+3. **Specialist agents** = Domain Experts
+   - Execute specific tasks (requirements, architecture, development, testing, review)
+   - Return results to main thread
+   - No awareness of orchestration context
 
 ---
 
-## Phase 1: Project Manager → Validation
+## Your Instructions (Main Thread Execution Loop)
 
-### 1.1 Invoke Project Manager
+You are executing the orchestrate command. Follow this iterative pattern:
 
-```bash
-Use the Task tool to invoke the project-manager agent:
+### Step 1: Initial Invocation
 
-**Prompt:**
-```
-
-You are the project-manager for $TASK_ID.
-
-## ORIGINAL USER REQUEST
-
-The user has requested: "$USER_REQUEST"
-
-## YOUR SINGLE RESPONSIBILITY
-
-Create comprehensive task-description.md that directly addresses the user's request above.
-
-## DELIVERABLES
-
-1. Save analysis to: task-tracking/$TASK_ID/task-description.md
-2. Return delegation to next agent (researcher-expert OR software-architect)
-
-Focus ONLY on what the user actually asked for. No scope expansion.
-
-### 1.2 Validate Project Manager Work
-
-```bash
-Use the Task tool to invoke the business-analyst agent:
-
-**Prompt:**
-```
-
-You are the business-analyst for $TASK_ID - Project Manager Validation Phase.
-
-## VALIDATION TARGET
-
-**Agent**: project-manager
-**Deliverable**: task-tracking/$TASK_ID/task-description.md
-
-## ORIGINAL USER REQUEST
-
-"$USER_REQUEST"
-
-## VALIDATION DECISION REQUIRED
-
-- APPROVE ✅: Proceed to next phase
-- REJECT ❌: Re-delegate to project-manager with corrections
-
-Return validation decision with specific evidence.
-
-### 1.3 Process Validation Result
-
-```bash
-if [VALIDATION_RESULT == "APPROVE"]; then
-    echo "✅ Project Manager validation passed - proceeding to next phase"
-    NEXT_PHASE="Phase 2"
-else
-    echo "❌ Project Manager validation failed - re-delegating"
-    # Re-invoke project-manager with business-analyst feedback
-    NEXT_PHASE="Phase 1 (retry)"
-fi
-```
-
----
-
-## Phase 2: Researcher Expert → Validation
-
-### 2.1 Invoke Researcher Expert (if needed)
-
-```bash
-# Only invoke if project-manager delegation specified researcher-expert
-if [PM_DELEGATION == "researcher-expert"]; then
-
-Use the Task tool to invoke the researcher-expert agent:
-
-**Prompt:**
-```
-
-You are the researcher-expert for $TASK_ID.
-
-## ORIGINAL USER REQUEST
-
-$USER_REQUEST
-
-## PROJECT MANAGER REQUIREMENTS
-
-[Content of task-tracking/$TASK_ID/task-description.md]
-
-## YOUR SINGLE RESPONSIBILITY
-
-Create research-report.md with findings directly applicable to user's request.
-
-## DELIVERABLES
-
-1. Save to: task-tracking/$TASK_ID/research-report.md
-2. Return delegation to software-architect
-
-Focus research on user's specific technical needs.
-
-```pseudocode
-else
-    echo "⏭️ Skipping research phase - proceeding to architecture"
-    NEXT_PHASE="Phase 3"
-fi
+Invoke the **workflow-orchestrator** agent using the Task tool with this prompt:
 
 ```
+You are the workflow-orchestrator agent. I'm invoking you to coordinate a development task.
 
-### 2.2 Validate Researcher Work
+## Task Request
+$ARGUMENTS
 
-```bash
-Use the Task tool to invoke the business-analyst agent:
+## Your Responsibilities
 
-**Prompt:**
+**Phase 0** - Execute immediately:
+1. Check git status and clean state (commit & push any pending work)
+2. Generate sequential TASK_YYYY_NNN ID
+3. Create feature branch and push to remote
+4. Create registry entry in task-tracking/registry.md
+5. Initialize task folder structure
+6. Create context.md with user intent
+
+**Task Analysis**:
+- Analyze task type (FEATURE, BUGFIX, REFACTORING, DOCUMENTATION, RESEARCH)
+- Assess complexity (Simple, Medium, Complex)
+- Determine if technical research is needed
+
+**Execution Strategy**:
+- Choose appropriate agent sequence based on task type:
+  - FEATURE: Full workflow (PM → Research → Architect → Dev → Test → Review)
+  - BUGFIX: Streamlined (Dev → Test → Review, skip planning)
+  - REFACTORING: Focused (Architect → Dev → Test → Review)
+  - DOCUMENTATION: Minimal (PM → Dev → Review)
+  - RESEARCH: Investigation (Researcher → [conditional implementation])
+
+**Return Format**:
+Provide your initial guidance using the structured format defined in your agent definition:
+- Task information (ID, branch, type, complexity)
+- Phase 0 completion confirmation
+- Chosen execution strategy
+- **NEXT ACTION: INVOKE AGENT** with specific agent name and full prompt
+- What you need back from me after agent invocation
+
+I will then follow your guidance to invoke the recommended agent.
 ```
 
-You are the business-analyst for $TASK_ID - Researcher Expert Validation Phase.
+### Step 2: Follow Orchestrator Guidance
 
-## VALIDATION TARGET
+The orchestrator will return structured guidance containing:
 
-**Agent**: researcher-expert
-**Deliverable**: task-tracking/$TASK_ID/research-report.md
+- **Current Status**: Phase progress, task ID, branch name
+- **Validation Result**: Assessment of last agent's work (if applicable)
+- **NEXT ACTION**: One of:
+  - **INVOKE_AGENT**: Specific agent to call with full prompt
+  - **VALIDATION**: business-analyst validation with criteria
+  - **COMPLETE**: Ready for PR creation
 
-## CONTEXT
+**Your Actions**:
 
-**Original User Request**: "$USER_REQUEST"
-**Project Requirements**: [task-tracking/$TASK_ID/task-description.md]
+#### If NEXT ACTION = INVOKE_AGENT:
 
-## VALIDATION DECISION REQUIRED
+1. Use the **Task tool** to invoke the specified agent
+2. Use the **exact prompt** provided by orchestrator
+3. Wait for agent to complete and return results
+4. Go to **Step 3**
 
-- APPROVE ✅: Proceed to software-architect
-- REJECT ❌: Re-delegate to researcher-expert
+#### If NEXT ACTION = VALIDATION:
 
-Return validation decision with architect guidance.
+1. Use the **Task tool** to invoke **business-analyst**
+2. Use the validation prompt provided by orchestrator
+3. Wait for validation decision (APPROVE ✅ or REJECT ❌)
+4. Go to **Step 3**
 
----
+#### If NEXT ACTION = COMPLETE:
 
-## Phase 3: Software Architect → Validation
+1. Execute **Phase 7** bash commands provided by orchestrator:
+   - Final commit with conventional commit message
+   - Push to remote
+   - Create pull request via `gh pr create`
+2. Capture PR URL from output
+3. Go to **Step 3** with PR URL for Phase 8
 
-### 3.1 Invoke Software Architect
+### Step 3: Return to Orchestrator
 
-```bash
-Use the Task tool to invoke the software-architect agent:
+Invoke the **workflow-orchestrator** agent again using the Task tool with this prompt:
 
-**Prompt:**
+```
+You are the workflow-orchestrator agent. I'm returning with results from the previous step.
+
+## Previous Agent Invoked
+[agent-name]
+
+## Agent Results
+[Copy the complete response from the agent, including any files created, decisions made, or delegation recommendations]
+
+## Context
+- Task ID: [TASK_ID from previous guidance]
+- Current Phase: [Phase name from previous guidance]
+
+[If this is after validation]
+## Validation Decision
+[business-analyst's APPROVE/REJECT decision with reasoning]
+
+[If this is after PR creation]
+## Pull Request Created
+- PR URL: [URL from gh pr create command]
+
+## What I Need
+Provide next step guidance:
+- Validation result for the work completed
+- NEXT ACTION (INVOKE_AGENT | VALIDATION | COMPLETE)
+- Specific agent and prompt if another invocation is needed
+
+I will continue following your guidance until workflow is complete.
 ```
 
-You are the software-architect for $TASK_ID.
+### Step 4: Repeat Steps 2-3
 
-## ORIGINAL USER REQUEST
+Continue the loop:
 
-$USER_REQUEST
+- Orchestrator provides next guidance
+- You invoke recommended agent
+- You return results to orchestrator
+- Repeat until orchestrator status = **WORKFLOW COMPLETE**
 
-## PROJECT CONTEXT
+### Step 5: Final Report to User
 
-**Requirements**: [task-tracking/$TASK_ID/task-description.md]
-**Research**: [task-tracking/$TASK_ID/research-report.md] (if exists)
+When orchestrator returns **WORKFLOW COMPLETE**, summarize for the user:
 
-## YOUR SINGLE RESPONSIBILITY
+```markdown
+🎉 Task [TASK_ID] completed successfully
 
-Create implementation-plan.md for user's request. Move any large-scope work (>1 week) to task-tracking/registry.md as future tasks.
-
-## DELIVERABLES
-
-1. Save to: task-tracking/$TASK_ID/implementation-plan.md
-2. Update task-tracking/registry.md with future tasks (if any)
-3. Return delegation to appropriate developer
-
-Keep timeline under 2 weeks for user's immediate needs.
-
-### 3.2 Validate Architect Work
-
-```bash
-Use the Task tool to invoke the business-analyst agent:
-
-**Prompt:**
-```
-
-You are the business-analyst for $TASK_ID - Software Architect Validation Phase.
-
-## VALIDATION TARGET
-
-**Agent**: software-architect
-**Deliverable**: task-tracking/$TASK_ID/implementation-plan.md
-
-## VALIDATION FOCUS
-
-1. **Scope Discipline**: Timeline under 2 weeks for user's request?
-2. **Registry Usage**: Large work moved to registry.md as future tasks?
-3. **User Focus**: Plan directly addresses user's request?
-
-## VALIDATION DECISION REQUIRED
-
-- APPROVE ✅: Proceed to development phase
-- REJECT ❌: Re-delegate to software-architect with scope corrections
-
-Return validation decision with developer assignment.
-
----
-
-## Phase 4: Development → Validation
-
-### 4.1 Invoke Developer(s)
-
-```bash
-# Determine developer type from architect delegation
-DEVELOPER_TYPE=[backend-developer|frontend-developer|both]
-
-Use the Task tool to invoke the $DEVELOPER_TYPE agent:
-
-**Prompt:**
-```
-
-You are the $DEVELOPER_TYPE for $TASK_ID.
-
-## ORIGINAL USER REQUEST
-
-$USER_REQUEST
-
-## IMPLEMENTATION PLAN
-
-[task-tracking/$TASK_ID/implementation-plan.md]
-
-## YOUR SINGLE RESPONSIBILITY
-
-Implement the user's requested functionality following the architecture plan.
-
-## DELIVERABLES
-
-1. Implement code changes
-2. Update task-tracking/$TASK_ID/progress.md with completion status
-
-Focus on user's functional requirements only.
-
-### 4.2 Validate Development Work
-
-```bash
-Use the Task tool to invoke the business-analyst agent:
-
-**Prompt:**
-```
-
-You are the business-analyst for $TASK_ID - Development Validation Phase.
-
-## VALIDATION TARGET
-
-**Agent**: $DEVELOPER_TYPE
-**Deliverable**: Code implementation + progress.md
-
-## VALIDATION FOCUS
-
-1. **User Requirements**: Does implementation solve user's actual problem?
-2. **Scope Adherence**: No unrelated technical improvements?
-3. **Critical Issues**: High-priority research findings addressed?
-
-## VALIDATION DECISION REQUIRED
-
-- APPROVE ✅: Proceed to testing phase
-- REJECT ❌: Re-delegate to developer with requirement focus
-
-Return validation decision with testing guidance.
-
----
-
-## Phase 5: Senior Tester → Validation
-
-### 5.1 Invoke Senior Tester
-
-```bash
-Use the Task tool to invoke the senior-tester agent:
-
-**Prompt:**
-```
-
-You are the senior-tester for $TASK_ID.
-
-## ORIGINAL USER REQUEST
-
-$USER_REQUEST
-
-## IMPLEMENTATION TO TEST
-
-[Code changes from development phase]
-[task-tracking/$TASK_ID/implementation-plan.md]
-
-## YOUR SINGLE RESPONSIBILITY
-
-Create tests that verify user's requirements are met.
-
-## DELIVERABLES
-
-1. Implement tests for user's functionality
-2. Save test report to: task-tracking/$TASK_ID/test-report.md
-
-Test what the user actually needs, not theoretical edge cases.
-
-### 5.2 Validate Testing Work
-
-```bash
-Use the Task tool to invoke the business-analyst agent:
-
-**Prompt:**
-```
-
-You are the business-analyst for $TASK_ID - Senior Tester Validation Phase.
-
-## VALIDATION TARGET
-
-**Agent**: senior-tester
-**Deliverable**: Tests + test-report.md
-
-## VALIDATION FOCUS
-
-User's acceptance criteria covered by tests?
-
-## VALIDATION DECISION REQUIRED
-
-- APPROVE ✅: Proceed to code review
-- REJECT ❌: Re-delegate to senior-tester
-
-Return validation decision.
-
----
-
-## Phase 6: Code Reviewer → Validation
-
-### 6.1 Invoke Code Reviewer
-
-```bash
-Use the Task tool to invoke the code-reviewer agent:
-
-**Prompt:**
-```
-
-You are the code-reviewer for $TASK_ID.
-
-## ORIGINAL USER REQUEST
-
-$USER_REQUEST
-
-## COMPLETE CONTEXT
-
-**Requirements**: [task-tracking/$TASK_ID/task-description.md]
-**Implementation**: [task-tracking/$TASK_ID/implementation-plan.md]
-**Tests**: [task-tracking/$TASK_ID/test-report.md]
-
-## YOUR SINGLE RESPONSIBILITY
-
-Verify implementation meets user's original request with production quality.
-
-## DELIVERABLES
-
-1. Save review to: task-tracking/$TASK_ID/code-review.md
-2. Return APPROVED/NEEDS_REVISION decision
-
-Focus on: Does this solve what the user asked for?
-
-### 6.2 Final Validation
-
-```bash
-Use the Task tool to invoke the business-analyst agent:
-
-**Prompt:**
-```
-
-You are the business-analyst for $TASK_ID - Final Code Review Validation.
-
-## VALIDATION TARGET
-
-**Agent**: code-reviewer
-**Deliverable**: task-tracking/$TASK_ID/code-review.md
-
-## FINAL VALIDATION
-
-Does the complete solution address the user's original request: "$USER_REQUEST"?
-
-## VALIDATION DECISION REQUIRED
-
-- APPROVE ✅: Ready for task completion
-- REJECT ❌: Re-delegate for corrections
-
-Return final validation decision.
-
----
-
-## Phase 7: Task Completion
-
-### 7.1 Create Pull Request
-
-```bash
-# Final commit
-git add .
-git commit -m "feat($TASK_ID): complete user request - $USER_REQUEST"
-git push origin "$BRANCH_NAME"
-
-# Create PR
-gh pr create \
-  --title "feat($TASK_ID): $USER_REQUEST" \
-  --body "$(cat <<EOF
 ## Summary
-Completes $TASK_ID: $USER_REQUEST
 
-## Implementation
-- [List key changes]
+- **Task**: [Original user request]
+- **Task ID**: [TASK_ID]
+- **Branch**: [feature/XXX]
+- **Pull Request**: [PR_URL]
+- **Strategy**: [Execution strategy used]
 
-## Testing
-- [Test coverage summary]
+## Completed Phases
 
-## Validation
-All phases validated by business-analyst agent.
+[List of all phases completed with checkmarks]
 
-🤖 Generated with [Claude Code](https://claude.ai/code)
-EOF
-)"
+## Deliverables
 
-PR_URL=$(gh pr view --json url -q .url)
-echo "✅ Pull Request created: $PR_URL"
-```
+[List of all files created in task-tracking/TASK_ID/]
 
-### 7.2 Update Registry
+## Quality Gates
 
-```bash
-# Update task status in registry
-sed -i "s/| $TASK_ID | .* | 🔄 In Progress |/| $TASK_ID | $USER_REQUEST | ✅ Completed | orchestrator |/g" task-tracking/registry.md
+- All phases validated by business-analyst ✅
+- Real implementation (no stubs) ✅
+- Full stack integration ✅
 
-# Final commit
-git add task-tracking/registry.md
-git commit -m "chore($TASK_ID): mark task complete in registry"
-git push origin "$BRANCH_NAME"
-```
+## Next Steps
 
-### 7.3 Task Completion Summary
-
-```bash
-echo "🎉 TASK $TASK_ID COMPLETED SUCCESSFULLY"
-echo "📋 User Request: $USER_REQUEST"
-echo "🔗 Pull Request: $PR_URL"
-echo "🌿 Branch: $BRANCH_NAME"
-echo "📊 Registry Updated: ✅ Completed"
-echo ""
-echo "Next Steps:"
-echo "1. Review and merge PR: $PR_URL"
-echo "2. Deploy changes if approved"
-echo "3. Close task branch after merge"
+1. Review pull request: [PR_URL]
+2. Merge PR if approved
+3. Deploy changes if applicable
+4. Consider future enhancements from future-work-dashboard.md
 ```
 
 ---
 
-## Phase 8: Future Work Consolidation
+## Key Execution Principles
 
-### 8.1 Invoke Modernization Detector for Future Work Consolidation
-
-```bash
-Use the Task tool to invoke the modernization-detector agent:
-
-**Prompt:**
-```
-
-You are the modernization-detector for $TASK_ID.
-
-## ORIGINAL USER REQUEST
-
-$USER_REQUEST
-
-## YOUR SINGLE RESPONSIBILITY
-
-Consolidate all future work opportunities from task deliverables and identify additional modernization opportunities from implemented code.
-
-## DELIVERABLES
-
-1. Create: task-tracking/$TASK_ID/future-enhancements.md
-2. Update: task-tracking/registry.md with properly categorized future tasks
-3. Create/Update: task-tracking/future-work-dashboard.md (project-wide view)
-
-### 8.2 Validate Future Work Consolidation
-
-```bash
-Use the Task tool to invoke the business-analyst agent:
-
-**Prompt:**
-```
-
-You are the business-analyst for $TASK_ID - Future Work Consolidation Validation Phase.
-
-## VALIDATION TARGET
-
-**Agent**: modernization-detector
-**Deliverable**: task-tracking/$TASK_ID/future-enhancements.md
-
-## VALIDATION FOCUS
-
-1. **Completeness**: All future recommendations from task deliverables captured?
-2. **Visibility**: Future work properly categorized and prioritized?
-3. **Actionability**: Each item has clear effort estimates and business value?
-
-## VALIDATION DECISION REQUIRED
-
-- APPROVE ✅: Future work properly consolidated and visible
-- REJECT ❌: Re-delegate to modernization-detector with consolidation improvements
-
-Return validation decision confirming future work visibility.
-
-### 8.3 Process Future Work Validation
-
-```bash
-if [VALIDATION_RESULT == "APPROVE"]; then
-    echo "✅ Future work consolidation complete - highly visible for planning"
-    echo "📋 Future enhancements documented in: task-tracking/$TASK_ID/future-enhancements.md"
-    echo "🎯 Registry updated with prioritized future tasks"
-else
-    echo "❌ Future work consolidation failed - re-delegating"
-    # Re-invoke modernization-detector with business-analyst feedback
-fi
-```
+1. **Iterative Coordination**: Always return to orchestrator after each agent invocation
+2. **Exact Prompts**: Use the prompts provided by orchestrator verbatim
+3. **Full Results**: Return complete agent responses to orchestrator, not summaries
+4. **Sequential Execution**: One agent at a time, never parallel
+5. **Trust the GPS**: Orchestrator adapts strategy based on task type and results
+6. **Context Preservation**: Maintain task ID and phase info across iterations
 
 ---
 
-## Error Handling
+## Dynamic Task Type Handling
 
-### Re-delegation Protocol
+The orchestrator intelligently chooses the workflow based on task analysis:
 
-```bash
-if [VALIDATION_RESULT == "REJECT"]; then
-    echo "❌ Validation failed - re-delegating to $AGENT_NAME"
+### FEATURE (Full Workflow)
 
-    # Get specific feedback from business-analyst
-    FEEDBACK="[Business analyst feedback]"
+- Project manager for requirements
+- Researcher for technical investigation (if needed)
+- Software architect for design
+- Developer for implementation
+- Senior tester for testing
+- Code reviewer for quality
+- Modernization detector for future work
 
-    # Re-invoke agent with corrections
-    # (Repeat agent invocation with feedback)
+### BUGFIX (Streamlined)
 
-    # Retry validation
-fi
-```
+- Skip project manager (requirements already clear)
+- Optional researcher (if complex bug)
+- Developer for fix
+- Senior tester for verification
+- Code reviewer for quality
 
-### Failure Recovery
+### REFACTORING (Focused)
 
-```bash
-# If multiple validation failures occur:
-if [RETRY_COUNT > 3]; then
-    echo "🚨 Task $TASK_ID failed after multiple attempts"
+- Software architect for refactoring plan
+- Developer for implementation
+- Senior tester for regression testing
+- Code reviewer for quality
 
-    # Update registry with failed status
-    sed -i "s/🔄 In Progress/❌ Failed/g" task-tracking/registry.md
+### DOCUMENTATION (Minimal)
 
-    # Create issue for manual review
-    gh issue create \
-      --title "Task $TASK_ID failed: $USER_REQUEST" \
-      --body "Multiple validation failures - requires manual review"
-fi
-```
+- Project manager to scope documentation
+- Developer for implementation
+- Code reviewer for accuracy
+
+### RESEARCH (Investigation)
+
+- Researcher for technical investigation
+- Conditional continuation with implementation phases
 
 ---
 
-## Workflow Principles
+## Benefits of This Architecture
 
-1. **Trunk-Based Development**: Each task gets its own feature branch
-2. **Sequential Agent Execution**: No parallel execution to prevent conflicts
-3. **Validation Gates**: Every agent validated by business-analyst
-4. **User Focus**: Original request drives all decisions
-5. **Scope Discipline**: Large work goes to registry.md as future tasks
-6. **Clean Git History**: Proper commits and PR creation
-7. **Registry Management**: Single source of truth for all tasks
+✅ **Dynamic**: Different task types get appropriate workflows
+✅ **Intelligent**: Orchestrator adapts strategy based on complexity
+✅ **Validated**: Every phase checked by business-analyst
+✅ **Traceable**: Full progress tracking in registry
+✅ **Flexible**: Strategy adjusts based on agent outputs
+✅ **Standards-Enforced**: Real implementation mandate, anti-backward compatibility
+✅ **Agent Pattern Compliant**: All agents return to main thread (you)
 
-**Remember**: This is workflow orchestration only. All implementation details live in individual agent definitions.
+---
+
+## Troubleshooting
+
+### If orchestrator doesn't provide clear guidance:
+
+- Return to orchestrator with: "Please provide NEXT ACTION with specific agent and prompt"
+
+### If validation fails multiple times (>3):
+
+- Orchestrator will escalate to manual review
+- Update registry to "❌ Failed (Manual Review Needed)"
+
+### If you're unsure which agent to invoke:
+
+- Always follow orchestrator's guidance exactly
+- Return to orchestrator if guidance is unclear
+
+---
+
+## Example Execution Flow
+
+**User**: `/orchestrate implement user notifications`
+
+1. **You** → Invoke workflow-orchestrator
+2. **Orchestrator** → Returns: "INVOKE project-manager with [prompt]"
+3. **You** → Invoke project-manager
+4. **Project-Manager** → Returns requirements document
+5. **You** → Return to orchestrator with PM results
+6. **Orchestrator** → Returns: "VALIDATION needed, invoke business-analyst"
+7. **You** → Invoke business-analyst with validation criteria
+8. **Business-Analyst** → Returns: "APPROVED ✅"
+9. **You** → Return to orchestrator with validation result
+10. **Orchestrator** → Returns: "INVOKE software-architect with [prompt]"
+11. **You** → Invoke software-architect
+    ... continue until orchestrator returns "WORKFLOW COMPLETE"
+
+---
+
+**This orchestration pattern ensures predictable, validated, high-quality development workflows with intelligent task-type adaptation.**
