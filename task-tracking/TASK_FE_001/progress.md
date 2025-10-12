@@ -119,17 +119,20 @@
 **Foundation Layer** (4 services - COMPLETE):
 
 1. ✅ **LoggingService** (`libs/frontend/core/src/lib/services/logging.service.ts`)
+
    - Pure logging utility, zero dependencies
    - Type-safe log levels
    - LOC: ~100
 
 2. ✅ **VSCodeService** (`libs/frontend/core/src/lib/services/vscode.service.ts`)
+
    - VS Code webview API communication
    - Signal-based connection state
    - Type-safe message posting with `postStrictMessage<T>()`
    - LOC: ~250
 
 3. ✅ **MessageHandlerService** (`libs/frontend/core/src/lib/services/message-handler.service.ts`)
+
    - Message routing and handling
    - Signal-based state
    - Type-safe message subscriptions
@@ -144,6 +147,7 @@
 **State Layer** (3 services - COMPLETE):
 
 5. ✅ **WebviewConfigService** (`libs/frontend/core/src/lib/services/webview-config.service.ts`)
+
    - Migrated from: `apps/ptah-extension-webview/src/app/core/services/webview-config.service.ts`
    - Modernizations applied:
      - Removed `BehaviorSubject` → pure signal-based state
@@ -158,6 +162,7 @@
    - LOC: ~350
 
 6. ✅ **ViewManagerService** (`libs/frontend/core/src/lib/services/view-manager.service.ts`)
+
    - Migrated from: `apps/ptah-extension-webview/src/app/core/services/view-manager.service.ts`
    - Modernizations applied:
      - `inject()` pattern instead of constructor injection
@@ -179,65 +184,83 @@
 
 **Total State Layer LOC Migrated**: ~660 lines across 3 services
 
-#### Remaining Services (4/11) 🔄
+**Chat Services Layer** (1 service - IN PROGRESS):
+
+8. ✅ **ChatStateService** (`libs/frontend/core/src/lib/services/chat-state.service.ts`)
+   - Migrated from: `apps/ptah-extension-webview/src/app/features/chat/services/chat-state.service.ts`
+   - Modernizations applied:
+     - Pure signal-based state management (zero RxJS)
+     - `inject()` pattern instead of constructor injection
+     - Removed ALL `BehaviorSubject` → pure `signal()`
+     - Signal-based chat message management
+     - Computed signals for derived state (hasMessages, lastMessage, messageCount)
+     - Signal-based session state tracking
+     - Zero `any` types - strict message/session typing
+     - Zero external dependencies (pure state container)
+   - LOC: ~200
+
+**Total Chat Services LOC Migrated**: ~200 lines
+
+#### Remaining Services (3/11) 🔄
 
 **Chat Services** (Remaining):
 
-8. [ ] **EnhancedChatService** (~200 LOC) - Chat orchestration
-9. [ ] **ChatStateManagerService** (~180 LOC) - Chat state management
-10. [ ] **MessageProcessingService** (~150 LOC) - Message processing
-11. [ ] **StreamHandlingService** (~120 LOC) - Stream handling
+9. [ ] **ChatValidationService** (~120 LOC) - Message validation
+10. [ ] **ClaudeMessageTransformerService** (~150 LOC) - Claude message transformation
+11. [ ] **MessageProcessingService** (~150 LOC) - Message processing (depends on 9, 10)
 
-**Progress**: 7/11 services complete (~64%)
+**Progress**: 8/11 services complete (~73%)
 
 #### Migration Statistics
 
-**Modernization Patterns Applied (State Layer)**:
+**Modernization Patterns Applied (State + Chat Layer)**:
 
-- ✅ 3 services converted from constructor injection → `inject()`
-- ✅ 1 service removed `BehaviorSubject` → pure `signal()`
+- ✅ 4 services converted from constructor injection → `inject()`
+- ✅ 2 services removed `BehaviorSubject` → pure `signal()`
 - ✅ 1 service using `DestroyRef` + `takeUntilDestroyed()` for cleanup
-- ✅ 3 services using `computed()` for derived state
-- ✅ 3 services strictly typed (zero `any` types)
+- ✅ 4 services using `computed()` for derived state
+- ✅ 4 services strictly typed (zero `any` types)
 - ✅ Message payload types extended in `MessagePayloadMap`
 
 **Quality Validation**:
 
-- ✅ All 3 services passing `nx run core:lint` (zero errors)
+- ✅ All 8 services passing `nx run core:lint` (zero errors)
 - ✅ Proper import/export in `libs/frontend/core/src/lib/services/index.ts`
 - ✅ Type safety verified (strict TypeScript mode)
 - ✅ Signal-based state management verified
 
 **Next Services to Migrate** (Chat Services Layer):
 
-1. EnhancedChatService (~200 LOC) - Chat orchestration and message handling
-2. ChatStateManagerService (~180 LOC) - Chat session state management  
-3. MessageProcessingService (~150 LOC) - Claude message processing
-4. StreamHandlingService (~120 LOC) - Stream handling and chunking
+1. ChatValidationService (~120 LOC) - Message validation (zero dependencies)
+2. ClaudeMessageTransformerService (~150 LOC) - Claude message transformation (zero dependencies)
+3. MessageProcessingService (~150 LOC) - Message processing (depends on above 2)
 
-**Dependencies for Chat Services**: All met ✅ (VSCodeService, AppStateManager, WebviewConfigService ready)
+**Dependencies for Remaining Chat Services**: Partial - Need to migrate validation/transformer services first
 
-#### Session Summary (October 12, 2025)
+#### Session Summary (October 12, 2025 - Latest)
 
-**Time Invested**: ~2 hours  
-**Services Migrated**: 3 (WebviewConfigService, ViewManagerService, WebviewNavigationService)  
-**LOC Modernized**: ~660 lines  
+**Time Invested**: ~3 hours  
+**Services Migrated**: 4 (WebviewConfigService, ViewManagerService, WebviewNavigationService, ChatStateService)  
+**LOC Modernized**: ~860 lines  
 **Quality**: 100% lint passing, zero type errors
 
 **Key Achievements**:
 
 1. ✅ **Type System Enhancements**
+
    - Added `ConfigGetPayload`, `ConfigUpdatePayload`, `ConfigRefreshPayload` to MessagePayloadMap
    - Fixed message payload structure (using `payload` property consistently)
    - Imported `WebviewConfiguration` type to message.types.ts
    - Zero `any` types in all migrated services
 
 2. ✅ **Modern Angular Patterns**
-   - All 3 services using `inject()` instead of constructor injection
-   - WebviewConfigService converted from `BehaviorSubject` to pure `signal()`
+
+   - All 4 services using `inject()` instead of constructor injection
+   - WebviewConfigService + ChatStateService converted from `BehaviorSubject` to pure `signal()`
    - WebviewConfigService using `DestroyRef` + `takeUntilDestroyed()` for cleanup
    - All services using `computed()` for derived state
    - WebviewNavigationService using signal-based navigation (NO Angular Router)
+   - ChatStateService: Pure signal-based state container (zero dependencies)
 
 3. ✅ **Code Quality**
    - All services passing `nx run core:lint` with zero errors
@@ -247,11 +270,11 @@
 
 **Next Session Plan**:
 
-1. Migrate remaining 4 chat services:
-   - EnhancedChatService (~200 LOC)
-   - ChatStateManagerService (~180 LOC)
-   - MessageProcessingService (~150 LOC)
-   - StreamHandlingService (~120 LOC)
+1. Migrate remaining 3 chat services in dependency order:
+
+   - ChatValidationService (~120 LOC) - Zero dependencies, pure validation logic
+   - ClaudeMessageTransformerService (~150 LOC) - Zero dependencies, pure transformation
+   - MessageProcessingService (~150 LOC) - Depends on validation + transformer
 
 2. Complete Step 3 (Core Services - 100%)
 3. Begin Step 4 (Feature Libraries Migration)
@@ -268,6 +291,7 @@
 **Form Components** (4 migrated):
 
 1. ✅ **InputComponent** (`libs/frontend/shared-ui/src/lib/forms/input/input.component.ts`)
+
    - Migrated from: `apps/ptah-extension-webview/src/app/shared/components/forms/vscode-input.component.ts`
    - Modernizations applied:
      - `@Input()` → `input()` (15 inputs converted)
@@ -280,6 +304,7 @@
    - LOC: ~370 (modernized)
 
 2. ✅ **InputIconComponent** (`libs/frontend/shared-ui/src/lib/forms/input-icon/input-icon.component.ts`)
+
    - Migrated from: `apps/ptah-extension-webview/src/app/shared/components/forms/input-icon.component.ts`
    - Modernizations applied:
      - `@Input()` → `input()` + `input.required()` (3 inputs)
@@ -290,6 +315,7 @@
    - LOC: ~80 (modernized)
 
 3. ✅ **ValidationMessageComponent** (`libs/frontend/shared-ui/src/lib/forms/validation-message/validation-message.component.ts`)
+
    - Migrated from: `apps/ptah-extension-webview/src/app/shared/components/forms/validation-message.component.ts`
    - Modernizations applied:
      - `@Input()` → `input()` (3 inputs)
@@ -299,6 +325,7 @@
    - LOC: ~50 (modernized)
 
 4. ✅ **ActionButtonComponent** (`libs/frontend/shared-ui/src/lib/forms/action-button/action-button.component.ts`)
+
    - Migrated from: `apps/ptah-extension-webview/src/app/shared/components/forms/action-button.component.ts`
    - Modernizations applied:
      - `@Input()` → `input()` + `input.required()` (4 inputs)
@@ -308,6 +335,7 @@
    - LOC: ~250 (modernized)
 
 5. ✅ **DropdownComponent** (`libs/frontend/shared-ui/src/lib/forms/dropdown/dropdown.component.ts`)
+
    - Migrated from: `apps/ptah-extension-webview/src/app/shared/components/forms/vscode-dropdown.component.ts`
    - Modernizations applied:
      - `@Input()` → `input()` (7 inputs)
@@ -321,6 +349,7 @@
    - LOC: ~370 (modernized)
 
 6. ✅ **DropdownTriggerComponent** (`libs/frontend/shared-ui/src/lib/forms/dropdown-trigger/dropdown-trigger.component.ts`)
+
    - Migrated from: `apps/ptah-extension-webview/src/app/shared/components/forms/dropdown-trigger.component.ts`
    - Modernizations applied:
      - `@Input()` → `input()` (8 inputs)
@@ -330,6 +359,7 @@
    - LOC: ~140 (modernized)
 
 7. ✅ **DropdownSearchComponent** (`libs/frontend/shared-ui/src/lib/forms/dropdown-search/dropdown-search.component.ts`)
+
    - Migrated from: `apps/ptah-extension-webview/src/app/shared/components/forms/dropdown-search.component.ts`
    - Modernizations applied:
      - `@Input()` → `input()` (1 input)
@@ -376,6 +406,7 @@
 **UI Components** (2 migrated):
 
 9. ✅ **LoadingSpinnerComponent** (`libs/frontend/shared-ui/src/lib/ui/loading-spinner/loading-spinner.component.ts`)
+
    - Migrated from: `apps/ptah-extension-webview/src/app/shared/components/ui/loading-spinner.component.ts`
    - Modernizations applied:
      - `@Input()` → `input()` (3 inputs)
@@ -388,11 +419,11 @@
 
 - Migrated from: `apps/ptah-extension-webview/src/app/shared/components/ui/status-bar.component.ts`
 - Modernizations applied:
-    - `@Input()` → `input()` (3 inputs)
-    - Added `ChangeDetectionStrategy.OnPush`
-    - Using `computed()` for derived state (projectType)
-    - Already had `@if` control flow ✅
-    - Selector: `vscode-status-bar` → `ptah-status-bar`
+  - `@Input()` → `input()` (3 inputs)
+  - Added `ChangeDetectionStrategy.OnPush`
+  - Using `computed()` for derived state (projectType)
+  - Already had `@if` control flow ✅
+  - Selector: `vscode-status-bar` → `ptah-status-bar`
 - LOC: ~190 (modernized)
 
 **Layout Components** (1 migrated):
@@ -401,11 +432,11 @@
 
 - Migrated from: `apps/ptah-extension-webview/src/app/shared/components/layout/simple-header.component.ts`
 - Modernizations applied:
-    - `@Input()` → `input()` + `input.required()` (2 inputs)
-    - `@Output()` → `output()` (3 outputs)
-    - Added `ChangeDetectionStrategy.OnPush`
-    - **Converted to pure presentation** (removed service dependencies)
-    - Selector: `vscode-simple-header` → `ptah-simple-header`
+  - `@Input()` → `input()` + `input.required()` (2 inputs)
+  - `@Output()` → `output()` (3 outputs)
+  - Added `ChangeDetectionStrategy.OnPush`
+  - **Converted to pure presentation** (removed service dependencies)
+  - Selector: `vscode-simple-header` → `ptah-simple-header`
 - LOC: ~90 (modernized)
 
 **Overlay Components** (2 migrated):
@@ -414,26 +445,26 @@
 
 - Migrated from: `apps/ptah-extension-webview/src/app/shared/components/overlays/permission-popup.component.ts`
 - Modernizations applied:
-    - `@Input()` → `input()` (3 inputs)
-    - `@Output()` → `output()` (2 outputs)
-    - Added `ChangeDetectionStrategy.OnPush`
-    - Using `computed()` for derived state (4 computed signals: riskIcon, riskLabel, riskExplanation, formattedTimestamp)
-    - Already had `@if` control flow ✅
-    - Replaced `vscode-action-button` with native buttons + lucide icons
-    - Selector: `vscode-permission-popup` → `ptah-permission-popup`
+  - `@Input()` → `input()` (3 inputs)
+  - `@Output()` → `output()` (2 outputs)
+  - Added `ChangeDetectionStrategy.OnPush`
+  - Using `computed()` for derived state (4 computed signals: riskIcon, riskLabel, riskExplanation, formattedTimestamp)
+  - Already had `@if` control flow ✅
+  - Replaced `vscode-action-button` with native buttons + lucide icons
+  - Selector: `vscode-permission-popup` → `ptah-permission-popup`
 - LOC: ~510 (modernized)
 
 13. ✅ **CommandBottomSheetComponent** (`libs/frontend/shared-ui/src/lib/overlays/command-bottom-sheet/command-bottom-sheet.component.ts`)
 
 - Migrated from: `apps/ptah-extension-webview/src/app/shared/components/overlays/command-bottom-sheet.component.ts`
 - Modernizations applied:
-    - `@Input()` → `input()` (2 inputs - isOpen, quickCommands)
-    - `@Output()` → `output()` (2 outputs)
-    - Added `ChangeDetectionStrategy.OnPush`
-    - Already had `@if/@for` control flow ✅
-    - Replaced `vscode-action-button` with native buttons + lucide icons
-    - Fixed `any` type → `LucideIconData` for strict typing
-    - Selector: `vscode-command-bottom-sheet` → `ptah-command-bottom-sheet`
+  - `@Input()` → `input()` (2 inputs - isOpen, quickCommands)
+  - `@Output()` → `output()` (2 outputs)
+  - Added `ChangeDetectionStrategy.OnPush`
+  - Already had `@if/@for` control flow ✅
+  - Replaced `vscode-action-button` with native buttons + lucide icons
+  - Fixed `any` type → `LucideIconData` for strict typing
+  - Selector: `vscode-command-bottom-sheet` → `ptah-command-bottom-sheet`
 - LOC: ~280 (modernized)
 
 **Infrastructure**:
@@ -505,7 +536,7 @@
 - [x] Generated baseline dependency graph with `nx graph`
 - [x] Created performance monitoring baseline script
 - [x] Verified ESLint circular dependency detection configured
-- [x] Verified nx.json import path aliases (@ptah-extension/frontend/*)
+- [x] Verified nx.json import path aliases (@ptah-extension/frontend/\*)
 - [x] Verified folder structure for all libraries (components/, services/, models/)
 
 #### Next Tasks (Remaining for Step 1) 🔄
@@ -548,7 +579,7 @@
 - ✅ Baseline dependency graph generated: `task-tracking/TASK_FE_001/baseline-dependency-graph.html`
 - ✅ Performance baseline script created: `scripts/performance-baseline.mjs` (250 lines)
 - ✅ ESLint circular dependency detection verified: `@nx/enforce-module-boundaries` already configured
-- ✅ Import path aliases verified in nx.json (all @ptah-extension/frontend/* working)
+- ✅ Import path aliases verified in nx.json (all @ptah-extension/frontend/\* working)
 - ✅ Library folder structures verified (all exist with proper organization)
 
 **Evidence of Modern Angular Patterns**:
@@ -556,8 +587,8 @@
 Found existing signal usage in:
 
 - `apps/ptah-extension-webview/src/app/core/services/app-state.service.ts` (lines 21-32)
-    - Already uses `signal()`, `computed()`, `asReadonly()` pattern
-    - This is the target architecture for all service migrations
+  - Already uses `signal()`, `computed()`, `asReadonly()` pattern
+  - This is the target architecture for all service migrations
 
 **Discovery Summary**:
 
@@ -675,7 +706,7 @@ Found existing signal usage in:
 
 ---
 
-**Last Updated**: October 12, 2025 - Step 3 (State Layer) complete: 7/11 core services migrated (~64%)
+**Last Updated**: October 12, 2025 - Step 3 (Core Services) 8/11 complete (~73%)
 
 ---
 
@@ -686,31 +717,31 @@ Found existing signal usage in:
 - ✅ **Phase 1**: Requirements Analysis (COMPLETE)
 - ✅ **Phase 3**: Architecture Planning (COMPLETE)
 - 🔄 **Phase 4**: Frontend Development (IN PROGRESS - Day 4 of 15)
-    - ✅ Step 1: Foundation Setup (COMPLETE)
-    - ✅ Step 2: Shared UI Library (13/13 components - COMPLETE)
-    - 🔄 Step 3: Core Services (7/11 services - 64% COMPLETE)
-    - ⏳ Step 4-7: Remaining (Pending)
+  - ✅ Step 1: Foundation Setup (COMPLETE)
+  - ✅ Step 2: Shared UI Library (13/13 components - COMPLETE)
+  - 🔄 Step 3: Core Services (8/11 services - 73% COMPLETE)
+  - ⏳ Step 4-7: Remaining (Pending)
 
 ### Components & Services Migrated
 
 | Category                 | Total | Migrated | Remaining | Progress |
 | ------------------------ | ----- | -------- | --------- | -------- |
 | **Shared UI Components** | 13    | 13       | 0         | 100% ✅  |
-| **Core Services**        | 11    | 7        | 4         | 64% 🔄   |
+| **Core Services**        | 11    | 8        | 3         | 73% 🔄   |
 | **Chat Components**      | 13    | 0        | 13        | 0% ⏳    |
 | **Session Components**   | 3     | 0        | 3         | 0% ⏳    |
 | **Analytics Components** | 4     | 0        | 4         | 0% ⏳    |
 | **Dashboard Components** | 5     | 0        | 5         | 0% ⏳    |
 | **Provider Components**  | 3     | 0        | 3         | 0% ⏳    |
-| **TOTAL**                | 52    | 20       | 32        | 38% 🔄   |
+| **TOTAL**                | 52    | 21       | 31        | 40% 🔄   |
 
 ### Lines of Code Modernized
 
 - **Shared UI Library**: ~2,850 LOC (13 components)
-- **Core Services**: ~1,285 LOC (7 services)
-- **Total Migrated**: ~4,135 LOC
-- **Estimated Remaining**: ~7,145 LOC (32 components + 4 services)
+- **Core Services**: ~1,485 LOC (8 services)
+- **Total Migrated**: ~4,335 LOC
+- **Estimated Remaining**: ~6,945 LOC (31 components + 3 services)
 
 ---
 
-**Last Updated**: October 12, 2025 - Step 3 (State Layer) complete: 7/11 core services migrated (~64%)
+**Last Updated**: October 12, 2025 - Step 3 (Core Services) 8/11 complete (~73%)
