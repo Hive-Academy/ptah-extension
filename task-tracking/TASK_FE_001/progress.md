@@ -201,6 +201,7 @@
    - LOC: ~200
 
 9. ✅ **ChatValidationService** (`libs/frontend/core/src/lib/services/chat-validation.service.ts`)
+
    - Migrated from: `apps/ptah-extension-webview/src/app/core/services/chat/validation.service.ts`
    - Modernizations applied:
      - Pure validation logic (zero dependencies)
@@ -212,16 +213,30 @@
      - Zero `any` types - strict typing throughout
    - LOC: ~380
 
-**Total Chat Services LOC Migrated**: ~580 lines
+10. ✅ **ClaudeMessageTransformerService** (`libs/frontend/core/src/lib/services/claude-message-transformer.service.ts`)
 
-#### Remaining Services (2/11) 🔄
+- Migrated from: `apps/ptah-extension-webview/src/app/core/services/claude-message-transformer.service.ts`
+- Modernizations applied:
+  - Pure transformation logic (zero dependencies)
+  - Removed DOM dependencies (document.createElement → string-based escapeHtml)
+  - Simplified inline interfaces (ClaudeContent, ProcessedClaudeMessage, etc.)
+  - Type guards for content type checking (isTextContent, isToolUseContent, etc.)
+  - Transform Claude CLI messages to UI-friendly format
+  - Extract content from text/tools/files with markdown rendering
+  - Code block syntax highlighting preparation
+  - File path detection and formatting
+  - Zero `any` types - strict typing throughout
+- LOC: ~500
+
+**Total Chat Services LOC Migrated**: ~1,080 lines
+
+#### Remaining Services (1/11) 🔄
 
 **Chat Services** (Remaining):
 
-10. [ ] **ClaudeMessageTransformerService** (~150 LOC) - Claude message transformation
-11. [ ] **MessageProcessingService** (~150 LOC) - Message processing (depends on 10)
+11. [ ] **MessageProcessingService** (~150 LOC) - Message processing (depends on transformer + validation)
 
-**Progress**: 9/11 services complete (~82%)
+**Progress**: 10/11 services complete (~91%)
 
 #### Migration Statistics
 
@@ -231,26 +246,76 @@
 - ✅ 2 services removed `BehaviorSubject` → pure `signal()`
 - ✅ 1 service using `DestroyRef` + `takeUntilDestroyed()` for cleanup
 - ✅ 4 services using `computed()` for derived state
-- ✅ 5 services strictly typed (zero `any` types)
+- ✅ 6 services strictly typed (zero `any` types)
 - ✅ Message payload types extended in `MessagePayloadMap`
-- ✅ 1 service with XSS prevention and security validation
+- ✅ 2 services with security features (XSS prevention, HTML escaping)
+- ✅ 1 service with DOM dependency removal (pure string-based transformation)
 
 **Quality Validation**:
 
-- ✅ All 9 services passing `nx run core:lint` (zero errors)
+- ✅ All 10 services passing `nx run core:lint` (zero errors)
 - ✅ Proper import/export in `libs/frontend/core/src/lib/services/index.ts`
 - ✅ Type safety verified (strict TypeScript mode)
 - ✅ Signal-based state management verified
-- ✅ Zero dependencies for validation service (pure logic)
+- ✅ Zero dependencies for validation + transformer services (pure logic)
 
 **Next Services to Migrate** (Chat Services Layer):
 
-1. ClaudeMessageTransformerService (~150 LOC) - Claude message transformation (zero dependencies)
-2. MessageProcessingService (~150 LOC) - Message processing (depends on transformer + validation)
+1. MessageProcessingService (~150 LOC) - Message processing (depends on transformer + validation)
 
-**Dependencies for Remaining Chat Services**: Partial - Need transformer service before message processing
+**Dependencies for Remaining Chat Services**: MessageProcessingService depends on transformer + validation (both migrated)
 
-#### Session Summary (October 13, 2025 - Latest)
+#### Session Summary (October 13, 2025 - ClaudeMessageTransformerService)
+
+**Time Invested**: ~30 minutes  
+**Services Migrated**: 1 (ClaudeMessageTransformerService)  
+**LOC Modernized**: ~500 lines  
+**Quality**: 100% lint passing, zero type errors
+
+**Key Achievements**:
+
+1. ✅ **Pure Transformation Logic**
+
+   - ClaudeMessageTransformerService migrated with zero dependencies
+   - Transform Claude CLI messages to UI-friendly ProcessedClaudeMessage format
+   - Extract content from text/tools/files with markdown rendering
+   - Code block syntax highlighting preparation
+   - File path detection and formatting
+   - Security: HTML escaping for safe rendering
+   - Type guards for content type checking (isTextContent, isToolUseContent, isToolResultContent)
+
+2. ✅ **DOM Dependency Removal**
+
+   - Replaced `document.createElement` with string-based `escapeHtml()` method
+   - Simplified HTML rendering to remove webview incompatibilities
+   - Pure string transformation for markdown processing
+
+3. ✅ **Type Safety Enhancements**
+
+   - Simplified inline interfaces (ClaudeContent, ProcessedClaudeMessage, etc.)
+   - Removed unused ClaudeMessageTransformer interface
+   - Comprehensive type guards for content discrimination
+   - Zero `any` types throughout
+
+4. ✅ **Code Quality**
+   - Fixed regex escape character lint errors (unnecessary backslashes before asterisks)
+   - Passed `nx run core:lint` with zero errors
+   - Proper barrel exports in services/index.ts with "Chat Layer" section
+   - TypeScript strict mode compliance
+   - Comprehensive inline documentation
+
+**Next Session Plan**:
+
+1. Migrate final chat service:
+
+   - MessageProcessingService (~150 LOC) - Orchestrates validation + transformation
+
+2. Complete Step 3 (Core Services - 100%)
+3. Begin Step 4 (Feature Libraries Migration)
+
+---
+
+#### Session Summary (October 13, 2025 - ChatValidationService)
 
 **Time Invested**: ~1 hour  
 **Services Migrated**: 1 (ChatValidationService)  

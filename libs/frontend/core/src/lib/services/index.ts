@@ -15,6 +15,7 @@ export * from './webview-config.service';
 export * from './view-manager.service';
 export * from './webview-navigation.service';
 
-// Core Services - Chat Layer (chat-specific services)
-export * from './chat-state.service';
-export * from './chat-validation.service';
+// Chat Layer (pure chat logic, state management, validation, transformations)
+export { ChatStateService } from './chat-state.service';
+export { ChatValidationService } from './chat-validation.service';
+export { ClaudeMessageTransformerService } from './claude-message-transformer.service';
