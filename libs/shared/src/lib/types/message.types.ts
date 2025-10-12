@@ -16,6 +16,7 @@ import {
   CorrelationIdSchema,
 } from './branded.types';
 import { CommandTemplate } from './command-builder.types';
+import { WebviewConfiguration } from './webview-ui.types';
 
 // Re-export for convenience
 export { CorrelationId };
@@ -245,7 +246,19 @@ export interface CommandsSaveTemplatePayload {
 }
 
 export interface AnalyticsGetDataPayload {
-  // No payload needed for get analytics data request
+  readonly timestamp?: number;
+}
+
+export interface ConfigGetPayload {
+  readonly timestamp: number;
+}
+
+export interface ConfigUpdatePayload {
+  readonly updates: Partial<WebviewConfiguration>;
+}
+
+export interface ConfigRefreshPayload {
+  readonly timestamp: number;
 }
 
 export interface StateSavePayload {
@@ -408,6 +421,13 @@ export interface ErrorPayload {
 }
 
 /**
+ * Theme changed payload
+ */
+export interface ThemeChangedPayload {
+  readonly theme: 'light' | 'dark' | 'high-contrast';
+}
+
+/**
  * Initial data payload for webview initialization
  */
 export interface InitialDataPayload {
@@ -471,18 +491,27 @@ export interface MessagePayloadMap {
   'commands:saveTemplate': CommandsSaveTemplatePayload;
   'analytics:trackEvent': AnalyticsEventPayload;
   'analytics:getData': AnalyticsGetDataPayload;
-  'config:get': AnalyticsGetDataPayload;
-  'config:set': StateSavePayload;
-  'config:update': StateSavePayload;
-  'config:refresh': AnalyticsGetDataPayload;
+  'config:get': ConfigGetPayload;
+  'config:set': ConfigUpdatePayload;
+  'config:update': ConfigUpdatePayload;
+  'config:refresh': ConfigRefreshPayload;
   'state:save': StateSavePayload;
   'state:load': StateLoadPayload;
   'state:clear': StateClearPayload;
+  'state:saved': ContextGetFilesPayload;
+  'state:loaded': InitialDataPayload;
   'view:changed': ViewChangedPayload;
   'view:routeChanged': ViewRouteChangedPayload;
   'view:generic': ViewGenericPayload;
   'error': ErrorPayload;
   'initialData': InitialDataPayload;
+  'webview-ready': ContextGetFilesPayload; // Empty payload
+  'ready': ViewChangedPayload; // System ready with view
+  'requestInitialData': ContextGetFilesPayload; // Empty payload
+  'themeChanged': ThemeChangedPayload;
+  'navigate': ViewRouteChangedPayload;
+  'switchView': ViewChangedPayload;
+  'workspaceChanged': InitialDataPayload;
 }
 
 /**
@@ -754,4 +783,24 @@ export function isSystemMessage(message: WebviewMessage): message is SystemMessa
  */
 export function isRoutableMessage(message: WebviewMessage): message is RoutableMessage {
   return !isSystemMessage(message);
+}
+
+/**
+ * Helper function to create strict messages with required metadata
+ */
+export function createStrictMessage<T extends keyof MessagePayloadMap>(
+  type: T,
+  payload: MessagePayloadMap[T],
+  correlationId?: CorrelationId,
+): StrictMessage<T> {
+  return {
+    id: (correlationId ?? crypto.randomUUID()) as CorrelationId,
+    type,
+    payload,
+    metadata: {
+      timestamp: Date.now(),
+      source: 'webview',
+      version: '1.0.0',
+    },
+  };
 }

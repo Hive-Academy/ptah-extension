@@ -4,7 +4,7 @@
   "sourceRoot": "libs/frontend/shared-ui/src",
   "prefix": "ptah",
   "projectType": "library",
-  "tags": [],
+  "tags": ["scope:webview", "type:ui"],
   "targets": {
     "test": {
       "executor": "@nx/jest:jest",
