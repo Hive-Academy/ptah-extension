@@ -19,3 +19,4 @@ export * from './webview-navigation.service';
 export { ChatStateService } from './chat-state.service';
 export { ChatValidationService } from './chat-validation.service';
 export { ClaudeMessageTransformerService } from './claude-message-transformer.service';
+export { MessageProcessingService } from './message-processing.service';
