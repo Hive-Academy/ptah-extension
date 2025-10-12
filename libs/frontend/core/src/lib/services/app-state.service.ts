@@ -1,6 +1,6 @@
-import { Injectable, signal, computed } from '@angular/core';
-import { VSCodeService } from './vscode.service';
+import { Injectable, signal, computed, inject } from '@angular/core';
 import { WorkspaceInfo } from '@ptah-extension/shared';
+import { VSCodeService } from './vscode.service';
 
 export type ViewType = 'chat' | 'command-builder' | 'analytics' | 'context-tree';
 
@@ -10,6 +10,18 @@ export interface AppState {
   statusMessage: string;
   workspaceInfo: WorkspaceInfo | null;
   isConnected: boolean;
+}
+
+interface InitialState {
+  initialView?: ViewType;
+  previousState?: {
+    currentView?: ViewType;
+  };
+}
+
+interface InitialDataPayload {
+  workspaceInfo?: WorkspaceInfo;
+  currentView?: ViewType;
 }
 
 /**
@@ -23,6 +35,9 @@ export interface AppState {
   providedIn: 'root',
 })
 export class AppStateManager {
+  // Service injection using inject() (Angular 20+)
+  private readonly vscodeService = inject(VSCodeService);
+
   // Core state signals
   private readonly _currentView = signal<ViewType>('chat');
   private readonly _isLoading = signal(false);
@@ -44,19 +59,20 @@ export class AppStateManager {
     return workspace ? `Ptah - ${workspace.name}` : 'Ptah';
   });
 
-  constructor(private vscodeService: VSCodeService) {
+  constructor() {
     this.initializeState();
   }
 
   private initializeState(): void {
     // Get initial view from window global (set by VS Code provider)
-    const initialView = (window as any).initialView || 'chat';
+    const windowWithState = window as Window & InitialState;
+    const initialView = windowWithState.initialView || 'chat';
     this._currentView.set(initialView);
 
     // Restore previous state if available
-    const previousState = (window as any).previousState;
-    if (previousState) {
-      this._currentView.set(previousState.currentView || 'command-builder');
+    const previousState = windowWithState.previousState;
+    if (previousState?.currentView) {
+      this._currentView.set(previousState.currentView);
     }
   }
 
@@ -91,7 +107,7 @@ export class AppStateManager {
   }
 
   // Handle initial data from VS Code
-  handleInitialData(data: any): void {
+  handleInitialData(data: InitialDataPayload): void {
     if (data.workspaceInfo) {
       this.setWorkspaceInfo(data.workspaceInfo);
     }

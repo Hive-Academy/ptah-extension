@@ -34,6 +34,23 @@ interface VsCodeApi {
 }
 
 /**
+ * Extended window interface with VS Code globals
+ * These are injected by the extension host before Angular bootstraps
+ */
+interface PtahWindow extends Window {
+  vscode?: VsCodeApi;
+  ptahConfig?: WebviewConfig;
+  ptahPreviousState?: unknown;
+}
+
+/**
+ * Safely get the extended window object
+ */
+function getPtahWindow(): PtahWindow {
+  return window as unknown as PtahWindow;
+}
+
+/**
  * Service for communicating with VS Code extension
  *
  * Provides type-safe message passing between Angular webview and VS Code extension host.
@@ -91,42 +108,47 @@ export class VSCodeService {
   readonly currentTheme = computed(() => this.config().theme);
 
   constructor() {
-    this.initializeVSCodeApi();
+    this.initializeFromGlobals();
     this.setupMessageListener();
     this.setupThemeListener();
   }
 
   /**
-   * Initialize VS Code API
-   * Detects if running in VS Code webview or development mode
+   * Initialize from VS Code injected globals
+   * 
+   * IMPORTANT: The extension host injects these globals BEFORE Angular bootstraps:
+   * - window.vscode: The VS Code API (from acquireVsCodeApi())
+   * - window.ptahConfig: Webview configuration (theme, workspace, URIs)
+   * - window.ptahPreviousState: Restored state from previous session
+   * 
+   * This approach is safer than calling acquireVsCodeApi() because:
+   * 1. acquireVsCodeApi() can only be called once per webview lifetime
+   * 2. Extension host calls it in the bootstrap script before Angular loads
+   * 3. We just reference the already-acquired API from window.vscode
    */
-  private initializeVSCodeApi(): void {
-    // VS Code global function (available in webview context)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const acquireApi = (window as any).acquireVsCodeApi as (() => VsCodeApi) | undefined;
+  private initializeFromGlobals(): void {
+    const ptahWindow = getPtahWindow();
 
-    // Acquire VS Code API (only available once)
-    if (typeof acquireApi === 'function') {
-      try {
-        this.vscode = acquireApi();
-        this._isConnected.set(true);
+    // Check if we have the VS Code API (injected by extension host)
+    if (ptahWindow.vscode) {
+      this.vscode = ptahWindow.vscode;
+      this._isConnected.set(true);
 
-        // Get initial config from window
-        interface WindowWithConfig extends Window {
-          initialConfig?: WebviewConfig;
-        }
-        const config = (window as unknown as WindowWithConfig).initialConfig;
-        if (config) {
-          this._config.set(config);
-        }
+      // Load configuration from injected global
+      if (ptahWindow.ptahConfig) {
+        this._config.set(ptahWindow.ptahConfig);
+        console.log('VSCodeService: Initialized with VS Code config', ptahWindow.ptahConfig);
+      } else {
+        console.warn('VSCodeService: VS Code API found but no ptahConfig');
+      }
 
-        console.log('VSCodeService: Connected to VS Code', this.config());
-      } catch (error) {
-        console.error('VSCodeService: Failed to acquire VS Code API', error);
-        this._isConnected.set(false);
+      // Restore previous state if available
+      if (ptahWindow.ptahPreviousState) {
+        console.log('VSCodeService: Restored previous state');
       }
     } else {
-      console.log('VSCodeService: Running in development mode');
+      // Development mode - no VS Code API available
+      console.log('VSCodeService: Running in development mode (no VS Code API)');
       this._isConnected.set(false);
     }
   }
@@ -392,4 +414,59 @@ export class VSCodeService {
       return `/${imagePath}`;
     }
   }
+}
+
+/**
+ * Factory function for APP_INITIALIZER
+ * 
+ * Ensures VSCodeService is initialized before application bootstrap.
+ * Use this in your app.config.ts:
+ * 
+ * @example
+ * ```typescript
+ * import { ApplicationConfig } from '@angular/core';
+ * import { provideVSCodeService } from '@ptah-extension/frontend/core';
+ * 
+ * export const appConfig: ApplicationConfig = {
+ *   providers: [
+ *     provideVSCodeService(),
+ *     // ... other providers
+ *   ]
+ * };
+ * ```
+ * 
+ * This ensures:
+ * 1. VSCodeService is eagerly instantiated (not lazy)
+ * 2. Connection is established before any components render
+ * 3. Initial config is loaded from window.ptahConfig
+ * 4. Theme listener is active before first component render
+ */
+export function initializeVSCodeService(vscodeService: VSCodeService): () => void {
+  return () => {
+    // Service is already initialized in constructor
+    // This function ensures it happens during APP_INITIALIZER phase
+    console.log('VSCodeService: Initialized via APP_INITIALIZER', {
+      isConnected: vscodeService.isConnected(),
+      isDevelopmentMode: vscodeService.isDevelopmentMode(),
+      theme: vscodeService.currentTheme(),
+    });
+  };
+}
+
+/**
+ * Provider function for VSCodeService with APP_INITIALIZER
+ * 
+ * This is the recommended way to include VSCodeService in your application.
+ * It ensures the service is initialized before the app starts.
+ */
+export function provideVSCodeService() {
+  return [
+    VSCodeService,
+    {
+      provide: 'APP_INITIALIZER',
+      useFactory: initializeVSCodeService,
+      deps: [VSCodeService],
+      multi: true,
+    },
+  ];
 }

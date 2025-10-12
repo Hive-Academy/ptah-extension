@@ -1,7 +1,12 @@
 // Core Services - Angular 20+ Signal-Based State Management
 // Core Services - Foundation Layer (0 dependencies)
 export * from './logging.service';
-export * from './vscode.service';
+export {
+  VSCodeService,
+  provideVSCodeService,
+  initializeVSCodeService,
+  type WebviewConfig,
+} from './vscode.service';
 export * from './message-handler.service';
 
 // Core Services - State Layer (depend on foundation)
