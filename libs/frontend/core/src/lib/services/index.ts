@@ -14,3 +14,7 @@ export * from './app-state.service';
 export * from './webview-config.service';
 export * from './view-manager.service';
 export * from './webview-navigation.service';
+
+// Core Services - Chat Layer (chat-specific services)
+export * from './chat-state.service';
+export * from './chat-validation.service';
