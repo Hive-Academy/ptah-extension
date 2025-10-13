@@ -6,7 +6,7 @@ import {
   input,
   output,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { CommonModule, NgOptimizedImage } from '@angular/common';
 
 /**
  * File information for inclusion in chat messages
@@ -34,7 +34,7 @@ export interface ChatFile {
 @Component({
   selector: 'ptah-file-tag',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, NgOptimizedImage],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -103,10 +103,12 @@ export interface ChatFile {
       <div class="vscode-file-tag-preview">
         @if (file().type === 'image') {
         <img
-          [src]="file().preview"
+          [ngSrc]="file().preview || ''"
           [alt]="file().name"
           class="vscode-file-tag-image-preview"
-          loading="lazy"
+          width="200"
+          height="150"
+          priority
         />
         } @else if (file().type === 'text') {
         <pre class="vscode-file-tag-text-preview">{{ file().preview }}</pre>

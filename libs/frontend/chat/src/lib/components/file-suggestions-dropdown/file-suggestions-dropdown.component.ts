@@ -37,6 +37,7 @@ export interface FileSuggestion {
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <!-- eslint-disable-next-line @angular-eslint/template/no-inline-styles -->
     <div
       class="vscode-file-dropdown"
       [style.top.px]="positionTop()"

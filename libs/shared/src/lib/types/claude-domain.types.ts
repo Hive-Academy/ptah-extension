@@ -208,7 +208,7 @@ export interface ClaudeCliHealth {
   readonly version?: string;
   readonly responseTime?: number; // ms
   readonly error?: string;
-  readonly platform: NodeJS.Platform;
+  readonly platform: string; // Platform name (win32, darwin, linux, etc.)
   readonly isWSL: boolean;
 }
 

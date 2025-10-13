@@ -64,6 +64,7 @@ export interface TokenUsage {
         [attr.aria-label]="ariaLabel()"
         [title]="tooltipText()"
       >
+        <!-- eslint-disable-next-line @angular-eslint/template/no-inline-styles -->
         <div
           class="token-usage-fill"
           [class.usage-critical]="tokenUsage()!.percentage > 90"

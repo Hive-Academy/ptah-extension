@@ -4,7 +4,7 @@ import {
   inject,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { CommonModule, NgOptimizedImage } from '@angular/common';
 import {
   LucideAngularModule,
   MessageSquareIcon,
@@ -48,13 +48,13 @@ import { VSCodeService } from '@ptah-extension/core';
   selector: 'ptah-chat-empty-state',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, LucideAngularModule],
+  imports: [CommonModule, LucideAngularModule, NgOptimizedImage],
   template: `
     <div class="empty-state">
       <!-- Welcome Section -->
       <div class="welcome-section">
         <div class="welcome-icon">
-          <img [src]="ptahIconUri" alt="Ptah" class="ptah-icon" />
+          <img [ngSrc]="ptahIconUri" alt="Ptah" class="ptah-icon" />
         </div>
         <div class="welcome-content">
           <h3 class="welcome-title">Welcome to Claude Code</h3>
@@ -76,10 +76,7 @@ import { VSCodeService } from '@ptah-extension/core';
           [attr.aria-label]="'Start quick help session'"
         >
           <div class="card-icon-container card-icon-primary">
-            <lucide-angular
-              [img]="MessageSquareIcon"
-              class="card-icon"
-            ></lucide-angular>
+            <lucide-angular [img]="MessageSquareIcon" class="card-icon" />
           </div>
           <h4 class="card-title card-title-primary">Quick Help</h4>
           <p class="card-description">
@@ -95,10 +92,7 @@ import { VSCodeService } from '@ptah-extension/core';
           [attr.aria-label]="'Start orchestration workflow'"
         >
           <div class="card-icon-container card-icon-secondary">
-            <lucide-angular
-              [img]="WorkflowIcon"
-              class="card-icon"
-            ></lucide-angular>
+            <lucide-angular [img]="WorkflowIcon" class="card-icon" />
           </div>
           <h4 class="card-title card-title-secondary">Code Orchestration</h4>
           <p class="card-description">

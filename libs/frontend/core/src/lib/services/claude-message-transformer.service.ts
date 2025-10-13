@@ -590,3 +590,92 @@ export class ClaudeMessageTransformerService {
     return Math.ceil(charCount / 4);
   }
 }
+
+/**
+ * Type guard functions exported for use in components
+ * These allow components to safely narrow ClaudeContent types
+ */
+export function isTextContent(
+  block: ClaudeContent
+): block is ClaudeContent & { text: string } {
+  return block.type === 'text' && typeof block.text === 'string';
+}
+
+export function isToolUseContent(
+  block: ClaudeContent
+): block is ClaudeContent & {
+  name: string;
+  id: string;
+  input?: Record<string, unknown>;
+} {
+  return block.type === 'tool_use' && typeof block.name === 'string';
+}
+
+export function isToolResultContent(
+  block: ClaudeContent
+): block is ClaudeContent & {
+  tool_use_id: string;
+  content?: string;
+  is_error?: boolean;
+} {
+  return block.type === 'tool_result' && typeof block.tool_use_id === 'string';
+}
+
+/**
+ * Utility functions for file handling
+ */
+export function extractFilePathsFromText(text: string): string[] {
+  const filePaths: string[] = [];
+
+  // Match common file path patterns
+  // Unix/Linux paths: /path/to/file.ext
+  const unixPaths = text.match(/\/[\w\-./]+\.\w+/g) || [];
+  filePaths.push(...unixPaths);
+
+  // Windows paths: C:\path\to\file.ext or \\server\path\to\file.ext
+  const windowsPaths = text.match(/[A-Z]:\\[\w\-.\\]+\.\w+/g) || [];
+  filePaths.push(...windowsPaths);
+
+  // Relative paths: ./file.ext or ../file.ext
+  const relativePaths = text.match(/\.\.?\/[\w\-./]+\.\w+/g) || [];
+  filePaths.push(...relativePaths);
+
+  // Remove duplicates
+  return [...new Set(filePaths)];
+}
+
+export function detectFileType(filePath: string): string {
+  const imageExtensions = [
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.gif',
+    '.svg',
+    '.webp',
+    '.bmp',
+  ];
+  const codeExtensions = [
+    '.ts',
+    '.js',
+    '.tsx',
+    '.jsx',
+    '.py',
+    '.java',
+    '.c',
+    '.cpp',
+    '.cs',
+    '.go',
+    '.rs',
+    '.php',
+    '.rb',
+    '.swift',
+    '.kt',
+  ];
+
+  const extension = filePath.substring(filePath.lastIndexOf('.')).toLowerCase();
+
+  if (imageExtensions.includes(extension)) return 'image';
+  if (codeExtensions.includes(extension)) return 'code';
+  if (extension.length > 0) return 'text';
+  return 'unknown';
+}

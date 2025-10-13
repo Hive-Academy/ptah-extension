@@ -324,6 +324,6 @@ export class ChatStateManagerService {
   private fetchAvailableSessions(): void {
     this._isSessionLoading.set(true);
     // Request initial data which includes sessions
-    this.vscode.postStrictMessage('system:requestInitialData', {});
+    this.vscode.postStrictMessage('requestInitialData', {});
   }
 }

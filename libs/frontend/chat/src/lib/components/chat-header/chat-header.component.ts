@@ -104,10 +104,7 @@ export interface ProviderStatus {
               fill="currentColor"
             />
           </svg>
-          <span
-            class="provider-status"
-            [class]="'status-' + providerStatus().status"
-          >
+          <span [class]="'provider-status status-' + providerStatus().status">
             {{ providerStatus().name || 'AI' }}
           </span>
         </button>

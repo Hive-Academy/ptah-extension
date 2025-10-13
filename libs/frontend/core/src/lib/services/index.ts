@@ -15,6 +15,9 @@ export * from './webview-config.service';
 export * from './view-manager.service';
 export * from './webview-navigation.service';
 
+// File Management Layer (workspace file operations)
+export { FilePickerService } from './file-picker.service';
+
 // Chat Layer (pure chat logic, state management, validation, transformations)
 export { ChatStateService } from './chat-state.service';
 export { ChatValidationService } from './chat-validation.service';

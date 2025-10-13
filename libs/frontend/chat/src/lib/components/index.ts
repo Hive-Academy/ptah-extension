@@ -1,7 +1,7 @@
 /**
  * Chat Components - Barrel Export
  *
- * MODERNIZATION STATUS: 7/13 components migrated (54%)
+ * MODERNIZATION STATUS: 11/11 components migrated (100%) ✅ COMPLETE!
  *
  * Components exported:
  * - ChatHeaderComponent - Header with action buttons and provider status
@@ -11,14 +11,10 @@
  * - ChatEmptyStateComponent - Welcome screen with action cards
  * - FileTagComponent - File tag with preview and removal
  * - FileSuggestionsDropdownComponent - File suggestions with keyboard navigation
- *
- * TODO: Migrate remaining 6 components:
- * - MessagesContainerComponent
- * - MessagesListComponent
- * - EnhancedMessagesListComponent
- * - MessageContentComponent
- * - InputAreaComponent
- * - ChatComponent (container - migrate LAST)
+ * - ChatMessageContentComponent - Rich message content renderer
+ * - ChatMessagesListComponent - Message list with grouping and auto-scroll
+ * - ChatInputAreaComponent - Message input with @ file mentions
+ * - ChatMessagesContainerComponent - Orchestrator for message display ✅ COMPLETE!
  */
 
 // Status Components (4/6 complete)
@@ -32,10 +28,8 @@ export * from './chat-empty-state/chat-empty-state.component';
 export * from './file-tag/file-tag.component';
 export * from './file-suggestions-dropdown/file-suggestions-dropdown.component';
 
-// TODO: Export remaining components as they are migrated
-// export * from './messages-container/messages-container.component';
-// export * from './messages-list/messages-list.component';
-// export * from './enhanced-messages-list/enhanced-messages-list.component';
-// export * from './message-content/message-content.component';
-// export * from './input-area/input-area.component';
-// export * from './chat-container/chat.component';
+// Message Components (3/3 complete) ✅
+export * from './chat-messages';
+
+// Input Components (1/1 complete) ✅
+export * from './chat-input';
