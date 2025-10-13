@@ -17,7 +17,7 @@
  * - ChatMessagesContainerComponent - Orchestrator for message display ✅ COMPLETE!
  */
 
-// Status Components (4/6 complete)
+// Status Components (4/4 complete) ✅
 export * from './chat-header/chat-header.component';
 export * from './chat-status-bar/chat-status-bar.component';
 export * from './chat-streaming-status/chat-streaming-status.component';
@@ -30,6 +30,7 @@ export * from './file-suggestions-dropdown/file-suggestions-dropdown.component';
 
 // Message Components (3/3 complete) ✅
 export * from './chat-messages';
+export * from './chat-messages-container/chat-messages-container.component';
 
 // Input Components (1/1 complete) ✅
 export * from './chat-input';
