@@ -23,3 +23,28 @@ export { ChatStateService } from './chat-state.service';
 export { ChatValidationService } from './chat-validation.service';
 export { ClaudeMessageTransformerService } from './claude-message-transformer.service';
 export { MessageProcessingService } from './message-processing.service';
+export * from './chat-state-manager.service';
+export * from './chat.service';
+
+// Provider Layer (AI provider management and health monitoring)
+export {
+  ProviderService,
+  type ProviderInfo,
+  type ProviderHealth,
+  type ProviderError,
+  type ProviderSwitchEvent,
+} from './provider.service';
+
+// Streaming Layer (chat message streaming state)
+export {
+  StreamHandlingService,
+  type StreamState,
+} from './stream-handling.service';
+
+// Analytics Layer (system analytics and metrics)
+export {
+  AnalyticsService,
+  type AnalyticsData,
+  type PerformanceData,
+  type ActivityItem,
+} from './analytics.service';
