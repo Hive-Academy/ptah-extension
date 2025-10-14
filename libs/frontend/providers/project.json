@@ -4,7 +4,7 @@
   "sourceRoot": "libs/frontend/providers/src",
   "prefix": "ptah",
   "projectType": "library",
-  "tags": [],
+  "tags": ["type:ui", "scope:webview", "platform:angular"],
   "targets": {
     "test": {
       "executor": "@nx/jest:jest",
