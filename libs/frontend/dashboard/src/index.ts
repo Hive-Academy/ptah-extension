@@ -1,1 +1,3 @@
-export * from './lib/dashboard/dashboard';
+// Dashboard Library Public API
+export * from './lib/components';
+export * from './lib/containers';
