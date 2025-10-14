@@ -2,9 +2,9 @@ import { Injectable, signal, computed } from '@angular/core';
 import {
   StrictChatSession,
   StrictChatMessage,
-  ProcessedClaudeMessage,
   MessageId,
 } from '@ptah-extension/shared';
+import type { ProcessedClaudeMessage } from './claude-message-transformer.service';
 
 export interface ChatState {
   currentSession: StrictChatSession | null;

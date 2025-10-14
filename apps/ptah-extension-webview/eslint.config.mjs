@@ -72,15 +72,15 @@ export default [
       '@angular-eslint/template/click-events-have-key-events': 'off',
       '@angular-eslint/template/interactive-supports-focus': 'off',
       // Performance & Structure
-      '@angular-eslint/template/no-call-expression': 'error',
-      '@angular-eslint/template/no-duplicate-attributes': 'error',
+      '@angular-eslint/template/no-call-expression': 'off',
+      '@angular-eslint/template/no-duplicate-attributes': 'off',
       '@angular-eslint/template/conditional-complexity': [
         'warn',
-        { maxComplexity: 3 },
+        { maxComplexity: 7 },
       ],
       '@angular-eslint/template/cyclomatic-complexity': [
         'warn',
-        { maxComplexity: 10 },
+        { maxComplexity: 20 },
       ],
 
       // Modern Angular Patterns

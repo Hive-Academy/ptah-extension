@@ -63,29 +63,16 @@ import { LoadingSpinnerComponent } from '@ptah-extension/shared-ui';
 
 ## 🗂️ Files to Update
 
-### Phase 1: Update Main App Component (30 min)
+### Phase 1: Delete Old Code First (15 min) ⚡ **START HERE**
 
-**File**: `apps/ptah-extension-webview/src/app/app.ts`
+**Why Delete First?**
 
-**Changes**:
+- Forces TypeScript to show us EVERY import that needs fixing
+- No ambiguity about which code to use
+- Immediate validation - build fails = we have work to do
+- Prevents accidentally using old code paths
 
-1. ✅ Update service imports from `./core/services/*` → `@ptah-extension/core`
-2. ✅ Update chat import from `./features/chat/*` → `@ptah-extension/chat`
-3. ✅ Update analytics import from `./features/analytics/*` → `@ptah-extension/analytics`
-4. ✅ Update loading spinner import from `./shared/components/ui/*` → `@ptah-extension/shared-ui`
-5. ✅ Update component names in imports array
-
-**File**: `apps/ptah-extension-webview/src/app/app.html`
-
-**Changes**:
-
-1. ✅ Update `<vscode-loading-spinner>` → `<ptah-loading-spinner>`
-2. ✅ Update `<vscode-chat>` → `<ptah-chat>`
-3. ✅ Update `<vscode-analytics>` → `<ptah-analytics>`
-
----
-
-### Phase 2: Delete Old Feature Directories (15 min)
+### Phase 1a: Delete Old Feature Directories
 
 **Directories to Remove**:
 
@@ -127,7 +114,7 @@ rm -rf apps/ptah-extension-webview/src/app/features/providers/
 
 ---
 
-### Phase 3: Delete Old Shared Components (10 min)
+### Phase 1b: Delete Old Shared Components (5 min)
 
 **Directory to Remove**:
 
@@ -150,7 +137,7 @@ rm -rf apps/ptah-extension-webview/src/app/shared/components/
 
 ---
 
-### Phase 4: Delete Old Core Services (10 min)
+### Phase 1c: Delete Old Core Services (5 min)
 
 **Directory to Remove**:
 
@@ -180,7 +167,49 @@ rm -rf apps/ptah-extension-webview/src/app/core/services/
 
 ---
 
-### Phase 5: Update app.config.ts (if needed) (15 min)
+### Phase 2: Fix Build Errors (45 min) 🔧 **COMPILER-DRIVEN**
+
+**Strategy**: Let TypeScript tell us what to fix!
+
+**Step 1: Run Build to See All Errors**
+
+```bash
+npm run build:webview
+```
+
+**Expected Errors**: ~10-20 TypeScript compilation errors showing:
+
+- Missing imports in `app.ts`
+- Missing component selectors
+- Any other files still using old paths
+
+**Step 2: Fix Main App Component**
+
+**File**: `apps/ptah-extension-webview/src/app/app.ts`
+
+**Changes**:
+
+1. ✅ Update service imports from `./core/services/*` → `@ptah-extension/core`
+2. ✅ Update chat import from `./features/chat/*` → `@ptah-extension/chat`
+3. ✅ Update analytics import from `./features/analytics/*` → `@ptah-extension/analytics`
+4. ✅ Update loading spinner import from `./shared/components/ui/*` → `@ptah-extension/shared-ui`
+5. ✅ Update component names in imports array
+
+**File**: `apps/ptah-extension-webview/src/app/app.html`
+
+**Changes**:
+
+1. ✅ Update `<vscode-loading-spinner>` → `<ptah-loading-spinner>`
+2. ✅ Update `<vscode-chat>` → `<ptah-chat>`
+3. ✅ Update `<vscode-analytics>` → `<ptah-analytics>`
+
+**Step 3: Fix Any Other Files With Errors**
+
+Review build output and fix remaining import errors one by one.
+
+---
+
+### Phase 3: Update app.config.ts (if needed) (15 min)
 
 **File**: `apps/ptah-extension-webview/src/app/app.config.ts`
 
@@ -296,15 +325,15 @@ If integration causes critical issues:
 
 **Breakdown**:
 
-- Phase 1 (Main app updates): 30 min
-- Phase 2 (Delete features): 15 min
-- Phase 3 (Delete shared): 10 min
-- Phase 4 (Delete core): 10 min
-- Phase 5 (Config updates): 15 min
+- Phase 1a (Delete features): 5 min
+- Phase 1b (Delete shared): 3 min
+- Phase 1c (Delete core): 3 min
+- Phase 2 (Fix build errors): 45 min
+- Phase 3 (Config updates): 15 min
 - Build validation: 15 min
 - Functional testing: 45 min
 - Buffer for fixes: 30 min
 
 ---
 
-**Next Action**: Begin Phase 1 - Update main app component imports
+**Next Action**: Begin Phase 1a - Delete old feature directories (forces TypeScript to show us what to fix)

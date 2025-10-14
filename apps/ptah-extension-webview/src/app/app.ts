@@ -7,42 +7,56 @@ import {
   inject,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { AppStateManager, ViewType } from './core/services/app-state.service';
-import { ViewManagerService } from './core/services/view-manager.service';
-import { VSCodeService } from './core/services/vscode.service';
-import { WebviewNavigationService } from './core/services/webview-navigation.service';
 import { Subject } from 'rxjs';
-// Components
-import { VSCodeChatComponent } from './features/chat/containers/chat.component';
-import { AnalyticsComponent } from './features/analytics/containers/analytics.component';
-import { VSCodeLoadingSpinnerComponent } from './shared/components/ui/loading-spinner.component';
+
+// UPDATED: Import from @ptah-extension/core library
+import {
+  AppStateManager,
+  ViewManagerService,
+  VSCodeService,
+  WebviewNavigationService,
+  ViewType,
+} from '@ptah-extension/core';
+
+// UPDATED: Import components from libraries
+import { ChatComponent } from '@ptah-extension/chat';
+import { AnalyticsComponent } from '@ptah-extension/analytics';
+import { LoadingSpinnerComponent } from '@ptah-extension/shared-ui';
 
 @Component({
-  selector: 'app-root',
-  imports: [VSCodeLoadingSpinnerComponent, VSCodeChatComponent, AnalyticsComponent],
+  selector: 'ptah-root',
+  imports: [LoadingSpinnerComponent, ChatComponent, AnalyticsComponent],
   templateUrl: './app.html',
-styleUrls: ['./app.css'],
+  styleUrls: ['./app.css'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class App implements OnInit, OnDestroy {
-  private destroy$ = new Subject<void>();
+  private readonly destroy$ = new Subject<void>();
 
   // ANGULAR 20 PATTERN: Use inject() instead of constructor injection
-  public appState = inject(AppStateManager);
-  private viewManager = inject(ViewManagerService);
-  public vscodeService = inject(VSCodeService);
-  private navigationService = inject(WebviewNavigationService);
+  public readonly appState = inject(AppStateManager);
+  private readonly viewManager = inject(ViewManagerService);
+  public readonly vscodeService = inject(VSCodeService);
+  private readonly navigationService = inject(WebviewNavigationService);
   // REMOVED: Router injection - using pure signal-based navigation
 
   // ANGULAR 20 PATTERN: Signal-based state for reactive UI
-  private initializationStatus = signal<'idle' | 'initializing' | 'ready' | 'error'>('idle');
+  private readonly initializationStatus = signal<
+    'idle' | 'initializing' | 'ready' | 'error'
+  >('idle');
 
   // ANGULAR 20 PATTERN: Computed signals for derived state
-  readonly isReady = computed(() => this.initializationStatus() === 'ready');
-  readonly hasError = computed(() => this.initializationStatus() === 'error');
-  readonly isInitializing = computed(() => this.initializationStatus() === 'initializing');
+  public readonly isReady = computed(
+    () => this.initializationStatus() === 'ready'
+  );
+  public readonly hasError = computed(
+    () => this.initializationStatus() === 'error'
+  );
+  public readonly isInitializing = computed(
+    () => this.initializationStatus() === 'initializing'
+  );
 
-
-  async ngOnInit(): Promise<void> {
+  public async ngOnInit(): Promise<void> {
     console.log('Ptah App ngOnInit - starting initialization...');
     this.initializationStatus.set('initializing');
 
@@ -64,14 +78,14 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  ngOnDestroy(): void {
+  public ngOnDestroy(): void {
     console.log('Ptah App - disposing...');
     this.destroy$.next();
     this.destroy$.complete();
     this.viewManager.dispose();
   }
 
-  async onViewChanged(view: ViewType): Promise<void> {
+  public async onViewChanged(view: ViewType): Promise<void> {
     console.log('Ptah App - View changed to:', view);
 
     // Use hybrid navigation service for reliable navigation
@@ -87,8 +101,6 @@ export class App implements OnInit, OnDestroy {
       this.appState.handleError(`Failed to navigate to ${view}`);
     }
   }
-
-
 
   // REMOVED: setupRouterLogging - no longer using Angular Router
 

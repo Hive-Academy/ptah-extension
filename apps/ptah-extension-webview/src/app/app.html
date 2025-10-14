@@ -3,10 +3,10 @@
   <!-- Loading State -->
   @if (appState.isLoading() || isInitializing()) {
     <div class="vscode-loading-container">
-      <vscode-loading-spinner
+      <ptah-loading-spinner
         size="lg"
         [message]="appState.statusMessage()"
-      ></vscode-loading-spinner>
+      />
     </div>
   }
 
@@ -14,13 +14,13 @@
   @if (isReady() && !appState.isLoading()) {
     @switch (appState.currentView()) {
       @case ('chat') {
-        <vscode-chat class="vscode-view-container"></vscode-chat>
+        <ptah-chat class="vscode-view-container" />
       }
       @case ('analytics') {
-        <vscode-analytics class="vscode-view-container"></vscode-analytics>
+        <ptah-analytics class="vscode-view-container" />
       }
       @default {
-        <vscode-chat class="vscode-view-container"></vscode-chat>
+        <ptah-chat class="vscode-view-container" />
       }
     }
   }

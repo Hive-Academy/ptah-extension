@@ -91,7 +91,7 @@ import type { ProcessedClaudeMessage } from '@ptah-extension/core';
 export class ChatMessagesContainerComponent {
   // State inputs
   readonly hasMessages = input<boolean>(false);
-  readonly messages = input<ProcessedClaudeMessage[]>([]);
+  readonly messages = input<readonly ProcessedClaudeMessage[]>([]);
   readonly sessionId = input<SessionId | null>(null);
   readonly loading = input<boolean>(false);
 
