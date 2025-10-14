@@ -155,7 +155,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   // Public readonly signals
   readonly isExpanded = this._isExpanded.asReadonly();
   // Use analytics service signals for real backend data
-  readonly dashboardMetrics = this.analyticsService.dashboardMetrics;
+  readonly dashboardMetrics = this.analyticsService.analyticsData;
   readonly performanceData = this.analyticsService.performanceData;
   readonly recentActivities = this.analyticsService.recentActivities;
 
@@ -169,16 +169,13 @@ export class DashboardComponent implements OnInit, OnDestroy {
   readonly dashboardSubtitle = computed(() => {
     const metrics = this.dashboardMetrics();
     const uptime = metrics.performance.uptime;
-    const isBackendConnected = this.analyticsService.isBackendAvailable();
     const dataAge = this.analyticsService.getDataAge();
     const isDataFresh = this.analyticsService.isDataFresh();
 
     let statusText =
       uptime >= 95 ? 'Healthy' : uptime >= 80 ? 'Degraded' : 'Critical';
 
-    if (!isBackendConnected) {
-      statusText += ' (Estimated)';
-    } else if (!isDataFresh && dataAge > 0) {
+    if (!isDataFresh && dataAge > 0) {
       const ageSeconds = Math.floor(dataAge / 1000);
       statusText += ` (${ageSeconds}s ago)`;
     }

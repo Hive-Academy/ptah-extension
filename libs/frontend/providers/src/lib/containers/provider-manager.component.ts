@@ -230,7 +230,11 @@ export class ProviderManagerComponent {
   private setupProviderEventListeners(): void {
     // Listen for provider switch events
     this.providerService.onProviderSwitch().subscribe((switchEvent) => {
-      this.logger.api('providerSwitched', switchEvent, true);
+      this.logger.debug(
+        'providerSwitched',
+        'ProviderManagerComponent',
+        switchEvent
+      );
 
       // Show toast notification or update UI state as needed
       if (switchEvent.reason === 'auto-fallback') {
@@ -244,7 +248,11 @@ export class ProviderManagerComponent {
 
     // Listen for provider health changes
     this.providerService.onProviderHealthChange().subscribe((healthEvent) => {
-      this.logger.api('providerHealthChanged', healthEvent, true);
+      this.logger.debug(
+        'providerHealthChanged',
+        'ProviderManagerComponent',
+        healthEvent
+      );
 
       // Handle critical health changes
       if (healthEvent.health.status === 'error') {

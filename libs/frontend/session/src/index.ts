@@ -26,4 +26,4 @@ export * from './lib/components';
 export * from './lib/containers';
 
 // Re-export types
-export { SessionAction } from './lib/components';
+export type { SessionAction } from './lib/components';

@@ -15,10 +15,12 @@ import { Subject, takeUntil, combineLatest, debounceTime, filter } from 'rxjs';
 import { toObservable } from '@angular/core/rxjs-interop';
 
 // Core Services
-import { VSCodeService } from '@ptah-extension/core';
-import { ChatService } from '@ptah-extension/core';
-import { AnalyticsService } from '@ptah-extension/analytics';
-import { LoggingService } from '@ptah-extension/core';
+import {
+  VSCodeService,
+  ChatService,
+  LoggingService,
+  AnalyticsService,
+} from '@ptah-extension/core';
 
 // Types
 import { StrictChatSession, SessionId } from '@ptah-extension/shared';
@@ -214,7 +216,7 @@ export interface SessionManagerConfig {
             (click)="loadMoreSessions()"
             type="button"
           >
-            Show {{ remainingSessionCount }} more sessions
+            Show {{ remainingSessionCount() }} more sessions
           </button>
         </div>
         }
@@ -686,7 +688,7 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
           data?: { sessions?: readonly StrictChatSession[] };
         };
         const sessions = typedData?.data?.sessions || [];
-        this.logger.api('initialData received', {
+        this.logger.debug('initialData received', 'SessionManagerComponent', {
           sessionCount: sessions.length,
         });
 
@@ -742,7 +744,7 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
 
   private async fetchAllSessions(): Promise<void> {
     try {
-      this.logger.api('fetchAllSessions started', {
+      this.logger.debug('fetchAllSessions started', 'SessionManagerComponent', {
         loading: this._isLoading(),
       });
       this._isLoading.set(true);
@@ -766,10 +768,10 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
             typedResponse?.data?.sessions ||
             typedResponse?.payload?.sessions ||
             [];
-          this.logger.api(
+          this.logger.debug(
             'fetchAllSessions succeeded',
-            { sessionCount: sessions.length },
-            true
+            'SessionManagerComponent',
+            { sessionCount: sessions.length }
           );
           this._allSessions.set(sessions);
           this._isLoading.set(false);
