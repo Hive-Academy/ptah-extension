@@ -4,7 +4,7 @@
   "sourceRoot": "libs/frontend/analytics/src",
   "prefix": "ptah",
   "projectType": "library",
-  "tags": [],
+  "tags": ["scope:webview", "type:feature"],
   "targets": {
     "test": {
       "executor": "@nx/jest:jest",

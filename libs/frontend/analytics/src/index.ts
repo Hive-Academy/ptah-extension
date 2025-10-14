@@ -1,1 +1,3 @@
-export * from './lib/analytics/analytics';
+// Main library exports
+export * from './lib/components';
+export * from './lib/containers';
