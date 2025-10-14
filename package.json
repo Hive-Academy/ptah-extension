@@ -6,6 +6,7 @@
     "build": "nx run-many -t build -p ptah-extension-vscode ptah-extension-webview shared",
     "build:extension": "nx build ptah-extension-vscode",
     "build:webview": "nx build ptah-extension-webview",
+    "build:webview:dev": "nx build ptah-extension-webview --configuration=development",
     "build:shared": "nx build shared",
     "build:all": "nx run-many -t build",
     "dev": "nx run-many -t build -p ptah-extension-vscode ptah-extension-webview --watch",
