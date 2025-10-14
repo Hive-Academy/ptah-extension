@@ -2,7 +2,7 @@ import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 // Core Services - Updated import paths
-import { AppStateManager } from '@ptah-extension/core';
+import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import { LoggingService } from '@ptah-extension/core';
 
 // Child Components (Modernized)
@@ -42,23 +42,22 @@ import { SimpleHeaderComponent } from '@ptah-extension/shared-ui';
     <div class="vscode-analytics-container">
       <!-- Header -->
       <ptah-simple-header
+        [ptahIconUri]="ptahIconUri"
         (newSession)="onNewSession()"
         (analytics)="onAnalytics()"
-      >
-      </ptah-simple-header>
+      />
 
       <!-- Analytics Content -->
       <main class="vscode-analytics-content">
         <div class="vscode-analytics-wrapper">
           <!-- Page Title -->
-          <ptah-analytics-header></ptah-analytics-header>
+          <ptah-analytics-header />
 
           <!-- Statistics Grid -->
-          <ptah-analytics-stats-grid [statsData]="getStatsData()">
-          </ptah-analytics-stats-grid>
+          <ptah-analytics-stats-grid [statsData]="getStatsData()" />
 
           <!-- Coming Soon Section -->
-          <ptah-analytics-coming-soon></ptah-analytics-coming-soon>
+          <ptah-analytics-coming-soon />
         </div>
       </main>
     </div>
@@ -118,6 +117,10 @@ import { SimpleHeaderComponent } from '@ptah-extension/shared-ui';
 export class AnalyticsComponent {
   private readonly appState = inject(AppStateManager);
   private readonly logger = inject(LoggingService);
+  private readonly vscode = inject(VSCodeService);
+
+  // Ptah icon URI for the header
+  protected readonly ptahIconUri = this.vscode.getPtahIconUri();
 
   onNewSession(): void {
     // Navigate back to chat and start new session

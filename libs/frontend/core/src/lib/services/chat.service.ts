@@ -20,16 +20,12 @@ import {
   ChatHistoryLoadedPayload,
   InitialDataPayload,
 } from '@ptah-extension/shared';
-
-// Core Services (from libs/frontend/core)
-import {
-  MessageProcessingService,
-  ChatValidationService,
-  ChatStateService,
-  VSCodeService,
-  AppStateManager,
-  LoggingService,
-} from '@ptah-extension/core';
+import { MessageProcessingService } from './message-processing.service';
+import { ChatValidationService } from './chat-validation.service';
+import { ChatStateService } from './chat-state.service';
+import { VSCodeService } from './vscode.service';
+import { AppStateManager } from './app-state.service';
+import { LoggingService } from './logging.service';
 
 // TODO: Migrate StreamHandlingService to chat library
 // For now, using simple signal-based streaming state
@@ -61,7 +57,7 @@ export interface StreamConsumptionState {
  * Chat Service - Main Orchestrator for Chat Functionality
  *
  * ARCHITECTURE EVOLUTION:
- * - BEFORE: 1,111 lines, 55 methods, massive EnhancedChatService
+ * - BEFORE: 1,111 lines, 55 methods, massive ChatService
  * - AFTER: Clean orchestration layer using specialized services
  *
  * RESPONSIBILITIES:

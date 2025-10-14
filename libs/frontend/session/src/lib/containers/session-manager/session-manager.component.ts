@@ -15,10 +15,10 @@ import { Subject, takeUntil, combineLatest, debounceTime, filter } from 'rxjs';
 import { toObservable } from '@angular/core/rxjs-interop';
 
 // Core Services
-import { VSCodeService } from '@ptah-extension/frontend/core';
-import { EnhancedChatService } from '@ptah-extension/frontend/core';
-import { AnalyticsService } from '@ptah-extension/frontend/analytics';
-import { LoggingService } from '@ptah-extension/frontend/core';
+import { VSCodeService } from '@ptah-extension/core';
+import { ChatService } from '@ptah-extension/core';
+import { AnalyticsService } from '@ptah-extension/analytics';
+import { LoggingService } from '@ptah-extension/core';
 
 // Types
 import { StrictChatSession, SessionId } from '@ptah-extension/shared';
@@ -78,30 +78,35 @@ export interface SessionManagerConfig {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, SessionSelectorComponent, SessionCardComponent],
   template: `
-    <div class="session-manager-container" [attr.data-mode]="config().displayMode">
+    <div
+      class="session-manager-container"
+      [attr.data-mode]="config().displayMode"
+    >
       <!-- Session Manager Header -->
       @if (config().displayMode !== 'inline') {
-        <div class="session-manager-header">
-          <div class="session-manager-title">
-            <h2>Session Management</h2>
-            <span class="session-count-badge">{{ allSessions().length }} sessions</span>
-          </div>
-
-          @if (config().displayMode === 'modal') {
-            <button
-              class="session-manager-close"
-              (click)="onClose()"
-              type="button"
-              title="Close session manager"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path
-                  d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"
-                />
-              </svg>
-            </button>
-          }
+      <div class="session-manager-header">
+        <div class="session-manager-title">
+          <h2>Session Management</h2>
+          <span class="session-count-badge"
+            >{{ allSessions().length }} sessions</span
+          >
         </div>
+
+        @if (config().displayMode === 'modal') {
+        <button
+          class="session-manager-close"
+          (click)="onClose()"
+          type="button"
+          title="Close session manager"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path
+              d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"
+            />
+          </svg>
+        </button>
+        }
+      </div>
       }
 
       <!-- Quick Session Selector -->
@@ -120,132 +125,144 @@ export interface SessionManagerConfig {
 
       <!-- Session Statistics -->
       @if (sessionStats().totalMessages > 0) {
-        <div class="session-stats-section">
-          <div class="session-stats-grid">
-            <div class="session-stat-item">
-              <span class="session-stat-value">{{ sessionStats().totalMessages }}</span>
-              <span class="session-stat-label">Total Messages</span>
-            </div>
-            <div class="session-stat-item">
-              <span class="session-stat-value">{{ sessionStats().totalTokens }}</span>
-              <span class="session-stat-label">Total Tokens</span>
-            </div>
-            <div class="session-stat-item">
-              <span class="session-stat-value">{{ sessionStats().averageMessages }}</span>
-              <span class="session-stat-label">Avg Messages</span>
-            </div>
-            <div class="session-stat-item">
-              <span class="session-stat-value">{{ sessionStats().activeSessions }}</span>
-              <span class="session-stat-label">Active Sessions</span>
-            </div>
+      <div class="session-stats-section">
+        <div class="session-stats-grid">
+          <div class="session-stat-item">
+            <span class="session-stat-value">{{
+              sessionStats().totalMessages
+            }}</span>
+            <span class="session-stat-label">Total Messages</span>
+          </div>
+          <div class="session-stat-item">
+            <span class="session-stat-value">{{
+              sessionStats().totalTokens
+            }}</span>
+            <span class="session-stat-label">Total Tokens</span>
+          </div>
+          <div class="session-stat-item">
+            <span class="session-stat-value">{{
+              sessionStats().averageMessages
+            }}</span>
+            <span class="session-stat-label">Avg Messages</span>
+          </div>
+          <div class="session-stat-item">
+            <span class="session-stat-value">{{
+              sessionStats().activeSessions
+            }}</span>
+            <span class="session-stat-label">Active Sessions</span>
           </div>
         </div>
+      </div>
       }
 
       <!-- Session Cards View -->
       @if (config().showSessionCards && visibleSessions().length > 0) {
-        <div class="session-cards-section">
-          <div class="session-cards-header">
-            <h3>All Sessions</h3>
+      <div class="session-cards-section">
+        <div class="session-cards-header">
+          <h3>All Sessions</h3>
 
-            <!-- View Controls -->
-            <div class="session-view-controls">
-              <button
-                class="session-view-btn"
-                [class.active]="sortMode() === 'recent'"
-                (click)="setSortMode('recent')"
-                type="button"
-              >
-                Recent
-              </button>
-              <button
-                class="session-view-btn"
-                [class.active]="sortMode() === 'alphabetical'"
-                (click)="setSortMode('alphabetical')"
-                type="button"
-              >
-                A-Z
-              </button>
-              <button
-                class="session-view-btn"
-                [class.active]="sortMode() === 'usage'"
-                (click)="setSortMode('usage')"
-                type="button"
-              >
-                Usage
-              </button>
-            </div>
+          <!-- View Controls -->
+          <div class="session-view-controls">
+            <button
+              class="session-view-btn"
+              [class.active]="sortMode() === 'recent'"
+              (click)="setSortMode('recent')"
+              type="button"
+            >
+              Recent
+            </button>
+            <button
+              class="session-view-btn"
+              [class.active]="sortMode() === 'alphabetical'"
+              (click)="setSortMode('alphabetical')"
+              type="button"
+            >
+              A-Z
+            </button>
+            <button
+              class="session-view-btn"
+              [class.active]="sortMode() === 'usage'"
+              (click)="setSortMode('usage')"
+              type="button"
+            >
+              Usage
+            </button>
           </div>
+        </div>
 
-          <!-- Session Cards Grid -->
-          <div class="session-cards-grid">
-            @for (session of visibleSessions(); track session.id) {
-              <ptah-session-card
-                [session]="session"
-                [isCurrent]="session.id === currentSession()?.id"
-                [isLoading]="loadingSessionId() === session.id"
-                [showDetails]="selectedSessionId() === session.id"
-                [enableQuickSwitch]="config().enableQuickActions"
-                (actionRequested)="onSessionAction($event.action, $event.session)"
-                (nameChanged)="onRenameSession($event.sessionId, $event.newName)"
-              >
-              </ptah-session-card>
-            }
-          </div>
-
-          <!-- Load More Button -->
-          @if (hasMoreSessions()) {
-            <div class="session-load-more-section">
-              <button class="session-load-more-btn" (click)="loadMoreSessions()" type="button">
-                Show {{ remainingSessionCount }} more sessions
-              </button>
-            </div>
+        <!-- Session Cards Grid -->
+        <div class="session-cards-grid">
+          @for (session of visibleSessions(); track session.id) {
+          <ptah-session-card
+            [session]="session"
+            [isCurrent]="session.id === currentSession()?.id"
+            [isLoading]="loadingSessionId() === session.id"
+            [showDetails]="selectedSessionId() === session.id"
+            [enableQuickSwitch]="config().enableQuickActions"
+            (actionRequested)="onSessionAction($event.action, $event.session)"
+            (nameChanged)="onRenameSession($event.sessionId, $event.newName)"
+          >
+          </ptah-session-card>
           }
         </div>
+
+        <!-- Load More Button -->
+        @if (hasMoreSessions()) {
+        <div class="session-load-more-section">
+          <button
+            class="session-load-more-btn"
+            (click)="loadMoreSessions()"
+            type="button"
+          >
+            Show {{ remainingSessionCount }} more sessions
+          </button>
+        </div>
+        }
+      </div>
       }
 
       <!-- Empty State -->
       @if (allSessions().length === 0 && !isLoading) {
-        <div class="session-empty-state">
-          <div class="session-empty-icon">
-            <svg width="48" height="48" viewBox="0 0 16 16" fill="currentColor">
-              <path
-                d="M2.5 3A1.5 1.5 0 0 0 1 4.5v.793c.026.009.051.02.076.032L7.674 8.51c.206.1.446.1.652 0l6.598-3.185A.755.755 0 0 1 15 5.293V4.5A1.5 1.5 0 0 0 13.5 3h-11Z"
-              />
-              <path
-                d="M15 6.954 8.978 9.86a2.25 2.25 0 0 1-1.956 0L1 6.954V11.5A1.5 1.5 0 0 0 2.5 13h11a1.5 1.5 0 0 0 1.5-1.5V6.954Z"
-              />
-            </svg>
-          </div>
-          <div class="session-empty-title">No Sessions Yet</div>
-          <div class="session-empty-description">
-            Create your first session to start chatting with Claude
-          </div>
-          <button
-            class="session-create-first-btn"
-            (click)="onCreateSession(undefined)"
-            type="button"
-          >
-            Create First Session
-          </button>
+      <div class="session-empty-state">
+        <div class="session-empty-icon">
+          <svg width="48" height="48" viewBox="0 0 16 16" fill="currentColor">
+            <path
+              d="M2.5 3A1.5 1.5 0 0 0 1 4.5v.793c.026.009.051.02.076.032L7.674 8.51c.206.1.446.1.652 0l6.598-3.185A.755.755 0 0 1 15 5.293V4.5A1.5 1.5 0 0 0 13.5 3h-11Z"
+            />
+            <path
+              d="M15 6.954 8.978 9.86a2.25 2.25 0 0 1-1.956 0L1 6.954V11.5A1.5 1.5 0 0 0 2.5 13h11a1.5 1.5 0 0 0 1.5-1.5V6.954Z"
+            />
+          </svg>
         </div>
+        <div class="session-empty-title">No Sessions Yet</div>
+        <div class="session-empty-description">
+          Create your first session to start chatting with Claude
+        </div>
+        <button
+          class="session-create-first-btn"
+          (click)="onCreateSession(undefined)"
+          type="button"
+        >
+          Create First Session
+        </button>
+      </div>
       }
 
       <!-- Loading State -->
       @if (isLoading() && allSessions().length === 0) {
-        <div class="session-loading-state">
-          <div class="session-loading-spinner">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M12 2v4M12 18v4M6 6l2 2M16 16l2 2M6 18l2-2M16 8l2-2M2 12h4M18 12h4"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-              />
-            </svg>
-          </div>
-          <div class="session-loading-text">Loading sessions...</div>
+      <div class="session-loading-state">
+        <div class="session-loading-spinner">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M12 2v4M12 18v4M6 6l2 2M16 16l2 2M6 18l2-2M16 8l2-2M2 12h4M18 12h4"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
+          </svg>
         </div>
+        <div class="session-loading-text">Loading sessions...</div>
+      </div>
       }
     </div>
   `,
@@ -520,7 +537,7 @@ export interface SessionManagerConfig {
 })
 export class SessionManagerComponent implements OnInit, OnDestroy {
   private readonly vscode = inject(VSCodeService);
-  private readonly chatService = inject(EnhancedChatService);
+  private readonly chatService = inject(ChatService);
   private readonly analyticsService = inject(AnalyticsService);
   private readonly logger = inject(LoggingService);
   private readonly destroy$ = new Subject<void>();
@@ -543,7 +560,9 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
   private readonly _loadingSessionId = signal<SessionId | null>(null);
   private readonly _selectedSessionId = signal<SessionId | null>(null);
   private readonly _allSessions = signal<readonly StrictChatSession[]>([]);
-  private readonly _sortMode = signal<'recent' | 'alphabetical' | 'usage'>('recent');
+  private readonly _sortMode = signal<'recent' | 'alphabetical' | 'usage'>(
+    'recent'
+  );
   private readonly _visibleSessionCount = signal(12);
 
   // Public readonly signals
@@ -601,13 +620,19 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
   readonly sessionStats = computed(() => {
     const sessions = this.allSessions();
 
-    const totalMessages = sessions.reduce((sum, session) => sum + session.messages.length, 0);
+    const totalMessages = sessions.reduce(
+      (sum, session) => sum + session.messages.length,
+      0
+    );
     const totalTokens = sessions.reduce(
       (sum, session) => sum + (session.tokenUsage?.total || 0),
-      0,
+      0
     );
-    const averageMessages = sessions.length > 0 ? Math.round(totalMessages / sessions.length) : 0;
-    const activeSessions = sessions.filter((session) => session.messages.length > 0).length;
+    const averageMessages =
+      sessions.length > 0 ? Math.round(totalMessages / sessions.length) : 0;
+    const activeSessions = sessions.filter(
+      (session) => session.messages.length > 0
+    ).length;
 
     return {
       totalMessages,
@@ -639,7 +664,9 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
   }
 
   private initializeSessionManagement(): void {
-    this.logger.lifecycle('SessionManagerComponent', 'init', { config: this.config() });
+    this.logger.lifecycle('SessionManagerComponent', 'init', {
+      config: this.config(),
+    });
     this._isLoading.set(true);
 
     // Initial session fetch
@@ -648,31 +675,40 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
 
   private setupSessionSynchronization(): void {
     // Handle initial data from backend
-    this.vscode.onMessage().pipe(
-      filter(msg => msg.type === 'initialData'),
-      takeUntil(this.destroy$)
-    ).subscribe((initialData: unknown) => {
-      const typedData = initialData as { data?: { sessions?: readonly StrictChatSession[] } };
-      const sessions = typedData?.data?.sessions || [];
-      this.logger.api('initialData received', {
-        sessionCount: sessions.length,
-      });
-
-      if (sessions.length > 0) {
-        this.logger.info('Setting initial sessions', 'SessionManagerComponent', {
-          count: sessions.length,
+    this.vscode
+      .onMessage()
+      .pipe(
+        filter((msg) => msg.type === 'initialData'),
+        takeUntil(this.destroy$)
+      )
+      .subscribe((initialData: unknown) => {
+        const typedData = initialData as {
+          data?: { sessions?: readonly StrictChatSession[] };
+        };
+        const sessions = typedData?.data?.sessions || [];
+        this.logger.api('initialData received', {
+          sessionCount: sessions.length,
         });
-        this._allSessions.set(sessions);
-        this._isLoading.set(false);
-      }
-    });
+
+        if (sessions.length > 0) {
+          this.logger.info(
+            'Setting initial sessions',
+            'SessionManagerComponent',
+            {
+              count: sessions.length,
+            }
+          );
+          this._allSessions.set(sessions);
+          this._isLoading.set(false);
+        }
+      });
 
     // Monitor chat service session changes for real-time updates
     combineLatest([
       toObservable(this.chatService.currentSession),
-      this.vscode.onMessage().pipe(
-        filter(msg => msg.type === 'chat:sessionsUpdated')
-      ),
+      this.vscode
+        .onMessage()
+        .pipe(filter((msg) => msg.type === 'chat:sessionsUpdated')),
     ])
       .pipe(debounceTime(100), takeUntil(this.destroy$))
       .subscribe(([currentSession, sessionsUpdate]) => {
@@ -682,8 +718,12 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
         });
 
         if (sessionsUpdate) {
-          const typedUpdate = sessionsUpdate as unknown as { data?: { sessions?: readonly StrictChatSession[] }; payload?: { sessions?: readonly StrictChatSession[] } };
-          const sessions = typedUpdate?.data?.sessions || typedUpdate?.payload?.sessions || [];
+          const typedUpdate = sessionsUpdate as unknown as {
+            data?: { sessions?: readonly StrictChatSession[] };
+            payload?: { sessions?: readonly StrictChatSession[] };
+          };
+          const sessions =
+            typedUpdate?.data?.sessions || typedUpdate?.payload?.sessions || [];
           this._allSessions.set(sessions);
         }
 
@@ -702,7 +742,9 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
 
   private async fetchAllSessions(): Promise<void> {
     try {
-      this.logger.api('fetchAllSessions started', { loading: this._isLoading() });
+      this.logger.api('fetchAllSessions started', {
+        loading: this._isLoading(),
+      });
       this._isLoading.set(true);
 
       // Request sessions from backend
@@ -712,28 +754,40 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
       this.vscode
         .onMessage()
         .pipe(
-          filter(msg => msg.type === 'chat:sessionsUpdated'),
+          filter((msg) => msg.type === 'chat:sessionsUpdated'),
           takeUntil(this.destroy$)
         )
         .subscribe((response: unknown) => {
-          const typedResponse = response as { data?: { sessions?: readonly StrictChatSession[] }; payload?: { sessions?: readonly StrictChatSession[] } };
-          const sessions = typedResponse?.data?.sessions || typedResponse?.payload?.sessions || [];
+          const typedResponse = response as {
+            data?: { sessions?: readonly StrictChatSession[] };
+            payload?: { sessions?: readonly StrictChatSession[] };
+          };
+          const sessions =
+            typedResponse?.data?.sessions ||
+            typedResponse?.payload?.sessions ||
+            [];
           this.logger.api(
             'fetchAllSessions succeeded',
             { sessionCount: sessions.length },
-            true,
+            true
           );
           this._allSessions.set(sessions);
           this._isLoading.set(false);
         });
     } catch (error) {
-      this.logger.error('Failed to fetch sessions', 'SessionManagerComponent', error);
+      this.logger.error(
+        'Failed to fetch sessions',
+        'SessionManagerComponent',
+        error
+      );
       this._isLoading.set(false);
     }
   }
 
   onSwitchSession(sessionId: SessionId): void {
-    this.logger.interaction('switchSession', 'SessionManagerComponent', { sessionId });
+    this.logger.interaction('switchSession', 'SessionManagerComponent', {
+      sessionId,
+    });
 
     this._loadingSessionId.set(sessionId);
 
@@ -750,14 +804,20 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
 
       this.sessionSwitched.emit(sessionId);
     } catch (error) {
-      this.logger.error('Failed to switch session', 'SessionManagerComponent', error);
+      this.logger.error(
+        'Failed to switch session',
+        'SessionManagerComponent',
+        error
+      );
     } finally {
       setTimeout(() => this._loadingSessionId.set(null), 500);
     }
   }
 
   async onCreateSession(name?: string): Promise<void> {
-    this.logger.interaction('createSession', 'SessionManagerComponent', { name });
+    this.logger.interaction('createSession', 'SessionManagerComponent', {
+      name,
+    });
 
     try {
       this._isLoading.set(true);
@@ -775,18 +835,28 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
       // Refresh sessions
       setTimeout(() => this.fetchAllSessions(), 500);
     } catch (error) {
-      this.logger.error('Failed to create session', 'SessionManagerComponent', error);
+      this.logger.error(
+        'Failed to create session',
+        'SessionManagerComponent',
+        error
+      );
     } finally {
       this._isLoading.set(false);
     }
   }
 
   onDeleteSession(sessionId: SessionId): void {
-    this.logger.interaction('deleteSession', 'SessionManagerComponent', { sessionId });
+    this.logger.interaction('deleteSession', 'SessionManagerComponent', {
+      sessionId,
+    });
 
     // Prevent deleting current session
     if (sessionId === this.currentSession()?.id) {
-      this.logger.warn('Cannot delete current session', 'SessionManagerComponent', { sessionId });
+      this.logger.warn(
+        'Cannot delete current session',
+        'SessionManagerComponent',
+        { sessionId }
+      );
       return;
     }
 
@@ -805,17 +875,27 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
       // Refresh sessions
       setTimeout(() => this.fetchAllSessions(), 500);
     } catch (error) {
-      this.logger.error('Failed to delete session', 'SessionManagerComponent', error);
+      this.logger.error(
+        'Failed to delete session',
+        'SessionManagerComponent',
+        error
+      );
     } finally {
       setTimeout(() => this._loadingSessionId.set(null), 500);
     }
   }
 
   onRenameSession(sessionId: SessionId, newName: string): void {
-    this.logger.interaction('renameSession', 'SessionManagerComponent', { sessionId, newName });
+    this.logger.interaction('renameSession', 'SessionManagerComponent', {
+      sessionId,
+      newName,
+    });
 
     try {
-      this.vscode.postStrictMessage('chat:renameSession', { sessionId, newName });
+      this.vscode.postStrictMessage('chat:renameSession', {
+        sessionId,
+        newName,
+      });
 
       // Track session rename
       this.analyticsService.trackEvent('session_renamed', {
@@ -826,17 +906,24 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
       // Update local state optimistically
       const sessions = this._allSessions();
       const updatedSessions = sessions.map((session) =>
-        session.id === sessionId ? { ...session, name: newName } : session,
+        session.id === sessionId ? { ...session, name: newName } : session
       );
       this._allSessions.set(updatedSessions);
     } catch (error) {
-      this.logger.error('Failed to rename session', 'SessionManagerComponent', error);
+      this.logger.error(
+        'Failed to rename session',
+        'SessionManagerComponent',
+        error
+      );
       // Refresh on error to revert optimistic update
       this.fetchAllSessions();
     }
   }
 
-  onSessionAction(actionType: SessionAction['type'], session: StrictChatSession): void {
+  onSessionAction(
+    actionType: SessionAction['type'],
+    session: StrictChatSession
+  ): void {
     this.logger.interaction('sessionAction', 'SessionManagerComponent', {
       actionType,
       sessionId: session.id,
@@ -856,9 +943,13 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
         this.exportSession(session);
         break;
       default:
-        this.logger.warn('Unhandled session action type', 'SessionManagerComponent', {
-          actionType,
-        });
+        this.logger.warn(
+          'Unhandled session action type',
+          'SessionManagerComponent',
+          {
+            actionType,
+          }
+        );
     }
   }
 
@@ -887,11 +978,15 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
     };
 
     // Create and download JSON file
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: 'application/json',
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${session.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_session.json`;
+    a.download = `${session.name
+      .replace(/[^a-z0-9]/gi, '_')
+      .toLowerCase()}_session.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -915,7 +1010,10 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
   loadMoreSessions(): void {
     const currentVisible = this._visibleSessionCount();
     const maxSessions = this.config().maxVisibleSessions;
-    const newVisible = Math.min(currentVisible + maxSessions, this.allSessions().length);
+    const newVisible = Math.min(
+      currentVisible + maxSessions,
+      this.allSessions().length
+    );
 
     this._visibleSessionCount.set(newVisible);
 

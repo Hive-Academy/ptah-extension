@@ -52,7 +52,9 @@
 ```typescript
 const vscode = acquireVsCodeApi();
 window.vscode = vscode;
-window.ptahConfig = { /* config */ };
+window.ptahConfig = {
+  /* config */
+};
 ```
 
 ### 2. **Signal-Based Reactive State**
@@ -105,13 +107,13 @@ export function provideVSCodeService() {
 
 ```typescript
 import { ApplicationConfig } from '@angular/core';
-import { provideVSCodeService } from '@ptah-extension/frontend/core';
+import { provideVSCodeService } from '@ptah-extension/core';
 
 export const appConfig: ApplicationConfig = {
   providers: [
     provideVSCodeService(), // Add this
     // ... other providers
-  ]
+  ],
 };
 ```
 
@@ -121,7 +123,7 @@ export const appConfig: ApplicationConfig = {
 
 ```typescript
 import { Component, inject, OnInit } from '@angular/core';
-import { VSCodeService } from '@ptah-extension/frontend/core';
+import { VSCodeService } from '@ptah-extension/core';
 
 @Component({
   selector: 'app-chat',
@@ -138,8 +140,7 @@ export class ChatComponent implements OnInit {
 
   ngOnInit() {
     // Subscribe to specific message types (type-safe)
-    this.vscode.onMessageType('chat:messageChunk')
-      .subscribe(payload => this.handleMessageChunk(payload));
+    this.vscode.onMessageType('chat:messageChunk').subscribe((payload) => this.handleMessageChunk(payload));
 
     // Send messages to extension (type-safe)
     this.vscode.sendChatMessage('Hello, Claude!');
@@ -159,13 +160,11 @@ export class ChatComponent implements OnInit {
 ```html
 <div class="chat-container" [attr.data-theme]="vscode.currentTheme()">
   @if (vscode.isConnected()) {
-    <!-- Production mode UI -->
-    <app-chat-messages />
+  <!-- Production mode UI -->
+  <app-chat-messages />
   } @else {
-    <!-- Development mode UI -->
-    <div class="dev-mode-banner">
-      Running in Development Mode
-    </div>
+  <!-- Development mode UI -->
+  <div class="dev-mode-banner">Running in Development Mode</div>
   }
 </div>
 ```
@@ -192,13 +191,13 @@ this.vscode.switchProvider('claude-cli');
 
 ```typescript
 // Subscribe to specific message type
-this.vscode.onMessageType('chat:messageChunk').subscribe(payload => {
+this.vscode.onMessageType('chat:messageChunk').subscribe((payload) => {
   // payload is ChatMessageChunkPayload (fully typed)
   console.log(payload.content, payload.isComplete);
 });
 
 // Subscribe to all messages
-this.vscode.onMessage().subscribe(message => {
+this.vscode.onMessage().subscribe((message) => {
   // message is StrictMessage with discriminated union type
   if (message.type === 'chat:messageChunk') {
     // TypeScript narrows payload type automatically
@@ -233,13 +232,13 @@ When running in VS Code (`F5` Extension Development Host):
 
 ```typescript
 export interface WebviewConfig {
-  isVSCode: boolean;           // True when running in VS Code
+  isVSCode: boolean; // True when running in VS Code
   theme: 'light' | 'dark' | 'high-contrast'; // Current theme
-  workspaceRoot: string;       // Workspace folder path
-  workspaceName: string;       // Workspace name
-  extensionUri: string;        // Extension URI for resources
-  baseUri: string;             // Base URI for webview assets
-  iconUri: string;             // Ptah icon URI
+  workspaceRoot: string; // Workspace folder path
+  workspaceName: string; // Workspace name
+  extensionUri: string; // Extension URI for resources
+  baseUri: string; // Base URI for webview assets
+  iconUri: string; // Ptah icon URI
 }
 ```
 
@@ -248,7 +247,7 @@ export interface WebviewConfig {
 ```typescript
 // Via signal (reactive)
 const theme = this.vscode.currentTheme(); // Computed signal
-const config = this.vscode.config();      // Full config signal
+const config = this.vscode.config(); // Full config signal
 
 // Via method (snapshot)
 const theme = this.vscode.config().theme;
@@ -263,8 +262,8 @@ The service automatically listens for `themeChanged` messages from the extension
 
 ```typescript
 // In setupThemeListener()
-this.onMessageType('themeChanged').subscribe(payload => {
-  this._config.update(current => ({
+this.onMessageType('themeChanged').subscribe((payload) => {
+  this._config.update((current) => ({
     ...current,
     theme: payload.theme,
   }));
@@ -279,7 +278,7 @@ this.onMessageType('themeChanged').subscribe(payload => {
     <div [attr.data-theme]="theme()">
       <!-- Theme-aware UI -->
     </div>
-  `
+  `,
 })
 export class MyComponent {
   private readonly vscode = inject(VSCodeService);

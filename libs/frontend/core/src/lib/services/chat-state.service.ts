@@ -23,7 +23,7 @@ export interface ChatState {
  * - Provide reactive state updates via signals
  * - Maintain state consistency and history
  *
- * Extracted from EnhancedChatService for single responsibility principle
+ * Extracted from ChatService for single responsibility principle
  *
  * **Modern Angular Patterns**:
  * - Pure signal-based state management

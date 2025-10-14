@@ -26,7 +26,7 @@ import {
  *
  * **Design Pattern**: Facade pattern - simplifies message format conversions
  *
- * Extracted from EnhancedChatService for single responsibility principle
+ * Extracted from ChatService for single responsibility principle
  *
  * @example
  * ```typescript

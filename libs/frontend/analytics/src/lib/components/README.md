@@ -1,6 +1,6 @@
 # Analytics Library - Components
 
-**Library**: `@ptah-extension/frontend/analytics`  
+**Library**: `@ptah-extension/analytics`  
 **Purpose**: Analytics dashboard UI components for Ptah extension webview
 
 ---
@@ -210,7 +210,7 @@ When extracting components from monolithic app:
 - [ ] Update imports to use `@ptah-extension/shared` types
 - [ ] Migrate component tests
 - [ ] Export from `libs/frontend/analytics/src/index.ts`
-- [ ] Update consuming components to import from `@ptah-extension/frontend/analytics`
+- [ ] Update consuming components to import from `@ptah-extension/analytics`
 - [ ] Verify `nx build frontend-analytics` succeeds
 - [ ] Verify all tests pass with ≥80% coverage
 

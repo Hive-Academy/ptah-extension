@@ -1,6 +1,6 @@
 # Session Library - Components
 
-**Library**: `@ptah-extension/frontend/session`  
+**Library**: `@ptah-extension/session`  
 **Purpose**: Session management UI components for Ptah extension webview
 
 ---
@@ -192,7 +192,7 @@ When extracting components from monolithic app:
 - [ ] Update imports to use `@ptah-extension/shared` types
 - [ ] Migrate component tests
 - [ ] Export from `libs/frontend/session/src/index.ts`
-- [ ] Update consuming components to import from `@ptah-extension/frontend/session`
+- [ ] Update consuming components to import from `@ptah-extension/session`
 - [ ] Verify `nx build frontend-session` succeeds
 - [ ] Verify all tests pass with ≥80% coverage
 

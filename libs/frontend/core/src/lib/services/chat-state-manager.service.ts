@@ -1,25 +1,21 @@
 import {
+  computed,
+  DestroyRef,
+  inject,
   Injectable,
   signal,
-  computed,
-  inject,
-  DestroyRef,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
-  StrictChatSession,
-  SessionId,
-  ChatSessionsUpdatedPayload,
   ChatSessionCreatedPayload,
+  ChatSessionsUpdatedPayload,
   ChatSessionSwitchedPayload,
+  SessionId,
+  StrictChatSession,
 } from '@ptah-extension/shared';
-
-// Core Services
-import {
-  VSCodeService,
-  AppStateManager,
-  ChatStateService,
-} from '@ptah-extension/core';
+import { AppStateManager } from './app-state.service';
+import { ChatStateService } from './chat-state.service';
+import { VSCodeService } from './vscode.service';
 
 /**
  * Agent Option - UI model for agent selection dropdown

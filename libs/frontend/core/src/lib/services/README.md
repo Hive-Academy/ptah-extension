@@ -1,6 +1,6 @@
 # Core Library - Services
 
-**Library**: `@ptah-extension/frontend/core`  
+**Library**: `@ptah-extension/core`  
 **Purpose**: Core services shared across all feature libraries
 
 ---

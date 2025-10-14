@@ -115,12 +115,12 @@ export class VSCodeService {
 
   /**
    * Initialize from VS Code injected globals
-   * 
+   *
    * IMPORTANT: The extension host injects these globals BEFORE Angular bootstraps:
    * - window.vscode: The VS Code API (from acquireVsCodeApi())
    * - window.ptahConfig: Webview configuration (theme, workspace, URIs)
    * - window.ptahPreviousState: Restored state from previous session
-   * 
+   *
    * This approach is safer than calling acquireVsCodeApi() because:
    * 1. acquireVsCodeApi() can only be called once per webview lifetime
    * 2. Extension host calls it in the bootstrap script before Angular loads
@@ -137,7 +137,10 @@ export class VSCodeService {
       // Load configuration from injected global
       if (ptahWindow.ptahConfig) {
         this._config.set(ptahWindow.ptahConfig);
-        console.log('VSCodeService: Initialized with VS Code config', ptahWindow.ptahConfig);
+        console.log(
+          'VSCodeService: Initialized with VS Code config',
+          ptahWindow.ptahConfig
+        );
       } else {
         console.warn('VSCodeService: VS Code API found but no ptahConfig');
       }
@@ -148,7 +151,9 @@ export class VSCodeService {
       }
     } else {
       // Development mode - no VS Code API available
-      console.log('VSCodeService: Running in development mode (no VS Code API)');
+      console.log(
+        'VSCodeService: Running in development mode (no VS Code API)'
+      );
       this._isConnected.set(false);
     }
   }
@@ -187,7 +192,7 @@ export class VSCodeService {
   postStrictMessage<T extends keyof MessagePayloadMap>(
     type: T,
     payload: MessagePayloadMap[T],
-    correlationId?: CorrelationId,
+    correlationId?: CorrelationId
   ): void {
     const message = createStrictMessage(type, payload, correlationId);
 
@@ -210,11 +215,11 @@ export class VSCodeService {
    * Provides type-safe payload access
    */
   onMessageType<T extends keyof MessagePayloadMap>(
-    messageType: T,
+    messageType: T
   ): Observable<MessagePayloadMap[T]> {
     return this.messageSubject.asObservable().pipe(
       filter((msg): msg is StrictMessage<T> => msg.type === messageType),
-      map((msg) => msg.payload),
+      map((msg) => msg.payload)
     );
   }
 
@@ -243,8 +248,14 @@ export class VSCodeService {
   /**
    * Execute VS Code command
    */
-  executeVSCodeCommand(templateId: string, parameters?: Record<string, unknown>): void {
-    this.postStrictMessage('commands:executeCommand', { templateId, parameters: parameters ?? {} });
+  executeVSCodeCommand(
+    templateId: string,
+    parameters?: Record<string, unknown>
+  ): void {
+    this.postStrictMessage('commands:executeCommand', {
+      templateId,
+      parameters: parameters ?? {},
+    });
   }
 
   /**
@@ -275,8 +286,13 @@ export class VSCodeService {
   /**
    * Show VS Code message
    */
-  showMessage(message: string, type: 'info' | 'warning' | 'error' = 'info'): void {
-    this.postStrictMessage('error', { message: `${type.toUpperCase()}: ${message}` });
+  showMessage(
+    message: string,
+    type: 'info' | 'warning' | 'error' = 'info'
+  ): void {
+    this.postStrictMessage('error', {
+      message: `${type.toUpperCase()}: ${message}`,
+    });
   }
 
   /**
@@ -286,7 +302,10 @@ export class VSCodeService {
     if (state !== null && state !== undefined) {
       this.postStrictMessage('state:save', { state });
     } else {
-      console.warn('VSCodeService: saveState called with null/undefined state:', state);
+      console.warn(
+        'VSCodeService: saveState called with null/undefined state:',
+        state
+      );
       this.postStrictMessage('state:save', { state: {} });
     }
   }
@@ -310,7 +329,11 @@ export class VSCodeService {
 
   // ==================== Chat Methods ====================
 
-  sendChatMessage(content: string, files?: readonly string[], correlationId?: CorrelationId): void {
+  sendChatMessage(
+    content: string,
+    files?: readonly string[],
+    correlationId?: CorrelationId
+  ): void {
     this.postStrictMessage('chat:sendMessage', {
       content,
       files,
@@ -323,7 +346,9 @@ export class VSCodeService {
   }
 
   switchChatSession(sessionId: string): void {
-    this.postStrictMessage('chat:switchSession', { sessionId: sessionId as SessionId });
+    this.postStrictMessage('chat:switchSession', {
+      sessionId: sessionId as SessionId,
+    });
   }
 
   // ==================== Command Builder Methods ====================
@@ -332,8 +357,14 @@ export class VSCodeService {
     this.postStrictMessage('commands:getTemplates', {});
   }
 
-  executeCommand(templateId: string, parameters: Record<string, unknown>): void {
-    this.postStrictMessage('commands:executeCommand', { templateId, parameters });
+  executeCommand(
+    templateId: string,
+    parameters: Record<string, unknown>
+  ): void {
+    this.postStrictMessage('commands:executeCommand', {
+      templateId,
+      parameters,
+    });
   }
 
   saveCommandTemplate(template: CommandTemplate): void {
@@ -360,10 +391,13 @@ export class VSCodeService {
     this.postStrictMessage('analytics:getData', {});
   }
 
-  trackAnalyticsEvent(event: string, properties?: Record<string, string | number | boolean>): void {
+  trackAnalyticsEvent(
+    event: string,
+    properties?: Record<string, string | number | boolean>
+  ): void {
     this.postStrictMessage('analytics:trackEvent', {
       event,
-      properties: properties ?? {}
+      properties: properties ?? {},
     });
   }
 
@@ -379,7 +413,7 @@ export class VSCodeService {
 
   switchProvider(
     providerId: string,
-    reason?: 'user-request' | 'auto-fallback' | 'error-recovery',
+    reason?: 'user-request' | 'auto-fallback' | 'error-recovery'
   ): void {
     this.postStrictMessage('providers:switch', { providerId, reason });
   }
@@ -418,15 +452,15 @@ export class VSCodeService {
 
 /**
  * Factory function for APP_INITIALIZER
- * 
+ *
  * Ensures VSCodeService is initialized before application bootstrap.
  * Use this in your app.config.ts:
- * 
+ *
  * @example
  * ```typescript
  * import { ApplicationConfig } from '@angular/core';
- * import { provideVSCodeService } from '@ptah-extension/frontend/core';
- * 
+ * import { provideVSCodeService } from '@ptah-extension/core';
+ *
  * export const appConfig: ApplicationConfig = {
  *   providers: [
  *     provideVSCodeService(),
@@ -434,14 +468,16 @@ export class VSCodeService {
  *   ]
  * };
  * ```
- * 
+ *
  * This ensures:
  * 1. VSCodeService is eagerly instantiated (not lazy)
  * 2. Connection is established before any components render
  * 3. Initial config is loaded from window.ptahConfig
  * 4. Theme listener is active before first component render
  */
-export function initializeVSCodeService(vscodeService: VSCodeService): () => void {
+export function initializeVSCodeService(
+  vscodeService: VSCodeService
+): () => void {
   return () => {
     // Service is already initialized in constructor
     // This function ensures it happens during APP_INITIALIZER phase
@@ -455,7 +491,7 @@ export function initializeVSCodeService(vscodeService: VSCodeService): () => voi
 
 /**
  * Provider function for VSCodeService with APP_INITIALIZER
- * 
+ *
  * This is the recommended way to include VSCodeService in your application.
  * It ensures the service is initialized before the app starts.
  */

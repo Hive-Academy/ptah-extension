@@ -649,13 +649,13 @@ export interface PerformanceBenchmark {
 
 - Depends on: All frontend libraries (lazy-loaded routes)
 - Current routing: apps/ptah-extension-webview/src/app/app.config.ts
-- Migration: Update imports from `./features/` → `@ptah-extension/frontend/*`
+- Migration: Update imports from `./features/` → `@ptah-extension/*`
 
 **Frontend Libraries**:
 
 - **All libraries** → `@ptah-extension/shared` (types only)
-- **Feature libraries** → `@ptah-extension/frontend/shared-ui` (reusable components)
-- **Feature libraries** → `@ptah-extension/frontend/core` (core services via DI)
+- **Feature libraries** → `@ptah-extension/shared-ui` (reusable components)
+- **Feature libraries** → `@ptah-extension/core` (core services via DI)
 - ❌ **NO** feature library → feature library (prevents circular deps)
 
 **Shared UI**:
@@ -762,7 +762,7 @@ export interface PerformanceBenchmark {
 
 1. Run `nx graph` to establish baseline dependency graph (save screenshot)
 2. Create folder structure: `components/`, `services/`, `models/` in each library
-3. Update nx.json with import path aliases (verify @ptah-extension/frontend/\* paths)
+3. Update nx.json with import path aliases (verify @ptah-extension/\* paths)
 4. Create README files documenting patterns per library
 5. Set up ESLint rules for circular dependency detection
 6. Create performance monitoring baseline script
@@ -772,7 +772,7 @@ export interface PerformanceBenchmark {
 - [ ] `nx graph` shows all 7 frontend libraries with zero dependencies between features
 - [ ] All README files created and reviewed
 - [ ] Folder structure verified: Each library has components/, services/, models/
-- [ ] Import path aliases working: Can import `@ptah-extension/frontend/shared-ui`
+- [ ] Import path aliases working: Can import `@ptah-extension/shared-ui`
 - [ ] ESLint circular dependency rule configured
 - [ ] Baseline performance metrics captured (bundle size, render time)
 

@@ -30,7 +30,6 @@ export * from './file-suggestions-dropdown/file-suggestions-dropdown.component';
 
 // Message Components (3/3 complete) ✅
 export * from './chat-messages';
-export * from './chat-messages-container/chat-messages-container.component';
 
 // Input Components (1/1 complete) ✅
 export * from './chat-input';

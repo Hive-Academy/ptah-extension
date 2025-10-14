@@ -491,7 +491,7 @@ export class ProviderSelectorDropdownComponent {
   // ANGULAR 20 PATTERN: Input signals
   readonly availableProviders = input.required<ProviderOption[]>();
   readonly currentProvider = input<ProviderOption | null>(null);
-  readonly loading = input<boolean>(false);
+  public readonly loading = input<boolean>(false);
   readonly disabled = input<boolean>(false);
 
   // ANGULAR 20 PATTERN: Output signals
@@ -500,7 +500,7 @@ export class ProviderSelectorDropdownComponent {
   readonly dropdownClosed = output<void>();
 
   // ANGULAR 20 PATTERN: Internal signals
-  private _isOpen = signal(false);
+  private readonly _isOpen = signal(false);
 
   // ANGULAR 20 PATTERN: Readonly computed signals
   readonly isOpen = this._isOpen.asReadonly();

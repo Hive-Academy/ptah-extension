@@ -1,6 +1,6 @@
 # Shared UI Models & Types
 
-**Library**: `@ptah-extension/frontend/shared-ui`  
+**Library**: `@ptah-extension/shared-ui`  
 **Purpose**: Type definitions for shared UI components
 
 ---

@@ -14,18 +14,15 @@ import { Subject, takeUntil, combineLatest } from 'rxjs';
 import { toObservable } from '@angular/core/rxjs-interop';
 
 // Core Services
+import { ChatService, StreamConsumptionState } from '@ptah-extension/core';
+import { AnalyticsService } from '@ptah-extension/core';
+import { LoggingService } from '@ptah-extension/core';
 import {
-  EnhancedChatService,
-  StreamConsumptionState,
-} from '@ptah-extension/frontend/core';
-import { AnalyticsService } from '@ptah-extension/frontend/core';
-import { LoggingService } from '@ptah-extension/frontend/core';
-
-// Child Components
-import { DashboardHeaderComponent } from '../components/dashboard-header/dashboard-header.component';
-import { DashboardMetricsGridComponent } from '../components/dashboard-metrics-grid/dashboard-metrics-grid.component';
-import { DashboardPerformanceChartComponent } from '../components/dashboard-performance-chart/dashboard-performance-chart.component';
-import { DashboardActivityFeedComponent } from '../components/dashboard-activity-feed/dashboard-activity-feed.component';
+  DashboardActivityFeedComponent,
+  DashboardHeaderComponent,
+  DashboardMetricsGridComponent,
+  DashboardPerformanceChartComponent,
+} from '../../components';
 
 /**
  * Dashboard Container Component - Business Logic & State Orchestrator
@@ -134,7 +131,7 @@ import { DashboardActivityFeedComponent } from '../components/dashboard-activity
   ],
 })
 export class DashboardComponent implements OnInit, OnDestroy {
-  private readonly enhancedChat = inject(EnhancedChatService);
+  private readonly enhancedChat = inject(ChatService);
   readonly analyticsService = inject(AnalyticsService);
   private readonly logger = inject(LoggingService);
   private readonly destroy$ = new Subject<void>();
@@ -239,7 +236,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   private setupPerformanceMonitoring(): void {
     if (!this.enhancedChat) {
       this.logger.warn(
-        'EnhancedChatService not available for performance monitoring',
+        'ChatService not available for performance monitoring',
         'DashboardComponent'
       );
       return;

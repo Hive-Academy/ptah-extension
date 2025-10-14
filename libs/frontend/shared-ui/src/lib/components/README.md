@@ -1,6 +1,6 @@
 # Shared UI Components
 
-**Library**: `@ptah-extension/frontend/shared-ui`  
+**Library**: `@ptah-extension/shared-ui`  
 **Purpose**: Reusable Egyptian-themed Angular components used across feature libraries
 
 ---
@@ -229,7 +229,7 @@ export class OptimizedComponent {
 ### In Feature Libraries
 
 ```typescript
-import { ButtonComponent } from '@ptah-extension/frontend/shared-ui';
+import { ButtonComponent } from '@ptah-extension/shared-ui';
 
 @Component({
   imports: [ButtonComponent],  // Import directly

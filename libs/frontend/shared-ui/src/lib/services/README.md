@@ -1,6 +1,6 @@
 # Shared UI Services
 
-**Library**: `@ptah-extension/frontend/shared-ui`  
+**Library**: `@ptah-extension/shared-ui`  
 **Purpose**: UI-specific service patterns and utilities
 
 ---

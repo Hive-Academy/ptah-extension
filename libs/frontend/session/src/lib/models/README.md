@@ -1,6 +1,6 @@
 # Session Library - Models
 
-**Library**: `@ptah-extension/frontend/session`  
+**Library**: `@ptah-extension/session`  
 **Purpose**: Type definitions and interfaces for session UI components
 
 ---

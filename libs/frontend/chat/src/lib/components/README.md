@@ -1,6 +1,6 @@
 # Chat Components
 
-**Library**: `@ptah-extension/frontend/chat`  
+**Library**: `@ptah-extension/chat`  
 **Purpose**: Chat interface components and services for Claude Code CLI interaction
 
 ---
@@ -74,18 +74,6 @@ components/
 | `VSCodeChatEmptyStateComponent` | Empty chat prompt | ~250  | To extract |
 
 **Total**: 13 components, ~2,430 LOC
-
----
-
-## Services (5)
-
-| Service                    | Purpose                | Lines | Status     |
-| -------------------------- | ---------------------- | ----- | ---------- |
-| `EnhancedChatService`      | Chat orchestration     | ~TBD  | To extract |
-| `ChatStateManagerService`  | Chat state management  | ~TBD  | To extract |
-| `MessageProcessingService` | Message transformation | ~TBD  | To extract |
-| `StateService`             | Chat-specific state    | ~TBD  | To extract |
-| `StreamHandlingService`    | Stream processing      | ~TBD  | To extract |
 
 ---
 

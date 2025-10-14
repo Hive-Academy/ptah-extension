@@ -68,7 +68,7 @@ mkdir -p libs/frontend/core/src/lib/models
 #### 2.2 Verify Library Configuration
 
 - [ ] Check `libs/frontend/{library}/project.json` exists
-- [ ] Verify import path in `tsconfig.base.json`: `@ptah-extension/frontend/{library}`
+- [ ] Verify import path in `tsconfig.base.json`: `@ptah-extension/{library}`
 - [ ] Confirm `libs/frontend/{library}/src/index.ts` exists (barrel export file)
 - [ ] Verify ESLint config exists: `libs/frontend/{library}/eslint.config.mjs`
 
@@ -121,12 +121,12 @@ import { VSCodeService } from '../../../core/services/vscode.service';
 
 // ✅ NEW (library imports)
 import { ChatMessage } from '@ptah-extension/shared';
-import { VSCodeService } from '@ptah-extension/frontend/core';
+import { VSCodeService } from '@ptah-extension/core';
 ```
 
 - [ ] All imports updated to use `@ptah-extension/shared` for types
-- [ ] All imports updated to use `@ptah-extension/frontend/core` for services
-- [ ] All imports updated to use `@ptah-extension/frontend/shared-ui` for UI components
+- [ ] All imports updated to use `@ptah-extension/core` for services
+- [ ] All imports updated to use `@ptah-extension/shared-ui` for UI components
 - [ ] No relative imports remain (verify with grep)
 
 ---
@@ -274,7 +274,7 @@ constructor() {
 
 **For each component template:**
 
-1. **Convert *ngIf to @if**
+1. **Convert \*ngIf to @if**
 
 ```html
 <!-- ❌ BEFORE (*ngIf) -->
@@ -292,7 +292,7 @@ constructor() {
 }
 ```
 
-2. **Convert *ngFor to @for**
+2. **Convert \*ngFor to @for**
 
 ```html
 <!-- ❌ BEFORE (*ngFor) -->
@@ -304,7 +304,7 @@ constructor() {
 }
 ```
 
-3. **Convert *ngSwitch to @switch**
+3. **Convert \*ngSwitch to @switch**
 
 ```html
 <!-- ❌ BEFORE (*ngSwitch) -->
@@ -324,9 +324,9 @@ constructor() {
 } }
 ```
 
-- [ ] All *ngIf converted to @if
-- [ ] All *ngFor converted to @for (with track)
-- [ ] All *ngSwitch converted to @switch
+- [ ] All \*ngIf converted to @if
+- [ ] All \*ngFor converted to @for (with track)
+- [ ] All \*ngSwitch converted to @switch
 - [ ] Verify no structural directives remain: `grep -r "\*ngIf\|\*ngFor\|\*ngSwitch" libs/frontend/{library}/`
 
 #### 5.2 Remove Structural Directive Imports
@@ -560,7 +560,7 @@ nx test frontend-{library}
 import { ChatHeaderComponent } from './features/chat/components/chat-header.component';
 
 // ✅ AFTER (library imports)
-import { ChatHeaderComponent } from '@ptah-extension/frontend/chat';
+import { ChatHeaderComponent } from '@ptah-extension/chat';
 ```
 
 - [ ] All component imports updated in main app
@@ -577,7 +577,7 @@ import { ChatHeaderComponent } from '@ptah-extension/frontend/chat';
 const routes: Routes = [
   {
     path: 'chat',
-    loadComponent: () => import('@ptah-extension/frontend/chat').then((m) => m.ChatComponent),
+    loadComponent: () => import('@ptah-extension/chat').then((m) => m.ChatComponent),
   },
   // ...
 ];
@@ -807,7 +807,7 @@ Before marking library extraction complete:
 
 1. Run `nx graph` to visualize dependencies
 2. Check if feature library imports another feature library (violation!)
-3. Move shared logic to `@ptah-extension/frontend/shared-ui` or `@ptah-extension/frontend/core`
+3. Move shared logic to `@ptah-extension/shared-ui` or `@ptah-extension/core`
 4. Refactor component composition to eliminate cycle
 
 ### Issue: Test Coverage Below 80%
@@ -835,7 +835,7 @@ Before marking library extraction complete:
 
 ### Issue: Import Path Not Found
 
-**Symptom**: `Cannot find module '@ptah-extension/frontend/{library}'`
+**Symptom**: `Cannot find module '@ptah-extension/{library}'`
 
 **Solution**:
 

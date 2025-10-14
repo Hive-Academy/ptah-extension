@@ -10,7 +10,7 @@ import {
   ProviderInfo,
   ProviderHealth,
   ProviderError,
-} from '@ptah-extension/frontend/core';
+} from '@ptah-extension/core';
 import {
   ProviderSelectorDropdownComponent,
   ProviderOption,

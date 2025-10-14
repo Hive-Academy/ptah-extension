@@ -1,6 +1,6 @@
 # Dashboard Library - Components
 
-**Library**: `@ptah-extension/frontend/dashboard`  
+**Library**: `@ptah-extension/dashboard`  
 **Purpose**: Main dashboard UI components for Ptah extension webview
 
 ---
@@ -221,7 +221,7 @@ When extracting components from monolithic app:
 - [ ] Update imports to use `@ptah-extension/shared` types
 - [ ] Migrate component tests
 - [ ] Export from `libs/frontend/dashboard/src/index.ts`
-- [ ] Update consuming components to import from `@ptah-extension/frontend/dashboard`
+- [ ] Update consuming components to import from `@ptah-extension/dashboard`
 - [ ] Verify `nx build frontend-dashboard` succeeds
 - [ ] Verify all tests pass with ≥80% coverage
 

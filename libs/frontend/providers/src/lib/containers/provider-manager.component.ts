@@ -5,8 +5,8 @@
 
 import { Component, output, signal, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ProviderService, ProviderInfo } from '@ptah-extension/frontend/core';
-import { LoggingService } from '@ptah-extension/frontend/core';
+import { ProviderService, ProviderInfo } from '@ptah-extension/core';
+import { LoggingService } from '@ptah-extension/core';
 import { ProviderSettingsComponent } from '../components/provider-settings.component';
 
 @Component({

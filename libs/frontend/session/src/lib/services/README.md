@@ -1,13 +1,13 @@
 # Session Library - Services
 
-**Library**: `@ptah-extension/frontend/session`  
+**Library**: `@ptah-extension/session`  
 **Purpose**: Session management services (if any session-specific logic is needed)
 
 ---
 
 ## 📂 Service Organization
 
-Currently, session services are managed in the **Core Library** (`@ptah-extension/frontend/core`).
+Currently, session services are managed in the **Core Library** (`@ptah-extension/core`).
 
 ### Architectural Decision
 
@@ -20,7 +20,7 @@ Session management services are **NOT** placed in this feature library because:
 ### Where Session Services Live
 
 - **Location**: `libs/frontend/core/src/lib/services/`
-- **Import Path**: `@ptah-extension/frontend/core`
+- **Import Path**: `@ptah-extension/core`
 
 **Example Services**:
 
@@ -42,7 +42,7 @@ Create services **in this library** only if:
 ```typescript
 // libs/frontend/session/src/lib/services/session-ui-formatter.service.ts
 import { Injectable, inject } from '@angular/core';
-import { SessionStateService } from '@ptah-extension/frontend/core';
+import { SessionStateService } from '@ptah-extension/core';
 
 /**
  * Formats session data for UI display purposes only
@@ -111,7 +111,7 @@ export class SessionUIStateService {
 
 ```typescript
 import { Injectable, inject } from '@angular/core';
-import { SessionStateService } from '@ptah-extension/frontend/core';
+import { SessionStateService } from '@ptah-extension/core';
 
 @Injectable({ providedIn: 'root' })
 export class MySessionService {
@@ -178,7 +178,7 @@ describe('SessionUIFormatterService', () => {
 
 **Services in this library**: 0
 
-**Reason**: All session management logic is in `@ptah-extension/frontend/core` to maintain proper dependency boundaries.
+**Reason**: All session management logic is in `@ptah-extension/core` to maintain proper dependency boundaries.
 
 ---
 
