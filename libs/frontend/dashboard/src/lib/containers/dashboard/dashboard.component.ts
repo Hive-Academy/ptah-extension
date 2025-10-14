@@ -154,8 +154,19 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   // Public readonly signals
   readonly isExpanded = this._isExpanded.asReadonly();
-  // Use analytics service signals for real backend data
-  readonly dashboardMetrics = this.analyticsService.analyticsData;
+
+  // Convert AnalyticsData to DashboardMetrics (Date type compatibility)
+  readonly dashboardMetrics = computed(() => {
+    const analyticsData = this.analyticsService.analyticsData();
+    return {
+      ...analyticsData,
+      status: {
+        ...analyticsData.status,
+        lastUpdated: new Date(analyticsData.status.lastUpdated),
+      },
+    };
+  });
+
   readonly performanceData = this.analyticsService.performanceData;
   readonly recentActivities = this.analyticsService.recentActivities;
 
