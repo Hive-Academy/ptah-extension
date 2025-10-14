@@ -33,7 +33,15 @@ export class WebviewHtmlGenerator {
    */
   private _getHtmlForWebview(webview: vscode.Webview, workspaceInfo?: any): string {
     // Path to Angular dist folder (browser build output)
-    const appDistPath = path.join(this.context.extensionPath, 'out', 'webview', 'browser');
+    // FIXED: Use correct Nx build output path
+    const appDistPath = path.join(
+      this.context.extensionPath,
+      'dist',
+      'apps',
+      'ptah-extension-vscode',
+      'webview',
+      'browser'
+    );
     const appDistPathUri = vscode.Uri.file(appDistPath);
 
     // Create base URI for assets - CRITICAL for proper asset loading
@@ -119,7 +127,7 @@ export class WebviewHtmlGenerator {
       ) {
         return match;
       }
-      
+
       // Transform relative URIs to webview URIs
       const fullUri = webview.asWebviewUri(vscode.Uri.joinPath(baseUri, uri));
       return `${attribute}="${fullUri}"`;
@@ -146,10 +154,10 @@ export class WebviewHtmlGenerator {
    * FIXED: Proper CSP for Angular with inlineCritical: false configuration
    */
   private getImprovedCSP(webview: vscode.Webview, nonce: string): string {
-    return `default-src 'none'; 
-            img-src ${webview.cspSource} https: data: blob:; 
-            script-src 'nonce-${nonce}' 'unsafe-eval'; 
-            style-src ${webview.cspSource} 'nonce-${nonce}' https://fonts.googleapis.com; 
+    return `default-src 'none';
+            img-src ${webview.cspSource} https: data: blob:;
+            script-src 'nonce-${nonce}' 'unsafe-eval';
+            style-src ${webview.cspSource} 'nonce-${nonce}' https://fonts.googleapis.com;
             font-src ${webview.cspSource} https://fonts.gstatic.com https://fonts.googleapis.com data:;
             connect-src 'self' ${webview.cspSource};
             frame-src 'none';
@@ -172,13 +180,13 @@ export class WebviewHtmlGenerator {
       <head>
         <meta charset="utf-8">
         <title>Ptah - Claude Code Assistant</title>
-        <base href="${webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'out', 'webview', 'browser'))}/">
+        <base href="${webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'apps', 'ptah-extension-vscode', 'webview', 'browser'))}/">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta http-equiv="Content-Security-Policy" content="${this.getImprovedCSP(webview, nonce)}">
-        
+
         <!-- Angular Styles -->
         <link rel="stylesheet" href="${stylesUri}" nonce="${nonce}">
-        
+
         <!-- VS Code Theme Integration -->
         <style nonce="${nonce}">
           ${this.getThemeStyles()}
@@ -187,15 +195,15 @@ export class WebviewHtmlGenerator {
       <body class="vscode-body ${this.getThemeClass(theme)}">
         <!-- Angular App Root -->
         <app-root></app-root>
-        
+
         <!-- VS Code Integration Script -->
         <script nonce="${nonce}">
           ${this.getVSCodeIntegrationScript(theme, workspaceInfo, webview)}
         </script>
-        
+
         <!-- Angular Main Bundle (ES Module) -->
         <script src="${scriptUri}" type="module" nonce="${nonce}" onerror="console.error('Failed to load main Angular bundle')"></script>
-        
+
         <!-- Startup Script -->
         <script nonce="${nonce}">
           ${this.getStartupScript()}
@@ -206,9 +214,12 @@ export class WebviewHtmlGenerator {
   }
 
   private getAssetUris(webview: vscode.Webview) {
+    // FIXED: Use correct Nx build output path
     const angularDistPath = vscode.Uri.joinPath(
       this.context.extensionUri,
-      'out',
+      'dist',
+      'apps',
+      'ptah-extension-vscode',
       'webview',
       'browser'
     );
@@ -233,7 +244,7 @@ export class WebviewHtmlGenerator {
         --vscode-input-foreground: var(--vscode-input-foreground);
         --vscode-input-border: var(--vscode-input-border);
       }
-      
+
       body {
         font-family: var(--vscode-font-family);
         font-size: var(--vscode-font-size);
@@ -267,7 +278,7 @@ export class WebviewHtmlGenerator {
     return `
       // Acquire VS Code API
       const vscode = acquireVsCodeApi();
-      
+
       // Global configuration for Angular app
       window.vscode = vscode;
       window.ptahConfig = {
@@ -279,7 +290,7 @@ export class WebviewHtmlGenerator {
         baseUri: '${baseUri}',
         iconUri: '${iconUri}'
       };
-      
+
       // Restore previous state
       const previousState = vscode.getState();
       if (previousState) {
@@ -292,10 +303,10 @@ export class WebviewHtmlGenerator {
         if (message.type === 'themeChanged') {
           document.body.className = 'vscode-body ' + message.themeClass;
           window.ptahConfig.theme = message.theme;
-          
+
           // Notify Angular about theme change
-          window.dispatchEvent(new CustomEvent('vscode-theme-changed', { 
-            detail: { theme: message.theme, themeClass: message.themeClass } 
+          window.dispatchEvent(new CustomEvent('vscode-theme-changed', {
+            detail: { theme: message.theme, themeClass: message.themeClass }
           }));
         }
       });
