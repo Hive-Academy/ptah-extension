@@ -197,11 +197,11 @@ rm -rf apps/ptah-extension-vscode/src/services/webview-message-handlers
 ### Build Verification
 
 ```bash
-✅ nx build ptah-claude-code
+✅ nx build ptah-extension-vscode
    asset main.js 1.7 MiB [emitted] [big] (name: main)
    webpack 5.101.3 compiled successfully in 3381 ms
 
-✅ Successfully ran target build for project ptah-claude-code
+✅ Successfully ran target build for project ptah-extension-vscode
 ```
 
 **Build Size**: Reduced from 1.85 MiB → 1.7 MiB (-150 KB)

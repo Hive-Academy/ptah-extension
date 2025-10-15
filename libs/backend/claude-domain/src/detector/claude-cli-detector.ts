@@ -38,12 +38,24 @@ interface CommandResult {
 export class ClaudeCliDetector {
   private cachedInstallation: ClaudeInstallation | null = null;
   private readonly isWSLEnvironment: boolean;
+  private configuredPath?: string;
+  private enableWSL = true;
 
-  constructor(
-    private readonly configuredPath?: string,
-    private readonly enableWSL = true
-  ) {
+  constructor() {
     this.isWSLEnvironment = this.detectWSLEnvironment();
+  }
+
+  /**
+   * Configure the detector with optional settings
+   * Call this after construction if you need custom configuration
+   */
+  configure(options?: { configuredPath?: string; enableWSL?: boolean }): void {
+    if (options?.configuredPath) {
+      this.configuredPath = options.configuredPath;
+    }
+    if (options?.enableWSL !== undefined) {
+      this.enableWSL = options.enableWSL;
+    }
   }
 
   /**

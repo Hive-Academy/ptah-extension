@@ -348,7 +348,9 @@ export class PtahExtension implements vscode.Disposable {
       await vscode.commands.executeCommand('ptah.chatSidebar.focus');
     } else if (selection === 'Documentation') {
       vscode.env.openExternal(
-        vscode.Uri.parse('https://github.com/your-org/ptah-claude-code#readme')
+        vscode.Uri.parse(
+          'https://github.com/your-org/ptah-extension-vscode#readme'
+        )
       );
     }
   }

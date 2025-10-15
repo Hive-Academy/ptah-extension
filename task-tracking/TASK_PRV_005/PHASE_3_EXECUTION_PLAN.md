@@ -386,13 +386,13 @@ npx nx build vscode-core
 npx nx build workspace-intelligence
 
 # Build extension
-npx nx build ptah-claude-code
+npx nx build ptah-extension-vscode
 
 # Type check
-npx nx run ptah-claude-code:typecheck
+npx nx run ptah-extension-vscode:typecheck
 
 # Lint
-npx nx run ptah-claude-code:lint
+npx nx run ptah-extension-vscode:lint
 ```
 
 **Verification**:
@@ -424,7 +424,7 @@ grep -r "from './ai-providers'" apps/ptah-extension-vscode/src/
 **Build again to confirm**:
 
 ```bash
-npx nx build ptah-claude-code
+npx nx build ptah-extension-vscode
 # Should succeed!
 ```
 
@@ -520,7 +520,7 @@ npx nx build ptah-claude-code
 - [ ] Import `registerAIProvidersServices`
 - [ ] Create `aiProvidersTokens` configuration
 - [ ] Call registration function
-- [ ] Build extension: `npx nx build ptah-claude-code`
+- [ ] Build extension: `npx nx build ptah-extension-vscode`
 
 ### Step 4: Update ptah-extension.ts
 
@@ -530,7 +530,7 @@ npx nx build ptah-claude-code
 - [ ] Update class fields
 - [ ] Update initializeLegacyServices()
 - [ ] Update dispose()
-- [ ] Type check: `npx nx run ptah-claude-code:typecheck`
+- [ ] Type check: `npx nx run ptah-extension-vscode:typecheck`
 
 ### Step 5: Check angular-webview.provider.ts
 
@@ -541,15 +541,15 @@ npx nx build ptah-claude-code
 ### Step 6: Build & Verify
 
 - [ ] Build all: `npx nx run-many -t build --all`
-- [ ] Type check: `npx nx run ptah-claude-code:typecheck`
-- [ ] Lint: `npx nx run ptah-claude-code:lint`
+- [ ] Type check: `npx nx run ptah-extension-vscode:typecheck`
+- [ ] Lint: `npx nx run ptah-extension-vscode:lint`
 - [ ] Runtime test: Press F5, verify activation
 
 ### Step 7: Delete Old Code
 
 - [ ] Delete `apps/ptah-extension-vscode/src/services/ai-providers/`
 - [ ] Search for remaining references (should be none)
-- [ ] Final build: `npx nx build ptah-claude-code`
+- [ ] Final build: `npx nx build ptah-extension-vscode`
 - [ ] Final runtime test: Press F5
 
 ---

@@ -138,7 +138,7 @@ logger.info('MessageHandlerService initialized and subscribed to EventBus');
 ✅ nx build claude-domain          # 0 errors
 ✅ nx build workspace-intelligence # 0 errors
 ✅ nx build vscode-core            # 0 errors
-✅ nx build ptah-claude-code       # 0 errors (main extension)
+✅ nx build ptah-extension-vscode       # 0 errors (main extension)
 ```
 
 **Main Extension Build Output**:
@@ -146,7 +146,7 @@ logger.info('MessageHandlerService initialized and subscribed to EventBus');
 ```
 asset main.js 1.85 MiB [emitted] [big] (name: main)
 webpack 5.101.3 compiled successfully in 3252 ms
-✅ Successfully ran target build for project ptah-claude-code (5s)
+✅ Successfully ran target build for project ptah-extension-vscode (5s)
 ```
 
 ---

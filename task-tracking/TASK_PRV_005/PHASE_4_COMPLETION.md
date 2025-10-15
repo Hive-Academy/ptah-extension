@@ -137,7 +137,7 @@ this.workspaceAnalyzer?.dispose(); // PHASE 4: DI-resolved service disposal
 
 **Verification**:
 
-- ✅ Build successful (npx nx build ptah-claude-code)
+- ✅ Build successful (npx nx build ptah-extension-vscode)
 - ✅ TypeScript: 0 errors
 - ✅ All references updated
 
@@ -364,7 +364,7 @@ export class WorkspaceAnalyzerService implements vscode.Disposable {
 - ✅ main.ts successfully registers WorkspaceAnalyzerService
 - ✅ ptah-extension.ts migrated from WorkspaceManager to WorkspaceAnalyzerService
 - ✅ workspace-manager.ts deleted (460 lines removed)
-- ✅ Build successful: `npx nx build ptah-claude-code`
+- ✅ Build successful: `npx nx build ptah-extension-vscode`
 - ✅ TypeScript errors: 0
 - ✅ API compatibility: 100% (all old methods preserved)
 - ✅ New features added: getContextRecommendations(), workspace change listener

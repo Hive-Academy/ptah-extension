@@ -16,6 +16,7 @@
 import { DependencyContainer } from 'tsyringe';
 import {
   ClaudeCliDetector,
+  ClaudeCliService,
   SessionManager,
   PermissionService,
   ProcessManager,
@@ -28,29 +29,27 @@ import {
   ConfigOrchestrationService,
   // Phase 2: MessageHandlerService
   MessageHandlerService,
-  EVENT_BUS,
   CONTEXT_ORCHESTRATION_SERVICE,
 } from '../index';
+
+// Import EVENT_BUS from events (single source of truth)
+import { EVENT_BUS } from '../events/claude-domain.events';
 
 /**
  * Token registry interface for claude-domain services
  * Passed by main app to avoid circular dependencies
+ *
+ * NOTE: These tokens are for EXTERNAL main app access only.
+ * Internal @inject() decorators use Symbol.for() constants defined in each service file.
  */
 export interface ClaudeDomainTokens {
-  CLAUDE_CLI_DETECTOR: symbol;
-  CLAUDE_SESSION_MANAGER: symbol;
-  CLAUDE_PROCESS_MANAGER: symbol;
-  CLAUDE_DOMAIN_EVENT_PUBLISHER: symbol;
-  CLAUDE_PERMISSION_SERVICE: symbol;
-  PERMISSION_RULES_STORE: symbol;
-
-  // Phase 1: Orchestration Services
+  // Phase 1: Orchestration Services (exposed to main app)
   CHAT_ORCHESTRATION_SERVICE: symbol;
   PROVIDER_ORCHESTRATION_SERVICE: symbol;
   ANALYTICS_ORCHESTRATION_SERVICE: symbol;
   CONFIG_ORCHESTRATION_SERVICE: symbol;
 
-  // Phase 2: MessageHandlerService
+  // Phase 2: MessageHandlerService (exposed to main app)
   MESSAGE_HANDLER_SERVICE: symbol;
 }
 
@@ -60,6 +59,15 @@ export interface ClaudeDomainTokens {
  */
 export interface IEventBus {
   publish<T>(topic: string, payload: T): void;
+}
+
+/**
+ * Storage service interface - must be provided by main app
+ * Matches IStorageService from SessionManager
+ */
+export interface IStorageService {
+  get<T>(key: string, defaultValue?: T): T | undefined;
+  set<T>(key: string, value: T): Promise<void>;
 }
 
 /**
@@ -76,6 +84,8 @@ export interface IEventBus {
  * @param container - The TSyringe DependencyContainer instance
  * @param tokens - Token registry from vscode-core (avoids circular dependency)
  * @param eventBus - EventBus instance for adapter (avoids circular dependency)
+ * @param storage - Storage service for session persistence (from main app's ExtensionContext)
+ * @param contextOrchestration - Context orchestration service from workspace-intelligence
  *
  * @example
  * ```typescript
@@ -84,18 +94,31 @@ export interface IEventBus {
  *
  * const container = DIContainer.setup(context);
  * const eventBus = container.resolve(TOKENS.EVENT_BUS);
- * registerClaudeDomainServices(container, TOKENS, eventBus);
+ *
+ * // Create storage adapter from VS Code ExtensionContext
+ * const storage: IStorageService = {
+ *   get: <T>(key: string, defaultValue?: T) =>
+ *     context.workspaceState.get<T>(key, defaultValue),
+ *   set: <T>(key: string, value: T) =>
+ *     context.workspaceState.update(key, value),
+ * };
+ *
+ * const contextOrchestration = container.resolve(TOKENS.CONTEXT_ORCHESTRATION_SERVICE);
+ * registerClaudeDomainServices(container, TOKENS, eventBus, storage, contextOrchestration);
  * ```
  */
 export function registerClaudeDomainServices(
   container: DependencyContainer,
   tokens: ClaudeDomainTokens,
   eventBus: IEventBus,
+  storage: IStorageService,
   contextOrchestration: unknown // IContextOrchestrationService from workspace-intelligence
 ): void {
   // Register permission rules store (infrastructure dependency)
-  container.register(tokens.PERMISSION_RULES_STORE, {
-    useValue: new InMemoryPermissionRulesStore(),
+  // CRITICAL: Single instance registered under string literal to match @inject('IPermissionRulesStore') in PermissionService
+  const permissionStore = new InMemoryPermissionRulesStore();
+  container.register('IPermissionRulesStore', {
+    useValue: permissionStore,
   });
 
   // Register event bus adapter (converts vscode-core EventBus to claude-domain IEventBus)
@@ -107,28 +130,42 @@ export function registerClaudeDomainServices(
     },
   });
 
+  // Register storage service (from main app's ExtensionContext)
+  container.register(Symbol.for('StorageService'), {
+    useValue: storage,
+  });
+
   // Register context orchestration service (from workspace-intelligence)
   container.register(CONTEXT_ORCHESTRATION_SERVICE, {
     useValue: contextOrchestration,
   });
 
-  // Register core Claude domain services as singletons
-  container.registerSingleton(tokens.CLAUDE_CLI_DETECTOR, ClaudeCliDetector);
-  container.registerSingleton(tokens.CLAUDE_SESSION_MANAGER, SessionManager);
-  container.registerSingleton(tokens.CLAUDE_PROCESS_MANAGER, ProcessManager);
+  // ========================================
+  // Core Domain Services Registration
+  // ========================================
+  // All core services registered under Symbol.for() tokens (used by @inject() decorators)
+  // These are internal to claude-domain and not exposed to main app
+
   container.registerSingleton(
-    tokens.CLAUDE_DOMAIN_EVENT_PUBLISHER,
+    Symbol.for('ClaudeCliDetector'),
+    ClaudeCliDetector
+  );
+  container.registerSingleton(Symbol.for('SessionManager'), SessionManager);
+  container.registerSingleton(Symbol.for('ProcessManager'), ProcessManager);
+  container.registerSingleton(
+    Symbol.for('ClaudeDomainEventPublisher'),
     ClaudeDomainEventPublisher
   );
   container.registerSingleton(
-    tokens.CLAUDE_PERMISSION_SERVICE,
+    Symbol.for('PermissionService'),
     PermissionService
   );
+  container.registerSingleton(Symbol.for('ClaudeCliService'), ClaudeCliService);
 
   // ========================================
   // Phase 1: Register Orchestration Services
   // ========================================
-  // Business logic layer - delegates to domain services
+  // Business logic layer - exposed to main app via external tokens
   container.registerSingleton(
     tokens.CHAT_ORCHESTRATION_SERVICE,
     ChatOrchestrationService

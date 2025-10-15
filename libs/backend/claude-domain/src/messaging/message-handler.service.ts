@@ -29,12 +29,17 @@ import { AnalyticsOrchestrationService } from '../analytics/analytics-orchestrat
 import { ConfigOrchestrationService } from '../config/config-orchestration.service';
 
 /**
- * DI Tokens
+ * DI Token for context orchestration service
  */
-export const EVENT_BUS = Symbol.for('EventBus');
 export const CONTEXT_ORCHESTRATION_SERVICE = Symbol.for(
   'ContextOrchestrationService'
 );
+
+/**
+ * Re-export EVENT_BUS from events module for backward compatibility
+ * NOTE: New code should import directly from ../events/claude-domain.events
+ */
+export { EVENT_BUS } from '../events/claude-domain.events';
 
 /**
  * TypedEvent interface (local definition to avoid circular dependency with vscode-core)

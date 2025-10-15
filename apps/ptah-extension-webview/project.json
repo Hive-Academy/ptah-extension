@@ -10,7 +10,7 @@
       "executor": "@angular/build:application",
       "outputs": ["{options.outputPath}"],
       "options": {
-        "outputPath": "dist/apps/ptah-extension-vscode/webview",
+        "outputPath": "dist/apps/ptah-extension-webview",
         "browser": "apps/ptah-extension-webview/src/main.ts",
         "polyfills": ["zone.js"],
         "tsConfig": "apps/ptah-extension-webview/tsconfig.app.json",

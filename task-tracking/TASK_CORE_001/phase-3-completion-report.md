@@ -247,9 +247,9 @@ this.claudeCliService?.dispose();
 ### Build Status
 
 ```bash
-npx nx build ptah-claude-code
+npx nx build ptah-extension-vscode
 # ✅ webpack 5.101.3 compiled successfully in 3451 ms
-# ✅ Successfully ran target build for project ptah-claude-code
+# ✅ Successfully ran target build for project ptah-extension-vscode
 ```
 
 ### Remaining Services

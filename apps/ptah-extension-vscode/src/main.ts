@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import * as vscode from 'vscode';
 import { PtahExtension } from './core/ptah-extension';
 import { DIContainer, TOKENS, EventBus } from '@ptah-extension/vscode-core';
@@ -18,6 +19,7 @@ import {
   IntelligentProviderStrategy,
   ContextManager,
 } from '@ptah-extension/ai-providers-core';
+import { MessagePayloadMap } from '@ptah-extension/shared';
 
 let ptahExtension: PtahExtension | undefined;
 
@@ -66,7 +68,7 @@ export async function activate(
     // 2. Register claude-domain services
     const eventBus = DIContainer.resolve<EventBus>(TOKENS.EVENT_BUS);
     const eventBusAdapter: DI_IEventBus = {
-      publish: <T>(topic: string, payload: T) => {
+      publish: <T>(topic: keyof MessagePayloadMap, payload: T) => {
         eventBus.publish(topic, payload);
       },
     };
@@ -76,13 +78,17 @@ export async function activate(
       TOKENS.CONTEXT_ORCHESTRATION_SERVICE
     );
 
+    // Create storage adapter from VS Code ExtensionContext
+    const storageAdapter = {
+      get: <T>(key: string, defaultValue?: T): T | undefined => {
+        return context.workspaceState.get<T>(key, defaultValue);
+      },
+      set: async <T>(key: string, value: T): Promise<void> => {
+        await context.workspaceState.update(key, value);
+      },
+    };
+
     const claudeTokens: ClaudeDomainTokens = {
-      CLAUDE_CLI_DETECTOR: TOKENS.CLAUDE_CLI_DETECTOR,
-      CLAUDE_SESSION_MANAGER: TOKENS.CLAUDE_SESSION_MANAGER,
-      CLAUDE_PROCESS_MANAGER: TOKENS.CLAUDE_PROCESS_MANAGER,
-      CLAUDE_DOMAIN_EVENT_PUBLISHER: TOKENS.CLAUDE_DOMAIN_EVENT_PUBLISHER,
-      CLAUDE_PERMISSION_SERVICE: TOKENS.CLAUDE_PERMISSION_SERVICE,
-      PERMISSION_RULES_STORE: 'IPermissionRulesStore' as symbol,
       // Phase 1: Orchestration Services
       CHAT_ORCHESTRATION_SERVICE: TOKENS.CHAT_ORCHESTRATION_SERVICE,
       PROVIDER_ORCHESTRATION_SERVICE: TOKENS.PROVIDER_ORCHESTRATION_SERVICE,
@@ -95,6 +101,7 @@ export async function activate(
       DIContainer.getContainer(),
       claudeTokens,
       eventBusAdapter,
+      storageAdapter,
       contextOrchestration
     );
     logger.info('Claude domain services registered');

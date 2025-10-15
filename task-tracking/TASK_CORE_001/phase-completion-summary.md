@@ -177,7 +177,7 @@ npx nx build vscode-core  # ✅ PASSED (5s, 3/4 tasks from cache)
 **Build Verification**:
 
 ```bash
-npx nx build ptah-claude-code  # ✅ PASSED (5s, webpack compiled successfully)
+npx nx build ptah-extension-vscode  # ✅ PASSED (5s, webpack compiled successfully)
 ```
 
 ---
@@ -235,7 +235,7 @@ npx nx build ptah-claude-code  # ✅ PASSED (5s, webpack compiled successfully)
 **Build Verification**:
 
 ```bash
-npx nx build ptah-claude-code  # ✅ PASSED (5s)
+npx nx build ptah-extension-vscode  # ✅ PASSED (5s)
 ```
 
 ---
@@ -257,10 +257,10 @@ npx nx build claude-domain            # ✅ PASSED (4s, 1/2 tasks from cache)
 npx nx build vscode-core              # ✅ PASSED (5s, 3/4 tasks from cache)
 
 # Phase 3 verification
-npx nx build ptah-claude-code         # ✅ PASSED (5s, webpack compiled successfully)
+npx nx build ptah-extension-vscode         # ✅ PASSED (5s, webpack compiled successfully)
 
 # Phase 4 verification (after registry deletion)
-npx nx build ptah-claude-code         # ✅ PASSED (5s)
+npx nx build ptah-extension-vscode         # ✅ PASSED (5s)
 ```
 
 **No TypeScript Errors**: All builds compiled successfully with strict mode enabled

@@ -23,7 +23,7 @@
 ✅ nx build vscode-core              - Successfully compiled
 ✅ nx build workspace-intelligence   - Successfully compiled
 ✅ nx build claude-domain            - Successfully compiled
-✅ nx build ptah-claude-code         - Successfully compiled (3757ms)
+✅ nx build ptah-extension-vscode         - Successfully compiled (3757ms)
 
 📦 Bundle Size: 1.7 MiB (-150 KB from 1.85 MiB)
 ```

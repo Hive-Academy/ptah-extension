@@ -193,7 +193,7 @@ registerWorkspaceIntelligenceServices(DIContainer.getContainer(), workspaceToken
 ```bash
 ✅ npx nx build workspace-intelligence (5s)
 ✅ npx nx build vscode-core (9s)
-✅ npx nx build ptah-claude-code (5s)
+✅ npx nx build ptah-extension-vscode (5s)
 ```
 
 **No Errors**:
@@ -350,7 +350,7 @@ try {
 ```
 ✅ workspace-intelligence build: 5s, 2/2 tasks succeeded (1 from cache)
 ✅ vscode-core build: 9s, 4/4 tasks succeeded (2 from cache)
-✅ ptah-claude-code build: 5s, webpack compiled successfully
+✅ ptah-extension-vscode build: 5s, webpack compiled successfully
 ```
 
 ---

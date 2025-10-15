@@ -1,25 +1,26 @@
 {
-  "name": "ptah-claude-code",
+  "name": "ptah-extension-vscode",
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "apps/ptah-extension-vscode/src",
   "projectType": "application",
-  "tags": [
-    "scope:extension",
-    "type:application"
-  ],
+  "tags": ["scope:extension", "type:application"],
   "targets": {
     "build": {
+      "executor": "nx:noop",
+      "dependsOn": ["build-webpack", "post-build-copy"]
+    },
+    "build-webpack": {
       "executor": "@nx/webpack:webpack",
-      "outputs": [
-        "{options.outputPath}"
-      ],
+      "outputs": ["{options.outputPath}"],
       "defaultConfiguration": "production",
+      "dependsOn": ["^build"],
       "options": {
         "target": "node",
         "compiler": "tsc",
         "outputPath": "dist/apps/ptah-extension-vscode",
-        "webpackConfig": "apps/ptah-extension-vscode/webpack.config.js",
-        "tsConfig": "apps/ptah-extension-vscode/tsconfig.app.json"
+        "main": "apps/ptah-extension-vscode/src/main.ts",
+        "tsConfig": "apps/ptah-extension-vscode/tsconfig.app.json",
+        "webpackConfig": "apps/ptah-extension-vscode/webpack.config.js"
       },
       "configurations": {
         "development": {
@@ -35,10 +36,33 @@
         }
       }
     },
-    "prune-lockfile": {
-      "dependsOn": [
-        "build"
+    "post-build-copy": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build-webpack", "ptah-extension-webview:build"],
+      "outputs": [
+        "{workspaceRoot}/dist/apps/ptah-extension-vscode/webview",
+        "{workspaceRoot}/dist/apps/ptah-extension-vscode/package.json"
       ],
+      "options": {
+        "commands": [
+          {
+            "command": "powershell -Command \"if (!(Test-Path 'dist/apps/ptah-extension-vscode/webview')) { New-Item -ItemType Directory -Force -Path 'dist/apps/ptah-extension-vscode/webview' }\"",
+            "forwardAllArgs": false
+          },
+          {
+            "command": "powershell -Command \"Copy-Item -Path 'dist/apps/ptah-extension-webview/browser' -Destination 'dist/apps/ptah-extension-vscode/webview/' -Recurse -Force\"",
+            "forwardAllArgs": false
+          },
+          {
+            "command": "powershell -Command \"Copy-Item -Path 'apps/ptah-extension-vscode/package.json' -Destination 'dist/apps/ptah-extension-vscode/package.json' -Force\"",
+            "forwardAllArgs": false
+          }
+        ],
+        "parallel": false
+      }
+    },
+    "prune-lockfile": {
+      "dependsOn": ["build"],
       "cache": true,
       "executor": "@nx/js:prune-lockfile",
       "outputs": [
@@ -50,9 +74,7 @@
       }
     },
     "copy-workspace-modules": {
-      "dependsOn": [
-        "build"
-      ],
+      "dependsOn": ["build"],
       "cache": true,
       "outputs": [
         "{workspaceRoot}/dist/apps/ptah-extension-vscode/workspace_modules"
@@ -63,19 +85,14 @@
       }
     },
     "prune": {
-      "dependsOn": [
-        "prune-lockfile",
-        "copy-workspace-modules"
-      ],
+      "dependsOn": ["prune-lockfile", "copy-workspace-modules"],
       "executor": "nx:noop"
     },
     "serve": {
       "continuous": true,
       "executor": "@nx/js:node",
       "defaultConfiguration": "development",
-      "dependsOn": [
-        "build"
-      ],
+      "dependsOn": ["build"],
       "options": {
         "buildTarget": "ptah-extension-vscode:build",
         "runBuildTargetDependencies": false
@@ -100,9 +117,7 @@
     },
     "copy-assets": {
       "executor": "nx:run-commands",
-      "dependsOn": [
-        "build"
-      ],
+      "dependsOn": ["build"],
       "options": {
         "commands": [
           "cp -r apps/ptah-extension-vscode/src/assets dist/apps/ptah-extension-vscode/",
@@ -113,9 +128,7 @@
     },
     "package": {
       "executor": "nx:run-commands",
-      "dependsOn": [
-        "copy-assets"
-      ],
+      "dependsOn": ["copy-assets"],
       "options": {
         "command": "npx @vscode/vsce package --no-dependencies",
         "cwd": "dist/apps/ptah-extension-vscode"

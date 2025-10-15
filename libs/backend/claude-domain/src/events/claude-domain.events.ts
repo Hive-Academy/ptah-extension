@@ -100,24 +100,36 @@ export interface IEventBus {
 }
 
 /**
+ * DI token for EventBus - must match registration in di/register.ts
+ * Uses Symbol.for() for consistency with other domain service tokens
+ */
+export const EVENT_BUS = Symbol.for('EventBus');
+
+/**
  * Event publishers - convenience functions for emitting typed events
  */
 @injectable()
 export class ClaudeDomainEventPublisher {
-  constructor(@inject('IEventBus') private readonly eventBus: IEventBus) {}
+  constructor(@inject(EVENT_BUS) private readonly eventBus: IEventBus) {}
 
   emitContentChunk(sessionId: SessionId, chunk: ClaudeContentChunk): void {
-    this.eventBus.publish<ClaudeContentChunkEvent>(CLAUDE_DOMAIN_EVENTS.CONTENT_CHUNK, {
-      sessionId,
-      chunk,
-    });
+    this.eventBus.publish<ClaudeContentChunkEvent>(
+      CLAUDE_DOMAIN_EVENTS.CONTENT_CHUNK,
+      {
+        sessionId,
+        chunk,
+      }
+    );
   }
 
   emitThinking(sessionId: SessionId, thinking: ClaudeThinkingEvent): void {
-    this.eventBus.publish<ClaudeThinkingEventPayload>(CLAUDE_DOMAIN_EVENTS.THINKING, {
-      sessionId,
-      thinking,
-    });
+    this.eventBus.publish<ClaudeThinkingEventPayload>(
+      CLAUDE_DOMAIN_EVENTS.THINKING,
+      {
+        sessionId,
+        thinking,
+      }
+    );
   }
 
   emitToolEvent(sessionId: SessionId, event: ClaudeToolEvent): void {
@@ -125,10 +137,10 @@ export class ClaudeDomainEventPublisher {
       event.type === 'start'
         ? CLAUDE_DOMAIN_EVENTS.TOOL_START
         : event.type === 'progress'
-          ? CLAUDE_DOMAIN_EVENTS.TOOL_PROGRESS
-          : event.type === 'result'
-            ? CLAUDE_DOMAIN_EVENTS.TOOL_RESULT
-            : CLAUDE_DOMAIN_EVENTS.TOOL_ERROR;
+        ? CLAUDE_DOMAIN_EVENTS.TOOL_PROGRESS
+        : event.type === 'result'
+        ? CLAUDE_DOMAIN_EVENTS.TOOL_RESULT
+        : CLAUDE_DOMAIN_EVENTS.TOOL_ERROR;
 
     this.eventBus.publish<ClaudeToolEventPayload>(topic, {
       sessionId,
@@ -136,7 +148,10 @@ export class ClaudeDomainEventPublisher {
     });
   }
 
-  emitPermissionRequested(sessionId: SessionId, request: ClaudePermissionRequest): void {
+  emitPermissionRequested(
+    sessionId: SessionId,
+    request: ClaudePermissionRequest
+  ): void {
     this.eventBus.publish<ClaudePermissionRequestEvent>(
       CLAUDE_DOMAIN_EVENTS.PERMISSION_REQUESTED,
       {
@@ -164,27 +179,40 @@ export class ClaudeDomainEventPublisher {
     claudeSessionId: string,
     model?: string
   ): void {
-    this.eventBus.publish<ClaudeSessionInitEvent>(CLAUDE_DOMAIN_EVENTS.SESSION_INIT, {
-      sessionId,
-      claudeSessionId,
-      model,
-    });
+    this.eventBus.publish<ClaudeSessionInitEvent>(
+      CLAUDE_DOMAIN_EVENTS.SESSION_INIT,
+      {
+        sessionId,
+        claudeSessionId,
+        model,
+      }
+    );
   }
 
   emitSessionEnd(sessionId: SessionId, reason?: string): void {
-    this.eventBus.publish<ClaudeSessionEndEvent>(CLAUDE_DOMAIN_EVENTS.SESSION_END, {
-      sessionId,
-      reason,
-    });
+    this.eventBus.publish<ClaudeSessionEndEvent>(
+      CLAUDE_DOMAIN_EVENTS.SESSION_END,
+      {
+        sessionId,
+        reason,
+      }
+    );
   }
 
   emitHealthUpdate(health: ClaudeCliHealth): void {
-    this.eventBus.publish<ClaudeHealthUpdateEvent>(CLAUDE_DOMAIN_EVENTS.HEALTH_UPDATE, {
-      health,
-    });
+    this.eventBus.publish<ClaudeHealthUpdateEvent>(
+      CLAUDE_DOMAIN_EVENTS.HEALTH_UPDATE,
+      {
+        health,
+      }
+    );
   }
 
-  emitError(error: string, sessionId?: SessionId, context?: Record<string, unknown>): void {
+  emitError(
+    error: string,
+    sessionId?: SessionId,
+    context?: Record<string, unknown>
+  ): void {
     this.eventBus.publish<ClaudeErrorEvent>(CLAUDE_DOMAIN_EVENTS.CLI_ERROR, {
       sessionId,
       error,

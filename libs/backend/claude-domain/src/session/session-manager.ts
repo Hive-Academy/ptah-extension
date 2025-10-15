@@ -18,19 +18,13 @@ import { injectable, inject } from 'tsyringe';
 import { SessionId, MessageId } from '@ptah-extension/shared';
 import { StrictChatSession, StrictChatMessage } from '@ptah-extension/shared';
 
-/**
- * Tokens for service dependencies
- */
-export const EVENT_BUS = Symbol.for('EventBus');
-export const STORAGE_SERVICE = Symbol.for('StorageService');
+// Import EVENT_BUS from single source (events module)
+import { EVENT_BUS, IEventBus } from '../events/claude-domain.events';
 
 /**
- * Event bus interface for publishing session events
+ * Token for storage service dependency
  */
-export interface IEventBus {
-  publish<T>(eventName: string, payload: T): void;
-  subscribe<T>(eventName: string, handler: (payload: T) => void): () => void;
-}
+export const STORAGE_SERVICE = Symbol.for('StorageService');
 
 /**
  * Storage service interface for persistence

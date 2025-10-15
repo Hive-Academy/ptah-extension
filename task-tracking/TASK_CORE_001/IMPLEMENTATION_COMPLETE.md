@@ -77,7 +77,7 @@
 npx nx build workspace-intelligence  # ✅ PASSED
 npx nx build claude-domain            # ✅ PASSED
 npx nx build vscode-core              # ✅ PASSED
-npx nx build ptah-claude-code         # ✅ PASSED
+npx nx build ptah-extension-vscode         # ✅ PASSED
 ```
 
 **TypeScript**: ✅ Zero errors  

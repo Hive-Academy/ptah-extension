@@ -16,7 +16,6 @@ export type {
   AddMessageOptions,
   SessionStatistics,
   BulkDeleteResult,
-  IEventBus as SessionIEventBus,
   IStorageService,
 } from './session/session-manager';
 
@@ -128,6 +127,7 @@ export type {
 } from './messaging/message-handler.service';
 
 // CLI Launcher & Process Management
+export { ClaudeCliService } from './cli/claude-cli.service';
 export { ClaudeCliLauncher } from './cli/claude-cli-launcher';
 export type { LauncherDependencies } from './cli/claude-cli-launcher';
 export { ProcessManager } from './cli/process-manager';
@@ -157,6 +157,7 @@ export {
 export {
   ClaudeDomainEventPublisher,
   CLAUDE_DOMAIN_EVENTS,
+  EVENT_BUS as CLAUDE_EVENT_BUS, // Renamed to avoid conflict with message-handler
 } from './events/claude-domain.events';
 export type {
   ClaudeContentChunkEvent,
@@ -168,6 +169,7 @@ export type {
   ClaudeSessionEndEvent,
   ClaudeHealthUpdateEvent,
   ClaudeErrorEvent,
+  IEventBus as ClaudeIEventBus, // Export interface for external use
 } from './events/claude-domain.events';
 
 // DI registration bootstrap function
@@ -175,4 +177,5 @@ export {
   registerClaudeDomainServices,
   type ClaudeDomainTokens,
   type IEventBus as DI_IEventBus,
+  type IStorageService as DI_IStorageService,
 } from './di/register';

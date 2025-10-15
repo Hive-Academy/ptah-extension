@@ -78,7 +78,7 @@
 
 **Evidence**:
 
-- Build output: `Successfully ran target build for project ptah-claude-code (4s)`
+- Build output: `Successfully ran target build for project ptah-extension-vscode (4s)`
 - VSCode diagnostics: No errors in reviewed files
 - Grep search for `any`/`object` types: No matches found
 

@@ -23,17 +23,25 @@ export interface PermissionServiceConfig {
  */
 @injectable()
 export class PermissionService {
-  private yoloMode: boolean;
-  private readonly defaultScope: 'workspace' | 'user' | 'session';
+  private yoloMode = false;
+  private defaultScope: 'workspace' | 'user' | 'session' = 'workspace';
   private rules: ClaudePermissionRule[] = [];
   private pendingRequests = new Map<string, ClaudePermissionRequest>();
 
   constructor(
-    @inject('IPermissionRulesStore') private readonly store: IPermissionRulesStore,
-    config?: PermissionServiceConfig
-  ) {
-    this.yoloMode = config?.yoloMode ?? false;
-    this.defaultScope = config?.defaultScope ?? 'workspace';
+    @inject('IPermissionRulesStore')
+    private readonly store: IPermissionRulesStore
+  ) {}
+
+  /**
+   * Configure the permission service
+   * Call this after construction if you need custom configuration
+   */
+  configure(config?: PermissionServiceConfig): void {
+    if (config) {
+      this.yoloMode = config.yoloMode ?? false;
+      this.defaultScope = config.defaultScope ?? 'workspace';
+    }
   }
 
   /**

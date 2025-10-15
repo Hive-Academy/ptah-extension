@@ -21,7 +21,7 @@ module.exports = {
     path: path.resolve(__dirname, '../../dist/apps/ptah-extension-vscode'),
     filename: 'main.js',
     libraryTarget: 'commonjs2', // Required for VS Code extension modules
-    clean: true,
+    clean: false, // Don't clean - we need to preserve webview and package.json
   },
 
   externals: {

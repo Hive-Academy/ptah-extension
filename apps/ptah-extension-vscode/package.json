@@ -1,5 +1,5 @@
 {
-  "name": "ptah-claude-code",
+  "name": "ptah-extension-vscode",
   "displayName": "Ptah - Claude Code GUI",
   "description": "Complete visual interface for Claude Code CLI with chat, command building, and intelligent context management",
   "version": "0.1.0",
@@ -234,7 +234,6 @@
           "maximum": 1,
           "description": "Temperature setting for Claude responses (0 = deterministic, 1 = creative)"
         },
-
         "ptah.streaming.bufferSize": {
           "type": "number",
           "default": 8192,

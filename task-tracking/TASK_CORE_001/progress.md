@@ -110,7 +110,7 @@
 - [x] 3.2: Refactor ptah-extension.ts with constructor injection
 - [x] 3.3: Update webview-message-handlers imports (SOLVED via Logger shim)
 - [x] 3.4: Delete old files (service-registry.ts, attempted logger.ts deletion but needed shim)
-- [x] 3.5: Build extension: `npx nx build ptah-claude-code` - **PASSED** ✅
+- [x] 3.5: Build extension: `npx nx build ptah-extension-vscode` - **PASSED** ✅
 - [ ] 3.6: Manual testing checklist (F5 Extension Development Host) - **DEFERRED to future task**
 - [ ] 3.7: Documentation updates - **DEFERRED to future task**
 
