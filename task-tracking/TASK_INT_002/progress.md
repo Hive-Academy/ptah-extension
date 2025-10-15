@@ -536,3 +536,174 @@ Systematically verified implementation plan against codebase:
 
 - Pattern source: workspace-intelligence/src/di/tokens.ts
 - Verification: All tokens verified in service files (file:line citations in implementation plan)
+
+**Commit**: `6bba316` - "refactor(vscode): create claude-domain central token registry (Step 1/7)"
+
+### Step 2: Update Service Files to Import Central Tokens (1 hour) ✅
+
+**Files Modified** (11 total):
+
+1. `events/claude-domain.events.ts` - Removed EVENT_BUS, imported from tokens.ts
+2. `session/session-manager.ts` - Removed STORAGE_SERVICE, imported from tokens.ts
+3. `messaging/message-handler.service.ts` - Removed CONTEXT_ORCHESTRATION_SERVICE and EVENT_BUS
+4. `orchestration/chat-orchestration.service.ts` - Removed SESSION_MANAGER and CLAUDE_CLI_SERVICE
+5. `commands/command.service.ts` - Removed CONTEXT_SERVICE, SESSION_MANAGER, CLAUDE_CLI_LAUNCHER
+6. `cli/claude-cli.service.ts` - Removed 5 CLI\_\* tokens
+7. `orchestration/provider-orchestration.service.ts` - Removed PROVIDER_MANAGER
+8. `orchestration/config-orchestration.service.ts` - Removed CONFIGURATION_PROVIDER
+9. `orchestration/analytics-orchestration.service.ts` - Removed ANALYTICS_DATA_COLLECTOR
+10. `di/register.ts` - Updated imports to use central tokens
+11. `index.ts` - Added exports for all 19 tokens
+
+**Pattern Applied**:
+
+- All service files now import from `'../di/tokens'` ✅
+- No local token definitions remaining ✅
+- Zero service logic changes (pure refactor) ✅
+- All @inject() decorators unchanged ✅
+
+**Quality Gates**:
+
+- [x] All 11 files compile without errors
+- [x] Build passes: `npx nx build @ptah-extension/claude-domain` ✅
+- [x] Zero duplicate token definitions in service files
+- [x] All tokens exported from index.ts
+
+**Commit**: `9da92b5` - "refactor(vscode): service files import from central token registry (Step 2/7)"
+
+### Step 3: Create Claude Domain Registration Interface (45 min) ✅
+
+**File Modified**: `libs/backend/claude-domain/src/di/register.ts`
+
+**Changes Made**:
+
+1. **Expanded ClaudeDomainTokens interface**: 5 → 19 properties
+
+   - Added all infrastructure tokens (EVENT_BUS, STORAGE_SERVICE, etc.)
+   - Added core domain tokens (CLAUDE_CLI_DETECTOR, PERMISSION_SERVICE, etc.)
+   - Added orchestration tokens (CHAT_ORCHESTRATION_SERVICE, CONFIG_ORCHESTRATION_SERVICE, etc.)
+   - Added service-specific tokens (CONTEXT_SERVICE, PROVIDER_MANAGER, etc.)
+   - Organized by category with clear documentation
+
+2. **Updated registration function**:
+
+   - Changed all `container.register(EVENT_BUS, ...)` → `container.register(tokens.EVENT_BUS, ...)`
+   - Changed all `container.registerSingleton(CLAUDE_CLI_DETECTOR, ...)` → `container.registerSingleton(tokens.CLAUDE_CLI_DETECTOR, ...)`
+   - Removed unused token imports (EVENT_BUS, STORAGE_SERVICE, CONTEXT_ORCHESTRATION_SERVICE, etc.)
+   - All registrations now use tokens parameter from main app
+
+3. **Pattern Applied**:
+   - Follows workspace-intelligence pattern exactly ✅
+   - Main app provides token bindings via ClaudeDomainTokens interface ✅
+   - Dependency inversion: library doesn't own external tokens ✅
+   - All orchestration services use tokens.TOKEN_NAME pattern ✅
+
+**Quality Gates**:
+
+- [x] Interface expanded to 19 properties (matches token registry)
+- [x] All registration calls use tokens parameter
+- [x] No imported token constants used in registration
+- [x] Build passes: `npx nx build @ptah-extension/claude-domain` ✅
+
+**Commit**: `c5c2170` - "refactor(vscode): claude-domain registration uses token parameter (Step 3/7)"
+
+---
+
+## Next Steps
+
+### Step 4: Update Main App Token Mapping (30 min) ⏳
+
+**File to Modify**: `apps/ptah-extension-vscode/src/main.ts`
+
+**Tasks**:
+
+1. Import `ClaudeDomainTokens` interface from claude-domain
+2. Import all 19 claude-domain tokens from claude-domain
+3. Create `claudeTokens` mapping object (19 properties)
+4. Update `registerClaudeDomainServices(container, tokens)` call
+5. Verify main app builds successfully
+
+**Quality Gates**:
+
+- [ ] Main app compiles without errors
+- [ ] Extension webpack build succeeds
+- [ ] All token mappings complete (19/19)
+- [ ] No duplicate token definitions
+
+### Step 5: VSCode Core Token Cleanup (30 min) ⏳
+
+**File to Modify**: `libs/backend/vscode-core/src/di/tokens.ts`
+
+**Tasks**:
+
+1. Remove 34 claude-domain tokens (lines 38-51, 83-97)
+2. Update TOKENS constant export (51 → 17 tokens)
+3. Verify vscode-core builds successfully
+4. Verify no services break from token removal
+
+**Quality Gates**:
+
+- [ ] vscode-core compiles without errors
+- [ ] TOKENS constant reduced to 17 tokens
+- [ ] No library boundary violations remain
+- [ ] All dependent projects build successfully
+
+### Step 6: Documentation Updates (30 min) ⏳
+
+**Files to Update**:
+
+1. `comprehensive-di-audit.md` - Update duplicate token count (18 → 0)
+2. `implementation-plan.md` - Mark Steps 1-5 complete
+3. `progress.md` - Final implementation summary
+
+### Step 7: Build and Test Validation (1 hour) ⏳
+
+**Build Verification**:
+
+- [ ] `npx nx build @ptah-extension/claude-domain` passes
+- [ ] `npx nx build @ptah-extension/vscode-core` passes
+- [ ] `npx nx build @ptah-extension/workspace-intelligence` passes
+- [ ] `npx nx build ptah-extension-vscode` passes
+- [ ] `npm run typecheck:all` passes
+
+**Integration Testing**:
+
+- [ ] F5 launch Extension Development Host
+- [ ] Extension activates without DI errors
+- [ ] Ptah webview renders correctly
+- [ ] EventBus message routing functional
+- [ ] No console errors related to DI tokens
+
+---
+
+## Progress Summary
+
+**Steps Complete**: 3/7 (43%) ✅
+**Time Spent**: ~2.25 hours (0.5h verification + 0.5h step1 + 1h step2 + 0.75h step3)
+**Time Remaining**: ~2.5 hours (0.5h step4 + 0.5h step5 + 0.5h step6 + 1h step7)
+**Status**: 🔄 On track for completion today
+
+**Key Metrics**:
+
+- Tokens centralized: 19/19 (100%)
+- Service files updated: 11/11 (100%)
+- Interface properties: 19/19 (100%)
+- Registration calls updated: 19/19 (100%)
+- Builds passing: ✅ (all steps so far)
+
+**Next Phase**: Update main.ts token mapping (Step 4)
+
+---
+
+## Overall TASK_INT_002 Summary
+
+**Phases Complete**: 4/8 (Requirements, Investigation, Architecture, Implementation - in progress)
+**Total Time Spent**: ~11.25 hours (2h + 4h + 3.5h + 2.25h)
+**Estimated Time Remaining**: ~4.5 hours (2.5h implementation + 2h testing/review)
+**Status**: ✅ On track for <2 week completion (1.5 days elapsed)
+
+---
+
+```
+
+```
