@@ -28,6 +28,8 @@ import {
   ContextService,
   ContextOrchestrationService,
   WorkspaceAnalyzerService,
+  FileRelevanceScorerService,
+  ContextSizeOptimizerService,
 } from '../index';
 import { WorkspaceService } from '../workspace/workspace.service';
 
@@ -46,6 +48,8 @@ export interface WorkspaceIntelligenceTokens {
   IGNORE_PATTERN_RESOLVER_SERVICE: symbol;
   WORKSPACE_INDEXER_SERVICE: symbol;
   FILE_TYPE_CLASSIFIER_SERVICE: symbol;
+  FILE_RELEVANCE_SCORER_SERVICE: symbol;
+  CONTEXT_SIZE_OPTIMIZER_SERVICE: symbol;
   CONTEXT_SERVICE: symbol;
   WORKSPACE_SERVICE: symbol;
   CONTEXT_ORCHESTRATION_SERVICE: symbol;
@@ -125,6 +129,14 @@ export function registerWorkspaceIntelligenceServices(
   container.registerSingleton(
     tokens.FILE_TYPE_CLASSIFIER_SERVICE,
     FileTypeClassifierService
+  );
+  container.registerSingleton(
+    tokens.FILE_RELEVANCE_SCORER_SERVICE,
+    FileRelevanceScorerService
+  );
+  container.registerSingleton(
+    tokens.CONTEXT_SIZE_OPTIMIZER_SERVICE,
+    ContextSizeOptimizerService
   );
 
   // Orchestration services (MAIN_APP_CLEANUP Phase 1)

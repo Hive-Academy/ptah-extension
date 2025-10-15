@@ -41,6 +41,7 @@
       "dependsOn": ["build-webpack", "ptah-extension-webview:build"],
       "outputs": [
         "{workspaceRoot}/dist/apps/ptah-extension-vscode/webview",
+        "{workspaceRoot}/dist/apps/ptah-extension-vscode/assets",
         "{workspaceRoot}/dist/apps/ptah-extension-vscode/package.json"
       ],
       "options": {
@@ -51,6 +52,10 @@
           },
           {
             "command": "powershell -Command \"Copy-Item -Path 'dist/apps/ptah-extension-webview/browser' -Destination 'dist/apps/ptah-extension-vscode/webview/' -Recurse -Force\"",
+            "forwardAllArgs": false
+          },
+          {
+            "command": "powershell -Command \"Copy-Item -Path 'apps/ptah-extension-vscode/src/assets' -Destination 'dist/apps/ptah-extension-vscode/' -Recurse -Force\"",
             "forwardAllArgs": false
           },
           {
