@@ -39,16 +39,6 @@ export const CLAUDE_SERVICE = Symbol.for('ClaudeService');
 export const SESSION_MANAGER = Symbol.for('SessionManager');
 export const WORKSPACE_ANALYZER = Symbol.for('WorkspaceAnalyzer');
 
-// Claude domain service tokens (MONSTER Week 5)
-export const CLAUDE_CLI_DETECTOR = Symbol.for('ClaudeCliDetector');
-export const CLAUDE_CLI_LAUNCHER = Symbol.for('ClaudeCliLauncher');
-export const CLAUDE_SESSION_MANAGER = Symbol.for('ClaudeSessionManager');
-export const CLAUDE_PERMISSION_SERVICE = Symbol.for('ClaudePermissionService');
-export const CLAUDE_PROCESS_MANAGER = Symbol.for('ClaudeProcessManager');
-export const CLAUDE_DOMAIN_EVENT_PUBLISHER = Symbol.for(
-  'ClaudeDomainEventPublisher'
-);
-
 // Workspace intelligence service tokens (TASK_PRV_005)
 export const TOKEN_COUNTER_SERVICE = Symbol.for('TokenCounterService');
 export const FILE_SYSTEM_SERVICE = Symbol.for('FileSystemService');
@@ -80,23 +70,12 @@ export const SEMANTIC_CONTEXT_EXTRACTOR = Symbol.for(
   'SemanticContextExtractor'
 );
 
-// Claude domain orchestration service tokens (MAIN_APP_CLEANUP Phase 1-2)
-export const CHAT_ORCHESTRATION_SERVICE = Symbol.for(
-  'ChatOrchestrationService'
-);
-export const PROVIDER_ORCHESTRATION_SERVICE = Symbol.for(
-  'ProviderOrchestrationService'
-);
-export const ANALYTICS_ORCHESTRATION_SERVICE = Symbol.for(
-  'AnalyticsOrchestrationService'
-);
-export const CONFIG_ORCHESTRATION_SERVICE = Symbol.for(
-  'ConfigOrchestrationService'
-);
+// Claude domain orchestration service tokens (retained by main app)
+// Note: CONTEXT_ORCHESTRATION_SERVICE belongs to workspace-intelligence,
+// other orchestration services now owned by claude-domain library
 export const CONTEXT_ORCHESTRATION_SERVICE = Symbol.for(
   'ContextOrchestrationService'
 );
-export const MESSAGE_HANDLER_SERVICE = Symbol.for('MessageHandlerService');
 
 /**
  * TOKENS constant for convenient access to all DI tokens
@@ -134,14 +113,6 @@ export const TOKENS = {
   SESSION_MANAGER,
   WORKSPACE_ANALYZER,
 
-  // Claude Domain (MONSTER Week 5)
-  CLAUDE_CLI_DETECTOR,
-  CLAUDE_CLI_LAUNCHER,
-  CLAUDE_SESSION_MANAGER,
-  CLAUDE_PERMISSION_SERVICE,
-  CLAUDE_PROCESS_MANAGER,
-  CLAUDE_DOMAIN_EVENT_PUBLISHER,
-
   // Workspace Intelligence (TASK_PRV_005)
   TOKEN_COUNTER_SERVICE,
   FILE_SYSTEM_SERVICE,
@@ -161,13 +132,8 @@ export const TOKENS = {
   CONTEXT_SIZE_OPTIMIZER,
   SEMANTIC_CONTEXT_EXTRACTOR,
 
-  // Claude Orchestration Services (MAIN_APP_CLEANUP Phase 1-2)
-  CHAT_ORCHESTRATION_SERVICE,
-  PROVIDER_ORCHESTRATION_SERVICE,
-  ANALYTICS_ORCHESTRATION_SERVICE,
-  CONFIG_ORCHESTRATION_SERVICE,
+  // Context orchestration (used by workspace-intelligence)
   CONTEXT_ORCHESTRATION_SERVICE,
-  MESSAGE_HANDLER_SERVICE,
 } as const;
 
 /**
