@@ -22,7 +22,7 @@
 | TASK_PERF_001  | Week 8       | Performance Monitoring System - Observability and metrics         | 📋 Planned                                  | backend-developer  | 2025-10-10 | 5 days         |
 | TASK_THEME_001 | Week 9       | VS Code Theme Integration - Design tokens and themed components   | 📋 Planned                                  | frontend-developer | 2025-10-10 | 5 days         |
 | TASK_INT_001   | Post-Week 9  | Final Library Integration - Clean main app and integrate ALL libs | 📋 Planned                                  | orchestrator       | 2025-10-10 | 8-12 hours     |
-| TASK_INT_002   | Week 7       | Angular-VSCode Integration Analysis & Build Path Verification    | 🔄 In Progress                              | orchestrator       | 2025-10-15 | 1-2 days       |
+| TASK_INT_002   | Week 7       | Angular-VSCode Integration Analysis & Build Path Verification     | 🔄 In Progress                              | orchestrator       | 2025-10-15 | 1-2 days       |
 
 ---
 
@@ -304,3 +304,4 @@ All tasks documented above in "Completed MONSTER Plan Tasks" section.
 **Registry Last Verified**: October 11, 2025  
 **Evidence Sources**: Codebase analysis, completion reports, build outputs  
 **Verification Method**: File listings, line counts, test results, build logs
+| TASK_DI_001 | Fix tsyringe DI issues with proper service registration and injection patterns | ��� In Progress | orchestrator | 2025-10-16 | - |
