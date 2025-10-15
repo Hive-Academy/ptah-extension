@@ -27,19 +27,7 @@ import { ChatOrchestrationService } from '../chat/chat-orchestration.service';
 import { ProviderOrchestrationService } from '../provider/provider-orchestration.service';
 import { AnalyticsOrchestrationService } from '../analytics/analytics-orchestration.service';
 import { ConfigOrchestrationService } from '../config/config-orchestration.service';
-
-/**
- * DI Token for context orchestration service
- */
-export const CONTEXT_ORCHESTRATION_SERVICE = Symbol.for(
-  'ContextOrchestrationService'
-);
-
-/**
- * Re-export EVENT_BUS from events module for backward compatibility
- * NOTE: New code should import directly from ../events/claude-domain.events
- */
-export { EVENT_BUS } from '../events/claude-domain.events';
+import { EVENT_BUS, CONTEXT_ORCHESTRATION_SERVICE } from '../di/tokens';
 
 /**
  * TypedEvent interface (local definition to avoid circular dependency with vscode-core)

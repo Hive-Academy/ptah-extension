@@ -17,14 +17,11 @@ import { injectable, inject } from 'tsyringe';
 import * as vscode from 'vscode';
 import type { SessionManager } from '../session/session-manager';
 import type { SessionId } from '@ptah-extension/shared';
-
-/**
- * Tokens for command service dependencies
- * These are defined in vscode-core to avoid circular dependencies
- */
-export const CONTEXT_SERVICE = Symbol.for('ContextService');
-export const SESSION_MANAGER = Symbol.for('SessionManager');
-export const CLAUDE_CLI_LAUNCHER = Symbol.for('ClaudeCliLauncher');
+import {
+  CONTEXT_SERVICE,
+  SESSION_MANAGER,
+  CLAUDE_CLI_LAUNCHER,
+} from '../di/tokens';
 
 /**
  * ContextService interface (from workspace-intelligence)

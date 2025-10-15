@@ -23,12 +23,7 @@ import type {
   StrictChatSession,
 } from '@ptah-extension/shared';
 import { Readable } from 'stream';
-
-/**
- * Tokens for chat orchestration dependencies
- */
-export const SESSION_MANAGER = Symbol.for('SessionManager');
-export const CLAUDE_CLI_SERVICE = Symbol.for('ClaudeCliService');
+import { SESSION_MANAGER, CLAUDE_CLI_SERVICE } from '../di/tokens';
 
 /**
  * Message response structure

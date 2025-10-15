@@ -29,11 +29,20 @@ import {
   ConfigOrchestrationService,
   // Phase 2: MessageHandlerService
   MessageHandlerService,
-  CONTEXT_ORCHESTRATION_SERVICE,
 } from '../index';
 
-// Import EVENT_BUS from events (single source of truth)
-import { EVENT_BUS } from '../events/claude-domain.events';
+// Import all tokens from single source
+import {
+  EVENT_BUS,
+  STORAGE_SERVICE,
+  CONTEXT_ORCHESTRATION_SERVICE,
+  SESSION_MANAGER,
+  CLAUDE_CLI_DETECTOR,
+  CLAUDE_CLI_SERVICE,
+  PERMISSION_SERVICE,
+  PROCESS_MANAGER,
+  EVENT_PUBLISHER,
+} from './tokens';
 
 /**
  * Token registry interface for claude-domain services
@@ -131,7 +140,7 @@ export function registerClaudeDomainServices(
   });
 
   // Register storage service (from main app's ExtensionContext)
-  container.register(Symbol.for('StorageService'), {
+  container.register(STORAGE_SERVICE, {
     useValue: storage,
   });
 
@@ -143,24 +152,15 @@ export function registerClaudeDomainServices(
   // ========================================
   // Core Domain Services Registration
   // ========================================
-  // All core services registered under Symbol.for() tokens (used by @inject() decorators)
+  // All core services registered under centralized tokens from ./tokens.ts
   // These are internal to claude-domain and not exposed to main app
 
-  container.registerSingleton(
-    Symbol.for('ClaudeCliDetector'),
-    ClaudeCliDetector
-  );
-  container.registerSingleton(Symbol.for('SessionManager'), SessionManager);
-  container.registerSingleton(Symbol.for('ProcessManager'), ProcessManager);
-  container.registerSingleton(
-    Symbol.for('ClaudeDomainEventPublisher'),
-    ClaudeDomainEventPublisher
-  );
-  container.registerSingleton(
-    Symbol.for('PermissionService'),
-    PermissionService
-  );
-  container.registerSingleton(Symbol.for('ClaudeCliService'), ClaudeCliService);
+  container.registerSingleton(CLAUDE_CLI_DETECTOR, ClaudeCliDetector);
+  container.registerSingleton(SESSION_MANAGER, SessionManager);
+  container.registerSingleton(PROCESS_MANAGER, ProcessManager);
+  container.registerSingleton(EVENT_PUBLISHER, ClaudeDomainEventPublisher);
+  container.registerSingleton(PERMISSION_SERVICE, PermissionService);
+  container.registerSingleton(CLAUDE_CLI_SERVICE, ClaudeCliService);
 
   // ========================================
   // Phase 1: Register Orchestration Services

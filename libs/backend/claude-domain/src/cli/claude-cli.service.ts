@@ -26,15 +26,13 @@ import { SessionManager } from '../session/session-manager';
 import { PermissionService } from '../permissions/permission-service';
 import { ProcessManager } from './process-manager';
 import { ClaudeDomainEventPublisher } from '../events/claude-domain.events';
-
-/**
- * Tokens for internal dependency injection
- */
-export const CLI_DETECTOR = Symbol.for('ClaudeCliDetector');
-export const CLI_SESSION_MANAGER = Symbol.for('SessionManager');
-export const CLI_PERMISSION_SERVICE = Symbol.for('PermissionService');
-export const CLI_PROCESS_MANAGER = Symbol.for('ProcessManager');
-export const CLI_EVENT_PUBLISHER = Symbol.for('ClaudeDomainEventPublisher');
+import {
+  CLAUDE_CLI_DETECTOR,
+  SESSION_MANAGER,
+  PERMISSION_SERVICE,
+  PROCESS_MANAGER,
+  EVENT_PUBLISHER,
+} from '../di/tokens';
 
 /**
  * ClaudeCliService - DI-friendly facade for Claude CLI operations
@@ -47,14 +45,14 @@ export class ClaudeCliService {
   private launcher: ClaudeCliLauncher | null = null;
 
   constructor(
-    @inject(CLI_DETECTOR) private readonly detector: ClaudeCliDetector,
-    @inject(CLI_SESSION_MANAGER)
+    @inject(CLAUDE_CLI_DETECTOR) private readonly detector: ClaudeCliDetector,
+    @inject(SESSION_MANAGER)
     private readonly sessionManager: SessionManager,
-    @inject(CLI_PERMISSION_SERVICE)
+    @inject(PERMISSION_SERVICE)
     private readonly permissionService: PermissionService,
-    @inject(CLI_PROCESS_MANAGER)
+    @inject(PROCESS_MANAGER)
     private readonly processManager: ProcessManager,
-    @inject(CLI_EVENT_PUBLISHER)
+    @inject(EVENT_PUBLISHER)
     private readonly eventPublisher: ClaudeDomainEventPublisher
   ) {}
 

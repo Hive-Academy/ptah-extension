@@ -24,11 +24,7 @@ import type {
 } from '@ptah-extension/shared';
 import { isValidProviderId } from '@ptah-extension/shared';
 import type { CorrelationId } from '@ptah-extension/shared';
-
-/**
- * DI Token for ProviderManager injection
- */
-export const PROVIDER_MANAGER = Symbol.for('ProviderManager');
+import { PROVIDER_MANAGER } from '../di/tokens';
 
 /**
  * Provider data returned to webview

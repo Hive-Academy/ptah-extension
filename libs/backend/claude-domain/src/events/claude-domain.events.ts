@@ -13,6 +13,7 @@ import {
   ClaudePermissionResponse,
   ClaudeCliHealth,
 } from '@ptah-extension/shared';
+import { EVENT_BUS } from '../di/tokens';
 
 /**
  * Event topics for claude-domain
@@ -98,12 +99,6 @@ export interface ClaudeErrorEvent {
 export interface IEventBus {
   publish<T>(topic: string, payload: T): void;
 }
-
-/**
- * DI token for EventBus - must match registration in di/register.ts
- * Uses Symbol.for() for consistency with other domain service tokens
- */
-export const EVENT_BUS = Symbol.for('EventBus');
 
 /**
  * Event publishers - convenience functions for emitting typed events

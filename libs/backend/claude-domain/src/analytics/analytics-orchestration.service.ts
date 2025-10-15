@@ -13,11 +13,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import type { CorrelationId } from '@ptah-extension/shared';
-
-/**
- * DI Token for AnalyticsDataCollector injection
- */
-export const ANALYTICS_DATA_COLLECTOR = Symbol.for('AnalyticsDataCollector');
+import { ANALYTICS_DATA_COLLECTOR } from '../di/tokens';
 
 /**
  * Analytics Data interface (from analytics-data-collector.ts)

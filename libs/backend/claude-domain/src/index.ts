@@ -57,10 +57,7 @@ export type {
 } from './chat/chat-orchestration.service';
 
 // Provider Orchestration
-export {
-  ProviderOrchestrationService,
-  PROVIDER_MANAGER,
-} from './provider/provider-orchestration.service';
+export { ProviderOrchestrationService } from './provider/provider-orchestration.service';
 export type {
   ProviderData,
   GetAvailableProvidersRequest,
@@ -83,10 +80,7 @@ export type {
 } from './provider/provider-orchestration.service';
 
 // Analytics Orchestration
-export {
-  AnalyticsOrchestrationService,
-  ANALYTICS_DATA_COLLECTOR,
-} from './analytics/analytics-orchestration.service';
+export { AnalyticsOrchestrationService } from './analytics/analytics-orchestration.service';
 export type {
   IAnalyticsDataCollector,
   AnalyticsData,
@@ -97,10 +91,7 @@ export type {
 } from './analytics/analytics-orchestration.service';
 
 // Config Orchestration
-export {
-  ConfigOrchestrationService,
-  CONFIGURATION_PROVIDER,
-} from './config/config-orchestration.service';
+export { ConfigOrchestrationService } from './config/config-orchestration.service';
 export type {
   IConfigurationProvider,
   WorkspaceConfiguration,
@@ -115,11 +106,7 @@ export type {
 } from './config/config-orchestration.service';
 
 // Message Handler Service (Router)
-export {
-  MessageHandlerService,
-  EVENT_BUS,
-  CONTEXT_ORCHESTRATION_SERVICE,
-} from './messaging/message-handler.service';
+export { MessageHandlerService } from './messaging/message-handler.service';
 export type {
   IEventBus,
   IContextOrchestrationService,
@@ -157,7 +144,6 @@ export {
 export {
   ClaudeDomainEventPublisher,
   CLAUDE_DOMAIN_EVENTS,
-  EVENT_BUS as CLAUDE_EVENT_BUS, // Renamed to avoid conflict with message-handler
 } from './events/claude-domain.events';
 export type {
   ClaudeContentChunkEvent,
@@ -171,6 +157,29 @@ export type {
   ClaudeErrorEvent,
   IEventBus as ClaudeIEventBus, // Export interface for external use
 } from './events/claude-domain.events';
+
+// DI Tokens - Single source of truth for all claude-domain tokens
+export {
+  EVENT_BUS,
+  STORAGE_SERVICE,
+  CONTEXT_ORCHESTRATION_SERVICE,
+  SESSION_MANAGER,
+  CLAUDE_CLI_DETECTOR,
+  CLAUDE_CLI_SERVICE,
+  CLAUDE_CLI_LAUNCHER,
+  PERMISSION_SERVICE,
+  PROCESS_MANAGER,
+  EVENT_PUBLISHER,
+  CHAT_ORCHESTRATION_SERVICE,
+  PROVIDER_ORCHESTRATION_SERVICE,
+  ANALYTICS_ORCHESTRATION_SERVICE,
+  CONFIG_ORCHESTRATION_SERVICE,
+  MESSAGE_HANDLER_SERVICE,
+  CONTEXT_SERVICE,
+  PROVIDER_MANAGER,
+  CONFIGURATION_PROVIDER,
+  ANALYTICS_DATA_COLLECTOR,
+} from './di/tokens';
 
 // DI registration bootstrap function
 export {

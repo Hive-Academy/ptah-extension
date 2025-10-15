@@ -13,11 +13,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import type { CorrelationId } from '@ptah-extension/shared';
-
-/**
- * DI Token for ConfigurationProvider injection
- */
-export const CONFIGURATION_PROVIDER = Symbol.for('ConfigurationProvider');
+import { CONFIGURATION_PROVIDER } from '../di/tokens';
 
 /**
  * Workspace Configuration interface
