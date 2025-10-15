@@ -78,12 +78,19 @@ export class PtahExtension implements vscode.Disposable {
       TOKENS.CONFIG_MANAGER
     );
     this.commandManager = DIContainer.resolve<CommandManager>(
-      TOKENS.COMMAND_REGISTRY
+      TOKENS.COMMAND_MANAGER
     );
     this.webviewManager = DIContainer.resolve<WebviewManager>(
-      TOKENS.WEBVIEW_PROVIDER
+      TOKENS.WEBVIEW_MANAGER
     );
     this.eventBus = DIContainer.resolve<EventBus>(TOKENS.EVENT_BUS);
+  }
+
+  /**
+   * Get analytics data collector instance (for adapter registration)
+   */
+  getAnalyticsDataCollector(): AnalyticsDataCollector | undefined {
+    return this.analyticsDataCollector;
   }
 
   static get instance(): PtahExtension {

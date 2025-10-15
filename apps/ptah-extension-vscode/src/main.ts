@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import * as vscode from 'vscode';
 import { PtahExtension } from './core/ptah-extension';
 import { DIContainer, TOKENS, EventBus } from '@ptah-extension/vscode-core';
-import type { Logger } from '@ptah-extension/vscode-core';
+import type { Logger, ConfigManager } from '@ptah-extension/vscode-core';
 import {
   registerWorkspaceIntelligenceServices,
   type WorkspaceIntelligenceTokens,
@@ -40,6 +40,8 @@ import {
   ContextManager,
 } from '@ptah-extension/ai-providers-core';
 import { MessagePayloadMap } from '@ptah-extension/shared';
+import { ConfigurationProviderAdapter } from './adapters/configuration-provider.adapter';
+import { AnalyticsDataCollectorAdapter } from './adapters/analytics-data-collector.adapter';
 
 let ptahExtension: PtahExtension | undefined;
 
@@ -157,6 +159,16 @@ export async function activate(
     container.registerSingleton(TOKENS.CONTEXT_MANAGER, ContextManager);
     logger.info('AI providers core services registered');
 
+    // 4. Register claude-domain dependency adapters
+    // CLAUDE_CONTEXT_SERVICE: Use existing ContextManager (already implements interface)
+    container.register(CLAUDE_CONTEXT_SERVICE, {
+      useValue: DIContainer.resolve(TOKENS.CONTEXT_MANAGER),
+    });
+
+    // Note: CLAUDE_CONFIGURATION_PROVIDER and CLAUDE_ANALYTICS_DATA_COLLECTOR
+    // will be registered after PtahExtension initializes these services
+    // (they require VS Code context and other services that aren't available yet)
+
     // ========================================
     // Phase 3: Initialize MessageHandlerService
     // ========================================
@@ -168,6 +180,38 @@ export async function activate(
     // Initialize main extension controller
     ptahExtension = new PtahExtension(context);
     await ptahExtension.initialize();
+
+    // ========================================
+    // Phase 4: Register claude-domain dependency adapters
+    // ========================================
+    // Now that PtahExtension has initialized services, register adapters
+
+    // Register ConfigurationProvider adapter (using DI-resolved ConfigManager)
+    const configManager = DIContainer.resolve<ConfigManager>(
+      TOKENS.CONFIG_MANAGER
+    );
+    const configProviderAdapter = new ConfigurationProviderAdapter(
+      configManager
+    );
+    container.register(CLAUDE_CONFIGURATION_PROVIDER, {
+      useValue: configProviderAdapter,
+    });
+    logger.info('ConfigurationProvider adapter registered');
+
+    // Register AnalyticsDataCollector adapter
+    const analyticsDataCollector = ptahExtension.getAnalyticsDataCollector();
+    if (!analyticsDataCollector) {
+      throw new Error(
+        'AnalyticsDataCollector not initialized in PtahExtension'
+      );
+    }
+    const analyticsCollectorAdapter = new AnalyticsDataCollectorAdapter(
+      analyticsDataCollector
+    );
+    container.register(CLAUDE_ANALYTICS_DATA_COLLECTOR, {
+      useValue: analyticsCollectorAdapter,
+    });
+    logger.info('AnalyticsDataCollector adapter registered');
 
     // Register all providers, commands, and services
     await ptahExtension.registerAll();
