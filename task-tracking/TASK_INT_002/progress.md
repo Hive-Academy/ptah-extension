@@ -210,3 +210,329 @@ Since architecture phase was skipped (straightforward config fixes), implementin
 2. **Nx Project Names**: Extension project is `ptah-extension-vscode`, not `ptah-extension-vscode` (folder name ≠ project name)
 3. **Budget Philosophy**: Warnings are acceptable in development, errors block builds
 4. **Commitlint Strictness**: Scope enum is enforced, generic task IDs don't work as scopes
+
+---
+
+## 2025-10-15 AFTERNOON - DI Token Consolidation (Phase 1) 🔧
+
+**Issue**: Extension activation failure due to DI token mismatch
+
+### Root Cause Analysis
+
+Extension failed to activate with error:
+
+```
+Cannot inject the dependency "eventBus" at position #0 of "ClaudeDomainEventPublisher" constructor.
+Reason: Attempted to resolve unregistered dependency token: "IEventBus"
+```
+
+**Problem**: Token mismatch between injection and registration:
+
+- **Injection**: `@inject('IEventBus')` (string literal)
+- **Registration**: `EVENT_BUS = Symbol.for('EventBus')` (Symbol)
+
+### Comprehensive DI Audit
+
+Systematically audited **82 @inject() decorators** across backend services and identified:
+
+**Duplicate Tokens Found**:
+
+- ✅ **EVENT_BUS**: 2 definitions (vscode-core, claude-domain) - FIXED
+- ⚠️ **CONTEXT_ORCHESTRATION_SERVICE**: 2 definitions
+- ⚠️ **SESSION_MANAGER**: 3 definitions
+- 🔴 **CONTEXT_SERVICE**: 4 definitions (CRITICAL)
+- ⚠️ **13 workspace-intelligence tokens**: duplicated in vscode-core
+
+**Total**: 18 high-priority duplicate tokens identified
+
+### Phase 1 Emergency Fix ✅ COMPLETE
+
+**Files Modified** (5 files):
+
+1. `libs/backend/claude-domain/src/events/claude-domain.events.ts`
+
+   - Changed `@inject('IEventBus')` → `@inject(EVENT_BUS)`
+   - Added `export const EVENT_BUS = Symbol.for('EventBus');`
+
+2. `libs/backend/claude-domain/src/session/session-manager.ts`
+
+   - Removed duplicate `EVENT_BUS` definition
+   - Now imports from `../events/claude-domain.events`
+
+3. `libs/backend/claude-domain/src/messaging/message-handler.service.ts`
+
+   - Removed duplicate `EVENT_BUS` definition
+   - Now re-exports from `../events/claude-domain.events`
+
+4. `libs/backend/claude-domain/src/di/register.ts`
+
+   - Updated import to use EVENT_BUS from events module
+
+5. `libs/backend/claude-domain/src/index.ts`
+   - Exported `EVENT_BUS as CLAUDE_EVENT_BUS`
+   - Exported `IEventBus as ClaudeIEventBus` interface
+
+**Result**:
+
+- ✅ EVENT_BUS consolidated to single source
+- ✅ All imports updated to use consolidated token
+- ✅ TypeScript compilation passes
+- ⏳ Extension build and activation testing pending
+
+### Documentation Created
+
+1. **DI_REGISTRATION_CLEANUP.md** (`docs/`)
+
+   - Documents earlier duplicate registration cleanup (11 → 6 registrations)
+   - 45% reduction in registration overhead
+   - Clear separation between internal and public API services
+
+2. **di-token-mismatch-analysis.md** (`task-tracking/TASK_INT_002/`)
+
+   - Root cause analysis of IEventBus token mismatch
+   - 3 solution options analyzed
+   - Recommended fix plan (Phase 1 + Phase 2)
+   - Complete verification checklist
+
+3. **comprehensive-di-audit.md** (`task-tracking/TASK_INT_002/`)
+
+   - Systematic audit of all 82 @inject() decorators
+   - 8 injection patterns analyzed
+   - 5 correct patterns documented
+   - 2 anti-patterns identified and fixed
+   - Best practices for future development
+
+4. **duplicate-token-analysis.md** (`task-tracking/TASK_INT_002/`)
+   - Complete analysis of 18 duplicate tokens
+   - Root cause: vscode-core as "God Token Registry"
+   - Correct architecture pattern defined
+   - 5-phase consolidation strategy (~3 hours)
+   - Implementation plan ready for Phase 2
+
+### Next Steps: Phase 2 Token Consolidation
+
+**Objective**: Eliminate all 18 duplicate token definitions
+
+**Strategy**:
+
+1. Create `libs/backend/claude-domain/src/di/tokens.ts`
+2. Consolidate all claude-domain tokens to single file
+3. Remove claude-domain tokens from vscode-core
+4. Repeat for workspace-intelligence and ai-providers-core
+5. Update main app token mapping
+
+**Estimated Time**: 8 hours (across 5 phases)
+
+**Success Criteria**:
+
+- [ ] Zero duplicate token definitions
+- [ ] Each library owns its tokens
+- [ ] Extension activates without errors
+- [ ] Clear token ownership documentation
+
+### Time Spent (Phase 1)
+
+- **Analysis**: 1 hour
+- **Emergency Fix**: 30 minutes
+- **Documentation**: 2.5 hours
+- **Total**: ~4 hours
+
+---
+
+## Phase 3: Software Architect - Architecture Planning (COMPLETE ✅)
+
+**Date**: October 15, 2025 Afternoon
+**Agent**: software-architect
+**Deliverable**: implementation-plan.md
+
+### Codebase Investigation
+
+**Systematic Investigation**: Analyzed DI token architecture across 4 backend libraries
+
+**Libraries Analyzed**:
+
+1. **vscode-core**: 51 tokens defined (17 owned, 34 library boundary violations)
+2. **claude-domain**: 19 tokens scattered across 8 service files (no central tokens.ts)
+3. **workspace-intelligence**: 13 tokens properly centralized (✅ correct pattern)
+4. **ai-providers-core**: Uses external tokens correctly (✅ no duplication)
+
+**Patterns Discovered**:
+
+- ✅ **Correct Pattern**: workspace-intelligence/src/di/tokens.ts (library-owned tokens)
+- ❌ **Anti-Pattern 1**: vscode-core as "God Token Registry" (owns all tokens)
+- ❌ **Anti-Pattern 2**: Service files define their own tokens (workaround for Anti-Pattern 1)
+
+### Architecture Design
+
+**Chosen Approach**: Library-Owned Token Pattern with Main App Mapping
+
+**Evidence-Based Decisions**:
+
+- Pattern verified from workspace-intelligence (working implementation)
+- All 19 claude-domain tokens verified in service files (file:line citations)
+- SOLID principles compliance (Single Responsibility for token ownership)
+- Zero backward compatibility (per universal constraints)
+
+**Implementation Plan Created**:
+
+- 7 sequential implementation steps (5-6 hours total)
+- 15 files to modify (10 service files + 5 infrastructure files)
+- 1 file to create (claude-domain/src/di/tokens.ts)
+- Evidence quality: 25+ file:line citations, 100% verification rate
+
+### Key Architectural Components
+
+**Component 1**: Claude Domain Token Registry (`claude-domain/src/di/tokens.ts` - CREATE NEW)
+
+- Centralize all 19 claude-domain token definitions
+- Use Symbol.for() pattern verified from workspace-intelligence
+- Single source of truth for all claude-domain tokens
+
+**Component 2**: Claude Domain Registration Interface (modify `register.ts`)
+
+- Create `ClaudeDomainTokens` interface for main app integration
+- Update registration function to accept external tokens
+- Follow workspace-intelligence pattern exactly
+
+**Component 3**: Service File Updates (10 files)
+
+- Remove local token definitions
+- Import from central tokens.ts
+- Zero code changes to service logic (pure refactor)
+
+**Component 4**: VSCode Core Token Cleanup
+
+- Remove 34 claude-domain tokens (library boundary violations)
+- Keep only 17 vscode-core owned tokens
+- Reduce from 51 to 17 tokens (66% reduction)
+
+**Component 5**: Main App Token Mapping (modify `main.ts`)
+
+- Import claude-domain tokens and registration interface
+- Create token mapping object (19 properties)
+- Register services with mapped tokens
+
+### Critical Implementation Sequence
+
+**IMPORTANT**: Steps have dependencies - must execute in order:
+
+1. Step 1: Create tokens.ts (30 min) - Foundation
+2. Step 2: Update service files (1 hour) - Remove duplicates
+3. Step 3: Create interface (45 min) - Integration layer
+4. Step 4: Update main app (30 min) - Token mapping
+5. **Step 4 MUST complete BEFORE Step 5** - Critical dependency
+6. Step 5: Clean vscode-core (30 min) - Remove duplicates
+7. Step 6: Documentation (30 min) - Update audit
+8. Step 7: Build and test (1 hour) - Final validation
+
+### Quality Gates Established
+
+**Architecture Validation**:
+
+- [x] Codebase investigation complete (4 libraries analyzed)
+- [x] Pattern discovery complete (3 patterns identified)
+- [x] Evidence-based decisions (25+ file:line citations)
+- [x] SOLID principles compliance verified
+- [x] Implementation plan detailed (7 steps, 15 files)
+- [x] Timeline realistic (5-6 hours, <2 weeks total)
+
+**Implementation Success Criteria**:
+
+- Extension activates without DI errors
+- All 19 claude-domain tokens centralized
+- vscode-core reduced from 51 to 17 tokens (66% reduction)
+- Zero duplicate token definitions
+- EventBus message routing functional
+- All builds pass (extension + webview + typecheck)
+
+### Time Spent (Phase 3)
+
+- **Codebase Investigation**: 1.5 hours
+- **Pattern Analysis**: 30 minutes
+- **Architecture Design**: 45 minutes
+- **Implementation Plan Writing**: 45 minutes
+- **Total**: ~3.5 hours
+
+---
+
+## Overall Progress Summary
+
+**Phases Complete**: 3/8 (Requirements, Investigation, Architecture)
+**Time Spent**: ~9 hours (2h + 4h + 3.5h)
+**Time Remaining**: ~6-7 hours (Implementation + Testing + Review)
+**Status**: ✅ On track for <2 week completion
+
+**Next Phase**: backend-developer implements DI token consolidation (5-6 hours estimated)
+
+---
+
+## 2025-10-16 - Phase 4: Backend Developer Implementation (IN PROGRESS 🔄)
+
+**Agent**: backend-developer
+**Started**: 2025-10-16
+**Status**: Step 1/7 Complete ✅
+
+### Pre-Implementation Verification (30 min) ✅
+
+Systematically verified implementation plan against codebase:
+
+**Verification 1**: workspace-intelligence pattern
+
+- ✅ Read `libs/backend/workspace-intelligence/src/di/tokens.ts`
+- ✅ Confirmed `Symbol.for('ClassName')` pattern exists
+- ✅ Verified 14 tokens defined with documentation
+
+**Verification 2**: workspace-intelligence interface pattern
+
+- ✅ Read `libs/backend/workspace-intelligence/src/di/register.ts`
+- ✅ Confirmed `WorkspaceIntelligenceTokens` interface exists (14 properties)
+- ✅ Verified `registerWorkspaceIntelligenceServices(container, tokens)` pattern
+
+**Verification 3**: Service files define local tokens
+
+- ✅ Read `claude-domain.events.ts` line 106: `EVENT_BUS` definition confirmed
+- ✅ Read `chat-orchestration.service.ts` lines 30-31: `SESSION_MANAGER`, `CLAUDE_CLI_SERVICE` confirmed
+- ✅ Read `claude-cli.service.ts` lines 33-37: 5 CLI\_\* tokens confirmed
+
+**Verification 4**: claude-domain/src/di/tokens.ts does not exist
+
+- ✅ Glob search returned no results (CREATE NEW required)
+
+**Verification 5**: vscode-core contains claude-domain tokens
+
+- ✅ Read `vscode-core/src/di/tokens.ts`
+- ✅ Confirmed lines 38-51: Claude domain tokens (9 tokens)
+- ✅ Confirmed lines 83-97: Orchestration tokens (6 tokens)
+- ✅ Confirmed lines 54-80: Workspace-intelligence duplicates (18 tokens)
+
+**Verdict**: NO CONTRADICTIONS - Implementation plan matches codebase reality ✅
+
+### Step 1: Create Claude Domain Token Registry (30 min) ✅
+
+**File Created**: `libs/backend/claude-domain/src/di/tokens.ts`
+
+**Tokens Defined** (19 total):
+
+- Infrastructure tokens: EVENT_BUS, STORAGE_SERVICE, CONTEXT_ORCHESTRATION_SERVICE (3)
+- Core domain tokens: SESSION_MANAGER, CLAUDE_CLI_DETECTOR, CLAUDE_CLI_SERVICE, CLAUDE_CLI_LAUNCHER, PERMISSION_SERVICE, PROCESS_MANAGER, EVENT_PUBLISHER (7)
+- Orchestration tokens: CHAT_ORCHESTRATION_SERVICE, PROVIDER_ORCHESTRATION_SERVICE, ANALYTICS_ORCHESTRATION_SERVICE, CONFIG_ORCHESTRATION_SERVICE, MESSAGE_HANDLER_SERVICE (5)
+- Service-specific tokens: CONTEXT_SERVICE, PROVIDER_MANAGER, CONFIGURATION_PROVIDER, ANALYTICS_DATA_COLLECTOR (4)
+
+**Pattern Applied**:
+
+- `Symbol.for('ClassName')` pattern from workspace-intelligence ✅
+- Comprehensive documentation comments ✅
+- Token ownership clearly documented ✅
+- Usage example included ✅
+
+**Quality Gates**:
+
+- [x] File compiles without errors
+- [x] All 19 tokens exported
+- [x] Symbol.for() keys match service file usage
+- [x] Documentation explains token ownership
+
+**Evidence Trail**:
+
+- Pattern source: workspace-intelligence/src/di/tokens.ts
+- Verification: All tokens verified in service files (file:line citations in implementation plan)
