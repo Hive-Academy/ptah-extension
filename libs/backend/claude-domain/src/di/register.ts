@@ -31,35 +31,42 @@ import {
   MessageHandlerService,
 } from '../index';
 
-// Import all tokens from single source
-import {
-  EVENT_BUS,
-  STORAGE_SERVICE,
-  CONTEXT_ORCHESTRATION_SERVICE,
-  SESSION_MANAGER,
-  CLAUDE_CLI_DETECTOR,
-  CLAUDE_CLI_SERVICE,
-  PERMISSION_SERVICE,
-  PROCESS_MANAGER,
-  EVENT_PUBLISHER,
-} from './tokens';
-
 /**
  * Token registry interface for claude-domain services
  * Passed by main app to avoid circular dependencies
  *
- * NOTE: These tokens are for EXTERNAL main app access only.
- * Internal @inject() decorators use Symbol.for() constants defined in each service file.
+ * Pattern source: workspace-intelligence/src/di/register.ts:15-30 (WorkspaceIntelligenceTokens)
+ * Verified: Interface defines all external tokens required for registration
+ *
+ * NOTE: Main app maps vscode-core infrastructure tokens to these tokens during registration.
  */
 export interface ClaudeDomainTokens {
-  // Phase 1: Orchestration Services (exposed to main app)
+  // Infrastructure dependencies (from vscode-core)
+  EVENT_BUS: symbol;
+  STORAGE_SERVICE: symbol;
+  CONTEXT_ORCHESTRATION_SERVICE: symbol;
+
+  // Core domain service tokens
+  SESSION_MANAGER: symbol;
+  CLAUDE_CLI_DETECTOR: symbol;
+  CLAUDE_CLI_SERVICE: symbol;
+  CLAUDE_CLI_LAUNCHER: symbol;
+  PERMISSION_SERVICE: symbol;
+  PROCESS_MANAGER: symbol;
+  EVENT_PUBLISHER: symbol;
+
+  // Orchestration service tokens (exposed to main app)
   CHAT_ORCHESTRATION_SERVICE: symbol;
   PROVIDER_ORCHESTRATION_SERVICE: symbol;
   ANALYTICS_ORCHESTRATION_SERVICE: symbol;
   CONFIG_ORCHESTRATION_SERVICE: symbol;
-
-  // Phase 2: MessageHandlerService (exposed to main app)
   MESSAGE_HANDLER_SERVICE: symbol;
+
+  // Service-specific tokens
+  CONTEXT_SERVICE: symbol;
+  PROVIDER_MANAGER: symbol;
+  CONFIGURATION_PROVIDER: symbol;
+  ANALYTICS_DATA_COLLECTOR: symbol;
 }
 
 /**
@@ -131,7 +138,7 @@ export function registerClaudeDomainServices(
   });
 
   // Register event bus adapter (converts vscode-core EventBus to claude-domain IEventBus)
-  container.register(EVENT_BUS, {
+  container.register(tokens.EVENT_BUS, {
     useValue: {
       publish: <T>(topic: string, payload: T) => {
         eventBus.publish(topic, payload);
@@ -140,27 +147,30 @@ export function registerClaudeDomainServices(
   });
 
   // Register storage service (from main app's ExtensionContext)
-  container.register(STORAGE_SERVICE, {
+  container.register(tokens.STORAGE_SERVICE, {
     useValue: storage,
   });
 
   // Register context orchestration service (from workspace-intelligence)
-  container.register(CONTEXT_ORCHESTRATION_SERVICE, {
+  container.register(tokens.CONTEXT_ORCHESTRATION_SERVICE, {
     useValue: contextOrchestration,
   });
 
   // ========================================
   // Core Domain Services Registration
   // ========================================
-  // All core services registered under centralized tokens from ./tokens.ts
-  // These are internal to claude-domain and not exposed to main app
+  // All core services registered under tokens provided by main app
+  // Main app maps vscode-core infrastructure tokens to these domain tokens
 
-  container.registerSingleton(CLAUDE_CLI_DETECTOR, ClaudeCliDetector);
-  container.registerSingleton(SESSION_MANAGER, SessionManager);
-  container.registerSingleton(PROCESS_MANAGER, ProcessManager);
-  container.registerSingleton(EVENT_PUBLISHER, ClaudeDomainEventPublisher);
-  container.registerSingleton(PERMISSION_SERVICE, PermissionService);
-  container.registerSingleton(CLAUDE_CLI_SERVICE, ClaudeCliService);
+  container.registerSingleton(tokens.CLAUDE_CLI_DETECTOR, ClaudeCliDetector);
+  container.registerSingleton(tokens.SESSION_MANAGER, SessionManager);
+  container.registerSingleton(tokens.PROCESS_MANAGER, ProcessManager);
+  container.registerSingleton(
+    tokens.EVENT_PUBLISHER,
+    ClaudeDomainEventPublisher
+  );
+  container.registerSingleton(tokens.PERMISSION_SERVICE, PermissionService);
+  container.registerSingleton(tokens.CLAUDE_CLI_SERVICE, ClaudeCliService);
 
   // ========================================
   // Phase 1: Register Orchestration Services
