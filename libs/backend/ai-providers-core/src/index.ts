@@ -26,3 +26,9 @@ export {
   type FileSearchResult,
   type FileSearchOptions,
 } from './context';
+
+// DI Bootstrap (following standard library pattern)
+export {
+  registerAIProviderServices,
+  type AIProviderTokens,
+} from './di/register';

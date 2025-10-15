@@ -1,10 +1,13 @@
 import * as vscode from 'vscode';
 import * as os from 'os';
-import { Logger } from '../core/logger';
-import { SessionManager } from './session-manager';
+import { injectable, inject } from 'tsyringe';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import {
+  SessionManager,
+  SESSION_MANAGER as CLAUDE_SESSION_MANAGER,
+} from '@ptah-extension/claude-domain';
 import { CommandBuilderService } from './command-builder.service';
-import { ClaudeCliService } from './claude-cli.service';
-import { ContextManager } from './context-manager';
+import { ContextManager } from '@ptah-extension/ai-providers-core';
 
 /**
  * Real-time analytics data structure
@@ -88,6 +91,7 @@ interface ActivityData {
  * Analytics Data Collector - Provides real system metrics
  * Replaces all mock data with actual performance and usage statistics
  */
+@injectable()
 export class AnalyticsDataCollector implements vscode.Disposable {
   private performanceMetrics: PerformanceMetrics = {
     responseTimes: [],
@@ -109,11 +113,14 @@ export class AnalyticsDataCollector implements vscode.Disposable {
   private readonly MAX_METRICS_ENTRIES = 10000;
 
   constructor(
-    private context: vscode.ExtensionContext,
-    private sessionManager: SessionManager,
-    private commandBuilderService: CommandBuilderService,
-    private claudeCliService: ClaudeCliService,
-    private contextManager: ContextManager
+    @inject(TOKENS.EXTENSION_CONTEXT)
+    private readonly context: vscode.ExtensionContext,
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(CLAUDE_SESSION_MANAGER)
+    private readonly sessionManager: SessionManager,
+    @inject(TOKENS.CONTEXT_MANAGER)
+    private readonly contextManager: ContextManager,
+    private commandBuilderService: CommandBuilderService // This will be manually passed until it's also in DI
   ) {
     this.setupMetricsTracking();
     this.setupPeriodicCleanup();

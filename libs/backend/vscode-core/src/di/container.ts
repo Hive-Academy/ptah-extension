@@ -94,6 +94,31 @@ export class DIContainer {
   }
 
   /**
+   * Register a singleton service
+   * Provides a convenient static method for service registration
+   *
+   * @param token - The Symbol token for the service
+   * @param target - The constructor function or class to register
+   */
+  static registerSingleton<T>(
+    token: symbol,
+    target: new (...args: unknown[]) => T
+  ): void {
+    container.registerSingleton<T>(token, target);
+  }
+
+  /**
+   * Register a service with a value
+   * Provides a convenient static method for value registration
+   *
+   * @param token - The Symbol token for the service
+   * @param value - The value to register
+   */
+  static registerValue<T>(token: symbol, value: T): void {
+    container.register<T>(token, { useValue: value });
+  }
+
+  /**
    * Resolve a service by its token
    * Type-safe service resolution using Symbol-based tokens
    *

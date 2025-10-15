@@ -164,26 +164,15 @@ export class PtahExtension implements vscode.Disposable {
         TOKENS.AI_PROVIDER_MANAGER
       );
 
-      // Initialize remaining legacy services
-      this.commandBuilderService = new CommandBuilderService(this.context);
-
-      // Initialize analytics data collector with dependencies
-      this.analyticsDataCollector = new AnalyticsDataCollector(
-        this.context,
-        this.sessionManager,
-        this.commandBuilderService,
-        this.contextManager
+      // Resolve services from DI container
+      this.commandBuilderService = DIContainer.resolve<CommandBuilderService>(
+        TOKENS.COMMAND_BUILDER_SERVICE
       );
-
-      // Initialize UI provider with dependencies (EventBus architecture)
-      this.angularWebviewProvider = new AngularWebviewProvider(
-        this.context,
-        this.sessionManager,
-        this.contextManager,
-        this.commandBuilderService,
-        this.analyticsDataCollector,
-        this.eventBus,
-        this.providerManager
+      this.analyticsDataCollector = DIContainer.resolve<AnalyticsDataCollector>(
+        TOKENS.ANALYTICS_DATA_COLLECTOR
+      );
+      this.angularWebviewProvider = DIContainer.resolve<AngularWebviewProvider>(
+        TOKENS.ANGULAR_WEBVIEW_PROVIDER
       );
 
       // Build services object for backward compatibility
@@ -223,7 +212,7 @@ export class PtahExtension implements vscode.Disposable {
       throw new Error('Services not initialized');
     }
 
-    // Initialize command handlers (uses CommandManager from vscode-core)
+    // Initialize command handlers (uses DI-enabled services but services object still passed manually)
     this.commandHandlers = new CommandHandlers(this.services);
 
     // NOTE: Legacy registries removed (TASK_CORE_001)

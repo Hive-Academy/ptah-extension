@@ -1,19 +1,30 @@
 import * as vscode from 'vscode';
+import { injectable, inject } from 'tsyringe';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import {
+  ChatOrchestrationService,
+  CHAT_ORCHESTRATION_SERVICE,
+} from '@ptah-extension/claude-domain';
 import { ServiceDependencies } from '../core/ptah-extension';
-import { Logger } from '../core/logger';
 import { WebviewDiagnostic } from '../services/webview-diagnostic';
 
 /**
  * Command Handlers - Implements all extension commands
  */
+@injectable()
 export class CommandHandlers {
-  constructor(private services: ServiceDependencies) {}
+  constructor(
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(CHAT_ORCHESTRATION_SERVICE)
+    private readonly chatOrchestration: ChatOrchestrationService,
+    private services: ServiceDependencies
+  ) {}
 
   /**
    * Quick chat - Open chat sidebar and focus input
    */
   async quickChat(): Promise<void> {
-    Logger.info('Executing quick chat command');
+    this.logger.info('Executing quick chat command');
     await vscode.commands.executeCommand('ptah.chatSidebar.focus');
 
     // Switch the Angular webview to chat mode
@@ -30,33 +41,31 @@ export class CommandHandlers {
       return;
     }
 
-    Logger.info(`Reviewing file: ${editor.document.fileName}`);
+    this.logger.info(`Reviewing file: ${editor.document.fileName}`);
 
     try {
       // Add current file to context
       const filePath = editor.document.uri.fsPath;
       await this.services.contextManager.includeFile(vscode.Uri.file(filePath));
 
-      // Ensure we have a session for the review
-      let currentSession = this.services.sessionManager.getCurrentSession();
-      if (!currentSession) {
-        currentSession = await this.services.sessionManager.createSession(
-          'Code Review'
-        );
-      }
-
-      // Send review message to chat
+      // Send review message using orchestration service
       const reviewMessage = `Please review this code for bugs, security issues, and improvements:\n\n${editor.document.getText()}`;
-      await this.services.sessionManager.sendMessage(reviewMessage, [filePath]);
+      const result = await this.chatOrchestration.sendMessage({
+        content: reviewMessage,
+        files: [filePath],
+      });
 
-      // Open chat to show the review
-      await this.quickChat();
-
-      vscode.window.showInformationMessage(
-        'Code review request sent to Claude'
-      );
+      if (result.success) {
+        // Open chat to show the review
+        await this.quickChat();
+        vscode.window.showInformationMessage(
+          'Code review request sent to Claude'
+        );
+      } else {
+        throw new Error(result.error || 'Failed to send review request');
+      }
     } catch (error) {
-      Logger.error('Failed to review current file', error);
+      this.logger.error('Failed to review current file', error);
       vscode.window.showErrorMessage('Failed to send review request');
     }
   }
@@ -73,33 +82,33 @@ export class CommandHandlers {
       return;
     }
 
-    Logger.info(`Generating tests for: ${editor.document.fileName}`);
+    this.logger.info(`Generating tests for: ${editor.document.fileName}`);
 
     try {
       // Add current file to context
       const filePath = editor.document.uri.fsPath;
       await this.services.contextManager.includeFile(vscode.Uri.file(filePath));
 
-      // Ensure we have a session for test generation
-      let currentSession = this.services.sessionManager.getCurrentSession();
-      if (!currentSession) {
-        currentSession = await this.services.sessionManager.createSession(
-          'Test Generation'
+      // Send test generation message using orchestration service
+      const testMessage = `Generate comprehensive unit tests for this code:\n\n${editor.document.getText()}`;
+      const result = await this.chatOrchestration.sendMessage({
+        content: testMessage,
+        files: [filePath],
+      });
+
+      if (result.success) {
+        // Open chat to show the generated tests
+        await this.quickChat();
+        vscode.window.showInformationMessage(
+          'Test generation request sent to Claude'
+        );
+      } else {
+        throw new Error(
+          result.error || 'Failed to send test generation request'
         );
       }
-
-      // Send test generation message
-      const testMessage = `Generate comprehensive unit tests for this code:\n\n${editor.document.getText()}`;
-      await this.services.sessionManager.sendMessage(testMessage, [filePath]);
-
-      // Open chat to show the generated tests
-      await this.quickChat();
-
-      vscode.window.showInformationMessage(
-        'Test generation request sent to Claude'
-      );
     } catch (error) {
-      Logger.error('Failed to generate tests', error);
+      this.logger.error('Failed to generate tests', error);
       vscode.window.showErrorMessage('Failed to send test generation request');
     }
   }
@@ -108,7 +117,7 @@ export class CommandHandlers {
    * Build command - Open command builder
    */
   async buildCommand(): Promise<void> {
-    Logger.info('Opening command builder');
+    this.logger.info('Opening command builder');
     await vscode.commands.executeCommand('ptah.commandBuilder.focus');
 
     // Switch the Angular webview to command builder mode
@@ -119,18 +128,25 @@ export class CommandHandlers {
    * New session - Create a new chat session
    */
   async newSession(): Promise<void> {
-    Logger.info('Creating new session');
+    this.logger.info('Creating new session');
 
     try {
-      const session = await this.services.sessionManager.createSession();
-      vscode.window.showInformationMessage(
-        `New session created: ${session.name}`
-      );
+      const result = await this.chatOrchestration.createSession({
+        name: undefined, // Let the service generate a default name
+      });
 
-      // Open chat sidebar to show the new session
-      await this.quickChat();
+      if (result.success && result.session) {
+        vscode.window.showInformationMessage(
+          `New session created: ${result.session.name}`
+        );
+
+        // Open chat sidebar to show the new session
+        await this.quickChat();
+      } else {
+        throw new Error(result.error || 'Failed to create new session');
+      }
     } catch (error) {
-      Logger.error('Failed to create new session', error);
+      this.logger.error('Failed to create new session', error);
       vscode.window.showErrorMessage('Failed to create new session');
     }
   }
@@ -155,9 +171,9 @@ export class CommandHandlers {
       const fileName = uri.fsPath.split(/[\\/]/).pop();
       vscode.window.showInformationMessage(`Added ${fileName} to context`);
 
-      Logger.info(`File included in context: ${uri.fsPath}`);
+      this.logger.info(`File included in context: ${uri.fsPath}`);
     } catch (error) {
-      Logger.error('Failed to include file', error);
+      this.logger.error('Failed to include file', error);
       vscode.window.showErrorMessage('Failed to include file in context');
     }
   }
@@ -182,9 +198,9 @@ export class CommandHandlers {
       const fileName = uri.fsPath.split(/[\\/]/).pop();
       vscode.window.showInformationMessage(`Removed ${fileName} from context`);
 
-      Logger.info(`File excluded from context: ${uri.fsPath}`);
+      this.logger.info(`File excluded from context: ${uri.fsPath}`);
     } catch (error) {
-      Logger.error('Failed to exclude file', error);
+      this.logger.error('Failed to exclude file', error);
       vscode.window.showErrorMessage('Failed to exclude file from context');
     }
   }
@@ -193,7 +209,7 @@ export class CommandHandlers {
    * Show analytics dashboard
    */
   async showAnalytics(): Promise<void> {
-    Logger.info('Opening analytics dashboard');
+    this.logger.info('Opening analytics dashboard');
     await vscode.commands.executeCommand('ptah.chatSidebar.focus');
 
     // Switch the Angular webview to analytics mode
@@ -204,12 +220,48 @@ export class CommandHandlers {
    * Switch session - Show session picker
    */
   async switchSession(): Promise<void> {
-    Logger.info('Opening session picker');
+    this.logger.info('Opening session picker');
 
     try {
-      await this.services.sessionManager.showSessionPicker();
+      // Get all sessions from orchestration service
+      const sessions = this.chatOrchestration.getAllSessions();
+
+      if (sessions.length === 0) {
+        vscode.window.showInformationMessage(
+          'No sessions available. Create a new session first.'
+        );
+        return;
+      }
+
+      // Create VS Code quick pick items
+      const items = sessions.map((session) => ({
+        label: session.name,
+        description: `${session.messageCount} messages`,
+        detail: `Created: ${new Date(session.createdAt).toLocaleDateString()}`,
+        sessionId: session.id,
+      }));
+
+      const selected = await vscode.window.showQuickPick(items, {
+        title: 'Switch to Session',
+        placeHolder: 'Select a session to switch to',
+      });
+
+      if (selected) {
+        const result = await this.chatOrchestration.switchSession({
+          sessionId: selected.sessionId,
+        });
+
+        if (result.success) {
+          vscode.window.showInformationMessage(
+            `Switched to: ${selected.label}`
+          );
+          await this.quickChat(); // Open chat to show the switched session
+        } else {
+          throw new Error(result.error || 'Failed to switch session');
+        }
+      }
     } catch (error) {
-      Logger.error('Failed to show session picker', error);
+      this.logger.error('Failed to show session picker', error);
       vscode.window.showErrorMessage('Failed to show session picker');
     }
   }
@@ -218,7 +270,7 @@ export class CommandHandlers {
    * Show context optimization suggestions
    */
   async optimizeContext(): Promise<void> {
-    Logger.info('Showing context optimization suggestions');
+    this.logger.info('Showing context optimization suggestions');
 
     try {
       const suggestions =
@@ -247,7 +299,7 @@ export class CommandHandlers {
         );
       }
     } catch (error) {
-      Logger.error('Failed to show context optimization', error);
+      this.logger.error('Failed to show context optimization', error);
       vscode.window.showErrorMessage('Failed to load optimization suggestions');
     }
   }
@@ -256,7 +308,7 @@ export class CommandHandlers {
    * Run webview diagnostic (for debugging)
    */
   async runDiagnostic(): Promise<void> {
-    Logger.info('Creating diagnostic webview...');
+    this.logger.info('Creating diagnostic webview...');
 
     try {
       WebviewDiagnostic.createDiagnosticWebview(this.services.context);
@@ -264,7 +316,7 @@ export class CommandHandlers {
         'Diagnostic webview created. Check the new panel.'
       );
     } catch (error) {
-      Logger.error('Failed to create diagnostic webview', error);
+      this.logger.error('Failed to create diagnostic webview', error);
       vscode.window.showErrorMessage('Failed to create diagnostic webview');
     }
   }

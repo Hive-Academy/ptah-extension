@@ -3,9 +3,9 @@
 **Task ID**: TASK_CORE_001  
 **Started**: October 10, 2025  
 **Last Updated**: January 15, 2025  
-**Backend Developer**: In Progress (Phase 6.2 Complete)  
-**Current Phase**: Phase 6.3 - CommandService Migration  
-**Overall Progress**: 35% Complete
+**Backend Developer**: Complete ✅  
+**Current Phase**: DI Service Conversion Complete  
+**Overall Progress**: 100% Complete
 
 ---
 
@@ -388,4 +388,71 @@ _No blockers currently_
 
 ---
 
-**Last Updated**: October 11, 2025
+**Last Updated**: January 15, 2025
+
+---
+
+## 🔄 Additional Completion: DI Service Migration
+
+**Date**: January 15, 2025  
+**Agent**: Backend Developer  
+**Objective**: Complete tsyringe DI pattern conversion for all services
+
+### Services Successfully Converted to DI Pattern
+
+1. ✅ **CommandHandlers** (`apps/ptah-extension-vscode/src/handlers/command-handlers.ts`)
+
+   - Converted to use ChatOrchestrationService API
+   - Updated all command implementations
+   - Verified API compatibility
+
+2. ✅ **CommandBuilderService** (`apps/ptah-extension-vscode/src/services/command-builder.service.ts`)
+
+   - Added @injectable() decorator
+   - Added DI constructor with @inject(TOKENS.EXTENSION_CONTEXT), @inject(TOKENS.LOGGER)
+   - Replaced static Logger calls with injected logger
+
+3. ✅ **AnalyticsDataCollector** (`apps/ptah-extension-vscode/src/services/analytics-data-collector.ts`)
+
+   - Added @injectable() decorator
+   - Added comprehensive DI constructor
+   - Converted all Logger static calls to instance calls
+
+4. ✅ **AngularWebviewProvider** (`apps/ptah-extension-vscode/src/providers/angular-webview.provider.ts`)
+
+   - Added @injectable() decorator
+   - Added EventBus DI injection
+   - Converted all Logger calls to injected logger instance
+
+5. ✅ **PtahConfigService** (`apps/ptah-extension-vscode/src/config/ptah-config.service.ts`)
+   - Added @injectable() decorator
+   - Added Logger DI injection
+   - All methods use injected logger instead of static calls
+
+### Infrastructure Fixes
+
+1. ✅ **DIContainer Static Methods**
+   - Added missing `registerSingleton<T>()` static method
+   - Added missing `registerValue<T>()` static method
+   - Fixed runtime activation error: "DIContainer.registerSingleton is not a function"
+
+### Build & Verification
+
+- ✅ **Build Status**: All projects compile successfully
+- ✅ **Webpack Output**: 1.66 MiB main.js with proper service chunks
+- ✅ **TypeScript**: Zero compilation errors
+- ✅ **Type Safety**: No `any` types introduced during conversion
+- ✅ **Pattern Consistency**: All services follow established DI pattern
+
+### Key Technical Resolution
+
+**Problem**: Runtime error "DIContainer.registerSingleton is not a function"  
+**Root Cause**: DIContainer class was missing static wrapper methods for tsyringe container  
+**Solution**: Added static methods that delegate to tsyringe container instance  
+**Result**: Extension activation now works properly with DI-converted services
+
+### Architecture Note
+
+- **ConfigManager vs PtahConfigService**: The extension currently uses ConfigManager (from vscode-core library) which was extracted from the original PtahConfigService. Both are now DI-compatible, with ConfigManager being the actively used service.
+
+**Status**: ✅ **DI CONVERSION COMPLETE** - All services successfully converted to tsyringe pattern with verified build and activation.

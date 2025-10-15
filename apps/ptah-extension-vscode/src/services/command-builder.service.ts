@@ -1,11 +1,18 @@
 import * as vscode from 'vscode';
+import { injectable, inject } from 'tsyringe';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { CommandTemplate } from '@ptah-extension/shared';
 
+@injectable()
 export class CommandBuilderService implements vscode.Disposable {
   private templates: CommandTemplate[] = [];
   private usageStats = new Map<string, number>();
 
-  constructor(private context: vscode.ExtensionContext) {
+  constructor(
+    @inject(TOKENS.EXTENSION_CONTEXT)
+    private readonly context: vscode.ExtensionContext,
+    @inject(TOKENS.LOGGER) private readonly logger: Logger
+  ) {
     this.loadDefaultTemplates();
     this.loadUsageStats();
   }
@@ -43,7 +50,8 @@ export class CommandBuilderService implements vscode.Disposable {
       {
         id: 'code-review',
         name: 'Code Review',
-        description: 'Comprehensive code review with security and best practices analysis',
+        description:
+          'Comprehensive code review with security and best practices analysis',
         category: 'analysis',
         template:
           'Please review this code for {{focus}}. Pay special attention to {{aspects}}:\\n\\n{{code}}',
@@ -94,7 +102,11 @@ export class CommandBuilderService implements vscode.Disposable {
             description: 'Focus on security vulnerabilities',
             parameters: {
               focus: 'bugs and security issues',
-              aspects: ['Input validation', 'SQL injection prevention', 'XSS prevention'],
+              aspects: [
+                'Input validation',
+                'SQL injection prevention',
+                'XSS prevention',
+              ],
             },
           },
         ],
@@ -204,9 +216,11 @@ export class CommandBuilderService implements vscode.Disposable {
       {
         id: 'optimize-code',
         name: 'Optimize Code',
-        description: 'Optimize code for performance, readability, or maintainability',
+        description:
+          'Optimize code for performance, readability, or maintainability',
         category: 'optimization',
-        template: 'Optimize this {{language}} code for {{goal}}. {{constraints}}\\n\\n{{code}}',
+        template:
+          'Optimize this {{language}} code for {{goal}}. {{constraints}}\\n\\n{{code}}',
         icon: 'rocket',
         tags: ['optimization', 'performance', 'refactoring'],
         parameters: [
@@ -230,7 +244,13 @@ export class CommandBuilderService implements vscode.Disposable {
             required: true,
             description: 'Optimization goal',
             defaultValue: 'performance',
-            options: ['performance', 'memory usage', 'readability', 'maintainability', 'code size'],
+            options: [
+              'performance',
+              'memory usage',
+              'readability',
+              'maintainability',
+              'code size',
+            ],
           },
           {
             name: 'constraints',
@@ -343,8 +363,13 @@ export class CommandBuilderService implements vscode.Disposable {
 
   private async saveCustomTemplates(): Promise<void> {
     try {
-      const customTemplates = this.templates.filter((t) => t.tags?.includes('custom'));
-      await this.context.globalState.update('ptah.customTemplates', customTemplates);
+      const customTemplates = this.templates.filter((t) =>
+        t.tags?.includes('custom')
+      );
+      await this.context.globalState.update(
+        'ptah.customTemplates',
+        customTemplates
+      );
     } catch (error) {
       Logger.error('Failed to save custom templates:', error);
     }
@@ -352,7 +377,10 @@ export class CommandBuilderService implements vscode.Disposable {
 
   private async loadUsageStats(): Promise<void> {
     try {
-      const stats = this.context.globalState.get<Record<string, number>>('ptah.usageStats', {});
+      const stats = this.context.globalState.get<Record<string, number>>(
+        'ptah.usageStats',
+        {}
+      );
       this.usageStats = new Map(Object.entries(stats));
     } catch (error) {
       Logger.error('Failed to load usage stats:', error);

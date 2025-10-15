@@ -12,7 +12,8 @@
 import { ProviderId } from '@ptah-extension/shared';
 
 import * as vscode from 'vscode';
-import { Logger } from '../core/logger';
+import { injectable, inject } from 'tsyringe';
+import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 
 /**
  * Configuration interface with strict typing
@@ -32,7 +33,10 @@ export interface VSCodeLMProviderConfig {
   readonly preferredFamily: string;
   readonly fallbackModels: readonly string[];
   readonly maxRetries: number;
-  readonly modelSelectionStrategy: 'first-available' | 'best-match' | 'user-preference';
+  readonly modelSelectionStrategy:
+    | 'first-available'
+    | 'best-match'
+    | 'user-preference';
 }
 
 /**
@@ -131,29 +135,21 @@ export interface ConfigurationChangeEvent {
 /**
  * Configuration service for centralized settings management
  */
+@injectable()
 export class PtahConfigService {
-  private static instance: PtahConfigService;
   private currentConfig: PtahConfiguration;
-  private readonly changeListeners: ((event: ConfigurationChangeEvent) => void)[] = [];
+  private readonly changeListeners: ((
+    event: ConfigurationChangeEvent
+  ) => void)[] = [];
   private configWatcher?: vscode.Disposable;
 
-  private constructor() {
+  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {
     this.currentConfig = this.loadConfiguration();
     this.setupConfigurationWatcher();
 
-    Logger.info('Ptah Configuration Service initialized', {
+    this.logger.info('Ptah Configuration Service initialized', {
       config: this.sanitizeConfigForLogging(this.currentConfig),
     });
-  }
-
-  /**
-   * Get singleton instance
-   */
-  static getInstance(): PtahConfigService {
-    if (!PtahConfigService.instance) {
-      PtahConfigService.instance = new PtahConfigService();
-    }
-    return PtahConfigService.instance;
   }
 
   /**
@@ -166,17 +162,19 @@ export class PtahConfigService {
   /**
    * Get specific configuration section
    */
-  getSection<K extends keyof PtahConfiguration>(section: K): Readonly<PtahConfiguration[K]> {
+  getSection<K extends keyof PtahConfiguration>(
+    section: K
+  ): Readonly<PtahConfiguration[K]> {
     return Object.freeze({ ...this.currentConfig[section] });
   }
 
   /**
    * Get specific configuration value with type safety
    */
-  getValue<K extends keyof PtahConfiguration, T extends keyof PtahConfiguration[K]>(
-    section: K,
-    key: T
-  ): PtahConfiguration[K][T] {
+  getValue<
+    K extends keyof PtahConfiguration,
+    T extends keyof PtahConfiguration[K]
+  >(section: K, key: T): PtahConfiguration[K][T] {
     return this.currentConfig[section][key];
   }
 
@@ -190,31 +188,45 @@ export class PtahConfigService {
   /**
    * Update provider configuration
    */
-  async updateProviderConfig(updates: Partial<PtahConfiguration['providers']>): Promise<void> {
+  async updateProviderConfig(
+    updates: Partial<PtahConfiguration['providers']>
+  ): Promise<void> {
     // Update multiple provider settings
     const promises: Promise<void>[] = [];
 
     if (updates.defaultProvider !== undefined) {
       promises.push(
-        this.updateConfiguration('providers', 'defaultProvider', updates.defaultProvider)
+        this.updateConfiguration(
+          'providers',
+          'defaultProvider',
+          updates.defaultProvider
+        )
       );
     }
 
     if (updates.fallbackEnabled !== undefined) {
       promises.push(
-        this.updateConfiguration('providers', 'fallbackEnabled', updates.fallbackEnabled)
+        this.updateConfiguration(
+          'providers',
+          'fallbackEnabled',
+          updates.fallbackEnabled
+        )
       );
     }
 
     if (updates.autoSwitchOnFailure !== undefined) {
       promises.push(
-        this.updateConfiguration('providers', 'autoSwitchOnFailure', updates.autoSwitchOnFailure)
+        this.updateConfiguration(
+          'providers',
+          'autoSwitchOnFailure',
+          updates.autoSwitchOnFailure
+        )
       );
     }
 
     await Promise.all(promises);
 
-    Logger.info('Provider configuration updated', {
+    this.logger.info('Provider configuration updated', {
       updates: Object.keys(updates),
     });
   }
@@ -232,12 +244,13 @@ export class PtahConfigService {
    */
   async updateConfiguration<
     K extends keyof PtahConfiguration,
-    T extends keyof PtahConfiguration[K],
+    T extends keyof PtahConfiguration[K]
   >(
     section: K,
     key: T,
     value: PtahConfiguration[K][T],
-    configTarget: vscode.ConfigurationTarget = vscode.ConfigurationTarget.Workspace
+    configTarget: vscode.ConfigurationTarget = vscode.ConfigurationTarget
+      .Workspace
   ): Promise<void> {
     const vsCodeConfigKey = this.mapToVSCodeConfigKey(section, key);
 
@@ -245,19 +258,23 @@ export class PtahConfigService {
       const config = vscode.workspace.getConfiguration('ptah');
       await config.update(vsCodeConfigKey, value, configTarget);
 
-      Logger.info(`Configuration updated: ${section}.${String(key)}`, {
+      this.logger.info(`Configuration updated: ${section}.${String(key)}`, {
         value: this.sanitizeValue(String(key), value),
         target: configTarget,
       });
     } else {
-      Logger.warn(`Cannot update non-persisted configuration: ${section}.${String(key)}`);
+      this.logger.warn(
+        `Cannot update non-persisted configuration: ${section}.${String(key)}`
+      );
     }
   }
 
   /**
    * Register configuration change listener
    */
-  onConfigurationChanged(listener: (event: ConfigurationChangeEvent) => void): vscode.Disposable {
+  onConfigurationChanged(
+    listener: (event: ConfigurationChangeEvent) => void
+  ): vscode.Disposable {
     this.changeListeners.push(listener);
 
     return new vscode.Disposable(() => {
@@ -275,7 +292,10 @@ export class PtahConfigService {
     const previousConfig = { ...this.currentConfig };
     this.currentConfig = this.loadConfiguration();
 
-    const affectedSections = this.getAffectedSections(previousConfig, this.currentConfig);
+    const affectedSections = this.getAffectedSections(
+      previousConfig,
+      this.currentConfig
+    );
 
     if (affectedSections.length > 0) {
       const event: ConfigurationChangeEvent = {
@@ -286,7 +306,7 @@ export class PtahConfigService {
 
       this.notifyConfigurationChanged(event);
 
-      Logger.info('Configuration reloaded', {
+      this.logger.info('Configuration reloaded', {
         affectedSections,
         newConfig: this.sanitizeConfigForLogging(this.currentConfig),
       });
@@ -300,7 +320,10 @@ export class PtahConfigService {
     const errors: string[] = [];
 
     // Validate Claude configuration
-    if (this.currentConfig.claude.temperature < 0 || this.currentConfig.claude.temperature > 1) {
+    if (
+      this.currentConfig.claude.temperature < 0 ||
+      this.currentConfig.claude.temperature > 1
+    ) {
       errors.push('Claude temperature must be between 0 and 1');
     }
 
@@ -326,8 +349,13 @@ export class PtahConfigService {
   /**
    * Get environment-specific configuration
    */
-  getEnvironmentConfig(): { isDevelopment: boolean; isProduction: boolean; environment: string } {
-    const extensionMode = vscode.env.machineId === 'someValue' ? 'development' : 'production';
+  getEnvironmentConfig(): {
+    isDevelopment: boolean;
+    isProduction: boolean;
+    environment: string;
+  } {
+    const extensionMode =
+      vscode.env.machineId === 'someValue' ? 'development' : 'production';
 
     return {
       isDevelopment: extensionMode === 'development',
@@ -342,7 +370,7 @@ export class PtahConfigService {
   dispose(): void {
     this.configWatcher?.dispose();
     this.changeListeners.length = 0;
-    Logger.info('Ptah Configuration Service disposed');
+    this.logger.info('Ptah Configuration Service disposed');
   }
 
   /**
@@ -353,13 +381,18 @@ export class PtahConfigService {
 
     return {
       claude: {
-        cliPath: config.get<string>('claudeCliPath') ?? DEFAULT_CONFIG.claude.cliPath,
+        cliPath:
+          config.get<string>('claudeCliPath') ?? DEFAULT_CONFIG.claude.cliPath,
         defaultProvider:
           config.get<'anthropic' | 'bedrock' | 'vertex'>('defaultProvider') ??
           DEFAULT_CONFIG.claude.defaultProvider,
-        model: config.get<string>('claude.model') ?? DEFAULT_CONFIG.claude.model,
-        temperature: config.get<number>('claude.temperature') ?? DEFAULT_CONFIG.claude.temperature,
-        maxTokens: config.get<number>('maxTokens') ?? DEFAULT_CONFIG.claude.maxTokens,
+        model:
+          config.get<string>('claude.model') ?? DEFAULT_CONFIG.claude.model,
+        temperature:
+          config.get<number>('claude.temperature') ??
+          DEFAULT_CONFIG.claude.temperature,
+        maxTokens:
+          config.get<number>('maxTokens') ?? DEFAULT_CONFIG.claude.maxTokens,
       },
       providers: {
         defaultProvider:
@@ -404,21 +437,30 @@ export class PtahConfigService {
       },
       streaming: {
         bufferSize:
-          config.get<number>('streaming.bufferSize') ?? DEFAULT_CONFIG.streaming.bufferSize,
-        chunkSize: config.get<number>('streaming.chunkSize') ?? DEFAULT_CONFIG.streaming.chunkSize,
-        timeoutMs: config.get<number>('streaming.timeoutMs') ?? DEFAULT_CONFIG.streaming.timeoutMs,
+          config.get<number>('streaming.bufferSize') ??
+          DEFAULT_CONFIG.streaming.bufferSize,
+        chunkSize:
+          config.get<number>('streaming.chunkSize') ??
+          DEFAULT_CONFIG.streaming.chunkSize,
+        timeoutMs:
+          config.get<number>('streaming.timeoutMs') ??
+          DEFAULT_CONFIG.streaming.timeoutMs,
       },
       context: {
         autoIncludeOpenFiles:
           config.get<boolean>('autoIncludeOpenFiles') ??
           DEFAULT_CONFIG.context.autoIncludeOpenFiles,
         contextOptimization:
-          config.get<boolean>('contextOptimization') ?? DEFAULT_CONFIG.context.contextOptimization,
+          config.get<boolean>('contextOptimization') ??
+          DEFAULT_CONFIG.context.contextOptimization,
         maxFileSize:
-          config.get<number>('context.maxFileSize') ?? DEFAULT_CONFIG.context.maxFileSize,
+          config.get<number>('context.maxFileSize') ??
+          DEFAULT_CONFIG.context.maxFileSize,
       },
       analytics: {
-        enabled: config.get<boolean>('analyticsEnabled') ?? DEFAULT_CONFIG.analytics.enabled,
+        enabled:
+          config.get<boolean>('analyticsEnabled') ??
+          DEFAULT_CONFIG.analytics.enabled,
       },
       development: {
         enableDebugLogging:
@@ -447,7 +489,7 @@ export class PtahConfigService {
    */
   private mapToVSCodeConfigKey<
     K extends keyof PtahConfiguration,
-    T extends keyof PtahConfiguration[K],
+    T extends keyof PtahConfiguration[K]
   >(section: K, key: T): string | null {
     const mappings: Record<string, string> = {
       'claude.cliPath': 'claudeCliPath',
@@ -463,10 +505,12 @@ export class PtahConfigService {
       'providers.claudeCli.customPath': 'providers.claudeCli.customPath',
       'providers.claudeCli.timeout': 'providers.claudeCli.timeout',
       'providers.vscodeLm.enabled': 'providers.vscodeLm.enabled',
-      'providers.vscodeLm.preferredFamily': 'providers.vscodeLm.preferredFamily',
+      'providers.vscodeLm.preferredFamily':
+        'providers.vscodeLm.preferredFamily',
       'providers.vscodeLm.fallbackModels': 'providers.vscodeLm.fallbackModels',
       'providers.vscodeLm.maxRetries': 'providers.vscodeLm.maxRetries',
-      'providers.vscodeLm.modelSelectionStrategy': 'providers.vscodeLm.modelSelectionStrategy',
+      'providers.vscodeLm.modelSelectionStrategy':
+        'providers.vscodeLm.modelSelectionStrategy',
       'streaming.bufferSize': 'streaming.bufferSize',
       'streaming.chunkSize': 'streaming.chunkSize',
       'streaming.timeoutMs': 'streaming.timeoutMs',
@@ -483,10 +527,15 @@ export class PtahConfigService {
   /**
    * Get sections affected by configuration changes
    */
-  private getAffectedSections(previous: PtahConfiguration, current: PtahConfiguration): string[] {
+  private getAffectedSections(
+    previous: PtahConfiguration,
+    current: PtahConfiguration
+  ): string[] {
     const affected: string[] = [];
 
-    for (const section of Object.keys(current) as Array<keyof PtahConfiguration>) {
+    for (const section of Object.keys(current) as Array<
+      keyof PtahConfiguration
+    >) {
       const prevSection = previous[section];
       const currSection = current[section];
 
@@ -506,7 +555,7 @@ export class PtahConfigService {
       try {
         listener(event);
       } catch (error) {
-        Logger.error('Error in configuration change listener', error);
+        this.logger.error('Error in configuration change listener', error);
       }
     }
   }
@@ -514,12 +563,16 @@ export class PtahConfigService {
   /**
    * Sanitize configuration for logging (remove sensitive data)
    */
-  private sanitizeConfigForLogging(config: PtahConfiguration): Partial<PtahConfiguration> {
+  private sanitizeConfigForLogging(
+    config: PtahConfiguration
+  ): Partial<PtahConfiguration> {
     return {
       claude: {
         ...config.claude,
         // Don't log sensitive paths or tokens
-        cliPath: config.claude.cliPath.includes('/') ? '[PATH]' : config.claude.cliPath,
+        cliPath: config.claude.cliPath.includes('/')
+          ? '[PATH]'
+          : config.claude.cliPath,
       },
       providers: {
         ...config.providers,
@@ -544,7 +597,10 @@ export class PtahConfigService {
    * Sanitize individual values for logging
    */
   private sanitizeValue(key: string, value: unknown): unknown {
-    if (key.toLowerCase().includes('path') || key.toLowerCase().includes('token')) {
+    if (
+      key.toLowerCase().includes('path') ||
+      key.toLowerCase().includes('token')
+    ) {
       return '[SANITIZED]';
     }
     return value;
@@ -553,5 +609,5 @@ export class PtahConfigService {
 
 /**
  * Convenience function to get configuration service instance
+ * Note: This is now managed by DI container, use DIContainer.resolve(TOKENS.CONFIG_MANAGER) instead
  */
-export const getConfigService = (): PtahConfigService => PtahConfigService.getInstance();

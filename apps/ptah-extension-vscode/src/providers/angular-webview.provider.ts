@@ -1,14 +1,19 @@
 import * as vscode from 'vscode';
-import { SessionManager } from '../services/session-manager';
-import { ClaudeCliService } from '../services/claude-cli.service';
-import { ContextManager } from '../services/context-manager';
+import { injectable, inject } from 'tsyringe';
+import { TOKENS, type Logger, EventBus } from '@ptah-extension/vscode-core';
+// Import from libraries instead of local services
+import {
+  SessionManager,
+  SESSION_MANAGER as CLAUDE_SESSION_MANAGER,
+} from '@ptah-extension/claude-domain';
+import {
+  ContextManager,
+  ProviderManager,
+} from '@ptah-extension/ai-providers-core';
 import { CommandBuilderService } from '../services/command-builder.service';
 import { AnalyticsDataCollector } from '../services/analytics-data-collector';
-import { ProviderManager } from '../services/ai-providers';
 import { WebviewHtmlGenerator } from '../services/webview-html-generator';
-import { Logger } from '../core/logger';
 import { WebviewMessage, isRoutableMessage } from '@ptah-extension/shared';
-import { EventBus } from '@ptah-extension/vscode-core';
 
 /**
  * Workspace information interface
@@ -26,6 +31,7 @@ interface WorkspaceInfo {
  *
  * ARCHITECTURE: Webview → EventBus → MessageHandlerService → Orchestration Services
  */
+@injectable()
 export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _disposables: vscode.Disposable[] = [];
@@ -34,18 +40,23 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   private fileWatcher?: vscode.FileSystemWatcher;
 
   constructor(
-    private context: vscode.ExtensionContext,
-    private sessionManager: SessionManager,
-    private claudeService: ClaudeCliService,
-    private contextManager: ContextManager,
+    @inject(TOKENS.EXTENSION_CONTEXT)
+    private readonly context: vscode.ExtensionContext,
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(CLAUDE_SESSION_MANAGER)
+    private readonly sessionManager: SessionManager,
+    @inject(TOKENS.CONTEXT_MANAGER)
+    private readonly contextManager: ContextManager,
+    @inject(TOKENS.EVENT_BUS) private readonly eventBus: EventBus,
+    @inject(TOKENS.AI_PROVIDER_MANAGER)
+    private readonly providerManager: ProviderManager,
+    // TODO: Convert these to DI once they are available
     private commandBuilderService: CommandBuilderService,
-    private analyticsDataCollector: AnalyticsDataCollector,
-    private eventBus: EventBus,
-    private providerManager?: ProviderManager
+    private analyticsDataCollector: AnalyticsDataCollector
   ) {
     this.htmlGenerator = new WebviewHtmlGenerator(context);
     this.initializeDevelopmentWatcher();
-    Logger.info(
+    this.logger.info(
       'AngularWebviewProvider initialized with EventBus architecture'
     );
   }
@@ -186,19 +197,19 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
    */
   private async handleWebviewMessage(message: WebviewMessage): Promise<void> {
     try {
-      Logger.info(`Received webview message: ${message.type}`, {
+      this.logger.info(`Received webview message: ${message.type}`, {
         hasPayload: !!message.payload,
       });
 
       // Handle special system messages locally (don't publish to EventBus)
       if (message.type === 'ready' || message.type === 'webview-ready') {
-        Logger.info('Webview ready signal received');
+        this.logger.info('Webview ready signal received');
         await this.sendInitialData();
         return;
       }
 
       if (message.type === 'requestInitialData') {
-        Logger.info('Angular requested initial data');
+        this.logger.info('Angular requested initial data');
         await this.sendInitialData();
         return;
       }
@@ -206,7 +217,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       // Publish all routable messages to EventBus
       // MessageHandlerService will handle routing to appropriate orchestration services
       if (isRoutableMessage(message)) {
-        Logger.info(`Publishing message to EventBus: ${message.type}`);
+        this.logger.info(`Publishing message to EventBus: ${message.type}`);
 
         // Publish to EventBus with webview as source
         this.eventBus.publish(
@@ -215,13 +226,13 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
           'webview'
         );
 
-        Logger.info(`Message ${message.type} published to EventBus`);
+        this.logger.info(`Message ${message.type} published to EventBus`);
       } else {
         // System message not handled above
-        Logger.warn(`Unrecognized system message type: ${message.type}`);
+        this.logger.warn(`Unrecognized system message type: ${message.type}`);
       }
     } catch (error) {
-      Logger.error('Error handling webview message:', error);
+      this.logger.error('Error handling webview message:', error);
       this.postMessage({
         type: 'error',
         payload: {
@@ -265,9 +276,9 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       };
 
       target.postMessage(initialData);
-      Logger.info('Initial data sent to webview');
+      this.logger.info('Initial data sent to webview');
     } catch (error) {
-      Logger.error('Error sending initial data:', error);
+      this.logger.error('Error sending initial data:', error);
     }
   }
 
@@ -358,7 +369,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
 
       return 'generic';
     } catch (error) {
-      Logger.warn('Error detecting project type:', error);
+      this.logger.warn('Error detecting project type:', error);
       return 'unknown';
     }
   }
@@ -393,7 +404,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       this.fileWatcher.onDidDelete(this.handleWebviewFileChange.bind(this));
 
       this._disposables.push(this.fileWatcher);
-      Logger.info('Development file watcher initialized for hot reload');
+      this.logger.info('Development file watcher initialized for hot reload');
     }
   }
 
@@ -406,10 +417,12 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     await new Promise((resolve) => setTimeout(resolve, 500));
 
     try {
-      Logger.info(`Webview file changed: ${uri.fsPath} - Reloading webview`);
-      await this.reloadWebview();
+      this.logger.info(
+        `Webview file changed: ${uri.fsPath} - Reloading webview`
+      );
+      this.reloadWebview();
     } catch (error) {
-      Logger.error('Error during hot reload:', error);
+      this.logger.error('Error during hot reload:', error);
     }
   }
 
@@ -420,7 +433,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     const workspaceInfo = this.getWorkspaceInfo();
     const webview = this._panel?.webview || this._view?.webview;
     if (!webview) {
-      Logger.warn('No webview available to reload.');
+      this.logger.warn('No webview available to reload.');
       return;
     }
     const newHtml = this.htmlGenerator.generateAngularWebviewContent(
@@ -430,12 +443,12 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
 
     if (this._panel?.webview) {
       this._panel.webview.html = newHtml;
-      Logger.info('Panel webview reloaded');
+      this.logger.info('Panel webview reloaded');
     }
 
     if (this._view?.webview) {
       this._view.webview.html = newHtml;
-      Logger.info('View webview reloaded');
+      this.logger.info('View webview reloaded');
     }
 
     // Send refresh signal to Angular app
@@ -458,7 +471,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
    * Dispose of resources
    */
   dispose(): void {
-    Logger.info('Disposing Angular Webview Provider...');
+    this.logger.info('Disposing Angular Webview Provider...');
 
     // Dispose file watcher
     if (this.fileWatcher) {

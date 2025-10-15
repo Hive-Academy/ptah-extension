@@ -28,16 +28,13 @@ import {
   CONFIG_ORCHESTRATION_SERVICE,
   MESSAGE_HANDLER_SERVICE,
   CONTEXT_SERVICE as CLAUDE_CONTEXT_SERVICE,
-  // Note: PROVIDER_MANAGER not imported - mapped to TOKENS.AI_PROVIDER_MANAGER instead
+  PROVIDER_MANAGER as CLAUDE_PROVIDER_MANAGER,
   CONFIGURATION_PROVIDER as CLAUDE_CONFIGURATION_PROVIDER,
   ANALYTICS_DATA_COLLECTOR as CLAUDE_ANALYTICS_DATA_COLLECTOR,
 } from '@ptah-extension/claude-domain';
 import {
-  ProviderManager,
-  ClaudeCliAdapter,
-  VsCodeLmAdapter,
-  IntelligentProviderStrategy,
-  ContextManager,
+  registerAIProviderServices,
+  type AIProviderTokens,
 } from '@ptah-extension/ai-providers-core';
 import { MessagePayloadMap } from '@ptah-extension/shared';
 import { ConfigurationProviderAdapter } from './adapters/configuration-provider.adapter';
@@ -89,9 +86,24 @@ export async function activate(
       'Workspace intelligence services registered (including WorkspaceAnalyzerService)'
     );
 
-    // 2. Register claude-domain services
+    // 2. Register ai-providers-core services using bootstrap pattern
+    // Services are registered under claude-domain tokens (single source of truth)
+    const aiProviderTokens: AIProviderTokens = {
+      PROVIDER_MANAGER: CLAUDE_PROVIDER_MANAGER,
+      CONTEXT_MANAGER: TOKENS.CONTEXT_MANAGER,
+      EVENT_BUS: TOKENS.EVENT_BUS, // ProviderManager needs real EventBus (not adapter)
+      CLAUDE_CLI_ADAPTER: Symbol.for('ClaudeCliAdapter'),
+      VSCODE_LM_ADAPTER: Symbol.for('VsCodeLmAdapter'),
+      INTELLIGENT_PROVIDER_STRATEGY: Symbol.for('IntelligentProviderStrategy'),
+    };
+
+    registerAIProviderServices(DIContainer.getContainer(), aiProviderTokens);
+    logger.info('AI providers core services registered via bootstrap'); // 3. Register claude-domain services
     const eventBus = DIContainer.resolve<EventBus>(TOKENS.EVENT_BUS);
     const eventBusAdapter: DI_IEventBus = {
+      subscribe: <T extends keyof MessagePayloadMap>(messageType: T) => {
+        return eventBus.subscribe(messageType);
+      },
       publish: <T>(topic: keyof MessagePayloadMap, payload: T) => {
         eventBus.publish(topic, payload);
       },
@@ -136,7 +148,7 @@ export async function activate(
 
       // Service-specific dependencies
       CONTEXT_SERVICE: CLAUDE_CONTEXT_SERVICE,
-      PROVIDER_MANAGER: TOKENS.AI_PROVIDER_MANAGER, // Map to vscode-core token where ProviderManager is registered
+      PROVIDER_MANAGER: CLAUDE_PROVIDER_MANAGER, // Now registered under proper claude-domain token
       CONFIGURATION_PROVIDER: CLAUDE_CONFIGURATION_PROVIDER,
       ANALYTICS_DATA_COLLECTOR: CLAUDE_ANALYTICS_DATA_COLLECTOR,
     };
@@ -149,20 +161,9 @@ export async function activate(
     );
     logger.info('Claude domain services registered');
 
-    // 3. Register ai-providers-core services (TASK_CORE_001 - Phase 3)
-    const container = DIContainer.getContainer();
-    container.registerSingleton(TOKENS.AI_PROVIDER_MANAGER, ProviderManager);
-    container.registerSingleton('ClaudeCliAdapter', ClaudeCliAdapter);
-    container.registerSingleton('VsCodeLmAdapter', VsCodeLmAdapter);
-    container.registerSingleton(
-      'IntelligentProviderStrategy',
-      IntelligentProviderStrategy
-    );
-    container.registerSingleton(TOKENS.CONTEXT_MANAGER, ContextManager);
-    logger.info('AI providers core services registered');
-
     // 4. Register claude-domain dependency adapters
     // CLAUDE_CONTEXT_SERVICE: Use existing ContextManager (already implements interface)
+    const container = DIContainer.getContainer();
     container.register(CLAUDE_CONTEXT_SERVICE, {
       useValue: DIContainer.resolve(TOKENS.CONTEXT_MANAGER),
     });
@@ -172,7 +173,36 @@ export async function activate(
     // (they require VS Code context and other services that aren't available yet)
 
     // ========================================
-    // Phase 3: Initialize MessageHandlerService
+    // Phase 3: Register main app services in DI
+    // ========================================
+    // Import main app services
+    const { CommandBuilderService } = await import(
+      './services/command-builder.service'
+    );
+    const { AnalyticsDataCollector } = await import(
+      './services/analytics-data-collector'
+    );
+    const { AngularWebviewProvider } = await import(
+      './providers/angular-webview.provider'
+    );
+
+    // Register main app services in DI
+    DIContainer.registerSingleton(
+      TOKENS.COMMAND_BUILDER_SERVICE,
+      CommandBuilderService
+    );
+    DIContainer.registerSingleton(
+      TOKENS.ANALYTICS_DATA_COLLECTOR,
+      AnalyticsDataCollector
+    );
+    DIContainer.registerSingleton(
+      TOKENS.ANGULAR_WEBVIEW_PROVIDER,
+      AngularWebviewProvider
+    );
+    logger.info('Main app services registered in DI container');
+
+    // ========================================
+    // Phase 4: Initialize MessageHandlerService
     // ========================================
     // Start EventBus message routing
     const messageHandler = DIContainer.resolve(MESSAGE_HANDLER_SERVICE);

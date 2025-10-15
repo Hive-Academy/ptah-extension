@@ -17,15 +17,15 @@ export const COMMAND_REGISTRY = Symbol.for('CommandRegistry');
 export const EVENT_BUS = Symbol.for('EventBus');
 export const MESSAGE_ROUTER = Symbol.for('MessageRouter');
 
-// Provider system tokens
-export const AI_PROVIDER_FACTORY = Symbol.for('AIProviderFactory');
-export const AI_PROVIDER_MANAGER = Symbol.for('AIProviderManager');
-export const PROVIDER_STRATEGY = Symbol.for('ProviderStrategy');
+// Note: AI provider tokens moved to claude-domain library (proper boundary separation)
+// Infrastructure layer should not define domain service tokens
 
 // API wrapper service tokens
 export const OUTPUT_MANAGER = Symbol.for('OutputManager');
 export const STATUS_BAR_MANAGER = Symbol.for('StatusBarManager');
 export const FILE_SYSTEM_MANAGER = Symbol.for('FileSystemManager');
+export const COMMAND_MANAGER = Symbol.for('CommandManager');
+export const WEBVIEW_MANAGER = Symbol.for('WebviewManager');
 
 // Core infrastructure service tokens (TASK_CORE_001)
 export const LOGGER = Symbol.for('Logger');
@@ -70,6 +70,12 @@ export const SEMANTIC_CONTEXT_EXTRACTOR = Symbol.for(
   'SemanticContextExtractor'
 );
 
+// Main app service tokens (legacy services being migrated)
+export const COMMAND_BUILDER_SERVICE = Symbol.for('CommandBuilderService');
+export const ANALYTICS_DATA_COLLECTOR = Symbol.for('AnalyticsDataCollector');
+export const ANGULAR_WEBVIEW_PROVIDER = Symbol.for('AngularWebviewProvider');
+export const COMMAND_HANDLERS = Symbol.for('CommandHandlers');
+
 // Claude domain orchestration service tokens (retained by main app)
 // Note: CONTEXT_ORCHESTRATION_SERVICE belongs to workspace-intelligence,
 // other orchestration services now owned by claude-domain library
@@ -103,10 +109,7 @@ export const TOKENS = {
   MESSAGE_VALIDATOR,
   CONTEXT_MANAGER,
 
-  // Providers
-  AI_PROVIDER_FACTORY,
-  AI_PROVIDER_MANAGER,
-  PROVIDER_STRATEGY,
+  // Note: AI provider tokens moved to claude-domain (architectural boundary fix)
 
   // Business Logic
   CLAUDE_SERVICE,
@@ -134,6 +137,12 @@ export const TOKENS = {
 
   // Context orchestration (used by workspace-intelligence)
   CONTEXT_ORCHESTRATION_SERVICE,
+
+  // Main app services
+  COMMAND_BUILDER_SERVICE,
+  ANALYTICS_DATA_COLLECTOR,
+  ANGULAR_WEBVIEW_PROVIDER,
+  COMMAND_HANDLERS,
 } as const;
 
 /**
