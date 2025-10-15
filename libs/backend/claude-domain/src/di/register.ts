@@ -50,7 +50,7 @@ export interface ClaudeDomainTokens {
   SESSION_MANAGER: symbol;
   CLAUDE_CLI_DETECTOR: symbol;
   CLAUDE_CLI_SERVICE: symbol;
-  CLAUDE_CLI_LAUNCHER: symbol;
+  // Note: CLAUDE_CLI_LAUNCHER removed - not registered (requires runtime params, created on-demand)
   PERMISSION_SERVICE: symbol;
   PROCESS_MANAGER: symbol;
   EVENT_PUBLISHER: symbol;

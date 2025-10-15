@@ -18,7 +18,7 @@ import {
   SESSION_MANAGER as CLAUDE_SESSION_MANAGER,
   CLAUDE_CLI_DETECTOR,
   CLAUDE_CLI_SERVICE,
-  CLAUDE_CLI_LAUNCHER,
+  // Note: CLAUDE_CLI_LAUNCHER not imported - not registered (requires runtime params)
   PERMISSION_SERVICE as CLAUDE_PERMISSION_SERVICE,
   PROCESS_MANAGER as CLAUDE_PROCESS_MANAGER,
   EVENT_PUBLISHER as CLAUDE_EVENT_PUBLISHER,
@@ -118,7 +118,7 @@ export async function activate(
       SESSION_MANAGER: CLAUDE_SESSION_MANAGER,
       CLAUDE_CLI_DETECTOR: CLAUDE_CLI_DETECTOR,
       CLAUDE_CLI_SERVICE: CLAUDE_CLI_SERVICE,
-      CLAUDE_CLI_LAUNCHER: CLAUDE_CLI_LAUNCHER,
+      // Note: CLAUDE_CLI_LAUNCHER removed - requires runtime parameters, created on-demand by ClaudeCliService
       PERMISSION_SERVICE: CLAUDE_PERMISSION_SERVICE,
       PROCESS_MANAGER: CLAUDE_PROCESS_MANAGER,
       EVENT_PUBLISHER: CLAUDE_EVENT_PUBLISHER,
@@ -161,7 +161,7 @@ export async function activate(
     // Phase 3: Initialize MessageHandlerService
     // ========================================
     // Start EventBus message routing
-    const messageHandler = DIContainer.resolve(TOKENS.MESSAGE_HANDLER_SERVICE);
+    const messageHandler = DIContainer.resolve(MESSAGE_HANDLER_SERVICE);
     (messageHandler as { initialize: () => void }).initialize();
     logger.info('MessageHandlerService initialized and subscribed to EventBus');
 

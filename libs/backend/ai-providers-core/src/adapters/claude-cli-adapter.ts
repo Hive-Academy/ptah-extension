@@ -18,12 +18,12 @@ import type {
 import type { EnhancedAIProvider, ProviderContext } from '../interfaces';
 import type {
   ClaudeCliDetector,
-  ClaudeCliLauncher,
+  ClaudeCliService,
   SessionManager,
 } from '@ptah-extension/claude-domain';
 import {
   CLAUDE_CLI_DETECTOR,
-  CLAUDE_CLI_LAUNCHER,
+  CLAUDE_CLI_SERVICE,
   SESSION_MANAGER,
 } from '@ptah-extension/claude-domain';
 
@@ -87,8 +87,8 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
   constructor(
     @inject(CLAUDE_CLI_DETECTOR)
     private readonly detector: ClaudeCliDetector,
-    @inject(CLAUDE_CLI_LAUNCHER)
-    private readonly launcher: ClaudeCliLauncher,
+    @inject(CLAUDE_CLI_SERVICE)
+    private readonly claudeCliService: ClaudeCliService,
     @inject(SESSION_MANAGER)
     private readonly sessionManager: SessionManager
   ) {}
@@ -306,14 +306,11 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
 
   /**
    * End a chat session and cleanup
-   * Delegates to SessionManager and launcher for process cleanup
+   * Delegates to SessionManager for cleanup
    */
   endSession(sessionId: SessionId): void {
-    // Delete session in SessionManager
+    // Delete session in SessionManager (which handles process cleanup)
     this.sessionManager.deleteSession(sessionId);
-
-    // Kill process via launcher
-    this.launcher.killSession(sessionId);
 
     // Remove local tracking
     this.sessions.delete(sessionId);
@@ -321,13 +318,13 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
 
   /**
    * Send message to session and stream response
-   * Delegates to ClaudeCliLauncher for process spawning and streaming
+   * Delegates to ClaudeCliService for process spawning and streaming
    * Implements AsyncIterable for efficient streaming
    *
    * @param sessionId - Session identifier
    * @param message - Message content to send
-   * @param context - Provider context (unused - launcher handles context)
-   * @param options - Message options (unused - launcher uses session config)
+   * @param context - Provider context (unused - ClaudeCliService handles context)
+   * @param options - Message options (unused - ClaudeCliService uses session config)
    */
   async *sendMessage(
     sessionId: SessionId,
@@ -335,7 +332,7 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
     context: ProviderContext,
     options?: AIMessageOptions
   ): AsyncIterable<string> {
-    // Suppress unused params - they're part of the interface but handled by launcher
+    // Suppress unused params - they're part of the interface but handled by ClaudeCliService
     void context;
     void options;
     const session = this.sessions.get(sessionId);
@@ -350,27 +347,18 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
       session.lastActivity = Date.now();
       session.messageCount++;
 
-      // Get session metadata and Claude CLI info for resume support
-      const sessionMetadata = this.sessionManager.getSession(sessionId);
-      const claudeInfo = this.sessionManager.getClaudeSessionInfo(sessionId);
+      // Get Claude session ID for resume support
       const claudeSessionId = this.sessionManager.getClaudeSessionId(sessionId);
 
-      // Spawn CLI turn via launcher
-      const stream = await this.launcher.spawnTurn(message, {
+      // Delegate to ClaudeCliService which handles launcher creation and streaming
+      const stream = await this.claudeCliService.sendMessage(
+        message,
         sessionId,
-        model: claudeInfo?.model as
-          | 'opus'
-          | 'sonnet'
-          | 'haiku'
-          | 'default'
-          | undefined,
-        resumeSessionId: claudeSessionId,
-        workspaceRoot: claudeInfo?.cwd || sessionMetadata?.workspaceId,
-        verbose: true,
-      });
+        claudeSessionId
+      );
 
-      // Consume stream and yield text chunks
-      // The launcher's pipeline already emits events via ClaudeDomainEventPublisher
+      // Consume Node.js Readable stream and yield text chunks
+      // ClaudeCliService's stream emits events via ClaudeDomainEventPublisher
       const chunks: string[] = [];
 
       for await (const event of stream) {
@@ -385,7 +373,7 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
             }
           }
           // Other event types (thinking, tool) are already published via EventBus
-          // by the launcher's pipeline, so we don't need to handle them here
+          // by ClaudeCliService's internal launcher, so we don't need to handle them here
         }
       }
 
