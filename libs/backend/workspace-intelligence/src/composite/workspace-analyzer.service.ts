@@ -15,29 +15,20 @@
  * @packageDocumentation
  */
 
-import { injectable, inject } from 'tsyringe';
+import { injectable } from 'tsyringe';
 import * as vscode from 'vscode';
 import { ProjectType } from '../types/workspace.types';
+import { FileSystemService } from '../services/file-system.service';
+import { ProjectDetectorService } from '../project-analysis/project-detector.service';
+import { FrameworkDetectorService } from '../project-analysis/framework-detector.service';
+import { DependencyAnalyzerService } from '../project-analysis/dependency-analyzer.service';
 import {
-  FILE_SYSTEM_SERVICE,
-  PROJECT_DETECTOR_SERVICE,
-  FRAMEWORK_DETECTOR_SERVICE,
-  DEPENDENCY_ANALYZER_SERVICE,
-  WORKSPACE_SERVICE,
-  CONTEXT_SERVICE,
-  WORKSPACE_INDEXER_SERVICE,
-} from '../di/tokens';
-import type { FileSystemService } from '../services/file-system.service';
-import type { ProjectDetectorService } from '../project-analysis/project-detector.service';
-import type { FrameworkDetectorService } from '../project-analysis/framework-detector.service';
-import type { DependencyAnalyzerService } from '../project-analysis/dependency-analyzer.service';
-import type {
   WorkspaceService,
   ProjectInfo,
   WorkspaceStructureAnalysis,
 } from '../workspace/workspace.service';
-import type { ContextService } from '../context/context.service';
-import type { WorkspaceIndexerService } from '../file-indexing/workspace-indexer.service';
+import { ContextService } from '../context/context.service';
+import { WorkspaceIndexerService } from '../file-indexing/workspace-indexer.service';
 
 /**
  * Workspace information interface (matches old WorkspaceManager)
@@ -83,19 +74,12 @@ export class WorkspaceAnalyzerService implements vscode.Disposable {
   private workspaceInfo?: WorkspaceInfo;
 
   constructor(
-    @inject(FILE_SYSTEM_SERVICE)
     private readonly fileSystemService: FileSystemService,
-    @inject(PROJECT_DETECTOR_SERVICE)
     private readonly projectDetector: ProjectDetectorService,
-    @inject(FRAMEWORK_DETECTOR_SERVICE)
     private readonly frameworkDetector: FrameworkDetectorService,
-    @inject(DEPENDENCY_ANALYZER_SERVICE)
     private readonly dependencyAnalyzer: DependencyAnalyzerService,
-    @inject(WORKSPACE_SERVICE)
     private readonly workspaceService: WorkspaceService,
-    @inject(CONTEXT_SERVICE)
     private readonly contextService: ContextService,
-    @inject(WORKSPACE_INDEXER_SERVICE)
     private readonly indexer: WorkspaceIndexerService
   ) {
     this.initialize();

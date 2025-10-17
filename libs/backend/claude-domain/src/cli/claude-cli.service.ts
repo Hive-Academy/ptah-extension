@@ -26,13 +26,7 @@ import { SessionManager } from '../session/session-manager';
 import { PermissionService } from '../permissions/permission-service';
 import { ProcessManager } from './process-manager';
 import { ClaudeDomainEventPublisher } from '../events/claude-domain.events';
-import {
-  CLAUDE_CLI_DETECTOR,
-  SESSION_MANAGER,
-  PERMISSION_SERVICE,
-  PROCESS_MANAGER,
-  EVENT_PUBLISHER,
-} from '../di/tokens';
+import { TOKENS } from '@ptah-extension/vscode-core';
 
 /**
  * ClaudeCliService - DI-friendly facade for Claude CLI operations
@@ -45,14 +39,15 @@ export class ClaudeCliService {
   private launcher: ClaudeCliLauncher | null = null;
 
   constructor(
-    @inject(CLAUDE_CLI_DETECTOR) private readonly detector: ClaudeCliDetector,
-    @inject(SESSION_MANAGER)
+    @inject(TOKENS.CLAUDE_CLI_DETECTOR)
+    private readonly detector: ClaudeCliDetector,
+    @inject(TOKENS.SESSION_MANAGER)
     private readonly sessionManager: SessionManager,
-    @inject(PERMISSION_SERVICE)
+    @inject(TOKENS.PERMISSION_SERVICE)
     private readonly permissionService: PermissionService,
-    @inject(PROCESS_MANAGER)
+    @inject(TOKENS.PROCESS_MANAGER)
     private readonly processManager: ProcessManager,
-    @inject(EVENT_PUBLISHER)
+    @inject(TOKENS.CLAUDE_DOMAIN_EVENT_PUBLISHER)
     private readonly eventPublisher: ClaudeDomainEventPublisher
   ) {}
 

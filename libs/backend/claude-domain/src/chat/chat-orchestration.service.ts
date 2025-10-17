@@ -23,7 +23,7 @@ import type {
   StrictChatSession,
 } from '@ptah-extension/shared';
 import { Readable } from 'stream';
-import { SESSION_MANAGER, CLAUDE_CLI_SERVICE } from '../di/tokens';
+import { TOKENS } from '@ptah-extension/vscode-core';
 
 /**
  * Message response structure
@@ -274,8 +274,9 @@ export interface StopStreamResult {
 @injectable()
 export class ChatOrchestrationService {
   constructor(
-    @inject(SESSION_MANAGER) private readonly sessionManager: SessionManager,
-    @inject(CLAUDE_CLI_SERVICE)
+    @inject(TOKENS.SESSION_MANAGER)
+    private readonly sessionManager: SessionManager,
+    @inject(TOKENS.CLAUDE_CLI_SERVICE)
     private readonly claudeService: IClaudeCliService
   ) {}
 

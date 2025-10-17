@@ -1,8 +1,11 @@
 // Main library exports
 
-// Dependency Injection
-export { DIContainer, TOKENS, container } from './di/container';
-export type { DependencyContainer } from './di/container';
+// Dependency Injection - TOKENS only (registration now centralized in app)
+export { TOKENS } from './di/tokens';
+
+// NOTE: DIContainer and registration moved to apps/ptah-extension-vscode/src/di/container.ts
+// This library now only exports services and TOKENS, not DI setup
+// DO NOT export tokens directly - only export via TOKENS namespace
 
 // Core Infrastructure (TASK_CORE_001)
 export { Logger } from './logging';

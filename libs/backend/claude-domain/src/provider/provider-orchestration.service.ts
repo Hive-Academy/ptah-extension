@@ -24,7 +24,7 @@ import type {
 } from '@ptah-extension/shared';
 import { isValidProviderId } from '@ptah-extension/shared';
 import type { CorrelationId } from '@ptah-extension/shared';
-import { PROVIDER_MANAGER } from '../di/tokens';
+import { TOKENS } from '@ptah-extension/vscode-core';
 
 /**
  * Provider data returned to webview
@@ -186,7 +186,8 @@ export type ProviderEventCallback = (
 @injectable()
 export class ProviderOrchestrationService {
   constructor(
-    @inject(PROVIDER_MANAGER) private readonly providerManager: IProviderManager
+    @inject(TOKENS.PROVIDER_MANAGER)
+    private readonly providerManager: IProviderManager
   ) {}
 
   /**

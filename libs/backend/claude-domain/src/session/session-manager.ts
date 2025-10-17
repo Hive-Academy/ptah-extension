@@ -17,7 +17,7 @@
 import { injectable, inject } from 'tsyringe';
 import { SessionId, MessageId } from '@ptah-extension/shared';
 import { StrictChatSession, StrictChatMessage } from '@ptah-extension/shared';
-import { EVENT_BUS, STORAGE_SERVICE } from '../di/tokens';
+import { TOKENS } from '@ptah-extension/vscode-core';
 import { IEventBus } from '../events/claude-domain.events';
 
 /**
@@ -143,8 +143,8 @@ export class SessionManager {
   private readonly CURRENT_SESSION_KEY = 'ptah.currentSessionId';
 
   constructor(
-    @inject(EVENT_BUS) private readonly eventBus: IEventBus,
-    @inject(STORAGE_SERVICE) private readonly storage: IStorageService
+    @inject(TOKENS.EVENT_BUS) private readonly eventBus: IEventBus,
+    @inject(TOKENS.STORAGE_SERVICE) private readonly storage: IStorageService
   ) {
     this.loadSessions();
   }

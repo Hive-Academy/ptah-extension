@@ -1,44 +1,13 @@
+// CRITICAL: reflect-metadata MUST be imported first for TSyringe to work
 import 'reflect-metadata';
+
+import type { ConfigManager, Logger } from '@ptah-extension/vscode-core';
+import { TOKENS } from '@ptah-extension/vscode-core';
 import * as vscode from 'vscode';
-import { PtahExtension } from './core/ptah-extension';
-import { DIContainer, TOKENS, EventBus } from '@ptah-extension/vscode-core';
-import type { Logger, ConfigManager } from '@ptah-extension/vscode-core';
-import {
-  registerWorkspaceIntelligenceServices,
-  type WorkspaceIntelligenceTokens,
-} from '@ptah-extension/workspace-intelligence';
-import {
-  registerClaudeDomainServices,
-  type ClaudeDomainTokens,
-  type DI_IEventBus,
-  // Import all 19 claude-domain tokens for main app token mapping
-  EVENT_BUS as CLAUDE_EVENT_BUS,
-  STORAGE_SERVICE as CLAUDE_STORAGE_SERVICE,
-  CONTEXT_ORCHESTRATION_SERVICE as CLAUDE_CONTEXT_ORCHESTRATION_SERVICE,
-  SESSION_MANAGER as CLAUDE_SESSION_MANAGER,
-  CLAUDE_CLI_DETECTOR,
-  CLAUDE_CLI_SERVICE,
-  // Note: CLAUDE_CLI_LAUNCHER not imported - not registered (requires runtime params)
-  PERMISSION_SERVICE as CLAUDE_PERMISSION_SERVICE,
-  PROCESS_MANAGER as CLAUDE_PROCESS_MANAGER,
-  EVENT_PUBLISHER as CLAUDE_EVENT_PUBLISHER,
-  CHAT_ORCHESTRATION_SERVICE,
-  PROVIDER_ORCHESTRATION_SERVICE,
-  ANALYTICS_ORCHESTRATION_SERVICE,
-  CONFIG_ORCHESTRATION_SERVICE,
-  MESSAGE_HANDLER_SERVICE,
-  CONTEXT_SERVICE as CLAUDE_CONTEXT_SERVICE,
-  PROVIDER_MANAGER as CLAUDE_PROVIDER_MANAGER,
-  CONFIGURATION_PROVIDER as CLAUDE_CONFIGURATION_PROVIDER,
-  ANALYTICS_DATA_COLLECTOR as CLAUDE_ANALYTICS_DATA_COLLECTOR,
-} from '@ptah-extension/claude-domain';
-import {
-  registerAIProviderServices,
-  type AIProviderTokens,
-} from '@ptah-extension/ai-providers-core';
-import { MessagePayloadMap } from '@ptah-extension/shared';
-import { ConfigurationProviderAdapter } from './adapters/configuration-provider.adapter';
 import { AnalyticsDataCollectorAdapter } from './adapters/analytics-data-collector.adapter';
+import { ConfigurationProviderAdapter } from './adapters/configuration-provider.adapter';
+import { PtahExtension } from './core/ptah-extension';
+import { DIContainer } from './di/container';
 
 let ptahExtension: PtahExtension | undefined;
 
@@ -46,166 +15,15 @@ export async function activate(
   context: vscode.ExtensionContext
 ): Promise<void> {
   try {
-    // Initialize DI Container with infrastructure services
+    // Initialize centralized DI Container with ALL services
     DIContainer.setup(context);
 
     // Get logger from DI container
     const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
     logger.info('Activating Ptah extension...');
 
-    // ========================================
-    // Register Domain Services (TASK_CORE_001)
-    // ========================================
-    // Per LIBRARY_INTEGRATION_ARCHITECTURE.md:
-    // Main app orchestrates domain service registration by calling bootstrap functions
-
-    // 1. Register workspace-intelligence services
-    const workspaceTokens: WorkspaceIntelligenceTokens = {
-      TOKEN_COUNTER_SERVICE: TOKENS.TOKEN_COUNTER_SERVICE,
-      FILE_SYSTEM_SERVICE: TOKENS.FILE_SYSTEM_SERVICE,
-      CONTEXT_SERVICE: TOKENS.CONTEXT_SERVICE,
-      PROJECT_DETECTOR_SERVICE: TOKENS.PROJECT_DETECTOR_SERVICE,
-      FRAMEWORK_DETECTOR_SERVICE: TOKENS.FRAMEWORK_DETECTOR_SERVICE,
-      DEPENDENCY_ANALYZER_SERVICE: TOKENS.DEPENDENCY_ANALYZER_SERVICE,
-      MONOREPO_DETECTOR_SERVICE: TOKENS.MONOREPO_DETECTOR_SERVICE,
-      PATTERN_MATCHER_SERVICE: TOKENS.PATTERN_MATCHER_SERVICE,
-      IGNORE_PATTERN_RESOLVER_SERVICE: TOKENS.IGNORE_PATTERN_RESOLVER_SERVICE,
-      FILE_TYPE_CLASSIFIER_SERVICE: TOKENS.FILE_TYPE_CLASSIFIER_SERVICE,
-      FILE_RELEVANCE_SCORER_SERVICE: TOKENS.FILE_RELEVANCE_SCORER,
-      CONTEXT_SIZE_OPTIMIZER_SERVICE: TOKENS.CONTEXT_SIZE_OPTIMIZER,
-      WORKSPACE_INDEXER_SERVICE: TOKENS.WORKSPACE_INDEXER_SERVICE,
-      WORKSPACE_SERVICE: TOKENS.WORKSPACE_SERVICE,
-      CONTEXT_ORCHESTRATION_SERVICE: TOKENS.CONTEXT_ORCHESTRATION_SERVICE,
-      WORKSPACE_ANALYZER_SERVICE: TOKENS.WORKSPACE_ANALYZER_SERVICE, // Phase 4: Composite facade
-    };
-    registerWorkspaceIntelligenceServices(
-      DIContainer.getContainer(),
-      workspaceTokens
-    );
-    logger.info(
-      'Workspace intelligence services registered (including WorkspaceAnalyzerService)'
-    );
-
-    // 2. Register ai-providers-core services using bootstrap pattern
-    // Services are registered under claude-domain tokens (single source of truth)
-    const aiProviderTokens: AIProviderTokens = {
-      PROVIDER_MANAGER: CLAUDE_PROVIDER_MANAGER,
-      CONTEXT_MANAGER: TOKENS.CONTEXT_MANAGER,
-      EVENT_BUS: TOKENS.EVENT_BUS, // ProviderManager needs real EventBus (not adapter)
-      CLAUDE_CLI_ADAPTER: Symbol.for('ClaudeCliAdapter'),
-      VSCODE_LM_ADAPTER: Symbol.for('VsCodeLmAdapter'),
-      INTELLIGENT_PROVIDER_STRATEGY: Symbol.for('IntelligentProviderStrategy'),
-    };
-
-    registerAIProviderServices(DIContainer.getContainer(), aiProviderTokens);
-    logger.info('AI providers core services registered via bootstrap'); // 3. Register claude-domain services
-    const eventBus = DIContainer.resolve<EventBus>(TOKENS.EVENT_BUS);
-    const eventBusAdapter: DI_IEventBus = {
-      subscribe: <T extends keyof MessagePayloadMap>(messageType: T) => {
-        return eventBus.subscribe(messageType);
-      },
-      publish: <T>(topic: keyof MessagePayloadMap, payload: T) => {
-        eventBus.publish(topic, payload);
-      },
-    };
-
-    // Get context orchestration service to pass to claude-domain
-    const contextOrchestration = DIContainer.resolve(
-      TOKENS.CONTEXT_ORCHESTRATION_SERVICE
-    );
-
-    // Create storage adapter from VS Code ExtensionContext
-    const storageAdapter = {
-      get: <T>(key: string, defaultValue?: T): T | undefined => {
-        return context.workspaceState.get<T>(key, defaultValue);
-      },
-      set: async <T>(key: string, value: T): Promise<void> => {
-        await context.workspaceState.update(key, value);
-      },
-    };
-
-    const claudeTokens: ClaudeDomainTokens = {
-      // Infrastructure tokens (provided by vscode-core)
-      EVENT_BUS: CLAUDE_EVENT_BUS,
-      STORAGE_SERVICE: CLAUDE_STORAGE_SERVICE,
-      CONTEXT_ORCHESTRATION_SERVICE: CLAUDE_CONTEXT_ORCHESTRATION_SERVICE,
-
-      // Core domain services
-      SESSION_MANAGER: CLAUDE_SESSION_MANAGER,
-      CLAUDE_CLI_DETECTOR: CLAUDE_CLI_DETECTOR,
-      CLAUDE_CLI_SERVICE: CLAUDE_CLI_SERVICE,
-      // Note: CLAUDE_CLI_LAUNCHER removed - requires runtime parameters, created on-demand by ClaudeCliService
-      PERMISSION_SERVICE: CLAUDE_PERMISSION_SERVICE,
-      PROCESS_MANAGER: CLAUDE_PROCESS_MANAGER,
-      EVENT_PUBLISHER: CLAUDE_EVENT_PUBLISHER,
-
-      // Orchestration services
-      CHAT_ORCHESTRATION_SERVICE: CHAT_ORCHESTRATION_SERVICE,
-      PROVIDER_ORCHESTRATION_SERVICE: PROVIDER_ORCHESTRATION_SERVICE,
-      ANALYTICS_ORCHESTRATION_SERVICE: ANALYTICS_ORCHESTRATION_SERVICE,
-      CONFIG_ORCHESTRATION_SERVICE: CONFIG_ORCHESTRATION_SERVICE,
-      MESSAGE_HANDLER_SERVICE: MESSAGE_HANDLER_SERVICE,
-
-      // Service-specific dependencies
-      CONTEXT_SERVICE: CLAUDE_CONTEXT_SERVICE,
-      PROVIDER_MANAGER: CLAUDE_PROVIDER_MANAGER, // Now registered under proper claude-domain token
-      CONFIGURATION_PROVIDER: CLAUDE_CONFIGURATION_PROVIDER,
-      ANALYTICS_DATA_COLLECTOR: CLAUDE_ANALYTICS_DATA_COLLECTOR,
-    };
-    registerClaudeDomainServices(
-      DIContainer.getContainer(),
-      claudeTokens,
-      eventBusAdapter,
-      storageAdapter,
-      contextOrchestration
-    );
-    logger.info('Claude domain services registered');
-
-    // 4. Register claude-domain dependency adapters
-    // CLAUDE_CONTEXT_SERVICE: Use existing ContextManager (already implements interface)
-    const container = DIContainer.getContainer();
-    container.register(CLAUDE_CONTEXT_SERVICE, {
-      useValue: DIContainer.resolve(TOKENS.CONTEXT_MANAGER),
-    });
-
-    // Note: CLAUDE_CONFIGURATION_PROVIDER and CLAUDE_ANALYTICS_DATA_COLLECTOR
-    // will be registered after PtahExtension initializes these services
-    // (they require VS Code context and other services that aren't available yet)
-
-    // ========================================
-    // Phase 3: Register main app services in DI
-    // ========================================
-    // Import main app services
-    const { CommandBuilderService } = await import(
-      './services/command-builder.service'
-    );
-    const { AnalyticsDataCollector } = await import(
-      './services/analytics-data-collector'
-    );
-    const { AngularWebviewProvider } = await import(
-      './providers/angular-webview.provider'
-    );
-
-    // Register main app services in DI
-    DIContainer.registerSingleton(
-      TOKENS.COMMAND_BUILDER_SERVICE,
-      CommandBuilderService
-    );
-    DIContainer.registerSingleton(
-      TOKENS.ANALYTICS_DATA_COLLECTOR,
-      AnalyticsDataCollector
-    );
-    DIContainer.registerSingleton(
-      TOKENS.ANGULAR_WEBVIEW_PROVIDER,
-      AngularWebviewProvider
-    );
-    logger.info('Main app services registered in DI container');
-
-    // ========================================
-    // Phase 4: Initialize MessageHandlerService
-    // ========================================
-    // Start EventBus message routing
-    const messageHandler = DIContainer.resolve(MESSAGE_HANDLER_SERVICE);
+    // Initialize MessageHandlerService to start event routing
+    const messageHandler = DIContainer.resolve(TOKENS.MESSAGE_HANDLER_SERVICE);
     (messageHandler as { initialize: () => void }).initialize();
     logger.info('MessageHandlerService initialized and subscribed to EventBus');
 
@@ -213,24 +31,22 @@ export async function activate(
     ptahExtension = new PtahExtension(context);
     await ptahExtension.initialize();
 
-    // ========================================
-    // Phase 4: Register claude-domain dependency adapters
-    // ========================================
-    // Now that PtahExtension has initialized services, register adapters
+    // Register late-binding adapters (require PtahExtension initialization)
+    const container = DIContainer.getContainer();
 
-    // Register ConfigurationProvider adapter (using DI-resolved ConfigManager)
+    // ConfigurationProvider adapter
     const configManager = DIContainer.resolve<ConfigManager>(
       TOKENS.CONFIG_MANAGER
     );
     const configProviderAdapter = new ConfigurationProviderAdapter(
       configManager
     );
-    container.register(CLAUDE_CONFIGURATION_PROVIDER, {
+    container.register(TOKENS.CONFIGURATION_PROVIDER, {
       useValue: configProviderAdapter,
     });
     logger.info('ConfigurationProvider adapter registered');
 
-    // Register AnalyticsDataCollector adapter
+    // AnalyticsDataCollector adapter
     const analyticsDataCollector = ptahExtension.getAnalyticsDataCollector();
     if (!analyticsDataCollector) {
       throw new Error(
@@ -240,7 +56,7 @@ export async function activate(
     const analyticsCollectorAdapter = new AnalyticsDataCollectorAdapter(
       analyticsDataCollector
     );
-    container.register(CLAUDE_ANALYTICS_DATA_COLLECTOR, {
+    container.register(TOKENS.ANALYTICS_DATA_COLLECTOR, {
       useValue: analyticsCollectorAdapter,
     });
     logger.info('AnalyticsDataCollector adapter registered');

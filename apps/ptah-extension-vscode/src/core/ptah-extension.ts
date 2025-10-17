@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { DIContainer, TOKENS } from '@ptah-extension/vscode-core';
+import { TOKENS } from '@ptah-extension/vscode-core';
+import { DIContainer } from '../di/container';
 import type {
   Logger,
   ErrorHandler,
@@ -9,7 +10,10 @@ import type {
   EventBus,
 } from '@ptah-extension/vscode-core';
 import type { WorkspaceAnalyzerService } from '@ptah-extension/workspace-intelligence';
-import type { SessionManager } from '@ptah-extension/claude-domain';
+import type {
+  SessionManager,
+  ChatOrchestrationService,
+} from '@ptah-extension/claude-domain';
 import type {
   ProviderManager,
   ContextManager,
@@ -152,7 +156,7 @@ export class PtahExtension implements vscode.Disposable {
     try {
       // Resolve domain services from DI (TASK_CORE_001 - Phase 3)
       this.sessionManager = DIContainer.resolve<SessionManager>(
-        TOKENS.CLAUDE_SESSION_MANAGER
+        TOKENS.SESSION_MANAGER
       );
       this.contextManager = DIContainer.resolve<ContextManager>(
         TOKENS.CONTEXT_MANAGER
@@ -161,7 +165,7 @@ export class PtahExtension implements vscode.Disposable {
         TOKENS.WORKSPACE_ANALYZER_SERVICE
       );
       this.providerManager = DIContainer.resolve<ProviderManager>(
-        TOKENS.AI_PROVIDER_MANAGER
+        TOKENS.PROVIDER_MANAGER
       );
 
       // Resolve services from DI container
@@ -213,7 +217,17 @@ export class PtahExtension implements vscode.Disposable {
     }
 
     // Initialize command handlers (uses DI-enabled services but services object still passed manually)
-    this.commandHandlers = new CommandHandlers(this.services);
+    // CommandHandlers expects 3 parameters: logger, chatOrchestration, services
+    // We'll manually pass all dependencies since services is not a registered token
+    const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
+    const chatOrchestration = DIContainer.resolve<ChatOrchestrationService>(
+      TOKENS.CHAT_ORCHESTRATION_SERVICE
+    );
+    this.commandHandlers = new CommandHandlers(
+      logger,
+      chatOrchestration,
+      this.services
+    );
 
     // NOTE: Legacy registries removed (TASK_CORE_001)
     // Commands now registered via CommandManager from vscode-core
@@ -286,7 +300,11 @@ export class PtahExtension implements vscode.Disposable {
 
     // Register all commands with CommandManager
     commands.forEach(({ id, handler }) => {
-      this.commandManager.register(id, handler);
+      this.commandManager.registerCommand({
+        id,
+        title: id, // Use id as title for now
+        handler,
+      });
     });
 
     this.logger.info(`Registered ${commands.length} commands`);
@@ -306,10 +324,18 @@ export class PtahExtension implements vscode.Disposable {
     this.logger.info('Registering webview providers...');
 
     // Register Angular webview provider
-    this.webviewManager.register(
-      'ptah.chatSidebar',
-      this.angularWebviewProvider
+    // WebviewManager doesn't have register() - it uses VS Code's built-in webview view registration
+    // The webview provider is registered through VS Code's registerWebviewViewProvider
+    const disposable = vscode.window.registerWebviewViewProvider(
+      'ptah.main',
+      this.angularWebviewProvider,
+      {
+        webviewOptions: {
+          retainContextWhenHidden: true,
+        },
+      }
     );
+    this.disposables.push(disposable);
 
     this.logger.info('Webview providers registered');
   }
@@ -341,7 +367,7 @@ export class PtahExtension implements vscode.Disposable {
 
     if (selection === 'Get Started') {
       // Open chat sidebar and show quick tour
-      await vscode.commands.executeCommand('ptah.chatSidebar.focus');
+      await vscode.commands.executeCommand('ptah.main.focus');
     } else if (selection === 'Documentation') {
       vscode.env.openExternal(
         vscode.Uri.parse(
@@ -386,10 +412,17 @@ export class PtahExtension implements vscode.Disposable {
 
       // Verify provider manager is available
       if (this.providerManager) {
-        const state = await this.providerManager.getCurrentProviderHealth();
-        if (state.status !== 'available') {
-          this.logger.warn('Provider manager not healthy', {
-            status: state.status,
+        const currentProvider = this.providerManager.getCurrentProvider();
+        if (!currentProvider) {
+          this.logger.warn('No provider currently selected');
+          return false;
+        }
+
+        const health = currentProvider.getHealth();
+        if (health.status !== 'available') {
+          this.logger.warn('Current provider not healthy', {
+            status: health.status,
+            providerId: currentProvider.providerId,
           });
           return false;
         }

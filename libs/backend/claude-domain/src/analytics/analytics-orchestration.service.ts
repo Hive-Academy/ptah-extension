@@ -13,7 +13,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import type { CorrelationId } from '@ptah-extension/shared';
-import { ANALYTICS_DATA_COLLECTOR } from '../di/tokens';
+import { TOKENS } from '@ptah-extension/vscode-core';
 
 /**
  * Analytics Data interface (from analytics-data-collector.ts)
@@ -117,7 +117,7 @@ export interface GetAnalyticsDataResult {
 @injectable()
 export class AnalyticsOrchestrationService {
   constructor(
-    @inject(ANALYTICS_DATA_COLLECTOR)
+    @inject(TOKENS.ANALYTICS_DATA_COLLECTOR)
     private readonly analyticsDataCollector: IAnalyticsDataCollector
   ) {}
 

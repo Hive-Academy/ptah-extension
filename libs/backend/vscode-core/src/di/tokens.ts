@@ -1,45 +1,48 @@
 /**
  * DI Token Symbols - Type-safe dependency injection tokens
- * Eliminates string-based tokens to prevent typos and improve type safety
+ * SINGLE SOURCE OF TRUTH for ALL dependency injection tokens
  * Based on MONSTER_EXTENSION_REFACTOR_PLAN lines 176-194
  *
- * Note: Uses Symbol.for() instead of Symbol() to create global symbols that can be
- * shared across module boundaries. This allows workspace-intelligence and other
- * libraries to use local token definitions without circular dependencies.
+ * ⚠️ CRITICAL: This is the ONLY file that defines DI tokens in the entire codebase
+ * All libraries import from here. No other token definitions should exist.
+ *
+ * Uses Symbol.for() to create global symbols shared across module boundaries
  */
 
-// VS Code API tokens
+// ========================================
+// VS Code API Tokens
+// ========================================
 export const EXTENSION_CONTEXT = Symbol.for('ExtensionContext');
 export const WEBVIEW_PROVIDER = Symbol.for('WebviewProvider');
 export const COMMAND_REGISTRY = Symbol.for('CommandRegistry');
 
-// Messaging system tokens
+// ========================================
+// Messaging System Tokens
+// ========================================
 export const EVENT_BUS = Symbol.for('EventBus');
 export const MESSAGE_ROUTER = Symbol.for('MessageRouter');
 
-// Note: AI provider tokens moved to claude-domain library (proper boundary separation)
-// Infrastructure layer should not define domain service tokens
-
-// API wrapper service tokens
+// ========================================
+// API Wrapper Service Tokens
+// ========================================
 export const OUTPUT_MANAGER = Symbol.for('OutputManager');
 export const STATUS_BAR_MANAGER = Symbol.for('StatusBarManager');
 export const FILE_SYSTEM_MANAGER = Symbol.for('FileSystemManager');
 export const COMMAND_MANAGER = Symbol.for('CommandManager');
 export const WEBVIEW_MANAGER = Symbol.for('WebviewManager');
 
-// Core infrastructure service tokens (TASK_CORE_001)
+// ========================================
+// Core Infrastructure Service Tokens
+// ========================================
 export const LOGGER = Symbol.for('Logger');
 export const ERROR_HANDLER = Symbol.for('ErrorHandler');
 export const CONFIG_MANAGER = Symbol.for('ConfigManager');
 export const MESSAGE_VALIDATOR = Symbol.for('MessageValidator');
 export const CONTEXT_MANAGER = Symbol.for('ContextManager');
 
-// Business logic service tokens
-export const CLAUDE_SERVICE = Symbol.for('ClaudeService');
-export const SESSION_MANAGER = Symbol.for('SessionManager');
-export const WORKSPACE_ANALYZER = Symbol.for('WorkspaceAnalyzer');
-
-// Workspace intelligence service tokens (TASK_PRV_005)
+// ========================================
+// Workspace Intelligence Service Tokens
+// ========================================
 export const TOKEN_COUNTER_SERVICE = Symbol.for('TokenCounterService');
 export const FILE_SYSTEM_SERVICE = Symbol.for('FileSystemService');
 export const CONTEXT_SERVICE = Symbol.for('ContextService');
@@ -69,54 +72,104 @@ export const CONTEXT_SIZE_OPTIMIZER = Symbol.for('ContextSizeOptimizer');
 export const SEMANTIC_CONTEXT_EXTRACTOR = Symbol.for(
   'SemanticContextExtractor'
 );
+export const CONTEXT_ORCHESTRATION_SERVICE = Symbol.for(
+  'ContextOrchestrationService'
+);
 
-// Main app service tokens (legacy services being migrated)
+// ========================================
+// AI Providers Core Tokens
+// ========================================
+export const PROVIDER_MANAGER = Symbol.for('ProviderManager');
+export const INTELLIGENT_PROVIDER_STRATEGY = Symbol.for(
+  'IntelligentProviderStrategy'
+);
+export const CLAUDE_CLI_ADAPTER = Symbol.for('ClaudeCliAdapter');
+export const VSCODE_LM_ADAPTER = Symbol.for('VsCodeLmAdapter');
+
+// ========================================
+// Claude Domain Service Tokens
+// ========================================
+// Core domain services
+export const SESSION_MANAGER = Symbol.for('SessionManager');
+export const CLAUDE_CLI_DETECTOR = Symbol.for('ClaudeCliDetector');
+export const CLAUDE_CLI_SERVICE = Symbol.for('ClaudeCliService');
+export const CLAUDE_CLI_LAUNCHER = Symbol.for('ClaudeCliLauncher');
+export const PERMISSION_SERVICE = Symbol.for('PermissionService');
+export const PROCESS_MANAGER = Symbol.for('ProcessManager');
+export const CLAUDE_DOMAIN_EVENT_PUBLISHER = Symbol.for(
+  'ClaudeDomainEventPublisher'
+);
+
+// Orchestration services
+export const CHAT_ORCHESTRATION_SERVICE = Symbol.for(
+  'ChatOrchestrationService'
+);
+export const PROVIDER_ORCHESTRATION_SERVICE = Symbol.for(
+  'ProviderOrchestrationService'
+);
+export const ANALYTICS_ORCHESTRATION_SERVICE = Symbol.for(
+  'AnalyticsOrchestrationService'
+);
+export const CONFIG_ORCHESTRATION_SERVICE = Symbol.for(
+  'ConfigOrchestrationService'
+);
+export const MESSAGE_HANDLER_SERVICE = Symbol.for('MessageHandlerService');
+
+// Service dependencies
+export const STORAGE_SERVICE = Symbol.for('StorageService');
+export const CONFIGURATION_PROVIDER = Symbol.for('ConfigurationProvider');
+
+// ========================================
+// Main App Service Tokens
+// ========================================
 export const COMMAND_BUILDER_SERVICE = Symbol.for('CommandBuilderService');
 export const ANALYTICS_DATA_COLLECTOR = Symbol.for('AnalyticsDataCollector');
 export const ANGULAR_WEBVIEW_PROVIDER = Symbol.for('AngularWebviewProvider');
 export const COMMAND_HANDLERS = Symbol.for('CommandHandlers');
 
-// Claude domain orchestration service tokens (retained by main app)
-// Note: CONTEXT_ORCHESTRATION_SERVICE belongs to workspace-intelligence,
-// other orchestration services now owned by claude-domain library
-export const CONTEXT_ORCHESTRATION_SERVICE = Symbol.for(
-  'ContextOrchestrationService'
-);
+// Legacy tokens (being phased out)
+export const CLAUDE_SERVICE = Symbol.for('ClaudeService');
+export const WORKSPACE_ANALYZER = Symbol.for('WorkspaceAnalyzer');
 
 /**
  * TOKENS constant for convenient access to all DI tokens
  * Provides a single source of truth for all dependency injection symbols
  */
 export const TOKENS = {
+  // ========================================
   // VS Code APIs
+  // ========================================
   EXTENSION_CONTEXT,
   WEBVIEW_PROVIDER,
   COMMAND_REGISTRY,
+  COMMAND_MANAGER,
+  WEBVIEW_MANAGER,
 
+  // ========================================
   // Messaging
+  // ========================================
   EVENT_BUS,
   MESSAGE_ROUTER,
 
+  // ========================================
   // API Wrappers
+  // ========================================
   OUTPUT_MANAGER,
   STATUS_BAR_MANAGER,
   FILE_SYSTEM_MANAGER,
 
-  // Core Infrastructure (TASK_CORE_001)
+  // ========================================
+  // Core Infrastructure
+  // ========================================
   LOGGER,
   ERROR_HANDLER,
   CONFIG_MANAGER,
   MESSAGE_VALIDATOR,
   CONTEXT_MANAGER,
 
-  // Note: AI provider tokens moved to claude-domain (architectural boundary fix)
-
-  // Business Logic
-  CLAUDE_SERVICE,
-  SESSION_MANAGER,
-  WORKSPACE_ANALYZER,
-
-  // Workspace Intelligence (TASK_PRV_005)
+  // ========================================
+  // Workspace Intelligence
+  // ========================================
   TOKEN_COUNTER_SERVICE,
   FILE_SYSTEM_SERVICE,
   CONTEXT_SERVICE,
@@ -134,15 +187,45 @@ export const TOKENS = {
   FILE_RELEVANCE_SCORER,
   CONTEXT_SIZE_OPTIMIZER,
   SEMANTIC_CONTEXT_EXTRACTOR,
-
-  // Context orchestration (used by workspace-intelligence)
   CONTEXT_ORCHESTRATION_SERVICE,
 
-  // Main app services
+  // ========================================
+  // AI Providers Core
+  // ========================================
+  PROVIDER_MANAGER,
+  INTELLIGENT_PROVIDER_STRATEGY,
+  CLAUDE_CLI_ADAPTER,
+  VSCODE_LM_ADAPTER,
+
+  // ========================================
+  // Claude Domain Services
+  // ========================================
+  SESSION_MANAGER,
+  CLAUDE_CLI_DETECTOR,
+  CLAUDE_CLI_SERVICE,
+  CLAUDE_CLI_LAUNCHER,
+  PERMISSION_SERVICE,
+  PROCESS_MANAGER,
+  CLAUDE_DOMAIN_EVENT_PUBLISHER,
+  CHAT_ORCHESTRATION_SERVICE,
+  PROVIDER_ORCHESTRATION_SERVICE,
+  ANALYTICS_ORCHESTRATION_SERVICE,
+  CONFIG_ORCHESTRATION_SERVICE,
+  MESSAGE_HANDLER_SERVICE,
+  STORAGE_SERVICE,
+  CONFIGURATION_PROVIDER,
+
+  // ========================================
+  // Main App Services
+  // ========================================
   COMMAND_BUILDER_SERVICE,
   ANALYTICS_DATA_COLLECTOR,
   ANGULAR_WEBVIEW_PROVIDER,
   COMMAND_HANDLERS,
+
+  // Legacy (being phased out)
+  CLAUDE_SERVICE,
+  WORKSPACE_ANALYZER,
 } as const;
 
 /**

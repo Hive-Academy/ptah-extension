@@ -97,6 +97,7 @@ export type StrictMessageType =
   | 'state:saved'
   | 'state:loaded'
   | 'error'
+  | 'refresh' // Refresh signal for hot-reload
   // Legacy message types for compatibility
   | 'switchView'
   | 'workspaceChanged';
@@ -381,7 +382,12 @@ export interface ProvidersCurrentChangedPayload {
 export interface ProvidersHealthChangedPayload {
   readonly providerId: string; // ProviderId
   readonly health: {
-    readonly status: 'available' | 'unavailable' | 'error' | 'initializing' | 'disabled';
+    readonly status:
+      | 'available'
+      | 'unavailable'
+      | 'error'
+      | 'initializing'
+      | 'disabled';
     readonly lastCheck: number;
     readonly errorMessage?: string;
     readonly responseTime?: number;
@@ -405,7 +411,12 @@ export interface ProvidersAvailableUpdatedPayload {
   readonly availableProviders: readonly {
     readonly id: string; // ProviderId
     readonly name: string;
-    readonly status: 'available' | 'unavailable' | 'error' | 'initializing' | 'disabled';
+    readonly status:
+      | 'available'
+      | 'unavailable'
+      | 'error'
+      | 'initializing'
+      | 'disabled';
   }[];
 }
 
@@ -503,21 +514,24 @@ export interface MessagePayloadMap {
   'view:changed': ViewChangedPayload;
   'view:routeChanged': ViewRouteChangedPayload;
   'view:generic': ViewGenericPayload;
-  'error': ErrorPayload;
-  'initialData': InitialDataPayload;
+  error: ErrorPayload;
+  initialData: InitialDataPayload;
   'webview-ready': ContextGetFilesPayload; // Empty payload
-  'ready': ViewChangedPayload; // System ready with view
-  'requestInitialData': ContextGetFilesPayload; // Empty payload
-  'themeChanged': ThemeChangedPayload;
-  'navigate': ViewRouteChangedPayload;
-  'switchView': ViewChangedPayload;
-  'workspaceChanged': InitialDataPayload;
+  ready: ViewChangedPayload; // System ready with view
+  requestInitialData: ContextGetFilesPayload; // Empty payload
+  themeChanged: ThemeChangedPayload;
+  navigate: ViewRouteChangedPayload;
+  refresh: ViewChangedPayload; // Refresh payload for hot-reload
+  switchView: ViewChangedPayload;
+  workspaceChanged: InitialDataPayload;
 }
 
 /**
  * Generic Message Interface with Strict Typing
  */
-export interface StrictMessage<T extends keyof MessagePayloadMap = keyof MessagePayloadMap> {
+export interface StrictMessage<
+  T extends keyof MessagePayloadMap = keyof MessagePayloadMap
+> {
   readonly id: CorrelationId;
   readonly type: T;
   readonly payload: MessagePayloadMap[T];
@@ -537,7 +551,9 @@ export interface MessageMetadata {
 /**
  * Request-Response Message Types
  */
-export interface MessageRequest<T extends keyof MessagePayloadMap = keyof MessagePayloadMap> {
+export interface MessageRequest<
+  T extends keyof MessagePayloadMap = keyof MessagePayloadMap
+> {
   readonly id: CorrelationId;
   readonly type: T;
   readonly payload: MessagePayloadMap[T];
@@ -749,7 +765,7 @@ export interface SystemMessagePayloadMap {
  * System Message Interface
  */
 export interface SystemMessage<
-  T extends keyof SystemMessagePayloadMap = keyof SystemMessagePayloadMap,
+  T extends keyof SystemMessagePayloadMap = keyof SystemMessagePayloadMap
 > {
   readonly type: T;
   readonly payload?: SystemMessagePayloadMap[T];
@@ -758,7 +774,9 @@ export interface SystemMessage<
 /**
  * Regular routable message interface
  */
-export interface RoutableMessage<T extends keyof MessagePayloadMap = keyof MessagePayloadMap> {
+export interface RoutableMessage<
+  T extends keyof MessagePayloadMap = keyof MessagePayloadMap
+> {
   readonly type: T;
   readonly payload: MessagePayloadMap[T];
 }
@@ -774,14 +792,20 @@ export type WebviewMessage =
 /**
  * Type guard to check if message is a system message
  */
-export function isSystemMessage(message: WebviewMessage): message is SystemMessage {
-  return ['ready', 'webview-ready', 'requestInitialData'].includes(message.type);
+export function isSystemMessage(
+  message: WebviewMessage
+): message is SystemMessage {
+  return ['ready', 'webview-ready', 'requestInitialData'].includes(
+    message.type
+  );
 }
 
 /**
  * Type guard to check if message is a routable message
  */
-export function isRoutableMessage(message: WebviewMessage): message is RoutableMessage {
+export function isRoutableMessage(
+  message: WebviewMessage
+): message is RoutableMessage {
   return !isSystemMessage(message);
 }
 
@@ -791,7 +815,7 @@ export function isRoutableMessage(message: WebviewMessage): message is RoutableM
 export function createStrictMessage<T extends keyof MessagePayloadMap>(
   type: T,
   payload: MessagePayloadMap[T],
-  correlationId?: CorrelationId,
+  correlationId?: CorrelationId
 ): StrictMessage<T> {
   return {
     id: (correlationId ?? crypto.randomUUID()) as CorrelationId,

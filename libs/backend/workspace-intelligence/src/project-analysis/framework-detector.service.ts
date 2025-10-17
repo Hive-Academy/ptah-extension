@@ -1,8 +1,7 @@
-import { injectable, inject } from 'tsyringe';
+import { injectable } from 'tsyringe';
 import * as vscode from 'vscode';
 import { Framework, ProjectType } from '../types/workspace.types';
 import { FileSystemService } from '../services/file-system.service';
-import { FILE_SYSTEM_SERVICE } from '../di/tokens';
 
 /**
  * Service for detecting web frameworks and backend frameworks in a workspace.
@@ -18,9 +17,7 @@ import { FILE_SYSTEM_SERVICE } from '../di/tokens';
  */
 @injectable()
 export class FrameworkDetectorService {
-  constructor(
-    @inject(FILE_SYSTEM_SERVICE) private readonly fileSystem: FileSystemService
-  ) {}
+  constructor(private readonly fileSystem: FileSystemService) {}
 
   /**
    * Detect framework(s) in a workspace folder.

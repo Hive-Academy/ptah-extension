@@ -3,11 +3,10 @@
  * Manages multiple AI providers with health monitoring and intelligent failover
  */
 
-import { injectable, inject } from 'tsyringe';
+import { injectable } from 'tsyringe';
 import { BehaviorSubject, Observable, interval, Subscription } from 'rxjs';
 import type { ProviderId, ProviderHealth } from '@ptah-extension/shared';
 import type { EventBus } from '@ptah-extension/vscode-core';
-import { TOKENS } from '@ptah-extension/vscode-core';
 import type {
   ProviderContext,
   EnhancedAIProvider,
@@ -40,7 +39,7 @@ export class ProviderManager {
   readonly state$: Observable<ActiveProviderState>;
 
   constructor(
-    @inject(TOKENS.EVENT_BUS) private readonly eventBus: EventBus,
+    private readonly eventBus: EventBus,
     private readonly strategy: IntelligentProviderStrategy
   ) {
     // Initialize with empty state

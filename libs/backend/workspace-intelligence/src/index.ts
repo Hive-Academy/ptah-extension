@@ -31,10 +31,7 @@ export {
 } from './context/context.service';
 
 // Context Orchestration
-export {
-  ContextOrchestrationService,
-  CONTEXT_SERVICE,
-} from './context/context-orchestration.service';
+export { ContextOrchestrationService } from './context/context-orchestration.service';
 export type {
   VsCodeUri,
   GetContextFilesRequest,
@@ -100,11 +97,5 @@ export {
   type ContextRecommendations,
 } from './composite/workspace-analyzer.service';
 
-// DI tokens
-export * from './di/tokens';
-
 // DI registration bootstrap function
-export {
-  registerWorkspaceIntelligenceServices,
-  type WorkspaceIntelligenceTokens,
-} from './di/register';
+// NOTE: DI registration is now centralized in apps/ptah-extension-vscode/src/di/container.ts

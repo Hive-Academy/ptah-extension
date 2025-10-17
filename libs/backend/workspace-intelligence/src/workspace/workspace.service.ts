@@ -13,20 +13,13 @@
  * @packageDocumentation
  */
 
-import { injectable, inject } from 'tsyringe';
+import { injectable } from 'tsyringe';
 import * as vscode from 'vscode';
-import {
-  PROJECT_DETECTOR_SERVICE,
-  FRAMEWORK_DETECTOR_SERVICE,
-  DEPENDENCY_ANALYZER_SERVICE,
-  FILE_SYSTEM_SERVICE,
-  MONOREPO_DETECTOR_SERVICE,
-} from '../di/tokens';
-import type { ProjectDetectorService } from '../project-analysis/project-detector.service';
-import type { FrameworkDetectorService } from '../project-analysis/framework-detector.service';
-import type { DependencyAnalyzerService } from '../project-analysis/dependency-analyzer.service';
-import type { MonorepoDetectorService } from '../project-analysis/monorepo-detector.service';
-import type { FileSystemService } from '../services/file-system.service';
+import { ProjectDetectorService } from '../project-analysis/project-detector.service';
+import { FrameworkDetectorService } from '../project-analysis/framework-detector.service';
+import { DependencyAnalyzerService } from '../project-analysis/dependency-analyzer.service';
+import { MonorepoDetectorService } from '../project-analysis/monorepo-detector.service';
+import { FileSystemService } from '../services/file-system.service';
 import { ProjectType, Framework, MonorepoType } from '../types/workspace.types';
 import { WorkspaceInfo } from '@ptah-extension/shared';
 
@@ -149,15 +142,10 @@ export class WorkspaceService implements vscode.Disposable {
   private currentAnalysis?: WorkspaceAnalysisResult;
 
   constructor(
-    @inject(PROJECT_DETECTOR_SERVICE)
     private readonly projectDetector: ProjectDetectorService,
-    @inject(FRAMEWORK_DETECTOR_SERVICE)
     private readonly frameworkDetector: FrameworkDetectorService,
-    @inject(DEPENDENCY_ANALYZER_SERVICE)
     private readonly dependencyAnalyzer: DependencyAnalyzerService,
-    @inject(MONOREPO_DETECTOR_SERVICE)
     private readonly monorepoDetector: MonorepoDetectorService,
-    @inject(FILE_SYSTEM_SERVICE)
     private readonly fileSystem: FileSystemService
   ) {
     // Initialize workspace analysis on construction

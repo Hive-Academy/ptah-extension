@@ -108,7 +108,6 @@ export type {
 // Message Handler Service (Router)
 export { MessageHandlerService } from './messaging/message-handler.service';
 export type {
-  IEventBus,
   IContextOrchestrationService,
   TypedEvent,
 } from './messaging/message-handler.service';
@@ -158,33 +157,5 @@ export type {
   IEventBus as ClaudeIEventBus, // Export interface for external use
 } from './events/claude-domain.events';
 
-// DI Tokens - Single source of truth for all claude-domain tokens
-export {
-  EVENT_BUS,
-  STORAGE_SERVICE,
-  CONTEXT_ORCHESTRATION_SERVICE,
-  SESSION_MANAGER,
-  CLAUDE_CLI_DETECTOR,
-  CLAUDE_CLI_SERVICE,
-  CLAUDE_CLI_LAUNCHER,
-  PERMISSION_SERVICE,
-  PROCESS_MANAGER,
-  EVENT_PUBLISHER,
-  CHAT_ORCHESTRATION_SERVICE,
-  PROVIDER_ORCHESTRATION_SERVICE,
-  ANALYTICS_ORCHESTRATION_SERVICE,
-  CONFIG_ORCHESTRATION_SERVICE,
-  MESSAGE_HANDLER_SERVICE,
-  CONTEXT_SERVICE,
-  PROVIDER_MANAGER,
-  CONFIGURATION_PROVIDER,
-  ANALYTICS_DATA_COLLECTOR,
-} from './di/tokens';
-
-// DI registration bootstrap function
-export {
-  registerClaudeDomainServices,
-  type ClaudeDomainTokens,
-  type IEventBus as DI_IEventBus,
-  type IStorageService as DI_IStorageService,
-} from './di/register';
+// NOTE: DI registration is now centralized in apps/ptah-extension-vscode/src/di/container.ts
+// No longer exporting register functions from libraries

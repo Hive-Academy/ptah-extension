@@ -27,8 +27,5 @@ export {
   type FileSearchOptions,
 } from './context';
 
-// DI Bootstrap (following standard library pattern)
-export {
-  registerAIProviderServices,
-  type AIProviderTokens,
-} from './di/register';
+// NOTE: DI registration is now centralized in apps/ptah-extension-vscode/src/di/container.ts
+// No longer exporting register functions from libraries

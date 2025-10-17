@@ -12,15 +12,10 @@
  * - ContextService already implements required functionality ✓
  */
 
-import { injectable, inject } from 'tsyringe';
-import type { ContextService } from './context.service';
+import { injectable } from 'tsyringe';
+import { ContextService } from './context.service';
 import type { FileSearchResult, FileSearchOptions } from './context.service';
 import type { CorrelationId } from '@ptah-extension/shared';
-
-/**
- * DI Token for ContextService injection
- */
-export const CONTEXT_SERVICE = Symbol.for('ContextService');
 
 /**
  * VS Code Uri interface (minimal, for type safety without vscode dependency)
@@ -215,9 +210,7 @@ function formatFileResult(result: FileSearchResult) {
  */
 @injectable()
 export class ContextOrchestrationService {
-  constructor(
-    @inject(CONTEXT_SERVICE) private readonly contextService: ContextService
-  ) {}
+  constructor(private readonly contextService: ContextService) {}
 
   /**
    * Get current context files and workspace structure

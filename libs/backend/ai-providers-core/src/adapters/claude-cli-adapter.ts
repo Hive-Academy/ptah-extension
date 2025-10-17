@@ -21,11 +21,7 @@ import type {
   ClaudeCliService,
   SessionManager,
 } from '@ptah-extension/claude-domain';
-import {
-  CLAUDE_CLI_DETECTOR,
-  CLAUDE_CLI_SERVICE,
-  SESSION_MANAGER,
-} from '@ptah-extension/claude-domain';
+import { TOKENS } from '@ptah-extension/vscode-core';
 
 /**
  * Session metadata tracker
@@ -85,11 +81,11 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
   };
 
   constructor(
-    @inject(CLAUDE_CLI_DETECTOR)
+    @inject(TOKENS.CLAUDE_CLI_DETECTOR)
     private readonly detector: ClaudeCliDetector,
-    @inject(CLAUDE_CLI_SERVICE)
+    @inject(TOKENS.CLAUDE_CLI_SERVICE)
     private readonly claudeCliService: ClaudeCliService,
-    @inject(SESSION_MANAGER)
+    @inject(TOKENS.SESSION_MANAGER)
     private readonly sessionManager: SessionManager
   ) {}
 

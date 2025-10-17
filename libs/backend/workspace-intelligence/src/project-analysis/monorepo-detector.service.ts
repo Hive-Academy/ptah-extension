@@ -1,8 +1,7 @@
-import { injectable, inject } from 'tsyringe';
+import { injectable } from 'tsyringe';
 import * as vscode from 'vscode';
 import { MonorepoType } from '../types/workspace.types';
 import { FileSystemService } from '../services/file-system.service';
-import { FILE_SYSTEM_SERVICE } from '../di/tokens';
 
 /**
  * Result of monorepo detection for a workspace.
@@ -27,9 +26,7 @@ export interface MonorepoDetectionResult {
  */
 @injectable()
 export class MonorepoDetectorService {
-  constructor(
-    @inject(FILE_SYSTEM_SERVICE) private readonly fileSystem: FileSystemService
-  ) {}
+  constructor(private readonly fileSystem: FileSystemService) {}
 
   /**
    * Detect monorepo configuration for a workspace folder.

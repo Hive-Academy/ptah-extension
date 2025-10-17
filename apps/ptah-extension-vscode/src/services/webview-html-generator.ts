@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Logger } from '../core/logger';
 
 /**
  * WebviewHtmlGenerator - Single Responsibility: Generate HTML content for Angular webviews
@@ -16,12 +15,15 @@ export class WebviewHtmlGenerator {
    * Based on research: Read actual index.html and modify it rather than recreating
    * Optimized for Angular 20+ with proper CSP and modern asset handling
    */
-  generateAngularWebviewContent(webview: vscode.Webview, workspaceInfo?: any): string {
+  generateAngularWebviewContent(
+    webview: vscode.Webview,
+    workspaceInfo?: any
+  ): string {
     try {
       const htmlContent = this._getHtmlForWebview(webview, workspaceInfo);
       return htmlContent;
     } catch (error) {
-      Logger.error('Error generating webview content:', error);
+      console.error('Error generating webview content:', error);
       // Fallback to basic HTML
       return this.generateFallbackHtml(webview, workspaceInfo);
     }
@@ -31,14 +33,14 @@ export class WebviewHtmlGenerator {
    * RESEARCH-BASED IMPLEMENTATION: Read and modify actual Angular index.html
    * This follows the proven pattern from 4gray/vscode-webview-angular
    */
-  private _getHtmlForWebview(webview: vscode.Webview, workspaceInfo?: any): string {
+  private _getHtmlForWebview(
+    webview: vscode.Webview,
+    workspaceInfo?: any
+  ): string {
     // Path to Angular dist folder (browser build output)
-    // FIXED: Use correct Nx build output path
+    // FIXED: context.extensionPath already points to dist/apps/ptah-extension-vscode
     const appDistPath = path.join(
       this.context.extensionPath,
-      'dist',
-      'apps',
-      'ptah-extension-vscode',
       'webview',
       'browser'
     );
@@ -57,7 +59,10 @@ export class WebviewHtmlGenerator {
     let indexHtml = fs.readFileSync(indexPath, { encoding: 'utf8' });
 
     // RESEARCH FINDING: Update base URI - this is the key fix for asset loading
-    indexHtml = indexHtml.replace('<base href="/">', `<base href="${String(baseUri)}/">`);
+    indexHtml = indexHtml.replace(
+      '<base href="/">',
+      `<base href="${String(baseUri)}/">`
+    );
 
     // IMPROVED CSP: Fix Google Fonts and add proper nonce support
     const nonce = this.generateNonce();
@@ -72,7 +77,11 @@ export class WebviewHtmlGenerator {
 
     // Add VS Code integration and theme support
     const theme = vscode.window.activeColorTheme.kind;
-    const integrationScript = this.getVSCodeIntegrationScript(theme, workspaceInfo, webview);
+    const integrationScript = this.getVSCodeIntegrationScript(
+      theme,
+      workspaceInfo,
+      webview
+    );
     const themeStyles = this.getThemeStyles();
 
     // Inject theme styles in head
@@ -103,7 +112,12 @@ export class WebviewHtmlGenerator {
     );
 
     // Transform all resource URIs using the enhanced transformation method
-    indexHtml = this.transformResourceUris(indexHtml, webview, appDistPathUri, nonce);
+    indexHtml = this.transformResourceUris(
+      indexHtml,
+      webview,
+      appDistPathUri,
+      nonce
+    );
 
     return indexHtml;
   }
@@ -113,25 +127,33 @@ export class WebviewHtmlGenerator {
    * Implements the specific requirements for VS Code webview URI handling
    * Uses regex pattern: /(src|href)="([^"]+)"/g for asset transformation
    */
-  private transformResourceUris(html: string, webview: vscode.Webview, baseUri: vscode.Uri, nonce: string): string {
+  private transformResourceUris(
+    html: string,
+    webview: vscode.Webview,
+    baseUri: vscode.Uri,
+    nonce: string
+  ): string {
     // Transform all src and href attributes using the specified regex pattern
-    const transformedHtml = html.replace(/(src|href)="([^"]+)"/g, (match, attribute, uri) => {
-      // Skip already transformed URIs and external resources
-      if (
-        uri.startsWith('http') ||
-        uri.startsWith('data:') ||
-        uri.startsWith('vscode-webview:') ||
-        uri.startsWith('//') ||
-        uri === '' ||
-        uri === '#'
-      ) {
-        return match;
-      }
+    const transformedHtml = html.replace(
+      /(src|href)="([^"]+)"/g,
+      (match, attribute, uri) => {
+        // Skip already transformed URIs and external resources
+        if (
+          uri.startsWith('http') ||
+          uri.startsWith('data:') ||
+          uri.startsWith('vscode-webview:') ||
+          uri.startsWith('//') ||
+          uri === '' ||
+          uri === '#'
+        ) {
+          return match;
+        }
 
-      // Transform relative URIs to webview URIs
-      const fullUri = webview.asWebviewUri(vscode.Uri.joinPath(baseUri, uri));
-      return `${attribute}="${fullUri}"`;
-    });
+        // Transform relative URIs to webview URIs
+        const fullUri = webview.asWebviewUri(vscode.Uri.joinPath(baseUri, uri));
+        return `${attribute}="${fullUri}"`;
+      }
+    );
 
     // Add nonce to script and link tags that don't have it
     return transformedHtml
@@ -142,7 +164,10 @@ export class WebviewHtmlGenerator {
         return match;
       })
       .replace(/<link([^>]*href="[^"]*"[^>]*?)>/g, (match, attributes) => {
-        if (!attributes.includes('nonce=') && attributes.includes('stylesheet')) {
+        if (
+          !attributes.includes('nonce=') &&
+          attributes.includes('stylesheet')
+        ) {
           return `<link${attributes} nonce="${nonce}">`;
         }
         return match;
@@ -169,7 +194,10 @@ export class WebviewHtmlGenerator {
    * Fallback HTML generation if reading index.html fails
    * FIXED: Remove polyfills.js reference as Angular 20+ doesn't generate it
    */
-  private generateFallbackHtml(webview: vscode.Webview, workspaceInfo?: any): string {
+  private generateFallbackHtml(
+    webview: vscode.Webview,
+    workspaceInfo?: any
+  ): string {
     const { scriptUri, stylesUri } = this.getAssetUris(webview);
     const nonce = this.generateNonce();
     const theme = vscode.window.activeColorTheme.kind;
@@ -180,9 +208,14 @@ export class WebviewHtmlGenerator {
       <head>
         <meta charset="utf-8">
         <title>Ptah - Claude Code Assistant</title>
-        <base href="${webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'apps', 'ptah-extension-vscode', 'webview', 'browser'))}/">
+        <base href="${webview.asWebviewUri(
+          vscode.Uri.joinPath(this.context.extensionUri, 'webview', 'browser')
+        )}/">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <meta http-equiv="Content-Security-Policy" content="${this.getImprovedCSP(webview, nonce)}">
+        <meta http-equiv="Content-Security-Policy" content="${this.getImprovedCSP(
+          webview,
+          nonce
+        )}">
 
         <!-- Angular Styles -->
         <link rel="stylesheet" href="${stylesUri}" nonce="${nonce}">
@@ -214,19 +247,20 @@ export class WebviewHtmlGenerator {
   }
 
   private getAssetUris(webview: vscode.Webview) {
-    // FIXED: Use correct Nx build output path
+    // FIXED: context.extensionUri already points to dist/apps/ptah-extension-vscode
     const angularDistPath = vscode.Uri.joinPath(
       this.context.extensionUri,
-      'dist',
-      'apps',
-      'ptah-extension-vscode',
       'webview',
       'browser'
     );
 
     return {
-      scriptUri: webview.asWebviewUri(vscode.Uri.joinPath(angularDistPath, 'main.js')),
-      stylesUri: webview.asWebviewUri(vscode.Uri.joinPath(angularDistPath, 'styles.css')),
+      scriptUri: webview.asWebviewUri(
+        vscode.Uri.joinPath(angularDistPath, 'main.js')
+      ),
+      stylesUri: webview.asWebviewUri(
+        vscode.Uri.joinPath(angularDistPath, 'styles.css')
+      ),
     };
   }
 
@@ -267,12 +301,18 @@ export class WebviewHtmlGenerator {
     webview?: vscode.Webview
   ): string {
     // Generate proper webview URIs for assets
-    const appDistPath = path.join(this.context.extensionPath, 'out', 'webview', 'browser');
+    const appDistPath = path.join(
+      this.context.extensionPath,
+      'webview',
+      'browser'
+    );
     const appDistPathUri = vscode.Uri.file(appDistPath);
     const baseUri = webview?.asWebviewUri(appDistPathUri).toString() || '';
     const iconUri =
       webview
-        ?.asWebviewUri(vscode.Uri.joinPath(appDistPathUri, 'images', 'ptah-icon.png'))
+        ?.asWebviewUri(
+          vscode.Uri.joinPath(appDistPathUri, 'images', 'ptah-icon.png')
+        )
         .toString() || '';
 
     return `
@@ -352,7 +392,8 @@ export class WebviewHtmlGenerator {
 
   private generateNonce(): string {
     let text = '';
-    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const possible =
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     for (let i = 0; i < 32; i++) {
       text += possible.charAt(Math.floor(Math.random() * possible.length));
     }

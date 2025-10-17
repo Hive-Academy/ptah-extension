@@ -1,10 +1,8 @@
+import 'reflect-metadata'; // CRITICAL: Required for TSyringe decorators
 import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
-import {
-  ChatOrchestrationService,
-  CHAT_ORCHESTRATION_SERVICE,
-} from '@ptah-extension/claude-domain';
+import { ChatOrchestrationService } from '@ptah-extension/claude-domain';
 import { ServiceDependencies } from '../core/ptah-extension';
 import { WebviewDiagnostic } from '../services/webview-diagnostic';
 
@@ -15,7 +13,7 @@ import { WebviewDiagnostic } from '../services/webview-diagnostic';
 export class CommandHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(CHAT_ORCHESTRATION_SERVICE)
+    @inject(TOKENS.CHAT_ORCHESTRATION_SERVICE)
     private readonly chatOrchestration: ChatOrchestrationService,
     private services: ServiceDependencies
   ) {}

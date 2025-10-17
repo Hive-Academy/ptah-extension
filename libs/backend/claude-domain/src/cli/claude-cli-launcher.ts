@@ -37,8 +37,17 @@ export class ClaudeCliLauncher {
   /**
    * Spawn a new Claude CLI turn
    */
-  async spawnTurn(message: string, options: ClaudeCliLaunchOptions): Promise<Readable> {
-    const { sessionId, model, resumeSessionId, workspaceRoot, verbose = false } = options;
+  async spawnTurn(
+    message: string,
+    options: ClaudeCliLaunchOptions
+  ): Promise<Readable> {
+    const {
+      sessionId,
+      model,
+      resumeSessionId,
+      workspaceRoot,
+      verbose = false,
+    } = options;
 
     // Build CLI arguments
     const args = this.buildArgs(model, resumeSessionId, verbose);
@@ -76,7 +85,11 @@ export class ClaudeCliLauncher {
   /**
    * Build CLI arguments array
    */
-  private buildArgs(model?: string, resumeSessionId?: string, verbose = false): string[] {
+  private buildArgs(
+    model?: string,
+    resumeSessionId?: string,
+    verbose = false
+  ): string[] {
     const args = ['-p', '--output-format', 'stream-json'];
 
     if (verbose) {
@@ -132,7 +145,11 @@ export class ClaudeCliLauncher {
     const callbacks: JSONLParserCallbacks = {
       onSessionInit: (claudeSessionId, model) => {
         this.deps.sessionManager.setClaudeSessionId(sessionId, claudeSessionId);
-        this.deps.eventPublisher.emitSessionInit(sessionId, claudeSessionId, model);
+        this.deps.eventPublisher.emitSessionInit(
+          sessionId,
+          claudeSessionId,
+          model
+        );
       },
 
       onContent: (chunk) => {
@@ -156,7 +173,9 @@ export class ClaudeCliLauncher {
       },
 
       onError: (error, rawLine) => {
-        this.deps.eventPublisher.emitError(error.message, sessionId, { rawLine });
+        this.deps.eventPublisher.emitError(error.message, sessionId, {
+          rawLine,
+        });
       },
     };
 

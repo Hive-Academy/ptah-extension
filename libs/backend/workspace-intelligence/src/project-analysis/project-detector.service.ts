@@ -1,8 +1,7 @@
-import { injectable, inject } from 'tsyringe';
+import { injectable } from 'tsyringe';
 import * as vscode from 'vscode';
 import { ProjectType } from '../types/workspace.types';
-import { FILE_SYSTEM_SERVICE } from '../di/tokens';
-import type { FileSystemService } from '../services/file-system.service';
+import { FileSystemService } from '../services/file-system.service';
 
 /**
  * Detects project type based on workspace configuration files and dependencies.
@@ -29,10 +28,7 @@ import type { FileSystemService } from '../services/file-system.service';
  */
 @injectable()
 export class ProjectDetectorService {
-  constructor(
-    @inject(FILE_SYSTEM_SERVICE)
-    private readonly fileSystem: FileSystemService
-  ) {}
+  constructor(private readonly fileSystem: FileSystemService) {}
 
   /**
    * Detects project type for all workspace folders.

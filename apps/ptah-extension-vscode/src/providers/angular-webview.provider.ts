@@ -2,10 +2,7 @@ import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
 import { TOKENS, type Logger, EventBus } from '@ptah-extension/vscode-core';
 // Import from libraries instead of local services
-import {
-  SessionManager,
-  SESSION_MANAGER as CLAUDE_SESSION_MANAGER,
-} from '@ptah-extension/claude-domain';
+import { SessionManager } from '@ptah-extension/claude-domain';
 import {
   ContextManager,
   ProviderManager,
@@ -43,12 +40,12 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     @inject(TOKENS.EXTENSION_CONTEXT)
     private readonly context: vscode.ExtensionContext,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(CLAUDE_SESSION_MANAGER)
+    @inject(TOKENS.SESSION_MANAGER)
     private readonly sessionManager: SessionManager,
     @inject(TOKENS.CONTEXT_MANAGER)
     private readonly contextManager: ContextManager,
     @inject(TOKENS.EVENT_BUS) private readonly eventBus: EventBus,
-    @inject(TOKENS.AI_PROVIDER_MANAGER)
+    @inject(TOKENS.PROVIDER_MANAGER)
     private readonly providerManager: ProviderManager,
     // TODO: Convert these to DI once they are available
     private commandBuilderService: CommandBuilderService,

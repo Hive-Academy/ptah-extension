@@ -371,7 +371,7 @@ export class CommandBuilderService implements vscode.Disposable {
         customTemplates
       );
     } catch (error) {
-      Logger.error('Failed to save custom templates:', error);
+      this.logger.error('Failed to save custom templates:', error);
     }
   }
 
@@ -383,7 +383,7 @@ export class CommandBuilderService implements vscode.Disposable {
       );
       this.usageStats = new Map(Object.entries(stats));
     } catch (error) {
-      Logger.error('Failed to load usage stats:', error);
+      this.logger.error('Failed to load usage stats:', error);
     }
   }
 
@@ -392,7 +392,7 @@ export class CommandBuilderService implements vscode.Disposable {
       const stats = Object.fromEntries(this.usageStats);
       await this.context.globalState.update('ptah.usageStats', stats);
     } catch (error) {
-      Logger.error('Failed to save usage stats:', error);
+      this.logger.error('Failed to save usage stats:', error);
     }
   }
 

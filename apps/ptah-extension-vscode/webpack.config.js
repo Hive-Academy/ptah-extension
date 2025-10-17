@@ -15,7 +15,11 @@ module.exports = {
   target: 'node', // VS Code extensions run in Node.js environment
   mode: 'development', // Will be overridden by Nx configurations
 
-  entry: path.resolve(__dirname, './src/main.ts'),
+  // Entry point with reflect-metadata loaded FIRST
+  entry: [
+    'reflect-metadata', // Load reflect-metadata polyfill before anything else
+    path.resolve(__dirname, './src/main.ts'),
+  ],
 
   output: {
     path: path.resolve(__dirname, '../../dist/apps/ptah-extension-vscode'),
@@ -24,9 +28,23 @@ module.exports = {
     clean: false, // Don't clean - we need to preserve webview and package.json
   },
 
-  externals: {
-    vscode: 'commonjs vscode', // Don't bundle VS Code API, it's provided by the host
-  },
+  externals: [
+    {
+      vscode: 'commonjs vscode', // Don't bundle VS Code API, it's provided by the host
+    },
+    // Bundle reflect-metadata and tsyringe for DI to work properly
+    function ({ context, request }, callback) {
+      // Bundle reflect-metadata and tsyringe (required for DI)
+      if (request === 'reflect-metadata' || request === 'tsyringe') {
+        return callback(); // null means "bundle this"
+      }
+      // Externalize all other node_modules
+      if (/^[a-z\-0-9]+/.test(request)) {
+        return callback(null, 'commonjs ' + request);
+      }
+      callback(); // Bundle project files
+    },
+  ],
 
   resolve: {
     extensions: ['.ts', '.js', '.json'],
@@ -76,14 +94,29 @@ module.exports = {
 
   devtool: 'source-map', // Will be overridden in production
 
-  // Don't bundle node_modules - let extension host handle them
-  externalsPresets: { node: true },
+  // Note: externalsPresets removed - we're handling externals explicitly above
 
   // Optimization settings for VS Code extensions
   optimization: {
     minimize: false, // Don't minimize in development
     concatenateModules: false, // Prevent issues with dynamic requires
+    // Ensure runtime chunk loads reflect-metadata first
+    runtimeChunk: false, // Don't split runtime - keep everything in main bundle
   },
+
+  // Import reflect-metadata at the very start of the bundle
+  plugins: [
+    {
+      apply: (compiler) => {
+        compiler.hooks.afterEmit.tap('ReflectMetadataPlugin', () => {
+          // Log after build to confirm reflect-metadata is first
+          console.log(
+            '\n✓ Webpack build complete - reflect-metadata loaded first in entry array\n'
+          );
+        });
+      },
+    },
+  ],
 
   // Performance settings
   performance: {

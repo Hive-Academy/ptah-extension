@@ -1,8 +1,7 @@
-import { injectable, inject } from 'tsyringe';
+import { injectable } from 'tsyringe';
 import * as vscode from 'vscode';
 import { ProjectType } from '../types/workspace.types';
 import { FileSystemService } from '../services/file-system.service';
-import { FILE_SYSTEM_SERVICE } from '../di/tokens';
 
 /**
  * Represents a dependency with its name and version.
@@ -36,9 +35,7 @@ export interface DependencyAnalysisResult {
  */
 @injectable()
 export class DependencyAnalyzerService {
-  constructor(
-    @inject(FILE_SYSTEM_SERVICE) private readonly fileSystem: FileSystemService
-  ) {}
+  constructor(private readonly fileSystem: FileSystemService) {}
 
   /**
    * Analyze dependencies for a workspace folder.

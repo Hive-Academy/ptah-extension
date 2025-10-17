@@ -13,7 +13,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import type { CorrelationId } from '@ptah-extension/shared';
-import { CONFIGURATION_PROVIDER } from '../di/tokens';
+import { TOKENS } from '@ptah-extension/vscode-core';
 
 /**
  * Workspace Configuration interface
@@ -114,7 +114,7 @@ export interface RefreshConfigResult {
 @injectable()
 export class ConfigOrchestrationService {
   constructor(
-    @inject(CONFIGURATION_PROVIDER)
+    @inject(TOKENS.CONFIGURATION_PROVIDER)
     private readonly configProvider: IConfigurationProvider
   ) {}
 

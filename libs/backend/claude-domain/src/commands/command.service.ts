@@ -17,11 +17,7 @@ import { injectable, inject } from 'tsyringe';
 import * as vscode from 'vscode';
 import type { SessionManager } from '../session/session-manager';
 import type { SessionId } from '@ptah-extension/shared';
-import {
-  CONTEXT_SERVICE,
-  SESSION_MANAGER,
-  CLAUDE_CLI_LAUNCHER,
-} from '../di/tokens';
+import { TOKENS } from '@ptah-extension/vscode-core';
 
 /**
  * ContextService interface (from workspace-intelligence)
@@ -135,9 +131,11 @@ export interface OptimizationSuggestion {
 @injectable()
 export class CommandService {
   constructor(
-    @inject(CONTEXT_SERVICE) private readonly contextService: IContextService,
-    @inject(SESSION_MANAGER) private readonly sessionManager: SessionManager,
-    @inject(CLAUDE_CLI_LAUNCHER)
+    @inject(TOKENS.CONTEXT_SERVICE)
+    private readonly contextService: IContextService,
+    @inject(TOKENS.SESSION_MANAGER)
+    private readonly sessionManager: SessionManager,
+    @inject(TOKENS.CLAUDE_CLI_LAUNCHER)
     private readonly claudeLauncher: IClaudeCliLauncher
   ) {}
 

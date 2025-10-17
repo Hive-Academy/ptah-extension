@@ -27,7 +27,7 @@ import { ChatOrchestrationService } from '../chat/chat-orchestration.service';
 import { ProviderOrchestrationService } from '../provider/provider-orchestration.service';
 import { AnalyticsOrchestrationService } from '../analytics/analytics-orchestration.service';
 import { ConfigOrchestrationService } from '../config/config-orchestration.service';
-import { EVENT_BUS, CONTEXT_ORCHESTRATION_SERVICE } from '../di/tokens';
+import { TOKENS, EventBus } from '@ptah-extension/vscode-core';
 
 /**
  * TypedEvent interface (local definition to avoid circular dependency with vscode-core)
@@ -43,24 +43,8 @@ export interface TypedEvent<
   readonly timestamp: number;
 }
 
-/**
- * EventBus interface (matches vscode-core EventBus)
- * Local definition to avoid circular dependency
- */
-export interface IEventBus {
-  subscribe<T extends keyof MessagePayloadMap>(
-    messageType: T
-  ): {
-    subscribe(
-      handler: (event: TypedEvent<T>) => void | Promise<void>
-    ): Subscription;
-  };
-  publish<T extends keyof MessagePayloadMap>(
-    type: T,
-    payload: MessagePayloadMap[T],
-    source?: 'extension' | 'webview' | 'provider'
-  ): void;
-}
+// Removed IEventBus interface - using EventBus from vscode-core directly
+// This eliminates interface duplication and ensures consistent behavior
 
 /**
  * Context Orchestration Service interface (from workspace-intelligence)
@@ -138,13 +122,13 @@ export class MessageHandlerService {
   private subscriptions: Subscription[] = [];
 
   constructor(
-    @inject(EVENT_BUS)
-    private readonly eventBus: IEventBus,
+    @inject(TOKENS.EVENT_BUS)
+    private readonly eventBus: EventBus, // EventBus from vscode-core, resolved via DI
     @inject(ChatOrchestrationService)
     private readonly chatOrchestration: ChatOrchestrationService,
     @inject(ProviderOrchestrationService)
     private readonly providerOrchestration: ProviderOrchestrationService,
-    @inject(CONTEXT_ORCHESTRATION_SERVICE)
+    @inject(TOKENS.CONTEXT_ORCHESTRATION_SERVICE)
     private readonly contextOrchestration: IContextOrchestrationService,
     @inject(AnalyticsOrchestrationService)
     private readonly analyticsOrchestration: AnalyticsOrchestrationService,

@@ -5,15 +5,8 @@
  * and file type classification. Provides async generators for large workspaces.
  */
 
-import { inject, injectable } from 'tsyringe';
+import { injectable } from 'tsyringe';
 import * as vscode from 'vscode';
-import {
-  FILE_SYSTEM_SERVICE,
-  FILE_TYPE_CLASSIFIER_SERVICE,
-  IGNORE_PATTERN_RESOLVER_SERVICE,
-  PATTERN_MATCHER_SERVICE,
-  TOKEN_COUNTER_SERVICE,
-} from '../di/tokens';
 import { FileSystemService } from '../services/file-system.service';
 import { TokenCounterService } from '../services/token-counter.service';
 import { PatternMatcherService } from './pattern-matcher.service';
@@ -68,15 +61,10 @@ export class WorkspaceIndexerService {
   private readonly defaultMaxFileSize = 1024 * 1024; // 1MB
 
   constructor(
-    @inject(FILE_SYSTEM_SERVICE)
     private readonly fileSystemService: FileSystemService,
-    @inject(PATTERN_MATCHER_SERVICE)
     private readonly patternMatcher: PatternMatcherService,
-    @inject(IGNORE_PATTERN_RESOLVER_SERVICE)
     private readonly ignoreResolver: IgnorePatternResolverService,
-    @inject(FILE_TYPE_CLASSIFIER_SERVICE)
     private readonly fileClassifier: FileTypeClassifierService,
-    @inject(TOKEN_COUNTER_SERVICE)
     private readonly tokenCounter: TokenCounterService
   ) {}
 

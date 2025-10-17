@@ -19,11 +19,10 @@
  * @see task-tracking/TASK_PRV_005/implementation-plan.md - Phase 2 Step 2.5
  */
 
-import { injectable, inject } from 'tsyringe';
+import { injectable } from 'tsyringe';
 import * as path from 'path';
-import { FILE_SYSTEM_SERVICE, PATTERN_MATCHER_SERVICE } from '../di/tokens';
-import type { FileSystemService } from '../services/file-system.service';
-import type { PatternMatcherService } from './pattern-matcher.service';
+import { FileSystemService } from '../services/file-system.service';
+import { PatternMatcherService } from './pattern-matcher.service';
 
 /**
  * Parsed ignore file representation
@@ -90,9 +89,7 @@ export interface IgnoreTestResult {
 @injectable()
 export class IgnorePatternResolverService {
   constructor(
-    @inject(FILE_SYSTEM_SERVICE)
     private readonly fileSystem: FileSystemService,
-    @inject(PATTERN_MATCHER_SERVICE)
     private readonly patternMatcher: PatternMatcherService
   ) {}
 

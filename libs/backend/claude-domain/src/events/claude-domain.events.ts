@@ -13,7 +13,7 @@ import {
   ClaudePermissionResponse,
   ClaudeCliHealth,
 } from '@ptah-extension/shared';
-import { EVENT_BUS } from '../di/tokens';
+import { TOKENS } from '@ptah-extension/vscode-core';
 
 /**
  * Event topics for claude-domain
@@ -105,7 +105,7 @@ export interface IEventBus {
  */
 @injectable()
 export class ClaudeDomainEventPublisher {
-  constructor(@inject(EVENT_BUS) private readonly eventBus: IEventBus) {}
+  constructor(@inject(TOKENS.EVENT_BUS) private readonly eventBus: IEventBus) {}
 
   emitContentChunk(sessionId: SessionId, chunk: ClaudeContentChunk): void {
     this.eventBus.publish<ClaudeContentChunkEvent>(
