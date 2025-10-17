@@ -149,12 +149,28 @@ export class ProviderManager {
   }
 
   /**
-   * Gets all registered providers
+   * Gets all registered providers as array (implements IProviderManager)
    *
-   * @returns ReadonlyMap of all registered providers
+   * @returns Array of all registered providers
    */
-  getAvailableProviders(): ReadonlyMap<ProviderId, EnhancedAIProvider> {
-    return this.providers;
+  getAvailableProviders(): readonly EnhancedAIProvider[] {
+    return Array.from(this.providers.values());
+  }
+
+  /**
+   * Gets all provider health statuses (implements IProviderManager)
+   *
+   * @returns Record mapping provider IDs to their health status
+   */
+  getAllProviderHealth(): Record<ProviderId, ProviderHealth> {
+    const currentState = this.providersSubject.value;
+    const healthMap: Record<string, ProviderHealth> = {};
+
+    for (const [providerId, health] of currentState.health.entries()) {
+      healthMap[providerId] = health;
+    }
+
+    return healthMap as Record<ProviderId, ProviderHealth>;
   }
 
   /**

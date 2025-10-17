@@ -58,11 +58,9 @@ export class WebviewHtmlGenerator {
 
     let indexHtml = fs.readFileSync(indexPath, { encoding: 'utf8' });
 
-    // RESEARCH FINDING: Update base URI - this is the key fix for asset loading
-    indexHtml = indexHtml.replace(
-      '<base href="/">',
-      `<base href="${String(baseUri)}/">`
-    );
+    // CRITICAL: DO NOT modify the base href - VS Code webviews don't support it
+    // We will transform individual asset URIs instead
+    // Keep base href as "/" to avoid confusing VS Code's webview URI resolution
 
     // IMPROVED CSP: Fix Google Fonts and add proper nonce support
     const nonce = this.generateNonce();
@@ -111,13 +109,56 @@ export class WebviewHtmlGenerator {
       </body>`
     );
 
-    // Transform all resource URIs using the enhanced transformation method
-    indexHtml = this.transformResourceUris(
-      indexHtml,
-      webview,
-      appDistPathUri,
-      nonce
+    // Transform all asset URIs (styles.css, main.js, polyfills.js) to webview URIs
+    // This is REQUIRED for VS Code webviews - base href alone doesn't work
+    indexHtml = indexHtml.replace(
+      /(src|href)="([^"]+)"/g,
+      (match, attribute, uri) => {
+        // CRITICAL: Skip base href (/) - it's a special HTML tag
+        if (uri === '/') {
+          return match;
+        }
+
+        // Skip external resources, data URIs, and already-transformed URIs
+        if (
+          uri.startsWith('http') ||
+          uri.startsWith('data:') ||
+          uri.startsWith('vscode-webview:') ||
+          uri.startsWith('https://file+.vscode-resource') ||
+          uri.startsWith('//') ||
+          uri === '' ||
+          uri === '#'
+        ) {
+          return match;
+        }
+
+        // Transform relative URIs to webview URIs
+        const fullUri = webview.asWebviewUri(vscode.Uri.joinPath(appDistPathUri, uri));
+        console.log(`[WebviewHtmlGenerator] Transforming ${attribute}="${uri}" -> "${fullUri}"`);
+        return `${attribute}="${fullUri}"`;
+      }
     );
+
+    // Add nonce to inline styles (Angular critical CSS)
+    indexHtml = indexHtml.replace(/<style>/g, `<style nonce="${nonce}">`);
+
+    // Add nonces to script and link tags
+    indexHtml = indexHtml
+      .replace(/<script([^>]*?)>/g, (match, attributes) => {
+        if (!attributes.includes('nonce=')) {
+          return `<script${attributes} nonce="${nonce}">`;
+        }
+        return match;
+      })
+      .replace(/<link([^>]*?)>/g, (match, attributes) => {
+        if (!attributes.includes('nonce=') && attributes.includes('stylesheet')) {
+          return `<link${attributes} nonce="${nonce}">`;
+        }
+        return match;
+      });
+
+    console.log('[WebviewHtmlGenerator] Base URI set to:', String(baseUri));
+    console.log('[WebviewHtmlGenerator] All assets transformed to webview URIs');
 
     return indexHtml;
   }
@@ -142,6 +183,7 @@ export class WebviewHtmlGenerator {
           uri.startsWith('http') ||
           uri.startsWith('data:') ||
           uri.startsWith('vscode-webview:') ||
+          uri.startsWith('vscode-resource:') ||  // Skip webview resource URIs
           uri.startsWith('//') ||
           uri === '' ||
           uri === '#'
@@ -151,6 +193,7 @@ export class WebviewHtmlGenerator {
 
         // Transform relative URIs to webview URIs
         const fullUri = webview.asWebviewUri(vscode.Uri.joinPath(baseUri, uri));
+        console.log(`[WebviewHtmlGenerator] Transforming ${attribute}="${uri}" -> "${fullUri}"`);
         return `${attribute}="${fullUri}"`;
       }
     );

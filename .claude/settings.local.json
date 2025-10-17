@@ -5,18 +5,21 @@
       "mcp__sequential-thinking__sequentialthinking",
       "Bash(cat:*)",
       "Bash(npx nx build:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "WebSearch"
     ],
     "deny": [],
     "ask": [],
-    "additionalDirectories": ["D:\\projects\\nestjs-ai-saas-starter"]
+    "additionalDirectories": [
+      "D:\\projects\\ptah-extension"
+    ]
   },
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
+    "browser",
     "sequential-thinking",
     "nx-mcp",
-    "angular-cli",
-    "fetch"
+    "angular-cli"
   ],
   "outputStyle": "default"
 }

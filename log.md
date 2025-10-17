@@ -1,83 +1,195 @@
-Loaded translations for languages: ca, de, en, es, fr, hi, id, it, ja, ko, nl, pl, pt-BR, ru, tr, vi, zh-CN, zh-TW
-[dotenvx@1.44.2] injecting env (1) from c:\Users\abdal\.vscode\extensions\rooveterinaryinc.roo-cline-3.28.17\.env
-(node:28656) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+ [Extension Host] STOPPED on first line for debugging on port 53167
+F @ workbench.desktop.main.js:3825
+  INFO Loading development extension at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode
+ Overwriting extension <<copilot-instructions.md>> to now point to mime <<text/x-instructions>>
+(anonymous) @ workbench.desktop.main.js:576
+ Overwriting extension <<.editorconfig>> to now point to mime <<text/x-editorconfig>>
+(anonymous) @ workbench.desktop.main.js:576
+ Overwriting extension <<.hbs>> to now point to mime <<text/x-handlebars>>
+(anonymous) @ workbench.desktop.main.js:576
+ Overwriting extension <<.handlebars>> to now point to mime <<text/x-handlebars>>
+(anonymous) @ workbench.desktop.main.js:576
+ Overwriting filename <<.gitignore>> to now point to mime <<text/x-ignore>>
+(anonymous) @ workbench.desktop.main.js:576
+ Overwriting filename <<.env>> to now point to mime <<text/x-dotenv>>
+(anonymous) @ workbench.desktop.main.js:576
+ Overwriting filepattern <<.env.*>> to now point to mime <<text/x-dotenv>>
+(anonymous) @ workbench.desktop.main.js:576
+ An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing.
+mountTo @ workbench.desktop.main.js:4069
+  INFO Started local extension host with pid 11164.
+  INFO MCP Registry configured: <https://api.mcp.github.com/2025-09-15>
+marketplace.visualstudio.com/_apis/public/gallery/vscode/ptah-extensions/ptah-extension-vscode/latest:1  Failed to load resource: the server responded with a status of 404 ()
+  INFO Auto updating outdated extensions. anthropic.claude-code
+ Extension Host
+ Debugger attached.
+  INFO [perf] Render performance baseline is 27ms
+ [Extension Host] Loaded translations for languages: ca, de, en, es, fr, hi, id, it, ja, ko, nl, pl, pt-BR, ru, tr, vi, zh-CN, zh-TW (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [dotenvx@1.44.2] injecting env (1) from c:\Users\abdal\.vscode\extensions\rooveterinaryinc.roo-cline-3.28.17\.env (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+   ERR [Extension Host] (node:11164) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
 (Use `Code --trace-deprecation ...` to show where the warning was created)
-[INFO] Activating Ptah extension...
-Loaded 0 sessions from storage
-[INFO] Loaded context state: 4 included, 0 excluded
-[INFO] Loaded context state: 4 included, 0 excluded
-[INFO] ContextManager initialized with workspace-intelligence integration
-[INFO] Analytics metrics tracking initialized
-MessageHandlerService: Initializing EventBus subscriptions
-MessageHandlerService: Initialized 29 EventBus subscriptions
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 95, hasTimestamp: false, hasPrefix: false, …}
-[INFO] MessageHandlerService initialized and subscribed to EventBus
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 65, hasTimestamp: false, hasPrefix: false, …}
-[INFO] Initializing Ptah extension...
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 59, hasTimestamp: false, hasPrefix: false, …}
-[INFO] Initializing services...
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 79, hasTimestamp: false, hasPrefix: false, …}
-[INFO] Loaded context state: 4 included, 0 excluded
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 73, hasTimestamp: false, hasPrefix: false, …}
-[INFO] Analytics metrics tracking initialized
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 86, hasTimestamp: false, hasPrefix: false, …}
-[INFO] Development file watcher initialized for hot reload
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 96, hasTimestamp: false, hasPrefix: false, …}
-[INFO] AngularWebviewProvider initialized with EventBus architecture
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 79, hasTimestamp: false, hasPrefix: false, …}
-[INFO] Services initialized successfully (DI-based)
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 74, hasTimestamp: false, hasPrefix: false, …}
-[INFO] Ptah extension initialized successfully
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 75, hasTimestamp: false, hasPrefix: false, …}
-[INFO] ConfigurationProvider adapter registered
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 76, hasTimestamp: false, hasPrefix: false, …}
-[INFO] AnalyticsDataCollector adapter registered
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 70, hasTimestamp: false, hasPrefix: false, …}
-[INFO] Registering extension components...
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 68, hasTimestamp: false, hasPrefix: false, …}
-[INFO] Registering extension commands...
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 57, hasTimestamp: false, hasPrefix: false, …}
-[INFO] Registered 11 commands
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 67, hasTimestamp: false, hasPrefix: false, …}
-[INFO] Registering webview providers...
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 63, hasTimestamp: false, hasPrefix: false, …}
-[INFO] Webview providers registered
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 63, hasTimestamp: false, hasPrefix: false, …}
-[INFO] Setting up event handlers...
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 60, hasTimestamp: false, hasPrefix: false, …}
-[INFO] Event handlers registered
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 73, hasTimestamp: false, hasPrefix: false, …}
-[INFO] All components registered successfully
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 79, hasTimestamp: false, hasPrefix: false, …}
-[INFO] Extension components registered successfully
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 72, hasTimestamp: false, hasPrefix: false, …}
-[INFO] Ptah extension activated successfully
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 63, hasTimestamp: false, hasPrefix: false, …}
-[INFO] Initial data sent to webview
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 74, hasTimestamp: false, hasPrefix: false, …}
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 55, hasTimestamp: false, hasPrefix: false, …}
-[INFO] Received webview message: webview-ready {arg0: {…}}
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 64, hasTimestamp: false, hasPrefix: false, …}
-[INFO] Webview ready signal received
-Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 63, hasTimestamp: false, hasPrefix: false, …}
-[INFO] Initial data sent to webview
-Activating prisma-language-server
-Watching C:\Users\abdal\AppData\Local\prisma-nodejs\Cache\last-generate for changes (new watcher).
-Using published Language Server (npm)
-serverModule: c:\Users\abdal\.vscode\extensions\prisma.prisma-6.17.1\node_modules\@prisma\language-server\dist\bin.js
-Telemetry is enabled for Prisma extension
-Activating prisma-local-ai-tools
-Activating Prisma Postgres
-Activating Studio
-projectPath: file:///d%3A/projects/Anubis-MCP/prisma/schema.prisma
-CloudService not ready, deferring cloud profile sync
-[auth] Using WebAuthService
-[auth] changeState: initializing -> logged-out
-(node:28656) ExperimentalWarning: SQLite is an experimental feature and might change at any time
-Created lock file at C:\Users\abdal\.claude\ide\34673.lock
-Set CLAUDE_CODE_SSE_PORT=34673 in terminal environment (in-memory)
-Set ENABLE_IDE_INTEGRATION=true in terminal environment (in-memory)
-GET / - 500 with id UNKNOWN in 12433ms
-GitHub Light Colorblind (Beta)
-Workspace analyzed: Anubis-MCP (node - express)
-Workspace analyzed: Anubis-MCP (node - express)
+error @ workbench.desktop.main.js:36
+ [Extension Host] (node:11164) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `Code --trace-deprecation ...` to show where the warning was created) (at file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117)
+gbs @ workbench.desktop.main.js:526
+ [Extension Host] [INFO] Activating Ptah extension... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] Loaded 1 sessions from storage (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] Loaded context state: 5 included, 0 excluded (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] Loaded context state: 5 included, 0 excluded (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] ContextManager initialized with workspace-intelligence integration (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] Analytics metrics tracking initialized (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] MessageHandlerService: Initializing EventBus subscriptions (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] MessageHandlerService: Initialized 29 EventBus subscriptions (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] MessageHandlerService initialized and subscribed to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] Initializing Ptah extension... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] Initializing services... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] Loaded context state: 5 included, 0 excluded (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] Analytics metrics tracking initialized (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] Development file watcher initialized for hot reload (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] AngularWebviewProvider initialized with EventBus architecture (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] Services initialized successfully (DI-based) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] Ptah extension initialized successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] ConfigurationProvider adapter registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] AnalyticsDataCollector adapter registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] Registering extension components... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] Registering extension commands... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] Registered 11 commands (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] Registering webview providers... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] Webview providers registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] Setting up event handlers... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] Event handlers registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] All components registered successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] Extension components registered successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [INFO] Ptah extension activated successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+  INFO Settings Sync: Account status changed from uninitialized to available
+ [Extension Host] [WebviewHtmlGenerator] Transforming href="favicon.ico" -> "<https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/favicon.ico>" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [WebviewHtmlGenerator] Transforming href="styles.css" -> "<https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/styles.css>" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [WebviewHtmlGenerator] Transforming src="polyfills.js" -> "<https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/polyfills.js>" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [WebviewHtmlGenerator] Transforming src="main.js" -> "<https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/main.js>" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+ [Extension Host] [WebviewHtmlGenerator] Base URI set to: <https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser> (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [WebviewHtmlGenerator] All assets transformed to webview URIs (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Initial data sent to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+VM7:38 Ptah WebView: VS Code API initialized Object
+main.js:4 VSCodeService: Initialized with VS Code config Object
+main.js:4 WebviewNavigationService: Initialized with pure signal-based navigation
+main.js:46 Ptah App ngOnInit - starting initialization...
+main.js:4 Webview ready with current view: chat
+main.js:46 Ptah App - ViewManager initialized successfully
+main.js:46 Setting up initial view with pure signal navigation
+main.js:4 WebviewNavigationService: Already on requested view: chat
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Received webview message: view:changed Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Publishing message to EventBus: view:changed (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Message view:changed published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Received webview message: webview-ready Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Webview ready signal received (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Initial data sent to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Received webview message: webview-ready Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Webview ready signal received (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Initial data sent to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Received webview message: context:getFiles Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Publishing message to EventBus: context:getFiles (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Message context:getFiles published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Received webview message: providers:getAvailable Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Publishing message to EventBus: providers:getAvailable (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Message providers:getAvailable published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Received webview message: providers:getCurrent Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Publishing message to EventBus: providers:getCurrent (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Message providers:getCurrent published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Received webview message: providers:getAllHealth Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Received webview message: requestInitialData Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Angular requested initial data (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Initial data sent to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Received webview message: webview-ready Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Webview ready signal received (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [INFO] Initial data sent to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Activating prisma-language-server (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Watching C:\Users\abdal\AppData\Local\prisma-nodejs\Cache\last-generate for changes (new watcher). (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Using published Language Server (npm) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] serverModule: c:\Users\abdal\.vscode\extensions\prisma.prisma-6.17.1\node_modules\@prisma\language-server\dist\bin.js (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Telemetry is enabled for Prisma extension (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Activating prisma-local-ai-tools (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Activating Prisma Postgres (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Activating Studio (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] projectPath: file:///d%3A/projects/Anubis-MCP/prisma/schema.prisma (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] CloudService not ready, deferring cloud profile sync (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [auth] Using WebAuthService (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] [auth] changeState: initializing -> logged-out (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] GitHub Light Colorblind (Beta) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Workspace analyzed: Anubis-MCP (node - express) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Workspace analyzed: Anubis-MCP (node - express) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:36   ERR [Extension Host] (node:11164) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+error @ workbench.desktop.main.js:sourcemap:36
+workbench.desktop.main.js:sourcemap:526 [Extension Host] (node:11164) ExperimentalWarning: SQLite is an experimental feature and might change at any time (at file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117)
+gbs @ workbench.desktop.main.js:sourcemap:526
+workbench.desktop.main.js:sourcemap:36  INFO Extension host (LocalProcess pid: 11164) is unresponsive.
+workbench.desktop.main.js:sourcemap:3825 Extension Host
+workbench.desktop.main.js:sourcemap:3825 Debugger attached.
+workbench.desktop.main.js:sourcemap:36  INFO UNRESPONSIVE extension host: starting to profile NOW
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Created lock file at C:\Users\abdal\.claude\ide\58493.lock (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Set CLAUDE_CODE_SSE_PORT=58493 in terminal environment (in-memory) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:526 [Extension Host] Set ENABLE_IDE_INTEGRATION=true in terminal environment (in-memory) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
+workbench.desktop.main.js:sourcemap:36  INFO Extension host (LocalProcess pid: 11164) is responsive.
+workbench.desktop.main.js:sourcemap:36  INFO UNRESPONSIVE extension host: received responsive event and cancelling profiling session
+workbench.desktop.main.js:sourcemap:36   ERR chatParticipant must be declared in package.json: claude-code
+error @ workbench.desktop.main.js:sourcemap:36
+workbench.desktop.main.js:sourcemap:4069 Using standard dev tools to debug iframe based webview

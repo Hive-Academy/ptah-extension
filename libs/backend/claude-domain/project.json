@@ -13,7 +13,8 @@
         "main": "libs/backend/claude-domain/src/index.ts",
         "tsConfig": "libs/backend/claude-domain/tsconfig.lib.json",
         "assets": ["libs/backend/claude-domain/*.md"],
-        "format": ["cjs"]
+        "format": ["cjs"],
+        "external": ["vscode", "tsyringe", "eventemitter3", "rxjs", "minimatch"]
       }
     },
     "test": {

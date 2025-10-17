@@ -54,7 +54,7 @@ import { VSCodeService } from '@ptah-extension/core';
       <!-- Welcome Section -->
       <div class="welcome-section">
         <div class="welcome-icon">
-          <img [ngSrc]="ptahIconUri" alt="Ptah" class="ptah-icon" />
+          <img [ngSrc]="ptahIconUri" alt="Ptah" class="ptah-icon" width="120" height="120" />
         </div>
         <div class="welcome-content">
           <h3 class="welcome-title">Welcome to Claude Code</h3>

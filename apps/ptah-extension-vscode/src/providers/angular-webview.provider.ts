@@ -66,19 +66,13 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     this._view = webviewView;
 
     // Configure webview for Angular app
+    // NOTE: context.extensionUri already points to dist/apps/ptah-extension-vscode
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [
-        vscode.Uri.joinPath(
-          this.context.extensionUri,
-          'dist',
-          'apps',
-          'ptah-extension-vscode',
-          'webview',
-          'browser'
-        ),
-        vscode.Uri.joinPath(this.context.extensionUri, 'media'),
-        vscode.Uri.joinPath(this.context.extensionUri, 'dist'),
+        vscode.Uri.joinPath(this.context.extensionUri, 'webview', 'browser'),
+        vscode.Uri.joinPath(this.context.extensionUri, 'assets'),
+        this.context.extensionUri, // Allow all extension resources
       ],
     };
 
@@ -127,16 +121,9 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         enableScripts: true,
         retainContextWhenHidden: true,
         localResourceRoots: [
-          vscode.Uri.joinPath(
-            this.context.extensionUri,
-            'dist',
-            'apps',
-            'ptah-extension-vscode',
-            'webview',
-            'browser'
-          ),
-          vscode.Uri.joinPath(this.context.extensionUri, 'media'),
-          vscode.Uri.joinPath(this.context.extensionUri, 'dist'),
+          vscode.Uri.joinPath(this.context.extensionUri, 'webview', 'browser'),
+          vscode.Uri.joinPath(this.context.extensionUri, 'assets'),
+          this.context.extensionUri, // Allow all extension resources
         ],
       }
     );
@@ -380,9 +367,6 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     if (this.context.extensionMode === vscode.ExtensionMode.Development) {
       const webviewDistPath = vscode.Uri.joinPath(
         this.context.extensionUri,
-        'dist',
-        'apps',
-        'ptah-extension-vscode',
         'webview',
         'browser'
       );
