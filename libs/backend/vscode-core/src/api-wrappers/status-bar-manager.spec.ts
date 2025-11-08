@@ -6,7 +6,11 @@
 
 import 'reflect-metadata';
 import * as vscode from 'vscode';
-import { StatusBarManager, StatusBarItemConfig, StatusBarItemUpdate } from './status-bar-manager';
+import {
+  StatusBarManager,
+  StatusBarItemConfig,
+  StatusBarItemUpdate,
+} from './status-bar-manager';
 
 // Mock VS Code API with proper disposable patterns
 const mockStatusBarItem = {
@@ -21,29 +25,33 @@ const mockStatusBarItem = {
   accessibilityInformation: undefined,
   show: jest.fn(),
   hide: jest.fn(),
-  dispose: jest.fn()
+  dispose: jest.fn(),
 };
 
 jest.mock('vscode', () => ({
   window: {
-    createStatusBarItem: jest.fn().mockImplementation((id: string, alignment: number, priority: number) => ({
-      ...mockStatusBarItem,
-      id,
-      alignment,
-      priority
-    })),
+    createStatusBarItem: jest
+      .fn()
+      .mockImplementation(
+        (id: string, alignment: number, priority: number) => ({
+          ...mockStatusBarItem,
+          id,
+          alignment,
+          priority,
+        })
+      ),
   },
   StatusBarAlignment: {
     Left: 1,
-    Right: 2
+    Right: 2,
   },
   ThemeColor: jest.fn(),
   ExtensionContext: jest.fn(),
   Uri: {
     file: jest.fn(),
     parse: jest.fn(),
-    joinPath: jest.fn()
-  }
+    joinPath: jest.fn(),
+  },
 }));
 
 // Access the mocked window after the mock is set up
@@ -63,27 +71,102 @@ describe('StatusBarManager - User Requirement: VS Code Status Bar Abstraction', 
 
   beforeEach(() => {
     jest.clearAllMocks();
-    
+
     mockContext = {
       subscriptions: [],
-      workspaceState: { get: jest.fn(), update: jest.fn(), keys: jest.fn().mockReturnValue([]) },
-      globalState: { get: jest.fn(), update: jest.fn(), setKeysForSync: jest.fn(), keys: jest.fn().mockReturnValue([]) },
-      secrets: { get: jest.fn(), store: jest.fn(), delete: jest.fn(), onDidChange: jest.fn() },
-      extensionUri: { scheme: 'file', authority: '', path: '/test', query: '', fragment: '', fsPath: '/test', with: jest.fn(), toString: jest.fn(), toJSON: jest.fn() },
+      workspaceState: {
+        get: jest.fn(),
+        update: jest.fn(),
+        keys: jest.fn().mockReturnValue([]),
+      },
+      globalState: {
+        get: jest.fn(),
+        update: jest.fn(),
+        setKeysForSync: jest.fn(),
+        keys: jest.fn().mockReturnValue([]),
+      },
+      secrets: {
+        get: jest.fn(),
+        store: jest.fn(),
+        delete: jest.fn(),
+        onDidChange: jest.fn(),
+      },
+      extensionUri: {
+        scheme: 'file',
+        authority: '',
+        path: '/test',
+        query: '',
+        fragment: '',
+        fsPath: '/test',
+        with: jest.fn(),
+        toString: jest.fn(),
+        toJSON: jest.fn(),
+      },
       extensionPath: '/test/extension/path',
-      environmentVariableCollection: { persistent: false, replace: jest.fn(), append: jest.fn(), prepend: jest.fn(), get: jest.fn(), forEach: jest.fn(), delete: jest.fn(), clear: jest.fn() },
+      environmentVariableCollection: {
+        persistent: false,
+        replace: jest.fn(),
+        append: jest.fn(),
+        prepend: jest.fn(),
+        get: jest.fn(),
+        forEach: jest.fn(),
+        delete: jest.fn(),
+        clear: jest.fn(),
+      },
       storagePath: '/test/storage/path',
       globalStoragePath: '/test/global/storage/path',
       logPath: '/test/log/path',
       extensionMode: 1,
-      logUri: { scheme: 'file', authority: '', path: '/test/log', query: '', fragment: '', fsPath: '/test/log', with: jest.fn(), toString: jest.fn(), toJSON: jest.fn() },
-      storageUri: { scheme: 'file', authority: '', path: '/test/storage', query: '', fragment: '', fsPath: '/test/storage', with: jest.fn(), toString: jest.fn(), toJSON: jest.fn() },
-      globalStorageUri: { scheme: 'file', authority: '', path: '/test/global', query: '', fragment: '', fsPath: '/test/global', with: jest.fn(), toString: jest.fn(), toJSON: jest.fn() },
+      logUri: {
+        scheme: 'file',
+        authority: '',
+        path: '/test/log',
+        query: '',
+        fragment: '',
+        fsPath: '/test/log',
+        with: jest.fn(),
+        toString: jest.fn(),
+        toJSON: jest.fn(),
+      },
+      storageUri: {
+        scheme: 'file',
+        authority: '',
+        path: '/test/storage',
+        query: '',
+        fragment: '',
+        fsPath: '/test/storage',
+        with: jest.fn(),
+        toString: jest.fn(),
+        toJSON: jest.fn(),
+      },
+      globalStorageUri: {
+        scheme: 'file',
+        authority: '',
+        path: '/test/global',
+        query: '',
+        fragment: '',
+        fsPath: '/test/global',
+        with: jest.fn(),
+        toString: jest.fn(),
+        toJSON: jest.fn(),
+      },
       asAbsolutePath: jest.fn(),
-      extension: { id: 'test.extension', extensionUri: { scheme: 'file', path: '/test', fsPath: '/test' } as any, extensionPath: '/test', isActive: true, packageJSON: {}, exports: undefined, activate: jest.fn(), extensionKind: 1 },
-      languageModelAccessInformation: { onDidChange: jest.fn(), canSendRequest: jest.fn().mockReturnValue(true) }
+      extension: {
+        id: 'test.extension',
+        extensionUri: { scheme: 'file', path: '/test', fsPath: '/test' } as any,
+        extensionPath: '/test',
+        isActive: true,
+        packageJSON: {},
+        exports: undefined,
+        activate: jest.fn(),
+        extensionKind: 1,
+      },
+      languageModelAccessInformation: {
+        onDidChange: jest.fn(),
+        canSendRequest: jest.fn().mockReturnValue(true),
+      },
     } as any;
-    
+
     statusBarManager = new StatusBarManager(mockContext, mockEventBus as any);
   });
 
@@ -100,7 +183,7 @@ describe('StatusBarManager - User Requirement: VS Code Status Bar Abstraction', 
         priority: 100,
         text: '$(sync) Ptah',
         tooltip: 'Ptah Extension Status',
-        command: 'ptah.showStatus'
+        command: 'ptah.showStatus',
       };
 
       // WHEN: Creating the status bar item
@@ -120,23 +203,29 @@ describe('StatusBarManager - User Requirement: VS Code Status Bar Abstraction', 
       expect(mockContext.subscriptions).toContain(item);
 
       // AND: Analytics event should be published
-      expect(mockEventBus.publish).toHaveBeenCalledWith('analytics:trackEvent', {
-        event: 'statusBar:itemCreated',
-        properties: {
-          itemId: 'ptah.status.test',
-          alignment: mockStatusBarAlignment.Left,
-          priority: 100,
-          hasText: true,
-          hasTooltip: true,
-          hasCommand: true,
-          timestamp: expect.any(Number)
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        'analytics:trackEvent',
+        {
+          event: 'statusBar:itemCreated',
+          properties: {
+            itemId: 'ptah.status.test',
+            alignment: mockStatusBarAlignment.Left,
+            priority: 100,
+            hasText: true,
+            hasTooltip: true,
+            hasCommand: true,
+            timestamp: expect.any(Number),
+          },
         }
-      });
+      );
     });
 
     it('should return existing item if already created', () => {
       // GIVEN: Item already exists
-      const config: StatusBarItemConfig = { id: 'ptah.existing', text: 'Existing' };
+      const config: StatusBarItemConfig = {
+        id: 'ptah.existing',
+        text: 'Existing',
+      };
       const firstItem = statusBarManager.createStatusBarItem(config);
 
       // WHEN: Creating item with same ID
@@ -171,14 +260,17 @@ describe('StatusBarManager - User Requirement: VS Code Status Bar Abstraction', 
 
       // WHEN: Creating item that fails
       // THEN: Should throw error and publish error event
-      expect(() => statusBarManager.createStatusBarItem(config)).toThrow('VS Code error');
-      
+      expect(() => statusBarManager.createStatusBarItem(config)).toThrow(
+        'VS Code error'
+      );
+
       expect(mockEventBus.publish).toHaveBeenCalledWith('error', {
         code: 'STATUS_BAR_ITEM_CREATE_FAILED',
-        message: 'Failed to create status bar item ptah.error: Error: VS Code error',
+        message:
+          'Failed to create status bar item ptah.error: Error: VS Code error',
         source: 'StatusBarManager',
         data: { config },
-        timestamp: expect.any(Number)
+        timestamp: expect.any(Number),
       });
     });
   });
@@ -186,10 +278,10 @@ describe('StatusBarManager - User Requirement: VS Code Status Bar Abstraction', 
   describe('User Scenario: Status Bar Item Updates and State Management', () => {
     beforeEach(() => {
       // Setup item for update tests
-      statusBarManager.createStatusBarItem({ 
+      statusBarManager.createStatusBarItem({
         id: 'ptah.update.test',
         text: 'Initial Text',
-        tooltip: 'Initial Tooltip'
+        tooltip: 'Initial Tooltip',
       });
       jest.clearAllMocks(); // Clear creation events
     });
@@ -200,11 +292,14 @@ describe('StatusBarManager - User Requirement: VS Code Status Bar Abstraction', 
         text: 'Updated Text',
         tooltip: 'Updated Tooltip',
         color: 'red',
-        command: 'ptah.updatedCommand'
+        command: 'ptah.updatedCommand',
       };
 
       // WHEN: Updating the item
-      const result = statusBarManager.updateStatusBarItem('ptah.update.test', update);
+      const result = statusBarManager.updateStatusBarItem(
+        'ptah.update.test',
+        update
+      );
 
       // THEN: Item should be updated and tracked
       expect(result).toBe(true);
@@ -215,15 +310,18 @@ describe('StatusBarManager - User Requirement: VS Code Status Bar Abstraction', 
       expect(item!.command).toBe('ptah.updatedCommand');
 
       // AND: Analytics event should be published
-      expect(mockEventBus.publish).toHaveBeenCalledWith('analytics:trackEvent', {
-        event: 'statusBar:itemUpdated',
-        properties: {
-          itemId: 'ptah.update.test',
-          propertiesUpdated: 4,
-          updatedProperties: 'text,tooltip,color,command',
-          timestamp: expect.any(Number)
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        'analytics:trackEvent',
+        {
+          event: 'statusBar:itemUpdated',
+          properties: {
+            itemId: 'ptah.update.test',
+            propertiesUpdated: 4,
+            updatedProperties: 'text,tooltip,color,command',
+            timestamp: expect.any(Number),
+          },
         }
-      });
+      );
 
       // AND: Metrics should be updated
       const metrics = statusBarManager.getItemMetrics('ptah.update.test');
@@ -234,7 +332,7 @@ describe('StatusBarManager - User Requirement: VS Code Status Bar Abstraction', 
     it('should handle partial updates correctly', () => {
       // GIVEN: Partial update (only text)
       const update: StatusBarItemUpdate = {
-        text: 'Only Text Updated'
+        text: 'Only Text Updated',
       };
 
       // WHEN: Updating only text
@@ -247,20 +345,25 @@ describe('StatusBarManager - User Requirement: VS Code Status Bar Abstraction', 
       expect(item!.tooltip).toBe('Initial Tooltip');
 
       // AND: Should track only the updated property
-      expect(mockEventBus.publish).toHaveBeenCalledWith('analytics:trackEvent', {
-        event: 'statusBar:itemUpdated',
-        properties: {
-          itemId: 'ptah.update.test',
-          propertiesUpdated: 1,
-          updatedProperties: 'text',
-          timestamp: expect.any(Number)
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        'analytics:trackEvent',
+        {
+          event: 'statusBar:itemUpdated',
+          properties: {
+            itemId: 'ptah.update.test',
+            propertiesUpdated: 1,
+            updatedProperties: 'text',
+            timestamp: expect.any(Number),
+          },
         }
-      });
+      );
     });
 
     it('should handle updates to non-existent items', () => {
       // WHEN: Updating item that doesn't exist
-      const result = statusBarManager.updateStatusBarItem('non.existent', { text: 'test' });
+      const result = statusBarManager.updateStatusBarItem('non.existent', {
+        text: 'test',
+      });
 
       // THEN: Should return false and publish error
       expect(result).toBe(false);
@@ -269,7 +372,7 @@ describe('StatusBarManager - User Requirement: VS Code Status Bar Abstraction', 
         message: 'Status bar item non.existent not found',
         source: 'StatusBarManager',
         data: { itemId: 'non.existent', update: { text: 'test' } },
-        timestamp: expect.any(Number)
+        timestamp: expect.any(Number),
       });
     });
 
@@ -277,20 +380,25 @@ describe('StatusBarManager - User Requirement: VS Code Status Bar Abstraction', 
       // GIVEN: Update operation that will fail
       const item = statusBarManager.getItem('ptah.update.test');
       Object.defineProperty(item!, 'text', {
-        set: () => { throw new Error('Update failed'); }
+        set: () => {
+          throw new Error('Update failed');
+        },
       });
 
       // WHEN: Updating item that fails
-      const result = statusBarManager.updateStatusBarItem('ptah.update.test', { text: 'fail' });
+      const result = statusBarManager.updateStatusBarItem('ptah.update.test', {
+        text: 'fail',
+      });
 
       // THEN: Should return false and publish error event
       expect(result).toBe(false);
       expect(mockEventBus.publish).toHaveBeenCalledWith('error', {
         code: 'STATUS_BAR_ITEM_UPDATE_FAILED',
-        message: 'Failed to update status bar item ptah.update.test: Error: Update failed',
+        message:
+          'Failed to update status bar item ptah.update.test: Error: Update failed',
         source: 'StatusBarManager',
         data: { itemId: 'ptah.update.test', update: { text: 'fail' } },
-        timestamp: expect.any(Number)
+        timestamp: expect.any(Number),
       });
 
       // AND: Error metrics should be updated
@@ -318,13 +426,16 @@ describe('StatusBarManager - User Requirement: VS Code Status Bar Abstraction', 
       expect(metrics!.isVisible).toBe(true);
 
       // AND: Analytics event should be published
-      expect(mockEventBus.publish).toHaveBeenCalledWith('analytics:trackEvent', {
-        event: 'statusBar:itemShown',
-        properties: {
-          itemId: 'ptah.visibility.test',
-          timestamp: expect.any(Number)
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        'analytics:trackEvent',
+        {
+          event: 'statusBar:itemShown',
+          properties: {
+            itemId: 'ptah.visibility.test',
+            timestamp: expect.any(Number),
+          },
         }
-      });
+      );
     });
 
     it('should hide items and track visibility state', () => {
@@ -344,13 +455,16 @@ describe('StatusBarManager - User Requirement: VS Code Status Bar Abstraction', 
       expect(metrics!.isVisible).toBe(false);
 
       // AND: Analytics event should be published
-      expect(mockEventBus.publish).toHaveBeenCalledWith('analytics:trackEvent', {
-        event: 'statusBar:itemHidden',
-        properties: {
-          itemId: 'ptah.visibility.test',
-          timestamp: expect.any(Number)
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        'analytics:trackEvent',
+        {
+          event: 'statusBar:itemHidden',
+          properties: {
+            itemId: 'ptah.visibility.test',
+            timestamp: expect.any(Number),
+          },
         }
-      });
+      );
     });
 
     it('should return false for visibility operations on non-existent items', () => {
@@ -371,19 +485,20 @@ describe('StatusBarManager - User Requirement: VS Code Status Bar Abstraction', 
       expect(result).toBe(false);
       expect(mockEventBus.publish).toHaveBeenCalledWith('error', {
         code: 'STATUS_BAR_ITEM_SHOW_FAILED',
-        message: 'Failed to show status bar item ptah.visibility.test: Error: Show failed',
+        message:
+          'Failed to show status bar item ptah.visibility.test: Error: Show failed',
         source: 'StatusBarManager',
         data: { itemId: 'ptah.visibility.test' },
-        timestamp: expect.any(Number)
+        timestamp: expect.any(Number),
       });
     });
   });
 
   describe('User Scenario: Click Tracking and Analytics', () => {
     beforeEach(() => {
-      statusBarManager.createStatusBarItem({ 
+      statusBarManager.createStatusBarItem({
         id: 'ptah.click.test',
-        command: 'ptah.testCommand'
+        command: 'ptah.testCommand',
       });
       jest.clearAllMocks();
     });
@@ -398,15 +513,18 @@ describe('StatusBarManager - User Requirement: VS Code Status Bar Abstraction', 
       expect(metrics!.lastClick).toBeGreaterThan(0);
 
       // AND: Analytics event should be published
-      expect(mockEventBus.publish).toHaveBeenCalledWith('analytics:trackEvent', {
-        event: 'statusBar:itemClicked',
-        properties: {
-          itemId: 'ptah.click.test',
-          hasCommand: true,
-          command: 'ptah.testCommand',
-          timestamp: expect.any(Number)
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        'analytics:trackEvent',
+        {
+          event: 'statusBar:itemClicked',
+          properties: {
+            itemId: 'ptah.click.test',
+            hasCommand: true,
+            command: 'ptah.testCommand',
+            timestamp: expect.any(Number),
+          },
         }
-      });
+      );
     });
 
     it('should track clicks without commands', () => {
@@ -414,15 +532,18 @@ describe('StatusBarManager - User Requirement: VS Code Status Bar Abstraction', 
       statusBarManager.trackClick('ptah.click.test');
 
       // THEN: Click should be tracked with no command
-      expect(mockEventBus.publish).toHaveBeenCalledWith('analytics:trackEvent', {
-        event: 'statusBar:itemClicked',
-        properties: {
-          itemId: 'ptah.click.test',
-          hasCommand: false,
-          command: 'none',
-          timestamp: expect.any(Number)
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        'analytics:trackEvent',
+        {
+          event: 'statusBar:itemClicked',
+          properties: {
+            itemId: 'ptah.click.test',
+            hasCommand: false,
+            command: 'none',
+            timestamp: expect.any(Number),
+          },
         }
-      });
+      );
     });
 
     it('should ignore clicks on non-existent items', () => {
@@ -471,7 +592,7 @@ describe('StatusBarManager - User Requirement: VS Code Status Bar Abstraction', 
         clickCount: 1,
         lastClick: expect.any(Number),
         isVisible: false,
-        errorCount: 0
+        errorCount: 0,
       });
     });
 
@@ -508,13 +629,16 @@ describe('StatusBarManager - User Requirement: VS Code Status Bar Abstraction', 
       expect(result).toBe(true);
       expect(mockStatusBarItem.dispose).toHaveBeenCalled();
       expect(statusBarManager.hasItem('ptah.dispose.test')).toBe(false);
-      expect(mockEventBus.publish).toHaveBeenCalledWith('analytics:trackEvent', {
-        event: 'statusBar:itemDisposed',
-        properties: {
-          itemId: 'ptah.dispose.test',
-          timestamp: expect.any(Number)
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        'analytics:trackEvent',
+        {
+          event: 'statusBar:itemDisposed',
+          properties: {
+            itemId: 'ptah.dispose.test',
+            timestamp: expect.any(Number),
+          },
         }
-      });
+      );
     });
 
     it('should dispose all items during manager disposal', () => {
@@ -528,12 +652,15 @@ describe('StatusBarManager - User Requirement: VS Code Status Bar Abstraction', 
       // THEN: All items should be disposed
       expect(mockStatusBarItem.dispose).toHaveBeenCalledTimes(2);
       expect(statusBarManager.getItemIds()).toHaveLength(0);
-      expect(mockEventBus.publish).toHaveBeenCalledWith('analytics:trackEvent', {
-        event: 'statusBar:managerDisposed',
-        properties: {
-          timestamp: expect.any(Number)
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        'analytics:trackEvent',
+        {
+          event: 'statusBar:managerDisposed',
+          properties: {
+            timestamp: expect.any(Number),
+          },
         }
-      });
+      );
     });
 
     it('should return false when disposing non-existent items', () => {
@@ -554,10 +681,11 @@ describe('StatusBarManager - User Requirement: VS Code Status Bar Abstraction', 
       expect(result).toBe(false);
       expect(mockEventBus.publish).toHaveBeenCalledWith('error', {
         code: 'STATUS_BAR_ITEM_DISPOSE_FAILED',
-        message: 'Failed to dispose status bar item error.item: Error: Disposal error',
+        message:
+          'Failed to dispose status bar item error.item: Error: Disposal error',
         source: 'StatusBarManager',
         data: { itemId: 'error.item' },
-        timestamp: expect.any(Number)
+        timestamp: expect.any(Number),
       });
     });
 
@@ -574,9 +702,10 @@ describe('StatusBarManager - User Requirement: VS Code Status Bar Abstraction', 
       // THEN: Should publish error event
       expect(mockEventBus.publish).toHaveBeenCalledWith('error', {
         code: 'STATUS_BAR_MANAGER_DISPOSE_FAILED',
-        message: 'Failed to dispose StatusBarManager: Error: Manager disposal error',
+        message:
+          'Failed to dispose StatusBarManager: Error: Manager disposal error',
         source: 'StatusBarManager',
-        timestamp: expect.any(Number)
+        timestamp: expect.any(Number),
       });
     });
   });

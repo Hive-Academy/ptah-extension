@@ -1,4 +1,11 @@
-import { Component, input, output, computed, ChangeDetectionStrategy, signal } from '@angular/core';
+import {
+  Component,
+  input,
+  output,
+  computed,
+  ChangeDetectionStrategy,
+  signal,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { StrictChatSession, SessionId } from '@ptah-extension/shared';
 
@@ -45,9 +52,9 @@ import { StrictChatSession, SessionId } from '@ptah-extension/shared';
           <div class="session-current-name">
             {{ currentSessionDisplay().name }}
             @if (currentSessionDisplay().tokenUsage) {
-              <span class="session-token-badge">
-                {{ currentSessionDisplay().tokenUsage!.total }} tokens
-              </span>
+            <span class="session-token-badge">
+              {{ currentSessionDisplay().tokenUsage!.total }} tokens
+            </span>
             }
           </div>
           <div class="session-current-meta">
@@ -60,7 +67,9 @@ import { StrictChatSession, SessionId } from '@ptah-extension/shared';
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
             <path
               d="M6 4l4 4-4 4V4z"
-              [style.transform]="isExpanded() ? 'rotate(90deg)' : 'rotate(0deg)'"
+              [style.transform]="
+                isExpanded() ? 'rotate(90deg)' : 'rotate(0deg)'
+              "
             />
           </svg>
         </div>
@@ -68,141 +77,170 @@ import { StrictChatSession, SessionId } from '@ptah-extension/shared';
 
       <!-- Expanded Session List -->
       @if (isExpanded()) {
-        <div class="session-dropdown-container">
-          <!-- Create New Session -->
-          <div class="session-dropdown-section">
-            @if (showNameInput()) {
-              <!-- Session Name Input -->
-              <div class="session-name-input-container">
-                <input
-                  #nameInput
-                  type="text"
-                  class="session-name-input"
-                  placeholder="Enter session name..."
-                  [value]="newSessionName()"
-                  (input)="onSessionNameInput($event)"
-                  (keydown.enter)="onCreateNamedSession(nameInput.value)"
-                  (keydown.escape)="onCancelNameInput()"
-                  maxlength="50"
-                />
-                <div class="session-name-actions">
-                  <button
-                    class="session-name-action-button session-name-confirm"
-                    (click)="onCreateNamedSession(nameInput.value)"
-                    [disabled]="!nameInput.value.trim()"
-                    type="button"
-                  >
-                    ✓
-                  </button>
-                  <button
-                    class="session-name-action-button session-name-cancel"
-                    (click)="onCancelNameInput()"
-                    type="button"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            } @else {
-              <!-- Create Session Button -->
-              <div class="session-create-options">
-                <button
-                  class="session-create-button session-create-quick"
-                  (click)="onCreateSession()"
-                  type="button"
-                >
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                    <path
-                      d="M8 3v10M3 8h10"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                    />
-                  </svg>
-                  Quick Session
-                </button>
-                <button
-                  class="session-create-button session-create-named"
-                  (click)="onShowNameInput()"
-                  type="button"
-                >
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M4 9h8v2H4V9zm0-4h8v2H4V5z" />
-                  </svg>
-                  Named Session
-                </button>
-              </div>
-            }
-          </div>
-
-          <!-- Session List -->
-          @if (availableSessions().length > 0) {
-            <div class="session-dropdown-section">
-              <div class="session-dropdown-label">Switch to Session</div>
-              @for (session of availableSessions(); track session.id) {
-                <div
-                  class="session-list-item"
-                  [class.session-list-item-current]="session.id === currentSession()?.id"
-                  (click)="onSelectSession(session.id)"
-                  (keydown.enter)="onSelectSession(session.id)"
-                  (keydown.space)="onSelectSession(session.id); $event.preventDefault()"
-                  tabindex="0"
-                  role="button"
-                  [attr.aria-label]="'Select session ' + session.name"
-                  [attr.aria-current]="session.id === currentSession()?.id ? 'true' : null"
-                >
-                  <div class="session-item-info">
-                    <div class="session-item-name">{{ session.name }}</div>
-                    <div class="session-item-meta">
-                      {{ getSessionDisplayInfo(session).messageCount }} messages •
-                      {{ getSessionDisplayInfo(session).timeAgo }}
-                      @if (session.tokenUsage) {
-                        • {{ session.tokenUsage.total }} tokens
-                      }
-                    </div>
-                  </div>
-
-                  <div class="session-item-actions">
-                    @if (session.id === currentSession()?.id) {
-                      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                        <path
-                          d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z"
-                        />
-                      </svg>
-                    } @else {
-                      <button
-                        class="session-action-button"
-                        (click)="onDeleteSession(session.id); $event.stopPropagation()"
-                        title="Delete session"
-                        type="button"
-                      >
-                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                          <path
-                            d="M6.5 1h3a.5.5 0 0 1 .5.5v1H6v-1a.5.5 0 0 1 .5-.5zM11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3A1.5 1.5 0 0 0 5 1.5v1H2.506a.58.58 0 0 0-.01 1.152l.557 10.056A2 2 0 0 0 4.993 16h6.014a2 2 0 0 0 1.94-2.292l.556-10.056A.58.58 0 0 0 13.494 2.5H11z"
-                          />
-                        </svg>
-                      </button>
-                    }
-                  </div>
-                </div>
-              }
-            </div>
-          }
-
-          <!-- Session Management -->
-          @if (showSessionManager()) {
-            <div class="session-dropdown-section">
-              <button class="session-manage-button" (click)="onManageSessions()" type="button">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <path
-                    d="M9.405 1.05c-.413-1.4-2.397-1.4-2.81 0l-.1.34a1.464 1.464 0 0 1-2.105.872l-.31-.17c-1.283-.698-2.686.705-1.987 1.987l.169.311c.446.82.023 1.841-.872 2.105l-.34.1c-1.4.413-1.4 2.397 0 2.81l.34.1a1.464 1.464 0 0 1 .872 2.105l-.17.31c-.698 1.283.705 2.686 1.987 1.987l.311-.169a1.464 1.464 0 0 1 2.105.872l.1.34c.413 1.4 2.397 1.4 2.81 0l.1-.34a1.464 1.464 0 0 1 2.105-.872l.31.17c1.283.698 2.686-.705 1.987-1.987l-.169-.311a1.464 1.464 0 0 1 .872-2.105l.34-.1c1.4-.413 1.4-2.397 0-2.81l-.34-.1a1.464 1.464 0 0 1-.872-2.105l.17-.31c.698-1.283-.705-2.686-1.987-1.987l-.311.169a1.464 1.464 0 0 1-2.105-.872l-.1-.34zM8 10.93a2.929 2.929 0 1 1 0-5.86 2.929 2.929 0 0 1 0 5.858z"
-                  />
-                </svg>
-                Manage Sessions
+      <div class="session-dropdown-container">
+        <!-- Create New Session -->
+        <div class="session-dropdown-section">
+          @if (showNameInput()) {
+          <!-- Session Name Input -->
+          <div class="session-name-input-container">
+            <input
+              #nameInput
+              type="text"
+              class="session-name-input"
+              placeholder="Enter session name..."
+              [value]="newSessionName()"
+              (input)="onSessionNameInput($event)"
+              (keydown.enter)="onCreateNamedSession(nameInput.value)"
+              (keydown.escape)="onCancelNameInput()"
+              maxlength="50"
+            />
+            <div class="session-name-actions">
+              <button
+                class="session-name-action-button session-name-confirm"
+                (click)="onCreateNamedSession(nameInput.value)"
+                [disabled]="!nameInput.value.trim()"
+                type="button"
+              >
+                ✓
+              </button>
+              <button
+                class="session-name-action-button session-name-cancel"
+                (click)="onCancelNameInput()"
+                type="button"
+              >
+                ✕
               </button>
             </div>
+          </div>
+          } @else {
+          <!-- Create Session Button -->
+          <div class="session-create-options">
+            <button
+              class="session-create-button session-create-quick"
+              (click)="onCreateSession()"
+              type="button"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="currentColor"
+              >
+                <path
+                  d="M8 3v10M3 8h10"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+              Quick Session
+            </button>
+            <button
+              class="session-create-button session-create-named"
+              (click)="onShowNameInput()"
+              type="button"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="currentColor"
+              >
+                <path d="M4 9h8v2H4V9zm0-4h8v2H4V5z" />
+              </svg>
+              Named Session
+            </button>
+          </div>
           }
         </div>
+
+        <!-- Session List -->
+        @if (availableSessions().length > 0) {
+        <div class="session-dropdown-section">
+          <div class="session-dropdown-label">Switch to Session</div>
+          @for (session of availableSessions(); track session.id) {
+          <div
+            class="session-list-item"
+            [class.session-list-item-current]="
+              session.id === currentSession()?.id
+            "
+            (click)="onSelectSession(session.id)"
+            (keydown.enter)="onSelectSession(session.id)"
+            (keydown.space)="
+              onSelectSession(session.id); $event.preventDefault()
+            "
+            tabindex="0"
+            role="button"
+            [attr.aria-label]="'Select session ' + session.name"
+            [attr.aria-current]="
+              session.id === currentSession()?.id ? 'true' : null
+            "
+          >
+            <div class="session-item-info">
+              <div class="session-item-name">{{ session.name }}</div>
+              <div class="session-item-meta">
+                {{ getSessionDisplayInfo(session).messageCount }} messages •
+                {{ getSessionDisplayInfo(session).timeAgo }}
+                @if (session.tokenUsage) { •
+                {{ session.tokenUsage.total }} tokens }
+              </div>
+            </div>
+
+            <div class="session-item-actions">
+              @if (session.id === currentSession()?.id) {
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 16 16"
+                fill="currentColor"
+              >
+                <path
+                  d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z"
+                />
+              </svg>
+              } @else {
+              <button
+                class="session-action-button"
+                (click)="onDeleteSession(session.id); $event.stopPropagation()"
+                title="Delete session"
+                type="button"
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                >
+                  <path
+                    d="M6.5 1h3a.5.5 0 0 1 .5.5v1H6v-1a.5.5 0 0 1 .5-.5zM11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3A1.5 1.5 0 0 0 5 1.5v1H2.506a.58.58 0 0 0-.01 1.152l.557 10.056A2 2 0 0 0 4.993 16h6.014a2 2 0 0 0 1.94-2.292l.556-10.056A.58.58 0 0 0 13.494 2.5H11z"
+                  />
+                </svg>
+              </button>
+              }
+            </div>
+          </div>
+          }
+        </div>
+        }
+
+        <!-- Session Management -->
+        @if (showSessionManager()) {
+        <div class="session-dropdown-section">
+          <button
+            class="session-manage-button"
+            (click)="onManageSessions()"
+            type="button"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path
+                d="M9.405 1.05c-.413-1.4-2.397-1.4-2.81 0l-.1.34a1.464 1.464 0 0 1-2.105.872l-.31-.17c-1.283-.698-2.686.705-1.987 1.987l.169.311c.446.82.023 1.841-.872 2.105l-.34.1c-1.4.413-1.4 2.397 0 2.81l.34.1a1.464 1.464 0 0 1 .872 2.105l-.17.31c-.698 1.283.705 2.686 1.987 1.987l.311-.169a1.464 1.464 0 0 1 2.105.872l.1.34c.413 1.4 2.397 1.4 2.81 0l.1-.34a1.464 1.464 0 0 1 2.105-.872l.31.17c1.283.698 2.686-.705 1.987-1.987l-.169-.311a1.464 1.464 0 0 1 .872-2.105l.34-.1c1.4-.413 1.4-2.397 0-2.81l-.34-.1a1.464 1.464 0 0 1-.872-2.105l.17-.31c.698-1.283-.705-2.686-1.987-1.987l-.311.169a1.464 1.464 0 0 1-2.105-.872l-.1-.34zM8 10.93a2.929 2.929 0 1 1 0-5.86 2.929 2.929 0 0 1 0 5.858z"
+              />
+            </svg>
+            Manage Sessions
+          </button>
+        </div>
+        }
+      </div>
       }
     </div>
   `,
@@ -533,7 +571,10 @@ export class SessionSelectorComponent {
 
     // Handle undefined/null sessions gracefully
     if (!sessions || !Array.isArray(sessions)) {
-      console.warn('SessionSelectorComponent: sessions is not an array:', sessions);
+      console.warn(
+        'SessionSelectorComponent: sessions is not an array:',
+        sessions
+      );
       return [];
     }
 
@@ -559,7 +600,8 @@ export class SessionSelectorComponent {
             ? `${sessionCount} Session${sessionCount === 1 ? '' : 's'}`
             : 'No Sessions',
         messageCount: 0,
-        timeAgo: sessionCount > 0 ? 'Select a session' : 'Create a session to start',
+        timeAgo:
+          sessionCount > 0 ? 'Select a session' : 'Create a session to start',
         tokenUsage: null,
       };
     }
@@ -567,7 +609,9 @@ export class SessionSelectorComponent {
     return {
       name: session.name || 'Unnamed Session',
       messageCount: session.messageCount || session.messages?.length || 0,
-      timeAgo: session.lastActiveAt ? this.getTimeAgo(session.lastActiveAt) : 'Unknown',
+      timeAgo: session.lastActiveAt
+        ? this.getTimeAgo(session.lastActiveAt)
+        : 'Unknown',
       tokenUsage: session.tokenUsage || null,
     };
   });
@@ -631,7 +675,9 @@ export class SessionSelectorComponent {
 
     return {
       messageCount: session.messageCount || session.messages?.length || 0,
-      timeAgo: session.lastActiveAt ? this.getTimeAgo(session.lastActiveAt) : 'Unknown',
+      timeAgo: session.lastActiveAt
+        ? this.getTimeAgo(session.lastActiveAt)
+        : 'Unknown',
     };
   }
 

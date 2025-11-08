@@ -46,15 +46,18 @@ describe('EventBus - User Requirement: RxJS Event Bus System', () => {
       let capturedEvent: TypedEvent<'chat:sendMessage'> | null = null;
 
       // Set up subscription before publishing
-      const subscription = eventBus.subscribe('chat:sendMessage').pipe(take(1)).subscribe(event => {
-        capturedEvent = event;
-      });
+      const subscription = eventBus
+        .subscribe('chat:sendMessage')
+        .pipe(take(1))
+        .subscribe((event) => {
+          capturedEvent = event;
+        });
 
       // WHEN: Publishing message
       eventBus.publish('chat:sendMessage', payload);
 
       // Wait for event propagation
-      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       // THEN: Event should have generated metadata
       expect(capturedEvent).toBeDefined();
@@ -72,20 +75,37 @@ describe('EventBus - User Requirement: RxJS Event Bus System', () => {
       let extensionEvent: TypedEvent<'analytics:trackEvent'> | null = null;
       let webviewEvent: TypedEvent<'analytics:trackEvent'> | null = null;
 
-      const subscription = eventBus.subscribeToAll().pipe(take(2)).subscribe(event => {
-        if (event.source === 'extension' && event.type === 'analytics:trackEvent') {
-          extensionEvent = event as TypedEvent<'analytics:trackEvent'>;
-        }
-        if (event.source === 'webview' && event.type === 'analytics:trackEvent') {
-          webviewEvent = event as TypedEvent<'analytics:trackEvent'>;
-        }
-      });
+      const subscription = eventBus
+        .subscribeToAll()
+        .pipe(take(2))
+        .subscribe((event) => {
+          if (
+            event.source === 'extension' &&
+            event.type === 'analytics:trackEvent'
+          ) {
+            extensionEvent = event as TypedEvent<'analytics:trackEvent'>;
+          }
+          if (
+            event.source === 'webview' &&
+            event.type === 'analytics:trackEvent'
+          ) {
+            webviewEvent = event as TypedEvent<'analytics:trackEvent'>;
+          }
+        });
 
       // WHEN: Publishing from different sources
-      eventBus.publish('analytics:trackEvent', { event: 'test', properties: {} }, 'extension');
-      eventBus.publish('analytics:trackEvent', { event: 'test2', properties: {} }, 'webview');
+      eventBus.publish(
+        'analytics:trackEvent',
+        { event: 'test', properties: {} },
+        'extension'
+      );
+      eventBus.publish(
+        'analytics:trackEvent',
+        { event: 'test2', properties: {} },
+        'webview'
+      );
 
-      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       // THEN: Events should have correct source attribution
       expect(extensionEvent).toBeDefined();
@@ -100,7 +120,10 @@ describe('EventBus - User Requirement: RxJS Event Bus System', () => {
   describe('User Scenario: Type-Safe Message Subscription', () => {
     it('should provide RxJS observables for Angular compatibility', async () => {
       // GIVEN: Angular component needs reactive message streams
-      const testPayload = { event: 'user-action', properties: { action: 'click' } };
+      const testPayload = {
+        event: 'user-action',
+        properties: { action: 'click' },
+      };
 
       // WHEN: Subscribing to messages
       const messagePromise = firstValueFrom(
@@ -119,23 +142,29 @@ describe('EventBus - User Requirement: RxJS Event Bus System', () => {
       // GIVEN: Monitoring system needs all events
       const receivedEvents: TypedEvent[] = [];
 
-      const subscription = eventBus.subscribeToAll().pipe(take(3)).subscribe(event => {
-        receivedEvents.push(event);
-      });
+      const subscription = eventBus
+        .subscribeToAll()
+        .pipe(take(3))
+        .subscribe((event) => {
+          receivedEvents.push(event);
+        });
 
       // WHEN: Publishing different message types
       eventBus.publish('chat:sendMessage', { content: 'test' });
-      eventBus.publish('analytics:trackEvent', { event: 'test', properties: {} });
+      eventBus.publish('analytics:trackEvent', {
+        event: 'test',
+        properties: {},
+      });
       eventBus.publish('error', { message: 'test error' });
 
-      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       // THEN: All events should be captured
       expect(receivedEvents).toHaveLength(3);
-      expect(receivedEvents.map(e => e.type)).toEqual([
+      expect(receivedEvents.map((e) => e.type)).toEqual([
         'chat:sendMessage',
         'analytics:trackEvent',
-        'error'
+        'error',
       ]);
 
       subscription.unsubscribe();
@@ -149,13 +178,13 @@ describe('EventBus - User Requirement: RxJS Event Bus System', () => {
       let chatEvent: TypedEvent<'chat:sendMessage'> | null = null;
       let analyticsEvent: TypedEvent<'analytics:trackEvent'> | null = null;
 
-      chatSubscription.pipe(take(1)).subscribe(event => {
+      chatSubscription.pipe(take(1)).subscribe((event) => {
         chatEvent = event;
         // TypeScript should enforce correct payload type here
         expect(typeof event.payload.content).toBe('string');
       });
 
-      analyticsSubscription.pipe(take(1)).subscribe(event => {
+      analyticsSubscription.pipe(take(1)).subscribe((event) => {
         analyticsEvent = event;
         // TypeScript should enforce correct payload type here
         expect(typeof event.payload.event).toBe('string');
@@ -163,9 +192,12 @@ describe('EventBus - User Requirement: RxJS Event Bus System', () => {
 
       // WHEN: Publishing different message types
       eventBus.publish('chat:sendMessage', { content: 'test message' });
-      eventBus.publish('analytics:trackEvent', { event: 'test', properties: {} });
+      eventBus.publish('analytics:trackEvent', {
+        event: 'test',
+        properties: {},
+      });
 
-      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       // THEN: Events should be received with correct types
       expect(chatEvent).toBeDefined();
@@ -182,15 +214,22 @@ describe('EventBus - User Requirement: RxJS Event Bus System', () => {
       const responseData = { success: true, result: 'command executed' };
 
       // Set up responder
-      eventBus.subscribe('commands:executeCommand').pipe(take(1)).subscribe((request: RequestEvent<'commands:executeCommand'>) => {
-        // Simulate async processing
-        setTimeout(() => {
-          eventBus.respond(request, responseData);
-        }, 10);
-      });
+      eventBus
+        .subscribe('commands:executeCommand')
+        .pipe(take(1))
+        .subscribe((request: RequestEvent<'commands:executeCommand'>) => {
+          // Simulate async processing
+          setTimeout(() => {
+            eventBus.respond(request, responseData);
+          }, 10);
+        });
 
       // WHEN: Making a request
-      const response = await eventBus.request('commands:executeCommand', requestPayload, 1000);
+      const response = await eventBus.request(
+        'commands:executeCommand',
+        requestPayload,
+        1000
+      );
 
       // THEN: Should receive response data
       expect(response).toEqual(responseData);
@@ -211,13 +250,16 @@ describe('EventBus - User Requirement: RxJS Event Bus System', () => {
       // GIVEN: Service that responds with error
       const requestPayload = { templateId: 'error-test', parameters: {} };
 
-      eventBus.subscribe('commands:executeCommand').pipe(take(1)).subscribe((request: RequestEvent<'commands:executeCommand'>) => {
-        eventBus.respond(request, undefined, {
-          code: 'COMMAND_FAILED',
-          message: 'Test error',
-          context: { reason: 'mock test' }
+      eventBus
+        .subscribe('commands:executeCommand')
+        .pipe(take(1))
+        .subscribe((request: RequestEvent<'commands:executeCommand'>) => {
+          eventBus.respond(request, undefined, {
+            code: 'COMMAND_FAILED',
+            message: 'Test error',
+            context: { reason: 'mock test' },
+          });
         });
-      });
 
       // WHEN: Making request that will error
       // THEN: Should throw error with message
@@ -228,15 +270,22 @@ describe('EventBus - User Requirement: RxJS Event Bus System', () => {
 
     it('should track request correlation IDs', async () => {
       // GIVEN: Request-response setup with correlation tracking
-      let capturedRequest: RequestEvent<'commands:executeCommand'> | null = null;
+      let capturedRequest: RequestEvent<'commands:executeCommand'> | null =
+        null;
 
-      eventBus.subscribe('commands:executeCommand').pipe(take(1)).subscribe((request) => {
-        capturedRequest = request as RequestEvent<'commands:executeCommand'>;
-        eventBus.respond(request, 'success');
-      });
+      eventBus
+        .subscribe('commands:executeCommand')
+        .pipe(take(1))
+        .subscribe((request) => {
+          capturedRequest = request as RequestEvent<'commands:executeCommand'>;
+          eventBus.respond(request, 'success');
+        });
 
       // WHEN: Making a request
-      await eventBus.request('commands:executeCommand', { templateId: 'test', parameters: {} });
+      await eventBus.request('commands:executeCommand', {
+        templateId: 'test',
+        parameters: {},
+      });
 
       // THEN: Correlation ID should be present and consistent
       expect(capturedRequest).toBeDefined();
@@ -248,8 +297,12 @@ describe('EventBus - User Requirement: RxJS Event Bus System', () => {
   describe('User Scenario: Event Bus Monitoring', () => {
     it('should provide metrics for monitoring', () => {
       // GIVEN: Event bus with some activity
-      const subscription1 = eventBus.subscribe('chat:sendMessage').subscribe(() => undefined);
-      const subscription2 = eventBus.subscribe('analytics:trackEvent').subscribe(() => undefined);
+      const subscription1 = eventBus
+        .subscribe('chat:sendMessage')
+        .subscribe(() => undefined);
+      const subscription2 = eventBus
+        .subscribe('analytics:trackEvent')
+        .subscribe(() => undefined);
       eventBus.publish('chat:sendMessage', { content: 'test' });
 
       // WHEN: Getting metrics
@@ -268,19 +321,28 @@ describe('EventBus - User Requirement: RxJS Event Bus System', () => {
 
     it('should track active requests in metrics', async () => {
       // GIVEN: Set up responder first
-      eventBus.subscribe('commands:executeCommand').pipe(take(1)).subscribe((request) => {
-        // Respond after a short delay to allow metrics check
-        setTimeout(() => {
-          eventBus.respond(request as RequestEvent<'commands:executeCommand'>, 'cleanup');
-        }, 50);
-      });
+      eventBus
+        .subscribe('commands:executeCommand')
+        .pipe(take(1))
+        .subscribe((request) => {
+          // Respond after a short delay to allow metrics check
+          setTimeout(() => {
+            eventBus.respond(
+              request as RequestEvent<'commands:executeCommand'>,
+              'cleanup'
+            );
+          }, 50);
+        });
 
       // WHEN: Making a request and checking metrics immediately
-      const requestPromise = eventBus.request('commands:executeCommand', 
-        { templateId: 'test', parameters: {} }, 1000);
+      const requestPromise = eventBus.request(
+        'commands:executeCommand',
+        { templateId: 'test', parameters: {} },
+        1000
+      );
 
       // Check metrics while request is active (before response)
-      await new Promise(resolve => setTimeout(resolve, 10)); // Small delay to ensure request is registered
+      await new Promise((resolve) => setTimeout(resolve, 10)); // Small delay to ensure request is registered
       const metricsWithActive = eventBus.getMetrics();
 
       // Wait for request to complete
@@ -300,8 +362,13 @@ describe('EventBus - User Requirement: RxJS Event Bus System', () => {
       // GIVEN: Event bus with subscriptions and active requests
       eventBus.subscribe('chat:sendMessage');
       // Create a request to test disposal cleanup
-      eventBus.request('commands:executeCommand', 
-        { templateId: 'test', parameters: {} }, 1000).catch(() => undefined); // Ignore timeout error
+      eventBus
+        .request(
+          'commands:executeCommand',
+          { templateId: 'test', parameters: {} },
+          1000
+        )
+        .catch(() => undefined); // Ignore timeout error
 
       const initialMetrics = eventBus.getMetrics();
       expect(initialMetrics.eventListeners).toBeGreaterThan(0);
@@ -317,10 +384,16 @@ describe('EventBus - User Requirement: RxJS Event Bus System', () => {
 
     it('should handle rapid request cancellation', async () => {
       // GIVEN: Multiple rapid requests
-      const requests = Array.from({ length: 5 }, (_, i) => 
-        eventBus.request('commands:executeCommand', 
-          { templateId: `test-${i}`, parameters: {} }, 100)
-          .catch(() => undefined) // Ignore timeout errors
+      const requests = Array.from(
+        { length: 5 },
+        (_, i) =>
+          eventBus
+            .request(
+              'commands:executeCommand',
+              { templateId: `test-${i}`, parameters: {} },
+              100
+            )
+            .catch(() => undefined) // Ignore timeout errors
       );
 
       // WHEN: Disposing before requests complete
@@ -349,9 +422,12 @@ describe('EventBus - User Requirement: RxJS Event Bus System', () => {
       eventBus.publish('chat:sendMessage', { content: 'message 1' });
       eventBus.publish('chat:sendMessage', { content: 'message 2' });
       eventBus.publish('error', { message: 'test error' });
-      eventBus.publish('analytics:trackEvent', { event: 'other', properties: {} }); // Should not affect counters
+      eventBus.publish('analytics:trackEvent', {
+        event: 'other',
+        properties: {},
+      }); // Should not affect counters
 
-      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       // THEN: Component should receive only relevant events
       expect(messageCount).toBe(2);
@@ -367,22 +443,21 @@ describe('EventBus - User Requirement: RxJS Event Bus System', () => {
       const chatMessages$ = eventBus.subscribe('chat:sendMessage');
 
       // WHEN: Using RxJS operators for filtering and transformation
-      const longMessages$ = chatMessages$.pipe(
-        take(3),
-        timeout(1000)
-      );
+      const longMessages$ = chatMessages$.pipe(take(3), timeout(1000));
 
       const receivedMessages: string[] = [];
-      const subscription = longMessages$.subscribe(event => {
+      const subscription = longMessages$.subscribe((event) => {
         receivedMessages.push(event.payload.content);
       });
 
       // Publish test messages
       eventBus.publish('chat:sendMessage', { content: 'short' });
       eventBus.publish('chat:sendMessage', { content: 'medium message' });
-      eventBus.publish('chat:sendMessage', { content: 'this is a very long message' });
+      eventBus.publish('chat:sendMessage', {
+        content: 'this is a very long message',
+      });
 
-      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       // THEN: Should work with RxJS operators
       expect(receivedMessages).toHaveLength(3);

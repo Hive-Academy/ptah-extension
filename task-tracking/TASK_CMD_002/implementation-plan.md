@@ -6,17 +6,20 @@
 
 ## Research Evidence Integration
 
-**Critical Findings Addressed**: 
+**Critical Findings Addressed**:
+
 - Type-safe dependency injection using TSyringe with Symbol-based tokens
 - RxJS-based event bus system compatible with Angular reactive patterns
 - VS Code API abstraction with proper event handling
 
-**High Priority Findings**: 
+**High Priority Findings**:
+
 - Integration with existing MessagePayloadMap from @ptah-extension/shared
 - Elimination of string-based tokens in favor of Symbol-based typing
 - Request-response messaging patterns with correlation IDs
 
-**Evidence Source**: 
+**Evidence Source**:
+
 - task-description.md requirements analysis
 - MONSTER_EXTENSION_REFACTOR_PLAN lines 165-420 (detailed code examples)
 - Existing shared type system in libs/shared/src/lib/types/message.types.ts
@@ -33,7 +36,8 @@ The architecture leverages the existing comprehensive type system from @ptah-ext
 ### Task 1.1: Type-Safe DI Container Implementation
 
 **Complexity**: MEDIUM
-**Files to Modify**: 
+**Files to Modify**:
+
 - `libs/backend/vscode-core/src/di/container.ts` (create)
 - `libs/backend/vscode-core/src/di/tokens.ts` (create)
 - `libs/backend/vscode-core/src/index.ts` (update exports)
@@ -42,6 +46,7 @@ The architecture leverages the existing comprehensive type system from @ptah-ext
 **Developer Assignment**: backend-developer
 
 **Implementation Details**:
+
 - Create TOKENS constant with Symbol-based tokens for all service types
 - Implement DIContainer class with setup utility method
 - Register VS Code extension context and core services
@@ -50,7 +55,8 @@ The architecture leverages the existing comprehensive type system from @ptah-ext
 ### Task 1.2: RxJS Event Bus Core Implementation
 
 **Complexity**: HIGH
-**Files to Modify**: 
+**Files to Modify**:
+
 - `libs/backend/vscode-core/src/messaging/event-bus.ts` (create)
 - `libs/backend/vscode-core/src/messaging/index.ts` (create)
 
@@ -58,6 +64,7 @@ The architecture leverages the existing comprehensive type system from @ptah-ext
 **Developer Assignment**: backend-developer
 
 **Implementation Details**:
+
 - Implement EventBus service with publish/subscribe methods
 - Create TypedEvent interface extending MessagePayloadMap types
 - Implement request-response pattern with correlation IDs and timeouts
@@ -68,7 +75,8 @@ The architecture leverages the existing comprehensive type system from @ptah-ext
 ### Task 2.1: Command Manager Implementation
 
 **Complexity**: MEDIUM
-**Files to Modify**: 
+**Files to Modify**:
+
 - `libs/backend/vscode-core/src/api-wrappers/command-manager.ts` (create)
 - `libs/backend/vscode-core/src/api-wrappers/index.ts` (create)
 
@@ -76,6 +84,7 @@ The architecture leverages the existing comprehensive type system from @ptah-ext
 **Developer Assignment**: backend-developer
 
 **Implementation Details**:
+
 - Create CommandDefinition interface for type-safe command definitions
 - Implement CommandManager service with DI integration
 - Add event emission for command execution and errors
@@ -84,13 +93,15 @@ The architecture leverages the existing comprehensive type system from @ptah-ext
 ### Task 2.2: Webview Manager Implementation
 
 **Complexity**: MEDIUM
-**Files to Modify**: 
+**Files to Modify**:
+
 - `libs/backend/vscode-core/src/api-wrappers/webview-manager.ts` (create)
 
 **Expected Outcome**: Enhanced webview management with message routing and event bus integration
 **Developer Assignment**: backend-developer
 
 **Implementation Details**:
+
 - Create WebviewManager service with DI integration
 - Implement webview panel creation with initial data support
 - Set up message routing to event bus
@@ -99,7 +110,8 @@ The architecture leverages the existing comprehensive type system from @ptah-ext
 ### Task 2.3: Integration and Testing
 
 **Complexity**: MEDIUM
-**Files to Modify**: 
+**Files to Modify**:
+
 - `libs/backend/vscode-core/src/index.ts` (update all exports)
 - `libs/backend/vscode-core/src/lib/vscode-core.ts` (integration point)
 
@@ -107,6 +119,7 @@ The architecture leverages the existing comprehensive type system from @ptah-ext
 **Developer Assignment**: backend-developer
 
 **Implementation Details**:
+
 - Export all new services from library entry point
 - Create integration example in main library file
 - Ensure TypeScript compilation passes with strict mode
@@ -115,7 +128,8 @@ The architecture leverages the existing comprehensive type system from @ptah-ext
 ## Future Work Moved to Registry
 
 **Large Scope Items Added to registry.md**:
-- Week 3: Enhanced VS Code API wrappers (OutputManager, StatusBarManager)  
+
+- Week 3: Enhanced VS Code API wrappers (OutputManager, StatusBarManager)
 - Week 4: Provider system core infrastructure
 - Week 5: Provider UI components and Angular integration
 - Week 6: Provider testing and optimization
@@ -124,18 +138,21 @@ The architecture leverages the existing comprehensive type system from @ptah-ext
 ## Technical Implementation Notes
 
 ### Dependencies Already Available
+
 - TSyringe: Already installed for dependency injection
 - RxJS: Already installed for reactive programming
 - EventEmitter3: Already installed for event handling
 - @ptah-extension/shared: Comprehensive type system already implemented
 
 ### Integration Points
+
 - **MessagePayloadMap**: All message types must use existing comprehensive mapping
 - **StrictMessageType**: All events must conform to existing strict typing
 - **Extension Lifecycle**: DI container initialization during extension activation
 - **Angular Compatibility**: Event bus observables must work with Angular reactive patterns
 
 ### Type Safety Requirements
+
 - Zero 'any' types - all services must use strict typing
 - Symbol-based tokens instead of string identifiers
 - Runtime validation using existing Zod schemas where applicable
@@ -144,7 +161,8 @@ The architecture leverages the existing comprehensive type system from @ptah-ext
 ## Developer Handoff
 
 **Next Agent**: backend-developer
-**Priority Order**: 
+**Priority Order**:
+
 1. Task 1.1: DI Container Setup (start immediately)
 2. Task 1.2: Event Bus Implementation (dependent on DI container)
 3. Task 2.1: Command Manager (can run parallel with 2.2)
@@ -152,6 +170,7 @@ The architecture leverages the existing comprehensive type system from @ptah-ext
 5. Task 2.3: Integration and testing (final validation)
 
 **Success Criteria**:
+
 - All TypeScript compilation passes with strict mode enabled
 - DI container successfully initializes with Symbol-based tokens
 - Event bus handles all MessagePayloadMap types without type errors
@@ -160,6 +179,7 @@ The architecture leverages the existing comprehensive type system from @ptah-ext
 - Integration tests demonstrate proper message flow between components
 
 **Files Structure Created**:
+
 ```
 libs/backend/vscode-core/src/
 ├── di/
@@ -170,7 +190,7 @@ libs/backend/vscode-core/src/
 │   └── index.ts              # Messaging exports
 ├── api-wrappers/
 │   ├── command-manager.ts    # VS Code command abstraction
-│   ├── webview-manager.ts    # VS Code webview abstraction  
+│   ├── webview-manager.ts    # VS Code webview abstraction
 │   └── index.ts              # API wrapper exports
 └── index.ts                  # Main library exports
 ```

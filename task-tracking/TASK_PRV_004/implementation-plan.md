@@ -6,11 +6,11 @@
 
 - **Pattern**: Hexagonal-style claude-domain boundary with event-driven adapters. Claude-specific CLI logic is encapsulated in services that expose ports (launcher, permissions, session, detector) consumed by the extension and `ai-providers-core`. This isolates platform nuances and follows MONSTER Week 5 guidance.
 - **SOLID Compliance**:
-    - *Single Responsibility*: Separate modules for permissions, session, launcher, detector, and events keep behavior focused.
-    - *Open/Closed*: New CLI features (additional flags, permission strategies) extend services without modifying consumers.
-    - *Liskov*: Replacement of the claude provider with alternative implementations preserves contracts defined in `ai-providers-core`.
-    - *Interface Segregation*: Consumers import only needed sub-modules; no monolithic service class.
-    - *Dependency Inversion*: Extension references claude-domain abstractions instead of concrete legacy services.
+  - _Single Responsibility_: Separate modules for permissions, session, launcher, detector, and events keep behavior focused.
+  - _Open/Closed_: New CLI features (additional flags, permission strategies) extend services without modifying consumers.
+  - _Liskov_: Replacement of the claude provider with alternative implementations preserves contracts defined in `ai-providers-core`.
+  - _Interface Segregation_: Consumers import only needed sub-modules; no monolithic service class.
+  - _Dependency Inversion_: Extension references claude-domain abstractions instead of concrete legacy services.
 - **Type/Schema Reuse**: Reuse existing branded identifiers, strict chat payloads, and provider health schemas from `libs/shared`. New Claude-specific types will extend shared modules to maintain single source of truth.
 
 ### Component Diagram
@@ -49,21 +49,25 @@ Search completed with results:
 ### Files to Modify (Updated for MONSTER Integration)
 
 1. **`libs/backend/vscode-core/src/di/tokens.ts`**
+
    - Purpose: Add DI tokens for claude-domain services.
    - Scope: Export new symbols for CLAUDE_CLI_DETECTOR, CLAUDE_CLI_LAUNCHER, CLAUDE_SESSION_MANAGER, CLAUDE_PERMISSION_SERVICE.
    - Estimated LOC: ~20.
 
 2. **`libs/backend/vscode-core/src/di/container.ts`**
+
    - Purpose: Register claude-domain services with TSyringe DI container.
    - Scope: Add singleton registrations in DIContainer.setup() method.
    - Estimated LOC: ~30.
 
 3. **`libs/backend/ai-providers-core/src/adapters/claude-cli-adapter.ts`**
+
    - Purpose: Inject claude-domain services via constructor instead of direct instantiation.
    - Scope: Add @injectable decorator, constructor injection, delegate to launcher/detector.
    - Estimated LOC: ~80.
 
 4. **`libs/backend/vscode-core/src/messaging/event-bus.ts`** (optional enhancement)
+
    - Purpose: Add helper methods for claude-domain event topics.
    - Scope: Type-safe publish/subscribe for CONTENT_CHUNK, TOOL_START, PERMISSION_REQUESTED.
    - Estimated LOC: ~20.
@@ -78,56 +82,67 @@ Search completed with results:
 ### Files to Create
 
 1. **`libs/shared/src/lib/types/claude-domain.types.ts`**
+
    - Purpose: Central shared schemas for permissions and tool events.
    - Content: Interfaces, zod schemas, helper builders; exported via `libs/shared/src/index.ts`.
    - Estimated LOC: ~120.
 
 2. **`libs/backend/claude-domain/src/cli/claude-cli-launcher.ts`**
+
    - Purpose: Spawn CLI processes with WSL-aware path resolution and flag management.
    - Content: Class `ClaudeCliLauncher` exposing `spawnTurn`, hooking into permissions + session manager.
    - Estimated LOC: ~160.
 
 3. **`libs/backend/claude-domain/src/cli/jsonl-stream-parser.ts`**
+
    - Purpose: Parse JSONL stream chunks into typed events with error handling.
    - Content: Parser class with callbacks for content/thinking/tool/permission messages.
    - Estimated LOC: ~140.
 
 4. **`libs/backend/claude-domain/src/cli/process-manager.ts`**
+
    - Purpose: Manage child processes per session turn, cleanup, abort.
    - Content: Map of SessionId → ChildProcess metadata and lifecycle hooks.
    - Estimated LOC: ~120.
 
 5. **`libs/backend/claude-domain/src/session/session-manager.ts`**
+
    - Purpose: Track session state, resume tokens, attach metadata for CLI calls.
    - Content: Class storing session info, providing create/resume/end methods.
    - Estimated LOC: ~140.
 
 6. **`libs/backend/claude-domain/src/permissions/permission-service.ts`**
+
    - Purpose: YOLO toggle, always-allow rules, prompt dispatch via event bus.
    - Content: Methods `requestDecision`, `setRule`, `revokeRule`, internal caching.
    - Estimated LOC: ~180.
 
 7. **`libs/backend/claude-domain/src/permissions/permission-rules.store.ts`**
+
    - Purpose: Abstract persistence (workspace storage) for permission rules.
    - Content: Interface + default file-system backed implementation.
    - Estimated LOC: ~120.
 
 8. **`libs/backend/claude-domain/src/detector/claude-cli-detector.ts`**
+
    - Purpose: Cross-platform CLI detection, WSL path translation, health checks.
    - Content: Class `ClaudeCliDetector` with `findExecutable`, `verifyInstallation`, `performHealthCheck`.
    - Estimated LOC: ~160.
 
 9. **`libs/backend/claude-domain/src/events/claude-domain.events.ts`**
+
    - Purpose: Typed event topics + publisher helpers bridging to EventBus.
    - Content: Constants, payload factories, `emit*` helpers.
    - Estimated LOC: ~110.
 
 10. **`libs/backend/claude-domain/src/index.ts`**
+
     - Purpose: Barrel exports for launcher, detector, session, permissions, events, types.
     - Content: Export statements, DI tokens.
     - Estimated LOC: ~60.
 
 11. **Unit test files** (e.g., `permission-service.spec.ts`, `jsonl-stream-parser.spec.ts`, etc.).
+
     - Purpose: Ensure ≥80% coverage for new modules.
     - Estimated LOC: ~250 total.
 
@@ -201,17 +216,17 @@ No new registry entries required (slash commands, MCP UI, checkpoints already ca
 ### Technical Risks
 
 - **Risk**: Legacy services have hidden calls from other modules.
-    - **Mitigation**: Maintain temporary shim exporting original interface; run repository-wide search before removal.
-    - **Contingency**: If unexpected dependency discovered, wrap claude-domain call while planning follow-up refactor.
+  - **Mitigation**: Maintain temporary shim exporting original interface; run repository-wide search before removal.
+  - **Contingency**: If unexpected dependency discovered, wrap claude-domain call while planning follow-up refactor.
 - **Risk**: Permission persistence failures could block tool execution.
-    - **Mitigation**: Default to prompting user; log warning via EventBus.
-    - **Contingency**: Provide in-memory fallback store.
+  - **Mitigation**: Default to prompting user; log warning via EventBus.
+  - **Contingency**: Provide in-memory fallback store.
 
 ### Performance Considerations
 
 - **Concern**: Additional event publication overhead during streaming.
-    - **Strategy**: Emit minimal payloads, batch progress events where possible.
-    - **Measurement**: Compare response time metrics captured in ProviderHealth updates pre/post change (<5% regression acceptable).
+  - **Strategy**: Emit minimal payloads, batch progress events where possible.
+  - **Measurement**: Compare response time metrics captured in ProviderHealth updates pre/post change (<5% regression acceptable).
 
 ## Testing Strategy
 

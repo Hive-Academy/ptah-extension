@@ -30,48 +30,56 @@ These map closely to our target areas (permissions, CLI integration, session, to
 ## Notable Implementation Patterns (conceptual)
 
 - Permissions via MCP:
-    - A dedicated “permissions MCP server” manages workspace-level permission storage and “always allow” rules.
-    - Interactive permission dialogs with detailed tool previews, plus YOLO override.
-    - Suggestion: Our claude-domain should define a PermissionService abstraction with:
-        - Allow/deny decisions with optional persistence (workspace-scoped store).
-        - Pattern matching for commands (npm, git, docker) and parameters.
-        - YOLO mode toggle surfaced via settings and webview prompt.
-        - Optional MCP backend adapter hook (future) to externalize storage or policies.
+
+  - A dedicated “permissions MCP server” manages workspace-level permission storage and “always allow” rules.
+  - Interactive permission dialogs with detailed tool previews, plus YOLO override.
+  - Suggestion: Our claude-domain should define a PermissionService abstraction with:
+    - Allow/deny decisions with optional persistence (workspace-scoped store).
+    - Pattern matching for commands (npm, git, docker) and parameters.
+    - YOLO mode toggle surfaced via settings and webview prompt.
+    - Optional MCP backend adapter hook (future) to externalize storage or policies.
 
 - WSL Support:
-    - Settings for WSL enablement, distro, node path, and Claude path.
-    - Command invocation adapts to native vs WSL execution.
-    - Suggestion: Incorporate WSL-aware detection & path translation in our detector/launcher, preferably in `vscode-core` utilities (cross-provider reuse), with claude-domain consuming it.
+
+  - Settings for WSL enablement, distro, node path, and Claude path.
+  - Command invocation adapts to native vs WSL execution.
+  - Suggestion: Incorporate WSL-aware detection & path translation in our detector/launcher, preferably in `vscode-core` utilities (cross-provider reuse), with claude-domain consuming it.
 
 - Session & Resume:
-    - Session-aware command execution and automatic resumption.
-    - Suggestion: claude-domain SessionManager maintains mapping of sessionId → child process context and supports `--resume` semantics; expose stable API for webview and provider adapters.
+
+  - Session-aware command execution and automatic resumption.
+  - Suggestion: claude-domain SessionManager maintains mapping of sessionId → child process context and supports `--resume` semantics; expose stable API for webview and provider adapters.
 
 - Model Selection:
-    - UI dropdown selection with persistence; CLI `--model` passed on invoke.
-    - Suggestion: Extend our claude-domain session config to include optional model string; propagate as CLI flag when specified.
+
+  - UI dropdown selection with persistence; CLI `--model` passed on invoke.
+  - Suggestion: Extend our claude-domain session config to include optional model string; propagate as CLI flag when specified.
 
 - Slash Commands:
-    - Rich modal with built-in commands that open VS Code terminal flows and return to chat.
-    - Suggestion: Out of Week 5 scope; define a future “CommandRouter” in extension and typed event bus endpoints for invoking CLI subcommands. Keep claude-domain agnostic except for exposing supported flags and contexts.
+
+  - Rich modal with built-in commands that open VS Code terminal flows and return to chat.
+  - Suggestion: Out of Week 5 scope; define a future “CommandRouter” in extension and typed event bus endpoints for invoking CLI subcommands. Keep claude-domain agnostic except for exposing supported flags and contexts.
 
 - Tool Visibility & Results:
-    - Nicely formatted tool execution results and progress.
-    - Suggestion: In claude-domain, emit structured tool events (start/progress/result) so UI can render consistent statuses. No UI logic in domain layer.
+
+  - Nicely formatted tool execution results and progress.
+  - Suggestion: In claude-domain, emit structured tool events (start/progress/result) so UI can render consistent statuses. No UI logic in domain layer.
 
 - Analytics:
-    - Real-time cost, token, latency, and session stats.
-    - Suggestion: Leverage our existing `ai-providers-core` estimation hooks; claude-domain can annotate events with timing and token hints; surface via event bus.
+  - Real-time cost, token, latency, and session stats.
+  - Suggestion: Leverage our existing `ai-providers-core` estimation hooks; claude-domain can annotate events with timing and token hints; surface via event bus.
 
 ## Mapping to Ptah Architecture
 
 - claude-domain (Week 5 scope):
+
   - Detector: Platform + WSL-aware CLI detection and version health check.
   - CLI Process Manager/Adapter: Child process lifecycle, JSONL streaming, `--resume`, `--model` support, error handling.
   - Permission Service: Decision engine with YOLO mode and “always allow” patterns; request/response contracts for webview prompts.
   - Tool/Thinking Hooks: Emit typed events for tool execution and thinking content (UI renders).
 
 - vscode-core:
+
   - Cross-platform utilities (WSL path conversion, process spawning helpers).
   - Event bus channels for permissions, tool events, analytics.
 
@@ -82,44 +90,49 @@ These map closely to our target areas (permissions, CLI integration, session, to
 
 P0 — Implement within TASK_PRV_004 extraction
 
-1) PermissionService (claude-domain):
+1. PermissionService (claude-domain):
+
    - API: requestPermission(tool: string, args: unknown): Promise<'allow' | 'deny' | 'always_allow'>
    - YOLO toggle support (bypass checks when enabled)
    - “Always allow” rule store (workspace-scoped), pattern matching by command and args
    - Integration: When CLI emits permission requests, translate and call PermissionService; publish typed prompt to webview; accept user response and continue
 
-2) WSL-aware Detector & Launcher:
+2. WSL-aware Detector & Launcher:
+
    - Extend detector to resolve `claude` path considering Windows + WSL settings
    - Provide path translation helpers and environment config for CLI spawn
    - Health check: `claude --version` with timing
 
-3) Session & Resume:
+3. Session & Resume:
+
    - Preserve one-process-per-turn; support resume via `--resume <id>`
    - Stable SessionManager API to create/resume/end; maintain process map
 
-4) CLI Options: Model selection passthrough
+4. CLI Options: Model selection passthrough
+
    - Optional `model?: string` in session/config; append `--model <name>`
 
-5) Event Emission Contracts:
+5. Event Emission Contracts:
    - Define typed events for: content chunk, thinking, tool:start/progress/result, permission:requested/answered, errors, health
 
 P1 — Adjacent improvements (fast follow or include if trivial)
 
-6) Analytics Hooks:
+6. Analytics Hooks:
+
    - Timestamping, token/cost estimates attached to events; UI can aggregate
 
-7) Test Coverage for domain services:
+7. Test Coverage for domain services:
    - Unit tests for PermissionService patterns and YOLO logic
    - Detector tests with platform/WSL scenarios (mocked)
    - Stream parser robustness tests for JSONL edge cases
 
 P2 — Future tasks (new tickets)
 
-8) Slash Commands Router (extension + webview UI)
-9) MCP Permissions Backend (optional adapter)
-10) Checkpoints/Restore (git-backed), Conversation History store
-11) Image/clipboard attachment flow; workspace image storage conventions
-12) Sidebar integration and advanced settings UI
+8. Slash Commands Router (extension + webview UI)
+9. MCP Permissions Backend (optional adapter)
+10. Checkpoints/Restore (git-backed), Conversation History store
+11. Image/clipboard attachment flow; workspace image storage conventions
+12. Sidebar integration and advanced settings UI
 
 ## Risks & Mitigations
 
@@ -139,6 +152,7 @@ P2 — Future tasks (new tickets)
 ## Recommendation
 
 Proceed to software-architect phase for TASK_PRV_004 with P0 scope integrated into the extraction:
+
 - Add PermissionService with YOLO + always-allow rules
 - Make detector WSL-aware
 - Include session resume and model passthrough in CLI adapter

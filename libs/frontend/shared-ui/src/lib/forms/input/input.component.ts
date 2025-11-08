@@ -48,93 +48,87 @@ import { ValidationMessageComponent } from '../validation-message/validation-mes
       <!-- Input Area -->
       <div class="vscode-input-wrapper">
         @if (showSearch()) {
-          <ptah-input-icon [icon]="Search" ariaLabel="Search"></ptah-input-icon>
-        }
-
-        @if (multiline()) {
-          <textarea
-            #inputElement
-            class="vscode-input-field"
-            [class.vscode-input-with-icon]="showSearch()"
-            [placeholder]="placeholder()"
-            [disabled]="disabled()"
-            [rows]="rows()"
-            [style.resize]="resizable() ? 'vertical' : 'none'"
-            [value]="value()"
-            (input)="onInput($event)"
-            (focus)="onFocus()"
-            (blur)="onBlur()"
-            (keydown)="onKeyDown($event)"
-            [attr.aria-label]="ariaLabel() || placeholder()"
-            [attr.aria-describedby]="getAriaDescribedBy()"
-            [attr.aria-invalid]="!!errorMessage()"
-            [attr.aria-required]="required()"
-            cdkMonitorElementFocus
-            cdkTrapFocus="false"
-          ></textarea>
+        <ptah-input-icon [icon]="Search" ariaLabel="Search"></ptah-input-icon>
+        } @if (multiline()) {
+        <textarea
+          #inputElement
+          class="vscode-input-field"
+          [class.vscode-input-with-icon]="showSearch()"
+          [placeholder]="placeholder()"
+          [disabled]="disabled()"
+          [rows]="rows()"
+          [style.resize]="resizable() ? 'vertical' : 'none'"
+          [value]="value()"
+          (input)="onInput($event)"
+          (focus)="onFocus()"
+          (blur)="onBlur()"
+          (keydown)="onKeyDown($event)"
+          [attr.aria-label]="ariaLabel() || placeholder()"
+          [attr.aria-describedby]="getAriaDescribedBy()"
+          [attr.aria-invalid]="!!errorMessage()"
+          [attr.aria-required]="required()"
+          cdkMonitorElementFocus
+          cdkTrapFocus="false"
+        ></textarea>
         } @else {
-          <input
-            #inputElement
-            type="text"
-            class="vscode-input-field"
-            [class.vscode-input-with-icon]="showSearch()"
-            [placeholder]="placeholder()"
-            [disabled]="disabled()"
-            [value]="value()"
-            (input)="onInput($event)"
-            (focus)="onFocus()"
-            (blur)="onBlur()"
-            (keydown)="onKeyDown($event)"
-            [attr.aria-label]="ariaLabel() || placeholder()"
-            [attr.aria-describedby]="getAriaDescribedBy()"
-            [attr.aria-invalid]="!!errorMessage()"
-            [attr.aria-required]="required()"
-            cdkMonitorElementFocus
-            cdkTrapFocus="false"
-          />
-        }
-
-        @if (value() && showClear()) {
-          <ptah-input-icon
-            [icon]="X"
-            [clickable]="true"
-            ariaLabel="Clear input"
-            (iconClick)="onClear()"
-          ></ptah-input-icon>
+        <input
+          #inputElement
+          type="text"
+          class="vscode-input-field"
+          [class.vscode-input-with-icon]="showSearch()"
+          [placeholder]="placeholder()"
+          [disabled]="disabled()"
+          [value]="value()"
+          (input)="onInput($event)"
+          (focus)="onFocus()"
+          (blur)="onBlur()"
+          (keydown)="onKeyDown($event)"
+          [attr.aria-label]="ariaLabel() || placeholder()"
+          [attr.aria-describedby]="getAriaDescribedBy()"
+          [attr.aria-invalid]="!!errorMessage()"
+          [attr.aria-required]="required()"
+          cdkMonitorElementFocus
+          cdkTrapFocus="false"
+        />
+        } @if (value() && showClear()) {
+        <ptah-input-icon
+          [icon]="X"
+          [clickable]="true"
+          ariaLabel="Clear input"
+          (iconClick)="onClear()"
+        ></ptah-input-icon>
         }
       </div>
 
       <!-- Action Buttons -->
       @if (showActions()) {
-        <div class="vscode-input-actions">
-          @if (showSendButton()) {
-            <ptah-action-button
-              [icon]="Send"
-              variant="primary"
-              [disabled]="disabled() || !canSend()"
-              ariaLabel="Send message"
-              (buttonClick)="onSend()"
-            ></ptah-action-button>
-          }
-        </div>
+      <div class="vscode-input-actions">
+        @if (showSendButton()) {
+        <ptah-action-button
+          [icon]="Send"
+          variant="primary"
+          [disabled]="disabled() || !canSend()"
+          ariaLabel="Send message"
+          (buttonClick)="onSend()"
+        ></ptah-action-button>
+        }
+      </div>
       }
     </div>
 
     <!-- Validation Messages -->
     @if (helperText() && !errorMessage()) {
-      <ptah-validation-message
-        [message]="helperText()"
-        [messageId]="inputId + '-helper'"
-        type="helper"
-      ></ptah-validation-message>
-    }
-
-    @if (errorMessage()) {
-      <ptah-validation-message
-        [message]="errorMessage()"
-        [messageId]="inputId + '-error'"
-        type="error"
-      ></ptah-validation-message>
+    <ptah-validation-message
+      [message]="helperText()"
+      [messageId]="inputId + '-helper'"
+      type="helper"
+    ></ptah-validation-message>
+    } @if (errorMessage()) {
+    <ptah-validation-message
+      [message]="errorMessage()"
+      [messageId]="inputId + '-error'"
+      type="error"
+    ></ptah-validation-message>
     }
   `,
   styles: [
@@ -240,7 +234,10 @@ import { ValidationMessageComponent } from '../validation-message/validation-mes
 })
 export class InputComponent implements ControlValueAccessor, AfterViewInit {
   // Signal-based ViewChild (Angular 20+)
-  inputElement = viewChild.required<ElementRef<HTMLInputElement | HTMLTextAreaElement>>('inputElement');
+  inputElement =
+    viewChild.required<ElementRef<HTMLInputElement | HTMLTextAreaElement>>(
+      'inputElement'
+    );
 
   // Dependency injection
   private destroyRef = inject(DestroyRef);

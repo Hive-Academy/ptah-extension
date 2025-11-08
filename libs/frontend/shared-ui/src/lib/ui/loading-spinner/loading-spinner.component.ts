@@ -12,12 +12,15 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="vscode-spinner-container" [class.vscode-spinner-overlay]="overlay()">
+    <div
+      class="vscode-spinner-container"
+      [class.vscode-spinner-overlay]="overlay()"
+    >
       <div class="vscode-spinner" [class]="'vscode-spinner-' + size()">
         <div class="vscode-spinner-icon"></div>
       </div>
       @if (message()) {
-        <span class="vscode-spinner-message">{{ message() }}</span>
+      <span class="vscode-spinner-message">{{ message() }}</span>
       }
     </div>
   `,

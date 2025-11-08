@@ -1,4 +1,9 @@
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  input,
+  output,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule, PlusIcon, BarChart3Icon } from 'lucide-angular';
 
@@ -18,7 +23,11 @@ import { LucideAngularModule, PlusIcon, BarChart3Icon } from 'lucide-angular';
     <header class="vscode-header">
       <!-- Left Side: Ptah Icon as Home Button -->
       <div class="vscode-header-left">
-        <button class="vscode-header-logo-button" (click)="homeClick.emit()" title="Back to Chat">
+        <button
+          class="vscode-header-logo-button"
+          (click)="homeClick.emit()"
+          title="Back to Chat"
+        >
           <img [src]="ptahIconUri()" alt="Ptah" class="vscode-header-logo" />
         </button>
       </div>
@@ -31,7 +40,10 @@ import { LucideAngularModule, PlusIcon, BarChart3Icon } from 'lucide-angular';
           [attr.aria-label]="'New Session'"
           title="New Session"
         >
-          <lucide-angular [img]="PlusIcon" class="vscode-action-icon"></lucide-angular>
+          <lucide-angular
+            [img]="PlusIcon"
+            class="vscode-action-icon"
+          ></lucide-angular>
         </button>
 
         <button
@@ -41,7 +53,10 @@ import { LucideAngularModule, PlusIcon, BarChart3Icon } from 'lucide-angular';
           [attr.aria-label]="'Analytics'"
           title="Analytics"
         >
-          <lucide-angular [img]="BarChart3Icon" class="vscode-action-icon"></lucide-angular>
+          <lucide-angular
+            [img]="BarChart3Icon"
+            class="vscode-action-icon"
+          ></lucide-angular>
         </button>
       </div>
     </header>

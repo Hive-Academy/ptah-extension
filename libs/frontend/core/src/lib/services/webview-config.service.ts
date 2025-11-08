@@ -1,4 +1,10 @@
-import { Injectable, signal, computed, inject, DestroyRef } from '@angular/core';
+import {
+  Injectable,
+  signal,
+  computed,
+  inject,
+  DestroyRef,
+} from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { filter } from 'rxjs';
 
@@ -51,7 +57,9 @@ export class WebviewConfigService {
   private readonly destroyRef = inject(DestroyRef);
 
   // Private state signals (writable)
-  private readonly _config = signal<WebviewConfiguration>(DEFAULT_WEBVIEW_CONFIG);
+  private readonly _config = signal<WebviewConfiguration>(
+    DEFAULT_WEBVIEW_CONFIG
+  );
   private readonly _isLoaded = signal(false);
   private readonly _lastSync = signal<number>(0);
   private readonly _configChanges = signal<WebviewConfigChangeEvent[]>([]);
@@ -87,17 +95,19 @@ export class WebviewConfigService {
   /**
    * Get specific configuration section
    */
-  getSection<K extends keyof WebviewConfiguration>(section: K): WebviewConfiguration[K] {
+  getSection<K extends keyof WebviewConfiguration>(
+    section: K
+  ): WebviewConfiguration[K] {
     return { ...this._config()[section] };
   }
 
   /**
    * Get specific configuration value with type safety
    */
-  getValue<K extends keyof WebviewConfiguration, T extends keyof WebviewConfiguration[K]>(
-    section: K,
-    key: T,
-  ): WebviewConfiguration[K][T] {
+  getValue<
+    K extends keyof WebviewConfiguration,
+    T extends keyof WebviewConfiguration[K]
+  >(section: K, key: T): WebviewConfiguration[K][T] {
     return this._config()[section][key];
   }
 
@@ -106,16 +116,20 @@ export class WebviewConfigService {
    */
   async requestConfigUpdate<
     K extends keyof WebviewConfiguration,
-    T extends keyof WebviewConfiguration[K],
+    T extends keyof WebviewConfiguration[K]
   >(section: K, key: T, value: WebviewConfiguration[K][T]): Promise<void> {
     try {
       await this.vscode.postStrictMessage('config:update', {
-        updates: { [section]: { [key]: value } } as Partial<WebviewConfiguration>,
+        updates: {
+          [section]: { [key]: value },
+        } as Partial<WebviewConfiguration>,
       });
     } catch (error) {
       console.error('Failed to request configuration update:', error);
       throw new Error(
-        `Configuration update failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Configuration update failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
       );
     }
   }
@@ -131,7 +145,9 @@ export class WebviewConfigService {
     } catch (error) {
       console.error('Failed to refresh configuration:', error);
       throw new Error(
-        `Configuration refresh failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Configuration refresh failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
       );
     }
   }
@@ -149,12 +165,18 @@ export class WebviewConfigService {
   /**
    * Validate configuration
    */
-  validateConfiguration(config?: WebviewConfiguration): { isValid: boolean; errors: string[] } {
+  validateConfiguration(config?: WebviewConfiguration): {
+    isValid: boolean;
+    errors: string[];
+  } {
     const configToValidate = config || this._config();
     const errors: string[] = [];
 
     // Validate Claude configuration
-    if (configToValidate.claude.temperature < 0 || configToValidate.claude.temperature > 1) {
+    if (
+      configToValidate.claude.temperature < 0 ||
+      configToValidate.claude.temperature > 1
+    ) {
       errors.push('Claude temperature must be between 0 and 1');
     }
 
@@ -171,7 +193,10 @@ export class WebviewConfigService {
       errors.push('Streaming chunkSize must be positive');
     }
 
-    if (configToValidate.streaming.chunkSize > configToValidate.streaming.bufferSize) {
+    if (
+      configToValidate.streaming.chunkSize >
+      configToValidate.streaming.bufferSize
+    ) {
       errors.push('Streaming chunkSize cannot be larger than bufferSize');
     }
 
@@ -189,17 +214,19 @@ export class WebviewConfigService {
     toObservable(this.vscode.isConnected)
       .pipe(
         filter((isConnected) => isConnected),
-        takeUntilDestroyed(this.destroyRef),
+        takeUntilDestroyed(this.destroyRef)
       )
       .subscribe(() => {
-        console.log('WebviewConfigService: VS Code connected, initializing configuration...');
+        console.log(
+          'WebviewConfigService: VS Code connected, initializing configuration...'
+        );
         this.initializeConfiguration();
       });
 
     // If already connected, initialize immediately
     if (this.vscode.isConnected()) {
       console.log(
-        'WebviewConfigService: VS Code already connected, initializing configuration...',
+        'WebviewConfigService: VS Code already connected, initializing configuration...'
       );
       this.initializeConfiguration();
     }
@@ -219,9 +246,14 @@ export class WebviewConfigService {
       // Set loaded state after attempting initial load
       this._isLoaded.set(true);
       this._lastSync.set(Date.now());
-      console.log('WebviewConfigService: Configuration initialized successfully');
+      console.log(
+        'WebviewConfigService: Configuration initialized successfully'
+      );
     } catch (error) {
-      console.warn('Failed to load initial configuration, using defaults:', error);
+      console.warn(
+        'Failed to load initial configuration, using defaults:',
+        error
+      );
       this._isLoaded.set(true);
       this._lastSync.set(Date.now());
     }
@@ -241,9 +273,9 @@ export class WebviewConfigService {
             msg !== null &&
             'type' in msg &&
             typeof msg.type === 'string' &&
-            msg.type.startsWith('config:'),
+            msg.type.startsWith('config:')
         ),
-        takeUntilDestroyed(this.destroyRef),
+        takeUntilDestroyed(this.destroyRef)
       )
       .subscribe((msg) => {
         const message = msg as unknown as { type: string; payload: unknown };
@@ -254,7 +286,10 @@ export class WebviewConfigService {
   /**
    * Handle configuration messages from backend
    */
-  private handleConfigurationMessage(msg: { type: string; payload: unknown }): void {
+  private handleConfigurationMessage(msg: {
+    type: string;
+    payload: unknown;
+  }): void {
     const messageType = msg.type;
 
     try {
@@ -292,7 +327,10 @@ export class WebviewConfigService {
       const validationResult = this.validateConfiguration(configData);
 
       if (!validationResult.isValid) {
-        console.error('Invalid configuration received:', validationResult.errors);
+        console.error(
+          'Invalid configuration received:',
+          validationResult.errors
+        );
         return;
       }
 
@@ -314,7 +352,7 @@ export class WebviewConfigService {
    */
   private notifyConfigurationChange(
     previous: WebviewConfiguration,
-    current: WebviewConfiguration,
+    current: WebviewConfiguration
   ): void {
     const affectedSections = this.getAffectedSections(previous, current);
 
@@ -343,12 +381,16 @@ export class WebviewConfigService {
    */
   private getAffectedSections(
     previous: WebviewConfiguration,
-    current: WebviewConfiguration,
+    current: WebviewConfiguration
   ): string[] {
     const affected: string[] = [];
 
-    for (const section of Object.keys(current) as Array<keyof WebviewConfiguration>) {
-      if (JSON.stringify(previous[section]) !== JSON.stringify(current[section])) {
+    for (const section of Object.keys(current) as Array<
+      keyof WebviewConfiguration
+    >) {
+      if (
+        JSON.stringify(previous[section]) !== JSON.stringify(current[section])
+      ) {
         affected.push(section);
       }
     }

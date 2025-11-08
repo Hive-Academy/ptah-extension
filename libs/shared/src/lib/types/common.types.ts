@@ -72,7 +72,6 @@ export interface TokenUsage {
   cost?: number;
 }
 
-
 export interface SessionInfo {
   id: string;
   name: string;

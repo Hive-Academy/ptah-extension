@@ -12,6 +12,7 @@
 **User Story**: As a Ptah extension developer, I want a type-safe dependency injection container using TSyringe, so that services can be registered and resolved with compile-time type safety and no string-based tokens.
 
 **Acceptance Criteria**:
+
 - WHEN the DI container is initialized THEN it provides Symbol-based tokens for all service types
 - WHEN services are registered THEN they use type-safe Symbol tokens instead of strings
 - WHEN the extension context is provided THEN it is properly registered in the container
@@ -23,6 +24,7 @@
 **User Story**: As a Ptah extension developer, I want an RxJS-based event bus system, so that extension components can communicate using type-safe, reactive messaging with Angular compatibility.
 
 **Acceptance Criteria**:
+
 - WHEN messages are published THEN they use the existing StrictMessageType system from @ptah-extension/shared
 - WHEN components subscribe to messages THEN they receive RxJS Observables with proper typing
 - WHEN request-response patterns are needed THEN the event bus provides async request/response functionality
@@ -34,6 +36,7 @@
 **User Story**: As a Ptah extension developer, I want abstracted VS Code API wrappers, so that core VS Code functionality is encapsulated with proper dependency injection and event handling.
 
 **Acceptance Criteria**:
+
 - WHEN commands are registered THEN they use the CommandManager with proper event emission
 - WHEN webviews are created THEN they use the WebviewManager with message routing
 - WHEN VS Code APIs are called THEN they go through abstracted wrappers instead of direct calls
@@ -52,6 +55,7 @@
 ## Implementation Scope
 
 **Files to Create/Modify**:
+
 - `libs/backend/vscode-core/src/di/container.ts` - DI container setup with Symbol tokens
 - `libs/backend/vscode-core/src/messaging/event-bus.ts` - RxJS event bus implementation
 - `libs/backend/vscode-core/src/api-wrappers/command-manager.ts` - VS Code command abstraction
@@ -59,6 +63,7 @@
 - `libs/backend/vscode-core/src/index.ts` - Export all new components
 
 **Dependencies**:
+
 - TSyringe (already installed)
 - RxJS (already installed)
 - EventEmitter3 (already installed)
@@ -70,17 +75,20 @@
 ## Dependencies & Constraints
 
 **Technical Constraints**:
+
 - Must use existing MessagePayloadMap from @ptah-extension/shared
 - Must maintain compatibility with Angular webview components
 - Must follow strict TypeScript typing (no 'any' types)
 - Must integrate with existing VS Code extension lifecycle
 
 **Prerequisites**:
+
 - Nx libraries already generated (completed)
 - Required packages already installed (completed)
 - Shared type system already implemented (completed)
 
 **Integration Points**:
+
 - Extension activation/deactivation lifecycle
 - Webview message passing system
 - Angular component reactive patterns
@@ -92,6 +100,7 @@
 **Rationale**: The requirements are clearly defined in the MONSTER_EXTENSION_REFACTOR_PLAN with detailed code examples. No additional research is needed since the architecture, patterns, and integration points are already specified. The software-architect can proceed directly to creating the implementation plan and detailed design.
 
 **Key Context for Next Agent**:
+
 - Week 2 implementation focuses on core infrastructure (DI + messaging)
 - Detailed code examples are provided in the plan (lines 165-420)
 - Must integrate with existing @ptah-extension/shared type system

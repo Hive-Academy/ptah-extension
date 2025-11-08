@@ -14,7 +14,9 @@ import { MessagePayloadMap, CorrelationId } from '@ptah-extension/shared';
  * Typed event structure that extends the existing message system
  * Provides correlation tracking and source identification for debugging
  */
-export interface TypedEvent<T extends keyof MessagePayloadMap = keyof MessagePayloadMap> {
+export interface TypedEvent<
+  T extends keyof MessagePayloadMap = keyof MessagePayloadMap
+> {
   readonly type: T;
   readonly payload: MessagePayloadMap[T];
   readonly correlationId: CorrelationId;
@@ -25,8 +27,9 @@ export interface TypedEvent<T extends keyof MessagePayloadMap = keyof MessagePay
 /**
  * Request-response event structure for async communication patterns
  */
-export interface RequestEvent<T extends keyof MessagePayloadMap = keyof MessagePayloadMap>
-  extends TypedEvent<T> {
+export interface RequestEvent<
+  T extends keyof MessagePayloadMap = keyof MessagePayloadMap
+> extends TypedEvent<T> {
   readonly responseTimeout?: number;
 }
 
@@ -52,10 +55,13 @@ export interface ResponseEvent<T = unknown> {
 @injectable()
 export class EventBus {
   private readonly emitter = new EventEmitter();
-  private readonly activeRequests = new Map<CorrelationId, {
-    readonly timeout: NodeJS.Timeout;
-    readonly timestamp: number;
-  }>();
+  private readonly activeRequests = new Map<
+    CorrelationId,
+    {
+      readonly timeout: NodeJS.Timeout;
+      readonly timestamp: number;
+    }
+  >();
 
   /**
    * Publish a type-safe event using existing MessagePayloadMap types
@@ -77,7 +83,7 @@ export class EventBus {
       payload,
       source,
       timestamp: Date.now(),
-      correlationId
+      correlationId,
     };
 
     this.emitter.emit(type as string, event);
@@ -136,13 +142,13 @@ export class EventBus {
       // Track active request
       this.activeRequests.set(correlationId, {
         timeout: timeoutHandle,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       // Set up response listener
       fromEvent<ResponseEvent<R>>(this.emitter, responseType)
         .pipe(
-          filter(response => response.correlationId === correlationId),
+          filter((response) => response.correlationId === correlationId),
           take(1),
           timeout(timeoutMs)
         )
@@ -159,7 +165,7 @@ export class EventBus {
           error: (error) => {
             this.cleanupRequest(correlationId);
             reject(error);
-          }
+          },
         });
 
       // Send the request
@@ -169,7 +175,7 @@ export class EventBus {
         correlationId,
         source: 'extension',
         timestamp: Date.now(),
-        responseTimeout: timeoutMs
+        responseTimeout: timeoutMs,
       };
 
       this.emitter.emit(type as string, requestEvent);
@@ -196,7 +202,7 @@ export class EventBus {
       success: !error,
       data,
       error,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
 
     this.emitter.emit(responseType, response);
@@ -216,7 +222,7 @@ export class EventBus {
       activeRequests: this.activeRequests.size,
       eventListeners: totalListeners,
       eventNames: eventNames,
-      oldestRequest: this.getOldestRequestAge()
+      oldestRequest: this.getOldestRequestAge(),
     };
   }
 

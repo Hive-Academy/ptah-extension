@@ -19,7 +19,7 @@ This task extracts workspace intelligence services from `apps/ptah-extension-vsc
 Extract workspace management logic from the main extension and organize into three domain modules:
 
 1. **Project Analysis Module** - Project type detection, framework detection, dependency analysis
-2. **File Indexing Module** - Workspace indexing, ignore pattern resolution, file type classification  
+2. **File Indexing Module** - Workspace indexing, ignore pattern resolution, file type classification
 3. **Context Optimization Module** - Token estimation, file relevance scoring, smart file selection
 
 ### Measurable
@@ -81,29 +81,32 @@ Extract workspace management logic from the main extension and organize into thr
 **Daily Breakdown**:
 
 - **Day 1 (8 hours)**: Extract existing workspace-manager logic + basic project type detection
-    - Extract workspace folder detection, file system operations
-    - Create library structure with 3 domain modules
-    - Implement project type detector (leverage existing code)
-    - Unit tests for project type detection
+
+  - Extract workspace folder detection, file system operations
+  - Create library structure with 3 domain modules
+  - Implement project type detector (leverage existing code)
+  - Unit tests for project type detection
 
 - **Day 2 (8 hours)**: Framework detection + dependency analysis
-    - Extract and enhance framework detection logic
-    - Implement dependency analyzer (package.json, requirements.txt, go.mod, Cargo.toml)
-    - Add monorepo detection (Nx, Lerna, Rush)
-    - Unit tests for framework and dependency detection
+
+  - Extract and enhance framework detection logic
+  - Implement dependency analyzer (package.json, requirements.txt, go.mod, Cargo.toml)
+  - Add monorepo detection (Nx, Lerna, Rush)
+  - Unit tests for framework and dependency detection
 
 - **Day 3 (8 hours)**: File indexing with ignore patterns + file type classification
-    - Implement workspace indexer with glob pattern matching
-    - Create ignore pattern resolver (.gitignore, .vscodeignore, .prettierignore)
-    - Build file type classifier with heuristics
-    - Integration tests with real workspace scenarios
+
+  - Implement workspace indexer with glob pattern matching
+  - Create ignore pattern resolver (.gitignore, .vscodeignore, .prettierignore)
+  - Build file type classifier with heuristics
+  - Integration tests with real workspace scenarios
 
 - **Day 4 (8 hours)**: Context optimization + testing + integration
-    - Implement context size optimizer with token estimation
-    - Build file relevance scorer (TF-IDF or keyword matching)
-    - Complete test suite (≥80% coverage)
-    - Integration with `ai-providers-core` for context optimization
-    - Documentation for each module
+  - Implement context size optimizer with token estimation
+  - Build file relevance scorer (TF-IDF or keyword matching)
+  - Complete test suite (≥80% coverage)
+  - Integration with `ai-providers-core` for context optimization
+  - Documentation for each module
 
 **Hard Deadline**: Must complete within 2 weeks per universal constraint (buffer for unexpected issues)
 
@@ -174,29 +177,29 @@ Extract workspace management logic from the main extension and organize into thr
 
 ### Technical Risks
 
-| Risk | Impact | Probability | Mitigation |
-|------|--------|-------------|------------|
-| **Existing code dependencies on `workspace-manager.ts`** | HIGH | MEDIUM | Create forwarding wrapper during transition; comprehensive integration tests |
-| **Ignore pattern parser complexity** | MEDIUM | MEDIUM | Use battle-tested glob library (e.g., `minimatch`, `picomatch`); reference `.gitignore` spec |
-| **Token estimation accuracy** | MEDIUM | LOW | Use conservative estimates; validate against real provider token counts |
-| **Performance with large workspaces** | MEDIUM | MEDIUM | Implement caching; lazy loading; debouncing for file watchers |
-| **Cross-platform file system differences** | LOW | LOW | Leverage VS Code's platform-agnostic APIs; test on Windows/macOS/Linux |
+| Risk                                                     | Impact | Probability | Mitigation                                                                                   |
+| -------------------------------------------------------- | ------ | ----------- | -------------------------------------------------------------------------------------------- |
+| **Existing code dependencies on `workspace-manager.ts`** | HIGH   | MEDIUM      | Create forwarding wrapper during transition; comprehensive integration tests                 |
+| **Ignore pattern parser complexity**                     | MEDIUM | MEDIUM      | Use battle-tested glob library (e.g., `minimatch`, `picomatch`); reference `.gitignore` spec |
+| **Token estimation accuracy**                            | MEDIUM | LOW         | Use conservative estimates; validate against real provider token counts                      |
+| **Performance with large workspaces**                    | MEDIUM | MEDIUM      | Implement caching; lazy loading; debouncing for file watchers                                |
+| **Cross-platform file system differences**               | LOW    | LOW         | Leverage VS Code's platform-agnostic APIs; test on Windows/macOS/Linux                       |
 
 ### Scope Risks
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| **Scope creep beyond 2-week timeline** | HIGH | Defer advanced features (e.g., machine learning relevance scoring) to future work; focus on core extraction + basic enhancements |
-| **Over-engineering context optimization** | MEDIUM | Start with simple TF-IDF or keyword matching; document advanced algorithms for future iterations |
-| **Integration complexity with providers** | MEDIUM | Define clear interface contracts early; use dependency injection for loose coupling |
+| Risk                                      | Impact | Mitigation                                                                                                                       |
+| ----------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Scope creep beyond 2-week timeline**    | HIGH   | Defer advanced features (e.g., machine learning relevance scoring) to future work; focus on core extraction + basic enhancements |
+| **Over-engineering context optimization** | MEDIUM | Start with simple TF-IDF or keyword matching; document advanced algorithms for future iterations                                 |
+| **Integration complexity with providers** | MEDIUM | Define clear interface contracts early; use dependency injection for loose coupling                                              |
 
 ### Dependency Risks
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| **VS Code API changes** | LOW | Use stable VS Code APIs (not proposed); abstract API calls behind interfaces |
-| **Third-party library vulnerabilities** | LOW | Use well-maintained libraries (e.g., `minimatch`, `picomatch`); regular dependency audits |
-| **Nx workspace configuration issues** | LOW | Follow Nx best practices; leverage existing library setup patterns |
+| Risk                                    | Impact | Mitigation                                                                                |
+| --------------------------------------- | ------ | ----------------------------------------------------------------------------------------- |
+| **VS Code API changes**                 | LOW    | Use stable VS Code APIs (not proposed); abstract API calls behind interfaces              |
+| **Third-party library vulnerabilities** | LOW    | Use well-maintained libraries (e.g., `minimatch`, `picomatch`); regular dependency audits |
+| **Nx workspace configuration issues**   | LOW    | Follow Nx best practices; leverage existing library setup patterns                        |
 
 ---
 
@@ -239,17 +242,17 @@ Extract workspace management logic from the main extension and organize into thr
 
 ## Success Metrics
 
-| Metric | Target | How Measured |
-|--------|--------|--------------|
-| **Code Extraction** | 100% of workspace-manager.ts logic | Lines moved from `apps/` to `libs/` |
-| **Project Type Coverage** | 5+ ecosystems | Unit tests verify detection |
-| **Framework Detection** | 3+ frameworks | Integration tests with real projects |
-| **Ignore Pattern Support** | 3+ ignore file types | Parser validates against spec |
-| **File Classification Accuracy** | ≥90% correct categorization | Manual review of 100 sample files |
-| **Token Estimation Accuracy** | ±10% of actual count | Validation against Claude API token counts |
-| **Test Coverage** | ≥80% line/branch/function | Jest coverage report |
-| **Performance** | <500ms for 1000+ file workspace | Benchmark tests |
-| **Zero Regressions** | All existing tests pass | CI pipeline validation |
+| Metric                           | Target                             | How Measured                               |
+| -------------------------------- | ---------------------------------- | ------------------------------------------ |
+| **Code Extraction**              | 100% of workspace-manager.ts logic | Lines moved from `apps/` to `libs/`        |
+| **Project Type Coverage**        | 5+ ecosystems                      | Unit tests verify detection                |
+| **Framework Detection**          | 3+ frameworks                      | Integration tests with real projects       |
+| **Ignore Pattern Support**       | 3+ ignore file types               | Parser validates against spec              |
+| **File Classification Accuracy** | ≥90% correct categorization        | Manual review of 100 sample files          |
+| **Token Estimation Accuracy**    | ±10% of actual count               | Validation against Claude API token counts |
+| **Test Coverage**                | ≥80% line/branch/function          | Jest coverage report                       |
+| **Performance**                  | <500ms for 1000+ file workspace    | Benchmark tests                            |
+| **Zero Regressions**             | All existing tests pass            | CI pipeline validation                     |
 
 ---
 
@@ -341,7 +344,7 @@ export interface IndexedFile {
 export interface ContextOptimizationRequest {
   query: string;
   tokenBudget: number;
-  files?: string[];  // Specific files to consider
+  files?: string[]; // Specific files to consider
   excludePatterns?: string[];
 }
 
@@ -368,24 +371,28 @@ export interface ContextOptimizationResult {
 **Research Focus Areas**:
 
 1. **VS Code Workspace APIs (2025 updates)**:
+
    - Latest `vscode.workspace` capabilities for multi-root workspace support
    - New file system provider APIs and virtual file systems
    - Workspace trust and security model integration
    - Improved file watching with better performance characteristics
 
 2. **Language Intelligence**:
+
    - VS Code's language detection improvements
    - Language Server Protocol (LSP) integration for better context understanding
    - Semantic token provider for intelligent file classification
    - Tree-sitter integration possibilities
 
 3. **AI/ML Integration**:
+
    - VS Code's built-in AI capabilities we can leverage
    - Language model API enhancements for context optimization
    - Semantic search and similarity matching features
    - Token counting utilities in VS Code API
 
 4. **Performance & Optimization**:
+
    - Modern glob pattern matching libraries (latest benchmarks)
    - Efficient file indexing strategies (incremental indexing, caching)
    - Worker thread support for large workspace processing

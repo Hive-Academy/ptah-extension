@@ -1,4 +1,9 @@
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  input,
+  output,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule, Check } from 'lucide-angular';
 import { DropdownOption } from '@ptah-extension/shared';
@@ -16,61 +21,72 @@ import { DropdownOption } from '@ptah-extension/shared';
   imports: [CommonModule, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="vscode-options-container" role="listbox" [attr.id]="listboxId()">
+    <div
+      class="vscode-options-container"
+      role="listbox"
+      [attr.id]="listboxId()"
+    >
       @if (options().length === 0) {
-        <div class="vscode-no-options" role="status" aria-live="polite">
-          @if (hasSearchTerm()) {
-            No matching options found
-          } @else {
-            No options available
-          }
-        </div>
-      } @else {
-        @for (option of options(); track option.value; let i = $index) {
-          @if (option.group && (i === 0 || options()[i - 1].group !== option.group)) {
-            <div class="vscode-option-group-label" role="group" [attr.aria-label]="option.group">
-              {{ option.group }}
-            </div>
-          }
-
-          <button
-            type="button"
-            class="vscode-dropdown-option"
-            [class.vscode-option-selected]="option.value === selectedValue()"
-            [class.vscode-option-focused]="i === focusedIndex()"
-            [class.vscode-option-disabled]="option.disabled"
-            [disabled]="option.disabled"
-            role="option"
-            [attr.aria-selected]="option.value === selectedValue()"
-            [attr.aria-describedby]="option.description ? 'desc-' + option.value : null"
-            (click)="optionClick.emit(option)"
-            (mouseenter)="optionHover.emit(i)"
-            cdkMonitorElementFocus
-          >
-            <div class="vscode-option-content">
-              @if (option.icon) {
-                <span class="vscode-option-icon" aria-hidden="true">{{ option.icon }}</span>
-              }
-              <div class="vscode-option-text">
-                <span class="vscode-option-label">{{ option.label }}</span>
-                @if (option.description) {
-                  <span class="vscode-option-description" [attr.id]="'desc-' + option.value">
-                    {{ option.description }}
-                  </span>
-                }
-              </div>
-            </div>
-
-            @if (option.value === selectedValue()) {
-              <lucide-angular
-                [img]="Check"
-                class="vscode-check-icon"
-                aria-hidden="true"
-              ></lucide-angular>
-            }
-          </button>
-        }
+      <div class="vscode-no-options" role="status" aria-live="polite">
+        @if (hasSearchTerm()) { No matching options found } @else { No options
+        available }
+      </div>
+      } @else { @for (option of options(); track option.value; let i = $index) {
+      @if (option.group && (i === 0 || options()[i - 1].group !== option.group))
+      {
+      <div
+        class="vscode-option-group-label"
+        role="group"
+        [attr.aria-label]="option.group"
+      >
+        {{ option.group }}
+      </div>
       }
+
+      <button
+        type="button"
+        class="vscode-dropdown-option"
+        [class.vscode-option-selected]="option.value === selectedValue()"
+        [class.vscode-option-focused]="i === focusedIndex()"
+        [class.vscode-option-disabled]="option.disabled"
+        [disabled]="option.disabled"
+        role="option"
+        [attr.aria-selected]="option.value === selectedValue()"
+        [attr.aria-describedby]="
+          option.description ? 'desc-' + option.value : null
+        "
+        (click)="optionClick.emit(option)"
+        (mouseenter)="optionHover.emit(i)"
+        cdkMonitorElementFocus
+      >
+        <div class="vscode-option-content">
+          @if (option.icon) {
+          <span class="vscode-option-icon" aria-hidden="true">{{
+            option.icon
+          }}</span>
+          }
+          <div class="vscode-option-text">
+            <span class="vscode-option-label">{{ option.label }}</span>
+            @if (option.description) {
+            <span
+              class="vscode-option-description"
+              [attr.id]="'desc-' + option.value"
+            >
+              {{ option.description }}
+            </span>
+            }
+          </div>
+        </div>
+
+        @if (option.value === selectedValue()) {
+        <lucide-angular
+          [img]="Check"
+          class="vscode-check-icon"
+          aria-hidden="true"
+        ></lucide-angular>
+        }
+      </button>
+      } }
     </div>
   `,
   styles: [

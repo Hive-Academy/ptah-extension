@@ -197,8 +197,11 @@ export function deactivate() {
 
 ```typescript
 export class PtahExtension {
-  constructor(private context: vscode.ExtensionContext, private logger: Logger, private commandRegistry: CommandRegistry) // ... 10+ more dependencies
-  {}
+  constructor(
+    private context: vscode.ExtensionContext,
+    private logger: Logger,
+    private commandRegistry: CommandRegistry // ... 10+ more dependencies
+  ) {}
 
   async activate() {
     // Manual initialization logic

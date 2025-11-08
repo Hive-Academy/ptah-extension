@@ -34,7 +34,9 @@ export class ViewManagerService {
    * Check if view switching is allowed
    */
   canSwitchView(view: ViewType): boolean {
-    return this.appState.canSwitchViews() && view !== this.appState.currentView();
+    return (
+      this.appState.canSwitchViews() && view !== this.appState.currentView()
+    );
   }
 
   /**

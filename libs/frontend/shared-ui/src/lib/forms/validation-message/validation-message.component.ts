@@ -13,16 +13,16 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (message()) {
-      <div
-        class="vscode-validation-message"
-        [class.vscode-validation-error]="type() === 'error'"
-        [class.vscode-validation-helper]="type() === 'helper'"
-        [attr.id]="messageId()"
-        [attr.aria-live]="type() === 'error' ? 'assertive' : 'polite'"
-        [attr.role]="type() === 'error' ? 'alert' : null"
-      >
-        {{ message() }}
-      </div>
+    <div
+      class="vscode-validation-message"
+      [class.vscode-validation-error]="type() === 'error'"
+      [class.vscode-validation-helper]="type() === 'helper'"
+      [attr.id]="messageId()"
+      [attr.aria-live]="type() === 'error' ? 'assertive' : 'polite'"
+      [attr.role]="type() === 'error' ? 'alert' : null"
+    >
+      {{ message() }}
+    </div>
     }
   `,
   styles: [

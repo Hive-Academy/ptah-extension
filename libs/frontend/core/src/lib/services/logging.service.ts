@@ -97,7 +97,11 @@ export class LoggingService {
   /**
    * Component lifecycle logging (ngOnInit, ngOnDestroy, etc.)
    */
-  lifecycle(componentName: string, lifecycleHook: string, data?: unknown): void {
+  lifecycle(
+    componentName: string,
+    lifecycleHook: string,
+    data?: unknown
+  ): void {
     this.debug(`[Lifecycle] ${componentName}`, lifecycleHook, data);
   }
 
@@ -125,14 +129,23 @@ export class LoggingService {
   /**
    * API/Message logging
    */
-  api(direction: 'sent' | 'received', messageType: string, data?: unknown): void {
+  api(
+    direction: 'sent' | 'received',
+    messageType: string,
+    data?: unknown
+  ): void {
     this.debug(`[API] ${direction}`, messageType, data);
   }
 
   /**
    * Core logging method
    */
-  private log(level: LogLevel, context: string, message: string, data?: unknown): void {
+  private log(
+    level: LogLevel,
+    context: string,
+    message: string,
+    data?: unknown
+  ): void {
     // Filter based on current log level
     if (level < this._currentLevel()) {
       return;
@@ -161,7 +174,9 @@ export class LoggingService {
    */
   private logToConsole(entry: LogEntry): void {
     const timestamp = entry.timestamp.toISOString();
-    const prefix = `[${timestamp}] [${LogLevel[entry.level]}] ${entry.context}:`;
+    const prefix = `[${timestamp}] [${LogLevel[entry.level]}] ${
+      entry.context
+    }:`;
 
     switch (entry.level) {
       case LogLevel.DEBUG:

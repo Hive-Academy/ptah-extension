@@ -1,4 +1,11 @@
-import { Component, input, output, computed, ChangeDetectionStrategy, signal } from '@angular/core';
+import {
+  Component,
+  input,
+  output,
+  computed,
+  ChangeDetectionStrategy,
+  signal,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { StrictChatSession, SessionId } from '@ptah-extension/shared';
 
@@ -46,28 +53,31 @@ export interface SessionAction {
         <div class="session-card-info">
           <div class="session-card-name">
             @if (isEditing()) {
-              <input
-                #nameInput
-                class="session-name-input"
-                [value]="session().name"
-                (blur)="onNameSave(nameInput.value)"
-                (keydown.enter)="onNameSave(nameInput.value)"
-                (keydown.escape)="onCancelEdit()"
-                type="text"
-                maxlength="50"
-              />
+            <input
+              #nameInput
+              class="session-name-input"
+              [value]="session().name"
+              (blur)="onNameSave(nameInput.value)"
+              (keydown.enter)="onNameSave(nameInput.value)"
+              (keydown.escape)="onCancelEdit()"
+              type="text"
+              maxlength="50"
+            />
             } @else {
-              <span (dblclick)="onStartEdit()">{{ sessionDisplayName() }}</span>
-            }
-
-            @if (isCurrent()) {
-              <span class="session-current-badge">CURRENT</span>
+            <span (dblclick)="onStartEdit()">{{ sessionDisplayName() }}</span>
+            } @if (isCurrent()) {
+            <span class="session-current-badge">CURRENT</span>
             }
           </div>
 
           <div class="session-card-meta">
             <span class="session-meta-item">
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 16 16"
+                fill="currentColor"
+              >
                 <path
                   d="M2.5 3A1.5 1.5 0 0 0 1 4.5v.793c.026.009.051.02.076.032L7.674 8.51c.206.1.446.1.652 0l6.598-3.185A.755.755 0 0 1 15 5.293V4.5A1.5 1.5 0 0 0 13.5 3h-11Z"
                 />
@@ -79,15 +89,22 @@ export interface SessionAction {
             </span>
 
             @if (sessionStats().tokenUsage) {
-              <span class="session-meta-item">
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z" />
-                  <path
-                    d="M5.255 5.786a.237.237 0 0 0 .241.247h.825c.138 0 .248-.113.266-.25.09-.656.54-1.134 1.342-1.134.686 0 1.314.343 1.314 1.168 0 .635-.374.927-.965 1.371-.673.489-1.206 1.06-1.168 1.987l.003.217a.25.25 0 0 0 .25.246h.811a.25.25 0 0 0 .25-.25v-.105c0-.718.273-.927 1.01-1.486.609-.463 1.244-.977 1.244-2.056 0-1.511-1.276-2.241-2.673-2.241-1.267 0-2.655.59-2.75 2.286zm1.557 5.763c0 .533.425.927 1.01.927.609 0 1.028-.394 1.028-.927 0-.552-.42-.94-1.029-.94-.584 0-1.009.388-1.009.94z"
-                  />
-                </svg>
-                {{ sessionStats().tokenUsage.total }} tokens
-              </span>
+            <span class="session-meta-item">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 16 16"
+                fill="currentColor"
+              >
+                <path
+                  d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"
+                />
+                <path
+                  d="M5.255 5.786a.237.237 0 0 0 .241.247h.825c.138 0 .248-.113.266-.25.09-.656.54-1.134 1.342-1.134.686 0 1.314.343 1.314 1.168 0 .635-.374.927-.965 1.371-.673.489-1.206 1.06-1.168 1.987l.003.217a.25.25 0 0 0 .25.246h.811a.25.25 0 0 0 .25-.25v-.105c0-.718.273-.927 1.01-1.486.609-.463 1.244-.977 1.244-2.056 0-1.511-1.276-2.241-2.673-2.241-1.267 0-2.655.59-2.75 2.286zm1.557 5.763c0 .533.425.927 1.01.927.609 0 1.028-.394 1.028-.927 0-.552-.42-.94-1.029-.94-.584 0-1.009.388-1.009.94z"
+                />
+              </svg>
+              {{ sessionStats().tokenUsage.total }} tokens
+            </span>
             }
 
             <span class="session-meta-item session-meta-time">
@@ -97,117 +114,126 @@ export interface SessionAction {
         </div>
 
         @if (!isLoading()) {
-          <div class="session-card-actions">
-            @if (!isCurrent() && enableQuickSwitch()) {
-              <button
-                class="session-action-btn session-action-primary"
-                (click)="onAction('switch')"
-                title="Switch to this session"
-                type="button"
-              >
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                  <path
-                    d="M1 8a.5.5 0 0 1 .5-.5h11.793l-3.147-3.146a.5.5 0 0 1 .708-.708l4 4a.5.5 0 0 1 0 .708l-4 4a.5.5 0 0 1-.708-.708L13.293 8.5H1.5A.5.5 0 0 1 1 8z"
-                  />
-                </svg>
-              </button>
-            }
-
-            <button
-              class="session-action-btn"
-              (click)="onToggleActions()"
-              title="Session actions"
-              type="button"
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                <path
-                  d="M3 9.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"
-                />
-              </svg>
-            </button>
-          </div>
-        } @else {
-          <div class="session-loading-spinner">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+        <div class="session-card-actions">
+          @if (!isCurrent() && enableQuickSwitch()) {
+          <button
+            class="session-action-btn session-action-primary"
+            (click)="onAction('switch')"
+            title="Switch to this session"
+            type="button"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
               <path
-                d="M12 2v4M12 18v4M6 6l2 2M16 16l2 2M6 18l2-2M16 8l2-2M2 12h4M18 12h4"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
+                d="M1 8a.5.5 0 0 1 .5-.5h11.793l-3.147-3.146a.5.5 0 0 1 .708-.708l4 4a.5.5 0 0 1 0 .708l-4 4a.5.5 0 0 1-.708-.708L13.293 8.5H1.5A.5.5 0 0 1 1 8z"
               />
             </svg>
-          </div>
+          </button>
+          }
+
+          <button
+            class="session-action-btn"
+            (click)="onToggleActions()"
+            title="Session actions"
+            type="button"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path
+                d="M3 9.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"
+              />
+            </svg>
+          </button>
+        </div>
+        } @else {
+        <div class="session-loading-spinner">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M12 2v4M12 18v4M6 6l2 2M16 16l2 2M6 18l2-2M16 8l2-2M2 12h4M18 12h4"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
+          </svg>
+        </div>
         }
       </div>
 
       <!-- Session Details (expanded view) -->
       @if (showDetails()) {
-        <div class="session-card-details">
-          <!-- Session Statistics -->
-          <div class="session-details-stats">
-            @if (sessionStats().tokenUsage) {
-              <div class="session-stat">
-                <span class="session-stat-label">Input Tokens</span>
-                <span class="session-stat-value">{{ sessionStats().tokenUsage!.input }}</span>
-              </div>
-              <div class="session-stat">
-                <span class="session-stat-label">Output Tokens</span>
-                <span class="session-stat-value">{{ sessionStats().tokenUsage!.output }}</span>
-              </div>
-              <div class="session-stat">
-                <span class="session-stat-label">Usage</span>
-                <span class="session-stat-value"
-                  >{{ sessionStats().tokenUsage!.percentage.toFixed(1) }}%</span
-                >
-              </div>
-            }
-
-            <div class="session-stat">
-              <span class="session-stat-label">Created</span>
-              <span class="session-stat-value">{{ getFormattedDate(session().createdAt) }}</span>
-            </div>
-            <div class="session-stat">
-              <span class="session-stat-label">Updated</span>
-              <span class="session-stat-value">{{
-                getFormattedDate(session().lastActiveAt || session().updatedAt)
-              }}</span>
-            </div>
+      <div class="session-card-details">
+        <!-- Session Statistics -->
+        <div class="session-details-stats">
+          @if (sessionStats().tokenUsage) {
+          <div class="session-stat">
+            <span class="session-stat-label">Input Tokens</span>
+            <span class="session-stat-value">{{
+              sessionStats().tokenUsage!.input
+            }}</span>
           </div>
+          <div class="session-stat">
+            <span class="session-stat-label">Output Tokens</span>
+            <span class="session-stat-value">{{
+              sessionStats().tokenUsage!.output
+            }}</span>
+          </div>
+          <div class="session-stat">
+            <span class="session-stat-label">Usage</span>
+            <span class="session-stat-value"
+              >{{ sessionStats().tokenUsage!.percentage.toFixed(1) }}%</span
+            >
+          </div>
+          }
 
-          <!-- Recent Messages Preview -->
-          @if (recentMessages().length > 0) {
-            <div class="session-recent-messages">
-              <div class="session-recent-title">Recent Messages</div>
-              @for (message of recentMessages(); track message.id) {
-                <div class="session-message-preview">
-                  <span class="message-type-badge" [class]="'message-type-' + message.type">
-                    {{ message.type }}
-                  </span>
-                  <span class="message-content-preview">
-                    {{ getMessagePreview(message.content) }}
-                  </span>
-                </div>
-              }
-            </div>
+          <div class="session-stat">
+            <span class="session-stat-label">Created</span>
+            <span class="session-stat-value">{{
+              getFormattedDate(session().createdAt)
+            }}</span>
+          </div>
+          <div class="session-stat">
+            <span class="session-stat-label">Updated</span>
+            <span class="session-stat-value">{{
+              getFormattedDate(session().lastActiveAt || session().updatedAt)
+            }}</span>
+          </div>
+        </div>
+
+        <!-- Recent Messages Preview -->
+        @if (recentMessages().length > 0) {
+        <div class="session-recent-messages">
+          <div class="session-recent-title">Recent Messages</div>
+          @for (message of recentMessages(); track message.id) {
+          <div class="session-message-preview">
+            <span
+              class="message-type-badge"
+              [class]="'message-type-' + message.type"
+            >
+              {{ message.type }}
+            </span>
+            <span class="message-content-preview">
+              {{ getMessagePreview(message.content) }}
+            </span>
+          </div>
           }
         </div>
+        }
+      </div>
       }
 
       <!-- Action Menu (when expanded) -->
       @if (showActionsMenu()) {
-        <div class="session-actions-menu">
-          @for (action of availableActions(); track action.type) {
-            <button
-              class="session-action-item"
-              [class.session-action-dangerous]="action.dangerous"
-              (click)="onAction(action.type)"
-              type="button"
-            >
-              <span class="session-action-icon" [innerHTML]="action.icon"></span>
-              <span class="session-action-label">{{ action.label }}</span>
-            </button>
-          }
-        </div>
+      <div class="session-actions-menu">
+        @for (action of availableActions(); track action.type) {
+        <button
+          class="session-action-item"
+          [class.session-action-dangerous]="action.dangerous"
+          (click)="onAction(action.type)"
+          type="button"
+        >
+          <span class="session-action-icon" [innerHTML]="action.icon"></span>
+          <span class="session-action-label">{{ action.label }}</span>
+        </button>
+        }
+      </div>
       }
     </div>
   `,
@@ -563,7 +589,7 @@ export class SessionCardComponent {
         type: 'export',
         label: 'Export Session',
         icon: '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8.5 1.5A1.5 1.5 0 0 1 10 0h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h6c-.314.418-.5.937-.5 1.5v6h-2a.5.5 0 0 0-.354.854l2.5 2.5a.5.5 0 0 0 .708 0l2.5-2.5A.5.5 0 0 0 10 7.5H8.5v-6z"/></svg>',
-      },
+      }
     );
 
     if (!this.isCurrent()) {
@@ -582,7 +608,9 @@ export class SessionCardComponent {
     this._isEditing.set(true);
     // Auto-focus the input after template updates
     setTimeout(() => {
-      const input = document.querySelector('.session-name-input') as HTMLInputElement;
+      const input = document.querySelector(
+        '.session-name-input'
+      ) as HTMLInputElement;
       if (input) {
         input.focus();
         input.select();

@@ -81,18 +81,22 @@ export interface StatusBarItemErrorPayload {
 @injectable()
 export class StatusBarManager {
   private readonly statusBarItems = new Map<string, vscode.StatusBarItem>();
-  private readonly itemMetrics = new Map<string, {
-    createdAt: number;
-    updateCount: number;
-    lastUpdate: number;
-    clickCount: number;
-    lastClick: number;
-    isVisible: boolean;
-    errorCount: number;
-  }>();
+  private readonly itemMetrics = new Map<
+    string,
+    {
+      createdAt: number;
+      updateCount: number;
+      lastUpdate: number;
+      clickCount: number;
+      lastClick: number;
+      isVisible: boolean;
+      errorCount: number;
+    }
+  >();
 
   constructor(
-    @inject(TOKENS.EXTENSION_CONTEXT) private readonly context: vscode.ExtensionContext,
+    @inject(TOKENS.EXTENSION_CONTEXT)
+    private readonly context: vscode.ExtensionContext,
     @inject(TOKENS.EVENT_BUS) private readonly eventBus: EventBus
   ) {}
 
@@ -138,7 +142,7 @@ export class StatusBarManager {
         clickCount: 0,
         lastClick: 0,
         isVisible: false, // Items start hidden by default
-        errorCount: 0
+        errorCount: 0,
       });
 
       // Add to extension subscriptions for proper cleanup
@@ -154,12 +158,11 @@ export class StatusBarManager {
           hasText: !!config.text,
           hasTooltip: !!config.tooltip,
           hasCommand: !!config.command,
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
 
       return item;
-
     } catch (error) {
       // Publish error event
       this.eventBus.publish('error', {
@@ -167,7 +170,7 @@ export class StatusBarManager {
         message: `Failed to create status bar item ${config.id}: ${error}`,
         source: 'StatusBarManager',
         data: { config },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       // Re-throw to maintain VS Code error handling
@@ -192,7 +195,7 @@ export class StatusBarManager {
         message: `Status bar item ${itemId} not found`,
         source: 'StatusBarManager',
         data: { itemId, update },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
       return false;
     }
@@ -236,12 +239,11 @@ export class StatusBarManager {
           itemId,
           propertiesUpdated: updatedProperties.length,
           updatedProperties: updatedProperties.join(','),
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
 
       return true;
-
     } catch (error) {
       // Update error metrics
       this.updateItemMetrics(itemId, 'update', true);
@@ -252,7 +254,7 @@ export class StatusBarManager {
         message: `Failed to update status bar item ${itemId}: ${error}`,
         source: 'StatusBarManager',
         data: { itemId, update },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       return false;
@@ -287,19 +289,18 @@ export class StatusBarManager {
         event: 'statusBar:itemShown',
         properties: {
           itemId,
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
 
       return true;
-
     } catch (error) {
       this.eventBus.publish('error', {
         code: 'STATUS_BAR_ITEM_SHOW_FAILED',
         message: `Failed to show status bar item ${itemId}: ${error}`,
         source: 'StatusBarManager',
         data: { itemId },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       return false;
@@ -334,19 +335,18 @@ export class StatusBarManager {
         event: 'statusBar:itemHidden',
         properties: {
           itemId,
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
 
       return true;
-
     } catch (error) {
       this.eventBus.publish('error', {
         code: 'STATUS_BAR_ITEM_HIDE_FAILED',
         message: `Failed to hide status bar item ${itemId}: ${error}`,
         source: 'StatusBarManager',
         data: { itemId },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       return false;
@@ -375,8 +375,8 @@ export class StatusBarManager {
         itemId,
         hasCommand: !!command,
         command: command || 'none',
-        timestamp: Date.now()
-      }
+        timestamp: Date.now(),
+      },
     });
   }
 
@@ -448,19 +448,18 @@ export class StatusBarManager {
         event: 'statusBar:itemDisposed',
         properties: {
           itemId,
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
 
       return true;
-
     } catch (error) {
       this.eventBus.publish('error', {
         code: 'STATUS_BAR_ITEM_DISPOSE_FAILED',
         message: `Failed to dispose status bar item ${itemId}: ${error}`,
         source: 'StatusBarManager',
         data: { itemId },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       return false;
@@ -473,7 +472,7 @@ export class StatusBarManager {
    */
   dispose(): void {
     try {
-      this.statusBarItems.forEach(item => item.dispose());
+      this.statusBarItems.forEach((item) => item.dispose());
       this.statusBarItems.clear();
       this.itemMetrics.clear();
 
@@ -481,16 +480,15 @@ export class StatusBarManager {
       this.eventBus.publish('analytics:trackEvent', {
         event: 'statusBar:managerDisposed',
         properties: {
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
-
     } catch (error) {
       this.eventBus.publish('error', {
         code: 'STATUS_BAR_MANAGER_DISPOSE_FAILED',
         message: `Failed to dispose StatusBarManager: ${error}`,
         source: 'StatusBarManager',
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
     }
   }
@@ -499,7 +497,11 @@ export class StatusBarManager {
    * Update status bar item metrics
    * Tracks performance and usage statistics for monitoring
    */
-  private updateItemMetrics(itemId: string, operation: 'update' | 'click', isError: boolean): void {
+  private updateItemMetrics(
+    itemId: string,
+    operation: 'update' | 'click',
+    isError: boolean
+  ): void {
     const metrics = this.itemMetrics.get(itemId);
 
     if (!metrics) return;

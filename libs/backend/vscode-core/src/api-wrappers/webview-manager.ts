@@ -8,15 +8,12 @@ import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
 import { EventBus } from '../messaging/event-bus';
 import { TOKENS } from '../di/tokens';
-import type { 
-  WebviewMessage, 
+import type {
+  WebviewMessage,
   StrictMessageType,
-  MessagePayloadMap
+  MessagePayloadMap,
 } from '@ptah-extension/shared';
-import { 
-  isSystemMessage,
-  isRoutableMessage 
-} from '@ptah-extension/shared';
+import { isSystemMessage, isRoutableMessage } from '@ptah-extension/shared';
 
 /**
  * Webview panel configuration options
@@ -69,22 +66,26 @@ export interface WebviewDisposedPayload {
 @injectable()
 export class WebviewManager {
   private readonly activeWebviews = new Map<string, vscode.WebviewPanel>();
-  private readonly webviewMetrics = new Map<string, {
-    createdAt: number;
-    messageCount: number;
-    lastActivity: number;
-    isVisible: boolean;
-  }>();
+  private readonly webviewMetrics = new Map<
+    string,
+    {
+      createdAt: number;
+      messageCount: number;
+      lastActivity: number;
+      isVisible: boolean;
+    }
+  >();
 
   constructor(
-    @inject(TOKENS.EXTENSION_CONTEXT) private readonly context: vscode.ExtensionContext,
+    @inject(TOKENS.EXTENSION_CONTEXT)
+    private readonly context: vscode.ExtensionContext,
     @inject(TOKENS.EVENT_BUS) private readonly eventBus: EventBus
   ) {}
 
   /**
    * Create a webview panel with enhanced configuration and event integration
    * Automatically sets up message routing and lifecycle event publishing
-   * 
+   *
    * @param config - Webview panel configuration
    * @param initialData - Optional initial data to send to webview
    * @returns Created webview panel
@@ -96,7 +97,10 @@ export class WebviewManager {
     // Check if webview already exists
     if (this.activeWebviews.has(config.viewType)) {
       const existing = this.activeWebviews.get(config.viewType)!;
-      existing.reveal(config.showOptions?.viewColumn, config.showOptions?.preserveFocus);
+      existing.reveal(
+        config.showOptions?.viewColumn,
+        config.showOptions?.preserveFocus
+      );
       return existing;
     }
 
@@ -107,14 +111,15 @@ export class WebviewManager {
       config.showOptions?.viewColumn || vscode.ViewColumn.One,
       {
         enableScripts: config.options?.enableScripts ?? true,
-        retainContextWhenHidden: config.options?.retainContextWhenHidden ?? true,
+        retainContextWhenHidden:
+          config.options?.retainContextWhenHidden ?? true,
         enableForms: config.options?.enableForms ?? true,
         enableCommandUris: config.options?.enableCommandUris ?? false,
         localResourceRoots: config.options?.localResourceRoots || [
           this.context.extensionUri,
           vscode.Uri.joinPath(this.context.extensionUri, 'dist'),
-          vscode.Uri.joinPath(this.context.extensionUri, 'webview')
-        ]
+          vscode.Uri.joinPath(this.context.extensionUri, 'webview'),
+        ],
       }
     );
 
@@ -139,14 +144,14 @@ export class WebviewManager {
       createdAt: Date.now(),
       messageCount: 0,
       lastActivity: Date.now(),
-      isVisible: true
+      isVisible: true,
     });
 
     // Send initial data if provided
     if (initialData) {
       panel.webview.postMessage({
         type: 'initialData',
-        payload: initialData
+        payload: initialData,
       });
     }
 
@@ -157,8 +162,8 @@ export class WebviewManager {
         webviewId: config.viewType,
         viewType: config.viewType,
         title: config.title,
-        timestamp: Date.now()
-      }
+        timestamp: Date.now(),
+      },
     });
 
     return panel;
@@ -167,7 +172,7 @@ export class WebviewManager {
   /**
    * Send a message to a specific webview
    * Provides type-safe message sending with error handling
-   * 
+   *
    * @param viewType - Target webview view type
    * @param message - Message to send
    * @returns Promise that resolves when message is sent
@@ -178,13 +183,13 @@ export class WebviewManager {
     payload: any
   ): Promise<boolean> {
     const panel = this.activeWebviews.get(viewType);
-    
+
     if (!panel) {
       this.eventBus.publish('error', {
         code: 'WEBVIEW_NOT_FOUND',
         message: `Webview ${viewType} not found`,
         source: 'WebviewManager',
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
       return false;
     }
@@ -198,7 +203,7 @@ export class WebviewManager {
         message: `Failed to send message to webview ${viewType}: ${error}`,
         source: 'WebviewManager',
         data: { viewType, type, payload },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
       return false;
     }
@@ -206,7 +211,7 @@ export class WebviewManager {
 
   /**
    * Get a webview panel by view type
-   * 
+   *
    * @param viewType - The view type to look up
    * @returns Webview panel or undefined if not found
    */
@@ -216,7 +221,7 @@ export class WebviewManager {
 
   /**
    * Check if a webview exists and is active
-   * 
+   *
    * @param viewType - The view type to check
    * @returns True if webview exists
    */
@@ -226,7 +231,7 @@ export class WebviewManager {
 
   /**
    * Get webview metrics for monitoring and debugging
-   * 
+   *
    * @param viewType - Optional specific webview, or all webviews if not provided
    * @returns Metrics for specified webview or all webviews
    */
@@ -234,13 +239,13 @@ export class WebviewManager {
     if (viewType) {
       return this.webviewMetrics.get(viewType) || null;
     }
-    
+
     return Object.fromEntries(this.webviewMetrics);
   }
 
   /**
    * Get list of active webview types
-   * 
+   *
    * @returns Array of active webview view types
    */
   getActiveWebviews(): readonly string[] {
@@ -249,13 +254,13 @@ export class WebviewManager {
 
   /**
    * Dispose a specific webview
-   * 
+   *
    * @param viewType - The webview to dispose
    * @returns True if webview was disposed
    */
   disposeWebview(viewType: string): boolean {
     const panel = this.activeWebviews.get(viewType);
-    
+
     if (!panel) {
       return false;
     }
@@ -269,7 +274,7 @@ export class WebviewManager {
    * Should be called during extension deactivation
    */
   dispose(): void {
-    this.activeWebviews.forEach(panel => panel.dispose());
+    this.activeWebviews.forEach((panel) => panel.dispose());
     this.activeWebviews.clear();
     this.webviewMetrics.clear();
   }
@@ -278,7 +283,10 @@ export class WebviewManager {
    * Handle incoming webview messages with type safety
    * Routes messages to the event bus with proper type discrimination
    */
-  private handleWebviewMessage(webviewId: string, message: WebviewMessage): void {
+  private handleWebviewMessage(
+    webviewId: string,
+    message: WebviewMessage
+  ): void {
     // Update metrics
     const metrics = this.webviewMetrics.get(webviewId);
     if (metrics) {
@@ -293,15 +301,20 @@ export class WebviewManager {
     } else if (isRoutableMessage(message)) {
       // Route to event bus for handling by other services
       // Type assertion is safe here since isRoutableMessage validates the type
-      this.eventBus.publish(message.type as keyof MessagePayloadMap, message.payload as any);
+      this.eventBus.publish(
+        message.type as keyof MessagePayloadMap,
+        message.payload as any
+      );
     } else {
       // Fallback for messages that don't match our type system
       this.eventBus.publish('error', {
         code: 'INVALID_WEBVIEW_MESSAGE',
-        message: `Invalid message type received from webview: ${(message as any).type}`,
+        message: `Invalid message type received from webview: ${
+          (message as any).type
+        }`,
         source: 'WebviewManager',
         data: { webviewId, message },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
     }
   }
@@ -317,16 +330,16 @@ export class WebviewManager {
           event: 'webview:ready',
           properties: {
             webviewId,
-            timestamp: Date.now()
-          }
+            timestamp: Date.now(),
+          },
         });
         break;
-        
+
       case 'requestInitialData':
         // This would typically be handled by sending initial data
         // Implementation depends on specific webview needs
         break;
-        
+
       default:
         // Unknown system message
         break;
@@ -347,8 +360,8 @@ export class WebviewManager {
       properties: {
         webviewId: viewType,
         viewType,
-        timestamp: Date.now()
-      }
+        timestamp: Date.now(),
+      },
     });
   }
 
@@ -368,8 +381,8 @@ export class WebviewManager {
       properties: {
         webviewId: viewType,
         visible,
-        timestamp: Date.now()
-      }
+        timestamp: Date.now(),
+      },
     });
   }
 }

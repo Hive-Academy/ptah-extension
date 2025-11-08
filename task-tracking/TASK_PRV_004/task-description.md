@@ -7,10 +7,10 @@ Extract Claude Domain Services from apps/ptah-extension-vscode/src/services/ to 
 ## SMART Requirements
 
 - Specific: Extract the existing Claude CLI–related services from `apps/ptah-extension-vscode/src/services/` and relocate them into `libs/backend/claude-domain/` as a properly structured library per MONSTER Week 5. Concretely:
-    - Move functionality from `claude-cli.service.ts` into domain-scoped modules (CLI adapter, JSONL parsing, permission handling, session/resume management, tool/thinking display hooks).
-    - Move `claude-cli-detector.service.ts` into a detector module within the same library.
-    - Provide public exports via `libs/backend/claude-domain/src/index.ts` and sub-index files.
-    - Update extension references (adapters/factory/handlers) to consume the new library without behavior change.
+  - Move functionality from `claude-cli.service.ts` into domain-scoped modules (CLI adapter, JSONL parsing, permission handling, session/resume management, tool/thinking display hooks).
+  - Move `claude-cli-detector.service.ts` into a detector module within the same library.
+  - Provide public exports via `libs/backend/claude-domain/src/index.ts` and sub-index files.
+  - Update extension references (adapters/factory/handlers) to consume the new library without behavior change.
 - Measurable: Nx build succeeds for the library and extension; TypeScript typecheck passes; all references to old services compile against the new library; smoke test verifies streaming responses and permission prompts still appear.
 - Achievable: Based on existing production code (690+ lines in `claude-cli.service.ts` and ~150 lines in detector), the extraction is straightforward with minimal refactoring.
 - Relevant: Aligns with MONSTER plan Week 5 “Claude Domain Separation” and closes the gap identified in BACKEND_LIBRARY_GAP_ANALYSIS.md.
@@ -58,13 +58,13 @@ Then the status is reported as error with a helpful message
 ## Risk Assessment
 
 - Technical Risks:
-    - Hidden coupling to extension-specific utilities may surface during extraction.
-    - Stream parsing edge cases in JSONL handling could regress if code is split incorrectly.
-    - Windows vs. macOS/Linux path resolution differences for CLI detection.
+  - Hidden coupling to extension-specific utilities may surface during extraction.
+  - Stream parsing edge cases in JSONL handling could regress if code is split incorrectly.
+  - Windows vs. macOS/Linux path resolution differences for CLI detection.
 - Scope Risks:
-    - Over-refactoring beyond extraction could increase timelines; keep behavior identical.
+  - Over-refactoring beyond extraction could increase timelines; keep behavior identical.
 - Dependency Risks:
-    - Build and import path updates across `apps/ptah-extension-vscode` to reference the new library.
+  - Build and import path updates across `apps/ptah-extension-vscode` to reference the new library.
 
 ## Next Phase Recommendation
 

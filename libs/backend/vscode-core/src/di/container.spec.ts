@@ -10,7 +10,10 @@ import { DIContainer, TOKENS } from './container';
 import { EventBus } from '../messaging/event-bus';
 import { CommandManager } from '../api-wrappers/command-manager';
 import { WebviewManager } from '../api-wrappers/webview-manager';
-import { createMockExtensionContext, vscodeModuleMock } from '../__mocks__/vscode-mocks';
+import {
+  createMockExtensionContext,
+  vscodeModuleMock,
+} from '../__mocks__/vscode-mocks';
 
 // Mock VS Code API
 jest.mock('vscode', () => vscodeModuleMock);
@@ -34,7 +37,7 @@ describe('DIContainer - User Requirement: Type-Safe Dependency Injection', () =>
   beforeEach(() => {
     // Reset container state before each test
     DIContainer.clear();
-    
+
     mockContext = createMockExtensionContext();
 
     jest.clearAllMocks();
@@ -61,7 +64,9 @@ describe('DIContainer - User Requirement: Type-Safe Dependency Injection', () =>
       DIContainer.setup(mockContext);
 
       // THEN: Context should be resolvable with correct type
-      const resolvedContext = DIContainer.resolve<vscode.ExtensionContext>(TOKENS.EXTENSION_CONTEXT);
+      const resolvedContext = DIContainer.resolve<vscode.ExtensionContext>(
+        TOKENS.EXTENSION_CONTEXT
+      );
       expect(resolvedContext).toBe(mockContext);
     });
   });
@@ -100,8 +105,12 @@ describe('DIContainer - User Requirement: Type-Safe Dependency Injection', () =>
       // GIVEN: Services are registered
       // WHEN: Services are resolved
       const eventBus = DIContainer.resolve<EventBus>(TOKENS.EVENT_BUS);
-      const commandManager = DIContainer.resolve<CommandManager>(TOKENS.COMMAND_REGISTRY);
-      const webviewManager = DIContainer.resolve<WebviewManager>(TOKENS.WEBVIEW_PROVIDER);
+      const commandManager = DIContainer.resolve<CommandManager>(
+        TOKENS.COMMAND_REGISTRY
+      );
+      const webviewManager = DIContainer.resolve<WebviewManager>(
+        TOKENS.WEBVIEW_PROVIDER
+      );
 
       // THEN: Services should be resolved with correct types
       expect(eventBus).toBeDefined();
@@ -122,7 +131,7 @@ describe('DIContainer - User Requirement: Type-Safe Dependency Injection', () =>
     it('should throw error for unregistered service', () => {
       // GIVEN: Service is not registered
       const unregisteredToken = Symbol('UnregisteredService');
-      
+
       // WHEN: Attempting to resolve unregistered service
       // THEN: Should throw error
       expect(() => {
@@ -208,8 +217,11 @@ describe('DIContainer - User Requirement: Type-Safe Dependency Injection', () =>
 
       // WHEN: Resolving services with explicit types
       // THEN: TypeScript should enforce correct types (this is a compile-time test)
-      const eventBus: EventBus = DIContainer.resolve<EventBus>(TOKENS.EVENT_BUS);
-      const context: vscode.ExtensionContext = DIContainer.resolve<vscode.ExtensionContext>(TOKENS.EXTENSION_CONTEXT);
+      const eventBus: EventBus = DIContainer.resolve<EventBus>(
+        TOKENS.EVENT_BUS
+      );
+      const context: vscode.ExtensionContext =
+        DIContainer.resolve<vscode.ExtensionContext>(TOKENS.EXTENSION_CONTEXT);
 
       // Verify types are correctly enforced at runtime
       expect(eventBus).toBeDefined();

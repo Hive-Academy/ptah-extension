@@ -40,7 +40,10 @@ import { DropdownOption } from '@ptah-extension/shared';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="vscode-dropdown-container" [class.vscode-dropdown-disabled]="disabled()">
+    <div
+      class="vscode-dropdown-container"
+      [class.vscode-dropdown-disabled]="disabled()"
+    >
       <!-- Trigger Component -->
       <ptah-dropdown-trigger
         [selectedOption]="selectedOption()"
@@ -57,27 +60,27 @@ import { DropdownOption } from '@ptah-extension/shared';
 
       <!-- Dropdown Menu -->
       @if (isOpen()) {
-        <div class="vscode-dropdown-menu" [style.min-width.px]="minWidth()">
-          <!-- Search Component -->
-          @if (searchable()) {
-            <ptah-dropdown-search
-              [searchTerm]="searchTerm()"
-              (searchChange)="onSearchChange($event)"
-              (keyDown)="onSearchKeyDown($event)"
-            ></ptah-dropdown-search>
-          }
+      <div class="vscode-dropdown-menu" [style.min-width.px]="minWidth()">
+        <!-- Search Component -->
+        @if (searchable()) {
+        <ptah-dropdown-search
+          [searchTerm]="searchTerm()"
+          (searchChange)="onSearchChange($event)"
+          (keyDown)="onSearchKeyDown($event)"
+        ></ptah-dropdown-search>
+        }
 
-          <!-- Options List Component -->
-          <ptah-dropdown-options-list
-            [options]="filteredOptions()"
-            [selectedValue]="value()"
-            [focusedIndex]="focusedIndex()"
-            [hasSearchTerm]="!!searchTerm()"
-            [listboxId]="listboxId"
-            (optionClick)="selectOption($event)"
-            (optionHover)="setFocusedIndex($event)"
-          ></ptah-dropdown-options-list>
-        </div>
+        <!-- Options List Component -->
+        <ptah-dropdown-options-list
+          [options]="filteredOptions()"
+          [selectedValue]="value()"
+          [focusedIndex]="focusedIndex()"
+          [hasSearchTerm]="!!searchTerm()"
+          [listboxId]="listboxId"
+          (optionClick)="selectOption($event)"
+          (optionHover)="setFocusedIndex($event)"
+        ></ptah-dropdown-options-list>
+      </div>
       }
     </div>
   `,
@@ -152,7 +155,9 @@ export class DropdownComponent implements ControlValueAccessor {
   private elementRef = inject(ElementRef);
 
   // Unique IDs for accessibility
-  readonly triggerId = `vscode-dropdown-${Math.random().toString(36).substr(2, 9)}`;
+  readonly triggerId = `vscode-dropdown-${Math.random()
+    .toString(36)
+    .substr(2, 9)}`;
   readonly listboxId = `${this.triggerId}-listbox`;
 
   // Signal-based inputs (Angular 20+)
@@ -177,7 +182,9 @@ export class DropdownComponent implements ControlValueAccessor {
 
   // Computed values (Angular 20+)
   selectedOption = computed(() => {
-    return this.options().find((option) => option.value === this.value()) || null;
+    return (
+      this.options().find((option) => option.value === this.value()) || null
+    );
   });
 
   filteredOptions = computed(() => {
@@ -189,7 +196,7 @@ export class DropdownComponent implements ControlValueAccessor {
       (option) =>
         option.label.toLowerCase().includes(termLower) ||
         option.description?.toLowerCase().includes(termLower) ||
-        option.value.toLowerCase().includes(termLower),
+        option.value.toLowerCase().includes(termLower)
     );
   });
 
@@ -249,7 +256,9 @@ export class DropdownComponent implements ControlValueAccessor {
 
     this.isOpen.set(true);
     this.searchTerm.set('');
-    const currentIndex = this.filteredOptions().findIndex((opt) => opt.value === this.value());
+    const currentIndex = this.filteredOptions().findIndex(
+      (opt) => opt.value === this.value()
+    );
     this.focusedIndex.set(currentIndex);
     this.opened.emit();
 

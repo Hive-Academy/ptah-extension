@@ -24,7 +24,10 @@ import { LucideAngularModule, Search } from 'lucide-angular';
   template: `
     <div class="vscode-search-container">
       <div class="vscode-search-input-wrapper">
-        <lucide-angular [img]="Search" class="vscode-search-icon"></lucide-angular>
+        <lucide-angular
+          [img]="Search"
+          class="vscode-search-icon"
+        ></lucide-angular>
         <input
           #searchInput
           type="text"

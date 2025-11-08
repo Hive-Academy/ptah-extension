@@ -32,13 +32,13 @@ function findProjectJsonFiles() {
   try {
     const output = execSync('git ls-files "**/project.json"', {
       encoding: 'utf-8',
-      cwd: process.cwd()
+      cwd: process.cwd(),
     });
     return output
       .trim()
       .split('\n')
       .filter(Boolean)
-      .map(f => path.resolve(process.cwd(), f));
+      .map((f) => path.resolve(process.cwd(), f));
   } catch (error) {
     console.error('Error finding project.json files:', error.message);
     return [];
@@ -49,7 +49,12 @@ function syncProjectName(projectJsonPath, isDryRun = false) {
   const projectDir = path.dirname(projectJsonPath);
   const packageJsonPath = path.join(projectDir, 'package.json');
 
-  log(`\nProcessing: ${colors.cyan}${path.relative(process.cwd(), projectJsonPath)}${colors.reset}`);
+  log(
+    `\nProcessing: ${colors.cyan}${path.relative(
+      process.cwd(),
+      projectJsonPath
+    )}${colors.reset}`
+  );
 
   // Check if package.json exists
   if (!fs.existsSync(packageJsonPath)) {
@@ -65,12 +70,18 @@ function syncProjectName(projectJsonPath, isDryRun = false) {
     const projectJsonName = projectJson.name;
     const packageJsonName = packageJson.name;
 
-    log(`  Current project.json name: ${colors.yellow}${projectJsonName}${colors.reset}`);
-    log(`  package.json name:         ${colors.cyan}${packageJsonName}${colors.reset}`);
+    log(
+      `  Current project.json name: ${colors.yellow}${projectJsonName}${colors.reset}`
+    );
+    log(
+      `  package.json name:         ${colors.cyan}${packageJsonName}${colors.reset}`
+    );
 
     // Check if they match
     if (projectJsonName === packageJsonName) {
-      log(`  ${colors.green}✓${colors.reset} Names already match, no change needed`);
+      log(
+        `  ${colors.green}✓${colors.reset} Names already match, no change needed`
+      );
       return { success: true, reason: 'already-synced' };
     }
 
@@ -82,12 +93,21 @@ function syncProjectName(projectJsonPath, isDryRun = false) {
         projectJsonPath,
         JSON.stringify(projectJson, null, 2) + '\n'
       );
-      log(`  ${colors.green}✓${colors.reset} Updated project.json name to: ${colors.green}${packageJsonName}${colors.reset}`);
+      log(
+        `  ${colors.green}✓${colors.reset} Updated project.json name to: ${colors.green}${packageJsonName}${colors.reset}`
+      );
     } else {
-      log(`  ${colors.yellow}[DRY RUN]${colors.reset} Would update to: ${colors.green}${packageJsonName}${colors.reset}`);
+      log(
+        `  ${colors.yellow}[DRY RUN]${colors.reset} Would update to: ${colors.green}${packageJsonName}${colors.reset}`
+      );
     }
 
-    return { success: true, reason: 'updated', oldName: projectJsonName, newName: packageJsonName };
+    return {
+      success: true,
+      reason: 'updated',
+      oldName: projectJsonName,
+      newName: packageJsonName,
+    };
   } catch (error) {
     log(`  ${colors.red}✗${colors.reset} Error: ${error.message}`);
     return { success: false, reason: 'error', error: error.message };
@@ -97,19 +117,29 @@ function syncProjectName(projectJsonPath, isDryRun = false) {
 function main() {
   const isDryRun = process.argv.includes('--dry-run');
 
-  log(`${colors.bold}╔════════════════════════════════════════════════════════════╗${colors.reset}`);
-  log(`${colors.bold}║  Sync project.json names with package.json names          ║${colors.reset}`);
-  log(`${colors.bold}╚════════════════════════════════════════════════════════════╝${colors.reset}`);
+  log(
+    `${colors.bold}╔════════════════════════════════════════════════════════════╗${colors.reset}`
+  );
+  log(
+    `${colors.bold}║  Sync project.json names with package.json names          ║${colors.reset}`
+  );
+  log(
+    `${colors.bold}╚════════════════════════════════════════════════════════════╝${colors.reset}`
+  );
 
   if (isDryRun) {
-    log(`\n${colors.yellow}Running in DRY RUN mode - no files will be modified${colors.reset}\n`);
+    log(
+      `\n${colors.yellow}Running in DRY RUN mode - no files will be modified${colors.reset}\n`
+    );
   } else {
     log('');
   }
 
   // Find all project.json files
   const projectJsonFiles = findProjectJsonFiles();
-  log(`Found ${colors.cyan}${projectJsonFiles.length}${colors.reset} project.json files\n`);
+  log(
+    `Found ${colors.cyan}${projectJsonFiles.length}${colors.reset} project.json files\n`
+  );
 
   if (projectJsonFiles.length === 0) {
     log(`${colors.yellow}No project.json files found${colors.reset}`);
@@ -124,7 +154,7 @@ function main() {
     errors: [],
   };
 
-  projectJsonFiles.forEach(projectJsonPath => {
+  projectJsonFiles.forEach((projectJsonPath) => {
     const result = syncProjectName(projectJsonPath, isDryRun);
 
     if (result.success) {
@@ -143,12 +173,20 @@ function main() {
   });
 
   // Summary
-  log(`\n${colors.bold}============================================================${colors.reset}`);
+  log(
+    `\n${colors.bold}============================================================${colors.reset}`
+  );
   log(`${colors.bold}Summary${colors.reset}`);
-  log(`${colors.bold}============================================================${colors.reset}`);
+  log(
+    `${colors.bold}============================================================${colors.reset}`
+  );
   log(`${colors.green}✓${colors.reset} Updated: ${results.updated.length}`);
-  log(`${colors.cyan}○${colors.reset} Already synced: ${results.alreadySynced.length}`);
-  log(`${colors.yellow}⚠${colors.reset} No package.json: ${results.noPackageJson.length}`);
+  log(
+    `${colors.cyan}○${colors.reset} Already synced: ${results.alreadySynced.length}`
+  );
+  log(
+    `${colors.yellow}⚠${colors.reset} No package.json: ${results.noPackageJson.length}`
+  );
   log(`${colors.red}✗${colors.reset} Errors: ${results.errors.length}`);
 
   if (results.updated.length > 0) {
@@ -170,7 +208,9 @@ function main() {
   log('');
 
   if (isDryRun && results.updated.length > 0) {
-    log(`${colors.yellow}To apply these changes, run without --dry-run:${colors.reset}`);
+    log(
+      `${colors.yellow}To apply these changes, run without --dry-run:${colors.reset}`
+    );
     log(`  node scripts/sync-project-names.js`);
   } else if (!isDryRun && results.updated.length > 0) {
     log(`${colors.green}✓ Sync completed successfully!${colors.reset}`);
@@ -179,9 +219,13 @@ function main() {
     log('  1. Run npm run typecheck:all to verify TypeScript');
     log('  2. Run npm run lint:all to verify linting');
     log('  3. Review changes with git diff');
-    log(`  4. Commit changes: git add -A && git commit -m "fix: sync project.json names with package.json names"`);
+    log(
+      `  4. Commit changes: git add -A && git commit -m "fix: sync project.json names with package.json names"`
+    );
   } else if (results.updated.length === 0 && results.errors.length === 0) {
-    log(`${colors.green}✓ All project names are already in sync!${colors.reset}`);
+    log(
+      `${colors.green}✓ All project names are already in sync!${colors.reset}`
+    );
   }
 }
 

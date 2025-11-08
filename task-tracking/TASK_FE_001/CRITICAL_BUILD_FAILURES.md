@@ -357,7 +357,7 @@ Once fixes applied:
 ## Related Documents
 
 - **Task Plan**: task-tracking/TASK_FE_001/implementation-plan.md
-- **Progress**: task-tracking/TASK_FE_001/progress.md  
+- **Progress**: task-tracking/TASK_FE_001/progress.md
 - **Error Output**: task-tracking/TASK_FE_001/performance-baseline.json
 - **Shared Types**: libs/shared/src/lib/types/
 

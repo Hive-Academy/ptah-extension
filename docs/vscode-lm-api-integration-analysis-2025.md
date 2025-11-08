@@ -82,9 +82,7 @@ function AgentPrompt({ agentType, context }: PromptProps) {
   return (
     <UserMessage priority="high">
       {/* System instructions must be in user message */}
-      SYSTEM: You are a {agentType} agent...
-
-      USER: {context.userMessage}
+      SYSTEM: You are a {agentType} agent... USER: {context.userMessage}
     </UserMessage>
   );
 }

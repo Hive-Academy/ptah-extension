@@ -60,25 +60,13 @@ src/templates/claude-templates/
 
 ```typescript
 export class TemplateOrchestrationService {
-  constructor(
-    private templateManager: TemplateManagerService,
-    private processManager: AgentProcessManager,
-    private claudeCliService: ClaudeCliService,
-    private qualityGateValidator: QualityGateValidator
-  ) {}
+  constructor(private templateManager: TemplateManagerService, private processManager: AgentProcessManager, private claudeCliService: ClaudeCliService, private qualityGateValidator: QualityGateValidator) {}
 
   // Main orchestration entry point
-  async executeTemplateOrchestration(
-    taskDescription: string,
-    sessionId: SessionId
-  ): Promise<OrchestrationResult>;
+  async executeTemplateOrchestration(taskDescription: string, sessionId: SessionId): Promise<OrchestrationResult>;
 
   // Sequential phase execution with quality gates
-  private async executeSequentialPhases(
-    workflow: OrchestrationWorkflow,
-    taskDescription: string,
-    sessionId: SessionId
-  ): Promise<OrchestrationResult>;
+  private async executeSequentialPhases(workflow: OrchestrationWorkflow, taskDescription: string, sessionId: SessionId): Promise<OrchestrationResult>;
 
   // Template deployment management
   async ensureTemplatesDeployed(): Promise<DeploymentResult>;
@@ -90,24 +78,13 @@ export class TemplateOrchestrationService {
 ```typescript
 export class TemplateAgentProcessManager extends AgentProcessManager {
   // Spawn agents using template-driven prompts
-  async spawnTemplateAgent(
-    agentType: string,
-    context: OrchestrationContext,
-    parentSessionId: SessionId
-  ): Promise<TemplateAgentProcess>;
+  async spawnTemplateAgent(agentType: string, context: OrchestrationContext, parentSessionId: SessionId): Promise<TemplateAgentProcess>;
 
   // Enhanced streaming with template context
-  private createTemplateAgentStream(
-    process: ChildProcess,
-    agentType: string,
-    context: OrchestrationContext
-  ): Readable;
+  private createTemplateAgentStream(process: ChildProcess, agentType: string, context: OrchestrationContext): Readable;
 
   // Quality gate monitoring
-  async waitForQualityGate(
-    agentProcess: TemplateAgentProcess,
-    qualityGate: QualityGateDefinition
-  ): Promise<QualityGateResult>;
+  async waitForQualityGate(agentProcess: TemplateAgentProcess, qualityGate: QualityGateDefinition): Promise<QualityGateResult>;
 }
 ```
 
@@ -318,14 +295,7 @@ async analyzeWorkspaceForTemplates(): Promise<WorkspaceAnalysis> {
 ```typescript
 // Non-intrusive notification system
 if (analysis.setupRecommendation === 'immediate') {
-  const action = await vscode.window.showInformationMessage(
-    `🔍 Detected ${analysis.projectType} project - enable Ptah superpowers?`,
-    { modal: false },
-    'Enable Templates',
-    'Preview',
-    'Learn More',
-    'Not Now'
-  );
+  const action = await vscode.window.showInformationMessage(`🔍 Detected ${analysis.projectType} project - enable Ptah superpowers?`, { modal: false }, 'Enable Templates', 'Preview', 'Learn More', 'Not Now');
 
   switch (action) {
     case 'Enable Templates':
@@ -375,11 +345,7 @@ this.updateActivityBarBadge(analysis.setupRecommendation !== 'skip');
             <div class="content">
               <h3>Existing Setup</h3>
               <p>
-                {{
-                  workspaceAnalysis().hasExistingClaude
-                    ? 'Claude setup detected'
-                    : 'Clean workspace'
-                }}
+                {{ workspaceAnalysis().hasExistingClaude ? 'Claude setup detected' : 'Clean workspace' }}
               </p>
             </div>
           </div>
@@ -425,11 +391,9 @@ this.updateActivityBarBadge(analysis.setupRecommendation !== 'skip');
 
       <section class="action-section">
         @if (workspaceAnalysis()?.conflictRisk === 'none') {
-          <button class="primary-button" (click)="enableSuperpowers()">
-            ✨ Enable Superpowers
-          </button>
+        <button class="primary-button" (click)="enableSuperpowers()">✨ Enable Superpowers</button>
         } @else {
-          <button class="primary-button" (click)="showPreview()">👁️ Preview Setup</button>
+        <button class="primary-button" (click)="showPreview()">👁️ Preview Setup</button>
         }
 
         <button class="secondary-button" (click)="skipForNow()">Maybe Later</button>
@@ -462,41 +426,38 @@ export class OnboardingWelcomeComponent {
       </header>
 
       @if (conflictAnalysis()?.risk === 'none') {
-        <section class="safety-confirmation">
-          <div class="success-badge">
-            <span class="icon">✅</span>
-            <span>Safe Deployment</span>
-          </div>
-          <p>No conflicts detected - templates will be deployed safely with namespace isolation</p>
-        </section>
+      <section class="safety-confirmation">
+        <div class="success-badge">
+          <span class="icon">✅</span>
+          <span>Safe Deployment</span>
+        </div>
+        <p>No conflicts detected - templates will be deployed safely with namespace isolation</p>
+      </section>
       } @else {
-        <section class="conflict-resolution">
-          <div class="warning-badge">
-            <span class="icon">⚠️</span>
-            <span>Conflicts Detected</span>
-          </div>
-          <app-conflict-resolver
-            [conflicts]="conflictAnalysis().conflicts"
-            (resolved)="onConflictsResolved($event)"
-          />
-        </section>
+      <section class="conflict-resolution">
+        <div class="warning-badge">
+          <span class="icon">⚠️</span>
+          <span>Conflicts Detected</span>
+        </div>
+        <app-conflict-resolver [conflicts]="conflictAnalysis().conflicts" (resolved)="onConflictsResolved($event)" />
+      </section>
       }
 
       <section class="templates-section">
         <h2>📦 Templates to Deploy</h2>
         <div class="template-grid">
           @for (template of selectedTemplates(); track template.id) {
-            <div class="template-card">
-              <div class="template-header">
-                <span class="template-icon">{{ template.icon }}</span>
-                <h3>{{ template.name }}</h3>
-              </div>
-              <p class="template-description">{{ template.description }}</p>
-              <div class="template-details">
-                <span class="file-count">{{ template.fileCount }} files</span>
-                <span class="namespace">ptah-{{ template.id }}</span>
-              </div>
+          <div class="template-card">
+            <div class="template-header">
+              <span class="template-icon">{{ template.icon }}</span>
+              <h3>{{ template.name }}</h3>
             </div>
+            <p class="template-description">{{ template.description }}</p>
+            <div class="template-details">
+              <span class="file-count">{{ template.fileCount }} files</span>
+              <span class="namespace">ptah-{{ template.id }}</span>
+            </div>
+          </div>
           }
         </div>
       </section>
@@ -509,25 +470,19 @@ export class OnboardingWelcomeComponent {
             <span>.claude/</span>
           </div>
           @for (file of deploymentFiles(); track file.path) {
-            <div class="tree-item file" [class.conflict]="file.hasConflict">
-              <span class="icon">{{ file.icon }}</span>
-              <span>{{ file.path }}</span>
-              @if (file.hasConflict) {
-                <span class="conflict-indicator">⚠️</span>
-              }
-            </div>
+          <div class="tree-item file" [class.conflict]="file.hasConflict">
+            <span class="icon">{{ file.icon }}</span>
+            <span>{{ file.path }}</span>
+            @if (file.hasConflict) {
+            <span class="conflict-indicator">⚠️</span>
+            }
+          </div>
           }
         </div>
       </section>
 
       <footer class="action-footer">
-        <button
-          class="primary-button"
-          (click)="deployTemplates()"
-          [disabled]="hasUnresolvedConflicts()"
-        >
-          🚀 Deploy Templates
-        </button>
+        <button class="primary-button" (click)="deployTemplates()" [disabled]="hasUnresolvedConflicts()">🚀 Deploy Templates</button>
         <button class="secondary-button" (click)="goBack()">← Back</button>
         <button class="tertiary-button" (click)="saveForLater()">💾 Save for Later</button>
       </footer>
@@ -561,11 +516,7 @@ export class DeploymentPreviewComponent {
         <div class="progress-circle">
           <svg class="progress-ring">
             <circle class="progress-ring-background" />
-            <circle
-              class="progress-ring-fill"
-              [style.stroke-dasharray]="circumference"
-              [style.stroke-dashoffset]="offset"
-            />
+            <circle class="progress-ring-fill" [style.stroke-dasharray]="circumference" [style.stroke-dashoffset]="offset" />
           </svg>
           <div class="progress-text">
             <span class="percentage">{{ progress() }}%</span>
@@ -577,31 +528,26 @@ export class DeploymentPreviewComponent {
       <section class="step-details">
         <div class="steps-list">
           @for (step of deploymentSteps(); track step.id) {
-            <div
-              class="step-item"
-              [class.active]="step.id === currentStepId()"
-              [class.completed]="step.completed"
-              [class.error]="step.error"
-            >
-              <div class="step-icon">
-                @if (step.completed) {
-                  <span class="icon success">✅</span>
-                } @else if (step.error) {
-                  <span class="icon error">❌</span>
-                } @else if (step.id === currentStepId()) {
-                  <div class="spinner"></div>
-                } @else {
-                  <span class="icon pending">⏳</span>
-                }
-              </div>
-              <div class="step-content">
-                <h3>{{ step.name }}</h3>
-                <p>{{ step.description }}</p>
-                @if (step.error) {
-                  <div class="error-message">{{ step.error }}</div>
-                }
-              </div>
+          <div class="step-item" [class.active]="step.id === currentStepId()" [class.completed]="step.completed" [class.error]="step.error">
+            <div class="step-icon">
+              @if (step.completed) {
+              <span class="icon success">✅</span>
+              } @else if (step.error) {
+              <span class="icon error">❌</span>
+              } @else if (step.id === currentStepId()) {
+              <div class="spinner"></div>
+              } @else {
+              <span class="icon pending">⏳</span>
+              }
             </div>
+            <div class="step-content">
+              <h3>{{ step.name }}</h3>
+              <p>{{ step.description }}</p>
+              @if (step.error) {
+              <div class="error-message">{{ step.error }}</div>
+              }
+            </div>
+          </div>
           }
         </div>
       </section>
@@ -610,27 +556,25 @@ export class DeploymentPreviewComponent {
         <h3>📝 Deployment Log</h3>
         <div class="log-container">
           @for (entry of deploymentLog(); track entry.timestamp) {
-            <div class="log-entry" [class]="entry.level">
-              <span class="timestamp">{{ entry.timestamp | date: 'HH:mm:ss' }}</span>
-              <span class="message">{{ entry.message }}</span>
-            </div>
+          <div class="log-entry" [class]="entry.level">
+            <span class="timestamp">{{ entry.timestamp | date : 'HH:mm:ss' }}</span>
+            <span class="message">{{ entry.message }}</span>
+          </div>
           }
         </div>
       </section>
 
       @if (deploymentComplete()) {
-        <footer class="completion-actions">
-          <button class="primary-button" (click)="continueToSuccess()">✨ Continue</button>
-          <button class="secondary-button" (click)="viewDeploymentReport()">📊 View Report</button>
-        </footer>
-      }
-
-      @if (deploymentError()) {
-        <footer class="error-actions">
-          <button class="primary-button" (click)="retryDeployment()">🔄 Retry</button>
-          <button class="secondary-button" (click)="rollbackDeployment()">⏪ Rollback</button>
-          <button class="tertiary-button" (click)="contactSupport()">🆘 Get Help</button>
-        </footer>
+      <footer class="completion-actions">
+        <button class="primary-button" (click)="continueToSuccess()">✨ Continue</button>
+        <button class="secondary-button" (click)="viewDeploymentReport()">📊 View Report</button>
+      </footer>
+      } @if (deploymentError()) {
+      <footer class="error-actions">
+        <button class="primary-button" (click)="retryDeployment()">🔄 Retry</button>
+        <button class="secondary-button" (click)="rollbackDeployment()">⏪ Rollback</button>
+        <button class="tertiary-button" (click)="contactSupport()">🆘 Get Help</button>
+      </footer>
       }
     </div>
   `,
@@ -660,9 +604,7 @@ export class SetupProgressComponent {
           <div class="success-sparkles">✨</div>
         </div>
         <h1>Ptah Superpowers Activated!</h1>
-        <p class="success-subtitle">
-          Your workspace now has enhanced AI orchestration capabilities
-        </p>
+        <p class="success-subtitle">Your workspace now has enhanced AI orchestration capabilities</p>
       </header>
 
       <section class="deployment-summary">
@@ -691,16 +633,16 @@ export class SetupProgressComponent {
         <h2>🎯 Try These Commands</h2>
         <div class="commands-grid">
           @for (command of availableCommands(); track command.name) {
-            <div class="command-card" (click)="tryCommand(command)">
-              <div class="command-header">
-                <span class="command-icon">{{ command.icon }}</span>
-                <code>/{{ command.name }}</code>
-              </div>
-              <p class="command-description">{{ command.description }}</p>
-              <div class="command-example">
-                <strong>Example:</strong> <code>{{ command.example }}</code>
-              </div>
+          <div class="command-card" (click)="tryCommand(command)">
+            <div class="command-header">
+              <span class="command-icon">{{ command.icon }}</span>
+              <code>/{{ command.name }}</code>
             </div>
+            <p class="command-description">{{ command.description }}</p>
+            <div class="command-example">
+              <strong>Example:</strong> <code>{{ command.example }}</code>
+            </div>
+          </div>
           }
         </div>
       </section>
@@ -736,9 +678,7 @@ export class SetupProgressComponent {
 
       <footer class="completion-actions">
         <button class="primary-button" (click)="startDeveloping()">🚀 Start Developing</button>
-        <button class="secondary-button" (click)="openDocumentation()">
-          📖 Read Documentation
-        </button>
+        <button class="secondary-button" (click)="openDocumentation()">📖 Read Documentation</button>
         <button class="tertiary-button" (click)="watchTutorial()">🎥 Watch Tutorial</button>
       </footer>
 
@@ -1058,17 +998,20 @@ interface OnboardingMetrics {
 **Key Implementation Tasks:**
 
 1. **Onboarding Experience Implementation** (2 days)
+
    - Create OnboardingWelcomeComponent with workspace analysis
    - Build DeploymentPreviewComponent with conflict resolution
    - Implement SetupProgressComponent with real-time status
    - Design SetupCompleteComponent with guided next steps
 
 2. **Template Orchestration Dashboard** (1.5 days)
+
    - Create TemplateOrchestrationComponent with Egyptian theming
    - Implement multi-agent output grid with streaming
    - Build quality gate monitoring visualization
 
 3. **Extension Integration** (1 day)
+
    - Add VS Code activation lifecycle for onboarding
    - Integrate workspace analysis service
    - Implement notification and activity bar updates
@@ -1101,11 +1044,13 @@ interface OnboardingMetrics {
 ### **High-Risk Areas**
 
 1. **Process Management Complexity**
+
    - **Risk**: Managing multiple Claude CLI processes simultaneously
    - **Mitigation**: Robust process lifecycle management and cleanup
    - **Contingency**: Fallback to sequential execution if parallel fails
 
 2. **Template Deployment Conflicts**
+
    - **Risk**: Conflicts with existing user `.claude` configurations
    - **Mitigation**: Comprehensive conflict detection and namespace isolation
    - **Contingency**: User-guided conflict resolution with preview
@@ -1118,11 +1063,13 @@ interface OnboardingMetrics {
 ### **Medium-Risk Areas**
 
 1. **Performance Impact**
+
    - **Risk**: Multiple processes may impact system performance
    - **Mitigation**: Process pooling and resource monitoring
    - **Contingency**: Dynamic process limit based on system resources
 
 2. **UI Complexity**
+
    - **Risk**: Complex multi-agent UI may be overwhelming
    - **Mitigation**: Progressive disclosure and intuitive design
    - **Contingency**: Simplified view mode for basic users

@@ -1,4 +1,9 @@
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  input,
+  output,
+} from '@angular/core';
 import { LucideAngularModule, LucideIconData } from 'lucide-angular';
 
 /**
@@ -14,17 +19,26 @@ import { LucideAngularModule, LucideIconData } from 'lucide-angular';
   imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="vscode-input-icon" [class.vscode-input-icon-clickable]="clickable()">
+    <div
+      class="vscode-input-icon"
+      [class.vscode-input-icon-clickable]="clickable()"
+    >
       @if (clickable()) {
-        <button
-          class="vscode-input-icon-button"
-          [attr.aria-label]="ariaLabel()"
-          (click)="iconClick.emit()"
-        >
-          <lucide-angular [img]="icon()" class="vscode-input-icon-svg"></lucide-angular>
-        </button>
+      <button
+        class="vscode-input-icon-button"
+        [attr.aria-label]="ariaLabel()"
+        (click)="iconClick.emit()"
+      >
+        <lucide-angular
+          [img]="icon()"
+          class="vscode-input-icon-svg"
+        ></lucide-angular>
+      </button>
       } @else {
-        <lucide-angular [img]="icon()" class="vscode-input-icon-svg"></lucide-angular>
+      <lucide-angular
+        [img]="icon()"
+        class="vscode-input-icon-svg"
+      ></lucide-angular>
       }
     </div>
   `,

@@ -4,10 +4,10 @@
  */
 
 export { CommandManager } from './command-manager';
-export type { 
+export type {
   CommandDefinition,
   CommandExecutedPayload,
-  CommandErrorPayload
+  CommandErrorPayload,
 } from './command-manager';
 
 export { WebviewManager } from './webview-manager';
@@ -15,7 +15,7 @@ export type {
   WebviewPanelConfig,
   WebviewMessagePayload,
   WebviewCreatedPayload,
-  WebviewDisposedPayload
+  WebviewDisposedPayload,
 } from './webview-manager';
 
 export { OutputManager } from './output-manager';
@@ -24,7 +24,7 @@ export type {
   WriteOptions,
   OutputMessagePayload,
   OutputChannelCreatedPayload,
-  OutputChannelErrorPayload
+  OutputChannelErrorPayload,
 } from './output-manager';
 
 export { StatusBarManager } from './status-bar-manager';
@@ -34,7 +34,7 @@ export type {
   StatusBarItemCreatedPayload,
   StatusBarItemUpdatedPayload,
   StatusBarItemClickedPayload,
-  StatusBarItemErrorPayload
+  StatusBarItemErrorPayload,
 } from './status-bar-manager';
 
 export { FileSystemManager } from './file-system-manager';
@@ -44,5 +44,5 @@ export type {
   FileWatcherConfig,
   FileOperationPayload,
   FileWatcherEventPayload,
-  FileSystemErrorPayload
+  FileSystemErrorPayload,
 } from './file-system-manager';

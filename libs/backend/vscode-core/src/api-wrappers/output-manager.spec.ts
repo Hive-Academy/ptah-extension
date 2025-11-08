@@ -6,7 +6,11 @@
 
 import 'reflect-metadata';
 import * as vscode from 'vscode';
-import { OutputManager, OutputChannelConfig, WriteOptions } from './output-manager';
+import {
+  OutputManager,
+  OutputChannelConfig,
+  WriteOptions,
+} from './output-manager';
 
 // Mock VS Code API with proper disposable patterns
 const mockOutputChannel = {
@@ -15,22 +19,24 @@ const mockOutputChannel = {
   clear: jest.fn(),
   show: jest.fn(),
   hide: jest.fn(),
-  dispose: jest.fn()
+  dispose: jest.fn(),
 };
 
 jest.mock('vscode', () => ({
   window: {
-    createOutputChannel: jest.fn().mockImplementation((name: string, languageId?: string) => ({
-      ...mockOutputChannel,
-      name
-    })),
+    createOutputChannel: jest
+      .fn()
+      .mockImplementation((name: string, languageId?: string) => ({
+        ...mockOutputChannel,
+        name,
+      })),
   },
   ExtensionContext: jest.fn(),
   Uri: {
     file: jest.fn(),
     parse: jest.fn(),
-    joinPath: jest.fn()
-  }
+    joinPath: jest.fn(),
+  },
 }));
 
 // Access the mocked window after the mock is set up
@@ -49,27 +55,102 @@ describe('OutputManager - User Requirement: VS Code Output Channel Abstraction',
 
   beforeEach(() => {
     jest.clearAllMocks();
-    
+
     mockContext = {
       subscriptions: [],
-      workspaceState: { get: jest.fn(), update: jest.fn(), keys: jest.fn().mockReturnValue([]) },
-      globalState: { get: jest.fn(), update: jest.fn(), setKeysForSync: jest.fn(), keys: jest.fn().mockReturnValue([]) },
-      secrets: { get: jest.fn(), store: jest.fn(), delete: jest.fn(), onDidChange: jest.fn() },
-      extensionUri: { scheme: 'file', authority: '', path: '/test', query: '', fragment: '', fsPath: '/test', with: jest.fn(), toString: jest.fn(), toJSON: jest.fn() },
+      workspaceState: {
+        get: jest.fn(),
+        update: jest.fn(),
+        keys: jest.fn().mockReturnValue([]),
+      },
+      globalState: {
+        get: jest.fn(),
+        update: jest.fn(),
+        setKeysForSync: jest.fn(),
+        keys: jest.fn().mockReturnValue([]),
+      },
+      secrets: {
+        get: jest.fn(),
+        store: jest.fn(),
+        delete: jest.fn(),
+        onDidChange: jest.fn(),
+      },
+      extensionUri: {
+        scheme: 'file',
+        authority: '',
+        path: '/test',
+        query: '',
+        fragment: '',
+        fsPath: '/test',
+        with: jest.fn(),
+        toString: jest.fn(),
+        toJSON: jest.fn(),
+      },
       extensionPath: '/test/extension/path',
-      environmentVariableCollection: { persistent: false, replace: jest.fn(), append: jest.fn(), prepend: jest.fn(), get: jest.fn(), forEach: jest.fn(), delete: jest.fn(), clear: jest.fn() },
+      environmentVariableCollection: {
+        persistent: false,
+        replace: jest.fn(),
+        append: jest.fn(),
+        prepend: jest.fn(),
+        get: jest.fn(),
+        forEach: jest.fn(),
+        delete: jest.fn(),
+        clear: jest.fn(),
+      },
       storagePath: '/test/storage/path',
       globalStoragePath: '/test/global/storage/path',
       logPath: '/test/log/path',
       extensionMode: 1,
-      logUri: { scheme: 'file', authority: '', path: '/test/log', query: '', fragment: '', fsPath: '/test/log', with: jest.fn(), toString: jest.fn(), toJSON: jest.fn() },
-      storageUri: { scheme: 'file', authority: '', path: '/test/storage', query: '', fragment: '', fsPath: '/test/storage', with: jest.fn(), toString: jest.fn(), toJSON: jest.fn() },
-      globalStorageUri: { scheme: 'file', authority: '', path: '/test/global', query: '', fragment: '', fsPath: '/test/global', with: jest.fn(), toString: jest.fn(), toJSON: jest.fn() },
+      logUri: {
+        scheme: 'file',
+        authority: '',
+        path: '/test/log',
+        query: '',
+        fragment: '',
+        fsPath: '/test/log',
+        with: jest.fn(),
+        toString: jest.fn(),
+        toJSON: jest.fn(),
+      },
+      storageUri: {
+        scheme: 'file',
+        authority: '',
+        path: '/test/storage',
+        query: '',
+        fragment: '',
+        fsPath: '/test/storage',
+        with: jest.fn(),
+        toString: jest.fn(),
+        toJSON: jest.fn(),
+      },
+      globalStorageUri: {
+        scheme: 'file',
+        authority: '',
+        path: '/test/global',
+        query: '',
+        fragment: '',
+        fsPath: '/test/global',
+        with: jest.fn(),
+        toString: jest.fn(),
+        toJSON: jest.fn(),
+      },
       asAbsolutePath: jest.fn(),
-      extension: { id: 'test.extension', extensionUri: { scheme: 'file', path: '/test', fsPath: '/test' } as any, extensionPath: '/test', isActive: true, packageJSON: {}, exports: undefined, activate: jest.fn(), extensionKind: 1 },
-      languageModelAccessInformation: { onDidChange: jest.fn(), canSendRequest: jest.fn().mockReturnValue(true) }
+      extension: {
+        id: 'test.extension',
+        extensionUri: { scheme: 'file', path: '/test', fsPath: '/test' } as any,
+        extensionPath: '/test',
+        isActive: true,
+        packageJSON: {},
+        exports: undefined,
+        activate: jest.fn(),
+        extensionKind: 1,
+      },
+      languageModelAccessInformation: {
+        onDidChange: jest.fn(),
+        canSendRequest: jest.fn().mockReturnValue(true),
+      },
     } as any;
-    
+
     outputManager = new OutputManager(mockContext, mockEventBus as any);
   });
 
@@ -83,7 +164,7 @@ describe('OutputManager - User Requirement: VS Code Output Channel Abstraction',
       const channelConfig: OutputChannelConfig = {
         name: 'Ptah Test',
         languageId: 'plaintext',
-        preserveOnReveal: true
+        preserveOnReveal: true,
       };
 
       // WHEN: Creating the output channel
@@ -99,14 +180,17 @@ describe('OutputManager - User Requirement: VS Code Output Channel Abstraction',
       expect(mockContext.subscriptions).toContain(channel);
 
       // AND: Analytics event should be published
-      expect(mockEventBus.publish).toHaveBeenCalledWith('analytics:trackEvent', {
-        event: 'output:channelCreated',
-        properties: {
-          channelName: 'Ptah Test',
-          languageId: 'plaintext',
-          timestamp: expect.any(Number)
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        'analytics:trackEvent',
+        {
+          event: 'output:channelCreated',
+          properties: {
+            channelName: 'Ptah Test',
+            languageId: 'plaintext',
+            timestamp: expect.any(Number),
+          },
         }
-      });
+      );
     });
 
     it('should return existing channel if already created', () => {
@@ -130,7 +214,9 @@ describe('OutputManager - User Requirement: VS Code Output Channel Abstraction',
       outputManager.createOutputChannel(config);
 
       // THEN: Should create channel without language ID
-      expect(mockWindow.createOutputChannel).toHaveBeenCalledWith('Ptah No Lang');
+      expect(mockWindow.createOutputChannel).toHaveBeenCalledWith(
+        'Ptah No Lang'
+      );
     });
 
     it('should handle channel creation errors', () => {
@@ -142,14 +228,17 @@ describe('OutputManager - User Requirement: VS Code Output Channel Abstraction',
 
       // WHEN: Creating channel that fails
       // THEN: Should throw error and publish error event
-      expect(() => outputManager.createOutputChannel(config)).toThrow('VS Code error');
-      
+      expect(() => outputManager.createOutputChannel(config)).toThrow(
+        'VS Code error'
+      );
+
       expect(mockEventBus.publish).toHaveBeenCalledWith('error', {
         code: 'OUTPUT_CHANNEL_CREATE_FAILED',
-        message: 'Failed to create output channel Ptah Error: Error: VS Code error',
+        message:
+          'Failed to create output channel Ptah Error: Error: VS Code error',
         source: 'OutputManager',
         data: { config },
-        timestamp: expect.any(Number)
+        timestamp: expect.any(Number),
       });
     });
   });
@@ -170,19 +259,22 @@ describe('OutputManager - User Requirement: VS Code Output Channel Abstraction',
 
       // THEN: Message should be written and tracked
       expect(mockOutputChannel.appendLine).toHaveBeenCalledWith('Test message');
-      
+
       // AND: Analytics event should be published
-      expect(mockEventBus.publish).toHaveBeenCalledWith('analytics:trackEvent', {
-        event: 'output:messageWritten',
-        properties: {
-          channelName: 'Ptah Write Test',
-          level: 'info',
-          messageLength: 12,
-          hasTimestamp: false,
-          hasPrefix: false,
-          timestamp: expect.any(Number)
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        'analytics:trackEvent',
+        {
+          event: 'output:messageWritten',
+          properties: {
+            channelName: 'Ptah Write Test',
+            level: 'info',
+            messageLength: 12,
+            hasTimestamp: false,
+            hasPrefix: false,
+            timestamp: expect.any(Number),
+          },
         }
-      });
+      );
 
       // AND: Metrics should be updated
       const metrics = outputManager.getChannelMetrics('Ptah Write Test');
@@ -196,8 +288,8 @@ describe('OutputManager - User Requirement: VS Code Output Channel Abstraction',
           debug: 0,
           info: 1,
           warn: 0,
-          error: 0
-        }
+          error: 0,
+        },
       });
     });
 
@@ -207,7 +299,7 @@ describe('OutputManager - User Requirement: VS Code Output Channel Abstraction',
       const options: WriteOptions = {
         level: 'warn',
         timestamp: true,
-        prefix: 'PREFIX'
+        prefix: 'PREFIX',
       };
 
       // WHEN: Writing message with options
@@ -215,25 +307,35 @@ describe('OutputManager - User Requirement: VS Code Output Channel Abstraction',
 
       // THEN: Message should be formatted correctly
       expect(mockOutputChannel.appendLine).toHaveBeenCalledWith(
-        expect.stringMatching(/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] \[PREFIX\] Formatted message$/)
+        expect.stringMatching(
+          /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] \[PREFIX\] Formatted message$/
+        )
       );
 
       // AND: Analytics should track the options
-      expect(mockEventBus.publish).toHaveBeenCalledWith('analytics:trackEvent', {
-        event: 'output:messageWritten',
-        properties: {
-          channelName: 'Ptah Write Test',
-          level: 'warn',
-          messageLength: 17,
-          hasTimestamp: true,
-          hasPrefix: true,
-          timestamp: expect.any(Number)
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        'analytics:trackEvent',
+        {
+          event: 'output:messageWritten',
+          properties: {
+            channelName: 'Ptah Write Test',
+            level: 'warn',
+            messageLength: 17,
+            hasTimestamp: true,
+            hasPrefix: true,
+            timestamp: expect.any(Number),
+          },
         }
-      });
+      );
 
       // AND: Level metrics should be updated
       const metrics = outputManager.getChannelMetrics('Ptah Write Test');
-      if (metrics && typeof metrics === 'object' && 'levelCounts' in metrics && 'warn' in metrics.levelCounts) {
+      if (
+        metrics &&
+        typeof metrics === 'object' &&
+        'levelCounts' in metrics &&
+        'warn' in metrics.levelCounts
+      ) {
         expect(metrics.levelCounts.warn).toBe(1);
       }
     });
@@ -265,18 +367,21 @@ describe('OutputManager - User Requirement: VS Code Output Channel Abstraction',
 
       // WHEN: Writing message that fails
       // THEN: Should throw error and publish error event
-      expect(() => outputManager.write('Ptah Write Test', 'message')).toThrow('Write failed');
-      
+      expect(() => outputManager.write('Ptah Write Test', 'message')).toThrow(
+        'Write failed'
+      );
+
       expect(mockEventBus.publish).toHaveBeenCalledWith('error', {
         code: 'OUTPUT_WRITE_FAILED',
-        message: 'Failed to write to output channel Ptah Write Test: Error: Write failed',
+        message:
+          'Failed to write to output channel Ptah Write Test: Error: Write failed',
         source: 'OutputManager',
         data: {
           channelName: 'Ptah Write Test',
           message: 'message',
-          options: {}
+          options: {},
         },
-        timestamp: expect.any(Number)
+        timestamp: expect.any(Number),
       });
 
       // AND: Error metrics should be updated
@@ -297,9 +402,9 @@ describe('OutputManager - User Requirement: VS Code Output Channel Abstraction',
         data: {
           channelName: 'Non Existent',
           message: 'message',
-          options: {}
+          options: {},
         },
-        timestamp: expect.any(Number)
+        timestamp: expect.any(Number),
       });
     });
   });
@@ -317,13 +422,16 @@ describe('OutputManager - User Requirement: VS Code Output Channel Abstraction',
       // THEN: Channel should be cleared and event published
       expect(result).toBe(true);
       expect(mockOutputChannel.clear).toHaveBeenCalled();
-      expect(mockEventBus.publish).toHaveBeenCalledWith('analytics:trackEvent', {
-        event: 'output:channelCleared',
-        properties: {
-          channelName: 'Ptah Management',
-          timestamp: expect.any(Number)
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        'analytics:trackEvent',
+        {
+          event: 'output:channelCleared',
+          properties: {
+            channelName: 'Ptah Management',
+            timestamp: expect.any(Number),
+          },
         }
-      });
+      );
     });
 
     it('should show channels with focus options', () => {
@@ -333,14 +441,17 @@ describe('OutputManager - User Requirement: VS Code Output Channel Abstraction',
       // THEN: Channel should be shown and event published
       expect(result).toBe(true);
       expect(mockOutputChannel.show).toHaveBeenCalledWith(true);
-      expect(mockEventBus.publish).toHaveBeenCalledWith('analytics:trackEvent', {
-        event: 'output:channelShown',
-        properties: {
-          channelName: 'Ptah Management',
-          preserveFocus: true,
-          timestamp: expect.any(Number)
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        'analytics:trackEvent',
+        {
+          event: 'output:channelShown',
+          properties: {
+            channelName: 'Ptah Management',
+            preserveFocus: true,
+            timestamp: expect.any(Number),
+          },
         }
-      });
+      );
     });
 
     it('should hide channels', () => {
@@ -350,13 +461,16 @@ describe('OutputManager - User Requirement: VS Code Output Channel Abstraction',
       // THEN: Channel should be hidden and event published
       expect(result).toBe(true);
       expect(mockOutputChannel.hide).toHaveBeenCalled();
-      expect(mockEventBus.publish).toHaveBeenCalledWith('analytics:trackEvent', {
-        event: 'output:channelHidden',
-        properties: {
-          channelName: 'Ptah Management',
-          timestamp: expect.any(Number)
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        'analytics:trackEvent',
+        {
+          event: 'output:channelHidden',
+          properties: {
+            channelName: 'Ptah Management',
+            timestamp: expect.any(Number),
+          },
         }
-      });
+      );
     });
 
     it('should dispose individual channels', () => {
@@ -367,13 +481,16 @@ describe('OutputManager - User Requirement: VS Code Output Channel Abstraction',
       expect(result).toBe(true);
       expect(mockOutputChannel.dispose).toHaveBeenCalled();
       expect(outputManager.hasChannel('Ptah Management')).toBe(false);
-      expect(mockEventBus.publish).toHaveBeenCalledWith('analytics:trackEvent', {
-        event: 'output:channelDisposed',
-        properties: {
-          channelName: 'Ptah Management',
-          timestamp: expect.any(Number)
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        'analytics:trackEvent',
+        {
+          event: 'output:channelDisposed',
+          properties: {
+            channelName: 'Ptah Management',
+            timestamp: expect.any(Number),
+          },
         }
-      });
+      );
     });
 
     it('should return false for operations on non-existent channels', () => {
@@ -423,8 +540,8 @@ describe('OutputManager - User Requirement: VS Code Output Channel Abstraction',
           debug: 0,
           info: 0,
           warn: 0,
-          error: 1
-        }
+          error: 1,
+        },
       });
     });
 
@@ -459,12 +576,15 @@ describe('OutputManager - User Requirement: VS Code Output Channel Abstraction',
       // THEN: All channels should be disposed
       expect(mockOutputChannel.dispose).toHaveBeenCalledTimes(2);
       expect(outputManager.getChannelNames()).toHaveLength(0);
-      expect(mockEventBus.publish).toHaveBeenCalledWith('analytics:trackEvent', {
-        event: 'output:managerDisposed',
-        properties: {
-          timestamp: expect.any(Number)
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        'analytics:trackEvent',
+        {
+          event: 'output:managerDisposed',
+          properties: {
+            timestamp: expect.any(Number),
+          },
         }
-      });
+      );
     });
 
     it('should handle disposal errors gracefully', () => {
@@ -482,14 +602,14 @@ describe('OutputManager - User Requirement: VS Code Output Channel Abstraction',
         code: 'OUTPUT_MANAGER_DISPOSE_FAILED',
         message: 'Failed to dispose OutputManager: Error: Disposal error',
         source: 'OutputManager',
-        timestamp: expect.any(Number)
+        timestamp: expect.any(Number),
       });
     });
 
     it('should handle various operation errors gracefully', () => {
       // GIVEN: Channel and various operation errors
       outputManager.createOutputChannel({ name: 'Error Test' });
-      
+
       // Test clear error
       mockOutputChannel.clear.mockImplementationOnce(() => {
         throw new Error('Clear error');
@@ -509,18 +629,27 @@ describe('OutputManager - User Requirement: VS Code Output Channel Abstraction',
       expect(outputManager.hide('Error Test')).toBe(false);
 
       // Verify error events were published for each operation
-      expect(mockEventBus.publish).toHaveBeenCalledWith('error', expect.objectContaining({
-        code: 'OUTPUT_CLEAR_FAILED',
-        source: 'OutputManager'
-      }));
-      expect(mockEventBus.publish).toHaveBeenCalledWith('error', expect.objectContaining({
-        code: 'OUTPUT_SHOW_FAILED',
-        source: 'OutputManager'
-      }));
-      expect(mockEventBus.publish).toHaveBeenCalledWith('error', expect.objectContaining({
-        code: 'OUTPUT_HIDE_FAILED',
-        source: 'OutputManager'
-      }));
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        'error',
+        expect.objectContaining({
+          code: 'OUTPUT_CLEAR_FAILED',
+          source: 'OutputManager',
+        })
+      );
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        'error',
+        expect.objectContaining({
+          code: 'OUTPUT_SHOW_FAILED',
+          source: 'OutputManager',
+        })
+      );
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        'error',
+        expect.objectContaining({
+          code: 'OUTPUT_HIDE_FAILED',
+          source: 'OutputManager',
+        })
+      );
     });
   });
 });

@@ -41,52 +41,61 @@ export interface QuickCommand {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (isOpen()) {
-      <!-- Backdrop -->
-      <div class="vscode-backdrop" (click)="closeSheet.emit()" [attr.aria-hidden]="true"></div>
+    <!-- Backdrop -->
+    <div
+      class="vscode-backdrop"
+      (click)="closeSheet.emit()"
+      [attr.aria-hidden]="true"
+    ></div>
 
-      <!-- Bottom Sheet -->
-      <div
-        class="vscode-bottom-sheet"
-        role="dialog"
-        [attr.aria-label]="'Quick commands'"
-        [attr.aria-modal]="true"
-      >
-        <!-- Header -->
-        <div class="vscode-sheet-header">
-          <h2 class="vscode-sheet-title">Quick Commands</h2>
-          <button
-            class="vscode-close-button"
-            (click)="closeSheet.emit()"
-            [attr.aria-label]="'Close commands'"
-          >
-            <lucide-angular [img]="X" class="vscode-icon"></lucide-angular>
-          </button>
-        </div>
-
-        <!-- Commands Grid -->
-        <div class="vscode-commands-grid">
-          @for (command of quickCommands(); track command.id) {
-            <button
-              class="vscode-command-card"
-              (click)="onCommandSelect(command)"
-              [attr.aria-label]="command.label + ': ' + command.description"
-            >
-              <div class="vscode-command-icon">
-                <lucide-angular [img]="command.icon" class="vscode-icon"></lucide-angular>
-              </div>
-              <div class="vscode-command-content">
-                <h3 class="vscode-command-label">{{ command.label }}</h3>
-                <p class="vscode-command-description">{{ command.description }}</p>
-              </div>
-            </button>
-          }
-        </div>
-
-        <!-- Footer -->
-        <div class="vscode-sheet-footer">
-          <p class="vscode-footer-text">Or type <strong>/help</strong> in chat for more commands</p>
-        </div>
+    <!-- Bottom Sheet -->
+    <div
+      class="vscode-bottom-sheet"
+      role="dialog"
+      [attr.aria-label]="'Quick commands'"
+      [attr.aria-modal]="true"
+    >
+      <!-- Header -->
+      <div class="vscode-sheet-header">
+        <h2 class="vscode-sheet-title">Quick Commands</h2>
+        <button
+          class="vscode-close-button"
+          (click)="closeSheet.emit()"
+          [attr.aria-label]="'Close commands'"
+        >
+          <lucide-angular [img]="X" class="vscode-icon"></lucide-angular>
+        </button>
       </div>
+
+      <!-- Commands Grid -->
+      <div class="vscode-commands-grid">
+        @for (command of quickCommands(); track command.id) {
+        <button
+          class="vscode-command-card"
+          (click)="onCommandSelect(command)"
+          [attr.aria-label]="command.label + ': ' + command.description"
+        >
+          <div class="vscode-command-icon">
+            <lucide-angular
+              [img]="command.icon"
+              class="vscode-icon"
+            ></lucide-angular>
+          </div>
+          <div class="vscode-command-content">
+            <h3 class="vscode-command-label">{{ command.label }}</h3>
+            <p class="vscode-command-description">{{ command.description }}</p>
+          </div>
+        </button>
+        }
+      </div>
+
+      <!-- Footer -->
+      <div class="vscode-sheet-footer">
+        <p class="vscode-footer-text">
+          Or type <strong>/help</strong> in chat for more commands
+        </p>
+      </div>
+    </div>
     }
   `,
   styles: [
@@ -97,7 +106,11 @@ export interface QuickCommand {
         left: 0;
         right: 0;
         bottom: 0;
-        background-color: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent);
+        background-color: color-mix(
+          in srgb,
+          var(--vscode-editor-background) 60%,
+          transparent
+        );
         backdrop-filter: blur(2px);
         z-index: 1000;
         animation: vscode-fade-in 0.2s ease-out;
@@ -318,7 +331,8 @@ export class CommandBottomSheetComponent {
       id: 'code-review',
       label: 'Code Review',
       description: 'Review code for best practices and improvements',
-      prompt: '/review Please review my code for best practices, potential bugs, and improvements',
+      prompt:
+        '/review Please review my code for best practices, potential bugs, and improvements',
       icon: Code,
       category: 'code',
     },
@@ -334,7 +348,8 @@ export class CommandBottomSheetComponent {
       id: 'optimize-code',
       label: 'Optimize Code',
       description: 'Suggest performance and efficiency improvements',
-      prompt: 'Help me optimize this code for better performance and readability',
+      prompt:
+        'Help me optimize this code for better performance and readability',
       icon: Zap,
       category: 'code',
     },
@@ -350,7 +365,8 @@ export class CommandBottomSheetComponent {
       id: 'refactor-code',
       label: 'Refactor Code',
       description: 'Improve code structure and maintainability',
-      prompt: 'Help me refactor this code to improve its structure and maintainability',
+      prompt:
+        'Help me refactor this code to improve its structure and maintainability',
       icon: GitBranch,
       category: 'code',
     },

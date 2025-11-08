@@ -48,24 +48,24 @@ libs/backend/workspace-intelligence/
 
 ### Extract from Existing Code
 
-| Feature | Current State | Enhancement Needed |
-|---------|--------------|-------------------|
+| Feature                    | Current State           | Enhancement Needed                        |
+| -------------------------- | ----------------------- | ----------------------------------------- |
 | Workspace folder detection | ✅ Basic implementation | Enhance with multi-root workspace support |
-| File system operations | ✅ Basic implementation | Add caching and debouncing |
-| Project root resolution | ✅ Basic implementation | Add monorepo support (Nx, Lerna, Rush) |
-| File change monitoring | ✅ Basic implementation | Add smart batching and filtering |
+| File system operations     | ✅ Basic implementation | Add caching and debouncing                |
+| Project root resolution    | ✅ Basic implementation | Add monorepo support (Nx, Lerna, Rush)    |
+| File change monitoring     | ✅ Basic implementation | Add smart batching and filtering          |
 
 ### New Features to Implement
 
-| Feature | Purpose | Priority |
-|---------|---------|----------|
-| **Project Type Detection** | Identify npm, Python, Go, Rust, etc. | HIGH |
-| **Framework Detection** | React, Angular, Vue, Next.js, Nuxt | HIGH |
-| **Dependency Analysis** | Parse package.json, requirements.txt, go.mod | MEDIUM |
-| **Ignore Pattern Resolution** | Respect .gitignore, .vscodeignore | HIGH |
-| **File Type Classification** | Group files by purpose (source, test, config) | MEDIUM |
-| **Context Size Optimization** | Estimate token count for file selection | HIGH |
-| **File Relevance Scoring** | Intelligent file selection for context | MEDIUM |
+| Feature                       | Purpose                                       | Priority |
+| ----------------------------- | --------------------------------------------- | -------- |
+| **Project Type Detection**    | Identify npm, Python, Go, Rust, etc.          | HIGH     |
+| **Framework Detection**       | React, Angular, Vue, Next.js, Nuxt            | HIGH     |
+| **Dependency Analysis**       | Parse package.json, requirements.txt, go.mod  | MEDIUM   |
+| **Ignore Pattern Resolution** | Respect .gitignore, .vscodeignore             | HIGH     |
+| **File Type Classification**  | Group files by purpose (source, test, config) | MEDIUM   |
+| **Context Size Optimization** | Estimate token count for file selection       | HIGH     |
+| **File Relevance Scoring**    | Intelligent file selection for context        | MEDIUM   |
 
 ## Success Criteria
 
@@ -100,18 +100,21 @@ libs/backend/workspace-intelligence/
 ## Implementation Priorities
 
 ### Phase 1: Extract (1 day)
+
 - Extract workspace folder detection
 - Extract file system operations
 - Extract project root resolution
 - Basic file indexing
 
 ### Phase 2: Enhance (1.5 days)
+
 - Project type detection (npm, Python, Go, Rust, Java)
 - Framework detection (React, Angular, Vue, Next.js)
 - Dependency analysis (package.json, requirements.txt)
 - Ignore pattern support
 
 ### Phase 3: Optimize (1.5 days)
+
 - File type classification
 - Context size optimizer (token estimation)
 - File relevance scorer
@@ -120,6 +123,7 @@ libs/backend/workspace-intelligence/
 ## Notes
 
 This task follows **Option A (MONSTER Plan Compliance)** from the gap analysis:
+
 - Extract existing code as foundation
 - Enhance with intelligent features
 - Structure for future extensibility

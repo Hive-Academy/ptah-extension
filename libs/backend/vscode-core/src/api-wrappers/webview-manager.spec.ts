@@ -18,7 +18,10 @@ jest.mock('@ptah-extension/shared', () => ({
   MessagePayloadMap: {},
 }));
 
-const { isSystemMessage, isRoutableMessage } = require('@ptah-extension/shared');
+const {
+  isSystemMessage,
+  isRoutableMessage,
+} = require('@ptah-extension/shared');
 
 // Mock VS Code API
 jest.mock('vscode', () => ({
@@ -52,7 +55,7 @@ jest.mock('vscode', () => ({
       fsPath: '/test',
       with: jest.fn(),
       toString: jest.fn(),
-      toJSON: jest.fn()
+      toJSON: jest.fn(),
     }),
   },
   ExtensionContext: jest.fn(),
@@ -78,25 +81,100 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
 
   beforeEach(() => {
     jest.clearAllMocks();
-    
+
     mockContext = {
       subscriptions: [],
-      workspaceState: { get: jest.fn(), update: jest.fn(), keys: jest.fn().mockReturnValue([]) },
-      globalState: { get: jest.fn(), update: jest.fn(), setKeysForSync: jest.fn(), keys: jest.fn().mockReturnValue([]) },
-      secrets: { get: jest.fn(), store: jest.fn(), delete: jest.fn(), onDidChange: jest.fn() },
-      extensionUri: { scheme: 'file', authority: '', path: '/test', query: '', fragment: '', fsPath: '/test', with: jest.fn(), toString: jest.fn(), toJSON: jest.fn() },
+      workspaceState: {
+        get: jest.fn(),
+        update: jest.fn(),
+        keys: jest.fn().mockReturnValue([]),
+      },
+      globalState: {
+        get: jest.fn(),
+        update: jest.fn(),
+        setKeysForSync: jest.fn(),
+        keys: jest.fn().mockReturnValue([]),
+      },
+      secrets: {
+        get: jest.fn(),
+        store: jest.fn(),
+        delete: jest.fn(),
+        onDidChange: jest.fn(),
+      },
+      extensionUri: {
+        scheme: 'file',
+        authority: '',
+        path: '/test',
+        query: '',
+        fragment: '',
+        fsPath: '/test',
+        with: jest.fn(),
+        toString: jest.fn(),
+        toJSON: jest.fn(),
+      },
       extensionPath: '/test/extension/path',
-      environmentVariableCollection: { persistent: false, replace: jest.fn(), append: jest.fn(), prepend: jest.fn(), get: jest.fn(), forEach: jest.fn(), delete: jest.fn(), clear: jest.fn() },
+      environmentVariableCollection: {
+        persistent: false,
+        replace: jest.fn(),
+        append: jest.fn(),
+        prepend: jest.fn(),
+        get: jest.fn(),
+        forEach: jest.fn(),
+        delete: jest.fn(),
+        clear: jest.fn(),
+      },
       storagePath: '/test/storage/path',
       globalStoragePath: '/test/global/storage/path',
       logPath: '/test/log/path',
       extensionMode: 1,
-      logUri: { scheme: 'file', authority: '', path: '/test/log', query: '', fragment: '', fsPath: '/test/log', with: jest.fn(), toString: jest.fn(), toJSON: jest.fn() },
-      storageUri: { scheme: 'file', authority: '', path: '/test/storage', query: '', fragment: '', fsPath: '/test/storage', with: jest.fn(), toString: jest.fn(), toJSON: jest.fn() },
-      globalStorageUri: { scheme: 'file', authority: '', path: '/test/global', query: '', fragment: '', fsPath: '/test/global', with: jest.fn(), toString: jest.fn(), toJSON: jest.fn() },
+      logUri: {
+        scheme: 'file',
+        authority: '',
+        path: '/test/log',
+        query: '',
+        fragment: '',
+        fsPath: '/test/log',
+        with: jest.fn(),
+        toString: jest.fn(),
+        toJSON: jest.fn(),
+      },
+      storageUri: {
+        scheme: 'file',
+        authority: '',
+        path: '/test/storage',
+        query: '',
+        fragment: '',
+        fsPath: '/test/storage',
+        with: jest.fn(),
+        toString: jest.fn(),
+        toJSON: jest.fn(),
+      },
+      globalStorageUri: {
+        scheme: 'file',
+        authority: '',
+        path: '/test/global',
+        query: '',
+        fragment: '',
+        fsPath: '/test/global',
+        with: jest.fn(),
+        toString: jest.fn(),
+        toJSON: jest.fn(),
+      },
       asAbsolutePath: jest.fn(),
-      extension: { id: 'test.extension', extensionUri: { scheme: 'file', path: '/test', fsPath: '/test' } as any, extensionPath: '/test', isActive: true, packageJSON: {}, exports: undefined, activate: jest.fn(), extensionKind: 1 },
-      languageModelAccessInformation: { onDidChange: jest.fn(), canSendRequest: jest.fn().mockReturnValue(true) }
+      extension: {
+        id: 'test.extension',
+        extensionUri: { scheme: 'file', path: '/test', fsPath: '/test' } as any,
+        extensionPath: '/test',
+        isActive: true,
+        packageJSON: {},
+        exports: undefined,
+        activate: jest.fn(),
+        extensionKind: 1,
+      },
+      languageModelAccessInformation: {
+        onDidChange: jest.fn(),
+        canSendRequest: jest.fn().mockReturnValue(true),
+      },
     } as any;
 
     webviewManager = new WebviewManager(mockContext, mockEventBus as any);
@@ -125,7 +203,7 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
           retainContextWhenHidden: true,
           enableForms: true,
           enableCommandUris: false,
-        }
+        },
       };
 
       // WHEN: Creating webview panel
@@ -141,7 +219,7 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
           retainContextWhenHidden: true,
           enableForms: true,
           enableCommandUris: false,
-          localResourceRoots: expect.any(Array)
+          localResourceRoots: expect.any(Array),
         })
       );
 
@@ -190,8 +268,8 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
           event: 'webview:created',
           properties: expect.objectContaining({
             webviewId: 'ptah.lifecycle',
-            title: 'Lifecycle Test'
-          })
+            title: 'Lifecycle Test',
+          }),
         })
       );
     });
@@ -213,7 +291,7 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
       // THEN: Initial data should be sent
       expect(mockWebview.postMessage).toHaveBeenCalledWith({
         type: 'initialData',
-        payload: initialData
+        payload: initialData,
       });
     });
 
@@ -261,7 +339,7 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
       // GIVEN: System message from webview
       const systemMessage = {
         type: 'webview-ready',
-        payload: {}
+        payload: {},
       };
 
       isSystemMessage.mockReturnValue(true);
@@ -276,8 +354,8 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
         expect.objectContaining({
           event: 'webview:ready',
           properties: expect.objectContaining({
-            webviewId: 'ptah.messaging'
-          })
+            webviewId: 'ptah.messaging',
+          }),
         })
       );
     });
@@ -286,7 +364,7 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
       // GIVEN: Regular routable message from webview
       const routableMessage = {
         type: 'chat:sendMessage',
-        payload: { content: 'Hello world', files: [] }
+        payload: { content: 'Hello world', files: [] },
       };
 
       isSystemMessage.mockReturnValue(false);
@@ -306,7 +384,7 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
       // GIVEN: Invalid message that doesn't match type system
       const invalidMessage = {
         type: 'unknown:message',
-        payload: { data: 'test' }
+        payload: { data: 'test' },
       };
 
       isSystemMessage.mockReturnValue(false);
@@ -321,15 +399,21 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
         expect.objectContaining({
           code: 'INVALID_WEBVIEW_MESSAGE',
           message: expect.stringContaining('Invalid message type'),
-          source: 'WebviewManager'
+          source: 'WebviewManager',
         })
       );
     });
 
     it('should track message metrics', () => {
       // GIVEN: Multiple messages received
-      const message1 = { type: 'chat:sendMessage', payload: { content: 'msg1' } };
-      const message2 = { type: 'analytics:trackEvent', payload: { event: 'test', properties: {} } };
+      const message1 = {
+        type: 'chat:sendMessage',
+        payload: { content: 'msg1' },
+      };
+      const message2 = {
+        type: 'analytics:trackEvent',
+        payload: { event: 'test', properties: {} },
+      };
 
       isSystemMessage.mockReturnValue(false);
       isRoutableMessage.mockReturnValue(true);
@@ -358,13 +442,17 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
     it('should send messages to existing webview', async () => {
       // GIVEN: Active webview
       // WHEN: Sending message to webview
-      const result = await webviewManager.sendMessage('ptah.sending', 'chat:messageChunk', {
-        sessionId: 'test-session' as any,
-        messageId: 'test-message' as any,
-        content: 'Hello from extension',
-        isComplete: false,
-        streaming: true
-      });
+      const result = await webviewManager.sendMessage(
+        'ptah.sending',
+        'chat:messageChunk',
+        {
+          sessionId: 'test-session' as any,
+          messageId: 'test-message' as any,
+          content: 'Hello from extension',
+          isComplete: false,
+          streaming: true,
+        }
+      );
 
       // THEN: Message should be sent successfully
       expect(result).toBe(true);
@@ -372,17 +460,21 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
         type: 'chat:messageChunk',
         payload: expect.objectContaining({
           content: 'Hello from extension',
-          streaming: true
-        })
+          streaming: true,
+        }),
       });
     });
 
     it('should handle sending to non-existent webview', async () => {
       // GIVEN: Non-existent webview
       // WHEN: Attempting to send message
-      const result = await webviewManager.sendMessage('ptah.nonexistent', 'error', {
-        message: 'Test error'
-      });
+      const result = await webviewManager.sendMessage(
+        'ptah.nonexistent',
+        'error',
+        {
+          message: 'Test error',
+        }
+      );
 
       // THEN: Should fail gracefully and publish error
       expect(result).toBe(false);
@@ -390,7 +482,7 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
         'error',
         expect.objectContaining({
           code: 'WEBVIEW_NOT_FOUND',
-          message: expect.stringContaining('ptah.nonexistent')
+          message: expect.stringContaining('ptah.nonexistent'),
         })
       );
     });
@@ -401,7 +493,7 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
 
       // WHEN: Sending message that will fail
       const result = await webviewManager.sendMessage('ptah.sending', 'error', {
-        message: 'Test message'
+        message: 'Test message',
       });
 
       // THEN: Should handle error and publish error event
@@ -410,7 +502,7 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
         'error',
         expect.objectContaining({
           code: 'WEBVIEW_MESSAGE_SEND_FAILED',
-          source: 'WebviewManager'
+          source: 'WebviewManager',
         })
       );
     });
@@ -419,8 +511,14 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
   describe('User Scenario: Webview Management Operations', () => {
     beforeEach(() => {
       // Create multiple webviews for testing
-      webviewManager.createWebviewPanel({ viewType: 'ptah.test1', title: 'Test 1' });
-      webviewManager.createWebviewPanel({ viewType: 'ptah.test2', title: 'Test 2' });
+      webviewManager.createWebviewPanel({
+        viewType: 'ptah.test1',
+        title: 'Test 1',
+      });
+      webviewManager.createWebviewPanel({
+        viewType: 'ptah.test2',
+        title: 'Test 2',
+      });
     });
 
     it('should list all active webviews', () => {
@@ -500,14 +598,15 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
       webviewManager.createWebviewPanel(config);
 
       // Capture event handlers
-      visibilityHandler = mockWebviewPanel.onDidChangeViewState.mock.calls[0][0];
+      visibilityHandler =
+        mockWebviewPanel.onDidChangeViewState.mock.calls[0][0];
       disposeHandler = mockWebviewPanel.onDidDispose.mock.calls[0][0];
     });
 
     it('should handle webview visibility changes', () => {
       // GIVEN: Webview visibility change event
       const visibilityEvent = {
-        webviewPanel: { visible: false }
+        webviewPanel: { visible: false },
       };
 
       // WHEN: Handling visibility change
@@ -523,8 +622,8 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
           event: 'webview:visibilityChanged',
           properties: expect.objectContaining({
             webviewId: 'ptah.lifecycle',
-            visible: false
-          })
+            visible: false,
+          }),
         })
       );
     });
@@ -543,8 +642,8 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
         expect.objectContaining({
           event: 'webview:disposed',
           properties: expect.objectContaining({
-            webviewId: 'ptah.lifecycle'
-          })
+            webviewId: 'ptah.lifecycle',
+          }),
         })
       );
     });
@@ -553,8 +652,14 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
   describe('User Scenario: Extension Cleanup', () => {
     it('should dispose all webviews during manager disposal', () => {
       // GIVEN: Multiple active webviews
-      webviewManager.createWebviewPanel({ viewType: 'ptah.cleanup1', title: 'Cleanup 1' });
-      webviewManager.createWebviewPanel({ viewType: 'ptah.cleanup2', title: 'Cleanup 2' });
+      webviewManager.createWebviewPanel({
+        viewType: 'ptah.cleanup1',
+        title: 'Cleanup 1',
+      });
+      webviewManager.createWebviewPanel({
+        viewType: 'ptah.cleanup2',
+        title: 'Cleanup 2',
+      });
 
       expect(webviewManager.getActiveWebviews()).toHaveLength(2);
 
@@ -628,7 +733,7 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
       await webviewManager.sendMessage('ptah.typesafe', 'chat:sendMessage', {
         content: 'Type safe message',
         files: ['file1.ts'],
-        correlationId: 'test-correlation' as any
+        correlationId: 'test-correlation' as any,
       });
 
       // THEN: Type safety should be maintained (compile-time verification)
@@ -636,8 +741,8 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
         type: 'chat:sendMessage',
         payload: expect.objectContaining({
           content: 'Type safe message',
-          files: ['file1.ts']
-        })
+          files: ['file1.ts'],
+        }),
       });
     });
 
@@ -658,17 +763,26 @@ describe('WebviewManager - User Requirement: Webview Management with Message Rou
       const messages = [
         { type: 'chat:sendMessage', payload: { content: 'test' } },
         { type: 'providers:switch', payload: { providerId: 'test-provider' } },
-        { type: 'analytics:trackEvent', payload: { event: 'test', properties: {} } },
-        { type: 'context:updateFiles', payload: { includedFiles: [], excludedFiles: [], tokenEstimate: 100 } },
+        {
+          type: 'analytics:trackEvent',
+          payload: { event: 'test', properties: {} },
+        },
+        {
+          type: 'context:updateFiles',
+          payload: { includedFiles: [], excludedFiles: [], tokenEstimate: 100 },
+        },
       ];
 
-      messages.forEach(message => {
+      messages.forEach((message) => {
         messageHandler(message);
       });
 
       // THEN: All message types should be routed correctly
-      messages.forEach(message => {
-        expect(mockEventBus.publish).toHaveBeenCalledWith(message.type, message.payload);
+      messages.forEach((message) => {
+        expect(mockEventBus.publish).toHaveBeenCalledWith(
+          message.type,
+          message.payload
+        );
       });
     });
   });

@@ -18,6 +18,7 @@ Extract and enhance the following production-tested features into proper library
 ### Source Files to Extract
 
 1. **`claude-cli.service.ts`** (690 lines)
+
    - Process spawning with child_process
    - JSONL stream parsing
    - Session management (Map<SessionId, ChildProcess>)
@@ -61,14 +62,14 @@ libs/backend/claude-domain/
 
 From the gap analysis comparison matrix:
 
-| Feature | Current Implementation | Must Preserve |
-|---------|----------------------|---------------|
-| Permission Handling | ✅ Popup integration | YES - Critical |
-| Tool Execution Display | ✅ TodoWrite, Read, Edit | YES - User-facing |
-| Thinking Content | ✅ 💭 prefix display | YES - User-facing |
-| Session Resumption | ✅ `--resume` flag | YES - Multi-turn |
-| JSONL Parsing | ✅ Line-by-line buffer | YES - Production-tested |
-| Process Spawning | ✅ `spawn()` with stdio | YES - Core functionality |
+| Feature                | Current Implementation   | Must Preserve            |
+| ---------------------- | ------------------------ | ------------------------ |
+| Permission Handling    | ✅ Popup integration     | YES - Critical           |
+| Tool Execution Display | ✅ TodoWrite, Read, Edit | YES - User-facing        |
+| Thinking Content       | ✅ 💭 prefix display     | YES - User-facing        |
+| Session Resumption     | ✅ `--resume` flag       | YES - Multi-turn         |
+| JSONL Parsing          | ✅ Line-by-line buffer   | YES - Production-tested  |
+| Process Spawning       | ✅ `spawn()` with stdio  | YES - Core functionality |
 
 ## Success Criteria
 
@@ -100,6 +101,7 @@ From the gap analysis comparison matrix:
 ## Notes
 
 This task follows **Option A (MONSTER Plan Compliance)** from the gap analysis:
+
 - Extract → Enhance → Structure
 - Preserve production-tested code
 - Proper separation of concerns

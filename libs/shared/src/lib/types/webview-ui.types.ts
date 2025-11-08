@@ -101,7 +101,6 @@ export interface ClaudeConfiguration {
   maxTokens: number;
 }
 
-
 export interface StreamingConfiguration {
   bufferSize: number;
   chunkSize: number;

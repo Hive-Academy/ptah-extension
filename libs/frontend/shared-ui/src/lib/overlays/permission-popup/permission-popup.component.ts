@@ -41,109 +41,148 @@ export type PermissionResponse = 'allow' | 'always_allow' | 'deny';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (isOpen() && permissionRequest()) {
-      <!-- Backdrop -->
-      <div class="vscode-backdrop" (click)="onBackdropClick()" [attr.aria-hidden]="true"></div>
+    <!-- Backdrop -->
+    <div
+      class="vscode-backdrop"
+      (click)="onBackdropClick()"
+      [attr.aria-hidden]="true"
+    ></div>
 
-      <!-- Permission Modal -->
-      <div
-        class="vscode-permission-modal"
-        role="dialog"
-        [attr.aria-label]="'Permission request for ' + permissionRequest()!.tool"
-        [attr.aria-modal]="true"
-        [attr.data-risk]="permissionRequest()!.riskLevel"
-      >
-        <!-- Header -->
-        <div class="vscode-modal-header">
-          <div class="vscode-header-icon" [attr.data-risk]="permissionRequest()!.riskLevel">
-            <lucide-angular [img]="Shield" class="vscode-shield-icon"></lucide-angular>
+    <!-- Permission Modal -->
+    <div
+      class="vscode-permission-modal"
+      role="dialog"
+      [attr.aria-label]="'Permission request for ' + permissionRequest()!.tool"
+      [attr.aria-modal]="true"
+      [attr.data-risk]="permissionRequest()!.riskLevel"
+    >
+      <!-- Header -->
+      <div class="vscode-modal-header">
+        <div
+          class="vscode-header-icon"
+          [attr.data-risk]="permissionRequest()!.riskLevel"
+        >
+          <lucide-angular
+            [img]="Shield"
+            class="vscode-shield-icon"
+          ></lucide-angular>
+        </div>
+        <div class="vscode-header-content">
+          <h2 class="vscode-modal-title">Permission Required</h2>
+          <p class="vscode-modal-subtitle">
+            {{ permissionRequest()!.tool }} requests permission
+          </p>
+        </div>
+        <button
+          class="vscode-close-button"
+          (click)="onResponse('deny')"
+          [attr.aria-label]="'Close permission dialog'"
+        >
+          <lucide-angular [img]="X" class="vscode-icon"></lucide-angular>
+        </button>
+      </div>
+
+      <!-- Content -->
+      <div class="vscode-modal-content">
+        <!-- Action Description -->
+        <div class="vscode-action-section">
+          <h3 class="vscode-section-title">Requested Action</h3>
+          <div class="vscode-action-card">
+            <div class="vscode-action-icon">
+              <lucide-angular
+                [img]="riskIcon()"
+                [class]="
+                  'vscode-risk-icon vscode-risk-' +
+                  permissionRequest()!.riskLevel
+                "
+              ></lucide-angular>
+            </div>
+            <div class="vscode-action-details">
+              <p class="vscode-action-name">
+                {{ permissionRequest()!.action }}
+              </p>
+              <p class="vscode-action-description">
+                {{ permissionRequest()!.description }}
+              </p>
+            </div>
           </div>
-          <div class="vscode-header-content">
-            <h2 class="vscode-modal-title">Permission Required</h2>
-            <p class="vscode-modal-subtitle">{{ permissionRequest()!.tool }} requests permission</p>
-          </div>
-          <button
-            class="vscode-close-button"
-            (click)="onResponse('deny')"
-            [attr.aria-label]="'Close permission dialog'"
+        </div>
+
+        <!-- Risk Assessment -->
+        <div class="vscode-risk-section">
+          <div
+            class="vscode-risk-badge"
+            [attr.data-risk]="permissionRequest()!.riskLevel"
           >
-            <lucide-angular [img]="X" class="vscode-icon"></lucide-angular>
-          </button>
+            <lucide-angular
+              [img]="AlertTriangle"
+              class="vscode-risk-badge-icon"
+            ></lucide-angular>
+            <span class="vscode-risk-text">{{ riskLabel() }} Risk</span>
+          </div>
+          <p class="vscode-risk-explanation">{{ riskExplanation() }}</p>
         </div>
 
-        <!-- Content -->
-        <div class="vscode-modal-content">
-          <!-- Action Description -->
-          <div class="vscode-action-section">
-            <h3 class="vscode-section-title">Requested Action</h3>
-            <div class="vscode-action-card">
-              <div class="vscode-action-icon">
-                <lucide-angular
-                  [img]="riskIcon()"
-                  [class]="'vscode-risk-icon vscode-risk-' + permissionRequest()!.riskLevel"
-                ></lucide-angular>
-              </div>
-              <div class="vscode-action-details">
-                <p class="vscode-action-name">{{ permissionRequest()!.action }}</p>
-                <p class="vscode-action-description">{{ permissionRequest()!.description }}</p>
-              </div>
+        <!-- Tool Information -->
+        <div class="vscode-tool-section">
+          <h3 class="vscode-section-title">Tool Information</h3>
+          <div class="vscode-tool-info">
+            <div class="vscode-tool-name">{{ permissionRequest()!.tool }}</div>
+            <div class="vscode-tool-timestamp">
+              Requested {{ formattedTimestamp() }}
             </div>
-          </div>
-
-          <!-- Risk Assessment -->
-          <div class="vscode-risk-section">
-            <div class="vscode-risk-badge" [attr.data-risk]="permissionRequest()!.riskLevel">
-              <lucide-angular [img]="AlertTriangle" class="vscode-risk-badge-icon"></lucide-angular>
-              <span class="vscode-risk-text">{{ riskLabel() }} Risk</span>
-            </div>
-            <p class="vscode-risk-explanation">{{ riskExplanation() }}</p>
-          </div>
-
-          <!-- Tool Information -->
-          <div class="vscode-tool-section">
-            <h3 class="vscode-section-title">Tool Information</h3>
-            <div class="vscode-tool-info">
-              <div class="vscode-tool-name">{{ permissionRequest()!.tool }}</div>
-              <div class="vscode-tool-timestamp">Requested {{ formattedTimestamp() }}</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Actions -->
-        <div class="vscode-modal-actions">
-          <div class="vscode-action-group">
-            <button
-              class="vscode-action-button vscode-secondary"
-              (click)="onResponse('deny')"
-              [attr.aria-label]="'Deny permission'"
-            >
-              <lucide-angular [img]="XCircle" class="vscode-button-icon"></lucide-angular>
-              Deny
-            </button>
-
-            <button
-              class="vscode-action-button vscode-primary"
-              (click)="onResponse('allow')"
-              [attr.aria-label]="'Allow permission once'"
-            >
-              <lucide-angular [img]="CheckCircle" class="vscode-button-icon"></lucide-angular>
-              Allow Once
-            </button>
-
-            <button
-              class="vscode-action-button vscode-primary"
-              (click)="onResponse('always_allow')"
-              [attr.aria-label]="'Always allow for this tool'"
-            >
-              <lucide-angular [img]="Shield" class="vscode-button-icon"></lucide-angular>
-              Always Allow
-            </button>
-          </div>
-
-          <div class="vscode-action-hint">
-            <p>Tip: Use "Always Allow" to skip future permissions for {{ permissionRequest()!.tool }}</p>
           </div>
         </div>
       </div>
+
+      <!-- Actions -->
+      <div class="vscode-modal-actions">
+        <div class="vscode-action-group">
+          <button
+            class="vscode-action-button vscode-secondary"
+            (click)="onResponse('deny')"
+            [attr.aria-label]="'Deny permission'"
+          >
+            <lucide-angular
+              [img]="XCircle"
+              class="vscode-button-icon"
+            ></lucide-angular>
+            Deny
+          </button>
+
+          <button
+            class="vscode-action-button vscode-primary"
+            (click)="onResponse('allow')"
+            [attr.aria-label]="'Allow permission once'"
+          >
+            <lucide-angular
+              [img]="CheckCircle"
+              class="vscode-button-icon"
+            ></lucide-angular>
+            Allow Once
+          </button>
+
+          <button
+            class="vscode-action-button vscode-primary"
+            (click)="onResponse('always_allow')"
+            [attr.aria-label]="'Always allow for this tool'"
+          >
+            <lucide-angular
+              [img]="Shield"
+              class="vscode-button-icon"
+            ></lucide-angular>
+            Always Allow
+          </button>
+        </div>
+
+        <div class="vscode-action-hint">
+          <p>
+            Tip: Use "Always Allow" to skip future permissions for
+            {{ permissionRequest()!.tool }}
+          </p>
+        </div>
+      </div>
+    </div>
     }
   `,
   styles: [
@@ -154,7 +193,11 @@ export type PermissionResponse = 'allow' | 'always_allow' | 'deny';
         left: 0;
         right: 0;
         bottom: 0;
-        background-color: color-mix(in srgb, var(--vscode-editor-background) 80%, transparent);
+        background-color: color-mix(
+          in srgb,
+          var(--vscode-editor-background) 80%,
+          transparent
+        );
         backdrop-filter: blur(3px);
         z-index: 2000;
         animation: vscode-fade-in 0.25s ease-out;
@@ -179,7 +222,11 @@ export type PermissionResponse = 'allow' | 'always_allow' | 'deny';
       .vscode-permission-modal[data-risk='high'] {
         border-color: var(--vscode-errorForeground);
         box-shadow: 0 8px 32px
-          color-mix(in srgb, var(--vscode-errorForeground) 20%, var(--vscode-widget-shadow));
+          color-mix(
+            in srgb,
+            var(--vscode-errorForeground) 20%,
+            var(--vscode-widget-shadow)
+          );
       }
 
       .vscode-permission-modal[data-risk='medium'] {
@@ -232,7 +279,11 @@ export type PermissionResponse = 'allow' | 'always_allow' | 'deny';
       }
 
       .vscode-header-icon[data-risk='high'] {
-        background-color: color-mix(in srgb, var(--vscode-errorForeground) 15%, transparent);
+        background-color: color-mix(
+          in srgb,
+          var(--vscode-errorForeground) 15%,
+          transparent
+        );
       }
 
       .vscode-header-icon[data-risk='medium'] {
@@ -391,7 +442,11 @@ export type PermissionResponse = 'allow' | 'always_allow' | 'deny';
       }
 
       .vscode-risk-badge[data-risk='high'] {
-        background-color: color-mix(in srgb, var(--vscode-errorForeground) 15%, transparent);
+        background-color: color-mix(
+          in srgb,
+          var(--vscode-errorForeground) 15%,
+          transparent
+        );
         color: var(--vscode-errorForeground);
       }
 

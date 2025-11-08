@@ -20,14 +20,14 @@ jest.mock('vscode', () => ({
     createWebviewPanel: jest.fn(),
     showErrorMessage: jest.fn(),
     showInformationMessage: jest.fn(),
-    showWarningMessage: jest.fn()
+    showWarningMessage: jest.fn(),
   },
   ViewColumn: { One: 1, Two: 2, Three: 3 },
   Uri: {
     file: jest.fn(),
     parse: jest.fn(),
-    joinPath: jest.fn()
-  }
+    joinPath: jest.fn(),
+  },
 }));
 
 // Access the mocked commands after the mock is set up
@@ -46,27 +46,102 @@ describe('CommandManager - User Requirement: VS Code Command Abstraction', () =>
 
   beforeEach(() => {
     jest.clearAllMocks();
-    
+
     mockContext = {
       subscriptions: [],
-      workspaceState: { get: jest.fn(), update: jest.fn(), keys: jest.fn().mockReturnValue([]) },
-      globalState: { get: jest.fn(), update: jest.fn(), setKeysForSync: jest.fn(), keys: jest.fn().mockReturnValue([]) },
-      secrets: { get: jest.fn(), store: jest.fn(), delete: jest.fn(), onDidChange: jest.fn() },
-      extensionUri: { scheme: 'file', authority: '', path: '/test', query: '', fragment: '', fsPath: '/test', with: jest.fn(), toString: jest.fn(), toJSON: jest.fn() },
+      workspaceState: {
+        get: jest.fn(),
+        update: jest.fn(),
+        keys: jest.fn().mockReturnValue([]),
+      },
+      globalState: {
+        get: jest.fn(),
+        update: jest.fn(),
+        setKeysForSync: jest.fn(),
+        keys: jest.fn().mockReturnValue([]),
+      },
+      secrets: {
+        get: jest.fn(),
+        store: jest.fn(),
+        delete: jest.fn(),
+        onDidChange: jest.fn(),
+      },
+      extensionUri: {
+        scheme: 'file',
+        authority: '',
+        path: '/test',
+        query: '',
+        fragment: '',
+        fsPath: '/test',
+        with: jest.fn(),
+        toString: jest.fn(),
+        toJSON: jest.fn(),
+      },
       extensionPath: '/test/extension/path',
-      environmentVariableCollection: { persistent: false, replace: jest.fn(), append: jest.fn(), prepend: jest.fn(), get: jest.fn(), forEach: jest.fn(), delete: jest.fn(), clear: jest.fn() },
+      environmentVariableCollection: {
+        persistent: false,
+        replace: jest.fn(),
+        append: jest.fn(),
+        prepend: jest.fn(),
+        get: jest.fn(),
+        forEach: jest.fn(),
+        delete: jest.fn(),
+        clear: jest.fn(),
+      },
       storagePath: '/test/storage/path',
       globalStoragePath: '/test/global/storage/path',
       logPath: '/test/log/path',
       extensionMode: 1,
-      logUri: { scheme: 'file', authority: '', path: '/test/log', query: '', fragment: '', fsPath: '/test/log', with: jest.fn(), toString: jest.fn(), toJSON: jest.fn() },
-      storageUri: { scheme: 'file', authority: '', path: '/test/storage', query: '', fragment: '', fsPath: '/test/storage', with: jest.fn(), toString: jest.fn(), toJSON: jest.fn() },
-      globalStorageUri: { scheme: 'file', authority: '', path: '/test/global', query: '', fragment: '', fsPath: '/test/global', with: jest.fn(), toString: jest.fn(), toJSON: jest.fn() },
+      logUri: {
+        scheme: 'file',
+        authority: '',
+        path: '/test/log',
+        query: '',
+        fragment: '',
+        fsPath: '/test/log',
+        with: jest.fn(),
+        toString: jest.fn(),
+        toJSON: jest.fn(),
+      },
+      storageUri: {
+        scheme: 'file',
+        authority: '',
+        path: '/test/storage',
+        query: '',
+        fragment: '',
+        fsPath: '/test/storage',
+        with: jest.fn(),
+        toString: jest.fn(),
+        toJSON: jest.fn(),
+      },
+      globalStorageUri: {
+        scheme: 'file',
+        authority: '',
+        path: '/test/global',
+        query: '',
+        fragment: '',
+        fsPath: '/test/global',
+        with: jest.fn(),
+        toString: jest.fn(),
+        toJSON: jest.fn(),
+      },
       asAbsolutePath: jest.fn(),
-      extension: { id: 'test.extension', extensionUri: { scheme: 'file', path: '/test', fsPath: '/test' } as any, extensionPath: '/test', isActive: true, packageJSON: {}, exports: undefined, activate: jest.fn(), extensionKind: 1 },
-      languageModelAccessInformation: { onDidChange: jest.fn(), canSendRequest: jest.fn().mockReturnValue(true) }
+      extension: {
+        id: 'test.extension',
+        extensionUri: { scheme: 'file', path: '/test', fsPath: '/test' } as any,
+        extensionPath: '/test',
+        isActive: true,
+        packageJSON: {},
+        exports: undefined,
+        activate: jest.fn(),
+        extensionKind: 1,
+      },
+      languageModelAccessInformation: {
+        onDidChange: jest.fn(),
+        canSendRequest: jest.fn().mockReturnValue(true),
+      },
     } as any;
-    
+
     commandManager = new CommandManager(mockContext, mockEventBus as any);
   });
 
@@ -92,8 +167,12 @@ describe('CommandManager - User Requirement: VS Code Command Abstraction', () =>
         'ptah.test.command',
         expect.any(Function)
       );
-      expect(commandManager.isCommandRegistered('ptah.test.command')).toBe(true);
-      expect(mockContext.subscriptions).toContainEqual(expect.objectContaining({ dispose: expect.any(Function) }));
+      expect(commandManager.isCommandRegistered('ptah.test.command')).toBe(
+        true
+      );
+      expect(mockContext.subscriptions).toContainEqual(
+        expect.objectContaining({ dispose: expect.any(Function) })
+      );
     });
 
     it('should prevent duplicate command registration', () => {
@@ -129,7 +208,7 @@ describe('CommandManager - User Requirement: VS Code Command Abstraction', () =>
       expect(commandManager.getRegisteredCommands()).toEqual([
         'ptah.command1',
         'ptah.command2',
-        'ptah.command3'
+        'ptah.command3',
       ]);
     });
   });
@@ -159,7 +238,7 @@ describe('CommandManager - User Requirement: VS Code Command Abstraction', () =>
         'commands:executeCommand',
         {
           templateId: 'ptah.test.execution',
-          parameters: { arg0: 'arg1', arg1: 'arg2' }
+          parameters: { arg0: 'arg1', arg1: 'arg2' },
         }
       );
       expect(mockEventBus.publish).toHaveBeenCalledWith(
@@ -169,7 +248,7 @@ describe('CommandManager - User Requirement: VS Code Command Abstraction', () =>
           properties: expect.objectContaining({
             commandId: 'ptah.test.execution',
             duration: expect.any(Number),
-          })
+          }),
         })
       );
     });
@@ -198,8 +277,8 @@ describe('CommandManager - User Requirement: VS Code Command Abstraction', () =>
           message: expect.stringContaining('ptah.error.test'),
           source: 'CommandManager',
           data: expect.objectContaining({
-            commandId: 'ptah.error.test'
-          })
+            commandId: 'ptah.error.test',
+          }),
         })
       );
     });
@@ -242,10 +321,14 @@ describe('CommandManager - User Requirement: VS Code Command Abstraction', () =>
     beforeEach(() => {
       // Register some test commands
       commandManager.registerCommand({
-        id: 'ptah.test1', title: 'Test 1', handler: jest.fn()
+        id: 'ptah.test1',
+        title: 'Test 1',
+        handler: jest.fn(),
       });
       commandManager.registerCommand({
-        id: 'ptah.test2', title: 'Test 2', handler: jest.fn()
+        id: 'ptah.test2',
+        title: 'Test 2',
+        handler: jest.fn(),
       });
     });
 
@@ -309,10 +392,14 @@ describe('CommandManager - User Requirement: VS Code Command Abstraction', () =>
     it('should dispose all commands during cleanup', () => {
       // GIVEN: Multiple registered commands
       commandManager.registerCommand({
-        id: 'ptah.dispose1', title: 'Dispose Test 1', handler: jest.fn()
+        id: 'ptah.dispose1',
+        title: 'Dispose Test 1',
+        handler: jest.fn(),
       });
       commandManager.registerCommand({
-        id: 'ptah.dispose2', title: 'Dispose Test 2', handler: jest.fn()
+        id: 'ptah.dispose2',
+        title: 'Dispose Test 2',
+        handler: jest.fn(),
       });
 
       expect(commandManager.getRegisteredCommands()).toHaveLength(2);
@@ -347,7 +434,7 @@ describe('CommandManager - User Requirement: VS Code Command Abstraction', () =>
         { complex: 'object' },
         ['array', 'items'],
         null,
-        undefined
+        undefined,
       ];
 
       await vsCodeHandler(...complexArgs);
@@ -364,8 +451,8 @@ describe('CommandManager - User Requirement: VS Code Command Abstraction', () =>
             arg2: { complex: 'object' },
             arg3: ['array', 'items'],
             arg4: null,
-            arg5: undefined
-          }
+            arg5: undefined,
+          },
         }
       );
     });
@@ -389,7 +476,7 @@ describe('CommandManager - User Requirement: VS Code Command Abstraction', () =>
       expect(mockEventBus.publish).toHaveBeenCalledWith(
         'error',
         expect.objectContaining({
-          message: expect.stringContaining('String error')
+          message: expect.stringContaining('String error'),
         })
       );
     });
@@ -411,7 +498,7 @@ describe('CommandManager - User Requirement: VS Code Command Abstraction', () =>
         id: 'ptah.typed.test',
         title: 'Typed Test',
         handler: typedHandler,
-        category: 'Ptah Test'
+        category: 'Ptah Test',
       };
 
       // WHEN: Registering typed command

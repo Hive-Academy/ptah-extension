@@ -12,6 +12,7 @@
 **User Story**: As a Ptah extension developer, I want an OutputManager that wraps VS Code's output channels, so that all output operations are centralized, type-safe, and integrated with the event system for logging and monitoring.
 
 **Acceptance Criteria**:
+
 - WHEN output channels are created THEN they use the OutputManager with proper DI integration
 - WHEN messages are written to output channels THEN they emit events through the event bus
 - WHEN different log levels are used THEN they are properly categorized and formatted
@@ -23,6 +24,7 @@
 **User Story**: As a Ptah extension developer, I want a StatusBarManager that wraps VS Code's status bar items, so that status bar operations are centralized, reactive, and can be monitored through the event system.
 
 **Acceptance Criteria**:
+
 - WHEN status bar items are created THEN they use the StatusBarManager with DI integration
 - WHEN status bar items are updated THEN they emit state change events to the event bus
 - WHEN status bar items are clicked THEN click events are routed through the event system
@@ -34,6 +36,7 @@
 **User Story**: As a Ptah extension developer, I want a FileSystemManager that wraps VS Code's file system operations, so that all file operations are type-safe, monitored, and integrated with the workspace intelligence system.
 
 **Acceptance Criteria**:
+
 - WHEN file operations are performed THEN they use the FileSystemManager with proper error handling
 - WHEN files are read/written/deleted THEN operations emit events through the event bus
 - WHEN workspace files are accessed THEN operations are tracked for analytics and optimization
@@ -53,20 +56,23 @@
 ## Implementation Scope
 
 **Files to Create**:
+
 - `libs/backend/vscode-core/src/api-wrappers/output-manager.ts` - VS Code output channel abstraction
-- `libs/backend/vscode-core/src/api-wrappers/status-bar-manager.ts` - VS Code status bar abstraction  
+- `libs/backend/vscode-core/src/api-wrappers/status-bar-manager.ts` - VS Code status bar abstraction
 - `libs/backend/vscode-core/src/api-wrappers/file-system-manager.ts` - VS Code file system abstraction
 - `libs/backend/vscode-core/src/api-wrappers/output-manager.spec.ts` - Output manager tests
 - `libs/backend/vscode-core/src/api-wrappers/status-bar-manager.spec.ts` - Status bar manager tests
 - `libs/backend/vscode-core/src/api-wrappers/file-system-manager.spec.ts` - File system manager tests
 
 **Files to Modify**:
+
 - `libs/backend/vscode-core/src/api-wrappers/index.ts` - Export new managers
 - `libs/backend/vscode-core/src/di/tokens.ts` - Add DI tokens for new managers
 - `libs/backend/vscode-core/src/di/container.ts` - Register new managers in DI container
 - `libs/backend/vscode-core/src/index.ts` - Export new managers from library
 
 **Dependencies**:
+
 - Week 2 foundation (ServiceRegistry, EventBus, DI tokens) - already implemented
 - @ptah-extension/shared types (MessagePayloadMap, error types) - already available
 - TSyringe for dependency injection - already configured
@@ -78,6 +84,7 @@
 ## Dependencies & Constraints
 
 **Technical Constraints**:
+
 - Must follow the same pattern established by CommandManager and WebviewManager in Week 2
 - Must use existing MessagePayloadMap from @ptah-extension/shared for all events
 - Must maintain strict TypeScript typing with zero 'any' types
@@ -85,12 +92,14 @@
 - Must handle all VS Code API edge cases and error conditions
 
 **Prerequisites**:
+
 - TASK_CMD_002 (Week 2) successfully completed with DI container and event bus
 - VS Code extension context available through DI system
 - Event bus properly configured and tested
 - All required dependencies already installed and configured
 
 **Integration Points**:
+
 - ServiceRegistry for dependency registration and resolution
 - EventBus for all inter-component communication
 - Extension context for VS Code API access
@@ -103,6 +112,7 @@
 **Rationale**: The requirements are well-defined based on the established Week 2 patterns. The CommandManager and WebviewManager provide clear architectural templates to follow. No additional research is needed since the VS Code APIs are well-documented and the patterns are established. The software-architect can create detailed designs for the three enhanced wrappers following the proven pattern.
 
 **Key Context for Next Agent**:
+
 - Week 3 builds directly on Week 2 foundation using same DI and event patterns
 - CommandManager and WebviewManager serve as architectural templates to follow
 - Focus on OutputManager, StatusBarManager, FileSystemManager as requested by user

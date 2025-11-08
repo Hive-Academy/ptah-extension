@@ -80,7 +80,9 @@ export class MessageHandlerService {
       }
 
       if (messageType === 'initialData') {
-        this.handleInitialData(message.payload as unknown as InitialDataPayload);
+        this.handleInitialData(
+          message.payload as unknown as InitialDataPayload
+        );
         return;
       }
 
@@ -90,7 +92,9 @@ export class MessageHandlerService {
       }
 
       if (messageType === 'workspaceChanged') {
-        this.handleWorkspaceChanged(message.payload as unknown as WorkspaceChangedPayload);
+        this.handleWorkspaceChanged(
+          message.payload as unknown as WorkspaceChangedPayload
+        );
         return;
       }
 
@@ -139,7 +143,9 @@ export class MessageHandlerService {
   private handleInitialData(payload: InitialDataPayload): void {
     if (payload) {
       // Extract workspace info if available
-      const workspace = payload.workspace as { name?: string; path?: string; type?: string } | undefined;
+      const workspace = payload.workspace as
+        | { name?: string; path?: string; type?: string }
+        | undefined;
       if (workspace) {
         this.appState.setWorkspaceInfo({
           name: workspace.name || '',
@@ -147,13 +153,13 @@ export class MessageHandlerService {
           type: workspace.type || 'unknown',
         });
       }
-      
+
       // Extract state if available
       const state = payload.state as { currentView?: string } | undefined;
       if (state?.currentView && this.isValidViewType(state.currentView)) {
         this.appState.setCurrentView(state.currentView);
       }
-      
+
       this.appState.setConnected(true);
     }
   }
@@ -219,7 +225,7 @@ export class MessageHandlerService {
     this.vscodeService.sendChatMessage(
       content,
       undefined,
-      correlationId as unknown as CorrelationId,
+      correlationId as unknown as CorrelationId
     );
   }
 
@@ -246,4 +252,3 @@ export class MessageHandlerService {
     });
   }
 }
-

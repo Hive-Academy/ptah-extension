@@ -55,7 +55,8 @@ export class WebviewNavigationService {
   readonly previousView = computed(() => this._navigationState().previousView);
   readonly isNavigating = computed(() => this._navigationState().isNavigating);
   readonly canNavigate = computed(
-    () => this.appState.canSwitchViews() && !this._navigationState().isNavigating,
+    () =>
+      this.appState.canSwitchViews() && !this._navigationState().isNavigating
   );
   readonly navigationReliability = computed(() => {
     const errors = this._navigationErrors();
@@ -80,19 +81,25 @@ export class WebviewNavigationService {
     // Clear any stale error state
     this._navigationErrors.set([]);
 
-    console.log('WebviewNavigationService: Initialized with pure signal-based navigation');
+    console.log(
+      'WebviewNavigationService: Initialized with pure signal-based navigation'
+    );
   }
 
   private setupVSCodeListener(): void {
     // Listen for navigation requests from VS Code extension
     this.vscodeService.onMessageType('navigate').subscribe({
       next: (payload) => {
-        console.log('WebviewNavigationService: Received navigation request from VS Code:', payload);
+        console.log(
+          'WebviewNavigationService: Received navigation request from VS Code:',
+          payload
+        );
 
         // Extract view from route
-        const route = typeof payload === 'object' && payload !== null && 'route' in payload
-          ? String((payload as { route: unknown }).route)
-          : '';
+        const route =
+          typeof payload === 'object' && payload !== null && 'route' in payload
+            ? String((payload as { route: unknown }).route)
+            : '';
 
         const view = route.replace('/', '').replace('#/', '') as ViewType;
         if (this.isValidViewType(view)) {
@@ -100,7 +107,10 @@ export class WebviewNavigationService {
         }
       },
       error: (error) => {
-        console.error('WebviewNavigationService: Error in VS Code listener:', error);
+        console.error(
+          'WebviewNavigationService: Error in VS Code listener:',
+          error
+        );
       },
     });
   }
@@ -117,19 +127,27 @@ export class WebviewNavigationService {
    */
   async navigateToView(view: ViewType): Promise<boolean> {
     if (!this.canNavigate()) {
-      console.warn('WebviewNavigationService: Navigation blocked - conditions not met');
+      console.warn(
+        'WebviewNavigationService: Navigation blocked - conditions not met'
+      );
       return false;
     }
 
     if (view === this.currentView()) {
-      console.info('WebviewNavigationService: Already on requested view:', view);
+      console.info(
+        'WebviewNavigationService: Already on requested view:',
+        view
+      );
       return true;
     }
 
     this.setNavigating(true);
 
     try {
-      console.log('WebviewNavigationService: Navigating to view via signals:', view);
+      console.log(
+        'WebviewNavigationService: Navigating to view via signals:',
+        view
+      );
 
       // Pure signal-based navigation - update component state directly
       this.updateNavigationState(view);
@@ -138,7 +156,10 @@ export class WebviewNavigationService {
       await this.vscodeService.postStrictMessage('view:changed', { view });
 
       this.setNavigating(false);
-      console.log('WebviewNavigationService: Navigation complete via signals to:', view);
+      console.log(
+        'WebviewNavigationService: Navigation complete via signals to:',
+        view
+      );
       return true;
     } catch (error) {
       this.handleNavigationError(error, view);
@@ -179,7 +200,9 @@ export class WebviewNavigationService {
   }
 
   private handleNavigationError(error: unknown, targetView: ViewType): void {
-    const errorMessage = `Navigation failed to ${targetView}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+    const errorMessage = `Navigation failed to ${targetView}: ${
+      error instanceof Error ? error.message : 'Unknown error'
+    }`;
     console.error('WebviewNavigationService:', errorMessage);
 
     this._navigationErrors.update((errors) => [...errors, errorMessage]);
@@ -190,7 +213,11 @@ export class WebviewNavigationService {
     }
 
     // Notify app state of error
-    this.appState.handleError(`Navigation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    this.appState.handleError(
+      `Navigation failed: ${
+        error instanceof Error ? error.message : 'Unknown error'
+      }`
+    );
   }
 
   /**

@@ -189,21 +189,19 @@ const PTAH_TEMPLATE_COMMANDS = {
       <h3>📜 Ptah Superpowers</h3>
 
       @if (!templatesEnabled()) {
-        <div class="enable-superpowers">
-          <p>Enable Ptah superpowers for this workspace?</p>
-          <app-egyptian-button (click)="enableSuperpowers()">
-            ✨ Enable Superpowers
-          </app-egyptian-button>
-        </div>
+      <div class="enable-superpowers">
+        <p>Enable Ptah superpowers for this workspace?</p>
+        <app-egyptian-button (click)="enableSuperpowers()"> ✨ Enable Superpowers </app-egyptian-button>
+      </div>
       } @else {
-        <div class="superpowers-active">
-          <p>🎉 Ptah superpowers are active!</p>
-          <div class="available-commands">
-            <span class="command-tag">/ptah-orchestrate</span>
-            <span class="command-tag">/ptah-review-code</span>
-            <span class="command-tag">/ptah-analyze</span>
-          </div>
+      <div class="superpowers-active">
+        <p>🎉 Ptah superpowers are active!</p>
+        <div class="available-commands">
+          <span class="command-tag">/ptah-orchestrate</span>
+          <span class="command-tag">/ptah-review-code</span>
+          <span class="command-tag">/ptah-analyze</span>
         </div>
+      </div>
       }
     </div>
   `,

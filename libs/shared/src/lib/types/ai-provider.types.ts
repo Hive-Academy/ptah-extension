@@ -16,7 +16,12 @@ export type ProviderId = 'claude-cli' | 'vscode-lm';
 /**
  * Provider Status Types
  */
-export type ProviderStatus = 'available' | 'unavailable' | 'error' | 'initializing' | 'disabled';
+export type ProviderStatus =
+  | 'available'
+  | 'unavailable'
+  | 'error'
+  | 'initializing'
+  | 'disabled';
 
 /**
  * Provider Capability Flags
@@ -138,7 +143,10 @@ export interface IAIProvider {
   /**
    * Session Management
    */
-  startChatSession(sessionId: SessionId, config?: AISessionConfig): Promise<Readable>;
+  startChatSession(
+    sessionId: SessionId,
+    config?: AISessionConfig
+  ): Promise<Readable>;
   endSession(sessionId: SessionId): void;
   sendMessageToSession(
     sessionId: SessionId,
@@ -253,7 +261,10 @@ export function isValidProviderId(id: string): id is ProviderId {
 /**
  * Provider Constants
  */
-export const PROVIDER_IDS: readonly ProviderId[] = ['claude-cli', 'vscode-lm'] as const;
+export const PROVIDER_IDS: readonly ProviderId[] = [
+  'claude-cli',
+  'vscode-lm',
+] as const;
 
 export const DEFAULT_PROVIDER_CAPABILITIES: ProviderCapabilities = {
   streaming: true,

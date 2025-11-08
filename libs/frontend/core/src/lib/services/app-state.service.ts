@@ -2,7 +2,11 @@ import { Injectable, signal, computed, inject } from '@angular/core';
 import { WorkspaceInfo } from '@ptah-extension/shared';
 import { VSCodeService } from './vscode.service';
 
-export type ViewType = 'chat' | 'command-builder' | 'analytics' | 'context-tree';
+export type ViewType =
+  | 'chat'
+  | 'command-builder'
+  | 'analytics'
+  | 'context-tree';
 
 export interface AppState {
   currentView: ViewType;
@@ -53,7 +57,9 @@ export class AppStateManager {
   readonly isConnected = this._isConnected.asReadonly();
 
   // Computed signals
-  readonly canSwitchViews = computed(() => !this._isLoading() && this._isConnected());
+  readonly canSwitchViews = computed(
+    () => !this._isLoading() && this._isConnected()
+  );
   readonly appTitle = computed(() => {
     const workspace = this._workspaceInfo();
     return workspace ? `Ptah - ${workspace.name}` : 'Ptah';

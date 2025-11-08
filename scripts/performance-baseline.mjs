@@ -50,7 +50,10 @@ function getBundleSize() {
   const distPath = join(rootDir, 'dist/apps/ptah-extension-webview');
 
   try {
-    const files = readdirSync(distPath, { recursive: true, withFileTypes: true });
+    const files = readdirSync(distPath, {
+      recursive: true,
+      withFileTypes: true,
+    });
     let totalSize = 0;
     const fileStats = [];
 
@@ -76,7 +79,7 @@ function getBundleSize() {
       largestFiles: fileStats
         .sort((a, b) => b.size - a.size)
         .slice(0, 10)
-        .map(f => ({ name: f.name, sizeKB: f.sizeKB })),
+        .map((f) => ({ name: f.name, sizeKB: f.sizeKB })),
     };
   } catch (error) {
     console.error('Failed to calculate bundle size:', error.message);
@@ -141,7 +144,9 @@ function measureTestTime() {
   console.error('Running tests to measure test execution time...');
   const startTime = Date.now();
 
-  const result = execute('npm run test:webview -- --passWithNoTests', { silent: true });
+  const result = execute('npm run test:webview -- --passWithNoTests', {
+    silent: true,
+  });
 
   if (!result) {
     return null;
@@ -165,16 +170,16 @@ function getAngularMetrics() {
 
   try {
     // Count signal usage
-    const signalUsage = execSync(
-      `grep -r "signal<" "${appDir}" | wc -l`,
-      { encoding: 'utf-8', shell: '/bin/bash' }
-    ).trim();
+    const signalUsage = execSync(`grep -r "signal<" "${appDir}" | wc -l`, {
+      encoding: 'utf-8',
+      shell: '/bin/bash',
+    }).trim();
 
     // Count decorator usage
-    const inputDecorators = execSync(
-      `grep -r "@Input(" "${appDir}" | wc -l`,
-      { encoding: 'utf-8', shell: '/bin/bash' }
-    ).trim();
+    const inputDecorators = execSync(`grep -r "@Input(" "${appDir}" | wc -l`, {
+      encoding: 'utf-8',
+      shell: '/bin/bash',
+    }).trim();
 
     const outputDecorators = execSync(
       `grep -r "@Output(" "${appDir}" | wc -l`,
@@ -182,15 +187,15 @@ function getAngularMetrics() {
     ).trim();
 
     // Count structural directives
-    const ngIfUsage = execSync(
-      `grep -r "\\*ngIf" "${appDir}" | wc -l`,
-      { encoding: 'utf-8', shell: '/bin/bash' }
-    ).trim();
+    const ngIfUsage = execSync(`grep -r "\\*ngIf" "${appDir}" | wc -l`, {
+      encoding: 'utf-8',
+      shell: '/bin/bash',
+    }).trim();
 
-    const ngForUsage = execSync(
-      `grep -r "\\*ngFor" "${appDir}" | wc -l`,
-      { encoding: 'utf-8', shell: '/bin/bash' }
-    ).trim();
+    const ngForUsage = execSync(`grep -r "\\*ngFor" "${appDir}" | wc -l`, {
+      encoding: 'utf-8',
+      shell: '/bin/bash',
+    }).trim();
 
     // Count OnPush usage
     const onPushUsage = execSync(

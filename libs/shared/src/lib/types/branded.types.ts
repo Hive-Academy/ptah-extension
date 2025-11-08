@@ -25,7 +25,8 @@ export type MessageId = string & { readonly __brand: 'MessageId' };
 export type CorrelationId = string & { readonly __brand: 'CorrelationId' };
 
 // UUID validation regex for branded type validation
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
  * SessionId smart constructors with validation

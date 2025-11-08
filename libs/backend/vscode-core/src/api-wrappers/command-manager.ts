@@ -48,15 +48,19 @@ export interface CommandErrorPayload {
 @injectable()
 export class CommandManager {
   private readonly registeredCommands = new Map<string, vscode.Disposable>();
-  private readonly commandMetrics = new Map<string, {
-    executionCount: number;
-    totalDuration: number;
-    lastExecuted: number;
-    errorCount: number;
-  }>();
+  private readonly commandMetrics = new Map<
+    string,
+    {
+      executionCount: number;
+      totalDuration: number;
+      lastExecuted: number;
+      errorCount: number;
+    }
+  >();
 
   constructor(
-    @inject(TOKENS.EXTENSION_CONTEXT) private readonly context: vscode.ExtensionContext,
+    @inject(TOKENS.EXTENSION_CONTEXT)
+    private readonly context: vscode.ExtensionContext,
     @inject(TOKENS.EVENT_BUS) private readonly eventBus: EventBus
   ) {}
 
@@ -80,7 +84,7 @@ export class CommandManager {
           // Publish command execution started event
           this.eventBus.publish('commands:executeCommand', {
             templateId: definition.id,
-            parameters: this.argsToParameters(args)
+            parameters: this.argsToParameters(args),
           });
 
           // Execute the command handler
@@ -96,7 +100,7 @@ export class CommandManager {
             commandId: definition.id,
             args: args as readonly unknown[],
             timestamp: Date.now(),
-            duration
+            duration,
           };
 
           // Since we don't have a specific command:executed type in MessagePayloadMap,
@@ -107,10 +111,9 @@ export class CommandManager {
               commandId: executedPayload.commandId,
               timestamp: executedPayload.timestamp,
               duration: duration,
-              argsLength: executedPayload.args.length
-            }
+              argsLength: executedPayload.args.length,
+            },
           });
-
         } catch (error) {
           const duration = Date.now() - startTime;
 
@@ -122,7 +125,7 @@ export class CommandManager {
             commandId: definition.id,
             error: error instanceof Error ? error.message : String(error),
             timestamp: Date.now(),
-            args: args as readonly unknown[]
+            args: args as readonly unknown[],
           };
 
           // Publish error using existing error event type
@@ -132,9 +135,9 @@ export class CommandManager {
             source: 'CommandManager',
             data: {
               commandId: definition.id,
-              args: args as readonly unknown[]
+              args: args as readonly unknown[],
             },
-            timestamp: Date.now()
+            timestamp: Date.now(),
           });
 
           // Re-throw to maintain VS Code error handling
@@ -152,7 +155,7 @@ export class CommandManager {
       executionCount: 0,
       totalDuration: 0,
       lastExecuted: 0,
-      errorCount: 0
+      errorCount: 0,
     });
   }
 
@@ -163,7 +166,7 @@ export class CommandManager {
    * @param commands - Array of command definitions to register
    */
   registerCommands(commands: readonly CommandDefinition[]): void {
-    commands.forEach(cmd => this.registerCommand(cmd));
+    commands.forEach((cmd) => this.registerCommand(cmd));
   }
 
   /**
@@ -227,7 +230,7 @@ export class CommandManager {
    * Should be called during extension deactivation
    */
   dispose(): void {
-    this.registeredCommands.forEach(disposable => disposable.dispose());
+    this.registeredCommands.forEach((disposable) => disposable.dispose());
     this.registeredCommands.clear();
     this.commandMetrics.clear();
   }
@@ -250,7 +253,11 @@ export class CommandManager {
    * Update command execution metrics
    * Tracks performance and error statistics for monitoring
    */
-  private updateCommandMetrics(commandId: string, duration: number, isError: boolean): void {
+  private updateCommandMetrics(
+    commandId: string,
+    duration: number,
+    isError: boolean
+  ): void {
     const metrics = this.commandMetrics.get(commandId);
 
     if (!metrics) return;

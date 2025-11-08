@@ -55,12 +55,16 @@ function updateProjectJson(libraryPath) {
       projectJson.targets.typecheck = {
         executor: 'nx:run-commands',
         options: {
-          command: `npx ngc --noEmit --project ${libraryPath}/tsconfig.lib.json`
-        }
+          command: `npx ngc --noEmit --project ${libraryPath}/tsconfig.lib.json`,
+        },
       };
 
       // Write back to file (preserve formatting with 2 spaces)
-      writeFileSync(projectJsonPath, JSON.stringify(projectJson, null, 2) + '\n', 'utf-8');
+      writeFileSync(
+        projectJsonPath,
+        JSON.stringify(projectJson, null, 2) + '\n',
+        'utf-8'
+      );
 
       console.log(`✅ ${libraryPath}: Added typecheck target with ngc`);
       return { added: true };
@@ -70,7 +74,9 @@ function updateProjectJson(libraryPath) {
     const currentCommand = projectJson.targets.typecheck.options?.command;
 
     if (!currentCommand) {
-      console.log(`⚠️  ${libraryPath}: No command found in typecheck target, skipping...`);
+      console.log(
+        `⚠️  ${libraryPath}: No command found in typecheck target, skipping...`
+      );
       return { skipped: true };
     }
 
@@ -87,7 +93,11 @@ function updateProjectJson(libraryPath) {
     projectJson.targets.typecheck.options.command = newCommand;
 
     // Write back to file (preserve formatting with 2 spaces)
-    writeFileSync(projectJsonPath, JSON.stringify(projectJson, null, 2) + '\n', 'utf-8');
+    writeFileSync(
+      projectJsonPath,
+      JSON.stringify(projectJson, null, 2) + '\n',
+      'utf-8'
+    );
 
     console.log(`✅ ${libraryPath}: Updated typecheck target`);
     console.log(`   Old: ${currentCommand}`);
@@ -95,15 +105,20 @@ function updateProjectJson(libraryPath) {
 
     return { updated: true };
   } catch (error) {
-    console.error(`❌ ${libraryPath}: Error updating project.json - ${error.message}`);
+    console.error(
+      `❌ ${libraryPath}: Error updating project.json - ${error.message}`
+    );
     return { error: true };
   }
-}/**
+}
+/**
  * Main execution
  */
 function main() {
   console.log('🔧 Fixing Frontend Library Typecheck Configuration\n');
-  console.log('Converting from tsc to ngc for Angular template type checking...\n');
+  console.log(
+    'Converting from tsc to ngc for Angular template type checking...\n'
+  );
 
   const results = {
     added: 0,

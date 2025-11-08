@@ -64,22 +64,26 @@ export interface OutputChannelErrorPayload {
 @injectable()
 export class OutputManager {
   private readonly outputChannels = new Map<string, vscode.OutputChannel>();
-  private readonly channelMetrics = new Map<string, {
-    messageCount: number;
-    lastWrite: number;
-    createdAt: number;
-    totalWrites: number;
-    errorCount: number;
-    levelCounts: {
-      debug: number;
-      info: number;
-      warn: number;
-      error: number;
-    };
-  }>();
+  private readonly channelMetrics = new Map<
+    string,
+    {
+      messageCount: number;
+      lastWrite: number;
+      createdAt: number;
+      totalWrites: number;
+      errorCount: number;
+      levelCounts: {
+        debug: number;
+        info: number;
+        warn: number;
+        error: number;
+      };
+    }
+  >();
 
   constructor(
-    @inject(TOKENS.EXTENSION_CONTEXT) private readonly context: vscode.ExtensionContext,
+    @inject(TOKENS.EXTENSION_CONTEXT)
+    private readonly context: vscode.ExtensionContext,
     @inject(TOKENS.EVENT_BUS) private readonly eventBus: EventBus
   ) {}
 
@@ -98,7 +102,7 @@ export class OutputManager {
 
     try {
       // Create output channel with language ID if provided
-      const channel = config.languageId 
+      const channel = config.languageId
         ? vscode.window.createOutputChannel(config.name, config.languageId)
         : vscode.window.createOutputChannel(config.name);
 
@@ -116,8 +120,8 @@ export class OutputManager {
           debug: 0,
           info: 0,
           warn: 0,
-          error: 0
-        }
+          error: 0,
+        },
       });
 
       // Add to extension subscriptions for proper cleanup
@@ -129,12 +133,11 @@ export class OutputManager {
         properties: {
           channelName: config.name,
           languageId: config.languageId || 'none',
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
 
       return channel;
-
     } catch (error) {
       // Publish error event
       this.eventBus.publish('error', {
@@ -142,7 +145,7 @@ export class OutputManager {
         message: `Failed to create output channel ${config.name}: ${error}`,
         source: 'OutputManager',
         data: { config },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       // Re-throw to maintain VS Code error handling
@@ -158,7 +161,11 @@ export class OutputManager {
    * @param message - Message to write
    * @param options - Write options for formatting and metadata
    */
-  write(channelName: string, message: string, options: WriteOptions = {}): void {
+  write(
+    channelName: string,
+    message: string,
+    options: WriteOptions = {}
+  ): void {
     const channel = this.outputChannels.get(channelName);
 
     if (!channel) {
@@ -167,14 +174,16 @@ export class OutputManager {
         message: `Output channel ${channelName} not found`,
         source: 'OutputManager',
         data: { channelName, message, options },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
       return;
     }
 
     try {
       const level = options.level || 'info';
-      const timestamp = options.timestamp ? `[${new Date().toISOString()}] ` : '';
+      const timestamp = options.timestamp
+        ? `[${new Date().toISOString()}] `
+        : '';
       const prefix = options.prefix ? `[${options.prefix}] ` : '';
       const formattedMessage = `${timestamp}${prefix}${message}`;
 
@@ -193,10 +202,9 @@ export class OutputManager {
           messageLength: message.length,
           hasTimestamp: options.timestamp || false,
           hasPrefix: !!options.prefix,
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
-
     } catch (error) {
       // Update error metrics
       this.updateChannelMetrics(channelName, options.level || 'info', true);
@@ -207,7 +215,7 @@ export class OutputManager {
         message: `Failed to write to output channel ${channelName}: ${error}`,
         source: 'OutputManager',
         data: { channelName, message, options },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       // Re-throw to maintain error handling
@@ -223,8 +231,12 @@ export class OutputManager {
    * @param messages - Array of messages to write
    * @param options - Write options applied to all messages
    */
-  writeLines(channelName: string, messages: readonly string[], options: WriteOptions = {}): void {
-    messages.forEach(message => this.write(channelName, message, options));
+  writeLines(
+    channelName: string,
+    messages: readonly string[],
+    options: WriteOptions = {}
+  ): void {
+    messages.forEach((message) => this.write(channelName, message, options));
   }
 
   /**
@@ -249,19 +261,18 @@ export class OutputManager {
         event: 'output:channelCleared',
         properties: {
           channelName,
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
 
       return true;
-
     } catch (error) {
       this.eventBus.publish('error', {
         code: 'OUTPUT_CLEAR_FAILED',
         message: `Failed to clear output channel ${channelName}: ${error}`,
         source: 'OutputManager',
         data: { channelName },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       return false;
@@ -292,19 +303,18 @@ export class OutputManager {
         properties: {
           channelName,
           preserveFocus,
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
 
       return true;
-
     } catch (error) {
       this.eventBus.publish('error', {
         code: 'OUTPUT_SHOW_FAILED',
         message: `Failed to show output channel ${channelName}: ${error}`,
         source: 'OutputManager',
         data: { channelName, preserveFocus },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       return false;
@@ -333,19 +343,18 @@ export class OutputManager {
         event: 'output:channelHidden',
         properties: {
           channelName,
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
 
       return true;
-
     } catch (error) {
       this.eventBus.publish('error', {
         code: 'OUTPUT_HIDE_FAILED',
         message: `Failed to hide output channel ${channelName}: ${error}`,
         source: 'OutputManager',
         data: { channelName },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       return false;
@@ -420,19 +429,18 @@ export class OutputManager {
         event: 'output:channelDisposed',
         properties: {
           channelName,
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
 
       return true;
-
     } catch (error) {
       this.eventBus.publish('error', {
         code: 'OUTPUT_DISPOSE_FAILED',
         message: `Failed to dispose output channel ${channelName}: ${error}`,
         source: 'OutputManager',
         data: { channelName },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       return false;
@@ -445,7 +453,7 @@ export class OutputManager {
    */
   dispose(): void {
     try {
-      this.outputChannels.forEach(channel => channel.dispose());
+      this.outputChannels.forEach((channel) => channel.dispose());
       this.outputChannels.clear();
       this.channelMetrics.clear();
 
@@ -453,16 +461,15 @@ export class OutputManager {
       this.eventBus.publish('analytics:trackEvent', {
         event: 'output:managerDisposed',
         properties: {
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
-
     } catch (error) {
       this.eventBus.publish('error', {
         code: 'OUTPUT_MANAGER_DISPOSE_FAILED',
         message: `Failed to dispose OutputManager: ${error}`,
         source: 'OutputManager',
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
     }
   }
@@ -471,7 +478,11 @@ export class OutputManager {
    * Update channel execution metrics
    * Tracks performance and error statistics for monitoring
    */
-  private updateChannelMetrics(channelName: string, level: 'debug' | 'info' | 'warn' | 'error', isError: boolean): void {
+  private updateChannelMetrics(
+    channelName: string,
+    level: 'debug' | 'info' | 'warn' | 'error',
+    isError: boolean
+  ): void {
     const metrics = this.channelMetrics.get(channelName);
 
     if (!metrics) return;

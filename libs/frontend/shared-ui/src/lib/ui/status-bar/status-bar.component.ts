@@ -1,4 +1,9 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  input,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { WorkspaceInfo } from '@ptah-extension/shared';
 
@@ -31,16 +36,19 @@ import { WorkspaceInfo } from '@ptah-extension/shared';
         <!-- Workspace Information -->
         <div class="vscode-workspace-section">
           @if (workspaceInfo()) {
-            <span class="vscode-workspace-info">
-              <span class="vscode-workspace-icon" aria-hidden="true">📁</span>
-              <span class="vscode-workspace-name">{{ workspaceInfo()!.name }}</span>
-            </span>
-          }
-
-          @if (projectType()) {
-            <span class="vscode-project-badge" [attr.aria-label]="'Project type: ' + projectType()">
-              {{ projectType() }}
-            </span>
+          <span class="vscode-workspace-info">
+            <span class="vscode-workspace-icon" aria-hidden="true">📁</span>
+            <span class="vscode-workspace-name">{{
+              workspaceInfo()!.name
+            }}</span>
+          </span>
+          } @if (projectType()) {
+          <span
+            class="vscode-project-badge"
+            [attr.aria-label]="'Project type: ' + projectType()"
+          >
+            {{ projectType() }}
+          </span>
           }
 
           <!-- Additional Content Slot -->

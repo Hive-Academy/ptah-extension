@@ -1,4 +1,9 @@
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  input,
+  output,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule, ChevronDown } from 'lucide-angular';
 import { DropdownOption } from '@ptah-extension/shared';
@@ -31,17 +36,19 @@ import { DropdownOption } from '@ptah-extension/shared';
     >
       <div class="vscode-trigger-content">
         @if (selectedOption()) {
-          <div class="vscode-selected-option">
-            @if (selectedOption()!.icon) {
-              <span class="vscode-option-icon">{{ selectedOption()!.icon }}</span>
-            }
-            <span class="vscode-option-label">{{ selectedOption()!.label }}</span>
-            @if (showDescription() && selectedOption()!.description) {
-              <span class="vscode-option-description">{{ selectedOption()!.description }}</span>
-            }
-          </div>
+        <div class="vscode-selected-option">
+          @if (selectedOption()!.icon) {
+          <span class="vscode-option-icon">{{ selectedOption()!.icon }}</span>
+          }
+          <span class="vscode-option-label">{{ selectedOption()!.label }}</span>
+          @if (showDescription() && selectedOption()!.description) {
+          <span class="vscode-option-description">{{
+            selectedOption()!.description
+          }}</span>
+          }
+        </div>
         } @else {
-          <span class="vscode-placeholder">{{ placeholder() }}</span>
+        <span class="vscode-placeholder">{{ placeholder() }}</span>
         }
       </div>
 

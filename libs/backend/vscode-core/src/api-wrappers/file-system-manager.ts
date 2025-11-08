@@ -12,7 +12,15 @@ import { TOKENS } from '../di/tokens';
 /**
  * File operation type enumeration
  */
-export type FileOperationType = 'read' | 'write' | 'delete' | 'copy' | 'move' | 'create' | 'stat' | 'readdir';
+export type FileOperationType =
+  | 'read'
+  | 'write'
+  | 'delete'
+  | 'copy'
+  | 'move'
+  | 'create'
+  | 'stat'
+  | 'readdir';
 
 /**
  * File operation options
@@ -77,17 +85,21 @@ export interface FileSystemErrorPayload {
 @injectable()
 export class FileSystemManager {
   private readonly activeWatchers = new Map<string, vscode.FileSystemWatcher>();
-  private readonly operationMetrics = new Map<FileOperationType, {
-    totalOperations: number;
-    successfulOperations: number;
-    failedOperations: number;
-    totalBytesProcessed: number;
-    averageResponseTime: number;
-    lastOperation: number;
-  }>();
+  private readonly operationMetrics = new Map<
+    FileOperationType,
+    {
+      totalOperations: number;
+      successfulOperations: number;
+      failedOperations: number;
+      totalBytesProcessed: number;
+      averageResponseTime: number;
+      lastOperation: number;
+    }
+  >();
 
   constructor(
-    @inject(TOKENS.EXTENSION_CONTEXT) private readonly context: vscode.ExtensionContext,
+    @inject(TOKENS.EXTENSION_CONTEXT)
+    private readonly context: vscode.ExtensionContext,
     @inject(TOKENS.EVENT_BUS) private readonly eventBus: EventBus
   ) {
     this.initializeMetrics();
@@ -101,13 +113,16 @@ export class FileSystemManager {
    * @param options - Read operation options
    * @returns File contents as Uint8Array
    */
-  async readFile(uri: vscode.Uri, options: FileOperationOptions = {}): Promise<Uint8Array> {
+  async readFile(
+    uri: vscode.Uri,
+    options: FileOperationOptions = {}
+  ): Promise<Uint8Array> {
     const startTime = Date.now();
 
     try {
       // Pre-operation validation and tracking
       await this.validateFileOperation(uri, 'read');
-      
+
       // Perform read operation
       const content = await vscode.workspace.fs.readFile(uri);
       const duration = Date.now() - startTime;
@@ -124,12 +139,11 @@ export class FileSystemManager {
           size: content.byteLength,
           duration,
           workspace: this.getWorkspaceForUri(uri) || 'unknown',
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
 
       return content;
-
     } catch (error) {
       const duration = Date.now() - startTime;
       this.handleFileSystemError('read', uri, undefined, error, duration);
@@ -146,8 +160,8 @@ export class FileSystemManager {
    * @param options - Write operation options
    */
   async writeFile(
-    uri: vscode.Uri, 
-    content: Uint8Array, 
+    uri: vscode.Uri,
+    content: Uint8Array,
     options: FileOperationOptions = {}
   ): Promise<void> {
     const startTime = Date.now();
@@ -159,10 +173,10 @@ export class FileSystemManager {
       // Configure write options
       const writeOptions: { create?: boolean; overwrite?: boolean } = {
         create: options.create ?? true,
-        overwrite: options.overwrite ?? true
+        overwrite: options.overwrite ?? true,
       };
 
-      // Perform write operation  
+      // Perform write operation
       await vscode.workspace.fs.writeFile(uri, content);
       const duration = Date.now() - startTime;
 
@@ -180,10 +194,9 @@ export class FileSystemManager {
           created: writeOptions.create || false,
           overwritten: writeOptions.overwrite || false,
           workspace: this.getWorkspaceForUri(uri) || 'unknown',
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
-
     } catch (error) {
       const duration = Date.now() - startTime;
       this.handleFileSystemError('write', uri, undefined, error, duration);
@@ -198,7 +211,10 @@ export class FileSystemManager {
    * @param uri - URI to delete
    * @param options - Delete operation options
    */
-  async delete(uri: vscode.Uri, options: FileOperationOptions = {}): Promise<void> {
+  async delete(
+    uri: vscode.Uri,
+    options: FileOperationOptions = {}
+  ): Promise<void> {
     const startTime = Date.now();
 
     try {
@@ -209,7 +225,7 @@ export class FileSystemManager {
       // Configure delete options
       const deleteOptions = {
         recursive: true, // Enable recursive deletion for directories
-        useTrash: false  // Direct deletion for consistency
+        useTrash: false, // Direct deletion for consistency
       };
 
       // Perform delete operation
@@ -227,12 +243,12 @@ export class FileSystemManager {
           uri: uri.toString(),
           size: stat.size,
           duration,
-          fileType: stat.type === vscode.FileType.Directory ? 'directory' : 'file',
+          fileType:
+            stat.type === vscode.FileType.Directory ? 'directory' : 'file',
           workspace: this.getWorkspaceForUri(uri) || 'unknown',
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
-
     } catch (error) {
       const duration = Date.now() - startTime;
       this.handleFileSystemError('delete', uri, undefined, error, duration);
@@ -245,12 +261,12 @@ export class FileSystemManager {
    * Handles both single files and recursive directory copying
    *
    * @param source - Source URI
-   * @param target - Target URI  
+   * @param target - Target URI
    * @param options - Copy operation options
    */
   async copy(
-    source: vscode.Uri, 
-    target: vscode.Uri, 
+    source: vscode.Uri,
+    target: vscode.Uri,
     options: FileOperationOptions = {}
   ): Promise<void> {
     const startTime = Date.now();
@@ -263,7 +279,7 @@ export class FileSystemManager {
 
       // Configure copy options
       const copyOptions = {
-        overwrite: options.overwrite ?? false
+        overwrite: options.overwrite ?? false,
       };
 
       // Perform copy operation
@@ -282,14 +298,16 @@ export class FileSystemManager {
           targetUri: target.toString(),
           size: sourceStat.size,
           duration,
-          fileType: sourceStat.type === vscode.FileType.Directory ? 'directory' : 'file',
+          fileType:
+            sourceStat.type === vscode.FileType.Directory
+              ? 'directory'
+              : 'file',
           overwrite: copyOptions.overwrite,
           sourceWorkspace: this.getWorkspaceForUri(source) || 'unknown',
           targetWorkspace: this.getWorkspaceForUri(target) || 'unknown',
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
-
     } catch (error) {
       const duration = Date.now() - startTime;
       this.handleFileSystemError('copy', source, target, error, duration);
@@ -306,8 +324,8 @@ export class FileSystemManager {
    * @param options - Move operation options
    */
   async move(
-    source: vscode.Uri, 
-    target: vscode.Uri, 
+    source: vscode.Uri,
+    target: vscode.Uri,
     options: FileOperationOptions = {}
   ): Promise<void> {
     const startTime = Date.now();
@@ -320,7 +338,7 @@ export class FileSystemManager {
 
       // Configure rename options
       const renameOptions = {
-        overwrite: options.overwrite ?? false
+        overwrite: options.overwrite ?? false,
       };
 
       // Perform move operation (rename in VS Code API)
@@ -339,14 +357,16 @@ export class FileSystemManager {
           targetUri: target.toString(),
           size: sourceStat.size,
           duration,
-          fileType: sourceStat.type === vscode.FileType.Directory ? 'directory' : 'file',
+          fileType:
+            sourceStat.type === vscode.FileType.Directory
+              ? 'directory'
+              : 'file',
           overwrite: renameOptions.overwrite,
           sourceWorkspace: this.getWorkspaceForUri(source) || 'unknown',
           targetWorkspace: this.getWorkspaceForUri(target) || 'unknown',
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
-
     } catch (error) {
       const duration = Date.now() - startTime;
       this.handleFileSystemError('move', source, target, error, duration);
@@ -366,7 +386,7 @@ export class FileSystemManager {
 
     try {
       await this.validateFileOperation(uri, 'stat');
-      
+
       const stat = await vscode.workspace.fs.stat(uri);
       const duration = Date.now() - startTime;
 
@@ -380,15 +400,15 @@ export class FileSystemManager {
           operation: 'stat',
           uri: uri.toString(),
           size: stat.size,
-          fileType: stat.type === vscode.FileType.Directory ? 'directory' : 'file',
+          fileType:
+            stat.type === vscode.FileType.Directory ? 'directory' : 'file',
           duration,
           workspace: this.getWorkspaceForUri(uri) || 'unknown',
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
 
       return stat;
-
     } catch (error) {
       const duration = Date.now() - startTime;
       this.handleFileSystemError('stat', uri, undefined, error, duration);
@@ -404,12 +424,15 @@ export class FileSystemManager {
    * @param options - Read directory options
    * @returns Array of directory entries
    */
-  async readDirectory(uri: vscode.Uri, options: FileOperationOptions = {}): Promise<Array<[string, vscode.FileType]>> {
+  async readDirectory(
+    uri: vscode.Uri,
+    options: FileOperationOptions = {}
+  ): Promise<Array<[string, vscode.FileType]>> {
     const startTime = Date.now();
 
     try {
       await this.validateFileOperation(uri, 'readdir');
-      
+
       const entries = await vscode.workspace.fs.readDirectory(uri);
       const duration = Date.now() - startTime;
 
@@ -417,7 +440,12 @@ export class FileSystemManager {
       const filteredEntries = this.filterDirectoryEntries(entries, options);
 
       // Update metrics
-      this.updateOperationMetrics('readdir', true, filteredEntries.length, duration);
+      this.updateOperationMetrics(
+        'readdir',
+        true,
+        filteredEntries.length,
+        duration
+      );
 
       // Publish success event
       this.eventBus.publish('analytics:trackEvent', {
@@ -429,12 +457,11 @@ export class FileSystemManager {
           totalEntries: entries.length,
           duration,
           workspace: this.getWorkspaceForUri(uri) || 'unknown',
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
 
       return filteredEntries;
-
     } catch (error) {
       const duration = Date.now() - startTime;
       this.handleFileSystemError('readdir', uri, undefined, error, duration);
@@ -460,20 +487,20 @@ export class FileSystemManager {
       const watcher = vscode.workspace.createFileSystemWatcher(
         config.pattern,
         config.ignoreCreateEvents,
-        config.ignoreChangeEvents, 
+        config.ignoreChangeEvents,
         config.ignoreDeleteEvents
       );
 
       // Set up event handlers with event bus integration
-      watcher.onDidCreate(uri => {
+      watcher.onDidCreate((uri) => {
         this.handleWatcherEvent(config.id, 'created', uri);
       });
 
-      watcher.onDidChange(uri => {
+      watcher.onDidChange((uri) => {
         this.handleWatcherEvent(config.id, 'changed', uri);
       });
 
-      watcher.onDidDelete(uri => {
+      watcher.onDidDelete((uri) => {
         this.handleWatcherEvent(config.id, 'deleted', uri);
       });
 
@@ -492,19 +519,18 @@ export class FileSystemManager {
           ignoreCreate: config.ignoreCreateEvents || false,
           ignoreChange: config.ignoreChangeEvents || false,
           ignoreDelete: config.ignoreDeleteEvents || false,
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
 
       return watcher;
-
     } catch (error) {
       this.eventBus.publish('error', {
         code: 'FILE_WATCHER_CREATE_FAILED',
         message: `Failed to create file watcher ${config.id}: ${error}`,
         source: 'FileSystemManager',
         data: { config },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       throw error;
@@ -534,19 +560,18 @@ export class FileSystemManager {
         event: 'fileSystem:watcherDisposed',
         properties: {
           watcherId,
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
 
       return true;
-
     } catch (error) {
       this.eventBus.publish('error', {
         code: 'FILE_WATCHER_DISPOSE_FAILED',
         message: `Failed to dispose file watcher ${watcherId}: ${error}`,
         source: 'FileSystemManager',
         data: { watcherId },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       return false;
@@ -582,7 +607,7 @@ export class FileSystemManager {
    */
   dispose(): void {
     try {
-      this.activeWatchers.forEach(watcher => watcher.dispose());
+      this.activeWatchers.forEach((watcher) => watcher.dispose());
       this.activeWatchers.clear();
       this.operationMetrics.clear();
 
@@ -590,16 +615,15 @@ export class FileSystemManager {
       this.eventBus.publish('analytics:trackEvent', {
         event: 'fileSystem:managerDisposed',
         properties: {
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
-
     } catch (error) {
       this.eventBus.publish('error', {
         code: 'FILE_SYSTEM_MANAGER_DISPOSE_FAILED',
         message: `Failed to dispose FileSystemManager: ${error}`,
         source: 'FileSystemManager',
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
     }
   }
@@ -608,16 +632,25 @@ export class FileSystemManager {
    * Initialize operation metrics tracking
    */
   private initializeMetrics(): void {
-    const operations: FileOperationType[] = ['read', 'write', 'delete', 'copy', 'move', 'create', 'stat', 'readdir'];
-    
-    operations.forEach(operation => {
+    const operations: FileOperationType[] = [
+      'read',
+      'write',
+      'delete',
+      'copy',
+      'move',
+      'create',
+      'stat',
+      'readdir',
+    ];
+
+    operations.forEach((operation) => {
       this.operationMetrics.set(operation, {
         totalOperations: 0,
         successfulOperations: 0,
         failedOperations: 0,
         totalBytesProcessed: 0,
         averageResponseTime: 0,
-        lastOperation: 0
+        lastOperation: 0,
       });
     });
   }
@@ -625,7 +658,10 @@ export class FileSystemManager {
   /**
    * Validate file operation permissions and constraints
    */
-  private async validateFileOperation(uri: vscode.Uri, operation: FileOperationType): Promise<void> {
+  private async validateFileOperation(
+    uri: vscode.Uri,
+    operation: FileOperationType
+  ): Promise<void> {
     // Basic URI validation
     if (!uri || !uri.scheme) {
       throw new Error(`Invalid URI for ${operation} operation`);
@@ -649,7 +685,7 @@ export class FileSystemManager {
    * Filter directory entries based on options
    */
   private filterDirectoryEntries(
-    entries: Array<[string, vscode.FileType]>, 
+    entries: Array<[string, vscode.FileType]>,
     options: FileOperationOptions
   ): Array<[string, vscode.FileType]> {
     let filtered = entries;
@@ -662,7 +698,7 @@ export class FileSystemManager {
     // Apply exclude patterns if specified
     if (options.exclude && options.exclude.length > 0) {
       filtered = filtered.filter(([name]) => {
-        return !options.exclude!.some(pattern => {
+        return !options.exclude!.some((pattern) => {
           // Simple pattern matching - can be enhanced with glob patterns
           return name.includes(pattern);
         });
@@ -675,7 +711,11 @@ export class FileSystemManager {
   /**
    * Handle file system watcher events
    */
-  private handleWatcherEvent(watcherId: string, eventType: 'created' | 'changed' | 'deleted', uri: vscode.Uri): void {
+  private handleWatcherEvent(
+    watcherId: string,
+    eventType: 'created' | 'changed' | 'deleted',
+    uri: vscode.Uri
+  ): void {
     this.eventBus.publish('analytics:trackEvent', {
       event: 'fileSystem:watcherEvent',
       properties: {
@@ -683,8 +723,8 @@ export class FileSystemManager {
         eventType,
         uri: uri.toString(),
         workspace: this.getWorkspaceForUri(uri) || 'unknown',
-        timestamp: Date.now()
-      }
+        timestamp: Date.now(),
+      },
     });
   }
 
@@ -692,10 +732,10 @@ export class FileSystemManager {
    * Handle file system operation errors with comprehensive categorization
    */
   private handleFileSystemError(
-    operation: FileOperationType, 
-    uri: vscode.Uri, 
-    targetUri: vscode.Uri | undefined, 
-    error: unknown, 
+    operation: FileOperationType,
+    uri: vscode.Uri,
+    targetUri: vscode.Uri | undefined,
+    error: unknown,
     duration: number
   ): void {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -715,9 +755,9 @@ export class FileSystemManager {
         targetUri: targetUri?.toString(),
         errorCode,
         duration,
-        workspace: this.getWorkspaceForUri(uri) || 'unknown'
+        workspace: this.getWorkspaceForUri(uri) || 'unknown',
       },
-      timestamp: Date.now()
+      timestamp: Date.now(),
     });
   }
 
@@ -729,19 +769,34 @@ export class FileSystemManager {
     if (lowerMessage.includes('enoent') || lowerMessage.includes('not found')) {
       return 'FILE_NOT_FOUND';
     }
-    if (lowerMessage.includes('eacces') || lowerMessage.includes('permission')) {
+    if (
+      lowerMessage.includes('eacces') ||
+      lowerMessage.includes('permission')
+    ) {
       return 'PERMISSION_DENIED';
     }
-    if (lowerMessage.includes('eexist') || lowerMessage.includes('already exists')) {
+    if (
+      lowerMessage.includes('eexist') ||
+      lowerMessage.includes('already exists')
+    ) {
       return 'FILE_EXISTS';
     }
-    if (lowerMessage.includes('eisdir') || lowerMessage.includes('is a directory')) {
+    if (
+      lowerMessage.includes('eisdir') ||
+      lowerMessage.includes('is a directory')
+    ) {
       return 'IS_DIRECTORY';
     }
-    if (lowerMessage.includes('enotdir') || lowerMessage.includes('not a directory')) {
+    if (
+      lowerMessage.includes('enotdir') ||
+      lowerMessage.includes('not a directory')
+    ) {
       return 'NOT_DIRECTORY';
     }
-    if (lowerMessage.includes('emfile') || lowerMessage.includes('too many files')) {
+    if (
+      lowerMessage.includes('emfile') ||
+      lowerMessage.includes('too many files')
+    ) {
       return 'TOO_MANY_FILES';
     }
     return 'UNKNOWN_ERROR';
@@ -751,9 +806,9 @@ export class FileSystemManager {
    * Update operation metrics for monitoring and debugging
    */
   private updateOperationMetrics(
-    operation: FileOperationType, 
-    success: boolean, 
-    bytesProcessed: number, 
+    operation: FileOperationType,
+    success: boolean,
+    bytesProcessed: number,
     duration: number
   ): void {
     const metrics = this.operationMetrics.get(operation);
@@ -770,7 +825,8 @@ export class FileSystemManager {
     }
 
     // Update average response time
-    const totalDuration = (metrics.averageResponseTime * (metrics.totalOperations - 1)) + duration;
+    const totalDuration =
+      metrics.averageResponseTime * (metrics.totalOperations - 1) + duration;
     metrics.averageResponseTime = totalDuration / metrics.totalOperations;
   }
 }

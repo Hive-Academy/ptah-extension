@@ -1,4 +1,9 @@
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  input,
+  output,
+} from '@angular/core';
 import { LucideAngularModule, LucideIconData } from 'lucide-angular';
 
 /**
@@ -23,7 +28,10 @@ import { LucideAngularModule, LucideIconData } from 'lucide-angular';
       [title]="ariaLabel()"
       (click)="buttonClick.emit()"
     >
-      <lucide-angular [img]="icon()" class="vscode-action-button-icon"></lucide-angular>
+      <lucide-angular
+        [img]="icon()"
+        class="vscode-action-button-icon"
+      ></lucide-angular>
     </button>
   `,
   styles: [
@@ -41,10 +49,13 @@ import { LucideAngularModule, LucideIconData } from 'lucide-angular';
         border-radius: 12px;
         cursor: pointer;
         transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-        background: linear-gradient(135deg, #6b7280 0%, #4b5563 50%, #374151 100%);
-        box-shadow:
-          0 2px 4px rgba(0, 0, 0, 0.1),
-          0 1px 2px rgba(0, 0, 0, 0.06),
+        background: linear-gradient(
+          135deg,
+          #6b7280 0%,
+          #4b5563 50%,
+          #374151 100%
+        );
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06),
           inset 0 1px 0 rgba(255, 255, 255, 0.1);
         color: #ffffff;
         overflow: hidden;
@@ -55,17 +66,19 @@ import { LucideAngularModule, LucideIconData } from 'lucide-angular';
         position: absolute;
         inset: 0;
         border-radius: 12px;
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, transparent 50%);
+        background: linear-gradient(
+          135deg,
+          rgba(255, 255, 255, 0.2) 0%,
+          transparent 50%
+        );
         opacity: 0;
         transition: opacity 0.2s ease;
       }
 
       .vscode-action-button:hover:not(:disabled) {
         transform: translateY(-1px);
-        box-shadow:
-          0 4px 12px rgba(0, 0, 0, 0.15),
-          0 2px 4px rgba(0, 0, 0, 0.12),
-          inset 0 1px 0 rgba(255, 255, 255, 0.2);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15),
+          0 2px 4px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.2);
       }
 
       .vscode-action-button:hover:not(:disabled)::before {
@@ -74,17 +87,13 @@ import { LucideAngularModule, LucideIconData } from 'lucide-angular';
 
       .vscode-action-button:active:not(:disabled) {
         transform: translateY(0);
-        box-shadow:
-          0 1px 3px rgba(0, 0, 0, 0.12),
-          0 1px 2px rgba(0, 0, 0, 0.08),
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.08),
           inset 0 1px 0 rgba(255, 255, 255, 0.1);
       }
 
       .vscode-action-button:focus {
         outline: none;
-        box-shadow:
-          0 2px 4px rgba(0, 0, 0, 0.1),
-          0 1px 2px rgba(0, 0, 0, 0.06),
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06),
           inset 0 1px 0 rgba(255, 255, 255, 0.1),
           0 0 0 3px rgba(59, 130, 246, 0.5);
       }
@@ -93,46 +102,60 @@ import { LucideAngularModule, LucideIconData } from 'lucide-angular';
         opacity: 0.5;
         cursor: not-allowed;
         transform: none;
-        box-shadow:
-          0 1px 2px rgba(0, 0, 0, 0.05),
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05),
           inset 0 1px 0 rgba(255, 255, 255, 0.05);
       }
 
       /* Primary Button - Stunning Green Gradient */
       .vscode-action-button-primary:not(:disabled) {
-        background: linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%);
+        background: linear-gradient(
+          135deg,
+          #10b981 0%,
+          #059669 50%,
+          #047857 100%
+        );
         color: #ffffff;
-        box-shadow:
-          0 3px 8px rgba(16, 185, 129, 0.3),
+        box-shadow: 0 3px 8px rgba(16, 185, 129, 0.3),
           0 1px 3px rgba(16, 185, 129, 0.2),
           inset 0 1px 0 rgba(255, 255, 255, 0.2);
       }
 
       .vscode-action-button-primary:not(:disabled)::before {
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.3) 0%, transparent 50%);
+        background: linear-gradient(
+          135deg,
+          rgba(255, 255, 255, 0.3) 0%,
+          transparent 50%
+        );
       }
 
       .vscode-action-button-primary:hover:not(:disabled) {
-        background: linear-gradient(135deg, #34d399 0%, #10b981 50%, #059669 100%);
+        background: linear-gradient(
+          135deg,
+          #34d399 0%,
+          #10b981 50%,
+          #059669 100%
+        );
         transform: translateY(-2px);
-        box-shadow:
-          0 6px 16px rgba(16, 185, 129, 0.4),
+        box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4),
           0 3px 8px rgba(16, 185, 129, 0.25),
           inset 0 1px 0 rgba(255, 255, 255, 0.3);
       }
 
       .vscode-action-button-primary:active:not(:disabled) {
-        background: linear-gradient(135deg, #047857 0%, #065f46 50%, #064e3b 100%);
+        background: linear-gradient(
+          135deg,
+          #047857 0%,
+          #065f46 50%,
+          #064e3b 100%
+        );
         transform: translateY(0);
-        box-shadow:
-          0 2px 6px rgba(16, 185, 129, 0.2),
+        box-shadow: 0 2px 6px rgba(16, 185, 129, 0.2),
           0 1px 3px rgba(16, 185, 129, 0.15),
           inset 0 1px 0 rgba(255, 255, 255, 0.15);
       }
 
       .vscode-action-button-primary:focus {
-        box-shadow:
-          0 3px 8px rgba(16, 185, 129, 0.3),
+        box-shadow: 0 3px 8px rgba(16, 185, 129, 0.3),
           0 1px 3px rgba(16, 185, 129, 0.2),
           inset 0 1px 0 rgba(255, 255, 255, 0.2),
           0 0 0 3px rgba(16, 185, 129, 0.5);
