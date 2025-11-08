@@ -395,6 +395,37 @@ export class ChatService {
         }
       });
 
+    // Listen for history response (backend publishes chat:getHistory:response)
+    this.vscode
+      .onMessageType('chat:getHistory:response')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((response) => {
+        if (response.success && response.data) {
+          const messages = (response.data as { messages?: StrictChatMessage[] })
+            .messages;
+          if (Array.isArray(messages)) {
+            const validMessages = messages.filter(
+              (msg) => this.validator.validateStrictMessage(msg).isValid
+            );
+            this.chatState.setMessages(validMessages);
+            this.logger.info(
+              `Loaded ${validMessages.length} messages from history response`,
+              'ChatService'
+            );
+
+            // Transform to ProcessedClaudeMessage for UI display
+            const processedMessages = validMessages.map((msg) =>
+              this.messageProcessor.convertToProcessedMessage(msg)
+            );
+            this.chatState.setClaudeMessages(processedMessages);
+            this.logger.info(
+              `Transformed ${processedMessages.length} messages to ProcessedClaudeMessage for UI`,
+              'ChatService'
+            );
+          }
+        }
+      });
+
     // Handle initial data
     this.vscode
       .onMessageType('initialData')

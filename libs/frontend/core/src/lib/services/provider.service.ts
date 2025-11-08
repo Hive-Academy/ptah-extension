@@ -100,6 +100,7 @@ export class ProviderService {
   private readonly _lastError = signal<ProviderError | null>(null);
   private readonly _fallbackEnabled = signal(true);
   private readonly _autoSwitchEnabled = signal(true);
+  private _initialized = false;
 
   // ANGULAR 20 PATTERN: Readonly signals for external access
   readonly availableProviders = this._availableProviders.asReadonly();
@@ -132,12 +133,26 @@ export class ProviderService {
     return this.currentProviderStatus() === 'available';
   });
 
-  constructor() {
+  /**
+   * Initialize the provider service and set up message listeners
+   * MUST be called explicitly from App component after VS Code service is ready
+   */
+  initialize(): void {
+    if (this._initialized) {
+      console.warn('[ProviderService] Already initialized, skipping...');
+      return;
+    }
+
+    console.log('[ProviderService] Initializing...');
+    this._initialized = true;
+
     this.setupMessageListeners();
     this.setupAutoRefresh();
 
     // Request initial data
     this.refreshProviders();
+
+    console.log('[ProviderService] Initialized successfully');
   }
 
   /**

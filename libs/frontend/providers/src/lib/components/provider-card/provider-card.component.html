@@ -44,18 +44,10 @@
   <!-- Actions -->
   <div class="provider-actions">
     @if (!isCurrent()) {
-    <button
-      class="btn btn-primary"
-      (click)="onSwitch()"
-      type="button"
-    >
+    <button class="btn btn-primary" (click)="onSwitch()" type="button">
       Switch To
     </button>
-    <button
-      class="btn btn-secondary"
-      (click)="onSetDefault()"
-      type="button"
-    >
+    <button class="btn btn-secondary" (click)="onSetDefault()" type="button">
       Set Default
     </button>
     } @else {

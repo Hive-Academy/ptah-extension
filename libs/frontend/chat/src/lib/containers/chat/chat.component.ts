@@ -9,6 +9,7 @@ import {
   VSCodeService,
   ChatStateManagerService,
   LoggingService,
+  WebviewNavigationService,
 } from '@ptah-extension/core';
 
 // Shared types
@@ -174,6 +175,7 @@ export class ChatComponent implements OnInit, OnDestroy {
   private readonly vscode = inject(VSCodeService);
   protected readonly chatState = inject(ChatStateManagerService);
   private readonly logger = inject(LoggingService);
+  private readonly navigation = inject(WebviewNavigationService);
 
   // Component State
   private readonly destroy$ = new Subject<void>();
@@ -349,15 +351,16 @@ export class ChatComponent implements OnInit, OnDestroy {
 
   // UI Actions
   public showAnalytics(): void {
-    this.vscode.postStrictMessage('navigate', {
-      route: '/analytics',
-      previousRoute: '/chat',
-    });
+    console.log('=== ChatComponent.showAnalytics() called ===');
+    console.log('Navigating to analytics view...');
+    void this.navigation.navigateToView('analytics');
   }
 
   public toggleProviderSettings(): void {
-    // TODO: Access provider manager via viewChild when needed
-    this.logger.debug('Toggle provider settings', 'ChatComponent');
+    console.log('=== ChatComponent.toggleProviderSettings() called ===');
+    console.log('Navigating to settings view...');
+    void this.navigation.navigateToView('settings');
+    this.logger.debug('Navigating to provider settings', 'ChatComponent');
   }
 
   // Status calculation methods
