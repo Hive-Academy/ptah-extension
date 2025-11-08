@@ -20,11 +20,17 @@ import {
 // UPDATED: Import components from libraries
 import { ChatComponent } from '@ptah-extension/chat';
 import { AnalyticsComponent } from '@ptah-extension/analytics';
+import { SettingsViewComponent } from '@ptah-extension/providers';
 import { LoadingSpinnerComponent } from '@ptah-extension/shared-ui';
 
 @Component({
   selector: 'ptah-root',
-  imports: [LoadingSpinnerComponent, ChatComponent, AnalyticsComponent],
+  imports: [
+    LoadingSpinnerComponent,
+    ChatComponent,
+    AnalyticsComponent,
+    SettingsViewComponent,
+  ],
   templateUrl: './app.html',
   styleUrls: ['./app.css'],
 })

@@ -1,0 +1,65 @@
+<div class="provider-card" [class.current]="isCurrent()">
+  <!-- Current Badge -->
+  @if (isCurrent()) {
+  <div class="current-badge">Current</div>
+  }
+
+  <!-- Provider Header -->
+  <div class="provider-header">
+    <div class="provider-icon">
+      @switch (provider().id) { @case ('vscode-lm') {
+      <span class="icon">🤖</span>
+      } @case ('claude-cli') {
+      <span class="icon">🎭</span>
+      } @default {
+      <span class="icon">⚡</span>
+      } }
+    </div>
+    <div class="provider-info">
+      <h3 class="provider-name">{{ provider().name }}</h3>
+      <span class="provider-id">{{ provider().id }}</span>
+    </div>
+  </div>
+
+  <!-- Health Status -->
+  <div class="provider-health">
+    <span class="health-label">Status:</span>
+    <span class="health-badge" [class]="healthStatus().class">
+      {{ healthStatus().label }}
+    </span>
+  </div>
+
+  <!-- Capabilities -->
+  @if (capabilitiesList().length > 0) {
+  <div class="provider-capabilities">
+    <span class="capabilities-label">Capabilities:</span>
+    <div class="capabilities-list">
+      @for (cap of capabilitiesList(); track cap) {
+      <span class="capability-badge">{{ cap }}</span>
+      }
+    </div>
+  </div>
+  }
+
+  <!-- Actions -->
+  <div class="provider-actions">
+    @if (!isCurrent()) {
+    <button
+      class="btn btn-primary"
+      (click)="onSwitch()"
+      type="button"
+    >
+      Switch To
+    </button>
+    <button
+      class="btn btn-secondary"
+      (click)="onSetDefault()"
+      type="button"
+    >
+      Set Default
+    </button>
+    } @else {
+    <div class="current-label">✓ Active Provider</div>
+    }
+  </div>
+</div>

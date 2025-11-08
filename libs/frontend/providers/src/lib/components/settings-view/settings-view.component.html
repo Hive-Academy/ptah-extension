@@ -1,0 +1,41 @@
+<div class="settings-container">
+  <!-- Header -->
+  <header class="settings-header">
+    <h2 class="settings-title">AI Provider Settings</h2>
+    <p class="settings-description">
+      Manage your AI providers and configure default settings
+    </p>
+  </header>
+
+  <!-- Loading State -->
+  @if (isLoading()) {
+  <div class="settings-loading">
+    <div class="spinner"></div>
+    <p>Loading providers...</p>
+  </div>
+  }
+
+  <!-- Provider List -->
+  @if (!isLoading() && hasProviders()) {
+  <div class="providers-grid">
+    @for (provider of availableProviders(); track provider.id) {
+    <ptah-provider-card
+      [provider]="provider"
+      [isCurrent]="isCurrentProvider(provider.id)"
+      [health]="getProviderHealth(provider.id)()"
+      (switchToProvider)="onSwitchProvider($event)"
+      (setDefaultProvider)="onSetDefaultProvider($event)"
+    />
+    }
+  </div>
+  }
+
+  <!-- Empty State -->
+  @if (!isLoading() && !hasProviders()) {
+  <div class="settings-empty">
+    <div class="empty-icon">⚙️</div>
+    <h3>No Providers Available</h3>
+    <p>No AI providers are currently registered. Please check your configuration.</p>
+  </div>
+  }
+</div>
