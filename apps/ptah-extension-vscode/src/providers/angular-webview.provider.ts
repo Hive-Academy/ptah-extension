@@ -258,6 +258,11 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       const context = await this.contextManager.getCurrentContext();
       const workspaceInfo = this.getWorkspaceInfo();
 
+      // Get provider state (TASK_INT_003)
+      const currentProvider = this.providerManager.getCurrentProvider();
+      const availableProviders = this.providerManager.getAvailableProviders();
+      const providerHealth = this.providerManager.getAllProviderHealth();
+
       const initialData = {
         type: 'initialData',
         payload: {
@@ -265,6 +270,24 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
           data: {
             sessions: this.sessionManager.getAllSessions(),
             currentSession: currentSession,
+            // Provider state (TASK_INT_003)
+            providers: {
+              current: currentProvider
+                ? {
+                    id: currentProvider.providerId,
+                    name: currentProvider.info.name,
+                    status: currentProvider.getHealth().status,
+                    capabilities: currentProvider.info.capabilities,
+                  }
+                : null,
+              available: availableProviders.map((p) => ({
+                id: p.providerId,
+                name: p.info.name,
+                status: p.getHealth().status,
+                capabilities: p.info.capabilities,
+              })),
+              health: providerHealth,
+            },
           },
           config: {
             context,

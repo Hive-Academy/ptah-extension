@@ -18,6 +18,9 @@ import type {
 import type {
   ProviderManager,
   ContextManager,
+  VsCodeLmAdapter,
+  ClaudeCliAdapter,
+  ProviderContext,
 } from '@ptah-extension/ai-providers-core';
 import { CommandBuilderService } from '../services/command-builder.service';
 import { AnalyticsDataCollector } from '../services/analytics-data-collector';
@@ -144,7 +147,7 @@ export class PtahExtension implements vscode.Disposable {
       this.logger.info('Registering extension components...');
 
       // Register everything
-      this.registerAllComponents();
+      await this.registerAllComponents();
 
       this.logger.info('Extension components registered successfully');
     } catch (error) {
@@ -249,7 +252,7 @@ export class PtahExtension implements vscode.Disposable {
   /**
    * Register all components using library services (TASK_CORE_001)
    */
-  private registerAllComponents(): void {
+  private async registerAllComponents(): Promise<void> {
     if (!this.commandHandlers) {
       throw new Error('Command handlers not initialized');
     }
@@ -262,6 +265,9 @@ export class PtahExtension implements vscode.Disposable {
 
     // Set up event handlers using EventBus from vscode-core
     this.registerEvents();
+
+    // Register AI providers with ProviderManager (TASK_INT_003)
+    await this.registerProviders();
 
     this.logger.info('All components registered successfully');
   }
@@ -361,6 +367,129 @@ export class PtahExtension implements vscode.Disposable {
     // (Event subscriptions will be added as needed)
 
     this.logger.info('Event handlers registered');
+  }
+
+  /**
+   * Register AI providers with ProviderManager
+   * Initializes both VS Code LM and Claude CLI adapters
+   * Selects VS Code LM as default provider
+   *
+   * CRITICAL: Must happen before any provider operations
+   *
+   * **Registration Order**: VS Code LM first (higher priority), Claude CLI second
+   *
+   * **Error Handling**: Graceful degradation - extension continues without
+   * provider registration if both providers fail to initialize.
+   *
+   * **Events Published**:
+   * - `providers:availableUpdated` - When providers registered (via ProviderManager)
+   * - `providers:currentChanged` - When default provider selected (via ProviderManager)
+   *
+   * @private
+   * @async
+   * @returns {Promise<void>}
+   * @throws Never throws - errors logged and extension continues
+   */
+  private async registerProviders(): Promise<void> {
+    this.logger.info('Registering AI providers...');
+
+    if (!this.providerManager) {
+      this.logger.error(
+        'ProviderManager not initialized - cannot register providers'
+      );
+      this.logger.warn('Extension will continue without provider registration');
+      return;
+    }
+
+    try {
+      // Step 1: Resolve provider adapters from DI container
+      this.logger.info('Resolving provider adapters from DI container...');
+
+      const vsCodeLmAdapter = DIContainer.resolve<VsCodeLmAdapter>(
+        TOKENS.VSCODE_LM_ADAPTER
+      );
+      const claudeCliAdapter = DIContainer.resolve<ClaudeCliAdapter>(
+        TOKENS.CLAUDE_CLI_ADAPTER
+      );
+
+      this.logger.info('Provider adapters resolved successfully');
+
+      // Step 2: Initialize providers (verify health, setup)
+      this.logger.info('Initializing VS Code LM adapter...');
+      const vsCodeInitialized = await vsCodeLmAdapter.initialize();
+
+      if (vsCodeInitialized) {
+        this.logger.info('VS Code LM adapter initialized successfully');
+      } else {
+        this.logger.warn(
+          'VS Code LM adapter initialization failed, provider may be unavailable'
+        );
+      }
+
+      this.logger.info('Initializing Claude CLI adapter...');
+      const claudeInitialized = await claudeCliAdapter.initialize();
+
+      if (claudeInitialized) {
+        this.logger.info('Claude CLI adapter initialized successfully');
+      } else {
+        this.logger.warn(
+          'Claude CLI adapter initialization failed, provider may be unavailable'
+        );
+      }
+
+      // Step 3: Register providers in priority order (VS Code LM first, Claude CLI second)
+      if (vsCodeInitialized) {
+        this.providerManager.registerProvider(vsCodeLmAdapter);
+        this.logger.info('VS Code LM provider registered with ProviderManager');
+      }
+
+      if (claudeInitialized) {
+        this.providerManager.registerProvider(claudeCliAdapter);
+        this.logger.info('Claude CLI provider registered with ProviderManager');
+      }
+
+      // Verify at least one provider registered
+      const availableCount =
+        this.providerManager.getAvailableProviders().length;
+      if (availableCount === 0) {
+        throw new Error('No providers successfully registered');
+      }
+
+      this.logger.info(`${availableCount} provider(s) registered successfully`);
+
+      // Step 4: Select default provider (VS Code LM preferred)
+      const context: ProviderContext = {
+        taskType: 'coding',
+        complexity: 'medium',
+        fileTypes: [],
+        contextSize: 0,
+      };
+
+      const selectionResult = await this.providerManager.selectBestProvider(
+        context
+      );
+      this.logger.info(
+        `Default provider selected: ${selectionResult.providerId}`,
+        {
+          reason: selectionResult.reasoning,
+        }
+      );
+
+      // Note: ProviderManager already publishes 'providers:availableUpdated' and 'providers:currentChanged' events
+      // via EventBus during registerProvider() and selectBestProvider() operations
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error('Provider registration failed', {
+        error: errorMessage,
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+
+      // Don't throw - allow extension to activate with degraded functionality
+      this.logger.warn(
+        'Extension will continue without provider registration - user can configure manually'
+      );
+    }
   }
 
   /**
