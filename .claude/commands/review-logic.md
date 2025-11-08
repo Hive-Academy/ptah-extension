@@ -11,6 +11,7 @@
 **Before reviewing business logic, understand the project context:**
 
 1. **Project Domain Analysis**:
+
    - Analyze README, documentation, and project structure
    - Identify core business entities and workflows
    - Understand the intended user experience and value proposition
@@ -299,6 +300,7 @@ For each file containing business logic:
 **Instead of assuming specific business contexts, dynamically identify:**
 
 1. **Domain Indicators**:
+
    - Database schema and entity relationships
    - API endpoint patterns and naming conventions
    - Configuration files and environment variables
@@ -306,6 +308,7 @@ For each file containing business logic:
    - User interface patterns and workflows
 
 2. **Business Logic Patterns**:
+
    - Payment processing implementations
    - User authentication and authorization flows
    - Content management and publishing workflows

@@ -10,9 +10,7 @@
     ],
     "deny": [],
     "ask": [],
-    "additionalDirectories": [
-      "D:\\projects\\ptah-extension"
-    ]
+    "additionalDirectories": ["D:\\projects\\ptah-extension"]
   },
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [

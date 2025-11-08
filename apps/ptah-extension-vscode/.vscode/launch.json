@@ -5,7 +5,9 @@
       "name": "Launch Ptah Extension",
       "type": "extensionHost",
       "request": "launch",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}/../../dist/apps/ptah-extension-vscode"],
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/../../dist/apps/ptah-extension-vscode"
+      ],
       "outFiles": [
         "${workspaceFolder}/../../dist/apps/ptah-extension-vscode/**/*.js",
         "${workspaceFolder}/../../dist/apps/ptah-extension-vscode/**/*.js.map"
@@ -21,7 +23,9 @@
       "name": "Launch Extension (Development)",
       "type": "extensionHost",
       "request": "launch",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}/../../dist/apps/ptah-extension-vscode"],
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/../../dist/apps/ptah-extension-vscode"
+      ],
       "outFiles": [
         "${workspaceFolder}/../../dist/apps/ptah-extension-vscode/**/*.js",
         "${workspaceFolder}/../../dist/apps/ptah-extension-vscode/**/*.js.map"

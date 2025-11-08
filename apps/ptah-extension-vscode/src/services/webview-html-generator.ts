@@ -133,8 +133,12 @@ export class WebviewHtmlGenerator {
         }
 
         // Transform relative URIs to webview URIs
-        const fullUri = webview.asWebviewUri(vscode.Uri.joinPath(appDistPathUri, uri));
-        console.log(`[WebviewHtmlGenerator] Transforming ${attribute}="${uri}" -> "${fullUri}"`);
+        const fullUri = webview.asWebviewUri(
+          vscode.Uri.joinPath(appDistPathUri, uri)
+        );
+        console.log(
+          `[WebviewHtmlGenerator] Transforming ${attribute}="${uri}" -> "${fullUri}"`
+        );
         return `${attribute}="${fullUri}"`;
       }
     );
@@ -151,14 +155,19 @@ export class WebviewHtmlGenerator {
         return match;
       })
       .replace(/<link([^>]*?)>/g, (match, attributes) => {
-        if (!attributes.includes('nonce=') && attributes.includes('stylesheet')) {
+        if (
+          !attributes.includes('nonce=') &&
+          attributes.includes('stylesheet')
+        ) {
           return `<link${attributes} nonce="${nonce}">`;
         }
         return match;
       });
 
     console.log('[WebviewHtmlGenerator] Base URI set to:', String(baseUri));
-    console.log('[WebviewHtmlGenerator] All assets transformed to webview URIs');
+    console.log(
+      '[WebviewHtmlGenerator] All assets transformed to webview URIs'
+    );
 
     return indexHtml;
   }
@@ -183,7 +192,7 @@ export class WebviewHtmlGenerator {
           uri.startsWith('http') ||
           uri.startsWith('data:') ||
           uri.startsWith('vscode-webview:') ||
-          uri.startsWith('vscode-resource:') ||  // Skip webview resource URIs
+          uri.startsWith('vscode-resource:') || // Skip webview resource URIs
           uri.startsWith('//') ||
           uri === '' ||
           uri === '#'
@@ -193,7 +202,9 @@ export class WebviewHtmlGenerator {
 
         // Transform relative URIs to webview URIs
         const fullUri = webview.asWebviewUri(vscode.Uri.joinPath(baseUri, uri));
-        console.log(`[WebviewHtmlGenerator] Transforming ${attribute}="${uri}" -> "${fullUri}"`);
+        console.log(
+          `[WebviewHtmlGenerator] Transforming ${attribute}="${uri}" -> "${fullUri}"`
+        );
         return `${attribute}="${fullUri}"`;
       }
     );

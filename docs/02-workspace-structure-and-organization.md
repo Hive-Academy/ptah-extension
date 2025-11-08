@@ -12,7 +12,7 @@ my-workspace/
 │   ├── frontend/         # Angular application
 │   │   ├── src/
 │   │   ├── e2e/
-│   │   └── ... 
+│   │   └── ...
 │   ├── api/              # NestJS application
 │   │   ├── src/
 │   │   └── ...
@@ -57,6 +57,7 @@ libs/
 ```
 
 This approach:
+
 - Keeps related code together (frontend and backend)
 - Makes it easier to understand business domains
 - Simplifies adding or modifying features

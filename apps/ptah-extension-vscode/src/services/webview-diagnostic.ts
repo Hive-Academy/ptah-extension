@@ -7,7 +7,9 @@ export class WebviewDiagnostic {
   /**
    * Create a simple diagnostic webview to test if webviews work at all
    */
-  static createDiagnosticWebview(context: vscode.ExtensionContext): vscode.WebviewPanel {
+  static createDiagnosticWebview(
+    context: vscode.ExtensionContext
+  ): vscode.WebviewPanel {
     const panel = vscode.window.createWebviewPanel(
       'ptahDiagnostic',
       'Ptah Diagnostic',
@@ -24,10 +26,14 @@ export class WebviewDiagnostic {
     panel.webview.onDidReceiveMessage((message) => {
       switch (message.type) {
         case 'diagnostic-ready':
-          vscode.window.showInformationMessage('Diagnostic webview is working!');
+          vscode.window.showInformationMessage(
+            'Diagnostic webview is working!'
+          );
           break;
         case 'test-complete':
-          vscode.window.showInformationMessage(`Diagnostic test complete: ${message.status}`);
+          vscode.window.showInformationMessage(
+            `Diagnostic test complete: ${message.status}`
+          );
           break;
       }
     });
@@ -131,7 +137,14 @@ export class WebviewDiagnostic {
 
             // Test 2: Resource access
             try {
-              const baseUri = '${webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'out', 'webview', 'browser'))}';
+              const baseUri = '${webview.asWebviewUri(
+                vscode.Uri.joinPath(
+                  context.extensionUri,
+                  'out',
+                  'webview',
+                  'browser'
+                )
+              )}';
               updateTest('resource-test', 'pass', 'Base URI: ' + baseUri);
             } catch (error) {
               updateTest('resource-test', 'fail', 'Error: ' + error.message);
@@ -145,7 +158,14 @@ export class WebviewDiagnostic {
           }
 
           function testAngularFiles() {
-            const baseUri = '${webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'out', 'webview', 'browser'))}';
+            const baseUri = '${webview.asWebviewUri(
+              vscode.Uri.joinPath(
+                context.extensionUri,
+                'out',
+                'webview',
+                'browser'
+              )
+            )}';
             
             // Test if main.js exists
             fetch(baseUri + '/main.js')
@@ -175,7 +195,14 @@ export class WebviewDiagnostic {
           function testAngularLoad() {
             log('Testing Angular app load...');
             
-            const baseUri = '${webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'out', 'webview', 'browser'))}';
+            const baseUri = '${webview.asWebviewUri(
+              vscode.Uri.joinPath(
+                context.extensionUri,
+                'out',
+                'webview',
+                'browser'
+              )
+            )}';
             
             // Create iframe to test Angular app
             const iframe = document.createElement('iframe');
@@ -207,7 +234,8 @@ export class WebviewDiagnostic {
 
   private static generateNonce(): string {
     let text = '';
-    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const possible =
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     for (let i = 0; i < 32; i++) {
       text += possible.charAt(Math.floor(Math.random() * possible.length));
     }
