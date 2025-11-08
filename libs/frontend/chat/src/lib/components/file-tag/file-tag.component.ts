@@ -1,11 +1,4 @@
-import {
-  Component,
-  ChangeDetectionStrategy,
-  computed,
-  signal,
-  input,
-  output,
-} from '@angular/core';
+import { Component, computed, signal, input, output } from '@angular/core';
 import { CommonModule, NgOptimizedImage } from '@angular/common';
 
 /**
@@ -35,7 +28,7 @@ export interface ChatFile {
   selector: 'ptah-file-tag',
   standalone: true,
   imports: [CommonModule, NgOptimizedImage],
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   template: `
     <div
       class="vscode-file-tag"

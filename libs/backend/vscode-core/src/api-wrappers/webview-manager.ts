@@ -66,6 +66,7 @@ export interface WebviewDisposedPayload {
 @injectable()
 export class WebviewManager {
   private readonly activeWebviews = new Map<string, vscode.WebviewPanel>();
+  private readonly activeWebviewViews = new Map<string, vscode.WebviewView>();
   private readonly webviewMetrics = new Map<
     string,
     {
@@ -170,6 +171,62 @@ export class WebviewManager {
   }
 
   /**
+   * Register an existing WebviewView (for sidebar views created by VS Code)
+   *
+   * @param viewType - Unique identifier for the webview view
+   * @param view - The webview view to register
+   */
+  registerWebviewView(viewType: string, view: vscode.WebviewView): void {
+    console.log(`[WebviewManager] Registering WebviewView: ${viewType}`);
+
+    // Track the webview view
+    this.activeWebviewViews.set(viewType, view);
+    this.webviewMetrics.set(viewType, {
+      createdAt: Date.now(),
+      messageCount: 0,
+      lastActivity: Date.now(),
+      isVisible: view.visible,
+    });
+
+    // Set up visibility change tracking
+    view.onDidChangeVisibility(() => {
+      this.updateWebviewVisibility(viewType, view.visible);
+    });
+
+    // Set up disposal handling
+    view.onDidDispose(() => {
+      console.log(`[WebviewManager] WebviewView disposed: ${viewType}`);
+      this.activeWebviewViews.delete(viewType);
+      this.webviewMetrics.delete(viewType);
+
+      this.eventBus.publish('analytics:trackEvent', {
+        event: 'webview:disposed',
+        properties: {
+          webviewId: viewType,
+          viewType,
+          timestamp: Date.now(),
+        },
+      });
+    });
+
+    // Publish webview created event
+    this.eventBus.publish('analytics:trackEvent', {
+      event: 'webview:created',
+      properties: {
+        webviewId: viewType,
+        viewType: viewType,
+        title: 'Ptah Sidebar',
+        timestamp: Date.now(),
+      },
+    });
+
+    console.log(
+      `[WebviewManager] WebviewView registered successfully: ${viewType}`
+    );
+    console.log(`[WebviewManager] Active webviews:`, this.getActiveWebviews());
+  }
+
+  /**
    * Send a message to a specific webview
    * Provides type-safe message sending with error handling
    *
@@ -182,9 +239,21 @@ export class WebviewManager {
     type: T,
     payload: any
   ): Promise<boolean> {
+    // Check both panels and views
     const panel = this.activeWebviews.get(viewType);
+    const view = this.activeWebviewViews.get(viewType);
+    const webview = panel?.webview || view?.webview;
 
-    if (!panel) {
+    if (!webview) {
+      console.error(`[WebviewManager] CRITICAL: Webview ${viewType} not found`);
+      console.error(
+        `[WebviewManager] Active panels:`,
+        Array.from(this.activeWebviews.keys())
+      );
+      console.error(
+        `[WebviewManager] Active views:`,
+        Array.from(this.activeWebviewViews.keys())
+      );
       this.eventBus.publish('error', {
         code: 'WEBVIEW_NOT_FOUND',
         message: `Webview ${viewType} not found`,
@@ -195,9 +264,16 @@ export class WebviewManager {
     }
 
     try {
-      await panel.webview.postMessage({ type, payload });
+      console.log(`[WebviewManager] Calling webview.postMessage():`, {
+        viewType,
+        type,
+        payloadKeys: Object.keys(payload || {}),
+      });
+      const result = await webview.postMessage({ type, payload });
+      console.log(`[WebviewManager] postMessage() returned:`, result);
       return true;
     } catch (error) {
+      console.error(`[WebviewManager] postMessage() threw error:`, error);
       this.eventBus.publish('error', {
         code: 'WEBVIEW_MESSAGE_SEND_FAILED',
         message: `Failed to send message to webview ${viewType}: ${error}`,
@@ -244,12 +320,14 @@ export class WebviewManager {
   }
 
   /**
-   * Get list of active webview types
+   * Get list of active webview types (both panels and views)
    *
    * @returns Array of active webview view types
    */
   getActiveWebviews(): readonly string[] {
-    return Array.from(this.activeWebviews.keys());
+    const panelKeys = Array.from(this.activeWebviews.keys());
+    const viewKeys = Array.from(this.activeWebviewViews.keys());
+    return [...panelKeys, ...viewKeys];
   }
 
   /**

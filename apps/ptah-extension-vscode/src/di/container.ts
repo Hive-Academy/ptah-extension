@@ -22,6 +22,7 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 // Import vscode-core services
 import {
   EventBus,
+  WebviewMessageBridge,
   Logger,
   ErrorHandler,
   ConfigManager,
@@ -120,6 +121,12 @@ export class DIContainer {
     container.registerSingleton(TOKENS.OUTPUT_MANAGER, OutputManager);
     container.registerSingleton(TOKENS.STATUS_BAR_MANAGER, StatusBarManager);
     container.registerSingleton(TOKENS.FILE_SYSTEM_MANAGER, FileSystemManager);
+
+    // WebviewMessageBridge (depends on EventBus + WebviewManager)
+    container.registerSingleton(
+      TOKENS.WEBVIEW_MESSAGE_BRIDGE,
+      WebviewMessageBridge
+    );
 
     // Extension Context (value registration)
     container.register(TOKENS.EXTENSION_CONTEXT, { useValue: context });
@@ -259,7 +266,7 @@ export class DIContainer {
     );
     container.registerSingleton(TOKENS.PERMISSION_SERVICE, PermissionService);
     container.registerSingleton(TOKENS.CLAUDE_CLI_SERVICE, ClaudeCliService);
-    container.registerSingleton(TOKENS.COMMAND_SERVICE, CommandService);
+    // container.registerSingleton(TOKENS.COMMAND_SERVICE, CommandService);
 
     // Orchestration services
     container.registerSingleton(

@@ -30,8 +30,11 @@
     "anthropic",
     "cli-gui"
   ],
+  "extensionDependencies": [
+    "anthropic.claude-code"
+  ],
   "activationEvents": [
-    "onStartupFinished"
+    "onView:ptah.main"
   ],
   "main": "./main.js",
   "icon": "assets/images/ptah-icon.png",

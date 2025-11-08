@@ -1,9 +1,4 @@
-import {
-  Component,
-  input,
-  ChangeDetectionStrategy,
-  computed,
-} from '@angular/core';
+import { Component, input, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
   LucideAngularModule,
@@ -28,7 +23,7 @@ import { type DashboardMetrics } from '@ptah-extension/shared';
 @Component({
   selector: 'ptah-dashboard-metrics-grid',
   standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   imports: [CommonModule, LucideAngularModule],
 
   template: `

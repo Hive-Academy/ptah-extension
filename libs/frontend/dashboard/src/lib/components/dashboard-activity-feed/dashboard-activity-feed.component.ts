@@ -19,7 +19,7 @@ import { type ActivityItem } from '@ptah-extension/shared';
 @Component({
   selector: 'ptah-dashboard-activity-feed',
   standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   imports: [CommonModule, LucideAngularModule],
 
   template: `

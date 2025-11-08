@@ -18,7 +18,6 @@ import {
   viewChild,
   ElementRef,
   AfterViewInit,
-  ChangeDetectionStrategy,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { SessionId, MessageId } from '@ptah-extension/shared';
@@ -37,7 +36,7 @@ interface MessageGroup {
 @Component({
   selector: 'ptah-chat-messages-list',
   standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   imports: [CommonModule, ChatMessageContentComponent],
   template: `
     <div

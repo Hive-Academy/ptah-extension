@@ -31,7 +31,6 @@ import {
   signal,
   viewChild,
   ElementRef,
-  ChangeDetectionStrategy,
   HostListener,
   inject,
 } from '@angular/core';
@@ -59,7 +58,7 @@ import { FileTagComponent } from '../file-tag/file-tag.component';
 @Component({
   selector: 'ptah-chat-input-area',
   standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   imports: [
     CommonModule,
     FormsModule,

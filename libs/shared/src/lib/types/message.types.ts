@@ -100,7 +100,45 @@ export type StrictMessageType =
   | 'refresh' // Refresh signal for hot-reload
   // Legacy message types for compatibility
   | 'switchView'
-  | 'workspaceChanged';
+  | 'workspaceChanged'
+  // Response event types
+  | 'chat:sendMessage:response'
+  | 'chat:newSession:response'
+  | 'chat:switchSession:response'
+  | 'chat:getHistory:response'
+  | 'chat:renameSession:response'
+  | 'chat:deleteSession:response'
+  | 'chat:bulkDeleteSessions:response'
+  | 'chat:getSessionStats:response'
+  | 'chat:requestSessions:response'
+  | 'chat:stopStream:response'
+  | 'providers:getAvailable:response'
+  | 'providers:getCurrent:response'
+  | 'providers:switch:response'
+  | 'providers:getHealth:response'
+  | 'providers:getAllHealth:response'
+  | 'providers:setDefault:response'
+  | 'providers:enableFallback:response'
+  | 'providers:setAutoSwitch:response'
+  | 'context:getFiles:response'
+  | 'context:includeFile:response'
+  | 'context:excludeFile:response'
+  | 'context:searchFiles:response'
+  | 'context:getAllFiles:response'
+  | 'context:getFileSuggestions:response'
+  | 'context:searchImages:response'
+  | 'commands:getTemplates:response'
+  | 'commands:executeCommand:response'
+  | 'commands:selectFile:response'
+  | 'commands:saveTemplate:response'
+  | 'analytics:getData:response'
+  | 'config:get:response'
+  | 'config:set:response'
+  | 'config:update:response'
+  | 'config:refresh:response'
+  | 'state:save:response'
+  | 'state:load:response'
+  | 'state:clear:response';
 
 // System message types are now included in StrictMessageType above
 
@@ -440,12 +478,22 @@ export interface ThemeChangedPayload {
 
 /**
  * Initial data payload for webview initialization
+ * Sent by AngularWebviewProvider on webview load (line 101-144)
  */
 export interface InitialDataPayload {
-  readonly config?: unknown;
-  readonly state?: unknown;
-  readonly workspace?: unknown;
-  readonly theme?: 'light' | 'dark';
+  readonly success: boolean;
+  readonly data: {
+    readonly sessions: readonly StrictChatSession[];
+    readonly currentSession: StrictChatSession | null;
+  };
+  readonly config: {
+    readonly context: unknown;
+    readonly workspaceInfo: unknown;
+    readonly theme: number; // vscode.ColorThemeKind enum
+    readonly isVSCode: boolean;
+    readonly extensionVersion: string;
+  };
+  readonly timestamp: number;
 }
 
 /**
@@ -524,6 +572,46 @@ export interface MessagePayloadMap {
   refresh: ViewChangedPayload; // Refresh payload for hot-reload
   switchView: ViewChangedPayload;
   workspaceChanged: InitialDataPayload;
+
+  // Response event types (MessageHandlerService appends :response suffix)
+  // These allow EventBus to emit response events that WebviewMessageBridge forwards to webview
+  'chat:sendMessage:response': MessageResponse;
+  'chat:newSession:response': MessageResponse;
+  'chat:switchSession:response': MessageResponse;
+  'chat:getHistory:response': MessageResponse;
+  'chat:renameSession:response': MessageResponse;
+  'chat:deleteSession:response': MessageResponse;
+  'chat:bulkDeleteSessions:response': MessageResponse;
+  'chat:getSessionStats:response': MessageResponse;
+  'chat:requestSessions:response': MessageResponse;
+  'chat:stopStream:response': MessageResponse;
+  'providers:getAvailable:response': MessageResponse;
+  'providers:getCurrent:response': MessageResponse;
+  'providers:switch:response': MessageResponse;
+  'providers:getHealth:response': MessageResponse;
+  'providers:getAllHealth:response': MessageResponse;
+  'providers:setDefault:response': MessageResponse;
+  'providers:enableFallback:response': MessageResponse;
+  'providers:setAutoSwitch:response': MessageResponse;
+  'context:getFiles:response': MessageResponse;
+  'context:includeFile:response': MessageResponse;
+  'context:excludeFile:response': MessageResponse;
+  'context:searchFiles:response': MessageResponse;
+  'context:getAllFiles:response': MessageResponse;
+  'context:getFileSuggestions:response': MessageResponse;
+  'context:searchImages:response': MessageResponse;
+  'commands:getTemplates:response': MessageResponse;
+  'commands:executeCommand:response': MessageResponse;
+  'commands:selectFile:response': MessageResponse;
+  'commands:saveTemplate:response': MessageResponse;
+  'analytics:getData:response': MessageResponse;
+  'config:get:response': MessageResponse;
+  'config:set:response': MessageResponse;
+  'config:update:response': MessageResponse;
+  'config:refresh:response': MessageResponse;
+  'state:save:response': MessageResponse;
+  'state:load:response': MessageResponse;
+  'state:clear:response': MessageResponse;
 }
 
 /**

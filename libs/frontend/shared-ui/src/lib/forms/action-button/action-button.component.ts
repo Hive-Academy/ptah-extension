@@ -1,9 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  input,
-  output,
-} from '@angular/core';
+import { Component, input, output } from '@angular/core';
 import { LucideAngularModule, LucideIconData } from 'lucide-angular';
 
 /**
@@ -17,7 +12,7 @@ import { LucideAngularModule, LucideIconData } from 'lucide-angular';
   selector: 'ptah-action-button',
   standalone: true,
   imports: [LucideAngularModule],
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   template: `
     <button
       class="vscode-action-button"
@@ -26,7 +21,7 @@ import { LucideAngularModule, LucideIconData } from 'lucide-angular';
       [disabled]="disabled()"
       [attr.aria-label]="ariaLabel()"
       [title]="ariaLabel()"
-      (click)="buttonClick.emit()"
+      (click)="onButtonClick()"
     >
       <lucide-angular
         [img]="icon()"
@@ -218,4 +213,13 @@ export class ActionButtonComponent {
 
   // Signal-based output (Angular 20+)
   buttonClick = output<void>();
+
+  onButtonClick(): void {
+    console.log('=== ActionButtonComponent clicked ===');
+    console.log('Disabled:', this.disabled());
+    console.log('Aria label:', this.ariaLabel());
+    console.log('Emitting buttonClick event...');
+    this.buttonClick.emit();
+    console.log('buttonClick emitted!');
+  }
 }

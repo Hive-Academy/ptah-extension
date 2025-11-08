@@ -33,7 +33,6 @@ import {
   viewChild,
   ElementRef,
   AfterViewInit,
-  ChangeDetectionStrategy,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ChatMessageContentComponent } from '../chat-message-content/chat-message-content.component';
@@ -68,7 +67,6 @@ interface TypingIndicator {
   imports: [CommonModule, ChatMessageContentComponent],
   templateUrl: './chat-messages-list.component.html',
   styleUrl: './chat-messages-list.component.scss',
-  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ChatMessagesListComponent implements AfterViewInit {
   // === ANGULAR 20 PATTERN: Modern input/output signals ===

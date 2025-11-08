@@ -1,9 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  input,
-  output,
-} from '@angular/core';
+import { Component, input, output } from '@angular/core';
 import { LucideAngularModule, LucideIconData } from 'lucide-angular';
 
 /**
@@ -17,7 +12,7 @@ import { LucideAngularModule, LucideIconData } from 'lucide-angular';
   selector: 'ptah-input-icon',
   standalone: true,
   imports: [LucideAngularModule],
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   template: `
     <div
       class="vscode-input-icon"

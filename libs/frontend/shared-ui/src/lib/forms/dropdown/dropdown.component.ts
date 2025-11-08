@@ -1,7 +1,6 @@
 import {
   Component,
   forwardRef,
-  ChangeDetectionStrategy,
   viewChild,
   ElementRef,
   inject,
@@ -38,7 +37,7 @@ import { DropdownOption } from '@ptah-extension/shared';
     DropdownSearchComponent,
     DropdownOptionsListComponent,
   ],
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   template: `
     <div
       class="vscode-dropdown-container"

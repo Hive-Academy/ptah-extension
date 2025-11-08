@@ -1,6 +1,11 @@
 import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
-import { TOKENS, type Logger, EventBus } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  type Logger,
+  EventBus,
+  WebviewManager,
+} from '@ptah-extension/vscode-core';
 // Import from libraries instead of local services
 import { SessionManager } from '@ptah-extension/claude-domain';
 import {
@@ -35,6 +40,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   private _panel?: vscode.WebviewPanel;
   private htmlGenerator: WebviewHtmlGenerator;
   private fileWatcher?: vscode.FileSystemWatcher;
+  private _initialDataSent = false;
 
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT)
@@ -47,6 +53,8 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     @inject(TOKENS.EVENT_BUS) private readonly eventBus: EventBus,
     @inject(TOKENS.PROVIDER_MANAGER)
     private readonly providerManager: ProviderManager,
+    @inject(TOKENS.WEBVIEW_MANAGER)
+    private readonly webviewManager: WebviewManager,
     // TODO: Convert these to DI once they are available
     private commandBuilderService: CommandBuilderService,
     private analyticsDataCollector: AnalyticsDataCollector
@@ -54,7 +62,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     this.htmlGenerator = new WebviewHtmlGenerator(context);
     this.initializeDevelopmentWatcher();
     this.logger.info(
-      'AngularWebviewProvider initialized with EventBus architecture'
+      'AngularWebviewProvider initialized with EventBus architecture and WebviewManager'
     );
   }
 
@@ -64,6 +72,10 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     _token: vscode.CancellationToken
   ): void | Thenable<void> {
     this._view = webviewView;
+
+    // CRITICAL: Register webview with WebviewManager for message routing
+    this.webviewManager.registerWebviewView('ptah.main', webviewView);
+    this.logger.info('Webview registered with WebviewManager as "ptah.main"');
 
     // Configure webview for Angular app
     // NOTE: context.extensionUri already points to dist/apps/ptah-extension-vscode
@@ -228,11 +240,17 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Send initial data to Angular application
+   * Send initial data to Angular application (with guard to prevent redundant calls)
    */
   private async sendInitialData(webview?: vscode.Webview): Promise<void> {
     const target = webview || this._view?.webview || this._panel?.webview;
     if (!target) return;
+
+    // Guard: Prevent redundant initializations
+    if (this._initialDataSent) {
+      this.logger.info('Initial data already sent, skipping redundant call');
+      return;
+    }
 
     try {
       // Get current state
@@ -260,8 +278,11 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       };
 
       target.postMessage(initialData);
+      this._initialDataSent = true;
       this.logger.info('Initial data sent to webview');
     } catch (error) {
+      // Reset flag on error to allow retry
+      this._initialDataSent = false;
       this.logger.error('Error sending initial data:', error);
     }
   }
@@ -417,6 +438,10 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       this.logger.warn('No webview available to reload.');
       return;
     }
+
+    // Reset initialization guard on reload
+    this._initialDataSent = false;
+
     const newHtml = this.htmlGenerator.generateAngularWebviewContent(
       webview,
       workspaceInfo

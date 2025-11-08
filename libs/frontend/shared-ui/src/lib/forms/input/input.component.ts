@@ -1,7 +1,6 @@
 import { CommonModule } from '@angular/common';
 import {
   AfterViewInit,
-  ChangeDetectionStrategy,
   Component,
   DestroyRef,
   ElementRef,
@@ -37,7 +36,7 @@ import { ValidationMessageComponent } from '../validation-message/validation-mes
     ActionButtonComponent,
     ValidationMessageComponent,
   ],
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   template: `
     <div
       class="vscode-input-container"

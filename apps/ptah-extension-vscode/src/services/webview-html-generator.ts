@@ -411,10 +411,20 @@ export class WebviewHtmlGenerator {
 
   private getStartupScript(): string {
     return `
+      // DIAGNOSTIC: Log to confirm script execution
+      console.log('===================================================');
+      console.log('PTAH STARTUP SCRIPT EXECUTING');
+      console.log('window.vscode exists:', !!window.vscode);
+      console.log('window.ptahConfig exists:', !!window.ptahConfig);
+      console.log('===================================================');
+
       // Notify extension that webview is ready
       setTimeout(() => {
         if (window.vscode) {
+          console.log('Sending webview-ready message to extension...');
           window.vscode.postMessage({ type: 'webview-ready' });
+        } else {
+          console.error('CRITICAL: window.vscode is not available!');
         }
       }, 100);
     `;

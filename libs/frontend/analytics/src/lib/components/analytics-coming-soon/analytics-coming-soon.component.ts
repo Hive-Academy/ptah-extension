@@ -18,7 +18,7 @@ import { LucideAngularModule, BarChart3Icon } from 'lucide-angular';
   selector: 'ptah-analytics-coming-soon',
   standalone: true,
   imports: [LucideAngularModule],
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   template: `
     <section
       class="vscode-coming-soon"

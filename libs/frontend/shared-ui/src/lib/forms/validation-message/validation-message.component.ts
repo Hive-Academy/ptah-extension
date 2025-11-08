@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { Component, input } from '@angular/core';
 
 /**
  * Validation Message Component - Angular 20+ Modernized
@@ -10,7 +10,7 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 @Component({
   selector: 'ptah-validation-message',
   standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   template: `
     @if (message()) {
     <div

@@ -36,6 +36,7 @@ export {
 
 // Messaging
 export { EventBus } from './messaging/event-bus';
+export * from './messaging/webview-message-bridge';
 export type {
   TypedEvent,
   RequestEvent,

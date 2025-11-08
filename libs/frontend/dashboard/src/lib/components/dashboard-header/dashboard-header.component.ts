@@ -1,9 +1,4 @@
-import {
-  Component,
-  input,
-  output,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { Component, input, output } from '@angular/core';
 import {
   LucideAngularModule,
   BarChart3Icon,
@@ -23,7 +18,7 @@ import {
 @Component({
   selector: 'ptah-dashboard-header',
   standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   imports: [LucideAngularModule],
 
   template: `

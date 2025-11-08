@@ -139,26 +139,34 @@ export class MessageHandlerService {
 
   /**
    * Handle initial data message
+   * Payload structure: { success, data: { sessions, currentSession }, config, timestamp }
+   * See InitialDataPayload in message.types.ts and AngularWebviewProvider.sendInitialData()
    */
   private handleInitialData(payload: InitialDataPayload): void {
-    if (payload) {
-      // Extract workspace info if available
-      const workspace = payload.workspace as
-        | { name?: string; path?: string; type?: string }
-        | undefined;
-      if (workspace) {
+    if (payload && payload.success) {
+      // Extract workspace info from config
+      const workspaceInfo = payload.config.workspaceInfo as
+        | { name?: string; path?: string; projectType?: string }
+        | unknown;
+      if (
+        workspaceInfo &&
+        typeof workspaceInfo === 'object' &&
+        workspaceInfo !== null
+      ) {
+        const info = workspaceInfo as {
+          name?: string;
+          path?: string;
+          projectType?: string;
+        };
         this.appState.setWorkspaceInfo({
-          name: workspace.name || '',
-          path: workspace.path || '',
-          type: workspace.type || 'unknown',
+          name: info.name || '',
+          path: info.path || '',
+          type: info.projectType || 'unknown',
         });
       }
 
-      // Extract state if available
-      const state = payload.state as { currentView?: string } | undefined;
-      if (state?.currentView && this.isValidViewType(state.currentView)) {
-        this.appState.setCurrentView(state.currentView);
-      }
+      // Chat/Analytics services handle the session data from payload.data.sessions
+      // No need to extract currentView here - AppComponent handles view initialization
 
       this.appState.setConnected(true);
     }

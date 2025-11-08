@@ -1,9 +1,4 @@
-import {
-  Component,
-  ChangeDetectionStrategy,
-  input,
-  output,
-} from '@angular/core';
+import { Component, input, output } from '@angular/core';
 import { ChatMessagesListComponent } from '../chat-messages-list/chat-messages-list.component';
 import { ChatEmptyStateComponent } from '../chat-empty-state/chat-empty-state.component';
 import type { SessionId } from '@ptah-extension/shared';
@@ -42,7 +37,7 @@ import type { ProcessedClaudeMessage } from '@ptah-extension/core';
 @Component({
   selector: 'ptah-chat-messages-container',
   standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   imports: [ChatMessagesListComponent, ChatEmptyStateComponent],
   template: `
     @if (hasMessages()) {

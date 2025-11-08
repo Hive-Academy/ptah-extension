@@ -1,4 +1,10 @@
-import { Injectable, computed, signal } from '@angular/core';
+import {
+  Injectable,
+  computed,
+  signal,
+  inject,
+  ApplicationRef,
+} from '@angular/core';
 import { Subject, Observable } from 'rxjs';
 import { filter, map } from 'rxjs/operators';
 import {
@@ -80,6 +86,9 @@ function getPtahWindow(): PtahWindow {
   providedIn: 'root',
 })
 export class VSCodeService {
+  // NOTE: No longer need ApplicationRef - using Zone.js-based change detection
+  // Zone.js automatically triggers change detection for window.addEventListener
+
   // VS Code API instance (null in development mode)
   private vscode: VsCodeApi | null = null;
 
@@ -99,18 +108,28 @@ export class VSCodeService {
 
   private readonly _isConnected = signal(false);
 
+  // Signal to track last message timestamp (triggers change detection)
+  private readonly _lastMessageTime = signal(0);
+
   // Public readonly signals
   readonly config = this._config.asReadonly();
   readonly isConnected = this._isConnected.asReadonly();
+  readonly lastMessageTime = this._lastMessageTime.asReadonly();
 
   // Computed signals for derived state
   readonly isDevelopmentMode = computed(() => !this.isConnected());
   readonly currentTheme = computed(() => this.config().theme);
 
   constructor() {
+    console.log('=== VSCodeService Constructor Called ===');
     this.initializeFromGlobals();
     this.setupMessageListener();
     this.setupThemeListener();
+    console.log('=== VSCodeService Initialization Complete ===', {
+      isConnected: this._isConnected(),
+      hasVscode: !!this.vscode,
+      config: this._config(),
+    });
   }
 
   /**
@@ -160,14 +179,51 @@ export class VSCodeService {
 
   /**
    * Setup message listener for messages from extension
+   *
+   * WITH ZONE.JS:
+   * window.addEventListener is patched by Zone.js, so it automatically triggers
+   * change detection when the callback runs. No manual triggering needed.
    */
   private setupMessageListener(): void {
+    console.log(
+      '=== VSCodeService: Setting up message listener (Zone.js mode) ==='
+    );
+
     window.addEventListener('message', (event: MessageEvent) => {
+      console.log('=== VSCodeService: Raw message event received ===', {
+        origin: event.origin,
+        dataType: typeof event.data,
+        data: event.data,
+      });
+
       const message = event.data as StrictMessage;
       if (message && message.type) {
+        console.log(
+          `=== VSCodeService: Processing message type: ${message.type} ===`
+        );
+
+        // Emit to RxJS subject for subscribers
         this.messageSubject.next(message);
+        console.log(`   - Emitted to RxJS subject`);
+
+        // Update signal (Zone.js will automatically detect this and trigger change detection)
+        this._lastMessageTime.set(Date.now());
+        console.log(
+          `   - Updated _lastMessageTime signal (Zone.js handles change detection)`
+        );
+
+        console.log(
+          `=== VSCodeService: Message processed successfully: ${message.type} ===`
+        );
+      } else {
+        console.warn(
+          '=== VSCodeService: Invalid message received ===',
+          event.data
+        );
       }
     });
+
+    console.log('=== VSCodeService: Message listener setup complete ===');
   }
 
   /**

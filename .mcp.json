@@ -15,7 +15,13 @@
     },
     "nx-mcp": {
       "command": "cmd.exe",
-      "args": ["/c", "npx", "-y", "nx", "mcp"]
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "nx-mcp@latest",
+        "D://projects/ptah-extension"
+      ]
     },
     "angular-cli": {
       "command": "cmd.exe",

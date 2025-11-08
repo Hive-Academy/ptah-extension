@@ -1,11 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  input,
-  output,
-  viewChild,
-  ElementRef,
-} from '@angular/core';
+import { Component, input, output, viewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule, Search } from 'lucide-angular';
@@ -20,7 +13,7 @@ import { LucideAngularModule, Search } from 'lucide-angular';
   selector: 'ptah-dropdown-search',
   standalone: true,
   imports: [CommonModule, FormsModule, LucideAngularModule],
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   template: `
     <div class="vscode-search-container">
       <div class="vscode-search-input-wrapper">

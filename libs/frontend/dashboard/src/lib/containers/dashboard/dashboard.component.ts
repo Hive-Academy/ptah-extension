@@ -7,7 +7,6 @@ import {
   inject,
   input,
   output,
-  ChangeDetectionStrategy,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Subject, takeUntil, combineLatest } from 'rxjs';
@@ -34,7 +33,7 @@ import {
 @Component({
   selector: 'ptah-dashboard',
   standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   imports: [
     CommonModule,
     DashboardHeaderComponent,

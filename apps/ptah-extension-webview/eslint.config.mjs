@@ -25,7 +25,7 @@ export default [
           style: 'kebab-case',
         },
       ],
-      '@angular-eslint/prefer-on-push-component-change-detection': 'error',
+      '@angular-eslint/prefer-on-push-component-change-detection': 'off',
       '@angular-eslint/prefer-standalone': 'error',
       '@angular-eslint/prefer-signals': 'error',
       '@angular-eslint/use-injectable-provided-in': 'error',

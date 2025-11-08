@@ -37,7 +37,7 @@ import { SimpleHeaderComponent } from '@ptah-extension/shared-ui';
     AnalyticsStatsGridComponent,
     AnalyticsComingSoonComponent,
   ],
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   template: `
     <div class="vscode-analytics-container">
       <!-- Header -->

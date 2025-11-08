@@ -21,6 +21,7 @@ export const COMMAND_REGISTRY = Symbol.for('CommandRegistry');
 // ========================================
 export const EVENT_BUS = Symbol.for('EventBus');
 export const MESSAGE_ROUTER = Symbol.for('MessageRouter');
+export const WEBVIEW_MESSAGE_BRIDGE = Symbol.for('WebviewMessageBridge');
 
 // ========================================
 // API Wrapper Service Tokens
@@ -150,6 +151,7 @@ export const TOKENS = {
   // ========================================
   EVENT_BUS,
   MESSAGE_ROUTER,
+  WEBVIEW_MESSAGE_BRIDGE,
 
   // ========================================
   // API Wrappers

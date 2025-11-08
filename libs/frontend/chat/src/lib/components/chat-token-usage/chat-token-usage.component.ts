@@ -1,9 +1,4 @@
-import {
-  Component,
-  input,
-  computed,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { Component, input, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 /**
@@ -50,7 +45,7 @@ export interface TokenUsage {
 @Component({
   selector: 'ptah-chat-token-usage',
   standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   imports: [CommonModule],
   template: `
     <div class="token-usage-container" [attr.aria-hidden]="!tokenUsage()">

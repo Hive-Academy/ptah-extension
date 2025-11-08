@@ -42,7 +42,7 @@ export interface StatsData {
   selector: 'ptah-analytics-stats-grid',
   standalone: true,
   imports: [CommonModule, LucideAngularModule],
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   template: `
     <div class="vscode-stats-grid" [attr.aria-label]="'Usage statistics'">
       <!-- Chat Sessions Card -->

@@ -1,10 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  HostListener,
-  input,
-  output,
-} from '@angular/core';
+import { Component, HostListener, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
   LucideAngularModule,
@@ -38,7 +32,7 @@ export interface QuickCommand {
   selector: 'ptah-command-bottom-sheet',
   standalone: true,
   imports: [CommonModule, LucideAngularModule],
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   template: `
     @if (isOpen()) {
     <!-- Backdrop -->

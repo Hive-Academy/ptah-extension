@@ -290,29 +290,27 @@ export class ProviderService {
    * Private: Setup message listeners
    */
   private setupMessageListeners(): void {
-    // Handle available providers response
+    // Handle available providers response (backend sends :response, not event notifications)
     this.vscodeService
-      .onMessage()
-      .pipe(
-        filter((msg) => msg.type === 'providers:getAvailable'),
-        map((msg) => (msg.payload || []) as ProviderInfo[]),
-        takeUntilDestroyed(this.destroyRef)
-      )
-      .subscribe((providers) => {
-        this._availableProviders.set(providers);
+      .onMessageType('providers:getAvailable:response')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((response) => {
+        if (response.success && response.data) {
+          const result = response.data as { providers?: ProviderInfo[] };
+          this._availableProviders.set(result.providers || []);
+        }
         this._isLoading.set(false);
       });
 
-    // Handle current provider response
+    // Handle current provider response (backend sends :response, not event notifications)
     this.vscodeService
-      .onMessage()
-      .pipe(
-        filter((msg) => msg.type === 'providers:getCurrent'),
-        map((msg) => (msg.payload || null) as ProviderInfo | null),
-        takeUntilDestroyed(this.destroyRef)
-      )
-      .subscribe((provider) => {
-        this._currentProvider.set(provider);
+      .onMessageType('providers:getCurrent:response')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((response) => {
+        if (response.success && response.data) {
+          const result = response.data as { provider?: ProviderInfo | null };
+          this._currentProvider.set(result.provider || null);
+        }
         this._isLoading.set(false);
       });
 
@@ -333,20 +331,32 @@ export class ProviderService {
         this._isLoading.set(false);
       });
 
-    // Handle health updates
+    // Handle get all health response (backend sends :response, not event notifications)
     this.vscodeService
-      .onMessage()
-      .pipe(
-        filter(
-          (msg) =>
-            msg.type === 'providers:getAllHealth' ||
-            msg.type === 'providers:healthChanged'
-        ),
-        map((msg) => (msg.payload || {}) as Record<string, ProviderHealth>),
-        takeUntilDestroyed(this.destroyRef)
-      )
-      .subscribe((healthMap) => {
-        this._providerHealth.set(healthMap);
+      .onMessageType('providers:getAllHealth:response')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((response) => {
+        if (response.success && response.data) {
+          const result = response.data as {
+            healthMap?: Record<string, ProviderHealth>;
+          };
+          this._providerHealth.set(result.healthMap || {});
+        }
+      });
+
+    // Handle health changed events (this IS an event notification, not a response)
+    this.vscodeService
+      .onMessageType('providers:healthChanged')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => {
+        const healthUpdate = payload as {
+          providerId: string;
+          health: ProviderHealth;
+        };
+        this._providerHealth.update((current) => ({
+          ...current,
+          [healthUpdate.providerId]: healthUpdate.health,
+        }));
       });
 
     // Handle provider errors

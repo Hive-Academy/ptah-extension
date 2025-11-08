@@ -1,10 +1,5 @@
 import { CommonModule } from '@angular/common';
-import {
-  Component,
-  input,
-  output,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { Component, input, output } from '@angular/core';
 
 /**
  * Chat Streaming Status Component - Streaming Feedback Banner
@@ -37,7 +32,7 @@ import {
 @Component({
   selector: 'ptah-chat-streaming-status',
   standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   imports: [CommonModule],
   template: `
     @if (isVisible()) {

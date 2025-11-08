@@ -8,6 +8,7 @@ import type {
   CommandManager,
   WebviewManager,
   EventBus,
+  WebviewMessageBridge,
 } from '@ptah-extension/vscode-core';
 import type { WorkspaceAnalyzerService } from '@ptah-extension/workspace-intelligence';
 import type {
@@ -54,6 +55,7 @@ export class PtahExtension implements vscode.Disposable {
   private commandManager: CommandManager;
   private webviewManager: WebviewManager;
   private eventBus: EventBus;
+  private webviewMessageBridge: WebviewMessageBridge;
 
   // DI-resolved domain services (TASK_CORE_001 - Phase 3)
   private sessionManager?: SessionManager; // From claude-domain
@@ -88,6 +90,9 @@ export class PtahExtension implements vscode.Disposable {
       TOKENS.WEBVIEW_MANAGER
     );
     this.eventBus = DIContainer.resolve<EventBus>(TOKENS.EVENT_BUS);
+    this.webviewMessageBridge = DIContainer.resolve<WebviewMessageBridge>(
+      TOKENS.WEBVIEW_MESSAGE_BRIDGE
+    );
   }
 
   /**
@@ -110,6 +115,12 @@ export class PtahExtension implements vscode.Disposable {
 
       // Initialize legacy services (to be migrated in future tasks)
       await this.initializeLegacyServices();
+
+      // Initialize WebviewMessageBridge (forwards EventBus messages to webview)
+      this.webviewMessageBridge.initialize();
+      this.logger.info(
+        'WebviewMessageBridge initialized - responses will now reach webview'
+      );
 
       // Initialize handlers and registries
       this.initializeComponents();
@@ -458,6 +469,9 @@ export class PtahExtension implements vscode.Disposable {
     try {
       this.disposables.forEach((d) => d.dispose());
       this.disposables = [];
+
+      // Dispose WebviewMessageBridge
+      this.webviewMessageBridge.dispose();
 
       // Dispose legacy services
       this.angularWebviewProvider?.dispose?.();

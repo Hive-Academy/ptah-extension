@@ -1,9 +1,10 @@
 import {
   ApplicationConfig,
   provideBrowserGlobalErrorListeners,
-  provideZonelessChangeDetection,
+  provideZoneChangeDetection,
   ErrorHandler,
 } from '@angular/core';
+import { provideVSCodeService } from '@ptah-extension/core';
 // Removed Material animations import - using pure VS Code design system
 // REMOVED: Angular Router imports - incompatible with VS Code webviews
 
@@ -46,7 +47,13 @@ class WebviewErrorHandler implements ErrorHandler {
 export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
-    provideZonelessChangeDetection(),
+    // SWITCHED TO ZONE-BASED: Using Zone.js for automatic change detection
+    // This will automatically trigger change detection for async operations,
+    // window.addEventListener, setTimeout, etc.
+    provideZoneChangeDetection({ eventCoalescing: true }),
     { provide: ErrorHandler, useClass: WebviewErrorHandler },
+    // CRITICAL: Eager initialization of VSCodeService before app starts
+    // This ensures message listener is set up BEFORE any components render
+    provideVSCodeService(),
   ],
 };

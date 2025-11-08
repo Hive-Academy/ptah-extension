@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { Component, input } from '@angular/core';
 
 /**
  * Loading Spinner Component - Angular 20+ Modernized
@@ -10,7 +10,7 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 @Component({
   selector: 'ptah-loading-spinner',
   standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   template: `
     <div
       class="vscode-spinner-container"

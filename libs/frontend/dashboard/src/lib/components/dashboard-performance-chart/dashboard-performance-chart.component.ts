@@ -16,7 +16,7 @@ import { type PerformanceData } from '@ptah-extension/shared';
 @Component({
   selector: 'ptah-dashboard-performance-chart',
   standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   imports: [CommonModule, LucideAngularModule],
 
   template: `

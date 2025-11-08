@@ -8,7 +8,6 @@ import {
   input,
   output,
   effect,
-  ChangeDetectionStrategy,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Subject, takeUntil, combineLatest, debounceTime, filter } from 'rxjs';
@@ -77,7 +76,7 @@ export interface SessionManagerConfig {
 @Component({
   selector: 'ptah-session-manager',
   standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   imports: [CommonModule, SessionSelectorComponent, SessionCardComponent],
   template: `
     <div

@@ -1,10 +1,5 @@
 import { CommonModule } from '@angular/common';
-import {
-  Component,
-  input,
-  ChangeDetectionStrategy,
-  computed,
-} from '@angular/core';
+import { Component, input, computed } from '@angular/core';
 
 /**
  * Chat Status Metrics - System and performance information
@@ -56,7 +51,7 @@ export interface ChatStatusMetrics {
 @Component({
   selector: 'ptah-chat-status-bar',
   standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   imports: [CommonModule],
   template: `
     <div class="status-bar">

@@ -5,7 +5,6 @@ import {
   signal,
   computed,
   inject,
-  ChangeDetectionStrategy,
 } from '@angular/core';
 import { Subject } from 'rxjs';
 
@@ -28,7 +27,6 @@ import { LoadingSpinnerComponent } from '@ptah-extension/shared-ui';
   imports: [LoadingSpinnerComponent, ChatComponent, AnalyticsComponent],
   templateUrl: './app.html',
   styleUrls: ['./app.css'],
-  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class App implements OnInit, OnDestroy {
   private readonly destroy$ = new Subject<void>();
@@ -57,23 +55,43 @@ export class App implements OnInit, OnDestroy {
   );
 
   public async ngOnInit(): Promise<void> {
-    console.log('Ptah App ngOnInit - starting initialization...');
+    console.log('=================================================');
+    console.log('PTAH APP NGONINIT STARTING');
+    console.log('=================================================');
     this.initializationStatus.set('initializing');
 
     try {
-      // Initialize view manager
+      console.log('Step 1: Initializing ViewManager...');
       await this.viewManager.initialize();
-      console.log('Ptah App - ViewManager initialized successfully');
+      console.log('Step 1: COMPLETE - ViewManager initialized');
 
-      // Notify VS Code that the app is ready
+      console.log('Step 2: Notifying VS Code that webview is ready...');
       this.vscodeService.notifyReady();
+      console.log('Step 2: COMPLETE - VS Code notified');
 
-      // Handle initial view setup
+      console.log('Step 3: Handling initial view setup...');
       await this.handleInitialView();
+      console.log('Step 3: COMPLETE - Initial view set up');
 
+      console.log('=================================================');
+      console.log('SETTING initializationStatus TO READY');
+      console.log(
+        'isReady() will now return:',
+        this.initializationStatus() === 'ready'
+      );
+      console.log('=================================================');
       this.initializationStatus.set('ready');
+      console.log(
+        'After set - initializationStatus():',
+        this.initializationStatus()
+      );
+      console.log('After set - isReady():', this.isReady());
+      console.log('Zone.js will automatically trigger change detection');
     } catch (error) {
-      console.error('Ptah App - Failed to initialize ViewManager:', error);
+      console.error('=================================================');
+      console.error('PTAH APP INITIALIZATION FAILED');
+      console.error('Error:', error);
+      console.error('=================================================');
       this.initializationStatus.set('error');
     }
   }

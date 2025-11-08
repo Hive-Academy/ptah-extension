@@ -1,9 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  input,
-} from '@angular/core';
+import { Component, computed, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { WorkspaceInfo } from '@ptah-extension/shared';
 
@@ -18,7 +13,7 @@ import { WorkspaceInfo } from '@ptah-extension/shared';
   selector: 'ptah-status-bar',
   standalone: true,
   imports: [CommonModule],
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   template: `
     <footer class="vscode-status-bar">
       <div class="vscode-status-content">

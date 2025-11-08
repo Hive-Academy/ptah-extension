@@ -1,9 +1,4 @@
-import {
-  Component,
-  output,
-  inject,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { Component, output, inject } from '@angular/core';
 import { CommonModule, NgOptimizedImage } from '@angular/common';
 import {
   LucideAngularModule,
@@ -47,7 +42,7 @@ import { VSCodeService } from '@ptah-extension/core';
 @Component({
   selector: 'ptah-chat-empty-state',
   standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   imports: [CommonModule, LucideAngularModule, NgOptimizedImage],
   template: `
     <div class="empty-state">

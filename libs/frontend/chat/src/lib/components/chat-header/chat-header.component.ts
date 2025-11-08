@@ -1,11 +1,5 @@
 import { CommonModule } from '@angular/common';
-import {
-  Component,
-  input,
-  output,
-  ChangeDetectionStrategy,
-  computed,
-} from '@angular/core';
+import { Component, input, output, computed } from '@angular/core';
 
 /**
  * Provider Status - Chat header provider display data
@@ -47,7 +41,7 @@ export interface ProviderStatus {
 @Component({
   selector: 'ptah-chat-header',
   standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   imports: [CommonModule],
   template: `
     <div class="header-container">

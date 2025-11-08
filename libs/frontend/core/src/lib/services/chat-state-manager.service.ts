@@ -224,15 +224,26 @@ export class ChatStateManagerService {
       .onMessageType('initialData')
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((initialData) => {
-        // Type guard for state data
-        const stateData = initialData.state as
-          | { sessions?: unknown }
-          | undefined;
-        if (stateData?.sessions && Array.isArray(stateData.sessions)) {
-          this._availableSessions.set(
-            stateData.sessions as StrictChatSession[]
-          );
+        // Backend sends payload.data.sessions (see AngularWebviewProvider.sendInitialData line 101-144)
+        if (initialData.success && initialData.data?.sessions) {
+          const sessions = initialData.data.sessions;
+          if (Array.isArray(sessions)) {
+            this._availableSessions.set(sessions);
+
+            // Auto-select most recent session if no current session
+            const currentSession = this.chatState.currentSession();
+            if (!currentSession && sessions.length > 0) {
+              const mostRecent = sessions.reduce((latest, session) => {
+                const sessionTime =
+                  session.lastActiveAt || session.createdAt || 0;
+                const latestTime = latest.lastActiveAt || latest.createdAt || 0;
+                return sessionTime > latestTime ? session : latest;
+              });
+              this.switchToSession(mostRecent.id);
+            }
+          }
         }
+        this._isSessionLoading.set(false);
       });
 
     // Handle session updates

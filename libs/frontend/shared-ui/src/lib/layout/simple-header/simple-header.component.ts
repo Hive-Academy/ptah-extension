@@ -1,9 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  input,
-  output,
-} from '@angular/core';
+import { Component, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule, PlusIcon, BarChart3Icon } from 'lucide-angular';
 
@@ -18,7 +13,7 @@ import { LucideAngularModule, PlusIcon, BarChart3Icon } from 'lucide-angular';
   selector: 'ptah-simple-header',
   standalone: true,
   imports: [CommonModule, LucideAngularModule],
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   template: `
     <header class="vscode-header">
       <!-- Left Side: Ptah Icon as Home Button -->

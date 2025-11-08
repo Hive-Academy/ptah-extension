@@ -95,7 +95,7 @@ libs/frontend/dashboard/src/lib/components/
 All components use modern signal APIs:
 
 ```typescript
-import { Component, ChangeDetectionStrategy, input, output, signal, computed } from '@angular/core';
+import { Component, input, output, signal, computed } from '@angular/core';
 
 @Component({
   selector: 'app-metrics-grid',

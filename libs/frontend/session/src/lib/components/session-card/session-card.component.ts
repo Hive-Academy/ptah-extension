@@ -1,11 +1,4 @@
-import {
-  Component,
-  input,
-  output,
-  computed,
-  ChangeDetectionStrategy,
-  signal,
-} from '@angular/core';
+import { Component, input, output, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { StrictChatSession, SessionId } from '@ptah-extension/shared';
 
@@ -39,7 +32,7 @@ export interface SessionAction {
 @Component({
   selector: 'ptah-session-card',
   standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   imports: [CommonModule],
 
   template: `

@@ -1,9 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  input,
-  output,
-} from '@angular/core';
+import { Component, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule, ChevronDown } from 'lucide-angular';
 import { DropdownOption } from '@ptah-extension/shared';
@@ -18,7 +13,7 @@ import { DropdownOption } from '@ptah-extension/shared';
   selector: 'ptah-dropdown-trigger',
   standalone: true,
   imports: [CommonModule, LucideAngularModule],
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   template: `
     <button
       type="button"

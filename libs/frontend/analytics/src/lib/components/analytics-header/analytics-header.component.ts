@@ -18,7 +18,7 @@ import { LucideAngularModule, BarChart3Icon } from 'lucide-angular';
   selector: 'ptah-analytics-header',
   standalone: true,
   imports: [LucideAngularModule],
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   template: `
     <header class="vscode-analytics-header">
       <div class="vscode-header-content">

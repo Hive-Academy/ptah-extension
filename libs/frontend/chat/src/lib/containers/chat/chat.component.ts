@@ -1,12 +1,5 @@
 import { CommonModule } from '@angular/common';
-import {
-  Component,
-  computed,
-  inject,
-  OnDestroy,
-  OnInit,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { Component, computed, inject, OnDestroy, OnInit } from '@angular/core';
 import { Subject } from 'rxjs';
 
 // Core Services (from core library)
@@ -57,7 +50,7 @@ import { ProviderManagerComponent } from '@ptah-extension/providers';
 @Component({
   selector: 'ptah-chat',
   standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   imports: [
     CommonModule,
     ChatHeaderComponent,
@@ -233,7 +226,22 @@ export class ChatComponent implements OnInit, OnDestroy {
   });
 
   public ngOnInit(): void {
+    console.log('=== ChatComponent ngOnInit ===');
+    console.log('Current session:', this.currentSession());
+    console.log('Messages:', this.chat.messages());
+    console.log('Claude messages:', this.claudeMessages());
+    console.log('Has messages:', this.hasMessages());
+
     this.chatState.initialize();
+
+    // Log whenever session or messages change
+    setTimeout(() => {
+      console.log('=== After initialization (1s delay) ===');
+      console.log('Current session:', this.currentSession());
+      console.log('Messages count:', this.chat.messages().length);
+      console.log('Claude messages count:', this.claudeMessages().length);
+      console.log('Has messages:', this.hasMessages());
+    }, 1000);
   }
 
   public ngOnDestroy(): void {
@@ -243,20 +251,30 @@ export class ChatComponent implements OnInit, OnDestroy {
 
   // Message Handling
   public sendMessage(): void {
+    console.log('=== ChatComponent.sendMessage() called ===');
+    console.log('Current message:', this.chatState.currentMessage());
+    console.log('Can send:', this.chatState.canSendMessage());
+
     const content = this.chatState.currentMessage().trim();
-    if (!this.chatState.canSendMessage() || !content) return;
+    if (!this.chatState.canSendMessage() || !content) {
+      console.log('Cannot send - returning early');
+      return;
+    }
 
     const agent = this.chatState.selectedAgent();
+    console.log('Sending message with agent:', agent);
     this.chat.sendMessage(content, agent);
     this.chatState.clearCurrentMessage();
   }
 
   // Event Handlers
   public onNewSession(): void {
+    console.log('=== ChatComponent.onNewSession() called ===');
     this.chatState.createNewSession('New Session');
   }
 
   public onSessionCreated(name: string | undefined): void {
+    console.log('=== ChatComponent.onSessionCreated() called ===', name);
     this.chatState.createNewSession(name || 'New Session');
   }
 
@@ -323,6 +341,8 @@ export class ChatComponent implements OnInit, OnDestroy {
   }
 
   public onCommandsClick(): void {
+    console.log('=== ChatComponent.onCommandsClick() called ===');
+    console.log('Command button was clicked - Zone.js is working!');
     // TODO: Implement command sheet toggle
     this.logger.debug('Commands clicked', 'ChatComponent');
   }

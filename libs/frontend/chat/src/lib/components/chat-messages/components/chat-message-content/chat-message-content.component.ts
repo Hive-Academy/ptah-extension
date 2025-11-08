@@ -25,7 +25,6 @@ import {
   ElementRef,
   viewChild,
   AfterViewInit,
-  ChangeDetectionStrategy,
 } from '@angular/core';
 import { CommonModule, NgOptimizedImage } from '@angular/common';
 import {
@@ -46,7 +45,6 @@ import {
   imports: [CommonModule, NgOptimizedImage],
   templateUrl: './chat-message-content.component.html',
   styleUrl: './chat-message-content.component.scss',
-  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ChatMessageContentComponent implements AfterViewInit {
   // === ANGULAR 20 PATTERN: Modern input/output signals ===

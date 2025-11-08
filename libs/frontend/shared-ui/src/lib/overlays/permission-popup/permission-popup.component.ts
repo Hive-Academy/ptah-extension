@@ -1,5 +1,4 @@
 import {
-  ChangeDetectionStrategy,
   Component,
   HostListener,
   input,
@@ -38,7 +37,7 @@ export type PermissionResponse = 'allow' | 'always_allow' | 'deny';
   selector: 'ptah-permission-popup',
   standalone: true,
   imports: [CommonModule, LucideAngularModule],
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   template: `
     @if (isOpen() && permissionRequest()) {
     <!-- Backdrop -->

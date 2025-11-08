@@ -1,6 +1,5 @@
 import {
   Component,
-  ChangeDetectionStrategy,
   computed,
   signal,
   HostListener,
@@ -35,7 +34,7 @@ export interface FileSuggestion {
   selector: 'ptah-file-suggestions-dropdown',
   standalone: true,
   imports: [CommonModule],
-  changeDetection: ChangeDetectionStrategy.OnPush,
+
   template: `
     <!-- eslint-disable-next-line @angular-eslint/template/no-inline-styles -->
     <div
