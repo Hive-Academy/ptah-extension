@@ -36,6 +36,8 @@ export type StrictMessageType =
   | 'chat:messageComplete'
   | 'chat:sessionCreated'
   | 'chat:sessionSwitched'
+  | 'chat:sessionUpdated'
+  | 'chat:tokenUsageUpdated'
   | 'chat:historyLoaded'
   | 'chat:error'
   | 'chat:sessionsUpdated'
@@ -202,6 +204,21 @@ export interface ChatSessionCreatedPayload {
 
 export interface ChatSessionSwitchedPayload {
   readonly session: StrictChatSession;
+}
+
+export interface ChatSessionUpdatedPayload {
+  readonly session: StrictChatSession;
+}
+
+export interface ChatTokenUsageUpdatedPayload {
+  readonly sessionId: SessionId;
+  readonly tokenUsage: {
+    readonly input: number;
+    readonly output: number;
+    readonly total: number;
+    readonly percentage: number;
+    readonly maxTokens: number;
+  };
 }
 
 export interface ChatHistoryLoadedPayload {
@@ -511,6 +528,8 @@ export interface MessagePayloadMap {
   'chat:messageComplete': ChatMessageCompletePayload;
   'chat:sessionCreated': ChatSessionCreatedPayload;
   'chat:sessionSwitched': ChatSessionSwitchedPayload;
+  'chat:sessionUpdated': ChatSessionUpdatedPayload;
+  'chat:tokenUsageUpdated': ChatTokenUsageUpdatedPayload;
   'chat:historyLoaded': ChatHistoryLoadedPayload;
   'chat:renameSession': ChatRenameSessionPayload;
   'chat:deleteSession': ChatDeleteSessionPayload;

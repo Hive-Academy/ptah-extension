@@ -15,8 +15,13 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { SessionId, MessageId } from '@ptah-extension/shared';
-import { StrictChatSession, StrictChatMessage } from '@ptah-extension/shared';
+import {
+  SessionId,
+  MessageId,
+  StrictChatSession,
+  StrictChatMessage,
+  CHAT_MESSAGE_TYPES,
+} from '@ptah-extension/shared';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { IEventBus } from '../events/claude-domain.events';
 
@@ -191,7 +196,7 @@ export class SessionManager {
     await this.saveSessions();
 
     // Publish session created event
-    this.eventBus.publish('session:created', session);
+    this.eventBus.publish(CHAT_MESSAGE_TYPES.SESSION_CREATED, { session });
     this.notifySessionsChanged();
 
     return session;
@@ -252,7 +257,7 @@ export class SessionManager {
     await this.saveSessions();
 
     // Publish session switched event
-    this.eventBus.publish('session:switched', session);
+    this.eventBus.publish(CHAT_MESSAGE_TYPES.SESSION_SWITCHED, { session });
     this.notifySessionsChanged();
 
     return true;
@@ -283,7 +288,7 @@ export class SessionManager {
     await this.saveSessions();
 
     // Publish session deleted event
-    this.eventBus.publish('session:deleted', { sessionId });
+    this.eventBus.publish(CHAT_MESSAGE_TYPES.SESSION_DELETED, { sessionId });
     this.notifySessionsChanged();
 
     return true;
@@ -314,7 +319,10 @@ export class SessionManager {
     await this.saveSessions();
 
     // Publish session renamed event
-    this.eventBus.publish('session:renamed', { sessionId, newName });
+    this.eventBus.publish(CHAT_MESSAGE_TYPES.SESSION_RENAMED, {
+      sessionId,
+      newName,
+    });
     this.notifySessionsChanged();
 
     return true;
@@ -352,7 +360,7 @@ export class SessionManager {
     await this.saveSessions();
 
     // Publish session updated event
-    this.eventBus.publish('session:updated', session);
+    this.eventBus.publish(CHAT_MESSAGE_TYPES.SESSION_UPDATED, { session });
     this.notifySessionsChanged();
 
     return true;
@@ -422,15 +430,15 @@ export class SessionManager {
     await this.saveSessions();
 
     // Publish events
-    this.eventBus.publish('message:added', {
+    this.eventBus.publish(CHAT_MESSAGE_TYPES.MESSAGE_ADDED, {
       sessionId: options.sessionId,
       message,
     });
-    this.eventBus.publish('tokenUsage:updated', {
+    this.eventBus.publish(CHAT_MESSAGE_TYPES.TOKEN_USAGE_UPDATED, {
       sessionId: options.sessionId,
       tokenUsage: session.tokenUsage,
     });
-    this.eventBus.publish('session:updated', session);
+    this.eventBus.publish(CHAT_MESSAGE_TYPES.SESSION_UPDATED, { session });
     this.notifySessionsChanged();
 
     return message;
@@ -485,15 +493,15 @@ export class SessionManager {
     await this.saveSessions();
 
     // Publish events
-    this.eventBus.publish('message:added', {
+    this.eventBus.publish(CHAT_MESSAGE_TYPES.MESSAGE_ADDED, {
       sessionId: options.sessionId,
       message,
     });
-    this.eventBus.publish('tokenUsage:updated', {
+    this.eventBus.publish(CHAT_MESSAGE_TYPES.TOKEN_USAGE_UPDATED, {
       sessionId: options.sessionId,
       tokenUsage: session.tokenUsage,
     });
-    this.eventBus.publish('session:updated', session);
+    this.eventBus.publish(CHAT_MESSAGE_TYPES.SESSION_UPDATED, { session });
     this.notifySessionsChanged();
 
     return message;
@@ -852,6 +860,8 @@ export class SessionManager {
    * Notify subscribers of session changes
    */
   private notifySessionsChanged(): void {
-    this.eventBus.publish('sessions:changed', this.getAllSessions());
+    this.eventBus.publish(CHAT_MESSAGE_TYPES.SESSIONS_UPDATED, {
+      sessions: this.getAllSessions(),
+    });
   }
 }

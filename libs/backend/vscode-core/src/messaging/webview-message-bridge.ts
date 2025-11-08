@@ -17,7 +17,12 @@ import { Subscription } from 'rxjs';
 import { EventBus, TypedEvent } from './event-bus';
 import { WebviewManager } from '../api-wrappers/webview-manager';
 import { TOKENS } from '../di/tokens';
-import type { MessagePayloadMap } from '@ptah-extension/shared';
+import {
+  CHAT_MESSAGE_TYPES,
+  PROVIDER_MESSAGE_TYPES,
+  CONTEXT_MESSAGE_TYPES,
+  SYSTEM_MESSAGE_TYPES,
+} from '@ptah-extension/shared';
 
 /**
  * Event categories for selective forwarding
@@ -68,34 +73,36 @@ export class WebviewMessageBridge {
       // Always forward these specific event types
       alwaysForward: [
         // Chat streaming events
-        'chat:messageChunk',
-        'chat:messageAdded',
-        'chat:messageComplete',
-        'chat:streamStopped',
+        CHAT_MESSAGE_TYPES.MESSAGE_CHUNK,
+        CHAT_MESSAGE_TYPES.MESSAGE_ADDED,
+        CHAT_MESSAGE_TYPES.MESSAGE_COMPLETE,
+        CHAT_MESSAGE_TYPES.STREAM_STOPPED,
 
-        // Session lifecycle events (FIXED: Use correct MessagePayloadMap types)
-        'chat:sessionCreated', // NOT 'session:created'
-        'chat:sessionSwitched', // NOT 'session:switched'
-        'chat:sessionDeleted', // NOT 'session:deleted'
-        'chat:sessionRenamed', // NOT 'session:renamed'
-        'chat:sessionsUpdated',
+        // Session lifecycle events
+        CHAT_MESSAGE_TYPES.SESSION_CREATED,
+        CHAT_MESSAGE_TYPES.SESSION_SWITCHED,
+        CHAT_MESSAGE_TYPES.SESSION_DELETED,
+        CHAT_MESSAGE_TYPES.SESSION_RENAMED,
+        CHAT_MESSAGE_TYPES.SESSION_UPDATED,
+        CHAT_MESSAGE_TYPES.TOKEN_USAGE_UPDATED,
+        CHAT_MESSAGE_TYPES.SESSIONS_UPDATED,
 
-        // Provider events (FIXED: Use correct MessagePayloadMap types)
-        'providers:currentChanged', // NOT 'providers:switched'
-        'providers:healthChanged',
-        'providers:error',
-        'providers:availableUpdated',
+        // Provider events
+        PROVIDER_MESSAGE_TYPES.CURRENT_CHANGED,
+        PROVIDER_MESSAGE_TYPES.HEALTH_CHANGED,
+        PROVIDER_MESSAGE_TYPES.ERROR,
+        PROVIDER_MESSAGE_TYPES.AVAILABLE_UPDATED,
 
         // Context events
-        'context:updateFiles',
+        CONTEXT_MESSAGE_TYPES.UPDATE_FILES,
 
         // System events
-        'themeChanged',
-        'error',
-        'initialData',
+        SYSTEM_MESSAGE_TYPES.THEME_CHANGED,
+        SYSTEM_MESSAGE_TYPES.ERROR,
+        SYSTEM_MESSAGE_TYPES.INITIAL_DATA,
 
         // Permission events
-        'chat:permissionRequest',
+        CHAT_MESSAGE_TYPES.PERMISSION_REQUEST,
       ],
 
       // Forward events matching these patterns

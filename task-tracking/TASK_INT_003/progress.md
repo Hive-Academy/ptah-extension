@@ -240,3 +240,58 @@ Successfully implemented provider registration system with VS Code LM as default
 - `apps/ptah-extension-webview/src/app/app.ts` (import SettingsViewComponent)
 
 ---
+
+## Frontend Developer: Chat Disconnect Investigation (2025-01-17)
+
+**Duration**: 1 hour  
+**Focus**: Investigate why chat messages and sessions not displayed
+
+### Root Cause Discovered: Event Naming Mismatch ❌
+
+**Backend publishes events with different names than frontend expects**:
+
+| Backend Publishes    | WebviewMessageBridge Expects | Frontend Subscribes To        | Status             |
+| -------------------- | ---------------------------- | ----------------------------- | ------------------ |
+| `session:created`    | `chat:sessionCreated`        | `chat:newSession:response`    | ❌ TRIPLE MISMATCH |
+| `session:switched`   | `chat:sessionSwitched`       | `chat:switchSession:response` | ❌ TRIPLE MISMATCH |
+| `message:added`      | `chat:messageAdded`          | ❌ NOT SUBSCRIBED             | ❌ MISSING         |
+| `tokenUsage:updated` | ❌ NOT IN BRIDGE             | ❌ NOT SUBSCRIBED             | ❌ MISSING         |
+| `sessions:changed`   | `chat:sessionsUpdated`       | ❌ NOT SUBSCRIBED             | ❌ MISSING         |
+
+**Impact**:
+
+- ❌ Session switching doesn't work (event names don't match)
+- ❌ New sessions don't appear (event names don't match)
+- ❌ Sent messages don't show up (event names don't match)
+- ❌ Token usage not updated (not forwarded)
+- ❌ Welcome screen always shown (UI thinks there are no messages)
+
+**Frontend subscribes to `:response` pattern which is WRONG**:
+
+- Frontend: `onMessageType('chat:switchSession:response')` ❌
+- Backend: Never publishes `:response` events, only events like `session:switched`
+- Bridge: Forwards events ending in `:response` BUT backend doesn't publish them
+
+### Investigation Report
+
+**Full Report**: `task-tracking/TASK_INT_003/chat-disconnect-root-cause.md`
+
+**Summary**:
+
+1. Backend (SessionManager) publishes: `session:created`, `session:switched`, `message:added`
+2. WebviewMessageBridge expects: `chat:sessionCreated`, `chat:sessionSwitched`, `chat:messageAdded`
+3. Frontend subscribes to: `chat:newSession:response`, `chat:switchSession:response` (NEVER sent)
+4. Result: Events published → Never forwarded → Frontend never receives → UI never updates
+
+### Solution: Three-Layer Fix Required
+
+**Option 3 (Recommended - Hybrid Approach)**:
+
+1. **Backend**: Change SessionManager to use `chat:` prefix (e.g., `chat:sessionCreated`)
+2. **Frontend**: Change ChatService to subscribe to events (not `:response`)
+3. **Bridge**: Already correct, no changes needed
+4. **Shared Types**: Ensure MessagePayloadMap has all event payload types
+
+**Estimated Time**: 3-4 hours (backend + frontend + testing)
+
+---
