@@ -23,6 +23,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Observable } from 'rxjs';
 import { filter, map } from 'rxjs/operators';
+import { PROVIDER_MESSAGE_TYPES, toResponseType } from '@ptah-extension/shared';
 import { VSCodeService } from './vscode.service';
 
 /**
@@ -262,7 +263,9 @@ export class ProviderService {
    * Observable for provider switch events
    */
   onProviderSwitch(): Observable<ProviderSwitchEvent> {
-    return this.vscodeService.onMessageType('providers:currentChanged');
+    return this.vscodeService.onMessageType(
+      PROVIDER_MESSAGE_TYPES.CURRENT_CHANGED
+    );
   }
 
   /**
@@ -272,7 +275,9 @@ export class ProviderService {
     providerId: string;
     health: ProviderHealth;
   }> {
-    return this.vscodeService.onMessageType('providers:healthChanged');
+    return this.vscodeService.onMessageType(
+      PROVIDER_MESSAGE_TYPES.HEALTH_CHANGED
+    );
   }
 
   /**
@@ -283,7 +288,7 @@ export class ProviderService {
     error: ProviderError;
     timestamp: number;
   }> {
-    return this.vscodeService.onMessageType('providers:error');
+    return this.vscodeService.onMessageType(PROVIDER_MESSAGE_TYPES.ERROR);
   }
 
   /**
@@ -292,7 +297,7 @@ export class ProviderService {
   private setupMessageListeners(): void {
     // Handle available providers response (backend sends :response, not event notifications)
     this.vscodeService
-      .onMessageType('providers:getAvailable:response')
+      .onMessageType(toResponseType(PROVIDER_MESSAGE_TYPES.GET_AVAILABLE))
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((response) => {
         if (response.success && response.data) {
@@ -304,7 +309,7 @@ export class ProviderService {
 
     // Handle current provider response (backend sends :response, not event notifications)
     this.vscodeService
-      .onMessageType('providers:getCurrent:response')
+      .onMessageType(toResponseType(PROVIDER_MESSAGE_TYPES.GET_CURRENT))
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((response) => {
         if (response.success && response.data) {
@@ -318,7 +323,7 @@ export class ProviderService {
     this.vscodeService
       .onMessage()
       .pipe(
-        filter((msg) => msg.type === 'providers:currentChanged'),
+        filter((msg) => msg.type === PROVIDER_MESSAGE_TYPES.CURRENT_CHANGED),
         map((msg) => msg.payload as ProviderSwitchEvent),
         takeUntilDestroyed(this.destroyRef)
       )
@@ -333,7 +338,7 @@ export class ProviderService {
 
     // Handle get all health response (backend sends :response, not event notifications)
     this.vscodeService
-      .onMessageType('providers:getAllHealth:response')
+      .onMessageType(toResponseType(PROVIDER_MESSAGE_TYPES.GET_ALL_HEALTH))
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((response) => {
         if (response.success && response.data) {
@@ -346,7 +351,7 @@ export class ProviderService {
 
     // Handle health changed events (this IS an event notification, not a response)
     this.vscodeService
-      .onMessageType('providers:healthChanged')
+      .onMessageType(PROVIDER_MESSAGE_TYPES.HEALTH_CHANGED)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((payload) => {
         const healthUpdate = payload as {
