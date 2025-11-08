@@ -14,33 +14,33 @@
 **1. @ptah-extension/ai-providers-core** (`libs/backend/ai-providers-core/`)
 
 - **Key exports**:
-  - `ProviderManager` - Reactive provider orchestration with EventBus
-  - `VsCodeLmAdapter` - Production-ready VS Code LM implementation
-  - `ClaudeCliAdapter` - Claude CLI wrapper adapter
-  - `IntelligentProviderStrategy` - Provider selection logic
-  - `ContextManager` - Context optimization services
+    - `ProviderManager` - Reactive provider orchestration with EventBus
+    - `VsCodeLmAdapter` - Production-ready VS Code LM implementation
+    - `ClaudeCliAdapter` - Claude CLI wrapper adapter
+    - `IntelligentProviderStrategy` - Provider selection logic
+    - `ContextManager` - Context optimization services
 - **Documentation**: No CLAUDE.md found
 - **Usage examples**:
-  - DI registration in `apps/ptah-extension-vscode/src/di/container.ts:165-180`
-  - ProviderManager usage in `libs/backend/ai-providers-core/src/manager/provider-manager.ts`
+    - DI registration in `apps/ptah-extension-vscode/src/di/container.ts:165-180`
+    - ProviderManager usage in `libs/backend/ai-providers-core/src/manager/provider-manager.ts`
 
 **2. @ptah-extension/vscode-core** (`libs/backend/vscode-core/`)
 
 - **Key exports**:
-  - `EventBus` - Publish/subscribe event system
-  - `Logger` - Structured logging service
-  - `TOKENS` - DI injection tokens
+    - `EventBus` - Publish/subscribe event system
+    - `Logger` - Structured logging service
+    - `TOKENS` - DI injection tokens
 - **Pattern**: All services follow TSyringe `@injectable()` pattern
 - **Examples**: EventBus used throughout for provider lifecycle events
 
 **3. @ptah-extension/shared** (`libs/shared/`)
 
 - **Key types**:
-  - `ProviderId` - `'claude-cli' | 'vscode-lm'` branded type
-  - `ProviderInfo` - Provider metadata structure
-  - `ProviderHealth` - Health status interface
-  - `IAIProvider` - Core provider interface
-  - `EnhancedAIProvider` - Extended with context awareness
+    - `ProviderId` - `'claude-cli' | 'vscode-lm'` branded type
+    - `ProviderInfo` - Provider metadata structure
+    - `ProviderHealth` - Health status interface
+    - `IAIProvider` - Core provider interface
+    - `EnhancedAIProvider` - Extended with context awareness
 - **Documentation**: Type definitions in `src/lib/types/ai-provider.types.ts`
 
 ### Patterns Identified
@@ -50,9 +50,9 @@
 - **Evidence**: Found in 15+ files across all libraries
 - **Definition**: `apps/ptah-extension-vscode/src/di/container.ts:1-350`
 - **Examples**:
-  - `container.ts:165` - Provider adapter registration
-  - `container.ts:158` - ProviderManager factory registration
-  - All services use `@injectable()` decorator
+    - `container.ts:165` - Provider adapter registration
+    - `container.ts:158` - ProviderManager factory registration
+    - All services use `@injectable()` decorator
 - **Usage**: Services resolved via `DIContainer.resolve<T>(TOKENS.X)`
 
 **Pattern 2: EventBus Lifecycle Events**
@@ -60,9 +60,9 @@
 - **Evidence**: Used in 8 files for provider orchestration
 - **Definition**: `libs/backend/vscode-core/src/event-bus/event-bus.ts`
 - **Examples**:
-  - `provider-manager.ts:85` - `providers:availableUpdated` event
-  - `provider-manager.ts:131` - `providers:currentChanged` event
-  - `webview-message-bridge.ts:84-87` - Event forwarding to webview
+    - `provider-manager.ts:85` - `providers:availableUpdated` event
+    - `provider-manager.ts:131` - `providers:currentChanged` event
+    - `webview-message-bridge.ts:84-87` - Event forwarding to webview
 - **Usage**: `eventBus.publish('event:name', payload)`
 
 **Pattern 3: PtahExtension Registration Methods**
@@ -70,9 +70,9 @@
 - **Evidence**: 3 registration methods in `PtahExtension` class
 - **Definition**: `apps/ptah-extension-vscode/src/core/ptah-extension.ts:248-320`
 - **Examples**:
-  - `registerCommands()` - Lines 248-290
-  - `registerWebviews()` - Lines 292-310
-  - `registerEvents()` - Lines 312-320
+    - `registerCommands()` - Lines 248-290
+    - `registerWebviews()` - Lines 292-310
+    - `registerEvents()` - Lines 312-320
 - **Usage**: All called from `registerAll()` method (line 142)
 
 ### Integration Points
@@ -635,53 +635,53 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 
 - **DI Container** (`apps/ptah-extension-vscode/src/di/container.ts`)
 
-  - Status: ✅ Already configured
-  - Integration: `DIContainer.resolve<T>(TOKENS.X)` pattern
-  - Evidence: All services registered (container.ts:165-180)
+    - Status: ✅ Already configured
+    - Integration: `DIContainer.resolve<T>(TOKENS.X)` pattern
+    - Evidence: All services registered (container.ts:165-180)
 
 - **Provider Adapters** (`libs/backend/ai-providers-core/src/adapters/`)
 
-  - Status: ✅ Fully implemented
-  - Integration: Resolve from DI, call `initialize()`, pass to `ProviderManager.registerProvider()`
-  - Evidence: VsCodeLmAdapter (vscode-lm-adapter.ts:33), ClaudeCliAdapter registered in DI
+    - Status: ✅ Fully implemented
+    - Integration: Resolve from DI, call `initialize()`, pass to `ProviderManager.registerProvider()`
+    - Evidence: VsCodeLmAdapter (vscode-lm-adapter.ts:33), ClaudeCliAdapter registered in DI
 
 - **ProviderManager** (`libs/backend/ai-providers-core/src/manager/provider-manager.ts`)
 
-  - Status: ✅ Fully functional
-  - Integration: Resolve from DI, call `registerProvider()` and `selectBestProvider()`
-  - Evidence: Methods verified (provider-manager.ts:72-144)
+    - Status: ✅ Fully functional
+    - Integration: Resolve from DI, call `registerProvider()` and `selectBestProvider()`
+    - Evidence: Methods verified (provider-manager.ts:72-144)
 
 - **EventBus** (`libs/backend/vscode-core/src/event-bus/event-bus.ts`)
-  - Status: ✅ Working correctly
-  - Integration: Providers automatically publish events via ProviderManager
-  - Evidence: Events defined in message.types.ts (providers:currentChanged, providers:availableUpdated)
+    - Status: ✅ Working correctly
+    - Integration: Providers automatically publish events via ProviderManager
+    - Evidence: Events defined in message.types.ts (providers:currentChanged, providers:availableUpdated)
 
 **External Dependencies**:
 
 - **VS Code API** (`vscode.lm.selectChatModels()`)
 
-  - Status: ✅ Already integrated in VsCodeLmAdapter
-  - Integration: No changes needed, adapter handles internally
-  - Evidence: vscode-lm-adapter.ts:122-145 (implementation verified)
+    - Status: ✅ Already integrated in VsCodeLmAdapter
+    - Integration: No changes needed, adapter handles internally
+    - Evidence: vscode-lm-adapter.ts:122-145 (implementation verified)
 
 - **TSyringe DI**
 
-  - Status: ✅ Working
-  - Integration: Use existing `@injectable()` and `DIContainer.resolve()` patterns
-  - Evidence: Used throughout codebase
+    - Status: ✅ Working
+    - Integration: Use existing `@injectable()` and `DIContainer.resolve()` patterns
+    - Evidence: Used throughout codebase
 
 - **RxJS**
-  - Status: ✅ Working
-  - Integration: ProviderManager uses RxJS for reactive state (no changes needed)
-  - Evidence: provider-manager.ts:16-20 (BehaviorSubject pattern)
+    - Status: ✅ Working
+    - Integration: ProviderManager uses RxJS for reactive state (no changes needed)
+    - Evidence: provider-manager.ts:16-20 (BehaviorSubject pattern)
 
 ### Breaking Changes
 
 - [x] **None - backwards compatible**
-  - Pure addition to existing activation sequence
-  - No modifications to existing interfaces
-  - No configuration changes required
-  - Existing functionality unaffected
+    - Pure addition to existing activation sequence
+    - No modifications to existing interfaces
+    - No configuration changes required
+    - Existing functionality unaffected
 
 ---
 
@@ -694,17 +694,17 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 **Breakdown**:
 
 - Implementation: 2-3 hours
-  - Step 1 (registerProviders method): 1.5 hours
-  - Step 2 (registerAllComponents update): 0.5 hours
-  - Step 3 (sendInitialData update): 1 hour
+    - Step 1 (registerProviders method): 1.5 hours
+    - Step 2 (registerAllComponents update): 0.5 hours
+    - Step 3 (sendInitialData update): 1 hour
 - Testing: 1-2 hours
-  - Manual activation testing: 0.5 hours
-  - Provider switching testing: 0.5 hours
-  - Error scenario testing: 0.5 hours
-  - Code review: 0.5 hours
+    - Manual activation testing: 0.5 hours
+    - Provider switching testing: 0.5 hours
+    - Error scenario testing: 0.5 hours
+    - Code review: 0.5 hours
 - Documentation: 1 hour
-  - Inline JSDoc comments: 0.5 hours
-  - Update architecture docs: 0.5 hours
+    - Inline JSDoc comments: 0.5 hours
+    - Update architecture docs: 0.5 hours
 
 **Core Deliverable**: Working provider registration with VS Code LM as default
 
