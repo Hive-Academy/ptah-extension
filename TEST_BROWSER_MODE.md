@@ -494,6 +494,6 @@ If tests fail:
 
 ---
 
-**Testing completed by**: ******\_******  
-**Date**: ******\_******  
+**Testing completed by**: **\*\***\_**\*\***  
+**Date**: **\*\***\_**\*\***  
 **Overall Result**: □ PASS / □ FAIL
