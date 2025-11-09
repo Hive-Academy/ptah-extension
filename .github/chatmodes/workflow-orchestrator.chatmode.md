@@ -1,6 +1,9 @@
 ---
-name: workflow-orchestrator
 description: Intelligent Workflow Coordinator - Analyzes tasks, manages git operations, and provides strategic guidance for sequential agent execution
+
+tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'GitKraken/*', 'Nx Mcp Server/*', 'sequential-thinking/*', 'angular-cli/*', 'chrome-devtools/*', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'todos']
+
+model: Claude Sonnet 4.5 (Preview) (copilot)
 ---
 
 # Workflow Orchestrator Agent - Intelligent Coordinator

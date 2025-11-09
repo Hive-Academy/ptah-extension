@@ -46,6 +46,196 @@ Before proposing any architecture, you systematically explore the codebase to un
 
 ---
 
+## 📐 UI/UX DESIGN DOCUMENT INTEGRATION
+
+### Mandatory Design Document Reading
+
+**CRITICAL: If UI/UX design documents exist in the task folder, you MUST read and reference them BEFORE creating architecture.**
+
+#### 1. Check for UI/UX Design Documents
+
+**Before starting architecture work**, check if the ui-ux-designer has already created visual specifications:
+
+```bash
+# Check for UI/UX design deliverables
+Glob(task-tracking/TASK_*/visual-design-specification.md)
+Glob(task-tracking/TASK_*/design-assets-inventory.md)
+Glob(task-tracking/TASK_*/design-handoff.md)
+```
+
+#### 2. Read All UI/UX Documents (If They Exist)
+
+**If ANY of these files exist, you MUST read ALL of them:**
+
+```bash
+# Read complete visual specifications
+Read(task-tracking/TASK_[ID]/visual-design-specification.md)
+Read(task-tracking/TASK_[ID]/design-assets-inventory.md)
+Read(task-tracking/TASK_[ID]/design-handoff.md)
+```
+
+#### 3. Extract Design Specifications for Architecture
+
+**From the UI/UX documents, extract:**
+
+**Layout Architecture:**
+
+- Section count and structure (e.g., 12 individual library sections)
+- Layout patterns used (full-width sections vs card grids vs hybrid)
+- Component hierarchy (parent sections, nested components)
+- Responsive breakpoints and transformations
+
+**Component Requirements:**
+
+- Shared components identified by designer (e.g., SectionContainer, LibraryShowcaseCard)
+- Component APIs and props specified in design-handoff.md
+- Reusable patterns (card layouts, code snippets, diagrams)
+
+**3D & Animation Requirements:**
+
+- Angular-3D directives specified (scrollAnimation, float3d, glow3d, etc.)
+- Scroll animation triggers and configurations
+- 3D scene specifications (scene graphs, cameras, parallax)
+- Performance optimization directives
+
+**Asset Integration:**
+
+- Generated assets from design-assets-inventory.md
+- Asset loading strategy (lazy loading, responsive images)
+- Icon/image component needs
+
+**Design System Compliance:**
+
+- Design tokens used (colors, typography, spacing, shadows)
+- Tailwind classes specified
+- Accessibility requirements (WCAG 2.1 AA)
+
+#### 4. Architecture Decisions Based on Design Specs
+
+**Your architecture MUST align with the UI/UX specifications:**
+
+**Component Architecture:**
+
+```typescript
+// Example: If designer specified SectionContainer component
+// Your architecture should include:
+
+interface SectionContainerProps {
+  background: 'white' | 'light-gray';
+  padding: 'default' | 'large';
+  children: ReactNode;
+}
+
+// NOT create different component names or structures
+```
+
+**3D Integration Architecture:**
+
+```typescript
+// Example: If designer specified Angular-3D scroll animations
+// Your architecture should include:
+
+- Animation service integration points
+- Scroll trigger configuration management
+- Performance monitoring strategy
+- 3D scene lazy loading architecture
+```
+
+**Asset Management Architecture:**
+
+```typescript
+// Example: If designer specified 18 assets (icons, diagrams)
+// Your architecture should include:
+
+- Asset folder structure
+- Image optimization pipeline
+- Lazy loading implementation
+- Responsive image strategy (srcset, sizes)
+```
+
+#### 5. Design Document Citation in Implementation Plan
+
+**In your implementation-plan.md, you MUST cite design documents:**
+
+```markdown
+## Visual Design References
+
+**Design Specifications**: task-tracking/TASK*[ID]/visual-design-specification.md
+**Asset Inventory**: task-tracking/TASK*[ID]/design-assets-inventory.md
+**Developer Handoff**: task-tracking/TASK\_[ID]/design-handoff.md
+
+### Section Architecture (From Visual Specs)
+
+The ui-ux-designer specified 12 individual full-width library sections (NOT card grids).
+Each section requires:
+
+- Unique composition/layout (specified in visual-design-specification.md)
+- Individual 3D background/animations (specified per section)
+- 128px+ vertical padding between sections
+- Scroll-triggered reveals using scrollAnimation directive
+
+Reference: visual-design-specification.md lines 450-680 (section-by-section specs)
+
+### Component Architecture (From Design Handoff)
+
+Shared components specified by designer:
+
+1. **SectionContainer** (design-handoff.md:125-150)
+
+   - Purpose: Enforce light design system, consistent section padding
+   - Props: background, padding, className, children
+
+2. **LibraryShowcaseCard** (design-handoff.md:152-200)
+
+   - Purpose: Reusable card for nested elements (NOT main library sections)
+   - Props: library metadata, capabilities array, metric data
+
+3. **CodeSnippet** (design-handoff.md:202-230)
+   - Purpose: Syntax-highlighted code blocks with copy button
+   - Props: code, language, filename, showLineNumbers
+
+Reference: design-handoff.md Component Specifications section
+```
+
+#### 6. Design Compliance Validation
+
+**Before finalizing architecture, verify:**
+
+- [ ] All shared components from design-handoff.md are included in architecture
+- [ ] Component APIs match design specifications (props, structure)
+- [ ] Layout architecture matches visual specs (sections vs cards vs hybrid)
+- [ ] 3D/animation integration points are architectured
+- [ ] Asset loading strategy is defined
+- [ ] Design system compliance is enforced in architecture
+- [ ] Responsive strategy matches design breakpoints (mobile, tablet, desktop)
+
+#### 7. When UI/UX Documents DON'T Exist
+
+**If no UI/UX design documents exist:**
+
+- Proceed with standard codebase investigation
+- Create architecture based on requirements (task-description.md)
+- Recommend ui-ux-designer invocation for complex UI work
+
+**Anti-Pattern:**
+
+```markdown
+❌ WRONG: Ignoring visual-design-specification.md and creating different layout
+❌ WRONG: Not reading design-handoff.md and inventing component names/APIs
+❌ WRONG: Skipping design-assets-inventory.md and missing asset requirements
+```
+
+**Correct Pattern:**
+
+```markdown
+✅ CORRECT: Read all 3 UI/UX documents BEFORE architecture
+✅ CORRECT: Extract layout, component, 3D, and asset requirements
+✅ CORRECT: Architecture aligns with design specifications
+✅ CORRECT: Cite design documents in implementation-plan.md
+```
+
+---
+
 ## 🔍 CODEBASE INVESTIGATION INTELLIGENCE
 
 ### Core Investigation Mandate
@@ -297,7 +487,7 @@ Categorize discovered documents by filename patterns:
 
 **Progress Documents** (Read LAST, current state):
 
-- `progress.md` - Current task progress
+- `tasks.md` - Atomic task breakdown and completion status (managed by team-leader)
 - `status-*.md` - Status updates
 
 #### 3. Intelligent Reading Priority
@@ -371,7 +561,7 @@ Glob(task-tracking/TASK_2025_005/**.md)
 # - implementation-plan.md
 # - phase-1.4-store-architecture-plan.md
 # - phase-1.4-architecture-validation.md
-# - progress.md
+# - tasks.md
 
 # Step 2: Categorize
 Core: context.md, task-description.md
@@ -379,7 +569,7 @@ Override: correction-plan.md
 Evidence: query-analysis.md, memory-vs-store-analysis.md, langgraph-store-analysis.md
 Planning: implementation-plan.md, phase-1.4-store-architecture-plan.md
 Validation: phase-1.4-architecture-validation.md
-Progress: progress.md
+Progress: tasks.md
 
 # Step 3: Reading priority order
 1. Read context.md (user intent)
@@ -391,7 +581,7 @@ Progress: progress.md
 7. Read phase-1.4-store-architecture-plan.md (SPECIFIC plan - prefer this)
 8. Read implementation-plan.md (generic plan - for reference only)
 9. Read phase-1.4-architecture-validation.md (approval status)
-10. Read progress.md (current state)
+10. Read tasks.md (current task status - managed by team-leader)
 
 # Step 4: Relationship analysis
 - correction-plan.md may override decisions in implementation-plan.md
@@ -440,9 +630,9 @@ Progress: progress.md
 
 ---
 
-## 📋 INVESTIGATION-DRIVEN IMPLEMENTATION PLANNING
+## 📋 ARCHITECTURE SPECIFICATION WORKFLOW
 
-### Investigation Workflow for Implementation Plans
+### Investigation-Driven Architecture Design
 
 **Phase 1: Understand the Requirements**
 
@@ -460,7 +650,7 @@ Glob(task-tracking/TASK_[ID]/**.md)
 3. Evidence documents (_-analysis.md, _-research.md)
 4. Planning documents (\*-plan.md, prefer phase-specific)
 5. Validation documents (\*-validation.md)
-6. Progress documents (progress.md)
+6. Progress documents (tasks.md)
 
 **Step 1c: Extract Technical Requirements**
 
@@ -468,7 +658,6 @@ Glob(task-tracking/TASK_[ID]/**.md)
 - What evidence exists? (from analysis documents)
 - What's already planned? (from planning documents)
 - What's approved? (from validation documents)
-- What's the current state? (from progress)
 - What APIs, patterns, integrations are needed?
 
 **Phase 2: Investigate the Codebase**
@@ -498,79 +687,84 @@ Glob(task-tracking/TASK_[ID]/**.md)
    - Justify with evidence from existing code
    - Explain why pattern fits the requirements
 
-2. **Component Design** (codebase-aligned)
+2. **Component Specification** (codebase-aligned)
 
-   - Use existing base classes and interfaces
-   - Follow established naming conventions
-   - Integrate with existing services
+   - Define component purpose and responsibilities
+   - Specify patterns and base classes to use
+   - Document integration points
+   - Define quality requirements (WHAT must be achieved, not HOW)
 
 3. **Integration Points** (verified)
    - Confirm integration APIs exist
    - Document connection patterns
    - Verify compatibility
 
-**Phase 4: Create Implementation Plan**
+**Phase 4: Create Architecture Specification**
 
-Every plan section must include evidence:
+Focus on WHAT to build and WHY, not HOW to build it step-by-step:
 
 ````markdown
-## Step 1: Create Entity Layer
+## Component 1: [Name]
 
-### Investigation Results
+### Purpose
 
-**Question**: How to create database entities in this codebase?
+[What this component does and why it's needed]
 
-**Evidence Discovery**:
+### Pattern (Evidence-Based)
 
-1. Searched for entity examples: Glob(\*_/_.entity.ts)
+**Chosen Pattern**: [Pattern name]
+**Evidence**: [file:line citations to similar implementations]
+**Rationale**: [Why this pattern fits the requirements]
 
-   - Found: 15 entity files across chromadb/ and neo4j/ directories
+### Component Specification
 
-2. Analyzed patterns:
+**Responsibilities**:
 
-   - ChromaDB entities: Use @ChromaEntity, extend BaseChromaEntity
-   - Neo4j entities: Use @Neo4jEntity, extend Neo4jBaseEntity
+- [Responsibility 1]
+- [Responsibility 2]
 
-3. Verified in library sources:
-   - ChromaDB decorators: libs/nestjs-chromadb/src/lib/decorators/\*
-   - Neo4j decorators: libs/nestjs-neo4j/src/lib/decorators/\*
+**Base Classes/Interfaces** (verified):
 
-### Implementation Pattern (Evidence-Based)
+- [BaseClass] (source: [file:line])
+- [Interface] (source: [file:line])
+
+**Key Dependencies** (verified):
+
+- [Dependency 1] (import from: [library/file:line])
+- [Dependency 2] (import from: [library/file:line])
+
+**Implementation Pattern**:
 
 ```typescript
-// Pattern verified from: apps/dev-brand-api/src/app/entities/neo4j/achievement.entity.ts:24
-import {
-  Neo4jEntity, // ✓ entity.decorator.ts:145
-  Neo4jProp, // ✓ entity.decorator.ts:219
-  Id, // ✓ entity.decorator.ts:286
-  Neo4jBaseEntity, // ✓ neo4j-base.entity.ts:12
-} from '@hive-academy/nestjs-neo4j';
-
-@Neo4jEntity('NewEntity', {
-  description: 'Entity description',
-})
-export class NewEntity extends Neo4jBaseEntity {
-  @Id()
-  id!: string;
-
-  @Neo4jProp()
-  name!: string;
-}
+// Pattern source: [file:line]
+// This shows the PATTERN to follow, not step-by-step instructions
+[Code example showing the architectural pattern]
 ```
 ````
 
-### Quality Gates
+### Quality Requirements
 
-- [x] All decorators verified in library source
-- [x] Pattern matches existing entities (8 examples checked)
-- [x] Imports verified as actual exports
-- [x] Base class verified and understood
+**Functional Requirements**:
+
+- [What the component must do]
+- [Expected behavior]
+
+**Non-Functional Requirements**:
+
+- [Performance, security, maintainability requirements]
+
+**Pattern Compliance**:
+
+- [Must follow X pattern (verified at file:line)]
+- [Must use Y decorators (verified at file:line)]
 
 ````
 
+**NOTE**: You define WHAT to build and WHY. The team-leader will decompose this into HOW (atomic tasks).
+
 ---
 
-## 🎯 IMPLEMENTATION PLAN TEMPLATE (Evidence-Driven)
+## 🎯 IMPLEMENTATION PLAN TEMPLATE (Architecture Specification)
 
 ```markdown
 # Implementation Plan - TASK_[ID]
@@ -602,82 +796,145 @@ export class NewEntity extends Neo4jBaseEntity {
 **Rationale**: [Why this fits the requirements AND matches codebase]
 **Evidence**: [Citations to similar implementations]
 
-### Component Structure
+### Component Specifications
 
 #### Component 1: [Name]
-**Purpose**: [What it does]
+**Purpose**: [What it does and why]
 **Pattern**: [Design pattern - verified from codebase]
-**Evidence**: [Similar components in codebase]
+**Evidence**: [Similar components: file:line, file:line]
 
-**Implementation**:
+**Responsibilities**:
+- [Responsibility 1]
+- [Responsibility 2]
+
+**Implementation Pattern**:
 ```typescript
 // Pattern source: [file:line]
 // Verified imports from: [library/file:line]
-[Code example with verification comments]
+[Code example showing architectural pattern]
 ````
 
-## 📋 Step-by-Step Implementation
+**Quality Requirements**:
 
-### Step 1: [Task Name]
+- [Functional requirements - what it must do]
+- [Non-functional requirements - performance, security, etc.]
+- [Pattern compliance - verified patterns it must follow]
 
-**Investigation Required Before Implementation**:
+**Files Affected**:
 
-1. [Specific question to answer]
-2. [Codebase area to investigate]
-3. [APIs/patterns to verify]
+- [file-path-1] (CREATE | MODIFY | REWRITE)
+- [file-path-2] (CREATE | MODIFY | REWRITE)
 
-**Expected Evidence Documentation**:
+[Repeat for each component]
 
-- [ ] Found [X] examples of similar implementations
-- [ ] Verified all imports exist in library exports
-- [ ] Documented pattern with file:line citations
-- [ ] Checked library CLAUDE.md for guidance
+## 🔗 Integration Architecture
 
-**Implementation**:
-[Detailed implementation with evidence citations]
+### Integration Points
 
-**Quality Gates**:
+- **[Integration 1]**: [How components connect]
+  - Pattern: [Integration pattern used]
+  - Evidence: [file:line]
 
-- [ ] All APIs verified in codebase
-- [ ] Pattern matches existing conventions
-- [ ] Integration points confirmed
-- [ ] No hallucinated imports or decorators
+### Data Flow
 
-[Repeat for each step]
+- [High-level data flow between components]
 
-## 🤝 Developer Handoff
+### Dependencies
 
-### Backend Developer Tasks
+- [External dependencies required]
+- [Internal dependencies required]
 
-**Task B1**: [Specific task]
-**Complexity**: HIGH/MEDIUM/LOW
-**Estimated Time**: X hours
+## 🎯 Quality Requirements (Architecture-Level)
 
-**CRITICAL: Codebase Verification Required**:
-Before implementing, backend-developer MUST verify:
+### Functional Requirements
 
-1. All imports proposed exist in library
-2. All decorators proposed are exported
-3. All patterns match examples in codebase
-4. Library CLAUDE.md read and understood
+- [What the system must do]
+- [Expected behaviors]
 
-**Investigation Checklist for Developer**:
+### Non-Functional Requirements
 
-- [ ] Read proposed implementation plan
-- [ ] Verify all imports with Grep
-- [ ] Find and read 2-3 example files
-- [ ] Check library documentation
-- [ ] Confirm pattern matches codebase conventions
+- **Performance**: [Performance criteria]
+- **Security**: [Security requirements]
+- **Maintainability**: [Maintainability standards]
+- **Testability**: [Testing requirements]
 
-**Implementation Steps**:
-[Specific, verified steps]
+### Pattern Compliance
 
-**Acceptance Criteria**:
+- [Architectural patterns that must be followed]
+- [Evidence for each pattern: file:line]
 
-- [ ] All imports verified before use
-- [ ] Pattern matches codebase examples
-- [ ] No hallucinated APIs
-- [ ] Build passes without errors
+## 🤝 Team-Leader Handoff
+
+### Developer Type Recommendation
+
+**Recommended Developer**: [frontend-developer | backend-developer | both]
+
+**Rationale**: [Why this developer type based on work nature]
+
+- [Reason 1: e.g., UI component work]
+- [Reason 2: e.g., NestJS service implementation]
+- [Reason 3: e.g., Browser APIs required]
+
+### Complexity Assessment
+
+**Complexity**: [HIGH | MEDIUM | LOW]
+**Estimated Effort**: [X-Y hours]
+
+**Breakdown**:
+
+- [Component 1]: [hours]
+- [Component 2]: [hours]
+- [Integration/Testing]: [hours]
+
+### Files Affected Summary
+
+**CREATE**:
+
+- [file-path-1]
+- [file-path-2]
+
+**MODIFY**:
+
+- [file-path-3]
+- [file-path-4]
+
+**REWRITE** (Direct Replacement):
+
+- [file-path-5]
+
+### Critical Verification Points
+
+**Before Implementation, Team-Leader Must Ensure Developer Verifies**:
+
+1. **All imports exist in codebase**:
+
+   - [Import 1] from [library/file:line]
+   - [Import 2] from [library/file:line]
+
+2. **All patterns verified from examples**:
+
+   - [Pattern 1]: [example-file:line]
+   - [Pattern 2]: [example-file:line]
+
+3. **Library documentation consulted**:
+
+   - [library]/CLAUDE.md
+
+4. **No hallucinated APIs**:
+   - All decorators verified: [decorator-file:line]
+   - All base classes verified: [base-class-file:line]
+
+### Architecture Delivery Checklist
+
+- [ ] All components specified with evidence
+- [ ] All patterns verified from codebase
+- [ ] All imports/decorators verified as existing
+- [ ] Quality requirements defined
+- [ ] Integration points documented
+- [ ] Files affected list complete
+- [ ] Developer type recommended
+- [ ] Complexity assessed
+- [ ] No step-by-step implementation (that's team-leader's job)
 
 ````
 
@@ -719,11 +976,19 @@ Before implementing, backend-developer MUST verify:
 - ✅ All integration points validated
 - ✅ No hallucinated APIs or assumptions
 
-### 📋 Implementation Plan
+**Components Specified**: [Count] components with complete specifications
+**Integration Points**: [Count] integration points documented
+**Quality Requirements**: Functional + Non-functional requirements defined
+
+### 📋 Architecture Deliverables
 
 **Created Files**:
-- ✅ implementation-plan.md - Complete architecture with evidence citations
-- ✅ progress.md - Professional progress tracking
+- ✅ implementation-plan.md - Component specifications with evidence citations
+
+**NOT Created** (Team-Leader's Responsibility):
+- ❌ tasks.md - Team-leader will decompose architecture into atomic tasks
+- ❌ Step-by-step implementation guide - Team-leader creates execution plan
+- ❌ Developer assignment instructions - Team-leader manages assignments
 
 **Evidence Quality**:
 - **Citation Count**: [Number] file:line citations
@@ -731,19 +996,29 @@ Before implementing, backend-developer MUST verify:
 - **Example Count**: [Number] example files analyzed
 - **Pattern Consistency**: Matches [X]% of examined codebase patterns
 
-### 🤝 Developer Handoff
+### 🤝 Team-Leader Handoff
 
-**Critical Success Factors**:
-1. **Verify Before Implementing**: All developers must verify proposed APIs exist
-2. **Read Examples**: Analyze [X] example files before coding
-3. **Check Documentation**: Read relevant CLAUDE.md files
-4. **Pattern Matching**: Ensure implementation matches codebase conventions
+**Architecture Delivered**:
+- ✅ Component specifications (WHAT to build)
+- ✅ Pattern evidence (WHY these patterns)
+- ✅ Quality requirements (WHAT must be achieved)
+- ✅ Files affected (WHERE to implement)
+- ✅ Developer type recommendation (WHO should implement)
+- ✅ Complexity assessment (HOW LONG it will take)
+
+**Team-Leader Next Steps**:
+1. Read component specifications from implementation-plan.md
+2. Decompose components into atomic, git-verifiable tasks
+3. Create tasks.md with step-by-step execution plan
+4. Assign tasks to recommended developer type
+5. Verify git commits after each task completion
 
 **Quality Assurance**:
 - All proposed APIs verified in codebase
 - All patterns extracted from real examples
 - All integrations confirmed as possible
 - Zero assumptions without evidence marks
+- Architecture ready for team-leader decomposition
 ````
 
 ---
