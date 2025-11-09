@@ -15,10 +15,8 @@ import {
   MessageId,
   ChatSendMessagePayload,
   ChatNewSessionPayload,
-  ChatSessionSwitchedPayload,
-  ChatSessionCreatedPayload,
-  ChatHistoryLoadedPayload,
   InitialDataPayload,
+  CHAT_MESSAGE_TYPES,
 } from '@ptah-extension/shared';
 import { MessageProcessingService } from './message-processing.service';
 import { ChatValidationService } from './chat-validation.service';
@@ -272,7 +270,7 @@ export class ChatService {
     // TODO: Subscribe to StreamHandlingService.messageStream$ when migrated
     // For now, handle direct message chunks
     this.vscode
-      .onMessageType('chat:messageChunk')
+      .onMessageType(CHAT_MESSAGE_TYPES.MESSAGE_CHUNK)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((payload) => {
         this._streamState.update((state) => ({
@@ -285,93 +283,146 @@ export class ChatService {
         // TODO: Use StreamHandlingService processing when migrated
       });
 
-    // Handle session switch response (backend sends :response, not event notifications)
+    // Listen for session created event (backend publishes chat:sessionCreated)
     this.vscode
-      .onMessageType('chat:switchSession:response')
+      .onMessageType(CHAT_MESSAGE_TYPES.SESSION_CREATED)
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((response) => {
-        // Mark as connected when we receive responses
+      .subscribe((payload) => {
+        // Mark as connected when we receive events
         this._streamState.update((state) => ({ ...state, isConnected: true }));
 
-        // Extract session from MessageResponse wrapper
-        if (response.success && response.data) {
-          const result = response.data as { session?: unknown };
-          const sessionData = result.session;
-          if (
-            sessionData &&
-            this.validator.validateSession(sessionData).isValid
-          ) {
-            // Type guard passed, safe to cast
-            this.chatState.setCurrentSession(sessionData as never);
-            this.logger.info('Session switched successfully', 'ChatService');
-          }
-        } else if (response.error) {
-          this.logger.error(
-            'Failed to switch session',
-            'ChatService',
-            response.error
-          );
+        // Extract session from event payload
+        const sessionData = payload.session;
+        if (
+          sessionData &&
+          this.validator.validateSession(sessionData).isValid
+        ) {
+          // Type guard passed, safe to cast
+          this.chatState.setCurrentSession(sessionData as never);
+          this.logger.info('Session created event received', 'ChatService');
         }
       });
 
-    // Handle new session response (backend sends :response, not event notifications)
+    // Listen for session switched event (backend publishes chat:sessionSwitched)
     this.vscode
-      .onMessageType('chat:newSession:response')
+      .onMessageType(CHAT_MESSAGE_TYPES.SESSION_SWITCHED)
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((response) => {
-        // Extract session from MessageResponse wrapper
-        if (response.success && response.data) {
-          const result = response.data as { session?: unknown };
-          const sessionData = result.session;
-          if (
-            sessionData &&
-            this.validator.validateSession(sessionData).isValid
-          ) {
-            // Type guard passed, safe to cast
-            this.chatState.setCurrentSession(sessionData as never);
-            this.logger.info('New session created successfully', 'ChatService');
+      .subscribe((payload) => {
+        // Mark as connected when we receive events
+        this._streamState.update((state) => ({ ...state, isConnected: true }));
+
+        // Extract session from event payload
+        const sessionData = payload.session;
+        if (
+          sessionData &&
+          this.validator.validateSession(sessionData).isValid
+        ) {
+          // Type guard passed, safe to cast
+          this.chatState.setCurrentSession(sessionData as never);
+          this.logger.info('Session switched event received', 'ChatService');
+
+          // Request messages for switched session
+          this.vscode.postStrictMessage(CHAT_MESSAGE_TYPES.GET_HISTORY, {
+            sessionId: sessionData.id,
+          });
+        }
+      });
+
+    // Listen for message added event (backend publishes chat:messageAdded)
+    this.vscode
+      .onMessageType(CHAT_MESSAGE_TYPES.MESSAGE_ADDED)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => {
+        // Extract message from event payload
+        const message = payload.message;
+        if (message && this.validator.validateChatMessage(message).isValid) {
+          // Add message to state
+          const currentMessages = this.chatState.messages();
+          this.chatState.setMessages([...currentMessages, message as never]);
+
+          // Transform to ProcessedClaudeMessage for UI display
+          const processedMessage =
+            this.messageProcessor.convertToProcessedMessage(message);
+          const currentClaudeMessages = this.chatState.claudeMessages();
+          this.chatState.setClaudeMessages([
+            ...currentClaudeMessages,
+            processedMessage,
+          ]);
+
+          this.logger.info('Message added event received', 'ChatService');
+        }
+      });
+
+    // Listen for token usage updates (backend publishes chat:tokenUsageUpdated)
+    this.vscode
+      .onMessageType(CHAT_MESSAGE_TYPES.TOKEN_USAGE_UPDATED)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => {
+        // Extract sessionId and token usage from event payload
+        const { sessionId, tokenUsage } = payload;
+        if (tokenUsage) {
+          // Update current session token usage if it matches
+          const currentSession = this.chatState.currentSession();
+          if (currentSession && currentSession.id === sessionId) {
+            this.chatState.setCurrentSession({
+              ...currentSession,
+              tokenUsage,
+            } as never);
+            this.logger.info(
+              'Token usage updated event received',
+              'ChatService'
+            );
           }
-        } else if (response.error) {
-          this.logger.error(
-            'Failed to create session',
-            'ChatService',
-            response.error
+        }
+      });
+
+    // Listen for sessions list updates (backend publishes chat:sessionsUpdated)
+    this.vscode
+      .onMessageType(CHAT_MESSAGE_TYPES.SESSIONS_UPDATED)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => {
+        // Extract sessions array from event payload
+        const sessions = payload.sessions;
+        if (Array.isArray(sessions)) {
+          const validSessions = sessions.filter(
+            (session) => this.validator.validateSession(session).isValid
+          ) as never[]; // Type guard passed, safe to cast
+          // TODO: Update sessions list in state (currently no sessions state)
+          this.logger.info(
+            `Sessions list updated: ${validSessions.length} sessions`,
+            'ChatService'
           );
         }
       });
 
-    // Handle get history response (backend sends :response, not event notifications)
+    // Listen for history response (backend publishes chat:getHistory:response)
     this.vscode
       .onMessageType('chat:getHistory:response')
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((response) => {
         if (response.success && response.data) {
-          const result = response.data as { messages?: unknown[] };
-          const messages = result.messages;
+          const messages = (response.data as { messages?: StrictChatMessage[] })
+            .messages;
           if (Array.isArray(messages)) {
             const validMessages = messages.filter(
-              (msg) => this.validator.validateStrictMessage(msg).isValid
-            ) as never[]; // Type guard passed, safe to cast
+              (msg) => this.validator.validateChatMessage(msg).isValid
+            );
             this.chatState.setMessages(validMessages);
-            this.logger.info('History loaded successfully', 'ChatService');
+            this.logger.info(
+              `Loaded ${validMessages.length} messages from history response`,
+              'ChatService'
+            );
 
-            // CRITICAL FIX: Transform StrictChatMessage[] to ProcessedClaudeMessage[] for UI display
-            // Same fix as initialData handler - UI displays claudeMessages(), not messages()
+            // Transform to ProcessedClaudeMessage for UI display
             const processedMessages = validMessages.map((msg) =>
               this.messageProcessor.convertToProcessedMessage(msg)
             );
             this.chatState.setClaudeMessages(processedMessages);
             this.logger.info(
-              `Transformed ${processedMessages.length} history messages to ProcessedClaudeMessage for UI`,
+              `Transformed ${processedMessages.length} messages to ProcessedClaudeMessage for UI`,
               'ChatService'
             );
           }
-        } else if (response.error) {
-          this.logger.error(
-            'Failed to load history',
-            'ChatService',
-            response.error
-          );
         }
       });
 
@@ -382,6 +433,16 @@ export class ChatService {
       .subscribe((payload: InitialDataPayload) => {
         // Mark as connected when we receive initial data
         this._streamState.update((state) => ({ ...state, isConnected: true }));
+
+        console.log('=== ChatService: Received initialData ===', {
+          success: payload.success,
+          hasData: !!payload.data,
+          hasCurrentSession: !!payload.data?.currentSession,
+          sessionId: payload.data?.currentSession?.id,
+          sessionName: payload.data?.currentSession?.name,
+          messagesCount: payload.data?.currentSession?.messages?.length || 0,
+          fullPayload: payload,
+        });
 
         // Backend sends payload.data.sessions and payload.data.currentSession
         // (see AngularWebviewProvider.sendInitialData line 101-144)
@@ -397,9 +458,39 @@ export class ChatService {
 
           // Load messages for current session if available
           if (payload.data.currentSession?.messages) {
-            const validMessages = payload.data.currentSession.messages.filter(
-              (msg) => this.validator.validateStrictMessage(msg).isValid
+            console.log('=== ChatService: Messages array exists ===', {
+              messagesLength: payload.data.currentSession.messages.length,
+              firstMessage: payload.data.currentSession.messages[0],
+            });
+
+            // Validate each message and log results
+            const validationResults = payload.data.currentSession.messages.map(
+              (msg) => ({
+                msg,
+                validation: this.validator.validateChatMessage(msg),
+              })
             );
+
+            console.log('=== ChatService: Validation Results ===', {
+              total: validationResults.length,
+              valid: validationResults.filter((r) => r.validation.isValid)
+                .length,
+              invalid: validationResults.filter((r) => !r.validation.isValid)
+                .length,
+              firstInvalid: validationResults.find(
+                (r) => !r.validation.isValid
+              ),
+            });
+
+            const validMessages = payload.data.currentSession.messages.filter(
+              (msg) => this.validator.validateChatMessage(msg).isValid
+            );
+
+            console.log('=== ChatService: After filtering ===', {
+              validMessagesCount: validMessages.length,
+              validMessages: validMessages,
+            });
+
             this.chatState.setMessages(validMessages);
             this.logger.info(
               `Loaded ${validMessages.length} messages from initial data`,
@@ -416,6 +507,11 @@ export class ChatService {
               `Transformed ${processedMessages.length} messages to ProcessedClaudeMessage for UI`,
               'ChatService'
             );
+          } else {
+            console.warn('=== ChatService: No messages in currentSession ===', {
+              hasCurrentSession: !!payload.data.currentSession,
+              currentSession: payload.data.currentSession,
+            });
           }
         }
       });

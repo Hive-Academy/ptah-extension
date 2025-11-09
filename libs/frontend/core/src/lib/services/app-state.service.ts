@@ -6,7 +6,8 @@ export type ViewType =
   | 'chat'
   | 'command-builder'
   | 'analytics'
-  | 'context-tree';
+  | 'context-tree'
+  | 'settings';
 
 export interface AppState {
   currentView: ViewType;

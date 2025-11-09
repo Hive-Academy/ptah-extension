@@ -190,37 +190,43 @@ export class VSCodeService {
     );
 
     window.addEventListener('message', (event: MessageEvent) => {
-      console.log('=== VSCodeService: Raw message event received ===', {
-        origin: event.origin,
-        dataType: typeof event.data,
-        data: event.data,
-      });
-
-      const message = event.data as StrictMessage;
-      if (message && message.type) {
-        console.log(
-          `=== VSCodeService: Processing message type: ${message.type} ===`
-        );
-
-        // Emit to RxJS subject for subscribers
-        this.messageSubject.next(message);
-        console.log(`   - Emitted to RxJS subject`);
-
-        // Update signal (Zone.js will automatically detect this and trigger change detection)
-        this._lastMessageTime.set(Date.now());
-        console.log(
-          `   - Updated _lastMessageTime signal (Zone.js handles change detection)`
-        );
-
-        console.log(
-          `=== VSCodeService: Message processed successfully: ${message.type} ===`
-        );
-      } else {
-        console.warn(
-          '=== VSCodeService: Invalid message received ===',
-          event.data
-        );
+      // FILTER OUT Angular DevTools messages (memory leak prevention)
+      const data = event.data;
+      if (
+        data &&
+        typeof data === 'object' &&
+        ('__NG_DEVTOOLS_EVENT__' in data ||
+          '__ignore_ng_zone__' in data ||
+          data.source === 'angular-devtools-detect-angular' ||
+          data.topic === 'detectAngular' ||
+          // Additional DevTools detection patterns
+          ('isAngular' in data && 'isAngularDevTools' in data))
+      ) {
+        // Silently ignore Angular DevTools messages
+        return;
       }
+
+      // Validate message structure (must have 'type' property)
+      const message = event.data as StrictMessage;
+      if (!message || !message.type || typeof message.type !== 'string') {
+        // Silently ignore invalid messages (likely more DevTools spam)
+        // Only log in development mode for debugging
+        if (console.debug) {
+          console.debug(
+            '[VSCodeService] Ignoring invalid message:',
+            event.data
+          );
+        }
+        return;
+      }
+
+      console.log(`[VSCodeService] Message received: ${message.type}`);
+
+      // Emit to RxJS subject for subscribers
+      this.messageSubject.next(message);
+
+      // Update signal (Zone.js will automatically detect this and trigger change detection)
+      this._lastMessageTime.set(Date.now());
     });
 
     console.log('=== VSCodeService: Message listener setup complete ===');

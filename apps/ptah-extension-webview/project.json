@@ -44,7 +44,13 @@
               "minify": true,
               "inlineCritical": false
             }
-          }
+          },
+          "fileReplacements": [
+            {
+              "replace": "apps/ptah-extension-webview/src/environments/environment.ts",
+              "with": "apps/ptah-extension-webview/src/environments/environment.production.ts"
+            }
+          ]
         },
         "development": {
           "optimization": false,

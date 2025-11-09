@@ -7,6 +7,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
+  CHAT_MESSAGE_TYPES,
   ChatSessionCreatedPayload,
   ChatSessionsUpdatedPayload,
   ChatSessionSwitchedPayload,
@@ -248,7 +249,7 @@ export class ChatStateManagerService {
 
     // Handle session updates
     this.vscode
-      .onMessageType('chat:sessionsUpdated')
+      .onMessageType(CHAT_MESSAGE_TYPES.SESSIONS_UPDATED)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((payload: ChatSessionsUpdatedPayload) => {
         try {
@@ -287,7 +288,7 @@ export class ChatStateManagerService {
 
     // Handle session creation
     this.vscode
-      .onMessageType('chat:sessionCreated')
+      .onMessageType(CHAT_MESSAGE_TYPES.SESSION_CREATED)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((payload: ChatSessionCreatedPayload) => {
         try {
@@ -309,7 +310,7 @@ export class ChatStateManagerService {
 
     // Handle session switching
     this.vscode
-      .onMessageType('chat:sessionSwitched')
+      .onMessageType(CHAT_MESSAGE_TYPES.SESSION_SWITCHED)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((payload: ChatSessionSwitchedPayload) => {
         // Session switching handled by AppStateManager

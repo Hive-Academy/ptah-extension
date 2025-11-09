@@ -1,907 +1,792 @@
-localProcessExtensionHost.ts:350 [Extension Host] STOPPED on first line for debugging on port 53214
-F @ localProcessExtensionHost.ts:350
-log.ts:440 INFO Loading development extension at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode
-languagesAssociations.ts:73 Overwriting extension <<copilot-instructions.md>> to now point to mime <<text/x-instructions>>
-(anonymous) @ languagesAssociations.ts:73
-languagesAssociations.ts:73 Overwriting extension <<.editorconfig>> to now point to mime <<text/x-editorconfig>>
-(anonymous) @ languagesAssociations.ts:73
-languagesAssociations.ts:73 Overwriting extension <<.hbs>> to now point to mime <<text/x-handlebars>>
-(anonymous) @ languagesAssociations.ts:73
-languagesAssociations.ts:73 Overwriting extension <<.handlebars>> to now point to mime <<text/x-handlebars>>
-(anonymous) @ languagesAssociations.ts:73
-languagesAssociations.ts:77 Overwriting filename <<.gitignore>> to now point to mime <<text/x-ignore>>
-(anonymous) @ languagesAssociations.ts:77
-languagesAssociations.ts:77 Overwriting filename <<.env>> to now point to mime <<text/x-dotenv>>
-(anonymous) @ languagesAssociations.ts:77
-languagesAssociations.ts:81 Overwriting filepattern <<.env.\*>> to now point to mime <<text/x-dotenv>>
-(anonymous) @ languagesAssociations.ts:81
-webviewElement.ts:489 An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing.
-mountTo @ webviewElement.ts:489
-log.ts:440 INFO Started local extension host with pid 31844.
-marketplace.visualstudio.com/\_apis/public/gallery/vscode/ptah-extensions/ptah-extension-vscode/latest:1 Failed to load resource: the server responded with a status of 404 ()
-log.ts:440 INFO MCP Registry configured: <https://api.mcp.github.com/2025-09-15>
-localProcessExtensionHost.ts:280 Extension Host
-localProcessExtensionHost.ts:281 Debugger attached.
-log.ts:440 INFO [perf] Render performance baseline is 82ms
-console.ts:137 [Extension Host] Loaded translations for languages: ca, de, en, es, fr, hi, id, it, ja, ko, nl, pl, pt-BR, ru, tr, vi, zh-CN, zh-TW (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [dotenvx@1.44.2] injecting env (1) from c:\Users\abdal\.vscode\extensions\rooveterinaryinc.roo-cline-3.28.17\.env (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-log.ts:460 ERR [Extension Host] (node:31844) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
-(Use `Code --trace-deprecation ...` to show where the warning was created)
-error @ log.ts:460
-console.ts:137 [Extension Host] (node:31844) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
-(Use `Code --trace-deprecation ...` to show where the warning was created) (at file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117)
-gbs @ console.ts:137
-console.ts:137 [Extension Host] Created lock file at C:\Users\abdal\.claude\ide\58139.lock (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] Set CLAUDE_CODE_SSE_PORT=58139 in terminal environment (in-memory) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] Set ENABLE_IDE_INTEGRATION=true in terminal environment (in-memory) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Activating Ptah extension... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] Loaded 15 sessions from storage (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Loaded context state: 5 included, 0 excluded (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Loaded context state: 5 included, 0 excluded (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] ContextManager initialized with workspace-intelligence integration (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Analytics metrics tracking initialized (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] MessageHandlerService: Initializing EventBus subscriptions (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] MessageHandlerService: Initialized 29 EventBus subscriptions (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] MessageHandlerService initialized and subscribed to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Initializing Ptah extension... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Initializing services... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Loaded context state: 5 included, 0 excluded (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Analytics metrics tracking initialized (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Development file watcher initialized for hot reload (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] AngularWebviewProvider initialized with EventBus architecture and WebviewManager (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Services initialized successfully (DI-based) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Initializing event forwarding (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Initialization complete (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] WebviewMessageBridge initialized - responses will now reach webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Ptah extension initialized successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(0) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] No active webviews to forward event 'analytics:trackEvent:response' to (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-gbs @ console.ts:137
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(0) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] No active webviews to forward event 'analytics:trackEvent:response' to (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-gbs @ console.ts:137
-console.ts:137 [Extension Host] [INFO] ConfigurationProvider adapter registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] AnalyticsDataCollector adapter registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Registering extension components... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Registering extension commands... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Registered 11 commands (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Registering webview providers... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Webview providers registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Setting up event handlers... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Event handlers registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] All components registered successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Extension components registered successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(0) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] No active webviews to forward event 'analytics:trackEvent:response' to (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-gbs @ console.ts:137
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(0) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] No active webviews to forward event 'analytics:trackEvent:response' to (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-gbs @ console.ts:137
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(0) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] No active webviews to forward event 'analytics:trackEvent:response' to (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-gbs @ console.ts:137
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(0) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] No active webviews to forward event 'analytics:trackEvent:response' to (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-gbs @ console.ts:137
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(0) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] No active webviews to forward event 'analytics:trackEvent:response' to (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-gbs @ console.ts:137
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(0) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] No active webviews to forward event 'analytics:trackEvent:response' to (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-gbs @ console.ts:137
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(0) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] No active webviews to forward event 'analytics:trackEvent:response' to (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-gbs @ console.ts:137
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(0) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] No active webviews to forward event 'analytics:trackEvent:response' to (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-gbs @ console.ts:137
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(0) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] No active webviews to forward event 'analytics:trackEvent:response' to (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-gbs @ console.ts:137
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(0) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] No active webviews to forward event 'analytics:trackEvent:response' to (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-gbs @ console.ts:137
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(0) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] No active webviews to forward event 'analytics:trackEvent:response' to (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-gbs @ console.ts:137
-console.ts:137 [Extension Host] [INFO] Ptah extension activated successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(0) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] No active webviews to forward event 'analytics:trackEvent:response' to (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-gbs @ console.ts:137
-log.ts:440 INFO Settings Sync: Account status changed from uninitialized to available
-console.ts:137 [Extension Host] [WebviewManager] Registering WebviewView: ptah.main (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] WebviewView registered successfully: ptah.main (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Webview registered with WebviewManager as "ptah.main" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewHtmlGenerator] Transforming href="favicon.ico" -> "<https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/favicon.ico>" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewHtmlGenerator] Transforming href="styles.css" -> "<https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/styles.css>" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewHtmlGenerator] Transforming src="polyfills.js" -> "<https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/polyfills.js>" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewHtmlGenerator] Transforming src="main.js" -> "<https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/main.js>" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewHtmlGenerator] Base URI set to: <https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser> (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewHtmlGenerator] All assets transformed to webview URIs (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Initial data sent to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-VM7:38 Ptah WebView: VS Code API initialized Object
-index.html?id=9102b593-7b0d-455d-b29e-657eb62a6e38&parentId=15&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:4 ===================================================
-index.html?id=9102b593-7b0d-455d-b29e-657eb62a6e38&parentId=15&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:5 PTAH STARTUP SCRIPT EXECUTING
-index.html?id=9102b593-7b0d-455d-b29e-657eb62a6e38&parentId=15&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:6 window.vscode exists: true
-index.html?id=9102b593-7b0d-455d-b29e-657eb62a6e38&parentId=15&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:7 window.ptahConfig exists: true
-index.html?id=9102b593-7b0d-455d-b29e-657eb62a6e38&parentId=15&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:8 ===================================================
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:46 === PTAH WEBVIEW BOOTSTRAP STARTING ===
-main.js:46 Window globals: Object
-main.js:4 === VSCodeService Constructor Called ===
-main.js:4 VSCodeService: Initialized with VS Code config Object
-main.js:4 === VSCodeService: Setting up message listener ===
-main.js:4 === VSCodeService: Message listener setup complete ===
-main.js:4 === VSCodeService Initialization Complete === Object
-main.js:4 WebviewNavigationService: Initialized with pure signal-based navigation
-main.js:46 Ptah App ngOnInit - starting initialization...
-main.js:4 Webview ready with current view: chat
-main.js:46 Ptah App - ViewManager initialized successfully
-main.js:46 Setting up initial view with pure signal navigation
-main.js:4 WebviewNavigationService: Already on requested view: chat
-main.js:46 === PTAH WEBVIEW BOOTSTRAP COMPLETE ===
-index.html?id=9102b593-7b0d-455d-b29e-657eb62a6e38&parentId=15&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:13 Sending webview-ready message to extension...
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated \_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: initialData ===
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated \_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: initialData ===
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Received webview message: view:changed Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Publishing message to EventBus: view:changed (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Message view:changed published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated \_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated \_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Received webview message: webview-ready Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Webview ready signal received (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Initial data already sent, skipping redundant call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated \_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated \_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Received webview message: webview-ready Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-console.ts:137 [Extension Host] [INFO] Webview ready signal received (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [INFO] Initial data already sent, skipping redundant call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 - Updated \_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated_lastMessageTime signal - Called appRef.tick() for change detection
-=== VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-[Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-[Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-[Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-[Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-[Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-[Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-=== VSCodeService: Raw message event received === Object
-=== VSCodeService: Processing message type: analytics:trackEvent:response ===
-Unhandled message type: analytics:trackEvent:response Object - Emitted to RxJS subject - Updated \_lastMessageTime signal - Called appRef.tick() for change detection
-=== VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-[Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-[Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-[Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-[Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-[Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-=== VSCodeService: Raw message event received === Object
-=== VSCodeService: Processing message type: analytics:trackEvent:response ===
-Unhandled message type: analytics:trackEvent:response Object - Emitted to RxJS subject - Updated_lastMessageTime signal - Called appRef.tick() for change detection
-=== VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-[Extension Host] [INFO] Received webview message: context:getFiles Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-[Extension Host] [INFO] Publishing message to EventBus: context:getFiles (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-[Extension Host] [INFO] Message context:getFiles published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-[Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-[Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-[Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-[Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-[Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-[Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated \_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'context:getFiles:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated \_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'context:getFiles:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'context:getFiles:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: context:getFiles:response ===
-main.js:4 Unhandled message type: context:getFiles:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: context:getFiles:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated \_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [INFO] Received webview message: providers:getAvailable Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Publishing message to EventBus: providers:getAvailable (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Message providers:getAvailable published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated \_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'providers:getAvailable:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'providers:getAvailable:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 - Updated_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'providers:getAvailable:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: providers:getAvailable:response ===
-main.js:4 Unhandled message type: providers:getAvailable:response Object
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated \_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: providers:getAvailable:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [INFO] Received webview message: providers:getCurrent Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Publishing message to EventBus: providers:getCurrent (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Message providers:getCurrent published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated \_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'providers:getCurrent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated \_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'providers:getCurrent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'providers:getCurrent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Processing message type: providers:getCurrent:response ===
-main.js:4 Unhandled message type: providers:getCurrent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: providers:getCurrent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated \_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [INFO] Received webview message: providers:getAllHealth Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated \_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'providers:getAllHealth:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'providers:getAllHealth:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'providers:getAllHealth:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: providers:getAllHealth:response ===
-main.js:4 Unhandled message type: providers:getAllHealth:response Object
-main.js:4 - Emitted to RxJS subject
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 - Updated \_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: providers:getAllHealth:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [INFO] Received webview message: requestInitialData Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Angular requested initial data (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Initial data already sent, skipping redundant call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated \_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated \_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Objectpayload: data: event: "output:messageWritten"success: truetracked: true[[Prototype]]: Objectmetadata: source: "extension"timestamp: 1760732325066version: "1.0.0"[[Prototype]]: ObjectrequestId: "ac4a595b-9534-4bfb-afde-c7fb6f119010"success: true[[Prototype]]: Objecttype: "analytics:trackEvent:response"[[Prototype]]: Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [INFO] Received webview message: webview-ready Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Webview ready signal received (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [INFO] Initial data already sent, skipping redundant call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated \_lastMessageTime signal
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Objectpayload: data: event: "output:messageWritten"success: truetracked: true[[Prototype]]: Objectmetadata: {timestamp: 1760732325083, source: 'extension', version: '1.0.0'}requestId: "4dc78085-e7e8-4c74-bd86-9fa0125fb9a0"success: true[[Prototype]]: Objecttype: "analytics:trackEvent:response"[[Prototype]]: Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1)0: "ptah.main"length: 1[[Prototype]]: Array(0) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] WebviewMessageBridge: Forwarding event 'analytics:trackEvent:response' to webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-console.ts:137 [Extension Host] [WebviewMessageBridge] forwardToWebview() called for event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated \_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-console.ts:137 [Extension Host] [WebviewMessageBridge] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewMessageBridge] Forwarding to 1 webview(s) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Calling webviewManager.sendMessage('ptah.main', 'analytics:trackEvent:response', ...) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-main.js:4 === VSCodeService: Raw message event received === Object
-main.js:4 === VSCodeService: Processing message type: analytics:trackEvent:response ===
-main.js:4 Unhandled message type: analytics:trackEvent:response Object
-main.js:4 - Emitted to RxJS subject
-main.js:4 - Updated_lastMessageTime signal
-main.js:4 - Called appRef.tick() for change detection
-main.js:4 === VSCodeService: Message processed successfully: analytics:trackEvent:response ===
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'context:getFiles:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'context:getFiles:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'providers:getAvailable:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'providers:getAvailable:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'providers:getCurrent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'providers:getCurrent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'providers:getAllHealth:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'providers:getAllHealth:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Successfully forwarded 'analytics:trackEvent:response' to 'ptah.main' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [WebviewMessageBridge] Finished forwarding event 'analytics:trackEvent:response' (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] CloudService not ready, deferring cloud profile sync (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [auth] Using WebAuthService (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] [auth] changeState: initializing -> logged-out (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] Workspace analyzed: Ptah (node) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-console.ts:137 [Extension Host] Workspace analyzed: Ptah (node) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117))
-log.ts:440 INFO Extension host (LocalProcess pid: 31844) is unresponsive.
-localProcessExtensionHost.ts:280 Extension Host
-localProcessExtensionHost.ts:281 Debugger attached.
-log.ts:440 INFO UNRESPONSIVE extension host: starting to profile NOW
-log.ts:460 ERR [Extension Host] (node:31844) ExperimentalWarning: SQLite is an experimental feature and might change at any time
-error @ log.ts:460
-console.ts:137 [Extension Host] (node:31844) ExperimentalWarning: SQLite is an experimental feature and might change at any time (at file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32117)
-gbs @ console.ts:137
-log.ts:450 WARN UNRESPONSIVE extension host: 'github.copilot' took 59.39149400922482% of 3126.275ms, saved PROFILE here: 'file:///c%3A/Users/abdal/AppData/Local/Temp/exthost-c0ff3f.cpuprofile'
-warn @ log.ts:450
-log.ts:440 INFO Extension host (LocalProcess pid: 31844) is responsive.
-log.ts:460 ERR chatParticipant must be declared in package.json: claude-code
-error @ log.ts:460
-webviewCommands.ts:32 Using standard dev tools to debug iframe based webview
+main.ts:35 🎭 MOCK ENVIRONMENT INITIALIZATION
+main.ts:36 =================================================
+main.ts:37 Running in browser development mode
+main.ts:38 Mock API will simulate VS Code extension behavior
+main.ts:39 =================================================
+content_script_bundle.js:1 Attempting initialization Sun Nov 09 2025 00:05:46 GMT+0200 (Eastern European Standard Time)
+mock-vscode-api.ts:51 [Mock VSCode API] Initialized with: {sessions: 3, providers: 2, currentSession: 'session-current'}
+main.ts:58 ✅ Mock environment initialized successfully
+main.ts:59 =================================================
+main.ts:65 === PTAH WEBVIEW BOOTSTRAP STARTING ===
+main.ts:66 Window globals: {hasVscode: true, hasPtahConfig: true, mode: 'Browser (Mock API)'}
+vscode.service.ts:124 === VSCodeService Constructor Called ===
+vscode.service.ts:159 VSCodeService: Initialized with VS Code config {isVSCode: false, theme: 'dark', workspaceRoot: '/mock/workspace', workspaceName: 'mock-project', extensionUri: '', …}
+vscode.service.ts:188 === VSCodeService: Setting up message listener (Zone.js mode) ===
+vscode.service.ts:226 === VSCodeService: Message listener setup complete ===
+vscode.service.ts:128 === VSCodeService Initialization Complete === {isConnected: true, hasVscode: true, config: {…}}
+webview-navigation.service.ts:84 WebviewNavigationService: Initialized with pure signal-based navigation
+app.ts:66 =================================================
+app.ts:67 PTAH APP NGONINIT STARTING
+app.ts:68 =================================================
+app.ts:72 Step 1: Initializing ViewManager...
+mock-vscode-api.ts:63 [Mock VSCode API] Received message: view:changed {view: 'chat'}
+mock-vscode-api.ts:326 [Mock VSCode] View changed to: chat
+mock-vscode-api.ts:63 [Mock VSCode API] Received message: webview-ready {}
+message-handler.service.ts:218 Webview ready with current view: chat
+debug_node.mjs:17990 Angular is running in development mode.
+app.ts:74 Step 1: COMPLETE - ViewManager initialized
+app.ts:76 Step 2: Notifying VS Code that webview is ready...
+mock-vscode-api.ts:63 [Mock VSCode API] Received message: webview-ready {}
+app.ts:78 Step 2: COMPLETE - VS Code notified
+app.ts:80 Step 3: Initializing ProviderService...
+provider.service.ts:155 [ProviderService] Initializing...
+app.ts:103 =================================================
+(anonymous) @ app.ts:103
+fulfilled @ chunk-3IG7FZWI.js:52
+invoke @ zone.js:398
+onInvoke @ debug_node.mjs:16672
+invoke @ zone.js:397
+run @ zone.js:113
+(anonymous) @ zone.js:2537
+invokeTask @ zone.js:431
+(anonymous) @ debug_node.mjs:16336
+onInvokeTask @ debug_node.mjs:16336
+invokeTask @ zone.js:430
+onInvokeTask @ debug_node.mjs:16659
+invokeTask @ zone.js:430
+runTask @ zone.js:161
+drainMicroTaskQueue @ zone.js:612
+Zone - Promise.then
+onScheduleTask @ debug_node.mjs:16330
+scheduleTask @ zone.js:411
+onScheduleTask @ zone.js:273
+scheduleTask @ zone.js:411
+scheduleTask @ zone.js:207
+scheduleMicroTask @ zone.js:227
+scheduleResolveOrReject @ zone.js:2527
+then @ zone.js:2732
+step @ chunk-3IG7FZWI.js:64
+(anonymous) @ chunk-3IG7FZWI.js:65
+ZoneAwarePromise @ zone.js:2701
+**async @ chunk-3IG7FZWI.js:49
+ngOnInit @ app.ts:65
+callHookInternal @ debug_node.mjs:860
+callHook @ debug_node.mjs:887
+callHooks @ debug_node.mjs:841
+executeInitAndCheckHooks @ debug_node.mjs:791
+refreshView @ debug_node.mjs:8980
+detectChangesInView @ debug_node.mjs:9185
+detectChangesInViewWhileDirty @ debug_node.mjs:8874
+detectChangesInternal @ debug_node.mjs:8862
+synchronizeOnce @ debug_node.mjs:20322
+synchronize @ debug_node.mjs:20281
+tickImpl @ debug_node.mjs:20254
+\_tick @ debug_node.mjs:20243
+tick @ debug_node.mjs:20231
+\_loadComponent @ debug_node.mjs:20401
+(anonymous) @ debug_node.mjs:20208
+invoke @ zone.js:398
+onInvoke @ debug_node.mjs:16672
+invoke @ zone.js:397
+run @ zone.js:113
+run @ debug_node.mjs:16518
+bootstrapImpl @ debug_node.mjs:20168
+bootstrap @ debug_node.mjs:20164
+(anonymous) @ core.mjs:970
+invoke @ zone.js:398
+onInvoke @ debug_node.mjs:16672
+invoke @ zone.js:397
+run @ zone.js:113
+(anonymous) @ zone.js:2537
+invokeTask @ zone.js:431
+(anonymous) @ debug_node.mjs:16336
+onInvokeTask @ debug_node.mjs:16336
+invokeTask @ zone.js:430
+onInvokeTask @ debug_node.mjs:16659
+invokeTask @ zone.js:430
+runTask @ zone.js:161
+drainMicroTaskQueue @ zone.js:612
+Zone - Promise.then
+onScheduleTask @ debug_node.mjs:16330
+scheduleTask @ zone.js:411
+onScheduleTask @ zone.js:273
+scheduleTask @ zone.js:411
+scheduleTask @ zone.js:207
+scheduleMicroTask @ zone.js:227
+scheduleResolveOrReject @ zone.js:2527
+then @ zone.js:2732
+(anonymous) @ core.mjs:951
+\_callAndReportToErrorHandler @ core.mjs:1012
+(anonymous) @ core.mjs:945
+invoke @ zone.js:398
+onInvoke @ debug_node.mjs:16672
+invoke @ zone.js:397
+run @ zone.js:113
+run @ debug_node.mjs:16518
+bootstrap @ core.mjs:904
+internalCreateApplication @ core.mjs:2659
+(anonymous) @ browser.mjs:440
+invoke @ zone.js:398
+run @ zone.js:113
+(anonymous) @ zone.js:2537
+invokeTask @ zone.js:431
+runTask @ zone.js:161
+drainMicroTaskQueue @ zone.js:612
+Promise.then
+nativeScheduleMicroTask @ zone.js:588
+scheduleMicroTask @ zone.js:599
+scheduleTask @ zone.js:420
+scheduleTask @ zone.js:207
+scheduleMicroTask @ zone.js:227
+scheduleResolveOrReject @ zone.js:2527
+resolvePromise @ zone.js:2461
+(anonymous) @ zone.js:2369
+(anonymous) @ zone.js:2385
+Promise.then
+(anonymous) @ zone.js:2779
+ZoneAwarePromise @ zone.js:2701
+Ctor.then @ zone.js:2778
+resolvePromise @ zone.js:2422
+resolve @ zone.js:2559
+step @ chunk-3IG7FZWI.js:64
+(anonymous) @ chunk-3IG7FZWI.js:65
+ZoneAwarePromise @ zone.js:2701
+**async @ chunk-3IG7FZWI.js:49
+initializeMockEnvironment @ main.ts:32
+(anonymous) @ main.ts:64Understand this error
+app.ts:104 PTAH APP INITIALIZATION FAILED
+(anonymous) @ app.ts:104
+fulfilled @ chunk-3IG7FZWI.js:52
+invoke @ zone.js:398
+onInvoke @ debug_node.mjs:16672
+invoke @ zone.js:397
+run @ zone.js:113
+(anonymous) @ zone.js:2537
+invokeTask @ zone.js:431
+(anonymous) @ debug_node.mjs:16336
+onInvokeTask @ debug_node.mjs:16336
+invokeTask @ zone.js:430
+onInvokeTask @ debug_node.mjs:16659
+invokeTask @ zone.js:430
+runTask @ zone.js:161
+drainMicroTaskQueue @ zone.js:612
+Zone - Promise.then
+onScheduleTask @ debug_node.mjs:16330
+scheduleTask @ zone.js:411
+onScheduleTask @ zone.js:273
+scheduleTask @ zone.js:411
+scheduleTask @ zone.js:207
+scheduleMicroTask @ zone.js:227
+scheduleResolveOrReject @ zone.js:2527
+then @ zone.js:2732
+step @ chunk-3IG7FZWI.js:64
+(anonymous) @ chunk-3IG7FZWI.js:65
+ZoneAwarePromise @ zone.js:2701
+**async @ chunk-3IG7FZWI.js:49
+ngOnInit @ app.ts:65
+callHookInternal @ debug_node.mjs:860
+callHook @ debug_node.mjs:887
+callHooks @ debug_node.mjs:841
+executeInitAndCheckHooks @ debug_node.mjs:791
+refreshView @ debug_node.mjs:8980
+detectChangesInView @ debug_node.mjs:9185
+detectChangesInViewWhileDirty @ debug_node.mjs:8874
+detectChangesInternal @ debug_node.mjs:8862
+synchronizeOnce @ debug_node.mjs:20322
+synchronize @ debug_node.mjs:20281
+tickImpl @ debug_node.mjs:20254
+\_tick @ debug_node.mjs:20243
+tick @ debug_node.mjs:20231
+\_loadComponent @ debug_node.mjs:20401
+(anonymous) @ debug_node.mjs:20208
+invoke @ zone.js:398
+onInvoke @ debug_node.mjs:16672
+invoke @ zone.js:397
+run @ zone.js:113
+run @ debug_node.mjs:16518
+bootstrapImpl @ debug_node.mjs:20168
+bootstrap @ debug_node.mjs:20164
+(anonymous) @ core.mjs:970
+invoke @ zone.js:398
+onInvoke @ debug_node.mjs:16672
+invoke @ zone.js:397
+run @ zone.js:113
+(anonymous) @ zone.js:2537
+invokeTask @ zone.js:431
+(anonymous) @ debug_node.mjs:16336
+onInvokeTask @ debug_node.mjs:16336
+invokeTask @ zone.js:430
+onInvokeTask @ debug_node.mjs:16659
+invokeTask @ zone.js:430
+runTask @ zone.js:161
+drainMicroTaskQueue @ zone.js:612
+Zone - Promise.then
+onScheduleTask @ debug_node.mjs:16330
+scheduleTask @ zone.js:411
+onScheduleTask @ zone.js:273
+scheduleTask @ zone.js:411
+scheduleTask @ zone.js:207
+scheduleMicroTask @ zone.js:227
+scheduleResolveOrReject @ zone.js:2527
+then @ zone.js:2732
+(anonymous) @ core.mjs:951
+\_callAndReportToErrorHandler @ core.mjs:1012
+(anonymous) @ core.mjs:945
+invoke @ zone.js:398
+onInvoke @ debug_node.mjs:16672
+invoke @ zone.js:397
+run @ zone.js:113
+run @ debug_node.mjs:16518
+bootstrap @ core.mjs:904
+internalCreateApplication @ core.mjs:2659
+(anonymous) @ browser.mjs:440
+invoke @ zone.js:398
+run @ zone.js:113
+(anonymous) @ zone.js:2537
+invokeTask @ zone.js:431
+runTask @ zone.js:161
+drainMicroTaskQueue @ zone.js:612
+Promise.then
+nativeScheduleMicroTask @ zone.js:588
+scheduleMicroTask @ zone.js:599
+scheduleTask @ zone.js:420
+scheduleTask @ zone.js:207
+scheduleMicroTask @ zone.js:227
+scheduleResolveOrReject @ zone.js:2527
+resolvePromise @ zone.js:2461
+(anonymous) @ zone.js:2369
+(anonymous) @ zone.js:2385
+Promise.then
+(anonymous) @ zone.js:2779
+ZoneAwarePromise @ zone.js:2701
+Ctor.then @ zone.js:2778
+resolvePromise @ zone.js:2422
+resolve @ zone.js:2559
+step @ chunk-3IG7FZWI.js:64
+(anonymous) @ chunk-3IG7FZWI.js:65
+ZoneAwarePromise @ zone.js:2701
+**async @ chunk-3IG7FZWI.js:49
+initializeMockEnvironment @ main.ts:32
+(anonymous) @ main.ts:64Understand this error
+app.ts:105 Error: RuntimeError: NG0203: effect() can only be used within an injection context such as a constructor, a factory function, a field initializer, or a function used with `runInInjectionContext`. Find more at <https://angular.dev/errors/NG0203>
+at assertInInjectionContext (root_effect_scheduler.mjs:2374:15)
+at effect (resource.mjs:137:9)
+at_ProviderService.setupAutoRefresh (provider.service.ts:449:5)
+at \_ProviderService.initialize (provider.service.ts:159:10)
+at_App.<anonymous> (app.ts:81:28)
+at Generator.next (<anonymous>)
+at fulfilled (chunk-3IG7FZWI.js:52:24)
+at \_ZoneDelegate.invoke (zone.js:398:28)
+at Object.onInvoke (debug_node.mjs:16672:33)
+at \_ZoneDelegate.invoke (zone.js:397:34)
+(anonymous) @ app.ts:105
+fulfilled @ chunk-3IG7FZWI.js:52
+invoke @ zone.js:398
+onInvoke @ debug_node.mjs:16672
+invoke @ zone.js:397
+run @ zone.js:113
+(anonymous) @ zone.js:2537
+invokeTask @ zone.js:431
+(anonymous) @ debug_node.mjs:16336
+onInvokeTask @ debug_node.mjs:16336
+invokeTask @ zone.js:430
+onInvokeTask @ debug_node.mjs:16659
+invokeTask @ zone.js:430
+runTask @ zone.js:161
+drainMicroTaskQueue @ zone.js:612
+Zone - Promise.then
+onScheduleTask @ debug_node.mjs:16330
+scheduleTask @ zone.js:411
+onScheduleTask @ zone.js:273
+scheduleTask @ zone.js:411
+scheduleTask @ zone.js:207
+scheduleMicroTask @ zone.js:227
+scheduleResolveOrReject @ zone.js:2527
+then @ zone.js:2732
+step @ chunk-3IG7FZWI.js:64
+(anonymous) @ chunk-3IG7FZWI.js:65
+ZoneAwarePromise @ zone.js:2701
+**async @ chunk-3IG7FZWI.js:49
+ngOnInit @ app.ts:65
+callHookInternal @ debug_node.mjs:860
+callHook @ debug_node.mjs:887
+callHooks @ debug_node.mjs:841
+executeInitAndCheckHooks @ debug_node.mjs:791
+refreshView @ debug_node.mjs:8980
+detectChangesInView @ debug_node.mjs:9185
+detectChangesInViewWhileDirty @ debug_node.mjs:8874
+detectChangesInternal @ debug_node.mjs:8862
+synchronizeOnce @ debug_node.mjs:20322
+synchronize @ debug_node.mjs:20281
+tickImpl @ debug_node.mjs:20254
+\_tick @ debug_node.mjs:20243
+tick @ debug_node.mjs:20231
+\_loadComponent @ debug_node.mjs:20401
+(anonymous) @ debug_node.mjs:20208
+invoke @ zone.js:398
+onInvoke @ debug_node.mjs:16672
+invoke @ zone.js:397
+run @ zone.js:113
+run @ debug_node.mjs:16518
+bootstrapImpl @ debug_node.mjs:20168
+bootstrap @ debug_node.mjs:20164
+(anonymous) @ core.mjs:970
+invoke @ zone.js:398
+onInvoke @ debug_node.mjs:16672
+invoke @ zone.js:397
+run @ zone.js:113
+(anonymous) @ zone.js:2537
+invokeTask @ zone.js:431
+(anonymous) @ debug_node.mjs:16336
+onInvokeTask @ debug_node.mjs:16336
+invokeTask @ zone.js:430
+onInvokeTask @ debug_node.mjs:16659
+invokeTask @ zone.js:430
+runTask @ zone.js:161
+drainMicroTaskQueue @ zone.js:612
+Zone - Promise.then
+onScheduleTask @ debug_node.mjs:16330
+scheduleTask @ zone.js:411
+onScheduleTask @ zone.js:273
+scheduleTask @ zone.js:411
+scheduleTask @ zone.js:207
+scheduleMicroTask @ zone.js:227
+scheduleResolveOrReject @ zone.js:2527
+then @ zone.js:2732
+(anonymous) @ core.mjs:951
+\_callAndReportToErrorHandler @ core.mjs:1012
+(anonymous) @ core.mjs:945
+invoke @ zone.js:398
+onInvoke @ debug_node.mjs:16672
+invoke @ zone.js:397
+run @ zone.js:113
+run @ debug_node.mjs:16518
+bootstrap @ core.mjs:904
+internalCreateApplication @ core.mjs:2659
+(anonymous) @ browser.mjs:440
+invoke @ zone.js:398
+run @ zone.js:113
+(anonymous) @ zone.js:2537
+invokeTask @ zone.js:431
+runTask @ zone.js:161
+drainMicroTaskQueue @ zone.js:612
+Promise.then
+nativeScheduleMicroTask @ zone.js:588
+scheduleMicroTask @ zone.js:599
+scheduleTask @ zone.js:420
+scheduleTask @ zone.js:207
+scheduleMicroTask @ zone.js:227
+scheduleResolveOrReject @ zone.js:2527
+resolvePromise @ zone.js:2461
+(anonymous) @ zone.js:2369
+(anonymous) @ zone.js:2385
+Promise.then
+(anonymous) @ zone.js:2779
+ZoneAwarePromise @ zone.js:2701
+Ctor.then @ zone.js:2778
+resolvePromise @ zone.js:2422
+resolve @ zone.js:2559
+step @ chunk-3IG7FZWI.js:64
+(anonymous) @ chunk-3IG7FZWI.js:65
+ZoneAwarePromise @ zone.js:2701
+**async @ chunk-3IG7FZWI.js:49
+initializeMockEnvironment @ main.ts:32
+(anonymous) @ main.ts:64Understand this error
+app.ts:106 =================================================
+(anonymous) @ app.ts:106
+fulfilled @ chunk-3IG7FZWI.js:52
+invoke @ zone.js:398
+onInvoke @ debug_node.mjs:16672
+invoke @ zone.js:397
+run @ zone.js:113
+(anonymous) @ zone.js:2537
+invokeTask @ zone.js:431
+(anonymous) @ debug_node.mjs:16336
+onInvokeTask @ debug_node.mjs:16336
+invokeTask @ zone.js:430
+onInvokeTask @ debug_node.mjs:16659
+invokeTask @ zone.js:430
+runTask @ zone.js:161
+drainMicroTaskQueue @ zone.js:612
+Zone - Promise.then
+onScheduleTask @ debug_node.mjs:16330
+scheduleTask @ zone.js:411
+onScheduleTask @ zone.js:273
+scheduleTask @ zone.js:411
+scheduleTask @ zone.js:207
+scheduleMicroTask @ zone.js:227
+scheduleResolveOrReject @ zone.js:2527
+then @ zone.js:2732
+step @ chunk-3IG7FZWI.js:64
+(anonymous) @ chunk-3IG7FZWI.js:65
+ZoneAwarePromise @ zone.js:2701
+**async @ chunk-3IG7FZWI.js:49
+ngOnInit @ app.ts:65
+callHookInternal @ debug_node.mjs:860
+callHook @ debug_node.mjs:887
+callHooks @ debug_node.mjs:841
+executeInitAndCheckHooks @ debug_node.mjs:791
+refreshView @ debug_node.mjs:8980
+detectChangesInView @ debug_node.mjs:9185
+detectChangesInViewWhileDirty @ debug_node.mjs:8874
+detectChangesInternal @ debug_node.mjs:8862
+synchronizeOnce @ debug_node.mjs:20322
+synchronize @ debug_node.mjs:20281
+tickImpl @ debug_node.mjs:20254
+\_tick @ debug_node.mjs:20243
+tick @ debug_node.mjs:20231
+\_loadComponent @ debug_node.mjs:20401
+(anonymous) @ debug_node.mjs:20208
+invoke @ zone.js:398
+onInvoke @ debug_node.mjs:16672
+invoke @ zone.js:397
+run @ zone.js:113
+run @ debug_node.mjs:16518
+bootstrapImpl @ debug_node.mjs:20168
+bootstrap @ debug_node.mjs:20164
+(anonymous) @ core.mjs:970
+invoke @ zone.js:398
+onInvoke @ debug_node.mjs:16672
+invoke @ zone.js:397
+run @ zone.js:113
+(anonymous) @ zone.js:2537
+invokeTask @ zone.js:431
+(anonymous) @ debug_node.mjs:16336
+onInvokeTask @ debug_node.mjs:16336
+invokeTask @ zone.js:430
+onInvokeTask @ debug_node.mjs:16659
+invokeTask @ zone.js:430
+runTask @ zone.js:161
+drainMicroTaskQueue @ zone.js:612
+Zone - Promise.then
+onScheduleTask @ debug_node.mjs:16330
+scheduleTask @ zone.js:411
+onScheduleTask @ zone.js:273
+scheduleTask @ zone.js:411
+scheduleTask @ zone.js:207
+scheduleMicroTask @ zone.js:227
+scheduleResolveOrReject @ zone.js:2527
+then @ zone.js:2732
+(anonymous) @ core.mjs:951
+\_callAndReportToErrorHandler @ core.mjs:1012
+(anonymous) @ core.mjs:945
+invoke @ zone.js:398
+onInvoke @ debug_node.mjs:16672
+invoke @ zone.js:397
+run @ zone.js:113
+run @ debug_node.mjs:16518
+bootstrap @ core.mjs:904
+internalCreateApplication @ core.mjs:2659
+(anonymous) @ browser.mjs:440
+invoke @ zone.js:398
+run @ zone.js:113
+(anonymous) @ zone.js:2537
+invokeTask @ zone.js:431
+runTask @ zone.js:161
+drainMicroTaskQueue @ zone.js:612
+Promise.then
+nativeScheduleMicroTask @ zone.js:588
+scheduleMicroTask @ zone.js:599
+scheduleTask @ zone.js:420
+scheduleTask @ zone.js:207
+scheduleMicroTask @ zone.js:227
+scheduleResolveOrReject @ zone.js:2527
+resolvePromise @ zone.js:2461
+(anonymous) @ zone.js:2369
+(anonymous) @ zone.js:2385
+Promise.then
+(anonymous) @ zone.js:2779
+ZoneAwarePromise @ zone.js:2701
+Ctor.then @ zone.js:2778
+resolvePromise @ zone.js:2422
+resolve @ zone.js:2559
+step @ chunk-3IG7FZWI.js:64
+(anonymous) @ chunk-3IG7FZWI.js:65
+ZoneAwarePromise @ zone.js:2701
+**async @ chunk-3IG7FZWI.js:49
+initializeMockEnvironment @ main.ts:32
+(anonymous) @ main.ts:64Understand this error
+main.ts:76 === PTAH WEBVIEW BOOTSTRAP COMPLETE ===
+mock-vscode-api.ts:423 [Mock VSCode API] Sending to webview: initialData {success: true, data: {…}, config: {…}, timestamp: 1762639546820}
+vscode.service.ts:193 === VSCodeService: Raw message event received === {origin: '<http://localhost:4200>', dataType: 'object', data: {…}}
+vscode.service.ts:201 === VSCodeService: Processing message type: initialData ===
+vscode.service.ts:207 - Emitted to RxJS subject
+vscode.service.ts:211 - Updated_lastMessageTime signal (Zone.js handles change detection)
+vscode.service.ts:215 === VSCodeService: Message processed successfully: initialData ===
+mock-vscode-api.ts:423 [Mock VSCode API] Sending to webview: initialData {success: true, data: {…}, config: {…}, timestamp: 1762639546829}
+vscode.service.ts:193 === VSCodeService: Raw message event received === {origin: '<http://localhost:4200>', dataType: 'object', data: {…}}
+vscode.service.ts:201 === VSCodeService: Processing message type: initialData ===
+vscode.service.ts:207 - Emitted to RxJS subject
+vscode.service.ts:211 - Updated \_lastMessageTime signal (Zone.js handles change detection)
+vscode.service.ts:215 === VSCodeService: Message processed successfully: initialData ===
+vscode.service.ts:193 === VSCodeService: Raw message event received === {origin: '<http://localhost:4200>', dataType: 'object', data: {…}}
+vscode.service.ts:219 === VSCodeService: Invalid message received === {source: 'angular-devtools-content-script', topic: 'handshake', args: undefined, **ignore_ng_zone**: true, **NG_DEVTOOLS_EVENT**: true}
+(anonymous) @ vscode.service.ts:219
+invokeTask @ zone.js:431
+(anonymous) @ debug_node.mjs:16336
+onInvokeTask @ debug_node.mjs:16336
+invokeTask @ zone.js:430
+onInvokeTask @ debug_node.mjs:16655
+invokeTask @ zone.js:430
+runTask @ zone.js:161
+invokeTask @ zone.js:515
+invokeTask @ zone.js:1141
+globalCallback @ zone.js:1172
+globalZoneAwareCallback @ zone.js:1205
+Zone - Window.addEventListener:message
+onScheduleTask @ debug_node.mjs:16330
+scheduleTask @ zone.js:411
+onScheduleTask @ zone.js:273
+scheduleTask @ zone.js:411
+scheduleTask @ zone.js:207
+scheduleEventTask @ zone.js:233
+(anonymous) @ zone.js:1498
+setupMessageListener @ vscode.service.ts:192
+\_VSCodeService @ vscode.service.ts:126
+VSCodeService_Factory @ vscode.service.ts:506
+(anonymous) @ root_effect_scheduler.mjs:2154
+runInInjectorProfilerContext @ root_effect_scheduler.mjs:720
+hydrate @ root_effect_scheduler.mjs:2152
+get @ root_effect_scheduler.mjs:2007
+retrieve @ root_effect_scheduler.mjs:1903
+injectInjectorOnly @ root_effect_scheduler.mjs:1020
+ɵɵinject @ root_effect_scheduler.mjs:1032
+inject2 @ root_effect_scheduler.mjs:1118
+<instance_members_initializer> @ app-state.service.ts:44
+\_AppStateManager @ app-state.service.ts:69
+AppStateManager_Factory @ app-state.service.ts:157
+(anonymous) @ root_effect_scheduler.mjs:2154
+runInInjectorProfilerContext @ root_effect_scheduler.mjs:720
+hydrate @ root_effect_scheduler.mjs:2152
+get @ root_effect_scheduler.mjs:2007
+get @ root_effect_scheduler.mjs:2019
+get @ debug_node.mjs:12288
+lookupTokenUsingModuleInjector @ debug_node.mjs:1718
+getOrCreateInjectable @ debug_node.mjs:1766
+ɵɵdirectiveInject @ debug_node.mjs:12339
+ɵɵinject @ root_effect_scheduler.mjs:1032
+inject2 @ root_effect_scheduler.mjs:1118
+<instance_members_initializer> @ app.ts:42
+\_App @ app.ts:38
+App_Factory @ app.ts:146
+getNodeInjectable @ debug_node.mjs:1989
+instantiateAllDirectives @ debug_node.mjs:8176
+createDirectivesInstances @ debug_node.mjs:7949
+create @ debug_node.mjs:13472
+(anonymous) @ debug_node.mjs:20199
+invoke @ zone.js:398
+onInvoke @ debug_node.mjs:16672
+invoke @ zone.js:397
+run @ zone.js:113
+run @ debug_node.mjs:16518
+bootstrapImpl @ debug_node.mjs:20168
+bootstrap @ debug_node.mjs:20164
+(anonymous) @ core.mjs:970
+invoke @ zone.js:398
+onInvoke @ debug_node.mjs:16672
+invoke @ zone.js:397
+run @ zone.js:113
+(anonymous) @ zone.js:2537
+invokeTask @ zone.js:431
+(anonymous) @ debug_node.mjs:16336
+onInvokeTask @ debug_node.mjs:16336
+invokeTask @ zone.js:430
+onInvokeTask @ debug_node.mjs:16659
+invokeTask @ zone.js:430
+runTask @ zone.js:161
+drainMicroTaskQueue @ zone.js:612
+Zone - Promise.then
+onScheduleTask @ debug_node.mjs:16330
+scheduleTask @ zone.js:411
+onScheduleTask @ zone.js:273
+scheduleTask @ zone.js:411
+scheduleTask @ zone.js:207
+scheduleMicroTask @ zone.js:227
+scheduleResolveOrReject @ zone.js:2527
+then @ zone.js:2732
+(anonymous) @ core.mjs:951
+\_callAndReportToErrorHandler @ core.mjs:1012
+(anonymous) @ core.mjs:945
+invoke @ zone.js:398
+onInvoke @ debug_node.mjs:16672
+invoke @ zone.js:397
+run @ zone.js:113
+run @ debug_node.mjs:16518
+bootstrap @ core.mjs:904
+internalCreateApplication @ core.mjs:2659
+(anonymous) @ browser.mjs:440
+invoke @ zone.js:398
+run @ zone.js:113
+(anonymous) @ zone.js:2537
+invokeTask @ zone.js:431
+runTask @ zone.js:161
+drainMicroTaskQueue @ zone.js:612
+Promise.then
+nativeScheduleMicroTask @ zone.js:588
+scheduleMicroTask @ zone.js:599
+scheduleTask @ zone.js:420
+scheduleTask @ zone.js:207
+scheduleMicroTask @ zone.js:227
+scheduleResolveOrReject @ zone.js:2527
+resolvePromise @ zone.js:2461
+(anonymous) @ zone.js:2369
+(anonymous) @ zone.js:2385
+Promise.then
+(anonymous) @ zone.js:2779
+ZoneAwarePromise @ zone.js:2701
+Ctor.then @ zone.js:2778
+resolvePromise @ zone.js:2422
+resolve @ zone.js:2559
+step @ chunk-3IG7FZWI.js:64
+(anonymous) @ chunk-3IG7FZWI.js:65
+ZoneAwarePromise @ zone.js:2701
+**async @ chunk-3IG7FZWI.js:49
+initializeMockEnvironment @ main.ts:32
+(anonymous) @ main.ts:64Understand this warning
+vscode.service.ts:193 === VSCodeService: Raw message event received === {origin: '<http://localhost:4200>', dataType: 'object', data: {…}}
+vscode.service.ts:219 === VSCodeService: Invalid message received === {source: 'angular-devtools-content-script', topic: 'handshake', args: undefined, **ignore_ng_zone**: true, **NG_DEVTOOLS_EVENT**: true}
+(anonymous) @ vscode.service.ts:219
+invokeTask @ zone.js:431
+(anonymous) @ debug_node.mjs:16336
+onInvokeTask @ debug_node.mjs:16336
+invokeTask @ zone.js:430
+onInvokeTask @ debug_node.mjs:16655
+invokeTask @ zone.js:430
+runTask @ zone.js:161
+invokeTask @ zone.js:515
+invokeTask @ zone.js:1141
+globalCallback @ zone.js:1172
+globalZoneAwareCallback @ zone.js:1205
+Zone - Window.addEventListener:message
+onScheduleTask @ debug_node.mjs:16330
+scheduleTask @ zone.js:411
+onScheduleTask @ zone.js:273
+scheduleTask @ zone.js:411
+scheduleTask @ zone.js:207
+scheduleEventTask @ zone.js:233
+(anonymous) @ zone.js:1498
+setupMessageListener @ vscode.service.ts:192
+\_VSCodeService @ vscode.service.ts:126
+VSCodeService_Factory @ vscode.service.ts:506
+(anonymous) @ root_effect_scheduler.mjs:2154
+runInInjectorProfilerContext @ root_effect_scheduler.mjs:720
+hydrate @ root_effect_scheduler.mjs:2152
+get @ root_effect_scheduler.mjs:2007
+retrieve @ root_effect_scheduler.mjs:1903
+injectInjectorOnly @ root_effect_scheduler.mjs:1020
+ɵɵinject @ root_effect_scheduler.mjs:1032
+inject2 @ root_effect_scheduler.mjs:1118
+<instance_members_initializer> @ app-state.service.ts:44
+\_AppStateManager @ app-state.service.ts:69
+AppStateManager_Factory @ app-state.service.ts:157
+(anonymous) @ root_effect_scheduler.mjs:2154
+runInInjectorProfilerContext @ root_effect_scheduler.mjs:720
+hydrate @ root_effect_scheduler.mjs:2152
+get @ root_effect_scheduler.mjs:2007
+get @ root_effect_scheduler.mjs:2019
+get @ debug_node.mjs:12288
+lookupTokenUsingModuleInjector @ debug_node.mjs:1718
+getOrCreateInjectable @ debug_node.mjs:1766
+ɵɵdirectiveInject @ debug_node.mjs:12339
+ɵɵinject @ root_effect_scheduler.mjs:1032
+inject2 @ root_effect_scheduler.mjs:1118
+<instance_members_initializer> @ app.ts:42
+\_App @ app.ts:38
+App_Factory @ app.ts:146
+getNodeInjectable @ debug_node.mjs:1989
+instantiateAllDirectives @ debug_node.mjs:8176
+createDirectivesInstances @ debug_node.mjs:7949
+create @ debug_node.mjs:13472
+(anonymous) @ debug_node.mjs:20199
+invoke @ zone.js:398
+onInvoke @ debug_node.mjs:16672
+invoke @ zone.js:397
+run @ zone.js:113
+run @ debug_node.mjs:16518
+bootstrapImpl @ debug_node.mjs:20168
+bootstrap @ debug_node.mjs:20164
+(anonymous) @ core.mjs:970
+invoke @ zone.js:398
+onInvoke @ debug_node.mjs:16672
+invoke @ zone.js:397
+run @ zone.js:113
+(anonymous) @ zone.js:2537
+invokeTask @ zone.js:431
+(anonymous) @ debug_node.mjs:16336
+onInvokeTask @ debug_node.mjs:16336
+invokeTask @ zone.js:430
+onInvokeTask @ debug_node.mjs:16659
+invokeTask @ zone.js:430
+runTask @ zone.js:161
+drainMicroTaskQueue @ zone.js:612
+Zone - Promise.then
+onScheduleTask @ debug_node.mjs:16330
+scheduleTask @ zone.js:411
+onScheduleTask @ zone.js:273
+scheduleTask @ zone.js:411
+scheduleTask @ zone.js:207
+scheduleMicroTask @ zone.js:227
+scheduleResolveOrReject @ zone.js:2527
+then @ zone.js:2732
+(anonymous) @ core.mjs:951
+\_callAndReportToErrorHandler @ core.mjs:1012
+(anonymous) @ core.mjs:945
+invoke @ zone.js:398
+onInvoke @ debug_node.mjs:16672
+invoke @ zone.js:397
+run @ zone.js:113
+run @ debug_node.mjs:16518
+bootstrap @ core.mjs:904
+internalCreateApplication @ core.mjs:2659
+(anonymous) @ browser.mjs:440
+invoke @ zone.js:398
+run @ zone.js:113
+(anonymous) @ zone.js:2537
+invokeTask @ zone.js:431
+runTask @ zone.js:161
+drainMicroTaskQueue @ zone.js:612
+Promise.then
+nativeScheduleMicroTask @ zone.js:588
+scheduleMicroTask @ zone.js:599
+scheduleTask @ zone.js:420
+scheduleTask @ zone.js:207
+scheduleMicroTask @ zone.js:227
+scheduleResolveOrReject @ zone.js:2527
+resolvePromise @ zone.js:2461
+(anonymous) @ zone.js:2369
+(anonymous) @ zone.js:2385
+Promise.then
+(anonymous) @ zone.js:2779
+ZoneAwarePromise @ zone.js:2701
+Ctor.then @ zone.js:2778
+resolvePromise @ zone.js:2422
+resolve @ zone.js:2559
+step @ chunk-3IG7FZWI.js:64
+(anonymous) @ chunk-3IG7FZWI.js:65
+ZoneAwarePromise @ zone.js:2701
+**async @ chunk-3IG7FZWI.js:49
+initializeMockEnvironment @ main.ts:32
+(anonymous) @ main.ts:64Understand this warning
+vscode.service.ts:193 === VSCodeService: Raw message event received === {origin: '<http://localhost:4200>', dataType: 'object', data: {…}}
+vscode.service.ts:219 === VSCodeService: Invalid message received === {isIvy: true, isAngular: true, isDebugMode: true, isSupportedAngularVersion: true, isAngularDevTools: true}
+(anonymous) @ vscode.service.ts:219
+invokeTask @ zone.js:431
+(anonymous) @ debug_node.mjs:16336
+onInvokeTask @ debug_node.mjs:16336
+invokeTask @ zone.js:430
+onInvokeTask @ debug_node.mjs:16659
+invokeTask @ zone.js:430
+runTask @ zone.js:161
+invokeTask @ zone.js:515
+invokeTask @ zone.js:1141
+globalCallback @ zone.js:1172
+globalZoneAwareCallback @ zone.js:1205
+Zone - Window.addEventListener:message
+onScheduleTask @ debug_node.mjs:16330
+scheduleTask @ zone.js:411
+onScheduleTask @ zone.js:273
+scheduleTask @ zone.js:411
+scheduleTask @ zone.js:207
+scheduleEventTask @ zone.js:233
+(anonymous) @ zone.js:1498
+setupMessageListener @ vscode.service.ts:192
+\_VSCodeService @ vscode.service.ts:126
+VSCodeService_Factory @ vscode.service.ts:506
+(anonymous) @ root_effect_scheduler.mjs:2154
+runInInjectorProfilerContext @ root_effect_scheduler.mjs:720
+hydrate @ root_effect_scheduler.mjs:2152
+get @ root_effect_scheduler.mjs:2007
+retrieve @ root_effect_scheduler.mjs:1903
+injectInjectorOnly @ root_effect_scheduler.mjs:1020
+ɵɵinject @ root_effect_scheduler.mjs:1032
+inject2 @ root_effect_scheduler.mjs:1118

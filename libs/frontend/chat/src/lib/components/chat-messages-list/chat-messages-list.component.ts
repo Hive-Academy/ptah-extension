@@ -189,7 +189,7 @@ export class ChatMessagesListComponent implements AfterViewInit {
   readonly sessionId = input<SessionId | null>(null);
   readonly loading = input(false);
   readonly autoScroll = input(true);
-  readonly showGroupHeaders = input(true);
+  readonly showGroupHeaders = input(false); // Hide headers for clean minimal look
   readonly showMessageActions = input(true);
   readonly enableImagePreviews = input(true);
   readonly maxGroupGapMinutes = input(5); // Group messages within X minutes

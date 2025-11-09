@@ -6,6 +6,7 @@ import {
   DestroyRef,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { CONTEXT_MESSAGE_TYPES } from '@ptah-extension/shared';
 import { VSCodeService } from './vscode.service';
 
 /**
@@ -165,7 +166,7 @@ export class FilePickerService {
   private setupMessageHandlers(): void {
     // Listen for workspace file updates (context:updateFiles provides includedFiles array)
     this.vscode
-      .onMessageType('context:updateFiles')
+      .onMessageType(CONTEXT_MESSAGE_TYPES.UPDATE_FILES)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((payload) => {
         // payload.includedFiles is string[] of file paths

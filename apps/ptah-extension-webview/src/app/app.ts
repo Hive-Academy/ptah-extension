@@ -15,16 +15,23 @@ import {
   VSCodeService,
   WebviewNavigationService,
   ViewType,
+  ProviderService,
 } from '@ptah-extension/core';
 
 // UPDATED: Import components from libraries
 import { ChatComponent } from '@ptah-extension/chat';
 import { AnalyticsComponent } from '@ptah-extension/analytics';
+import { SettingsViewComponent } from '@ptah-extension/providers';
 import { LoadingSpinnerComponent } from '@ptah-extension/shared-ui';
 
 @Component({
   selector: 'ptah-root',
-  imports: [LoadingSpinnerComponent, ChatComponent, AnalyticsComponent],
+  imports: [
+    LoadingSpinnerComponent,
+    ChatComponent,
+    AnalyticsComponent,
+    SettingsViewComponent,
+  ],
   templateUrl: './app.html',
   styleUrls: ['./app.css'],
 })
@@ -36,6 +43,7 @@ export class App implements OnInit, OnDestroy {
   private readonly viewManager = inject(ViewManagerService);
   public readonly vscodeService = inject(VSCodeService);
   private readonly navigationService = inject(WebviewNavigationService);
+  private readonly providerService = inject(ProviderService); // Initialize provider message subscriptions
   // REMOVED: Router injection - using pure signal-based navigation
 
   // ANGULAR 20 PATTERN: Signal-based state for reactive UI
@@ -69,9 +77,13 @@ export class App implements OnInit, OnDestroy {
       this.vscodeService.notifyReady();
       console.log('Step 2: COMPLETE - VS Code notified');
 
-      console.log('Step 3: Handling initial view setup...');
+      console.log('Step 3: Initializing ProviderService...');
+      this.providerService.initialize();
+      console.log('Step 3: COMPLETE - ProviderService initialized');
+
+      console.log('Step 4: Handling initial view setup...');
       await this.handleInitialView();
-      console.log('Step 3: COMPLETE - Initial view set up');
+      console.log('Step 4: COMPLETE - Initial view set up');
 
       console.log('=================================================');
       console.log('SETTING initializationStatus TO READY');

@@ -300,12 +300,20 @@ export class MessageHandlerService {
       this.eventBus
         .subscribe('providers:getAvailable')
         .subscribe(async (event) => {
+          console.log(
+            '[MessageHandler] Received providers:getAvailable request, correlationId:',
+            event.correlationId
+          );
           const result =
             await this.providerOrchestration.getAvailableProviders();
+          console.log('[MessageHandler] getAvailableProviders result:', result);
           this.publishResponse(
             'providers:getAvailable',
             event.correlationId,
             result
+          );
+          console.log(
+            '[MessageHandler] Published providers:getAvailable:response to EventBus'
           );
         })
     );
@@ -686,6 +694,11 @@ export class MessageHandlerService {
     correlationId: CorrelationId,
     result: unknown
   ): void {
+    console.log(
+      `[MessageHandler] publishResponse called for ${messageType}, correlationId:`,
+      correlationId
+    );
+
     // Convert result to MessageResponse format
     const response: MessageResponse = {
       requestId: correlationId,
@@ -698,11 +711,19 @@ export class MessageHandlerService {
       },
     };
 
+    console.log(`[MessageHandler] Response payload:`, response);
+
     // Publish response event
     const responseType = `${messageType}:response` as keyof MessagePayloadMap;
+    console.log(`[MessageHandler] Publishing to EventBus as: ${responseType}`);
+
     this.eventBus.publish(
       responseType,
       response as MessagePayloadMap[typeof responseType]
+    );
+
+    console.log(
+      `[MessageHandler] Successfully published ${responseType} to EventBus`
     );
   }
 

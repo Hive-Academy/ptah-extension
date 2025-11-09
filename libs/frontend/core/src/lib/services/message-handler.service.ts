@@ -120,6 +120,33 @@ export class MessageHandlerService {
         return;
       }
 
+      // Handle provider messages (handled by ProviderService)
+      const providerMessageTypes = [
+        'providers:availableUpdated',
+        'providers:currentChanged',
+        'providers:healthChanged',
+        'providers:getAvailable:response',
+        'providers:getCurrent:response',
+        'providers:getAllHealth:response',
+        'providers:error',
+      ];
+
+      if (providerMessageTypes.includes(messageType)) {
+        // Silently handled by ProviderService subscriptions
+        return;
+      }
+
+      // Handle analytics messages (handled by AnalyticsService)
+      const analyticsMessageTypes = [
+        'analytics:trackEvent:response',
+        'analytics:getMetrics:response',
+      ];
+
+      if (analyticsMessageTypes.includes(messageType)) {
+        // Silently handled by AnalyticsService subscriptions
+        return;
+      }
+
       // Log unhandled messages
       console.log('Unhandled message type:', message.type, message);
     } catch (error) {
