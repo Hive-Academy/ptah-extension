@@ -9,7 +9,9 @@
         aria-label="Back to chat"
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-          <path d="M10.707 2.293a1 1 0 0 1 0 1.414L6.414 8l4.293 4.293a1 1 0 0 1-1.414 1.414l-5-5a1 1 0 0 1 0-1.414l5-5a1 1 0 0 1 1.414 0z"/>
+          <path
+            d="M10.707 2.293a1 1 0 0 1 0 1.414L6.414 8l4.293 4.293a1 1 0 0 1-1.414 1.414l-5-5a1 1 0 0 1 0-1.414l5-5a1 1 0 0 1 1.414 0z"
+          />
         </svg>
         Back to Chat
       </button>
@@ -20,9 +22,19 @@
         [disabled]="isLoading()"
         aria-label="Refresh providers"
       >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" [class.spinning]="isLoading()">
-          <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 1 1 .908-.417A6 6 0 1 1 8 2v1z"/>
-          <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 16 16"
+          fill="currentColor"
+          [class.spinning]="isLoading()"
+        >
+          <path
+            d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 1 1 .908-.417A6 6 0 1 1 8 2v1z"
+          />
+          <path
+            d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"
+          />
         </svg>
         Refresh
       </button>
@@ -76,9 +88,11 @@
     <div class="debug-info">
       <details>
         <summary>Debug Information</summary>
-        <pre>Available Providers: {{ availableProviders().length }}
+        <pre>
+Available Providers: {{ availableProviders().length }}
 Current Provider: {{ currentProvider()?.id || 'none' }}
-Is Loading: {{ isLoading() }}</pre>
+Is Loading: {{ isLoading() }}</pre
+        >
       </details>
     </div>
   </div>
