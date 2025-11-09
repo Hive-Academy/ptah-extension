@@ -1,3 +1,10 @@
+---
+mode: modernization-detector
+description: Future work consolidation phase - Extract deferred items and detect modernization opportunities
+tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
+model: Claude Sonnet 4.5 (Preview) (copilot)
+---
+
 # Phase 8: Modernization Detector - Future Work Consolidation
 
 **Agent**: modernization-detector  
@@ -160,7 +167,11 @@ grep_search("NgModule", false) # Old Angular patterns
 
 **Lessons Documented**: {count} patterns to reuse
 
-Task {TASK_ID} lifecycle COMPLETE. Ready for PR creation.
+**Next Phase Recommendations**:
+
+- ✅ **Task Lifecycle COMPLETE**: All workflow phases finished. User handles git operations (PR creation, merge) when ready. Task {TASK_ID} has completed the full orchestration cycle from requirements → implementation → QA → future work consolidation.
+
+**Note**: This is the final phase. Orchestrator will provide completion summary to user.
 ```
 
 ---

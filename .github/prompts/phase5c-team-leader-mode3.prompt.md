@@ -1,3 +1,10 @@
+---
+mode: team-leader
+description: Final completion verification phase (MODE 3) - Comprehensive verification of all tasks
+tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
+model: Claude Sonnet 4.5 (Preview) (copilot)
+---
+
 # Phase 5c: Team-Leader MODE 3 - Final Completion Verification
 
 **Agent**: team-leader  
@@ -283,15 +290,16 @@ Implementation is COMPLETE and VERIFIED. Ready for:
 - Type safety: 100%
 - Architecture compliance: 100%
 
-**Next Phase Options**:
-User will choose QA strategy:
+**Next Phase Recommendations**:
 
-- senior-tester (testing infrastructure)
-- code-reviewer (quality assurance)
-- both (parallel QA)
-- skip (proceed to PR creation)
+After development completion, user will choose QA strategy:
 
-Development phase COMPLETE. Ready for quality assurance.
+- ✅ **Phase 6 (senior-tester)**: Testing infrastructure and acceptance criteria validation
+- ✅ **Phase 6 (code-reviewer)**: Quality assurance and security review
+- ✅ **Phase 6 (both)**: Run tester AND reviewer in parallel for comprehensive QA
+- ✅ **Skip QA**: Proceed directly to Phase 8 (modernization-detector)
+
+**Note**: This is a USER CHOICE phase. Orchestrator will ask user which QA option they prefer.
 ```
 
 ---

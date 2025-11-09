@@ -1,3 +1,10 @@
+---
+mode: agent
+description: Task implementation phase - Implement ONE assigned task from tasks.md with real code
+tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
+model: Claude Sonnet 4.5 (Preview) (copilot)
+---
+
 # Phase 5 (Development): Developer - Task Implementation
 
 **Agent**: backend-developer OR frontend-developer  
@@ -129,7 +136,11 @@ Check verification criteria from tasks.md:
 - ✅ `npm run compile` - Passed
 - ✅ `npm run typecheck:all` - Passed
 
-**Next**: Awaiting team-leader MODE 2 verification for next task assignment.
+**Next Phase Recommendations**:
+
+- ✅ **Return to team-leader MODE 2**: Team-leader will verify this task completion (git commit, file implementation, tasks.md status) and either assign next task or proceed to MODE 3 if all tasks complete.
+
+**Note**: Do NOT implement additional tasks. Await team-leader verification and next assignment.
 ```
 
 ---

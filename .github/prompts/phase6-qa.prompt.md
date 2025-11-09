@@ -1,3 +1,10 @@
+---
+mode: agent
+description: QA phase - Testing and code review (USER CHOICE: tester OR reviewer OR both OR skip)
+tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
+model: Claude Sonnet 4.5 (Preview) (copilot)
+---
+
 # Phase 6: QA - Testing and Code Review (USER CHOICE)
 
 **Agent**: senior-tester AND/OR code-reviewer  
@@ -138,7 +145,9 @@ After QA (or skip):
 - {test-report.md if tester}
 - {code-review.md if reviewer}
 
-Ready for Phase 8 (modernization-detector).
+**Next Phase Recommendations**:
+
+- ✅ **Phase 8 (modernization-detector)**: Extract future work, detect modernization opportunities, and update dashboards before final completion.
 ```
 
 ---

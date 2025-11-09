@@ -1,3 +1,10 @@
+---
+mode: software-architect
+description: Implementation planning phase with SOLID compliance and type reuse strategy (USER VALIDATES)
+tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
+model: Claude Sonnet 4.5 (Preview) (copilot)
+---
+
 # Phase 4: Software Architect - Implementation Planning
 
 **Agent**: software-architect  
@@ -446,7 +453,15 @@ If total estimate >2 weeks:
 - {Decision 1}
 - {Decision 2}
 
-Ready for USER VALIDATION. User must approve architecture before team-leader decomposition.
+**Next Phase Recommendations**:
+
+**IMPORTANT**: User must validate implementation plan before proceeding to development.
+
+After user approval, workflow proceeds to:
+
+- ✅ **Phase 5a (team-leader MODE 1)**: Team-leader will decompose implementation plan into atomic, verifiable tasks in tasks.md, then begin iterative development with MODE 2 verification cycles.
+
+**Note**: Development phase uses 3-mode team-leader pattern (DECOMPOSITION → VERIFICATION+ASSIGNMENT → COMPLETION) with real implementation enforcement.
 ```
 
 ---

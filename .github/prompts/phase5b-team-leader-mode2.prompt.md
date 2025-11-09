@@ -1,3 +1,10 @@
+---
+mode: team-leader
+description: Iterative verification and assignment phase (MODE 2) - Verify task completion and assign next task
+tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
+model: Claude Sonnet 4.5 (Preview) (copilot)
+---
+
 # Phase 5b: Team-Leader MODE 2 - Iterative Verification + Assignment
 
 **Agent**: team-leader  
@@ -240,6 +247,11 @@ After verification + assignment:
 - Current iteration: {N} of estimated {TOTAL}
 
 **Status**: Awaiting Task {N} completion. Will return for next verification cycle.
+
+**Next Phase Recommendations**:
+
+- ✅ **Continue MODE 2 iterations**: More tasks remain. After developer completes Task {N}, team-leader MODE 2 will be invoked again for verification.
+- ✅ **When all tasks complete**: Team-leader MODE 3 (COMPLETION) for final comprehensive verification.
 ```
 
 Or if all tasks complete:
@@ -251,7 +263,9 @@ Or if all tasks complete:
 **Total Commits**: {N}
 **All Tasks Status**: COMPLETED ✅
 
-Ready for team-leader MODE 3 (FINAL COMPLETION).
+**Next Phase Recommendations**:
+
+- ✅ **Phase 5c (team-leader MODE 3)**: Final comprehensive verification phase to ensure all N tasks are truly complete with real implementation, then transition to QA.
 ```
 
 ---
