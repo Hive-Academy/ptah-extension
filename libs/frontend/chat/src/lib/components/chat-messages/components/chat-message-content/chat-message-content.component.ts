@@ -38,11 +38,12 @@ import {
   extractFilePathsFromText,
   detectFileType,
 } from '@ptah-extension/core';
+import { SafeHtmlPipe } from '@ptah-extension/shared-ui';
 
 @Component({
   selector: 'ptah-chat-message-content',
   standalone: true,
-  imports: [CommonModule, NgOptimizedImage],
+  imports: [CommonModule, NgOptimizedImage, SafeHtmlPipe],
   templateUrl: './chat-message-content.component.html',
   styleUrl: './chat-message-content.component.scss',
 })

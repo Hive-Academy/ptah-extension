@@ -1,22 +1,85 @@
 .settings-container {
-  padding: var(--vscode-editor-padding, 20px);
+  padding: 12px;
   max-width: 1200px;
   margin: 0 auto;
 }
 
 .settings-header {
-  margin-bottom: 32px;
+  margin-bottom: 12px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  border: none;
+  border-radius: 3px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.back-button:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.back-button:active {
+  transform: translateY(1px);
+}
+
+.back-button svg {
+  flex-shrink: 0;
+}
+
+.refresh-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  border: none;
+  border-radius: 3px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.refresh-button:hover:not(:disabled) {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.refresh-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.refresh-button svg.spinning {
+  animation: spin 1s linear infinite;
+}
+
+.header-content {
+  margin-top: 4px;
 }
 
 .settings-title {
-  font-size: 24px;
+  font-size: 18px;
   font-weight: 600;
   color: var(--vscode-editor-foreground);
-  margin: 0 0 8px 0;
+  margin: 0 0 4px 0;
 }
 
 .settings-description {
-  font-size: 14px;
+  font-size: 12px;
   color: var(--vscode-descriptionForeground);
   margin: 0;
 }
@@ -47,10 +110,10 @@
 }
 
 .providers-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 24px;
-  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
 }
 
 .settings-empty {
@@ -78,6 +141,54 @@
 .settings-empty p {
   font-size: 14px;
   color: var(--vscode-descriptionForeground);
-  margin: 0;
+  margin: 0 0 24px 0;
   max-width: 400px;
+}
+
+.refresh-button-large {
+  padding: 12px 24px;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  margin-bottom: 24px;
+}
+
+.refresh-button-large:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.debug-info {
+  margin-top: 24px;
+  width: 100%;
+  max-width: 600px;
+}
+
+.debug-info details {
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  padding: 12px;
+}
+
+.debug-info summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  user-select: none;
+}
+
+.debug-info pre {
+  margin: 12px 0 0 0;
+  padding: 12px;
+  background: var(--vscode-textCodeBlock-background);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--vscode-foreground);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }

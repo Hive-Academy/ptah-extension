@@ -335,7 +335,7 @@ export class ChatService {
       .subscribe((payload) => {
         // Extract message from event payload
         const message = payload.message;
-        if (message && this.validator.validateStrictMessage(message).isValid) {
+        if (message && this.validator.validateChatMessage(message).isValid) {
           // Add message to state
           const currentMessages = this.chatState.messages();
           this.chatState.setMessages([...currentMessages, message as never]);
@@ -405,7 +405,7 @@ export class ChatService {
             .messages;
           if (Array.isArray(messages)) {
             const validMessages = messages.filter(
-              (msg) => this.validator.validateStrictMessage(msg).isValid
+              (msg) => this.validator.validateChatMessage(msg).isValid
             );
             this.chatState.setMessages(validMessages);
             this.logger.info(
@@ -434,6 +434,16 @@ export class ChatService {
         // Mark as connected when we receive initial data
         this._streamState.update((state) => ({ ...state, isConnected: true }));
 
+        console.log('=== ChatService: Received initialData ===', {
+          success: payload.success,
+          hasData: !!payload.data,
+          hasCurrentSession: !!payload.data?.currentSession,
+          sessionId: payload.data?.currentSession?.id,
+          sessionName: payload.data?.currentSession?.name,
+          messagesCount: payload.data?.currentSession?.messages?.length || 0,
+          fullPayload: payload,
+        });
+
         // Backend sends payload.data.sessions and payload.data.currentSession
         // (see AngularWebviewProvider.sendInitialData line 101-144)
         if (payload.success && payload.data) {
@@ -448,9 +458,39 @@ export class ChatService {
 
           // Load messages for current session if available
           if (payload.data.currentSession?.messages) {
-            const validMessages = payload.data.currentSession.messages.filter(
-              (msg) => this.validator.validateStrictMessage(msg).isValid
+            console.log('=== ChatService: Messages array exists ===', {
+              messagesLength: payload.data.currentSession.messages.length,
+              firstMessage: payload.data.currentSession.messages[0],
+            });
+
+            // Validate each message and log results
+            const validationResults = payload.data.currentSession.messages.map(
+              (msg) => ({
+                msg,
+                validation: this.validator.validateChatMessage(msg),
+              })
             );
+
+            console.log('=== ChatService: Validation Results ===', {
+              total: validationResults.length,
+              valid: validationResults.filter((r) => r.validation.isValid)
+                .length,
+              invalid: validationResults.filter((r) => !r.validation.isValid)
+                .length,
+              firstInvalid: validationResults.find(
+                (r) => !r.validation.isValid
+              ),
+            });
+
+            const validMessages = payload.data.currentSession.messages.filter(
+              (msg) => this.validator.validateChatMessage(msg).isValid
+            );
+
+            console.log('=== ChatService: After filtering ===', {
+              validMessagesCount: validMessages.length,
+              validMessages: validMessages,
+            });
+
             this.chatState.setMessages(validMessages);
             this.logger.info(
               `Loaded ${validMessages.length} messages from initial data`,
@@ -467,6 +507,11 @@ export class ChatService {
               `Transformed ${processedMessages.length} messages to ProcessedClaudeMessage for UI`,
               'ChatService'
             );
+          } else {
+            console.warn('=== ChatService: No messages in currentSession ===', {
+              hasCurrentSession: !!payload.data.currentSession,
+              currentSession: payload.data.currentSession,
+            });
           }
         }
       });

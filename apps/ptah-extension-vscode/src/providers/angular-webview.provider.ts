@@ -15,7 +15,11 @@ import {
 import { CommandBuilderService } from '../services/command-builder.service';
 import { AnalyticsDataCollector } from '../services/analytics-data-collector';
 import { WebviewHtmlGenerator } from '../services/webview-html-generator';
-import { WebviewMessage, isRoutableMessage } from '@ptah-extension/shared';
+import {
+  MessagePayloadMap,
+  WebviewMessage,
+  isRoutableMessage,
+} from '@ptah-extension/shared';
 
 /**
  * Workspace information interface
@@ -61,6 +65,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   ) {
     this.htmlGenerator = new WebviewHtmlGenerator(context);
     this.initializeDevelopmentWatcher();
+    this.setupEventBusToWebviewBridge();
     this.logger.info(
       'AngularWebviewProvider initialized with EventBus architecture and WebviewManager'
     );
@@ -494,6 +499,53 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     vscode.commands.registerCommand('ptah.openFullPanel', () => {
       this.createPanel();
     });
+  }
+
+  /**
+   * Setup EventBus to Webview bridge
+   * Forwards all response messages from EventBus to the webview
+   */
+  private setupEventBusToWebviewBridge(): void {
+    // Subscribe to all response events and forward to webview
+    const responseTypes: Array<keyof MessagePayloadMap> = [
+      'providers:getAvailable:response',
+      'providers:getCurrent:response',
+      'providers:switch:response',
+      'providers:getHealth:response',
+      'providers:getAllHealth:response',
+      'providers:setDefault:response',
+      'providers:enableFallback:response',
+      'providers:setAutoSwitch:response',
+      'chat:sendMessage:response',
+      'chat:newSession:response',
+      'chat:switchSession:response',
+      'chat:getHistory:response',
+      // Add more as needed
+    ];
+
+    this.logger.info(
+      `Setting up EventBus→Webview bridge for ${responseTypes.length} response types:`,
+      responseTypes
+    );
+
+    responseTypes.forEach((responseType) => {
+      this.logger.info(`[Bridge] Subscribing to EventBus for: ${responseType}`);
+      this.eventBus.subscribe(responseType).subscribe((event) => {
+        this.logger.info(
+          `[Bridge] Received ${responseType} from EventBus, forwarding to webview`,
+          event.payload
+        );
+        this.postMessage({
+          type: responseType,
+          payload: event.payload,
+        });
+        this.logger.info(`[Bridge] Posted ${responseType} to webview`);
+      });
+    });
+
+    this.logger.info(
+      `[Bridge] EventBus→Webview bridge setup complete for ${responseTypes.length} response types`
+    );
   }
 
   /**

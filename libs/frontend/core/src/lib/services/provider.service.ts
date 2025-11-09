@@ -16,13 +16,18 @@ import {
   Injectable,
   signal,
   computed,
-  effect,
   inject,
   DestroyRef,
+  Injector,
 } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { Observable } from 'rxjs';
-import { filter, map } from 'rxjs/operators';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { Observable, interval } from 'rxjs';
+import {
+  filter,
+  map,
+  debounceTime,
+  distinctUntilChanged,
+} from 'rxjs/operators';
 import { PROVIDER_MESSAGE_TYPES, toResponseType } from '@ptah-extension/shared';
 import { VSCodeService } from './vscode.service';
 
@@ -92,6 +97,7 @@ export class ProviderService {
   private readonly vscodeService = inject(VSCodeService);
   private readonly destroyRef = inject(DestroyRef);
 
+  private injector = inject(Injector);
   // ANGULAR 20 PATTERN: Private signals for internal state
   private readonly _availableProviders = signal<ProviderInfo[]>([]);
   private readonly _currentProvider = signal<ProviderInfo | null>(null);
@@ -101,6 +107,7 @@ export class ProviderService {
   private readonly _fallbackEnabled = signal(true);
   private readonly _autoSwitchEnabled = signal(true);
   private _initialized = false;
+  private _isRefreshing = false; // Prevent refresh loops
 
   // ANGULAR 20 PATTERN: Readonly signals for external access
   readonly availableProviders = this._availableProviders.asReadonly();
@@ -159,7 +166,15 @@ export class ProviderService {
    * Refresh all provider data
    */
   async refreshProviders(): Promise<void> {
+    // Prevent concurrent refresh calls
+    if (this._isRefreshing) {
+      console.log('[ProviderService] Refresh already in progress, skipping...');
+      return;
+    }
+
+    this._isRefreshing = true;
     this._isLoading.set(true);
+
     try {
       this.vscodeService.getAvailableProviders();
       this.vscodeService.getCurrentProvider();
@@ -167,7 +182,11 @@ export class ProviderService {
     } catch (error) {
       console.error('Failed to refresh providers:', error);
     } finally {
-      this._isLoading.set(false);
+      // Reset the refreshing flag after a short delay to allow responses to arrive
+      setTimeout(() => {
+        this._isRefreshing = false;
+        this._isLoading.set(false);
+      }, 500);
     }
   }
 
@@ -310,14 +329,38 @@ export class ProviderService {
    * Private: Setup message listeners
    */
   private setupMessageListeners(): void {
+    console.log('[ProviderService] Setting up message listeners...');
+
     // Handle available providers response (backend sends :response, not event notifications)
     this.vscodeService
       .onMessageType(toResponseType(PROVIDER_MESSAGE_TYPES.GET_AVAILABLE))
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((response) => {
+        console.log(
+          '[ProviderService] Received providers:getAvailable:response:',
+          response
+        );
         if (response.success && response.data) {
           const result = response.data as { providers?: ProviderInfo[] };
+          console.log(
+            '[ProviderService] Providers from response:',
+            result.providers
+          );
+          console.log(
+            '[ProviderService] Setting available providers to:',
+            result.providers?.length,
+            'items'
+          );
           this._availableProviders.set(result.providers || []);
+          console.log(
+            '[ProviderService] Available providers after set:',
+            this._availableProviders()
+          );
+        } else {
+          console.warn(
+            '[ProviderService] Failed response or no data:',
+            response
+          );
         }
         this._isLoading.set(false);
       });
@@ -379,6 +422,35 @@ export class ProviderService {
         }));
       });
 
+    // Handle providers available updated events (simplified notification)
+    // Note: This event only contains minimal data (id, name, status), not full ProviderInfo
+    // We DON'T auto-refresh here to prevent infinite loops
+    // The settings view component will refresh on mount instead
+    this.vscodeService
+      .onMessageType('providers:availableUpdated')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        console.log(
+          '[ProviderService] Received providers:availableUpdated notification'
+        );
+        // Just log it - don't trigger refresh to avoid loops
+      });
+
+    // Handle provider current changed events (event notification when current provider changes)
+    this.vscodeService
+      .onMessageType('providers:currentChanged')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => {
+        console.log(
+          '[ProviderService] Received providers:currentChanged:',
+          payload
+        );
+        const update = payload as { provider?: ProviderInfo | null };
+        if (update.provider !== undefined) {
+          this._currentProvider.set(update.provider);
+        }
+      });
+
     // Handle provider errors
     this.vscodeService
       .onMessage()
@@ -426,25 +498,34 @@ export class ProviderService {
   }
 
   /**
-   * Private: Setup auto-refresh for health monitoring
+   * Private: Setup auto-refresh for health monitoring using RxJS
+   * Uses interval for periodic health checks and observes currentProvider signal changes
    */
   private setupAutoRefresh(): void {
-    // Refresh health every 30 seconds
-    setInterval(() => {
-      if (this.hasAvailableProviders() && !this.isLoading()) {
+    // Periodic health check every 30 seconds using RxJS interval
+    interval(30000)
+      .pipe(
+        filter(() => this.hasAvailableProviders() && !this.isLoading()),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe(() => {
         this.vscodeService.getAllProviderHealth();
-      }
-    }, 30000);
+      });
 
-    // Use effect to watch for provider changes and update health
-    effect(() => {
-      const currentProvider = this.currentProvider();
-      if (currentProvider && !this.isLoading()) {
-        // Refresh health when current provider changes
-        setTimeout(() => {
-          this.vscodeService.getProviderHealth(currentProvider.id);
-        }, 1000);
-      }
-    });
+    // Watch for current provider changes and refresh its health
+    // Convert signal to Observable using toObservable
+    toObservable(this.currentProvider, { injector: this.injector })
+      .pipe(
+        filter(
+          (provider): provider is NonNullable<typeof provider> =>
+            provider !== null && !this.isLoading()
+        ),
+        debounceTime(1000), // Debounce to avoid rapid requests
+        distinctUntilChanged((prev, curr) => prev?.id === curr?.id),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((provider) => {
+        this.vscodeService.getProviderHealth(provider.id);
+      });
   }
 }

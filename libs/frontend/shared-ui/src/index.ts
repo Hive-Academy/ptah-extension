@@ -4,3 +4,4 @@ export * from './lib/forms';
 export * from './lib/ui';
 export * from './lib/layout';
 export * from './lib/overlays';
+export * from './lib/pipes/safe-html.pipe';

@@ -1,6 +1,8 @@
 <div
   #contentContainer
   class="claude-message-content"
+  [class.user]="message().type === 'user'"
+  [class.assistant]="message().type === 'assistant'"
   [class.streaming]="message().isStreaming"
   [class.complete]="message().isComplete"
 >
@@ -47,7 +49,7 @@
       @if (isTextContent(contentBlock)) {
       <div
         class="text-content"
-        [innerHTML]="processedContent().renderedContent"
+        [innerHTML]="processedContent().renderedContent | safeHtml"
       ></div>
       }
 
@@ -78,7 +80,7 @@
               <span class="param-name">{{ param.key }}:</span>
               <span
                 class="param-value"
-                [innerHTML]="formatParameterValue(param.value)"
+                [innerHTML]="formatParameterValue(param.value) | safeHtml"
               ></span>
             </div>
             }
@@ -107,7 +109,7 @@
           } @else if (contentBlock.content &&
           isCodeContent(contentBlock.content)) {
           <div class="code-result">
-            <pre><code [innerHTML]="highlightCode(contentBlock.content)"></code></pre>
+            <pre><code [innerHTML]="highlightCode(contentBlock.content) | safeHtml"></code></pre>
           </div>
           } @else if (contentBlock.content) {
           <div class="text-result">
