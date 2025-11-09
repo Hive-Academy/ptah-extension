@@ -1,0 +1,14 @@
+{
+  "name": "@ptah-extension/claude-domain",
+  "version": "0.0.1",
+  "private": true,
+  "type": "commonjs",
+  "main": "./index.cjs",
+  "types": "./index.d.ts",
+  "dependencies": {
+    "@ptah-extension/shared": "0.0.1",
+    "@ptah-extension/vscode-core": "0.0.1",
+    "tsyringe": "^4.10.0",
+    "minimatch": "9.0.3"
+  }
+}

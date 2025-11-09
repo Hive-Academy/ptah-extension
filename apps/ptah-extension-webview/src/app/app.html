@@ -1,2 +1,33 @@
-<app-nx-welcome></app-nx-welcome>
-<router-outlet></router-outlet>
+<!-- Streamlined Full-Screen App -->
+<main class="vscode-main-container">
+  <!-- Loading State -->
+  @if (appState.isLoading() || isInitializing()) {
+  <div class="vscode-loading-container">
+    <ptah-loading-spinner size="lg" [message]="appState.statusMessage()" />
+  </div>
+  }
+
+  <!-- Main Content - View Switching -->
+  @if (isReady() && !appState.isLoading()) { @switch (appState.currentView()) {
+  @case ('chat') {
+  <ptah-chat class="vscode-view-container" />
+  } @case ('analytics') {
+  <ptah-analytics class="vscode-view-container" />
+  } @case ('settings') {
+  <ptah-settings-view class="vscode-view-container" />
+  } @default {
+  <ptah-chat class="vscode-view-container" />
+  } } }
+
+  <!-- Error State -->
+  @if (hasError()) {
+  <div class="vscode-error-container">
+    <div class="vscode-error-content">
+      <h3 class="vscode-error-title">Initialization Error</h3>
+      <p class="vscode-error-message">
+        Failed to initialize the application. Please try refreshing.
+      </p>
+    </div>
+  </div>
+  }
+</main>

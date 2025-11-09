@@ -1,0 +1,356 @@
+/**
+ * Chat Messages List Component Styles
+ * Clean, minimal design inspired by modern chat interfaces
+ */
+
+.chat-messages-list {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0.5rem;
+  gap: 0.25rem;
+  position: relative;
+  scroll-behavior: smooth;
+
+  &.auto-scroll {
+    scroll-behavior: smooth;
+  }
+
+  // Loading State
+  .loading-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    padding: 2rem;
+    color: var(--text-secondary, #666);
+
+    .loading-spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid var(--border-color, #e0e0e0);
+      border-top-color: var(--primary-color, #d4af37);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+  }
+
+  // Empty State
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    padding: 3rem 2rem;
+    text-align: center;
+    color: var(--text-secondary, #666);
+
+    .empty-icon {
+      font-size: 4rem;
+      opacity: 0.5;
+    }
+
+    h3 {
+      margin: 0;
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--text-primary, #333);
+    }
+
+    p {
+      margin: 0;
+      font-size: 1rem;
+      max-width: 400px;
+    }
+  }
+
+  // Message Groups
+  .message-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .message-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    transition: all 0.2s ease;
+
+    // Remove all background colors and borders for clean look
+    background-color: transparent;
+    border: none;
+
+    &.streaming {
+      // Subtle indicator for streaming messages
+      opacity: 0.9;
+    }
+
+    // Group Header - Hidden by default for cleaner look
+    .group-header {
+      display: none; // Hide headers for minimal design
+    }
+
+    // Messages in Group
+    .group-messages {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .message-wrapper {
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative;
+
+      &:hover {
+        background-color: var(--hover-bg, rgba(0, 0, 0, 0.03));
+      }
+
+      &.selected {
+        background-color: var(--selected-bg, rgba(212, 175, 55, 0.08));
+        border-left: 2px solid var(--primary-color, #d4af37);
+        padding-left: calc(0.5rem - 2px);
+      }
+
+      // Message Actions
+      .message-actions {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+        padding-top: 0.5rem;
+        border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
+
+        .action-btn {
+          padding: 0.25rem 0.5rem;
+          border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
+          border-radius: 4px;
+          background-color: var(--surface-color, transparent);
+          color: var(--text-primary, #333);
+          font-size: 0.8rem;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          display: flex;
+          align-items: center;
+          gap: 0.25rem;
+
+          &:hover {
+            background-color: var(--hover-bg, rgba(0, 0, 0, 0.05));
+            border-color: var(--primary-color, #d4af37);
+          }
+
+          &:active {
+            transform: scale(0.98);
+          }
+
+          &.copy-btn:hover {
+            color: var(--info-color, #0066cc);
+          }
+
+          &.regenerate-btn:hover {
+            color: var(--primary-color, #d4af37);
+          }
+
+          &.export-btn:hover {
+            color: var(--success-color, #2e7d32);
+          }
+        }
+      }
+    }
+  }
+
+  // Scroll to Bottom Button
+  .scroll-to-bottom {
+    position: fixed;
+    bottom: 6rem;
+    right: 2rem;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: var(--primary-color, #d4af37);
+    color: white;
+    border: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    z-index: 10;
+
+    &:hover {
+      transform: scale(1.1);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+    }
+
+    &:active {
+      transform: scale(0.95);
+    }
+
+    .scroll-icon {
+      font-size: 1.25rem;
+      line-height: 1;
+    }
+
+    &.has-new-messages {
+      background-color: var(--accent-color, #e63946);
+
+      .new-messages-count {
+        position: absolute;
+        top: -6px;
+        right: -6px;
+        background-color: var(--accent-color, #e63946);
+        color: white;
+        border-radius: 10px;
+        padding: 2px 5px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        min-width: 18px;
+        text-align: center;
+        border: 2px solid white;
+      }
+    }
+  }
+
+  // Typing Indicators
+  .typing-indicators {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem;
+
+    .typing-indicator {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      border-radius: 6px;
+      background-color: transparent;
+      border: none;
+      animation: fadeIn 0.3s ease;
+
+      .typing-avatar {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: var(--avatar-bg, rgba(0, 0, 0, 0.05));
+        font-size: 0.9rem;
+      }
+
+      .typing-animation {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+
+        .typing-dots {
+          display: flex;
+          gap: 3px;
+
+          span {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background-color: var(--primary-color, #d4af37);
+            animation: typingDot 1.4s infinite;
+
+            &:nth-child(2) {
+              animation-delay: 0.2s;
+            }
+
+            &:nth-child(3) {
+              animation-delay: 0.4s;
+            }
+          }
+        }
+
+        .typing-text {
+          color: var(--text-secondary, #666);
+          font-size: 0.8rem;
+          font-style: italic;
+        }
+      }
+    }
+  }
+}
+
+// Animations
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes typingDot {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.5;
+  }
+  30% {
+    transform: translateY(-8px);
+    opacity: 1;
+  }
+}
+
+// Scrollbar Styling
+.chat-messages-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-messages-list::-webkit-scrollbar-track {
+  background-color: var(--scrollbar-track, #f0f0f0);
+  border-radius: 4px;
+}
+
+.chat-messages-list::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb, #c0c0c0);
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+
+  &:hover {
+    background-color: var(--scrollbar-thumb-hover, #a0a0a0);
+  }
+}
+
+// Responsive Design
+@media (max-width: 768px) {
+  .chat-messages-list {
+    padding: 0.5rem;
+
+    .message-group {
+      padding: 0.25rem;
+    }
+
+    .scroll-to-bottom {
+      bottom: 5rem;
+      right: 1rem;
+      width: 36px;
+      height: 36px;
+    }
+  }
+}

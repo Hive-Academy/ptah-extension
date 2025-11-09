@@ -1,0 +1,180 @@
+<div
+  #contentContainer
+  class="claude-message-content"
+  [class.user]="message().type === 'user'"
+  [class.assistant]="message().type === 'assistant'"
+  [class.streaming]="message().isStreaming"
+  [class.complete]="message().isComplete"
+>
+  <!-- Message Header -->
+  @if (showHeader()) {
+  <div class="message-header">
+    <div class="message-metadata">
+      <span class="message-role" [ngClass]="message().type">
+        {{ roleIcon() }} {{ message().type }}
+      </span>
+      <span class="message-timestamp">
+        {{ formattedTimestamp() }}
+      </span>
+      @if (message().tokenUsage) {
+      <span class="token-usage"> 🪙 {{ totalTokens() }} tokens </span>
+      }
+    </div>
+
+    <!-- Model Information -->
+    @if (message().model) {
+    <div class="model-info">
+      <span class="model-name">{{ message().model }}</span>
+    </div>
+    }
+
+    <!-- Tools Used Indicator -->
+    @if (toolBadges().length > 0) {
+    <div class="tools-indicator">
+      <span class="tools-label">Tools:</span>
+      @for (badge of toolBadges(); track badge.name) {
+      <span class="tool-badge"> {{ badge.icon }} {{ badge.name }} </span>
+      }
+    </div>
+    }
+  </div>
+  }
+
+  <!-- Content Sections -->
+  <div class="message-body">
+    @for (contentBlock of message().content; track trackByContent($index,
+    contentBlock)) {
+    <div class="content-block" [attr.data-content-type]="contentBlock.type">
+      <!-- Text Content -->
+      @if (isTextContent(contentBlock)) {
+      <div
+        class="text-content"
+        [innerHTML]="processedContent().renderedContent | safeHtml"
+      ></div>
+      }
+
+      <!-- Tool Use Visualization -->
+      @if (isToolUseContent(contentBlock)) {
+      <div class="tool-use-block" [class.running]="message().isStreaming">
+        <div class="tool-header">
+          <div class="tool-icon">{{ getToolIcon(contentBlock.name) }}</div>
+          <div class="tool-info">
+            <span class="tool-name">{{ contentBlock.name }}</span>
+            <span class="tool-status">
+              <span
+                class="status-indicator"
+                [class.running]="message().isStreaming"
+              ></span>
+              {{ message().isStreaming ? 'Running...' : 'Completed' }}
+            </span>
+          </div>
+        </div>
+
+        <!-- Tool Parameters -->
+        @if (hasToolParameters(contentBlock)) {
+        <div class="tool-parameters">
+          <div class="parameters-header">Parameters:</div>
+          <div class="parameter-grid">
+            @for (param of getToolParameters(contentBlock); track param.key) {
+            <div class="parameter-item">
+              <span class="param-name">{{ param.key }}:</span>
+              <span
+                class="param-value"
+                [innerHTML]="formatParameterValue(param.value) | safeHtml"
+              ></span>
+            </div>
+            }
+          </div>
+        </div>
+        }
+      </div>
+      }
+
+      <!-- Tool Result Visualization -->
+      @if (isToolResultContent(contentBlock)) {
+      <div class="tool-result-block" [class.error]="contentBlock.is_error">
+        <div class="result-header">
+          <span class="result-status" [class.error]="contentBlock.is_error">
+            {{ contentBlock.is_error ? '❌ Error' : '✅ Success' }}
+          </span>
+        </div>
+        <div class="result-content">
+          @if (contentBlock.content && isImageContent(contentBlock.content)) {
+          <div class="image-result">
+            <img
+              [ngSrc]="getImageSrc(contentBlock.content)"
+              alt="Tool result image"
+            />
+          </div>
+          } @else if (contentBlock.content &&
+          isCodeContent(contentBlock.content)) {
+          <div class="code-result">
+            <pre><code [innerHTML]="highlightCode(contentBlock.content) | safeHtml"></code></pre>
+          </div>
+          } @else if (contentBlock.content) {
+          <div class="text-result">
+            <pre>{{ contentBlock.content }}</pre>
+          </div>
+          }
+        </div>
+      </div>
+      }
+    </div>
+    }
+  </div>
+
+  <!-- File Attachments -->
+  @if (message().hasFiles && processedContent().extractedFiles.length > 0) {
+  <div class="file-attachments">
+    <div class="attachments-header">📎 Files:</div>
+    <div class="file-grid">
+      @for (file of processedContent().extractedFiles; track file.path) {
+      <div
+        class="file-item"
+        [class.clickable]="file.isClickable"
+        (click)="handleFileClick(file)"
+      >
+        <div class="file-icon">{{ getFileIcon(file) }}</div>
+        <div class="file-info">
+          <div class="file-name">{{ getFileName(file.path) }}</div>
+          <div class="file-path">{{ file.path }}</div>
+        </div>
+        @if (file.isImage) {
+        <div class="file-actions">
+          <button
+            class="preview-btn"
+            (click)="toggleImagePreview(file, $event)"
+          >
+            👁️ Preview
+          </button>
+        </div>
+        }
+      </div>
+      }
+    </div>
+  </div>
+  }
+
+  <!-- Image Previews -->
+  @if (showImagePreviews() && imageFiles().length > 0) {
+  <div class="image-previews">
+    @for (imageFile of imageFiles(); track imageFile.path) {
+    <div class="image-preview">
+      <img
+        [ngSrc]="getImagePreviewSrc(imageFile.path)"
+        [alt]="getFileName(imageFile.path)"
+        (error)="onImageError($event, imageFile)"
+      />
+    </div>
+    }
+  </div>
+  }
+
+  <!-- Streaming Indicator -->
+  @if (message().isStreaming) {
+  <div class="streaming-indicator">
+    <div class="typing-dots"><span></span><span></span><span></span></div>
+    <span class="streaming-text">Claude is typing...</span>
+  </div>
+  }
+</div>

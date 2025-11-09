@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "mcp__sequential-thinking__sequentialthinking",
+      "Bash(cat:*)",
+      "Bash(npx nx build:*)",
+      "Bash(npx tsc:*)",
+      "WebSearch"
+    ],
+    "deny": [],
+    "ask": [],
+    "additionalDirectories": ["D:\\projects\\ptah-extension"]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "browser",
+    "sequential-thinking",
+    "nx-mcp",
+    "angular-cli"
+  ],
+  "outputStyle": "default"
+}

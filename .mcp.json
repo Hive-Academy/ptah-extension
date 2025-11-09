@@ -1,0 +1,31 @@
+{
+  "mcpServers": {
+    "browser": {
+      "command": "cmd.exe",
+      "args": ["/c", "npx", "-y", "@agent-infra/mcp-server-browser@latest"]
+    },
+    "sequential-thinking": {
+      "command": "cmd.exe",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ]
+    },
+    "nx-mcp": {
+      "command": "cmd.exe",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "nx-mcp@latest",
+        "D://projects/ptah-extension"
+      ]
+    },
+    "angular-cli": {
+      "command": "cmd.exe",
+      "args": ["/c", "npx", "-y", "@angular/cli", "mcp"]
+    }
+  }
+}

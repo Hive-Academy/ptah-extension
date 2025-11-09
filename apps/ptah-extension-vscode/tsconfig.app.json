@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "../../dist/out-tsc",
+    "module": "node16",
+    "types": ["node", "vscode"]
+  },
+  "include": ["src/**/*.ts"]
+}

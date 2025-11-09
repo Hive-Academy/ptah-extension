@@ -1,0 +1,16 @@
+{
+  "name": "@ptah-extension/vscode-core",
+  "version": "0.0.1",
+  "private": true,
+  "type": "commonjs",
+  "main": "./index.cjs",
+  "types": "./index.d.ts",
+  "dependencies": {
+    "tsyringe": "^4.10.0",
+    "@ptah-extension/shared": "0.0.1",
+    "eventemitter3": "^5.0.1",
+    "rxjs": "~7.8.0",
+    "@types/vscode": "^1.103.0",
+    "zod": "^3.25.76"
+  }
+}

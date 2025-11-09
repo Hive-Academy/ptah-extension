@@ -1,0 +1,15 @@
+{
+  "name": "@ptah-extension/workspace-intelligence",
+  "version": "0.0.1",
+  "private": true,
+  "type": "commonjs",
+  "main": "./index.cjs",
+  "types": "./index.d.ts",
+  "dependencies": {
+    "@ptah-extension/shared": "*",
+    "@ptah-extension/vscode-core": "0.0.1",
+    "@types/vscode": "^1.103.0",
+    "picomatch": "^4.0.2",
+    "tsyringe": "^4.8.0"
+  }
+}

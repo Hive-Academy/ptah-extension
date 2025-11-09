@@ -1,0 +1,304 @@
+{
+  "name": "ptah-extension-vscode",
+  "displayName": "Ptah - Claude Code GUI",
+  "description": "Complete visual interface for Claude Code CLI with chat, command building, and intelligent context management",
+  "version": "0.1.0",
+  "publisher": "ptah-extensions",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Hive-Academy/ptah-extension.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Hive-Academy/ptah-extension/issues"
+  },
+  "homepage": "https://github.com/Hive-Academy/ptah-extension#readme",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "AI",
+    "Machine Learning",
+    "Chat",
+    "Other"
+  ],
+  "keywords": [
+    "claude",
+    "ai",
+    "chat",
+    "code-review",
+    "assistant",
+    "anthropic",
+    "cli-gui"
+  ],
+  "extensionDependencies": [
+    "anthropic.claude-code"
+  ],
+  "activationEvents": [
+    "onView:ptah.main"
+  ],
+  "main": "./main.js",
+  "icon": "assets/images/ptah-icon.png",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ptah",
+          "title": "Ptah - Code Assistant",
+          "icon": "assets/images/ptah-icon.png"
+        }
+      ]
+    },
+    "views": {
+      "ptah": [
+        {
+          "type": "webview",
+          "id": "ptah.main",
+          "name": "Ptah Code",
+          "icon": "$(robot)",
+          "contextualTitle": "Ptah -  Code Assistant"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "ptah.quickChat",
+        "title": "Quick Chat",
+        "category": "Ptah",
+        "icon": "$(comment)"
+      },
+      {
+        "command": "ptah.reviewCurrentFile",
+        "title": "Review Current File",
+        "category": "Ptah",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "ptah.generateTests",
+        "title": "Generate Tests",
+        "category": "Ptah",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "ptah.buildCommand",
+        "title": "Build Command",
+        "category": "Ptah",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "ptah.newSession",
+        "title": "New Session",
+        "category": "Ptah",
+        "icon": "$(add)"
+      },
+      {
+        "command": "ptah.includeFile",
+        "title": "Include in Context",
+        "category": "Ptah",
+        "icon": "$(add)"
+      },
+      {
+        "command": "ptah.excludeFile",
+        "title": "Exclude from Context",
+        "category": "Ptah",
+        "icon": "$(remove)"
+      },
+      {
+        "command": "ptah.showAnalytics",
+        "title": "Show Analytics",
+        "category": "Ptah",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "ptah.openFullPanel",
+        "title": "Open Full Ptah Panel",
+        "category": "Ptah",
+        "icon": "$(split-horizontal)"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "ptah.quickChat"
+        },
+        {
+          "command": "ptah.reviewCurrentFile",
+          "when": "editorIsOpen"
+        },
+        {
+          "command": "ptah.generateTests",
+          "when": "editorIsOpen"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "ptah.reviewCurrentFile",
+          "group": "ptah@1"
+        },
+        {
+          "command": "ptah.generateTests",
+          "group": "ptah@2"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "ptah.includeFile",
+          "when": "!ptah.fileIncluded",
+          "group": "ptah@1"
+        },
+        {
+          "command": "ptah.excludeFile",
+          "when": "ptah.fileIncluded",
+          "group": "ptah@1"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "ptah.newSession",
+          "when": "view == ptah.main",
+          "group": "navigation"
+        },
+        {
+          "command": "ptah.showAnalytics",
+          "when": "view == ptah.main",
+          "group": "navigation"
+        },
+        {
+          "command": "ptah.openFullPanel",
+          "when": "view == ptah.main",
+          "group": "navigation"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "ptah.quickChat",
+        "key": "ctrl+shift+p ctrl+shift+c",
+        "mac": "cmd+shift+p cmd+shift+c"
+      },
+      {
+        "command": "ptah.reviewCurrentFile",
+        "key": "ctrl+shift+p ctrl+shift+r",
+        "mac": "cmd+shift+p cmd+shift+r",
+        "when": "editorIsOpen"
+      },
+      {
+        "command": "ptah.buildCommand",
+        "key": "ctrl+shift+p ctrl+shift+b",
+        "mac": "cmd+shift+p cmd+shift+b"
+      }
+    ],
+    "configuration": {
+      "title": "Ptah - Claude Code",
+      "properties": {
+        "ptah.claudeCliPath": {
+          "type": "string",
+          "default": "claude",
+          "description": "Path to Claude Code CLI executable"
+        },
+        "ptah.defaultProvider": {
+          "type": "string",
+          "enum": [
+            "anthropic",
+            "bedrock",
+            "vertex"
+          ],
+          "default": "anthropic",
+          "description": "Default Claude provider"
+        },
+        "ptah.maxTokens": {
+          "type": "number",
+          "default": 200000,
+          "description": "Maximum tokens per session"
+        },
+        "ptah.autoIncludeOpenFiles": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically include open files in context"
+        },
+        "ptah.contextOptimization": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable automatic context optimization suggestions"
+        },
+        "ptah.analyticsEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable usage analytics tracking"
+        },
+        "ptah.claude.model": {
+          "type": "string",
+          "default": "claude-3-sonnet-20241022",
+          "description": "Claude model to use for chat"
+        },
+        "ptah.claude.temperature": {
+          "type": "number",
+          "default": 0.1,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Temperature setting for Claude responses (0 = deterministic, 1 = creative)"
+        },
+        "ptah.streaming.bufferSize": {
+          "type": "number",
+          "default": 8192,
+          "minimum": 1024,
+          "description": "Stream buffer size in bytes"
+        },
+        "ptah.streaming.chunkSize": {
+          "type": "number",
+          "default": 1024,
+          "minimum": 256,
+          "description": "Stream chunk size in bytes"
+        },
+        "ptah.streaming.timeoutMs": {
+          "type": "number",
+          "default": 30000,
+          "minimum": 5000,
+          "description": "Stream timeout in milliseconds"
+        },
+        "ptah.context.maxFileSize": {
+          "type": "number",
+          "default": 1048576,
+          "minimum": 1024,
+          "description": "Maximum file size for context inclusion in bytes"
+        },
+        "ptah.context.includedFiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "List of files included in the current context"
+        },
+        "ptah.context.excludedFiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "List of files excluded from the current context"
+        },
+        "ptah.development.enableDebugLogging": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable debug logging for development"
+        },
+        "ptah.development.mockResponses": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use mock responses for development testing"
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@types/node": "16.x",
+    "@types/uuid": "^9.0.0",
+    "@types/vscode": "^1.74.0",
+    "typescript": "^4.9.4"
+  },
+  "dependencies": {
+    "rxjs": "^7.8.0",
+    "uuid": "^9.0.0",
+    "zod": "^3.25.76"
+  }
+}

@@ -1,0 +1,40 @@
+# Build outputs
+.vscode-test/**
+out/test/**
+
+# Source files
+src/**
+*.md
+!readme.md
+
+# Development files
+.vscode/**
+.gitignore
+tsconfig.json
+webpack.config.js
+.eslintrc.json
+
+# Dependencies
+node_modules/**
+!node_modules/rxjs/**
+!node_modules/uuid/**
+
+# Documentation and examples
+docs/**
+examples/**
+
+# Images (if not needed for runtime)
+images/**
+
+# Git
+.git/**
+.github/**
+
+# Logs
+logs/**
+*.log
+*.vsix
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,459 @@
+/**
+ * Enhanced Chat Messages List Component Styles
+ * Beautiful VS Code-themed styling for Claude CLI messages with enhanced features
+ */
+
+.enhanced-chat-messages-list {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+  background-color: var(--vscode-editor-background);
+  color: var(--vscode-editor-foreground);
+  position: relative;
+
+  /* Custom scrollbar styling */
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: var(--vscode-scrollbarSlider-background);
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--vscode-scrollbarSlider-background);
+    border-radius: 4px;
+  }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background: var(--vscode-scrollbarSlider-hoverBackground);
+  }
+}
+
+/* Loading State */
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  color: var(--vscode-foreground);
+  gap: 1rem;
+}
+
+.loading-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--vscode-progressBar-background);
+  border-top: 2px solid var(--vscode-progressBar-foreground);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+/* Empty State */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 2rem;
+  text-align: center;
+  color: var(--vscode-foreground);
+  opacity: 0.8;
+
+  .empty-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    opacity: 0.6;
+  }
+
+  h3 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--vscode-foreground);
+  }
+
+  p {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--vscode-descriptionForeground);
+    line-height: 1.4;
+  }
+}
+
+/* Message Groups */
+.message-groups {
+  padding: 1rem 0;
+  flex: 1;
+}
+
+.message-group {
+  margin-bottom: 2rem;
+
+  &:last-child {
+    margin-bottom: 1rem;
+  }
+
+  /* Different styling for different roles */
+  &.user-group {
+    .group-header .group-role {
+      color: var(--vscode-terminal-ansiBlue);
+    }
+  }
+
+  &.assistant-group {
+    .group-header .group-role {
+      color: var(--vscode-terminal-ansiGreen);
+    }
+  }
+
+  &.system-group {
+    .group-header .group-role {
+      color: var(--vscode-terminal-ansiYellow);
+    }
+  }
+
+  &.streaming {
+    .group-header .group-role::after {
+      content: ' ⏳';
+      animation: pulse 1.5s infinite;
+    }
+  }
+}
+
+/* Group Header */
+.group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1.5rem;
+  margin-bottom: 0.5rem;
+  background-color: var(--vscode-editor-lineHighlightBackground);
+  border-radius: 6px;
+  border-left: 3px solid var(--vscode-textLink-foreground);
+}
+
+.group-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background-color: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  font-size: 0.9rem;
+}
+
+.group-meta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex: 1;
+}
+
+.group-role {
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-transform: capitalize;
+}
+
+.group-timestamp {
+  font-size: 0.8rem;
+  color: var(--vscode-descriptionForeground);
+}
+
+.message-count {
+  font-size: 0.75rem;
+  color: var(--vscode-descriptionForeground);
+  background-color: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  padding: 2px 6px;
+  border-radius: 10px;
+}
+
+/* Group Messages */
+.group-messages {
+  padding-left: 0.5rem;
+}
+
+.message-wrapper {
+  margin-bottom: 0.75rem;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  position: relative;
+
+  &:hover {
+    background-color: var(--vscode-list-hoverBackground);
+  }
+
+  &.selected {
+    background-color: var(--vscode-list-activeSelectionBackground);
+    outline: 1px solid var(--vscode-focusBorder);
+  }
+}
+
+/* Message Actions */
+.message-actions {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background-color: var(--vscode-toolbar-activeBackground);
+  border-top: 1px solid var(--vscode-widget-border);
+  border-radius: 0 0 8px 8px;
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.5rem;
+  background: transparent;
+  border: 1px solid var(--vscode-button-border);
+  color: var(--vscode-foreground);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.15s ease;
+
+  &:hover {
+    background-color: var(--vscode-button-hoverBackground);
+    color: var(--vscode-button-foreground);
+  }
+
+  &.copy-btn:hover {
+    background-color: var(--vscode-terminal-ansiBlue);
+    border-color: var(--vscode-terminal-ansiBlue);
+    color: white;
+  }
+
+  &.regenerate-btn:hover {
+    background-color: var(--vscode-terminal-ansiYellow);
+    border-color: var(--vscode-terminal-ansiYellow);
+    color: black;
+  }
+
+  &.export-btn:hover {
+    background-color: var(--vscode-terminal-ansiGreen);
+    border-color: var(--vscode-terminal-ansiGreen);
+    color: white;
+  }
+}
+
+/* Scroll to Bottom Button */
+.scroll-to-bottom {
+  position: absolute;
+  bottom: 1rem;
+  right: 1rem;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: 1px solid var(--vscode-button-border);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease;
+  z-index: 10;
+
+  &:hover {
+    background-color: var(--vscode-button-hoverBackground);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  }
+
+  .scroll-icon {
+    font-size: 1.2rem;
+    font-weight: bold;
+  }
+
+  &.has-new-messages {
+    background-color: var(--vscode-notificationsInfoIcon-foreground);
+    color: white;
+    animation: pulse 2s infinite;
+  }
+
+  .new-messages-count {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    width: 18px;
+    height: 18px;
+    background-color: var(--vscode-errorForeground);
+    color: white;
+    border-radius: 50%;
+    font-size: 0.7rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+  }
+}
+
+/* Typing Indicators */
+.typing-indicators {
+  padding: 0.75rem 1.5rem;
+  border-top: 1px solid var(--vscode-widget-border);
+}
+
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.typing-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background-color: var(--vscode-button-background);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+}
+
+.typing-animation {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.typing-dots {
+  display: flex;
+  gap: 0.2rem;
+
+  span {
+    width: 6px;
+    height: 6px;
+    background-color: var(--vscode-textLink-foreground);
+    border-radius: 50%;
+    animation: typingDots 1.4s infinite;
+
+    &:nth-child(1) {
+      animation-delay: 0s;
+    }
+    &:nth-child(2) {
+      animation-delay: 0.2s;
+    }
+    &:nth-child(3) {
+      animation-delay: 0.4s;
+    }
+  }
+}
+
+.typing-text {
+  font-size: 0.85rem;
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
+/* Animations */
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+@keyframes typingDots {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-8px);
+    opacity: 1;
+  }
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .enhanced-chat-messages-list {
+    padding: 0;
+  }
+
+  .message-groups {
+    padding: 0.5rem 0;
+  }
+
+  .group-header {
+    padding: 0.4rem 1rem;
+    border-radius: 4px;
+  }
+
+  .message-wrapper {
+    margin-bottom: 0.5rem;
+  }
+
+  .message-actions {
+    flex-wrap: wrap;
+    padding: 0.4rem 0.8rem;
+  }
+
+  .action-btn {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.4rem;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .message-group {
+    border: 1px solid var(--vscode-contrastBorder);
+    border-radius: 6px;
+    padding: 0.5rem;
+  }
+
+  .group-header {
+    border: 1px solid var(--vscode-contrastBorder);
+  }
+
+  .message-wrapper {
+    border: 1px solid var(--vscode-contrastBorder);
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .enhanced-chat-messages-list {
+    scroll-behavior: auto;
+  }
+
+  .loading-spinner,
+  .typing-dots span,
+  .scroll-to-bottom,
+  .message-wrapper {
+    animation: none;
+  }
+
+  .message-wrapper {
+    transition: none;
+  }
+}

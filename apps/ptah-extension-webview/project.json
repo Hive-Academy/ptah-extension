@@ -2,9 +2,9 @@
   "name": "ptah-extension-webview",
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "projectType": "application",
-  "prefix": "app",
+  "prefix": "ptah",
   "sourceRoot": "apps/ptah-extension-webview/src",
-  "tags": [],
+  "tags": ["scope:webview", "type:app"],
   "targets": {
     "build": {
       "executor": "@angular/build:application",
@@ -27,21 +27,36 @@
           "budgets": [
             {
               "type": "initial",
-              "maximumWarning": "500kb",
-              "maximumError": "1mb"
+              "maximumWarning": "600kb",
+              "maximumError": "1.2mb"
             },
             {
               "type": "anyComponentStyle",
-              "maximumWarning": "4kb",
-              "maximumError": "8kb"
+              "maximumWarning": "8kb",
+              "maximumError": "16kb"
             }
           ],
-          "outputHashing": "all"
+          "outputHashing": "none",
+          "namedChunks": false,
+          "optimization": {
+            "scripts": true,
+            "styles": {
+              "minify": true,
+              "inlineCritical": false
+            }
+          },
+          "fileReplacements": [
+            {
+              "replace": "apps/ptah-extension-webview/src/environments/environment.ts",
+              "with": "apps/ptah-extension-webview/src/environments/environment.production.ts"
+            }
+          ]
         },
         "development": {
           "optimization": false,
           "extractLicenses": false,
-          "sourceMap": true
+          "sourceMap": true,
+          "outputHashing": "none"
         }
       },
       "defaultConfiguration": "production"
@@ -81,8 +96,14 @@
       "executor": "@nx/web:file-server",
       "options": {
         "buildTarget": "ptah-extension-webview:build",
-        "staticFilePath": "dist/apps/ptah-extension-webview/browser",
+        "staticFilePath": "dist/apps/ptah-extension-vscode/webview/browser",
         "spa": true
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project apps/ptah-extension-webview/tsconfig.app.json"
       }
     }
   }

@@ -1,0 +1,11 @@
+
+echo "🔍 Running pre-commit checks..."
+
+# Run lint-staged
+npx lint-staged --no-stash
+
+# Validate that all affected libraries can build and lint
+echo "🏗️ Building and linting affected projects..."
+npm run typecheck:affected
+
+echo "✅ Pre-commit checks passed!"
