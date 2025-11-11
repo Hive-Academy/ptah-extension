@@ -22,7 +22,11 @@ import {
 } from '@ptah-extension/core';
 
 // Types
-import { StrictChatSession, SessionId } from '@ptah-extension/shared';
+import {
+  StrictChatSession,
+  SessionId,
+  CHAT_MESSAGE_TYPES,
+} from '@ptah-extension/shared';
 
 // Child Components
 import { SessionSelectorComponent } from '../../components/session-selector/session-selector.component';
@@ -749,7 +753,7 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
       this._isLoading.set(true);
 
       // Request sessions from backend
-      this.vscode.postStrictMessage('chat:requestSessions', {});
+      this.vscode.postStrictMessage(CHAT_MESSAGE_TYPES.REQUEST_SESSIONS, {});
 
       // Listen for response
       this.vscode
@@ -864,7 +868,9 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
     this._loadingSessionId.set(sessionId);
 
     try {
-      this.vscode.postStrictMessage('chat:deleteSession', { sessionId });
+      this.vscode.postStrictMessage(CHAT_MESSAGE_TYPES.DELETE_SESSION, {
+        sessionId,
+      });
 
       // Track session deletion
       this.analyticsService.trackEvent('session_deleted', {
@@ -893,7 +899,7 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
     });
 
     try {
-      this.vscode.postStrictMessage('chat:renameSession', {
+      this.vscode.postStrictMessage(CHAT_MESSAGE_TYPES.RENAME_SESSION, {
         sessionId,
         newName,
       });
