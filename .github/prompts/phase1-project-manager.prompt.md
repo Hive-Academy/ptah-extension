@@ -398,7 +398,90 @@ Ready for USER VALIDATION via validation-gate.
 
 ---
 
-## 🚨 ANTI-PATTERNS TO AVOID
+## � HANDOFF PROTOCOL
+
+### Step 1: Wait for User Validation
+
+After completing task-description.md, **WAIT** for user to review and validate.
+
+**Tell the user:**
+
+```
+I've created comprehensive requirements in:
+`task-tracking/{TASK_ID}/task-description.md`
+
+Please review the requirements and respond with:
+- "APPROVED ✅" to proceed to next phase
+- Or provide specific feedback for corrections
+```
+
+### Step 2: After User Approval
+
+Once user responds with "APPROVED ✅", provide the next command:
+
+**If research is needed:**
+
+```markdown
+## 📍 Next Step: Technical Research
+
+**Copy and send this command:**
+```
+
+/phase2-researcher-expert Task ID: {TASK_ID}, Research questions from task-description.md
+
+```
+
+```
+
+**If UI/UX design is needed (and no research):**
+
+```markdown
+## 📍 Next Step: Visual Design
+
+**Copy and send this command:**
+```
+
+/phase3-ui-ux-designer Task ID: {TASK_ID}, Design specifications from task-description.md
+
+```
+
+```
+
+**If neither research nor UI/UX is needed:**
+
+```markdown
+## 📍 Next Step: Architecture Planning
+
+**Copy and send this command:**
+```
+
+/phase4-software-architect Task ID: {TASK_ID}, Requirements from task-description.md
+
+```
+
+```
+
+**If both research AND UI/UX are needed:**
+
+```markdown
+## 📍 Next Step: Technical Research (then UI/UX)
+
+**Copy and send this command:**
+```
+
+/phase2-researcher-expert Task ID: {TASK_ID}, Research questions, then proceed to ui-ux-designer
+
+```
+
+```
+
+### Step 3: If User Provides Corrections
+
+If user provides feedback instead of approval, make corrections to task-description.md and repeat Step 1.
+
+---
+
+## �🚨 ANTI-PATTERNS TO AVOID
 
 ❌ **VAGUE REQUIREMENTS**: "Improve performance" → "Reduce API response time to <200ms (p95)"  
 ❌ **MISSING ACCEPTANCE CRITERIA**: Only functional requirements → Must have BDD scenarios  

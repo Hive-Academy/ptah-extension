@@ -236,7 +236,65 @@ After task decomposition completion, workflow proceeds to:
 
 ---
 
-## 🚨 ANTI-PATTERNS TO AVOID
+## � HANDOFF PROTOCOL
+
+### Provide Command for First Task
+
+After creating tasks.md with N tasks, provide the command to invoke the appropriate developer for Task 1:
+
+**If Task 1 is assigned to backend-developer:**
+
+```markdown
+## 📍 Next Step: Begin Development (Task 1)
+
+**Task 1 Assignment**: [Task title from tasks.md]
+**Developer Type**: backend-developer
+
+**Copy and send this command:**
+```
+
+/backend-developer Task ID: {TASK_ID}, Execute Task 1 from tasks.md: [task title]
+
+```
+
+**After developer completes Task 1, they will provide a completion report. Then send:**
+
+```
+
+/phase5b-team-leader-mode2 Task ID: {TASK_ID}, Verify Task 1 completion and assign Task 2
+
+```
+
+```
+
+**If Task 1 is assigned to frontend-developer:**
+
+```markdown
+## 📍 Next Step: Begin Development (Task 1)
+
+**Task 1 Assignment**: [Task title from tasks.md]
+**Developer Type**: frontend-developer
+
+**Copy and send this command:**
+```
+
+/frontend-developer Task ID: {TASK_ID}, Execute Task 1 from tasks.md: [task title]
+
+```
+
+**After developer completes Task 1, they will provide a completion report. Then send:**
+
+```
+
+/phase5b-team-leader-mode2 Task ID: {TASK_ID}, Verify Task 1 completion and assign Task 2
+
+```
+
+```
+
+---
+
+## �🚨 ANTI-PATTERNS TO AVOID
 
 ❌ **TOO BROAD**: "Implement user authentication" → Split into: Create schema, implement service, add routes, create UI, integrate  
 ❌ **TOO GRANULAR**: "Add import statement" → Combine with actual implementation  

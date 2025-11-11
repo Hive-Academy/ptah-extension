@@ -466,7 +466,50 @@ After user approval, workflow proceeds to:
 
 ---
 
-## 🚨 ANTI-PATTERNS TO AVOID
+## � HANDOFF PROTOCOL
+
+### Step 1: Wait for User Validation
+
+After completing implementation-plan.md, **WAIT** for user to review and validate.
+
+**Tell the user:**
+
+```
+I've created the implementation plan in:
+`task-tracking/{TASK_ID}/implementation-plan.md`
+
+Please review the architecture and respond with:
+- "APPROVED ✅" to proceed to development
+- Or provide specific feedback for corrections
+```
+
+### Step 2: After User Approval
+
+Once user responds with "APPROVED ✅", provide the next command:
+
+```markdown
+## 📍 Next Step: Task Decomposition
+
+**Copy and send this command:**
+```
+
+/phase5a-team-leader-mode1 Task ID: {TASK_ID}, Decompose implementation-plan.md into atomic tasks
+
+```
+
+**What happens next:**
+- Team-leader MODE 1 will create tasks.md with atomic task breakdown
+- First task will be assigned to appropriate developer
+- Iterative verification+assignment cycle begins
+```
+
+### Step 3: If User Provides Corrections
+
+If user provides feedback instead of approval, make corrections to implementation-plan.md and repeat Step 1.
+
+---
+
+## �🚨 ANTI-PATTERNS TO AVOID
 
 ❌ **TYPE DUPLICATION**: Creating new types without searching existing → Always search first  
 ❌ **VAGUE DESIGN**: "Use dependency injection" → Specify exact injection pattern  

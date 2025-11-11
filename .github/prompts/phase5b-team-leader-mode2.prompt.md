@@ -270,7 +270,85 @@ Or if all tasks complete:
 
 ---
 
-## 🚨 ANTI-PATTERNS TO AVOID
+## � HANDOFF PROTOCOL
+
+### If More Tasks Remain
+
+After verifying current task and assigning next task, provide command:
+
+**If next task is backend-developer:**
+
+```markdown
+## 📍 Next Step: Continue Development (Task {N})
+
+**Task {N} Assignment**: [Task title from tasks.md]
+**Developer Type**: backend-developer
+**Progress**: {N-1} / {TOTAL} tasks complete
+
+**Copy and send this command:**
+```
+
+/backend-developer Task ID: {TASK_ID}, Execute Task {N} from tasks.md: [task title]
+
+```
+
+**After developer completes Task {N}, send:**
+
+```
+
+/phase5b-team-leader-mode2 Task ID: {TASK_ID}, Verify Task {N} and assign next
+
+```
+
+```
+
+**If next task is frontend-developer:**
+
+```markdown
+## 📍 Next Step: Continue Development (Task {N})
+
+**Task {N} Assignment**: [Task title from tasks.md]
+**Developer Type**: frontend-developer
+**Progress**: {N-1} / {TOTAL} tasks complete
+
+**Copy and send this command:**
+```
+
+/frontend-developer Task ID: {TASK_ID}, Execute Task {N} from tasks.md: [task title]
+
+```
+
+**After developer completes Task {N}, send:**
+
+```
+
+/phase5b-team-leader-mode2 Task ID: {TASK_ID}, Verify Task {N} and assign next
+
+```
+
+```
+
+### If All Tasks Complete
+
+After verifying final task, provide command to invoke MODE 3:
+
+```markdown
+## 📍 Next Step: Final Verification
+
+**All {TOTAL} tasks verified ✅**
+
+**Copy and send this command:**
+```
+
+/phase5c-team-leader-mode3 Task ID: {TASK_ID}, Final comprehensive verification
+
+```
+
+```
+
+---
+
+## �🚨 ANTI-PATTERNS TO AVOID
 
 ❌ **SKIP VERIFICATION**: Never assign next task without verifying previous completion  
 ❌ **ASSUME COMPLETION**: Always check git log, read files, verify tasks.md  

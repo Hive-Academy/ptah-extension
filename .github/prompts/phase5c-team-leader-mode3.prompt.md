@@ -304,7 +304,47 @@ After development completion, user will choose QA strategy:
 
 ---
 
-## 🚨 FAILURE SCENARIOS
+## � HANDOFF PROTOCOL
+
+### Report Completion to User
+
+After completing final verification, report to user:
+
+```markdown
+## 🎉 Development Complete - All Tasks Verified
+
+**Summary**:
+
+- Total Tasks: {N} all COMPLETED ✅
+- Total Commits: {N} verified
+- Real Implementation: 100% (no stubs)
+- Quality Gates: All passed ✅
+
+**Completion Report**: `task-tracking/{TASK_ID}/implementation-completion-report.md`
+
+---
+
+## 📍 Next Step: Return to Orchestrator
+
+**Copy and send this command:**
+```
+
+/orchestrate TASK*2025*{XXX}
+
+```
+
+**Tell orchestrator**: "Development phase complete. All {N} tasks verified. Ready for QA decision."
+
+The orchestrator will then ask you to choose your QA approach:
+- "tester" - Testing only
+- "reviewer" - Code review only
+- "both" - Both in parallel
+- "skip" - Skip QA
+```
+
+---
+
+## �🚨 FAILURE SCENARIOS
 
 ### Incomplete Tasks
 

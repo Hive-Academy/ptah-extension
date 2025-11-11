@@ -152,4 +152,32 @@ After QA (or skip):
 
 ---
 
+## 📨 HANDOFF PROTOCOL
+
+### After QA Completion
+
+Report completion and provide next command:
+
+```markdown
+## 🎯 QA Phase Complete
+
+**QA Results**:
+[Summary of tester and/or reviewer results]
+
+---
+
+## 📍 Next Step: Return to Orchestrator
+
+**Copy and send this command:**
+```
+
+/orchestrate TASK*2025*{XXX}
+
+```
+
+**Tell orchestrator**: "QA complete. Ready for Phase 8 (modernization-detector)."
+```
+
+---
+
 **User decides QA depth. Flexible quality assurance based on task criticality.**
