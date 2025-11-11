@@ -102,6 +102,13 @@ export const ANALYTICS_MESSAGE_TYPES = {
 } as const;
 
 /**
+ * Analytics response message types
+ */
+export const ANALYTICS_RESPONSE_TYPES = {
+  GET_DATA: 'analytics:getData:response',
+} as const;
+
+/**
  * Configuration message types
  */
 export const CONFIG_MESSAGE_TYPES = {
@@ -234,6 +241,7 @@ export const MESSAGE_TYPES = {
   ...COMMAND_MESSAGE_TYPES,
   ...COMMAND_RESPONSE_TYPES,
   ...ANALYTICS_MESSAGE_TYPES,
+  ...ANALYTICS_RESPONSE_TYPES,
   ...CONFIG_MESSAGE_TYPES,
   ...CONFIG_RESPONSE_TYPES,
   ...STATE_MESSAGE_TYPES,
