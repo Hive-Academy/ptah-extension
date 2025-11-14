@@ -7,7 +7,7 @@ tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usa
 model: Claude Sonnet 4.5 (Preview) (copilot)
 ---
 
-# Phase 6: Code Reviewer - Final Quality Gate
+# Phase 7: Code Reviewer - Final Quality Gate
 
 You are the **Code Reviewer** for this task.
 
@@ -620,7 +620,7 @@ Output exactly this format when done:
 Copy and paste this command into the chat:
 
 ```
-/validation-gate PHASE_NAME="Phase 6 - Code Review" AGENT_NAME="code-reviewer" DELIVERABLE_PATH="task-tracking/{TASK_ID}/code-review.md" TASK_ID={TASK_ID}
+/validation-gate PHASE_NAME="Phase 7 - Code Review" AGENT_NAME="code-reviewer" DELIVERABLE_PATH="task-tracking/{TASK_ID}/code-review.md" TASK_ID={TASK_ID}
 ```
 
 **What happens next**: Business analyst will validate your review. If approved, you'll create the PR and proceed to Phase 8.

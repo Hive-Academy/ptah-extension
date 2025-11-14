@@ -8,6 +8,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   CHAT_MESSAGE_TYPES,
+  SYSTEM_MESSAGE_TYPES,
   ChatSessionCreatedPayload,
   ChatSessionsUpdatedPayload,
   ChatSessionSwitchedPayload,
@@ -128,7 +129,7 @@ export class ChatStateManagerService {
     if (!session) return;
 
     this._isSessionLoading.set(true);
-    this.vscode.postStrictMessage('chat:switchSession', {
+    this.vscode.postStrictMessage(CHAT_MESSAGE_TYPES.SWITCH_SESSION, {
       sessionId: sessionId as SessionId,
     });
   }
@@ -140,7 +141,9 @@ export class ChatStateManagerService {
    */
   createNewSession(sessionName: string): void {
     this._isSessionLoading.set(true);
-    this.vscode.postStrictMessage('chat:newSession', { name: sessionName });
+    this.vscode.postStrictMessage(CHAT_MESSAGE_TYPES.NEW_SESSION, {
+      name: sessionName,
+    });
   }
 
   /**
@@ -149,7 +152,7 @@ export class ChatStateManagerService {
    * @param sessionId - The session ID to delete
    */
   deleteSession(sessionId: string): void {
-    this.vscode.postStrictMessage('chat:deleteSession', {
+    this.vscode.postStrictMessage(CHAT_MESSAGE_TYPES.DELETE_SESSION, {
       sessionId: sessionId as SessionId,
     });
   }
@@ -332,6 +335,9 @@ export class ChatStateManagerService {
   private fetchAvailableSessions(): void {
     this._isSessionLoading.set(true);
     // Request initial data which includes sessions
-    this.vscode.postStrictMessage('requestInitialData', {});
+    this.vscode.postStrictMessage(
+      SYSTEM_MESSAGE_TYPES.REQUEST_INITIAL_DATA,
+      {}
+    );
   }
 }

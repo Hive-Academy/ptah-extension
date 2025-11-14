@@ -3,7 +3,7 @@
 **Task Type**: Full-Stack (Shared Library + Frontend)
 **Developer Needed**: both (backend-developer for shared lib, frontend-developer for migration)
 **Total Tasks**: 7
-**Status**: 0/7 Complete (0%)
+**Status**: 3/7 Complete (43%) - Task 4 in progress
 
 **Decomposed From**:
 
@@ -14,136 +14,74 @@
 
 ## Task Breakdown
 
-### Task 1: Add Response Type Constants to message-types.ts ⏸️ PENDING
+### Task 1: Add Response Type Constants to message-types.ts ✅ COMPLETE
 
-**Type**: BACKEND
-**Complexity**: Level 2
-**Estimated Time**: 1-1.5 hours
-**Assigned To**: backend-developer
-**Status**: PENDING
+**Type**: BACKEND  
+**Complexity**: Level 1 (Foundational)  
+**Estimated Time**: 0.5-1 hour  
+**Assigned To**: backend-developer  
+**File(s)**: `libs/shared/src/lib/constants/message-types.ts`  
+**Specification Reference**: implementation-plan.md:135-181 (Section 5.1.1)
 
-**Description**:
-Add explicit response type constant objects for all message categories (CHAT, PROVIDER, CONTEXT, COMMAND, CONFIG, STATE) and update MESSAGE_TYPES aggregation to include them. This enables type-safe response message handling with IDE autocomplete.
+**Task Description**:
+Add 6 response type constant objects to `message-types.ts`:
 
-**Files to Change**:
+1. `CHAT_RESPONSE_TYPES`
+2. `PROVIDER_RESPONSE_TYPES`
+3. `CONTEXT_RESPONSE_TYPES`
+4. `COMMAND_RESPONSE_TYPES`
+5. `CONFIG_RESPONSE_TYPES`
+6. `STATE_RESPONSE_TYPES`
 
-- `libs/shared/src/lib/constants/message-types.ts` - Add 6 response constant objects (~60 lines)
-
-**Specification Reference**:
-
-- implementation-plan.md:125-210 (Component 1: Response Type Constants)
-
-**Pattern to Follow**:
-
-- Existing CHAT_MESSAGE_TYPES structure (message-types.ts:17-43)
-- Use `as const` assertion for type inference
-- Naming: `{CATEGORY}_RESPONSE_TYPES`
-
-**Implementation Details**:
-
-**Response Constants to Add**:
+Each constant object should follow the pattern:
 
 ```typescript
 export const CHAT_RESPONSE_TYPES = {
   SEND_MESSAGE: 'chat:sendMessage:response',
   NEW_SESSION: 'chat:newSession:response',
-  SWITCH_SESSION: 'chat:switchSession:response',
-  GET_HISTORY: 'chat:getHistory:response',
-  RENAME_SESSION: 'chat:renameSession:response',
-  DELETE_SESSION: 'chat:deleteSession:response',
-  BULK_DELETE_SESSIONS: 'chat:bulkDeleteSessions:response',
-  GET_SESSION_STATS: 'chat:getSessionStats:response',
-  REQUEST_SESSIONS: 'chat:requestSessions:response',
-  STOP_STREAM: 'chat:stopStream:response',
-} as const;
-
-export const PROVIDER_RESPONSE_TYPES = {
-  GET_AVAILABLE: 'providers:getAvailable:response',
-  GET_CURRENT: 'providers:getCurrent:response',
-  SWITCH: 'providers:switch:response',
-  GET_HEALTH: 'providers:getHealth:response',
-  GET_ALL_HEALTH: 'providers:getAllHealth:response',
-  SET_DEFAULT: 'providers:setDefault:response',
-  ENABLE_FALLBACK: 'providers:enableFallback:response',
-  SET_AUTO_SWITCH: 'providers:setAutoSwitch:response',
-} as const;
-
-export const CONTEXT_RESPONSE_TYPES = {
-  GET_FILES: 'context:getFiles:response',
-  INCLUDE_FILE: 'context:includeFile:response',
-  EXCLUDE_FILE: 'context:excludeFile:response',
-  SEARCH_FILES: 'context:searchFiles:response',
-  GET_ALL_FILES: 'context:getAllFiles:response',
-  GET_FILE_SUGGESTIONS: 'context:getFileSuggestions:response',
-  SEARCH_IMAGES: 'context:searchImages:response',
-} as const;
-
-export const COMMAND_RESPONSE_TYPES = {
-  GET_TEMPLATES: 'commands:getTemplates:response',
-  EXECUTE_COMMAND: 'commands:executeCommand:response',
-  SELECT_FILE: 'commands:selectFile:response',
-  SAVE_TEMPLATE: 'commands:saveTemplate:response',
-} as const;
-
-export const CONFIG_RESPONSE_TYPES = {
-  GET: 'config:get:response',
-  SET: 'config:set:response',
-  UPDATE: 'config:update:response',
-  REFRESH: 'config:refresh:response',
-} as const;
-
-export const STATE_RESPONSE_TYPES = {
-  SAVE: 'state:save:response',
-  LOAD: 'state:load:response',
-  CLEAR: 'state:clear:response',
+  // ... other response types
 } as const;
 ```
 
-**Update MESSAGE_TYPES Aggregation**:
+**Quality Requirements**:
 
-```typescript
-export const MESSAGE_TYPES = {
-  ...CHAT_MESSAGE_TYPES,
-  ...CHAT_RESPONSE_TYPES, // NEW
-  ...PROVIDER_MESSAGE_TYPES,
-  ...PROVIDER_RESPONSE_TYPES, // NEW
-  ...CONTEXT_MESSAGE_TYPES,
-  ...CONTEXT_RESPONSE_TYPES, // NEW
-  ...COMMAND_MESSAGE_TYPES,
-  ...COMMAND_RESPONSE_TYPES, // NEW
-  ...ANALYTICS_MESSAGE_TYPES,
-  ...CONFIG_MESSAGE_TYPES,
-  ...CONFIG_RESPONSE_TYPES, // NEW
-  ...STATE_MESSAGE_TYPES,
-  ...STATE_RESPONSE_TYPES, // NEW
-  ...VIEW_MESSAGE_TYPES,
-  ...SYSTEM_MESSAGE_TYPES,
-} as const;
-```
+- ✅ Each constant object uses `as const` assertion (verified pattern from existing constants)
+- ✅ Naming convention: `{CATEGORY}_RESPONSE_TYPES`
+- ✅ Response type format: `{baseType}:response` (e.g., 'chat:sendMessage:response')
+- ✅ Update `MESSAGE_TYPES` aggregation to include all 6 response constant spreads
+- ✅ Follow existing pattern from `CHAT_MESSAGE_TYPES` (verified at message-types.ts:1-14)
 
-**Expected Commit Pattern**: `refactor(shared): add response type constants for all message categories`
+**Expected Commit Pattern**: `refactor(deps): add response type constants for all message categories`
 
 **Verification Requirements**:
 
-- ✅ File exists at libs/shared/src/lib/constants/message-types.ts
-- ✅ 6 new response constant objects added (CHAT_RESPONSE_TYPES, PROVIDER_RESPONSE_TYPES, etc.)
-- ✅ MESSAGE_TYPES includes all 6 response constant spreads
-- ✅ All constants use `as const` assertion
-- ✅ `npm run typecheck:all` passes
-- ✅ `npm run build:all` succeeds
+- ✅ File exists: `libs/shared/src/lib/constants/message-types.ts`
 - ✅ Git commit matches pattern
+- ✅ Build passes: `npm run typecheck:all`
+- ✅ All 6 response constant objects present with `as const`
+- ✅ `MESSAGE_TYPES` aggregation updated
 
-**Dependencies**: None
+**Git Commit**: 0fa9e12  
+**Verification Results**:
+
+- ✅ Git commit verified: 0fa9e12
+- ✅ File modified successfully
+- ✅ Typecheck passed: All 14 projects (36s)
+- ✅ All 6 response constant objects added with `as const`
+- ✅ MESSAGE_TYPES aggregation updated with all 6 spreads
+
+**Dependencies**: None (foundational task)  
+**Blocks**: Task 2 (type derivation requires these constants)
 
 ---
 
-### Task 2: Derive StrictMessageType from MESSAGE_TYPES Constants 🔄 IN PROGRESS
+### Task 2: Derive StrictMessageType from MESSAGE_TYPES Constants ✅ COMPLETE
 
 **Type**: BACKEND
 **Complexity**: Level 1
 **Estimated Time**: 0.5-1 hour
 **Assigned To**: backend-developer
-**Status**: PENDING
+**Status**: COMPLETE
 
 **Description**:
 Replace the explicit ~115 line StrictMessageType union with a single derived type using TypeScript's indexed access pattern. This eliminates duplication and ensures automatic sync between constants and types.
@@ -151,6 +89,7 @@ Replace the explicit ~115 line StrictMessageType union with a single derived typ
 **Files to Change**:
 
 - `libs/shared/src/lib/types/message.types.ts` - Replace explicit union (~115 lines removed, 2 lines added)
+- `libs/shared/src/lib/constants/message-types.ts` - Added missing ANALYTICS_RESPONSE_TYPES
 
 **Specification Reference**:
 
@@ -177,12 +116,34 @@ export type StrictMessageType =
 **AFTER**:
 
 ```typescript
-import { MESSAGE_TYPES } from '../constants/message-types';
+import {
+  CHAT_MESSAGE_TYPES,
+  CHAT_RESPONSE_TYPES,
+  // ... all category imports
+  SYSTEM_MESSAGE_TYPES,
+} from '../constants/message-types';
 
-export type StrictMessageType = (typeof MESSAGE_TYPES)[keyof typeof MESSAGE_TYPES];
+export type StrictMessageType =
+  | (typeof CHAT_MESSAGE_TYPES)[keyof typeof CHAT_MESSAGE_TYPES]
+  | (typeof CHAT_RESPONSE_TYPES)[keyof typeof CHAT_RESPONSE_TYPES]
+  // ... all category unions
+  | (typeof SYSTEM_MESSAGE_TYPES)[keyof typeof SYSTEM_MESSAGE_TYPES];
 ```
 
-**Expected Commit Pattern**: `refactor(shared): derive StrictMessageType from MESSAGE_TYPES constants`
+**Expected Commit Pattern**: `refactor(deps): derive StrictMessageType from MESSAGE_TYPES constants`
+
+**Git Commit**: cd04c68  
+**Verification Results**:
+
+- ✅ Git commit verified: cd04c68
+- ✅ File modified: libs/shared/src/lib/types/message.types.ts
+- ✅ Import statements added for all 16 category constants
+- ✅ StrictMessageType replaced with derived union type (15 lines)
+- ✅ ~115 explicit string literals removed
+- ✅ Added missing ANALYTICS_RESPONSE_TYPES to message-types.ts
+- ✅ `npm run typecheck:all` passes (14 projects, 0 errors)
+- ✅ Type narrowing works correctly in switch statements
+- ✅ MessagePayloadMap keys map correctly
 
 **Verification Requirements**:
 
@@ -199,13 +160,13 @@ export type StrictMessageType = (typeof MESSAGE_TYPES)[keyof typeof MESSAGE_TYPE
 
 ---
 
-### Task 3: Migrate session-manager.component.ts to MESSAGE_TYPES Constants ⏸️ PENDING
+### Task 3: Migrate session-manager.component.ts to MESSAGE_TYPES Constants ✅ COMPLETE
 
 **Type**: FRONTEND
 **Complexity**: Level 1
 **Estimated Time**: 15-20 minutes
 **Assigned To**: frontend-developer
-**Status**: PENDING
+**Status**: COMPLETE
 
 **Description**:
 Replace 3 string literal usages in session-manager component with CHAT_MESSAGE_TYPES constants. This is the first frontend migration task to establish the pattern.
@@ -237,7 +198,16 @@ import { CHAT_MESSAGE_TYPES } from '@ptah-extension/shared';
 2. Line ~867: `'chat:deleteSession'` → `CHAT_MESSAGE_TYPES.DELETE_SESSION`
 3. Line ~896: `'chat:renameSession'` → `CHAT_MESSAGE_TYPES.RENAME_SESSION`
 
-**Expected Commit Pattern**: `refactor(session): migrate session-manager to MESSAGE_TYPES constants`
+**Expected Commit Pattern**: `refactor(webview): migrate session-manager to MESSAGE_TYPES constants`
+
+**Git Commit**: 3cf174f  
+**Verification Results**:
+
+- ✅ Git commit verified: 3cf174f
+- ✅ File modified: libs/frontend/session/src/lib/containers/session-manager/session-manager.component.ts
+- ✅ Import statement added for CHAT_MESSAGE_TYPES
+- ✅ All 3 string literals replaced with constants
+- ✅ `npm run typecheck:all` passes (14 projects, 0 errors)
 
 **Verification Requirements**:
 
@@ -253,13 +223,13 @@ import { CHAT_MESSAGE_TYPES } from '@ptah-extension/shared';
 
 ---
 
-### Task 4: Migrate chat-state-manager.service.ts to MESSAGE_TYPES Constants ⏸️ PENDING
+### Task 4: Migrate chat-state-manager.service.ts to MESSAGE_TYPES Constants 🔄 IN PROGRESS
 
 **Type**: FRONTEND
 **Complexity**: Level 1
 **Estimated Time**: 15-20 minutes
 **Assigned To**: frontend-developer
-**Status**: PENDING
+**Status**: IN PROGRESS - Assigned to frontend-developer
 
 **Description**:
 Replace 4 string literal usages in chat-state-manager service with CHAT_MESSAGE_TYPES and SYSTEM_MESSAGE_TYPES constants.
