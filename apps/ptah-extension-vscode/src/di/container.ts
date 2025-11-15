@@ -83,6 +83,8 @@ import {
 // Import main app services
 import { AnalyticsDataCollector } from '../services/analytics-data-collector';
 import { CommandBuilderService } from '../services/command-builder.service';
+import { WebviewEventQueue } from '../services/webview-event-queue';
+import { WebviewInitialDataBuilder } from '../services/webview-initial-data-builder';
 import { AngularWebviewProvider } from '../providers/angular-webview.provider';
 import { ConfigurationProviderAdapter } from '../adapters/configuration-provider.adapter';
 import { AnalyticsDataCollectorAdapter } from '../adapters/analytics-data-collector.adapter';
@@ -295,6 +297,13 @@ export class DIContainer {
     // ========================================
     // PHASE 5: Main App Services
     // ========================================
+
+    // Webview support services (Priority 2 extraction)
+    container.registerSingleton(TOKENS.WEBVIEW_EVENT_QUEUE, WebviewEventQueue);
+    container.registerSingleton(
+      TOKENS.WEBVIEW_INITIAL_DATA_BUILDER,
+      WebviewInitialDataBuilder
+    );
 
     // Main app services
     container.registerSingleton(
