@@ -1,5 +1,5 @@
 ---
-mode: team-leader
+agent: team-leader
 description: Iterative verification and assignment phase (MODE 2) - Verify task completion and assign next task
 tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
 model: Claude Sonnet 4.5 (Preview) (copilot)
@@ -288,7 +288,7 @@ After verifying current task and assigning next task, provide command:
 **Copy and send this command:**
 ```
 
-/backend-developer Task ID: {TASK_ID}, Execute Task {N} from tasks.md: [task title]
+/phase6-be-developer Task ID: {TASK_ID}, Execute Task {N} from tasks.md: [task title]
 
 ```
 
@@ -314,7 +314,7 @@ After verifying current task and assigning next task, provide command:
 **Copy and send this command:**
 ```
 
-/frontend-developer Task ID: {TASK_ID}, Execute Task {N} from tasks.md: [task title]
+/phase6-fe-developer Task ID: {TASK_ID}, Execute Task {N} from tasks.md: [task title]
 
 ```
 

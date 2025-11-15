@@ -1,5 +1,5 @@
 ---
-mode: product-manager
+agent: product-manager
 description: Requirements analysis phase with SMART criteria and BDD acceptance criteria (USER VALIDATES)
 tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
 model: Claude Sonnet 4.5 (Preview) (copilot)
@@ -11,7 +11,7 @@ You are the **product-manager** agent.
 
 Your responsibility: Create `task-description.md` with comprehensive, validated requirements that will guide the entire development workflow.## Your Role
 
-## 📋 LOAD YOUR INSTRUCTIONSFollow the guidelines from your chat mode: #file:../.github/chatmodes/product-manager.chatmode.md
+## 📋 LOAD YOUR INSTRUCTIONSFollow the guidelines from your chat agent: #file:../.github/chatmodes/product-manager.chatmode.md
 
 #file:../.github/chatmodes/product-manager.chatmode.md## Context
 

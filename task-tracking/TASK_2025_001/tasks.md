@@ -3,7 +3,7 @@
 **Task Type**: Full-Stack (Shared Library + Frontend)
 **Developer Needed**: both (backend-developer for shared lib, frontend-developer for migration)
 **Total Tasks**: 7
-**Status**: 4/7 Complete (57%)
+**Status**: 5/7 Complete (71%)
 
 **Decomposed From**:
 
@@ -298,13 +298,23 @@ import { CHAT_MESSAGE_TYPES, SYSTEM_MESSAGE_TYPES } from '@ptah-extension/shared
 
 ---
 
-### Task 5: Migrate message-handler.service.ts and vscode.service.ts to MESSAGE_TYPES Constants ⏸️ PENDING
+### Task 5: Migrate message-handler.service.ts and vscode.service.ts to MESSAGE_TYPES Constants ✅ COMPLETE
 
 **Type**: FRONTEND
 **Complexity**: Level 2
 **Estimated Time**: 30-45 minutes
 **Assigned To**: frontend-developer
-**Status**: PENDING
+**Status**: COMPLETE
+**Completed**: 2025-11-15T15:00:00Z
+**Commit**: f0402e2
+
+**Implementation Summary**:
+
+- Files changed:
+  - libs/frontend/core/src/lib/services/message-handler.service.ts (3 replacements)
+  - libs/frontend/core/src/lib/services/vscode.service.ts (26 replacements)
+- Total replacements: 29 string literal replacements + 2 import additions
+- Quality checks: All passed ✅
 
 **Description**:
 Replace 14 string literal usages across message-handler service (3 calls) and vscode service (11 calls) with appropriate MESSAGE_TYPES constants. This is the largest single migration task.
@@ -357,7 +367,22 @@ import { CHAT_MESSAGE_TYPES, SYSTEM_MESSAGE_TYPES, VIEW_MESSAGE_TYPES, CONTEXT_M
 10. Line ~399: `'chat:sendMessage'` → `CHAT_MESSAGE_TYPES.SEND_MESSAGE`
 11. Additional instances as found during implementation
 
-**Expected Commit Pattern**: `refactor(core): migrate message-handler and vscode services to MESSAGE_TYPES constants`
+**Expected Commit Pattern**: `refactor(webview): migrate message-handler and vscode services to MESSAGE_TYPES constants`
+
+**Git Commit**: f0402e2
+**Verification Results**:
+
+- ✅ Git commit verified: f0402e2
+- ✅ Files modified:
+  - libs/frontend/core/src/lib/services/message-handler.service.ts
+  - libs/frontend/core/src/lib/services/vscode.service.ts
+- ✅ Import statements added:
+  - message-handler.service.ts: CHAT_MESSAGE_TYPES, VIEW_MESSAGE_TYPES
+  - vscode.service.ts: CHAT_MESSAGE_TYPES, SYSTEM_MESSAGE_TYPES, VIEW_MESSAGE_TYPES, CONTEXT_MESSAGE_TYPES, COMMAND_MESSAGE_TYPES, STATE_MESSAGE_TYPES, PROVIDER_MESSAGE_TYPES, ANALYTICS_MESSAGE_TYPES
+- ✅ All string literals replaced with constants:
+  - message-handler.service.ts: 3 replacements (VIEW_MESSAGE_TYPES.CHANGED x2, CHAT_MESSAGE_TYPES.GET_HISTORY)
+  - vscode.service.ts: 26 replacements across all message categories
+- ✅ `npm run typecheck:all` passes (14 projects, 0 errors)
 
 **Verification Requirements**:
 

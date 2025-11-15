@@ -1,5 +1,5 @@
 ---
-mode: business-analyst
+agent: business-analyst
 description: User validation gate for critical deliverables (Phase 1 PM and Phase 4 Architect only)
 tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
 model: Claude Sonnet 4.5 (Preview) (copilot)

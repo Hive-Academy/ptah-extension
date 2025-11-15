@@ -9,7 +9,10 @@ import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { filter } from 'rxjs';
 
 import { VSCodeService } from './vscode.service';
-import { WebviewConfiguration } from '@ptah-extension/shared';
+import {
+  WebviewConfiguration,
+  CONFIG_MESSAGE_TYPES,
+} from '@ptah-extension/shared';
 
 /**
  * Default configuration for webview
@@ -119,7 +122,7 @@ export class WebviewConfigService {
     T extends keyof WebviewConfiguration[K]
   >(section: K, key: T, value: WebviewConfiguration[K][T]): Promise<void> {
     try {
-      await this.vscode.postStrictMessage('config:update', {
+      await this.vscode.postStrictMessage(CONFIG_MESSAGE_TYPES.UPDATE, {
         updates: {
           [section]: { [key]: value },
         } as Partial<WebviewConfiguration>,
@@ -139,7 +142,7 @@ export class WebviewConfigService {
    */
   async refreshConfiguration(): Promise<void> {
     try {
-      await this.vscode.postStrictMessage('config:refresh', {
+      await this.vscode.postStrictMessage(CONFIG_MESSAGE_TYPES.REFRESH, {
         timestamp: Date.now(),
       });
     } catch (error) {
@@ -239,7 +242,7 @@ export class WebviewConfigService {
     try {
       console.log('WebviewConfigService: Requesting initial configuration...');
       // Request initial configuration from backend
-      await this.vscode.postStrictMessage('config:get', {
+      await this.vscode.postStrictMessage(CONFIG_MESSAGE_TYPES.GET, {
         timestamp: Date.now(),
       });
 

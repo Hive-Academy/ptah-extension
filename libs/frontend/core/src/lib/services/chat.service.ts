@@ -173,7 +173,10 @@ export class ChatService {
 
     // Send to backend
     try {
-      this.vscode.postStrictMessage('chat:sendMessage', messagePayload);
+      this.vscode.postStrictMessage(
+        CHAT_MESSAGE_TYPES.SEND_MESSAGE,
+        messagePayload
+      );
     } catch (error) {
       this.logger.error(
         'Failed to send message to backend',
@@ -200,7 +203,9 @@ export class ChatService {
       this.chatState.clearClaudeMessages();
 
       // Request session switch
-      this.vscode.postStrictMessage('chat:switchSession', { sessionId });
+      this.vscode.postStrictMessage(CHAT_MESSAGE_TYPES.SWITCH_SESSION, {
+        sessionId,
+      });
     } catch (error) {
       this.logger.error('Failed to switch session', 'ChatService', error);
       throw error;
@@ -222,7 +227,7 @@ export class ChatService {
       const payload: ChatNewSessionPayload = {
         name: sessionName,
       };
-      this.vscode.postStrictMessage('chat:newSession', payload);
+      this.vscode.postStrictMessage(CHAT_MESSAGE_TYPES.NEW_SESSION, payload);
     } catch (error) {
       this.logger.error('Failed to create new session', 'ChatService', error);
       throw error;
@@ -257,7 +262,9 @@ export class ChatService {
     sessionId: SessionId
   ): Observable<readonly StrictChatMessage[]> {
     // Request history from backend
-    this.vscode.postStrictMessage('chat:getHistory', { sessionId });
+    this.vscode.postStrictMessage(CHAT_MESSAGE_TYPES.GET_HISTORY, {
+      sessionId,
+    });
     return toObservable(this.messages);
   }
 

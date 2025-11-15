@@ -1,6 +1,7 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { AppStateManager, ViewType } from './app-state.service';
 import { VSCodeService } from './vscode.service';
+import { VIEW_MESSAGE_TYPES } from '@ptah-extension/shared';
 
 export interface NavigationState {
   currentView: ViewType;
@@ -153,7 +154,9 @@ export class WebviewNavigationService {
       this.updateNavigationState(view);
 
       // Notify extension of view change (no URL manipulation)
-      await this.vscodeService.postStrictMessage('view:changed', { view });
+      await this.vscodeService.postStrictMessage(VIEW_MESSAGE_TYPES.CHANGED, {
+        view,
+      });
 
       this.setNavigating(false);
       console.log(

@@ -1,5 +1,5 @@
 ---
-mode: frontend-developer
+agent: frontend-developer
 description: Frontend development task implementation - Implement ONE assigned frontend task from tasks.md with real code
 tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
 model: Claude Sonnet 4.5 (Preview) (copilot)
