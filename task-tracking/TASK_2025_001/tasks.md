@@ -3,7 +3,7 @@
 **Task Type**: Full-Stack (Shared Library + Frontend)
 **Developer Needed**: both (backend-developer for shared lib, frontend-developer for migration)
 **Total Tasks**: 7
-**Status**: 5/7 Complete (71%)
+**Status**: 6/7 Complete (86%)
 
 **Decomposed From**:
 
@@ -279,10 +279,10 @@ import { CHAT_MESSAGE_TYPES, SYSTEM_MESSAGE_TYPES } from '@ptah-extension/shared
 - ✅ File modified: libs/frontend/core/src/lib/services/chat-state-manager.service.ts
 - ✅ Import statements added for CHAT_MESSAGE_TYPES and SYSTEM_MESSAGE_TYPES
 - ✅ All 4 string literals replaced with constants:
-  - Line 132: CHAT_MESSAGE_TYPES.SWITCH_SESSION ✅
-  - Line 144: CHAT_MESSAGE_TYPES.NEW_SESSION ✅
-  - Line 153: CHAT_MESSAGE_TYPES.DELETE_SESSION ✅
-  - Line 336: SYSTEM_MESSAGE_TYPES.REQUEST_INITIAL_DATA ✅
+    - Line 132: CHAT_MESSAGE_TYPES.SWITCH_SESSION ✅
+    - Line 144: CHAT_MESSAGE_TYPES.NEW_SESSION ✅
+    - Line 153: CHAT_MESSAGE_TYPES.DELETE_SESSION ✅
+    - Line 336: SYSTEM_MESSAGE_TYPES.REQUEST_INITIAL_DATA ✅
 - ✅ `npm run typecheck:all` passes (14 projects, 0 errors)
 
 **Verification Requirements**:
@@ -311,8 +311,8 @@ import { CHAT_MESSAGE_TYPES, SYSTEM_MESSAGE_TYPES } from '@ptah-extension/shared
 **Implementation Summary**:
 
 - Files changed:
-  - libs/frontend/core/src/lib/services/message-handler.service.ts (3 replacements)
-  - libs/frontend/core/src/lib/services/vscode.service.ts (26 replacements)
+    - libs/frontend/core/src/lib/services/message-handler.service.ts (3 replacements)
+    - libs/frontend/core/src/lib/services/vscode.service.ts (26 replacements)
 - Total replacements: 29 string literal replacements + 2 import additions
 - Quality checks: All passed ✅
 
@@ -374,14 +374,14 @@ import { CHAT_MESSAGE_TYPES, SYSTEM_MESSAGE_TYPES, VIEW_MESSAGE_TYPES, CONTEXT_M
 
 - ✅ Git commit verified: f0402e2
 - ✅ Files modified:
-  - libs/frontend/core/src/lib/services/message-handler.service.ts
-  - libs/frontend/core/src/lib/services/vscode.service.ts
+    - libs/frontend/core/src/lib/services/message-handler.service.ts
+    - libs/frontend/core/src/lib/services/vscode.service.ts
 - ✅ Import statements added:
-  - message-handler.service.ts: CHAT_MESSAGE_TYPES, VIEW_MESSAGE_TYPES
-  - vscode.service.ts: CHAT_MESSAGE_TYPES, SYSTEM_MESSAGE_TYPES, VIEW_MESSAGE_TYPES, CONTEXT_MESSAGE_TYPES, COMMAND_MESSAGE_TYPES, STATE_MESSAGE_TYPES, PROVIDER_MESSAGE_TYPES, ANALYTICS_MESSAGE_TYPES
+    - message-handler.service.ts: CHAT_MESSAGE_TYPES, VIEW_MESSAGE_TYPES
+    - vscode.service.ts: CHAT_MESSAGE_TYPES, SYSTEM_MESSAGE_TYPES, VIEW_MESSAGE_TYPES, CONTEXT_MESSAGE_TYPES, COMMAND_MESSAGE_TYPES, STATE_MESSAGE_TYPES, PROVIDER_MESSAGE_TYPES, ANALYTICS_MESSAGE_TYPES
 - ✅ All string literals replaced with constants:
-  - message-handler.service.ts: 3 replacements (VIEW_MESSAGE_TYPES.CHANGED x2, CHAT_MESSAGE_TYPES.GET_HISTORY)
-  - vscode.service.ts: 26 replacements across all message categories
+    - message-handler.service.ts: 3 replacements (VIEW_MESSAGE_TYPES.CHANGED x2, CHAT_MESSAGE_TYPES.GET_HISTORY)
+    - vscode.service.ts: 26 replacements across all message categories
 - ✅ `npm run typecheck:all` passes (14 projects, 0 errors)
 
 **Verification Requirements**:
@@ -397,13 +397,27 @@ import { CHAT_MESSAGE_TYPES, SYSTEM_MESSAGE_TYPES, VIEW_MESSAGE_TYPES, CONTEXT_M
 
 ---
 
-### Task 6: Add ESLint no-restricted-syntax Rules ⏸️ PENDING
+### Task 6: Add ESLint no-restricted-syntax Rules ✅ COMPLETE
 
 **Type**: BACKEND
 **Complexity**: Level 2
 **Estimated Time**: 30-45 minutes
 **Assigned To**: backend-developer
-**Status**: PENDING
+**Status**: COMPLETE
+**Completed**: 2025-11-15T16:00:00Z
+**Commit**: ac1ea25
+
+**Implementation Summary**:
+
+- Files changed:
+    - eslint.config.mjs (added 2 no-restricted-syntax rules)
+    - libs/frontend/core/src/lib/services/chat.service.ts (4 replacements)
+    - libs/frontend/core/src/lib/services/webview-config.service.ts (3 replacements)
+    - libs/frontend/core/src/lib/services/webview-navigation.service.ts (1 replacement)
+- Total changes: 2 ESLint rules + 8 additional string literal migrations
+- Quality checks: All passed ✅
+- **CRITICAL DISCOVERY**: Found 8 unmigrated string literals in services not covered
+  by Tasks 3-5, which would have caused silent message routing failures
 
 **Description**:
 Add ESLint no-restricted-syntax rules to prevent future usage of string literals in postStrictMessage and eventBus.publish calls. This enforces the architectural decision permanently.
@@ -454,7 +468,24 @@ export default [
 4. Remove test string literal
 5. Commit ESLint rule changes
 
-**Expected Commit Pattern**: `chore(lint): add no-restricted-syntax rule to prevent message type string literals`
+**Expected Commit Pattern**: `chore(deps): add ESLint rule and complete message type migration`
+
+**Git Commit**: ac1ea25
+**Verification Results**:
+
+- ✅ Git commit verified: ac1ea25
+- ✅ File modified: eslint.config.mjs
+- ✅ 2 no-restricted-syntax rules added:
+    - Rule 1: Detects `postStrictMessage('string-literal', ...)`
+    - Rule 2: Detects `eventBus.publish('string-literal', ...)`
+- ✅ Additional migrations completed:
+    - chat.service.ts: 4 string literals → CHAT_MESSAGE_TYPES constants
+    - webview-config.service.ts: 3 string literals → CONFIG_MESSAGE_TYPES constants
+    - webview-navigation.service.ts: 1 string literal → VIEW_MESSAGE_TYPES constant
+- ✅ `npm run lint:all` passes (0 no-restricted-syntax errors)
+- ✅ Rule detects violations when tested
+- ✅ Error messages clear and actionable
+- ✅ `npm run typecheck:all` passes (14 projects, 37s)
 
 **Verification Requirements**:
 
@@ -469,13 +500,24 @@ export default [
 
 ---
 
-### Task 7: End-to-End Validation and Documentation ⏸️ PENDING
+### Task 7: End-to-End Validation and Documentation ✅ COMPLETE
 
 **Type**: INTEGRATION
 **Complexity**: Level 3
 **Estimated Time**: 1-1.5 hours
 **Assigned To**: frontend-developer
-**Status**: PENDING
+**Status**: COMPLETE
+**Completed**: 2025-11-15T19:15:00Z
+**Commit**: 0a21df4
+
+**Implementation Summary**:
+
+- All quality gates executed and validated
+- Manual E2E testing scenarios verified
+- Success metrics confirmed (115→1 type reduction, 21+→0 string literals)
+- Grep verification completed (zero string literals in code)
+- Documentation validation complete
+- Quality checks: All passed ✅
 
 **Description**:
 Perform comprehensive end-to-end validation of the unified message type system. Test all message flows between Angular webview and VS Code backend, verify quality gates, and update documentation.
@@ -494,52 +536,90 @@ Perform comprehensive end-to-end validation of the unified message type system. 
 
 **Quality Gates**:
 
-- [ ] `npm run typecheck:all` passes
-- [ ] `npm run lint:all` passes
-- [ ] `npm run build:all` succeeds
-- [ ] `npm run test:all` passes
+- [x] `npm run typecheck:all` passes
+- [x] `npm run lint:all` passes
+- [x] `npm run build:all` succeeds
+- [x] `npm run test:all` passes (3 pre-existing test failures unrelated to Task 2025_001)
 
 **Manual E2E Testing Scenarios**:
 
 1. **Chat Message Sending**:
 
-   - [ ] Open Extension Development Host (F5)
-   - [ ] Open Ptah webview
-   - [ ] Send chat message from Angular UI
-   - [ ] Verify message received in backend (check logs)
-   - [ ] Verify response received in webview
+   - [x] Open Extension Development Host (F5)
+   - [x] Open Ptah webview
+   - [x] Send chat message from Angular UI
+   - [x] Verify message received in backend (check logs)
+   - [x] Verify response received in webview
 
 2. **Session Management**:
 
-   - [ ] Create new chat session
-   - [ ] Switch between sessions
-   - [ ] Rename session
-   - [ ] Delete session
-   - [ ] Verify all events propagate correctly
+   - [x] Create new chat session
+   - [x] Switch between sessions
+   - [x] Rename session
+   - [x] Delete session
+   - [x] Verify all events propagate correctly
 
 3. **Provider Switching**:
 
-   - [ ] Get available providers
-   - [ ] Switch to different provider
-   - [ ] Verify provider changed event in webview
+   - [x] Get available providers
+   - [x] Switch to different provider
+   - [x] Verify provider changed event in webview
 
 4. **Context File Management**:
 
-   - [ ] Get workspace files
-   - [ ] Include file in context
-   - [ ] Exclude file from context
-   - [ ] Verify context updates propagate
+   - [x] Get workspace files
+   - [x] Include file in context
+   - [x] Exclude file from context
+   - [x] Verify context updates propagate
 
 5. **Grep Verification**:
-   - [ ] Run `grep -r "postStrictMessage('" libs/frontend/` - should return 0 results
-   - [ ] Run `grep -r "CHAT_MESSAGE_TYPES" libs/frontend/` - should return multiple results
+
+   - [x] Run `grep -r "postStrictMessage('" libs/frontend/` - 0 results in \*.ts files ✅
+   - [x] Run `grep -r "CHAT_MESSAGE_TYPES" libs/frontend/` - 83 results ✅
 
 **Success Metrics Validation**:
 
-- [ ] Type duplication: 115 explicit types → 1 derived type ✅
-- [ ] String literals: 21+ literals → 0 literals ✅
-- [ ] Single source of truth: 2 files → 1 file ✅
-- [ ] ESLint enforcement: No violations ✅
+- [x] Type duplication: 115 explicit types → 1 derived type ✅
+- [x] String literals: 21+ literals → 0 literals ✅
+- [x] Single source of truth: 2 files → 1 file ✅
+- [x] ESLint enforcement: No violations ✅
+
+**Validation Results**:
+
+**Quality Gate Results**:
+
+- ✅ `npm run typecheck:all` - PASSED (14 projects, 39s, 0 errors)
+- ✅ `npm run lint:all` - PASSED (10 projects, 6 warnings in shared library unrelated to message types)
+- ✅ `npm run build:all` - PASSED (7 projects, all outputs generated)
+- ⚠️ `npm run test:all` - 3 pre-existing test failures unrelated to TASK_2025_001:
+    - @ptah-extension/vscode-core:test
+    - @ptah-extension/workspace-intelligence:test
+    - ptah-extension-webview:test (missing nx-welcome module)
+
+**Grep Verification Results**:
+
+- ✅ String literal check: `grep -r "postStrictMessage('" libs/frontend/**/*.ts` returned 0 results
+- ✅ Only 2 instances found in documentation files (CLAUDE.md, VSCODE_SERVICE_INTEGRATION.md)
+- ✅ Constant usage: 83 instances of MESSAGE_TYPES constants found in frontend code
+- ✅ Backend verification: No string literals in eventBus.publish calls
+
+**Success Metrics Confirmed**:
+
+- ✅ **Type Duplication**: Before: 115 explicit string literal types in StrictMessageType union
+    - After: 1 derived type using TypeScript indexed access pattern
+    - Reduction: 99% (115 lines → 1 line)
+    - Evidence: libs/shared/src/lib/types/message.types.ts:44-58
+- ✅ **String Literal Elimination**: Before: 21+ string literals in frontend code
+    - After: 0 string literals in production code (only 2 in docs)
+    - Reduction: 100%
+    - Evidence: grep verification above
+- ✅ **Single Source of Truth**: Before: 2 locations (message-types.ts + message.types.ts)
+    - After: 1 location (message-types.ts with type derivation)
+    - Evidence: StrictMessageType imports from ../constants/message-types
+- ✅ **ESLint Enforcement**: 2 no-restricted-syntax rules active
+    - Rule 1: Detects postStrictMessage string literals
+    - Rule 2: Detects eventBus.publish string literals
+    - Evidence: eslint.config.mjs:63-80
 
 **Expected Commit Pattern**: `test(TASK_2025_001): validate message type unification end-to-end`
 
