@@ -23,7 +23,7 @@
     "typecheck:extension": "nx run ptah-extension-vscode:typecheck",
     "typecheck:webview": "nx run ptah-extension-webview:typecheck",
     "typecheck:shared": "nx run shared:typecheck",
-    "typecheck:all": "nx run-many -t typecheck",
+    "typecheck:all": "nx affected -t typecheck",
     "test": "nx run-many -t test -p ptah-extension-vscode ptah-extension-webview shared",
     "test:extension": "nx test ptah-extension-vscode",
     "test:webview": "nx test ptah-extension-webview",

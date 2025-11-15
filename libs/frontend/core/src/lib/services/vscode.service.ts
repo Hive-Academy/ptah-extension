@@ -14,6 +14,14 @@ import {
   CorrelationId,
   SessionId,
   createStrictMessage,
+  CHAT_MESSAGE_TYPES,
+  SYSTEM_MESSAGE_TYPES,
+  VIEW_MESSAGE_TYPES,
+  CONTEXT_MESSAGE_TYPES,
+  COMMAND_MESSAGE_TYPES,
+  STATE_MESSAGE_TYPES,
+  PROVIDER_MESSAGE_TYPES,
+  ANALYTICS_MESSAGE_TYPES,
 } from '@ptah-extension/shared';
 
 /**
@@ -289,14 +297,14 @@ export class VSCodeService {
    * Notify extension that webview is ready
    */
   notifyReady(): void {
-    this.postStrictMessage('webview-ready', {});
+    this.postStrictMessage(SYSTEM_MESSAGE_TYPES.WEBVIEW_READY, {});
   }
 
   /**
    * Navigate to a route in the webview
    */
   navigateToRoute(route: string): void {
-    this.postStrictMessage('view:routeChanged', { route });
+    this.postStrictMessage(VIEW_MESSAGE_TYPES.ROUTE_CHANGED, { route });
   }
 
   /**
@@ -304,7 +312,9 @@ export class VSCodeService {
    * TODO: Implement proper file picker message type
    */
   requestFilePicker(): void {
-    this.postStrictMessage('context:includeFile', { filePath: '' });
+    this.postStrictMessage(CONTEXT_MESSAGE_TYPES.INCLUDE_FILE, {
+      filePath: '',
+    });
   }
 
   /**
@@ -314,7 +324,7 @@ export class VSCodeService {
     templateId: string,
     parameters?: Record<string, unknown>
   ): void {
-    this.postStrictMessage('commands:executeCommand', {
+    this.postStrictMessage(COMMAND_MESSAGE_TYPES.EXECUTE_COMMAND, {
       templateId,
       parameters: parameters ?? {},
     });
@@ -324,7 +334,9 @@ export class VSCodeService {
    * Update VS Code configuration
    */
   updateConfiguration(key: string, value: unknown): void {
-    this.postStrictMessage('state:save', { state: { [key]: value } });
+    this.postStrictMessage(STATE_MESSAGE_TYPES.SAVE, {
+      state: { [key]: value },
+    });
   }
 
   /**
@@ -352,7 +364,7 @@ export class VSCodeService {
     message: string,
     type: 'info' | 'warning' | 'error' = 'info'
   ): void {
-    this.postStrictMessage('error', {
+    this.postStrictMessage(SYSTEM_MESSAGE_TYPES.ERROR, {
       message: `${type.toUpperCase()}: ${message}`,
     });
   }
@@ -362,13 +374,13 @@ export class VSCodeService {
    */
   saveState(state: unknown): void {
     if (state !== null && state !== undefined) {
-      this.postStrictMessage('state:save', { state });
+      this.postStrictMessage(STATE_MESSAGE_TYPES.SAVE, { state });
     } else {
       console.warn(
         'VSCodeService: saveState called with null/undefined state:',
         state
       );
-      this.postStrictMessage('state:save', { state: {} });
+      this.postStrictMessage(STATE_MESSAGE_TYPES.SAVE, { state: {} });
     }
   }
 
@@ -386,7 +398,7 @@ export class VSCodeService {
    * Request saved state from VS Code extension
    */
   requestSavedState(): void {
-    this.postStrictMessage('state:load', {});
+    this.postStrictMessage(STATE_MESSAGE_TYPES.LOAD, {});
   }
 
   // ==================== Chat Methods ====================
@@ -396,7 +408,7 @@ export class VSCodeService {
     files?: readonly string[],
     correlationId?: CorrelationId
   ): void {
-    this.postStrictMessage('chat:sendMessage', {
+    this.postStrictMessage(CHAT_MESSAGE_TYPES.SEND_MESSAGE, {
       content,
       files,
       correlationId: correlationId ?? (crypto.randomUUID() as CorrelationId),
@@ -404,11 +416,11 @@ export class VSCodeService {
   }
 
   createNewChatSession(name?: string): void {
-    this.postStrictMessage('chat:newSession', { name });
+    this.postStrictMessage(CHAT_MESSAGE_TYPES.NEW_SESSION, { name });
   }
 
   switchChatSession(sessionId: string): void {
-    this.postStrictMessage('chat:switchSession', {
+    this.postStrictMessage(CHAT_MESSAGE_TYPES.SWITCH_SESSION, {
       sessionId: sessionId as SessionId,
     });
   }
@@ -416,48 +428,48 @@ export class VSCodeService {
   // ==================== Command Builder Methods ====================
 
   getCommandTemplates(): void {
-    this.postStrictMessage('commands:getTemplates', {});
+    this.postStrictMessage(COMMAND_MESSAGE_TYPES.GET_TEMPLATES, {});
   }
 
   executeCommand(
     templateId: string,
     parameters: Record<string, unknown>
   ): void {
-    this.postStrictMessage('commands:executeCommand', {
+    this.postStrictMessage(COMMAND_MESSAGE_TYPES.EXECUTE_COMMAND, {
       templateId,
       parameters,
     });
   }
 
   saveCommandTemplate(template: CommandTemplate): void {
-    this.postStrictMessage('commands:saveTemplate', { template });
+    this.postStrictMessage(COMMAND_MESSAGE_TYPES.SAVE_TEMPLATE, { template });
   }
 
   // ==================== Context Management Methods ====================
 
   getContextFiles(): void {
-    this.postStrictMessage('context:getFiles', {});
+    this.postStrictMessage(CONTEXT_MESSAGE_TYPES.GET_FILES, {});
   }
 
   includeFile(filePath: string): void {
-    this.postStrictMessage('context:includeFile', { filePath });
+    this.postStrictMessage(CONTEXT_MESSAGE_TYPES.INCLUDE_FILE, { filePath });
   }
 
   excludeFile(filePath: string): void {
-    this.postStrictMessage('context:excludeFile', { filePath });
+    this.postStrictMessage(CONTEXT_MESSAGE_TYPES.EXCLUDE_FILE, { filePath });
   }
 
   // ==================== Analytics Methods ====================
 
   getAnalyticsData(): void {
-    this.postStrictMessage('analytics:getData', {});
+    this.postStrictMessage(ANALYTICS_MESSAGE_TYPES.GET_DATA, {});
   }
 
   trackAnalyticsEvent(
     event: string,
     properties?: Record<string, string | number | boolean>
   ): void {
-    this.postStrictMessage('analytics:trackEvent', {
+    this.postStrictMessage(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
       event,
       properties: properties ?? {},
     });
@@ -466,38 +478,41 @@ export class VSCodeService {
   // ==================== Provider Management Methods ====================
 
   getAvailableProviders(): void {
-    this.postStrictMessage('providers:getAvailable', {});
+    this.postStrictMessage(PROVIDER_MESSAGE_TYPES.GET_AVAILABLE, {});
   }
 
   getCurrentProvider(): void {
-    this.postStrictMessage('providers:getCurrent', {});
+    this.postStrictMessage(PROVIDER_MESSAGE_TYPES.GET_CURRENT, {});
   }
 
   switchProvider(
     providerId: string,
     reason?: 'user-request' | 'auto-fallback' | 'error-recovery'
   ): void {
-    this.postStrictMessage('providers:switch', { providerId, reason });
+    this.postStrictMessage(PROVIDER_MESSAGE_TYPES.SWITCH, {
+      providerId,
+      reason,
+    });
   }
 
   getProviderHealth(providerId?: string): void {
-    this.postStrictMessage('providers:getHealth', { providerId });
+    this.postStrictMessage(PROVIDER_MESSAGE_TYPES.GET_HEALTH, { providerId });
   }
 
   getAllProviderHealth(): void {
-    this.postStrictMessage('providers:getAllHealth', {});
+    this.postStrictMessage(PROVIDER_MESSAGE_TYPES.GET_ALL_HEALTH, {});
   }
 
   setDefaultProvider(providerId: string): void {
-    this.postStrictMessage('providers:setDefault', { providerId });
+    this.postStrictMessage(PROVIDER_MESSAGE_TYPES.SET_DEFAULT, { providerId });
   }
 
   enableProviderFallback(enabled: boolean): void {
-    this.postStrictMessage('providers:enableFallback', { enabled });
+    this.postStrictMessage(PROVIDER_MESSAGE_TYPES.ENABLE_FALLBACK, { enabled });
   }
 
   setProviderAutoSwitch(enabled: boolean): void {
-    this.postStrictMessage('providers:setAutoSwitch', { enabled });
+    this.postStrictMessage(PROVIDER_MESSAGE_TYPES.SET_AUTO_SWITCH, { enabled });
   }
 
   // ==================== Asset Methods ====================

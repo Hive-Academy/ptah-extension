@@ -7,6 +7,8 @@ import {
   ErrorPayload,
   CorrelationId,
   SessionId,
+  CHAT_MESSAGE_TYPES,
+  VIEW_MESSAGE_TYPES,
 } from '@ptah-extension/shared';
 
 /**
@@ -232,7 +234,7 @@ export class MessageHandlerService {
    * Notify extension of view change
    */
   notifyViewChanged(view: ViewType): void {
-    this.vscodeService.postStrictMessage('view:changed', { view });
+    this.vscodeService.postStrictMessage(VIEW_MESSAGE_TYPES.CHANGED, { view });
   }
 
   /**
@@ -250,7 +252,9 @@ export class MessageHandlerService {
    */
   requestInitialData(): void {
     // Use view:changed as a signal to request data
-    this.vscodeService.postStrictMessage('view:changed', { view: 'chat' });
+    this.vscodeService.postStrictMessage(VIEW_MESSAGE_TYPES.CHANGED, {
+      view: 'chat',
+    });
   }
 
   /**
@@ -282,7 +286,7 @@ export class MessageHandlerService {
    * Request chat sessions history
    */
   requestChatSessions(): void {
-    this.vscodeService.postStrictMessage('chat:getHistory', {
+    this.vscodeService.postStrictMessage(CHAT_MESSAGE_TYPES.GET_HISTORY, {
       sessionId: '' as unknown as SessionId,
     });
   }
