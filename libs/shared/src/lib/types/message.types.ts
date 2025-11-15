@@ -413,18 +413,82 @@ export interface ThemeChangedPayload {
 }
 
 /**
+ * Provider information for initial data
+ * Subset of ProviderInfo for webview initialization
+ */
+export interface InitialDataProviderInfo {
+  readonly id: string;
+  readonly name: string;
+  readonly status: 'available' | 'unavailable' | 'error' | 'initializing' | 'disabled';
+  readonly capabilities: Readonly<{
+    streaming: boolean;
+    fileAttachments: boolean;
+    contextManagement: boolean;
+    sessionPersistence: boolean;
+    multiTurn: boolean;
+    codeGeneration: boolean;
+    imageAnalysis: boolean;
+    functionCalling: boolean;
+  }>;
+}
+
+/**
+ * Provider health for initial data
+ */
+export interface InitialDataProviderHealth {
+  readonly status: 'available' | 'unavailable' | 'error' | 'initializing' | 'disabled';
+  readonly lastCheck: number;
+  readonly errorMessage?: string;
+  readonly responseTime?: number;
+  readonly uptime?: number;
+}
+
+/**
+ * Context information for initial data
+ */
+export interface InitialDataContextInfo {
+  readonly includedFiles: readonly string[];
+  readonly excludedFiles: readonly string[];
+  readonly tokenEstimate: number;
+  readonly optimizations?: readonly {
+    readonly type: 'exclude_pattern' | 'include_only' | 'summarize';
+    readonly description: string;
+    readonly estimatedSavings: number;
+    readonly autoApplicable: boolean;
+    readonly files?: readonly string[];
+  }[];
+}
+
+/**
+ * Workspace information for initial data
+ */
+export interface InitialDataWorkspaceInfo {
+  readonly name: string;
+  readonly path: string;
+  readonly projectType: string;
+}
+
+/**
  * Initial data payload for webview initialization
- * Sent by AngularWebviewProvider on webview load (line 101-144)
+ * Sent by AngularWebviewProvider on webview load
+ *
+ * CRITICAL: This must match the structure sent in angular-webview.provider.ts sendInitialData()
  */
 export interface InitialDataPayload {
   readonly success: boolean;
   readonly data: {
     readonly sessions: readonly StrictChatSession[];
     readonly currentSession: StrictChatSession | null;
+    // Provider state (added for type safety)
+    readonly providers: {
+      readonly current: InitialDataProviderInfo | null;
+      readonly available: readonly InitialDataProviderInfo[];
+      readonly health: Readonly<Record<string, InitialDataProviderHealth>>;
+    };
   };
   readonly config: {
-    readonly context: unknown;
-    readonly workspaceInfo: unknown;
+    readonly context: InitialDataContextInfo;
+    readonly workspaceInfo: InitialDataWorkspaceInfo | null;
     readonly theme: number; // vscode.ColorThemeKind enum
     readonly isVSCode: boolean;
     readonly extensionVersion: string;

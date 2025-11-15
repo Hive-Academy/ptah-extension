@@ -37,6 +37,21 @@ interface WorkspaceInfo {
  *
  * ARCHITECTURE: Webview → EventBus → MessageHandlerService → Orchestration Services
  */
+/**
+ * Queued event structure for events published before webview ready
+ */
+interface QueuedEvent {
+  readonly type: string;
+  readonly payload: unknown;
+  readonly timestamp: number;
+}
+
+/**
+ * Maximum queue size to prevent memory leaks
+ * If webview never becomes ready, we don't want unbounded memory growth
+ */
+const MAX_EVENT_QUEUE_SIZE = 100;
+
 @injectable()
 export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
@@ -45,6 +60,20 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   private htmlGenerator: WebviewHtmlGenerator;
   private fileWatcher?: vscode.FileSystemWatcher;
   private _initialDataSent = false;
+
+  /**
+   * Webview readiness gate - prevents events from being sent before webview initialized
+   * FIX-002: Prevents 40+ analytics events from being dropped with "No active webviews"
+   * FIX-004: Prevents provider events from being dropped during initialization
+   */
+  private _webviewReady = false;
+
+  /**
+   * Event queue for events published before webview ready
+   * Stores events with timestamp for debugging and ordered delivery
+   * Limited to MAX_EVENT_QUEUE_SIZE to prevent memory leaks
+   */
+  private _eventQueue: QueuedEvent[] = [];
 
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT)
@@ -184,9 +213,77 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   /**
    * Send message directly to Angular webview
    * Public interface for external services to communicate with the webview
+   * Implements readiness gate to prevent events from being dropped
    */
   public sendMessage(message: WebviewMessage): void {
     this.postMessage(message);
+  }
+
+  /**
+   * Mark webview as ready and flush queued events
+   * Called after webview HTML loaded and Angular app initialized
+   * FIX-002: Ensures all queued events are delivered after initialization
+   */
+  private markWebviewReady(): void {
+    if (this._webviewReady) {
+      this.logger.info('Webview already marked as ready, skipping');
+      return;
+    }
+
+    this._webviewReady = true;
+    this.logger.info(
+      `Webview marked as ready. Flushing ${this._eventQueue.length} queued events`
+    );
+
+    this.flushEventQueue();
+  }
+
+  /**
+   * Flush all queued events to the webview
+   * Events are delivered in FIFO order (preserves temporal ordering)
+   */
+  private flushEventQueue(): void {
+    if (this._eventQueue.length === 0) {
+      this.logger.info('Event queue is empty, nothing to flush');
+      return;
+    }
+
+    const queuedCount = this._eventQueue.length;
+    this.logger.info(`Flushing ${queuedCount} queued events to webview`);
+
+    // Deliver all queued events in order
+    const events = [...this._eventQueue]; // Copy to avoid modification during iteration
+    this._eventQueue = []; // Clear queue before delivery
+
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const event of events) {
+      try {
+        const ageMs = Date.now() - event.timestamp;
+        this.logger.info(
+          `Delivering queued event: ${event.type} (queued ${ageMs}ms ago)`
+        );
+
+        // Deliver event directly to webview (bypass queue check)
+        this.postMessageDirect({
+          type: event.type,
+          payload: event.payload,
+        } as WebviewMessage);
+
+        successCount++;
+      } catch (error) {
+        errorCount++;
+        this.logger.error(`Failed to deliver queued event: ${event.type}`, {
+          error,
+          event,
+        });
+      }
+    }
+
+    this.logger.info(
+      `Event queue flushed: ${successCount} delivered, ${errorCount} failed`
+    );
   }
 
   /**
@@ -205,6 +302,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       // Handle special system messages locally (don't publish to EventBus)
       if (message.type === 'ready' || message.type === 'webview-ready') {
         this.logger.info('Webview ready signal received');
+        this.markWebviewReady(); // Mark as ready and flush queue
         await this.sendInitialData();
         return;
       }
@@ -317,12 +415,51 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
 
   /**
    * Send message to Angular application - Type-safe messaging
+   * Implements readiness gate: queues events if webview not ready
+   * Enforces queue size limit to prevent memory leaks
    */
   private postMessage(message: WebviewMessage): void {
+    // Check webview readiness
+    if (!this._webviewReady) {
+      // Check queue size limit
+      if (this._eventQueue.length >= MAX_EVENT_QUEUE_SIZE) {
+        this.logger.warn(
+          `Event queue full (${MAX_EVENT_QUEUE_SIZE}), dropping oldest event to queue: ${message.type}`
+        );
+        // Remove oldest event (FIFO)
+        this._eventQueue.shift();
+      }
+
+      // Queue event for later delivery
+      this._eventQueue.push({
+        type: message.type,
+        payload: message.payload,
+        timestamp: Date.now(),
+      });
+
+      this.logger.info(
+        `Webview not ready - queued event: ${message.type} (queue size: ${this._eventQueue.length}/${MAX_EVENT_QUEUE_SIZE})`
+      );
+      return;
+    }
+
+    // Webview ready - deliver immediately
+    this.postMessageDirect(message);
+  }
+
+  /**
+   * Send message directly to webview (bypasses readiness check)
+   * Internal method used by postMessage and flushEventQueue
+   */
+  private postMessageDirect(message: WebviewMessage): void {
     if (this._panel?.webview) {
       this._panel.webview.postMessage(message);
     } else if (this._view?.webview) {
       this._view.webview.postMessage(message);
+    } else {
+      this.logger.warn(
+        `No active webviews available to send message: ${message.type}`
+      );
     }
   }
 
@@ -467,8 +604,9 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    // Reset initialization guard on reload
+    // Reset initialization guards on reload
     this._initialDataSent = false;
+    this._webviewReady = false; // Webview instance changes on reload
 
     const newHtml = this.htmlGenerator.generateAngularWebviewContent(
       webview,
@@ -503,48 +641,44 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
 
   /**
    * Setup EventBus to Webview bridge
-   * Forwards all response messages from EventBus to the webview
+   * AUTO-REGISTERS all response types from MESSAGE_TYPES
+   *
+   * Benefits:
+   * - Zero maintenance: New response types auto-registered
+   * - No silent failures: All responses forwarded automatically
+   * - Type-safe: TypeScript validates response types
    */
   private setupEventBusToWebviewBridge(): void {
-    // Subscribe to all response events and forward to webview
-    const responseTypes: Array<keyof MessagePayloadMap> = [
-      'providers:getAvailable:response',
-      'providers:getCurrent:response',
-      'providers:switch:response',
-      'providers:getHealth:response',
-      'providers:getAllHealth:response',
-      'providers:setDefault:response',
-      'providers:enableFallback:response',
-      'providers:setAutoSwitch:response',
-      'chat:sendMessage:response',
-      'chat:newSession:response',
-      'chat:switchSession:response',
-      'chat:getHistory:response',
-      // Add more as needed
-    ];
+    // Import MESSAGE_TYPES to extract all response types automatically
+    const { MESSAGE_TYPES } = require('@ptah-extension/shared');
+
+    // Extract all response types (end with ':response')
+    const allResponseTypes = Object.values(MESSAGE_TYPES)
+      .filter((type): type is string =>
+        typeof type === 'string' && type.endsWith(':response')
+      ) as Array<keyof MessagePayloadMap>;
 
     this.logger.info(
-      `Setting up EventBus→Webview bridge for ${responseTypes.length} response types:`,
-      responseTypes
+      `[Bridge] Auto-registering ${allResponseTypes.length} response types from MESSAGE_TYPES`
     );
 
-    responseTypes.forEach((responseType) => {
-      this.logger.info(`[Bridge] Subscribing to EventBus for: ${responseType}`);
+    // Subscribe to each response type and forward to webview
+    allResponseTypes.forEach((responseType) => {
       this.eventBus.subscribe(responseType).subscribe((event) => {
-        this.logger.info(
-          `[Bridge] Received ${responseType} from EventBus, forwarding to webview`,
-          event.payload
+        this.logger.debug(
+          `[Bridge] ${responseType} → webview`,
+          { payloadSize: JSON.stringify(event.payload).length }
         );
+
         this.postMessage({
           type: responseType,
           payload: event.payload,
         });
-        this.logger.info(`[Bridge] Posted ${responseType} to webview`);
       });
     });
 
     this.logger.info(
-      `[Bridge] EventBus→Webview bridge setup complete for ${responseTypes.length} response types`
+      `[Bridge] EventBus→Webview bridge setup complete (${allResponseTypes.length} types)`
     );
   }
 
@@ -553,6 +687,17 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
    */
   dispose(): void {
     this.logger.info('Disposing Angular Webview Provider...');
+
+    // Clear event queue
+    if (this._eventQueue.length > 0) {
+      this.logger.warn(
+        `Disposing provider with ${this._eventQueue.length} undelivered events in queue`
+      );
+      this._eventQueue = [];
+    }
+
+    // Reset readiness flag
+    this._webviewReady = false;
 
     // Dispose file watcher
     if (this.fileWatcher) {

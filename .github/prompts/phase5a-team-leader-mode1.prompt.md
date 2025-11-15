@@ -253,7 +253,7 @@ After creating tasks.md with N tasks, provide the command to invoke the appropri
 **Copy and send this command:**
 ```
 
-/backend-developer Task ID: {TASK_ID}, Execute Task 1 from tasks.md: [task title]
+/phase6-be-developer Task ID: {TASK_ID}, Execute Task 1 from tasks.md: [task title]
 
 ```
 
@@ -278,7 +278,7 @@ After creating tasks.md with N tasks, provide the command to invoke the appropri
 **Copy and send this command:**
 ```
 
-/frontend-developer Task ID: {TASK_ID}, Execute Task 1 from tasks.md: [task title]
+/phase6-fe-developer Task ID: {TASK_ID}, Execute Task 1 from tasks.md: [task title]
 
 ```
 

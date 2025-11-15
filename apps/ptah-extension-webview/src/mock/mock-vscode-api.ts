@@ -124,10 +124,80 @@ export class MockVSCodeApiImpl implements MockVSCodeApi {
               ? this.sessions.find((s) => s.id === this.currentSessionId) ??
                 null
               : null,
+            providers: {
+              current: {
+                id: 'claude-cli',
+                name: 'Claude CLI',
+                status: 'available' as const,
+                capabilities: {
+                  streaming: true,
+                  fileAttachments: true,
+                  contextManagement: true,
+                  sessionPersistence: true,
+                  multiTurn: true,
+                  codeGeneration: true,
+                  imageAnalysis: false,
+                  functionCalling: false,
+                },
+              },
+              available: [
+                {
+                  id: 'claude-cli',
+                  name: 'Claude CLI',
+                  status: 'available' as const,
+                  capabilities: {
+                    streaming: true,
+                    fileAttachments: true,
+                    contextManagement: true,
+                    sessionPersistence: true,
+                    multiTurn: true,
+                    codeGeneration: true,
+                    imageAnalysis: false,
+                    functionCalling: false,
+                  },
+                },
+                {
+                  id: 'vscode-lm',
+                  name: 'VS Code LM',
+                  status: 'unavailable' as const,
+                  capabilities: {
+                    streaming: true,
+                    fileAttachments: false,
+                    contextManagement: false,
+                    sessionPersistence: false,
+                    multiTurn: true,
+                    codeGeneration: true,
+                    imageAnalysis: false,
+                    functionCalling: false,
+                  },
+                },
+              ],
+              health: {
+                'claude-cli': {
+                  status: 'available' as const,
+                  lastCheck: Date.now(),
+                  responseTime: 150,
+                  uptime: 3600000,
+                },
+                'vscode-lm': {
+                  status: 'unavailable' as const,
+                  lastCheck: Date.now(),
+                  errorMessage: 'Not available in browser mode',
+                },
+              },
+            },
           },
           config: {
-            context: {},
-            workspaceInfo: {},
+            context: {
+              includedFiles: [],
+              excludedFiles: [],
+              tokenEstimate: 0,
+            },
+            workspaceInfo: {
+              name: 'Mock Project',
+              path: '/mock/workspace',
+              projectType: 'mock',
+            },
             theme: 2, // Dark theme
             isVSCode: false,
             extensionVersion: '1.0.0-mock',
@@ -425,10 +495,59 @@ export class MockVSCodeApiImpl implements MockVSCodeApi {
               ? this.sessions.find((s) => s.id === this.currentSessionId) ??
                 null
               : null,
+            providers: {
+              current: {
+                id: 'claude-cli',
+                name: 'Claude CLI',
+                status: 'available' as const,
+                capabilities: {
+                  streaming: true,
+                  fileAttachments: true,
+                  contextManagement: true,
+                  sessionPersistence: true,
+                  multiTurn: true,
+                  codeGeneration: true,
+                  imageAnalysis: false,
+                  functionCalling: false,
+                },
+              },
+              available: [
+                {
+                  id: 'claude-cli',
+                  name: 'Claude CLI',
+                  status: 'available' as const,
+                  capabilities: {
+                    streaming: true,
+                    fileAttachments: true,
+                    contextManagement: true,
+                    sessionPersistence: true,
+                    multiTurn: true,
+                    codeGeneration: true,
+                    imageAnalysis: false,
+                    functionCalling: false,
+                  },
+                },
+              ],
+              health: {
+                'claude-cli': {
+                  status: 'available' as const,
+                  lastCheck: Date.now(),
+                  responseTime: 150,
+                },
+              },
+            },
           },
           config: {
-            context: {},
-            workspaceInfo: {},
+            context: {
+              includedFiles: [],
+              excludedFiles: [],
+              tokenEstimate: 0,
+            },
+            workspaceInfo: {
+              name: 'Mock Project',
+              path: '/mock/workspace',
+              projectType: 'mock',
+            },
             theme: 2,
             isVSCode: false,
             extensionVersion: '1.0.0-mock',
