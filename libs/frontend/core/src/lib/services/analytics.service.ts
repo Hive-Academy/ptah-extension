@@ -71,6 +71,9 @@ export class AnalyticsService {
   private readonly vsCodeService = inject(VSCodeService);
   private readonly logger = inject(LoggingService);
 
+  // Feature flag: Disable analytics during development
+  private readonly ANALYTICS_ENABLED = false; // Set to true for production
+
   // ANGULAR 20 PATTERN: Private signals for internal state management
   private readonly _rawAnalyticsData = signal<AnalyticsData | null>(null);
   private readonly _isLoading = signal(false);
@@ -138,6 +141,11 @@ export class AnalyticsService {
    * Fetch analytics data from backend
    */
   async fetchAnalyticsData(force = false): Promise<void> {
+    // Skip if analytics disabled
+    if (!this.ANALYTICS_ENABLED) {
+      return;
+    }
+
     // Don't fetch if already loading or data is fresh (unless forced)
     if ((this._isLoading() || this.isDataFresh()) && !force) {
       return;
@@ -178,6 +186,11 @@ export class AnalyticsService {
     event: string,
     properties?: Record<string, string | number | boolean>
   ): void {
+    // Skip analytics if disabled (development mode)
+    if (!this.ANALYTICS_ENABLED) {
+      return;
+    }
+
     try {
       this.logger.debug('Tracking analytics event', 'AnalyticsService', {
         event,

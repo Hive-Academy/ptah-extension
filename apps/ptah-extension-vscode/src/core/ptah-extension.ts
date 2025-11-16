@@ -394,11 +394,11 @@ export class PtahExtension implements vscode.Disposable {
     this.logger.info('Registering AI providers...');
 
     if (!this.providerManager) {
-      this.logger.error(
-        'ProviderManager not initialized - cannot register providers'
-      );
-      this.logger.warn('Extension will continue without provider registration');
-      return;
+      const error =
+        'ProviderManager not initialized - cannot register providers';
+      this.logger.error(error);
+      console.error('[CRITICAL]', error);
+      throw new Error(error);
     }
 
     try {
@@ -419,40 +419,113 @@ export class PtahExtension implements vscode.Disposable {
       const vsCodeInitialized = await vsCodeLmAdapter.initialize();
 
       if (vsCodeInitialized) {
-        this.logger.info('VS Code LM adapter initialized successfully');
+        const vsCodeHealth = vsCodeLmAdapter.getHealth();
+        this.logger.info('VS Code LM adapter initialized successfully', {
+          health: vsCodeHealth,
+        });
       } else {
-        this.logger.warn(
-          'VS Code LM adapter initialization failed, provider may be unavailable'
-        );
+        const vsCodeHealth = vsCodeLmAdapter.getHealth();
+        const error = 'VS Code LM adapter initialization returned false';
+        this.logger.error(error, {
+          adapterHealth: vsCodeHealth,
+          providerId: vsCodeLmAdapter.providerId,
+        });
+        console.error('[CRITICAL]', error, 'Health:', vsCodeHealth);
       }
 
       this.logger.info('Initializing Claude CLI adapter...');
       const claudeInitialized = await claudeCliAdapter.initialize();
 
       if (claudeInitialized) {
-        this.logger.info('Claude CLI adapter initialized successfully');
+        const claudeHealth = claudeCliAdapter.getHealth();
+        this.logger.info('Claude CLI adapter initialized successfully', {
+          health: claudeHealth,
+        });
       } else {
-        this.logger.warn(
-          'Claude CLI adapter initialization failed, provider may be unavailable'
-        );
+        const claudeHealth = claudeCliAdapter.getHealth();
+        const error = 'Claude CLI adapter initialization returned false';
+        this.logger.error(error, {
+          adapterHealth: claudeHealth,
+          providerId: claudeCliAdapter.providerId,
+        });
+        console.error('[CRITICAL]', error, 'Health:', claudeHealth);
       }
 
       // Step 3: Register providers in priority order (VS Code LM first, Claude CLI second)
       if (vsCodeInitialized) {
+        const beforeCount = this.providerManager.getAvailableProviders().length;
+        this.logger.info(
+          `Registering VS Code LM provider (current count: ${beforeCount})...`
+        );
+
         this.providerManager.registerProvider(vsCodeLmAdapter);
-        this.logger.info('VS Code LM provider registered with ProviderManager');
+
+        const afterCount = this.providerManager.getAvailableProviders().length;
+        if (afterCount === beforeCount) {
+          const error =
+            'VS Code LM provider registered but NOT in provider map';
+          this.logger.error(error, {
+            beforeCount,
+            afterCount,
+            providerId: vsCodeLmAdapter.providerId,
+          });
+          console.error('[CRITICAL]', error, {
+            beforeCount,
+            afterCount,
+          });
+          throw new Error(error);
+        }
+
+        this.logger.info(
+          `VS Code LM provider registered successfully (count: ${afterCount})`
+        );
       }
 
       if (claudeInitialized) {
+        const beforeCount = this.providerManager.getAvailableProviders().length;
+        this.logger.info(
+          `Registering Claude CLI provider (current count: ${beforeCount})...`
+        );
+
         this.providerManager.registerProvider(claudeCliAdapter);
-        this.logger.info('Claude CLI provider registered with ProviderManager');
+
+        const afterCount = this.providerManager.getAvailableProviders().length;
+        if (afterCount === beforeCount) {
+          const error =
+            'Claude CLI provider registered but NOT in provider map';
+          this.logger.error(error, {
+            beforeCount,
+            afterCount,
+            providerId: claudeCliAdapter.providerId,
+          });
+          console.error('[CRITICAL]', error, {
+            beforeCount,
+            afterCount,
+          });
+          throw new Error(error);
+        }
+
+        this.logger.info(
+          `Claude CLI provider registered successfully (count: ${afterCount})`
+        );
       }
 
       // Verify at least one provider registered
       const availableCount =
         this.providerManager.getAvailableProviders().length;
       if (availableCount === 0) {
-        throw new Error('No providers successfully registered');
+        const error = 'No providers successfully registered';
+        this.logger.error(error, {
+          vsCodeInitialized,
+          claudeInitialized,
+          availableCount,
+        });
+        console.error('[CRITICAL]', error, {
+          vsCodeInitialized,
+          claudeInitialized,
+          availableCount,
+        });
+        throw new Error(error);
       }
 
       this.logger.info(`${availableCount} provider(s) registered successfully`);
@@ -484,10 +557,11 @@ export class PtahExtension implements vscode.Disposable {
         error: errorMessage,
         stack: error instanceof Error ? error.stack : undefined,
       });
+      console.error('[CRITICAL] Provider registration failed:', error);
 
-      // Don't throw - allow extension to activate with degraded functionality
-      this.logger.warn(
-        'Extension will continue without provider registration - user can configure manually'
+      // FAIL FAST: Extension cannot continue without providers
+      throw new Error(
+        `Provider registration failed: ${errorMessage}. Extension cannot continue without providers.`
       );
     }
   }
