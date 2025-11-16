@@ -176,6 +176,12 @@ export class WebviewInitialDataBuilder {
       const availableProviders = this.providerManager.getAvailableProviders();
       const providerHealth = this.providerManager.getAllProviderHealth();
 
+      this.logger.info('[InitialDataBuilder] Building provider data', {
+        currentProviderId: currentProvider?.providerId,
+        availableCount: availableProviders.length,
+        providerIds: availableProviders.map((p) => p.providerId),
+      });
+
       // Map providers to InitialDataProviderInfo
       const available: readonly InitialDataProviderInfo[] =
         availableProviders.map((p) => ({
@@ -210,11 +216,23 @@ export class WebviewInitialDataBuilder {
           ])
         );
 
-      return {
+      const result = {
         current,
         available,
         health,
       };
+
+      this.logger.info(
+        '[InitialDataBuilder] Provider data built successfully',
+        {
+          currentProviderId: result.current?.id,
+          availableCount: result.available.length,
+          availableIds: result.available.map((p) => p.id),
+          healthCount: Object.keys(result.health).length,
+        }
+      );
+
+      return result;
     } catch (error) {
       this.logger.error('Failed to get provider data', { error });
 
