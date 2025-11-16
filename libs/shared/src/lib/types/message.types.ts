@@ -419,7 +419,12 @@ export interface ThemeChangedPayload {
 export interface InitialDataProviderInfo {
   readonly id: string;
   readonly name: string;
-  readonly status: 'available' | 'unavailable' | 'error' | 'initializing' | 'disabled';
+  readonly status:
+    | 'available'
+    | 'unavailable'
+    | 'error'
+    | 'initializing'
+    | 'disabled';
   readonly capabilities: Readonly<{
     streaming: boolean;
     fileAttachments: boolean;
@@ -436,7 +441,12 @@ export interface InitialDataProviderInfo {
  * Provider health for initial data
  */
 export interface InitialDataProviderHealth {
-  readonly status: 'available' | 'unavailable' | 'error' | 'initializing' | 'disabled';
+  readonly status:
+    | 'available'
+    | 'unavailable'
+    | 'error'
+    | 'initializing'
+    | 'disabled';
   readonly lastCheck: number;
   readonly errorMessage?: string;
   readonly responseTime?: number;

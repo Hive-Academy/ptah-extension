@@ -279,10 +279,10 @@ import { CHAT_MESSAGE_TYPES, SYSTEM_MESSAGE_TYPES } from '@ptah-extension/shared
 - ✅ File modified: libs/frontend/core/src/lib/services/chat-state-manager.service.ts
 - ✅ Import statements added for CHAT_MESSAGE_TYPES and SYSTEM_MESSAGE_TYPES
 - ✅ All 4 string literals replaced with constants:
-    - Line 132: CHAT_MESSAGE_TYPES.SWITCH_SESSION ✅
-    - Line 144: CHAT_MESSAGE_TYPES.NEW_SESSION ✅
-    - Line 153: CHAT_MESSAGE_TYPES.DELETE_SESSION ✅
-    - Line 336: SYSTEM_MESSAGE_TYPES.REQUEST_INITIAL_DATA ✅
+  - Line 132: CHAT_MESSAGE_TYPES.SWITCH_SESSION ✅
+  - Line 144: CHAT_MESSAGE_TYPES.NEW_SESSION ✅
+  - Line 153: CHAT_MESSAGE_TYPES.DELETE_SESSION ✅
+  - Line 336: SYSTEM_MESSAGE_TYPES.REQUEST_INITIAL_DATA ✅
 - ✅ `npm run typecheck:all` passes (14 projects, 0 errors)
 
 **Verification Requirements**:
@@ -311,8 +311,8 @@ import { CHAT_MESSAGE_TYPES, SYSTEM_MESSAGE_TYPES } from '@ptah-extension/shared
 **Implementation Summary**:
 
 - Files changed:
-    - libs/frontend/core/src/lib/services/message-handler.service.ts (3 replacements)
-    - libs/frontend/core/src/lib/services/vscode.service.ts (26 replacements)
+  - libs/frontend/core/src/lib/services/message-handler.service.ts (3 replacements)
+  - libs/frontend/core/src/lib/services/vscode.service.ts (26 replacements)
 - Total replacements: 29 string literal replacements + 2 import additions
 - Quality checks: All passed ✅
 
@@ -374,14 +374,14 @@ import { CHAT_MESSAGE_TYPES, SYSTEM_MESSAGE_TYPES, VIEW_MESSAGE_TYPES, CONTEXT_M
 
 - ✅ Git commit verified: f0402e2
 - ✅ Files modified:
-    - libs/frontend/core/src/lib/services/message-handler.service.ts
-    - libs/frontend/core/src/lib/services/vscode.service.ts
+  - libs/frontend/core/src/lib/services/message-handler.service.ts
+  - libs/frontend/core/src/lib/services/vscode.service.ts
 - ✅ Import statements added:
-    - message-handler.service.ts: CHAT_MESSAGE_TYPES, VIEW_MESSAGE_TYPES
-    - vscode.service.ts: CHAT_MESSAGE_TYPES, SYSTEM_MESSAGE_TYPES, VIEW_MESSAGE_TYPES, CONTEXT_MESSAGE_TYPES, COMMAND_MESSAGE_TYPES, STATE_MESSAGE_TYPES, PROVIDER_MESSAGE_TYPES, ANALYTICS_MESSAGE_TYPES
+  - message-handler.service.ts: CHAT_MESSAGE_TYPES, VIEW_MESSAGE_TYPES
+  - vscode.service.ts: CHAT_MESSAGE_TYPES, SYSTEM_MESSAGE_TYPES, VIEW_MESSAGE_TYPES, CONTEXT_MESSAGE_TYPES, COMMAND_MESSAGE_TYPES, STATE_MESSAGE_TYPES, PROVIDER_MESSAGE_TYPES, ANALYTICS_MESSAGE_TYPES
 - ✅ All string literals replaced with constants:
-    - message-handler.service.ts: 3 replacements (VIEW_MESSAGE_TYPES.CHANGED x2, CHAT_MESSAGE_TYPES.GET_HISTORY)
-    - vscode.service.ts: 26 replacements across all message categories
+  - message-handler.service.ts: 3 replacements (VIEW_MESSAGE_TYPES.CHANGED x2, CHAT_MESSAGE_TYPES.GET_HISTORY)
+  - vscode.service.ts: 26 replacements across all message categories
 - ✅ `npm run typecheck:all` passes (14 projects, 0 errors)
 
 **Verification Requirements**:
@@ -410,10 +410,10 @@ import { CHAT_MESSAGE_TYPES, SYSTEM_MESSAGE_TYPES, VIEW_MESSAGE_TYPES, CONTEXT_M
 **Implementation Summary**:
 
 - Files changed:
-    - eslint.config.mjs (added 2 no-restricted-syntax rules)
-    - libs/frontend/core/src/lib/services/chat.service.ts (4 replacements)
-    - libs/frontend/core/src/lib/services/webview-config.service.ts (3 replacements)
-    - libs/frontend/core/src/lib/services/webview-navigation.service.ts (1 replacement)
+  - eslint.config.mjs (added 2 no-restricted-syntax rules)
+  - libs/frontend/core/src/lib/services/chat.service.ts (4 replacements)
+  - libs/frontend/core/src/lib/services/webview-config.service.ts (3 replacements)
+  - libs/frontend/core/src/lib/services/webview-navigation.service.ts (1 replacement)
 - Total changes: 2 ESLint rules + 8 additional string literal migrations
 - Quality checks: All passed ✅
 - **CRITICAL DISCOVERY**: Found 8 unmigrated string literals in services not covered
@@ -476,12 +476,12 @@ export default [
 - ✅ Git commit verified: ac1ea25
 - ✅ File modified: eslint.config.mjs
 - ✅ 2 no-restricted-syntax rules added:
-    - Rule 1: Detects `postStrictMessage('string-literal', ...)`
-    - Rule 2: Detects `eventBus.publish('string-literal', ...)`
+  - Rule 1: Detects `postStrictMessage('string-literal', ...)`
+  - Rule 2: Detects `eventBus.publish('string-literal', ...)`
 - ✅ Additional migrations completed:
-    - chat.service.ts: 4 string literals → CHAT_MESSAGE_TYPES constants
-    - webview-config.service.ts: 3 string literals → CONFIG_MESSAGE_TYPES constants
-    - webview-navigation.service.ts: 1 string literal → VIEW_MESSAGE_TYPES constant
+  - chat.service.ts: 4 string literals → CHAT_MESSAGE_TYPES constants
+  - webview-config.service.ts: 3 string literals → CONFIG_MESSAGE_TYPES constants
+  - webview-navigation.service.ts: 1 string literal → VIEW_MESSAGE_TYPES constant
 - ✅ `npm run lint:all` passes (0 no-restricted-syntax errors)
 - ✅ Rule detects violations when tested
 - ✅ Error messages clear and actionable
@@ -593,9 +593,9 @@ Perform comprehensive end-to-end validation of the unified message type system. 
 - ✅ `npm run lint:all` - PASSED (10 projects, 6 warnings in shared library unrelated to message types)
 - ✅ `npm run build:all` - PASSED (7 projects, all outputs generated)
 - ⚠️ `npm run test:all` - 3 pre-existing test failures unrelated to TASK_2025_001:
-    - @ptah-extension/vscode-core:test
-    - @ptah-extension/workspace-intelligence:test
-    - ptah-extension-webview:test (missing nx-welcome module)
+  - @ptah-extension/vscode-core:test
+  - @ptah-extension/workspace-intelligence:test
+  - ptah-extension-webview:test (missing nx-welcome module)
 
 **Grep Verification Results**:
 
@@ -607,20 +607,20 @@ Perform comprehensive end-to-end validation of the unified message type system. 
 **Success Metrics Confirmed**:
 
 - ✅ **Type Duplication**: Before: 115 explicit string literal types in StrictMessageType union
-    - After: 1 derived type using TypeScript indexed access pattern
-    - Reduction: 99% (115 lines → 1 line)
-    - Evidence: libs/shared/src/lib/types/message.types.ts:44-58
+  - After: 1 derived type using TypeScript indexed access pattern
+  - Reduction: 99% (115 lines → 1 line)
+  - Evidence: libs/shared/src/lib/types/message.types.ts:44-58
 - ✅ **String Literal Elimination**: Before: 21+ string literals in frontend code
-    - After: 0 string literals in production code (only 2 in docs)
-    - Reduction: 100%
-    - Evidence: grep verification above
+  - After: 0 string literals in production code (only 2 in docs)
+  - Reduction: 100%
+  - Evidence: grep verification above
 - ✅ **Single Source of Truth**: Before: 2 locations (message-types.ts + message.types.ts)
-    - After: 1 location (message-types.ts with type derivation)
-    - Evidence: StrictMessageType imports from ../constants/message-types
+  - After: 1 location (message-types.ts with type derivation)
+  - Evidence: StrictMessageType imports from ../constants/message-types
 - ✅ **ESLint Enforcement**: 2 no-restricted-syntax rules active
-    - Rule 1: Detects postStrictMessage string literals
-    - Rule 2: Detects eventBus.publish string literals
-    - Evidence: eslint.config.mjs:63-80
+  - Rule 1: Detects postStrictMessage string literals
+  - Rule 2: Detects eventBus.publish string literals
+  - Evidence: eslint.config.mjs:63-80
 
 **Expected Commit Pattern**: `test(TASK_2025_001): validate message type unification end-to-end`
 

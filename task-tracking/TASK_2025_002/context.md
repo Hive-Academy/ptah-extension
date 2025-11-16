@@ -56,7 +56,7 @@ Based on comprehensive log analysis (log-analysis-findings.md), there are **4 cr
 **Backend State (Lines 200-254):**
 
 - VS Code LM adapter initialized and registered
-- Claude CLI adapter initialized and registered  
+- Claude CLI adapter initialized and registered
 - Default provider selected: `claude-cli`
 - **Backend has 2 providers available**
 

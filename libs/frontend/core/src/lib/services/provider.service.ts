@@ -422,18 +422,62 @@ export class ProviderService {
         }));
       });
 
-    // Handle providers available updated events (simplified notification)
-    // Note: This event only contains minimal data (id, name, status), not full ProviderInfo
-    // We DON'T auto-refresh here to prevent infinite loops
-    // The settings view component will refresh on mount instead
+    // Handle providers available updated events (push notification from backend)
+    // Backend sends this when providers are registered/unregistered
+    // With Task 1's readiness gate, this event arrives after webview is ready
     this.vscodeService
       .onMessageType('providers:availableUpdated')
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => {
+      .subscribe((payload) => {
         console.log(
-          '[ProviderService] Received providers:availableUpdated notification'
+          '[ProviderService] Received providers:availableUpdated notification',
+          payload
         );
-        // Just log it - don't trigger refresh to avoid loops
+
+        // Guard: Validate payload structure
+        if (
+          payload &&
+          typeof payload === 'object' &&
+          'availableProviders' in payload &&
+          Array.isArray(payload.availableProviders)
+        ) {
+          // Map minimal provider data to ProviderInfo format
+          // Note: This contains basic data (id, name, status) for quick updates
+          // Full provider details come from getAvailable response
+          const providers = payload.availableProviders.map((p) => ({
+            id: p.id,
+            name: p.name,
+            description: '', // Not included in notification
+            vendor: '', // Not included in notification
+            capabilities: {
+              streaming: false,
+              fileAttachments: false,
+              contextManagement: false,
+              sessionPersistence: false,
+              multiTurn: false,
+              codeGeneration: false,
+              imageAnalysis: false,
+              functionCalling: false,
+            },
+            health: {
+              status: p.status,
+              lastCheck: Date.now(),
+              uptime: 0,
+            },
+          })) as ProviderInfo[];
+
+          console.log(
+            '[ProviderService] Updating available providers from push event:',
+            providers.length,
+            'providers'
+          );
+          this._availableProviders.set(providers);
+        } else {
+          console.warn(
+            '[ProviderService] Invalid providers:availableUpdated payload:',
+            payload
+          );
+        }
       });
 
     // Handle provider current changed events (event notification when current provider changes)
