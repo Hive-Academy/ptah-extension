@@ -274,6 +274,39 @@ export class ChatService {
    * Initialize message handling subscriptions
    */
   private initializeMessageHandling(): void {
+    // FIX: Subscribe to chat:sendMessage:response (CRITICAL - was missing!)
+    this.vscode
+      .onMessageType(
+        'chat:sendMessage:response' as keyof import('@ptah-extension/shared').MessagePayloadMap
+      )
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((response: unknown) => {
+        console.log(
+          '[ChatService] Received chat:sendMessage:response:',
+          response
+        );
+
+        const typedResponse = response as {
+          success: boolean;
+          data?: unknown;
+          error?: { code: string; message: string };
+        };
+
+        if (typedResponse.success) {
+          this.logger.info('Message sent successfully', 'ChatService');
+          console.log('[ChatService] Message sent successfully');
+          // Message will appear via chat:messageAdded event
+        } else {
+          const errorMsg =
+            typedResponse.error?.message || 'Unknown error sending message';
+          this.logger.error(`Message send failed: ${errorMsg}`, 'ChatService');
+          console.error('[ChatService] Message send failed:', errorMsg);
+
+          // Show error to user
+          this.appState.handleError(`Failed to send message: ${errorMsg}`);
+        }
+      });
+
     // TODO: Subscribe to StreamHandlingService.messageStream$ when migrated
     // For now, handle direct message chunks
     this.vscode

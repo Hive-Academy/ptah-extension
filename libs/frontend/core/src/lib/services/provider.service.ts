@@ -351,6 +351,39 @@ export class ProviderService {
             result.providers?.length,
             'items'
           );
+
+          // FIX: Warn if zero providers available (CRITICAL)
+          if (!result.providers || result.providers.length === 0) {
+            console.error(
+              '╔═══════════════════════════════════════════════════════════════╗'
+            );
+            console.error(
+              '║ [ProviderService] CRITICAL: NO PROVIDERS AVAILABLE!          ║'
+            );
+            console.error(
+              '║ This means provider registration FAILED in the backend       ║'
+            );
+            console.error(
+              '║ Check Extension Host console for registration errors         ║'
+            );
+            console.error(
+              '║ Look for messages from [registerProviders]                   ║'
+            );
+            console.error(
+              '╚═══════════════════════════════════════════════════════════════╝'
+            );
+
+            // Set error state
+            this._lastError.set({
+              type: 'no-providers',
+              message:
+                'No AI providers are available. Extension may not have initialized properly.',
+              recoverable: true,
+              suggestedAction:
+                'Check Extension Host console logs and restart VS Code',
+            });
+          }
+
           this._availableProviders.set(result.providers || []);
           console.log(
             '[ProviderService] Available providers after set:',

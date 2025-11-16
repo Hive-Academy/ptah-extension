@@ -117,6 +117,14 @@ export class DIContainer {
       MessageValidatorService
     );
 
+    // Configuration Provider Adapter (depends on ConfigManager)
+    container.register(TOKENS.CONFIGURATION_PROVIDER, {
+      useFactory: (c) => {
+        const configManager = c.resolve<ConfigManager>(TOKENS.CONFIG_MANAGER);
+        return new ConfigurationProviderAdapter(configManager);
+      },
+    });
+
     // API Wrappers
     container.registerSingleton(TOKENS.COMMAND_MANAGER, CommandManager);
     container.registerSingleton(TOKENS.WEBVIEW_MANAGER, WebviewManager);
@@ -216,16 +224,9 @@ export class DIContainer {
     container.registerSingleton(TOKENS.CONTEXT_MANAGER, ContextManager);
 
     // Provider Manager (depends on EventBus and Strategy)
-    // Use factory to ensure runtime resolution
-    container.register(TOKENS.PROVIDER_MANAGER, {
-      useFactory: (c) => {
-        const eventBus = c.resolve<EventBus>(TOKENS.EVENT_BUS);
-        const strategy = c.resolve<IntelligentProviderStrategy>(
-          TOKENS.INTELLIGENT_PROVIDER_STRATEGY
-        );
-        return new ProviderManager(eventBus, strategy);
-      },
-    });
+    // CRITICAL: Must be singleton to ensure all code uses the SAME instance
+    // Otherwise providers registered in one instance won't be visible to other instances!
+    container.registerSingleton(TOKENS.PROVIDER_MANAGER, ProviderManager);
 
     // Provider adapters
     container.registerSingleton(TOKENS.CLAUDE_CLI_ADAPTER, ClaudeCliAdapter);
@@ -250,13 +251,8 @@ export class DIContainer {
     };
     container.register(TOKENS.STORAGE_SERVICE, { useValue: storageAdapter });
 
-    // Configuration Provider Adapter (needs ConfigManager which is already registered)
-    container.register(TOKENS.CONFIGURATION_PROVIDER, {
-      useFactory: (c) => {
-        const configManager = c.resolve<ConfigManager>(TOKENS.CONFIG_MANAGER);
-        return new ConfigurationProviderAdapter(configManager);
-      },
-    });
+    // NOTE: CONFIGURATION_PROVIDER is NOW registered during Phase 1 (line 121)
+    // It was moved from main.ts to fix dependency injection order issues.
 
     // Core domain services
     container.registerSingleton(TOKENS.CLAUDE_CLI_DETECTOR, ClaudeCliDetector);

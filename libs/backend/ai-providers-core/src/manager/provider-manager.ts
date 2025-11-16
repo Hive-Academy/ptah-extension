@@ -3,7 +3,7 @@
  * Manages multiple AI providers with health monitoring and intelligent failover
  */
 
-import { injectable } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 import { BehaviorSubject, Observable, interval, Subscription } from 'rxjs';
 import type {
   ProviderId,
@@ -13,6 +13,7 @@ import type {
 } from '@ptah-extension/shared';
 import { PROVIDER_MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { EventBus } from '@ptah-extension/vscode-core';
+import { TOKENS } from '@ptah-extension/vscode-core';
 import type {
   ProviderContext,
   EnhancedAIProvider,
@@ -45,7 +46,8 @@ export class ProviderManager implements IProviderManager {
   readonly state$: Observable<ActiveProviderState>;
 
   constructor(
-    private readonly eventBus: EventBus,
+    @inject(TOKENS.EVENT_BUS) private readonly eventBus: EventBus,
+    @inject(TOKENS.INTELLIGENT_PROVIDER_STRATEGY)
     private readonly strategy: IntelligentProviderStrategy
   ) {
     // Initialize with empty state
@@ -72,7 +74,22 @@ export class ProviderManager implements IProviderManager {
    * @param provider - Enhanced AI provider to register
    */
   registerProvider(provider: EnhancedAIProvider): void {
+    console.log(`[ProviderManager] ===== registerProvider() called =====`);
+    console.log(`[ProviderManager] Provider ID: ${provider.providerId}`);
+    console.log(`[ProviderManager] Provider Name: ${provider.info.name}`);
+    console.log(
+      `[ProviderManager] Provider count BEFORE registration: ${this.providers.size}`
+    );
+
     this.providers.set(provider.providerId, provider);
+
+    console.log(
+      `[ProviderManager] Provider count AFTER registration: ${this.providers.size}`
+    );
+    console.log(
+      `[ProviderManager] All registered provider IDs:`,
+      Array.from(this.providers.keys())
+    );
 
     // Update state with new provider
     const currentState = this.providersSubject.value;
@@ -86,6 +103,9 @@ export class ProviderManager implements IProviderManager {
     };
 
     this.providersSubject.next(newState);
+    console.log(
+      `[ProviderManager] State updated, available count: ${newState.available.size}`
+    );
 
     // Publish available providers updated event
     this.eventBus.publish(PROVIDER_MESSAGE_TYPES.AVAILABLE_UPDATED, {
@@ -95,6 +115,10 @@ export class ProviderManager implements IProviderManager {
         status: p.getHealth().status,
       })),
     });
+    console.log(
+      `[ProviderManager] Published AVAILABLE_UPDATED event to EventBus`
+    );
+    console.log(`[ProviderManager] ===== registerProvider() complete =====`);
   }
 
   /**
@@ -160,7 +184,15 @@ export class ProviderManager implements IProviderManager {
    * @returns Array of all registered providers
    */
   getAvailableProviders(): readonly IAIProvider[] {
-    return Array.from(this.providers.values());
+    console.log(`[ProviderManager] getAvailableProviders() called`);
+    console.log(`[ProviderManager] Provider count: ${this.providers.size}`);
+    console.log(
+      `[ProviderManager] Provider IDs:`,
+      Array.from(this.providers.keys())
+    );
+    const result = Array.from(this.providers.values());
+    console.log(`[ProviderManager] Returning ${result.length} providers`);
+    return result;
   }
 
   /**

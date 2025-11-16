@@ -143,16 +143,29 @@ export class PtahExtension implements vscode.Disposable {
    * Register all components - called after initialization
    */
   async registerAll(): Promise<void> {
+    console.log('[PtahExtension.registerAll] START');
     try {
       this.logger.info('Registering extension components...');
 
       // Register everything
+      console.log(
+        '[PtahExtension.registerAll] Calling registerAllComponents()...'
+      );
       await this.registerAllComponents();
+      console.log(
+        '[PtahExtension.registerAll] registerAllComponents() complete'
+      );
 
       this.logger.info('Extension components registered successfully');
+      console.log('[PtahExtension.registerAll] COMPLETE');
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
+      console.error('[PtahExtension.registerAll] ERROR:', errorMessage);
+      console.error(
+        '[PtahExtension.registerAll] Error stack:',
+        error instanceof Error ? error.stack : 'No stack'
+      );
       this.logger.error('Component registration failed', {
         error: errorMessage,
       });
@@ -253,23 +266,52 @@ export class PtahExtension implements vscode.Disposable {
    * Register all components using library services (TASK_CORE_001)
    */
   private async registerAllComponents(): Promise<void> {
+    console.log('[PtahExtension.registerAllComponents] START');
+
     if (!this.commandHandlers) {
-      throw new Error('Command handlers not initialized');
+      const error = 'Command handlers not initialized';
+      console.error('[PtahExtension.registerAllComponents] ERROR:', error);
+      throw new Error(error);
     }
 
     // Register commands using CommandManager from vscode-core
+    console.log(
+      '[PtahExtension.registerAllComponents] Step 1: Registering commands...'
+    );
     this.registerCommands();
+    console.log(
+      '[PtahExtension.registerAllComponents] Step 1: Commands registered'
+    );
 
     // Register webview providers using WebviewManager from vscode-core
+    console.log(
+      '[PtahExtension.registerAllComponents] Step 2: Registering webviews...'
+    );
     this.registerWebviews();
+    console.log(
+      '[PtahExtension.registerAllComponents] Step 2: Webviews registered'
+    );
 
     // Set up event handlers using EventBus from vscode-core
+    console.log(
+      '[PtahExtension.registerAllComponents] Step 3: Registering events...'
+    );
     this.registerEvents();
+    console.log(
+      '[PtahExtension.registerAllComponents] Step 3: Events registered'
+    );
 
     // Register AI providers with ProviderManager (TASK_INT_003)
+    console.log(
+      '[PtahExtension.registerAllComponents] Step 4: Registering AI providers...'
+    );
     await this.registerProviders();
+    console.log(
+      '[PtahExtension.registerAllComponents] Step 4: AI providers registered'
+    );
 
     this.logger.info('All components registered successfully');
+    console.log('[PtahExtension.registerAllComponents] COMPLETE');
   }
 
   /**
@@ -391,38 +433,60 @@ export class PtahExtension implements vscode.Disposable {
    * @throws Never throws - errors logged and extension continues
    */
   private async registerProviders(): Promise<void> {
+    console.log('[registerProviders] ===== START =====');
     this.logger.info('Registering AI providers...');
 
     if (!this.providerManager) {
       const error =
         'ProviderManager not initialized - cannot register providers';
       this.logger.error(error);
-      console.error('[CRITICAL]', error);
+      console.error('[registerProviders] [CRITICAL]', error);
       throw new Error(error);
     }
 
+    console.log('[registerProviders] ProviderManager check passed');
+
     try {
       // Step 1: Resolve provider adapters from DI container
+      console.log(
+        '[registerProviders] Step 1: Resolving provider adapters from DI container...'
+      );
       this.logger.info('Resolving provider adapters from DI container...');
 
       const vsCodeLmAdapter = DIContainer.resolve<VsCodeLmAdapter>(
         TOKENS.VSCODE_LM_ADAPTER
       );
+      console.log(
+        '[registerProviders] VS Code LM adapter resolved:',
+        !!vsCodeLmAdapter
+      );
+
       const claudeCliAdapter = DIContainer.resolve<ClaudeCliAdapter>(
         TOKENS.CLAUDE_CLI_ADAPTER
       );
+      console.log(
+        '[registerProviders] Claude CLI adapter resolved:',
+        !!claudeCliAdapter
+      );
 
       this.logger.info('Provider adapters resolved successfully');
+      console.log('[registerProviders] Step 1 COMPLETE');
 
       // Step 2: Initialize providers (verify health, setup)
+      console.log('[registerProviders] Step 2: Initializing providers...');
       this.logger.info('Initializing VS Code LM adapter...');
+      console.log(
+        '[registerProviders] Calling vsCodeLmAdapter.initialize()...'
+      );
       const vsCodeInitialized = await vsCodeLmAdapter.initialize();
+      console.log('[registerProviders] vsCodeInitialized:', vsCodeInitialized);
 
       if (vsCodeInitialized) {
         const vsCodeHealth = vsCodeLmAdapter.getHealth();
         this.logger.info('VS Code LM adapter initialized successfully', {
           health: vsCodeHealth,
         });
+        console.log('[registerProviders] VS Code LM health:', vsCodeHealth);
       } else {
         const vsCodeHealth = vsCodeLmAdapter.getHealth();
         const error = 'VS Code LM adapter initialization returned false';
@@ -430,17 +494,27 @@ export class PtahExtension implements vscode.Disposable {
           adapterHealth: vsCodeHealth,
           providerId: vsCodeLmAdapter.providerId,
         });
-        console.error('[CRITICAL]', error, 'Health:', vsCodeHealth);
+        console.error(
+          '[registerProviders] [CRITICAL]',
+          error,
+          'Health:',
+          vsCodeHealth
+        );
       }
 
       this.logger.info('Initializing Claude CLI adapter...');
+      console.log(
+        '[registerProviders] Calling claudeCliAdapter.initialize()...'
+      );
       const claudeInitialized = await claudeCliAdapter.initialize();
+      console.log('[registerProviders] claudeInitialized:', claudeInitialized);
 
       if (claudeInitialized) {
         const claudeHealth = claudeCliAdapter.getHealth();
         this.logger.info('Claude CLI adapter initialized successfully', {
           health: claudeHealth,
         });
+        console.log('[registerProviders] Claude CLI health:', claudeHealth);
       } else {
         const claudeHealth = claudeCliAdapter.getHealth();
         const error = 'Claude CLI adapter initialization returned false';
@@ -448,19 +522,44 @@ export class PtahExtension implements vscode.Disposable {
           adapterHealth: claudeHealth,
           providerId: claudeCliAdapter.providerId,
         });
-        console.error('[CRITICAL]', error, 'Health:', claudeHealth);
+        console.error(
+          '[registerProviders] [CRITICAL]',
+          error,
+          'Health:',
+          claudeHealth
+        );
       }
 
+      console.log('[registerProviders] Step 2 COMPLETE');
+
       // Step 3: Register providers in priority order (VS Code LM first, Claude CLI second)
+      console.log(
+        '[registerProviders] Step 3: Registering providers with ProviderManager...'
+      );
+
       if (vsCodeInitialized) {
         const beforeCount = this.providerManager.getAvailableProviders().length;
         this.logger.info(
           `Registering VS Code LM provider (current count: ${beforeCount})...`
         );
+        console.log(
+          '[registerProviders] Provider count before VS Code LM:',
+          beforeCount
+        );
 
+        console.log(
+          '[registerProviders] Calling providerManager.registerProvider(vsCodeLmAdapter)...'
+        );
         this.providerManager.registerProvider(vsCodeLmAdapter);
+        console.log(
+          '[registerProviders] VS Code LM registerProvider() returned'
+        );
 
         const afterCount = this.providerManager.getAvailableProviders().length;
+        console.log(
+          '[registerProviders] Provider count after VS Code LM:',
+          afterCount
+        );
         if (afterCount === beforeCount) {
           const error =
             'VS Code LM provider registered but NOT in provider map';
@@ -479,6 +578,11 @@ export class PtahExtension implements vscode.Disposable {
         this.logger.info(
           `VS Code LM provider registered successfully (count: ${afterCount})`
         );
+        console.log('[registerProviders] VS Code LM registered successfully');
+      } else {
+        console.log(
+          '[registerProviders] VS Code LM NOT initialized, skipping registration'
+        );
       }
 
       if (claudeInitialized) {
@@ -486,10 +590,24 @@ export class PtahExtension implements vscode.Disposable {
         this.logger.info(
           `Registering Claude CLI provider (current count: ${beforeCount})...`
         );
+        console.log(
+          '[registerProviders] Provider count before Claude CLI:',
+          beforeCount
+        );
 
+        console.log(
+          '[registerProviders] Calling providerManager.registerProvider(claudeCliAdapter)...'
+        );
         this.providerManager.registerProvider(claudeCliAdapter);
+        console.log(
+          '[registerProviders] Claude CLI registerProvider() returned'
+        );
 
         const afterCount = this.providerManager.getAvailableProviders().length;
+        console.log(
+          '[registerProviders] Provider count after Claude CLI:',
+          afterCount
+        );
         if (afterCount === beforeCount) {
           const error =
             'Claude CLI provider registered but NOT in provider map';
@@ -498,7 +616,7 @@ export class PtahExtension implements vscode.Disposable {
             afterCount,
             providerId: claudeCliAdapter.providerId,
           });
-          console.error('[CRITICAL]', error, {
+          console.error('[registerProviders] [CRITICAL]', error, {
             beforeCount,
             afterCount,
           });
@@ -508,11 +626,23 @@ export class PtahExtension implements vscode.Disposable {
         this.logger.info(
           `Claude CLI provider registered successfully (count: ${afterCount})`
         );
+        console.log('[registerProviders] Claude CLI registered successfully');
+      } else {
+        console.log(
+          '[registerProviders] Claude CLI NOT initialized, skipping registration'
+        );
       }
 
+      console.log('[registerProviders] Step 3 COMPLETE');
+
       // Verify at least one provider registered
+      console.log('[registerProviders] Step 4: Verifying providers...');
       const availableCount =
         this.providerManager.getAvailableProviders().length;
+      console.log(
+        '[registerProviders] Total providers available:',
+        availableCount
+      );
       if (availableCount === 0) {
         const error = 'No providers successfully registered';
         this.logger.error(error, {
@@ -520,7 +650,7 @@ export class PtahExtension implements vscode.Disposable {
           claudeInitialized,
           availableCount,
         });
-        console.error('[CRITICAL]', error, {
+        console.error('[registerProviders] [CRITICAL]', error, {
           vsCodeInitialized,
           claudeInitialized,
           availableCount,
@@ -529,8 +659,10 @@ export class PtahExtension implements vscode.Disposable {
       }
 
       this.logger.info(`${availableCount} provider(s) registered successfully`);
+      console.log('[registerProviders] Step 4 COMPLETE');
 
       // Step 4: Select default provider (VS Code LM preferred)
+      console.log('[registerProviders] Step 5: Selecting default provider...');
       const context: ProviderContext = {
         taskType: 'coding',
         complexity: 'medium',
@@ -538,8 +670,15 @@ export class PtahExtension implements vscode.Disposable {
         contextSize: 0,
       };
 
+      console.log(
+        '[registerProviders] Calling providerManager.selectBestProvider()...'
+      );
       const selectionResult = await this.providerManager.selectBestProvider(
         context
+      );
+      console.log(
+        '[registerProviders] Default provider selected:',
+        selectionResult.providerId
       );
       this.logger.info(
         `Default provider selected: ${selectionResult.providerId}`,
@@ -547,7 +686,9 @@ export class PtahExtension implements vscode.Disposable {
           reason: selectionResult.reasoning,
         }
       );
+      console.log('[registerProviders] Step 5 COMPLETE');
 
+      console.log('[registerProviders] ===== COMPLETE =====');
       // Note: ProviderManager already publishes 'providers:availableUpdated' and 'providers:currentChanged' events
       // via EventBus during registerProvider() and selectBestProvider() operations
     } catch (error) {
@@ -557,7 +698,15 @@ export class PtahExtension implements vscode.Disposable {
         error: errorMessage,
         stack: error instanceof Error ? error.stack : undefined,
       });
-      console.error('[CRITICAL] Provider registration failed:', error);
+      console.error('[registerProviders] ===== FAILED =====');
+      console.error(
+        '[registerProviders] [CRITICAL] Provider registration failed:',
+        error
+      );
+      console.error(
+        '[registerProviders] Error stack:',
+        error instanceof Error ? error.stack : 'No stack'
+      );
 
       // FAIL FAST: Extension cannot continue without providers
       throw new Error(

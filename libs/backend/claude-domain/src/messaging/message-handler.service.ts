@@ -20,6 +20,8 @@ import type {
   CorrelationId,
   MessageResponse,
   SessionId,
+  MessageId,
+  StrictChatMessage,
 } from '@ptah-extension/shared';
 import {
   CHAT_MESSAGE_TYPES,
@@ -184,7 +186,80 @@ export class MessageHandlerService {
             files: event.payload.files as string[] | undefined,
             currentSessionId: undefined, // EventBus payload doesn't include sessionId
           });
+
+          // Publish acknowledgment response
           this.publishResponse('chat:sendMessage', event.correlationId, result);
+
+          // Process the message stream
+          if (result.success && result.messageStream) {
+            let accumulatedContent = '';
+            const assistantMessageId = `msg_${Date.now()}_${Math.random()
+              .toString(36)
+              .substring(7)}` as MessageId;
+
+            result.messageStream.on('data', (chunk: Buffer) => {
+              // Accumulate content
+              const chunkStr = chunk.toString();
+              accumulatedContent += chunkStr;
+
+              // Publish chunk to EventBus for real-time UI updates
+              this.eventBus.publish(CHAT_MESSAGE_TYPES.MESSAGE_CHUNK, {
+                sessionId: result.sessionId,
+                messageId: assistantMessageId,
+                content: chunkStr,
+                isComplete: false,
+                streaming: true,
+              } as MessagePayloadMap[typeof CHAT_MESSAGE_TYPES.MESSAGE_CHUNK]);
+            });
+
+            result.messageStream.on('end', async () => {
+              // Save complete message to session
+              await this.chatOrchestration.saveAssistantMessage(
+                result.sessionId,
+                accumulatedContent
+              );
+
+              // Create complete assistant message
+              const completeMessage: StrictChatMessage = {
+                id: assistantMessageId,
+                sessionId: result.sessionId,
+                type: 'assistant',
+                content: accumulatedContent,
+                timestamp: Date.now(),
+                streaming: false,
+                isComplete: true,
+              };
+
+              // Publish completion event
+              this.eventBus.publish(CHAT_MESSAGE_TYPES.MESSAGE_COMPLETE, {
+                message: completeMessage,
+              } as MessagePayloadMap[typeof CHAT_MESSAGE_TYPES.MESSAGE_COMPLETE]);
+
+              console.info(
+                `[MessageHandler] Message stream completed for session ${result.sessionId}`
+              );
+            });
+
+            result.messageStream.on('error', (error: Error) => {
+              console.error('[MessageHandler] Stream error:', error);
+
+              // Create error message
+              const errorMessage: StrictChatMessage = {
+                id: assistantMessageId,
+                sessionId: result.sessionId,
+                type: 'system',
+                content: `Stream error: ${error.message}`,
+                timestamp: Date.now(),
+                isError: true,
+                level: 'error',
+              };
+
+              // Publish error as a complete message with error flag
+              this.eventBus.publish(CHAT_MESSAGE_TYPES.MESSAGE_COMPLETE, {
+                message: errorMessage,
+              } as MessagePayloadMap[typeof CHAT_MESSAGE_TYPES.MESSAGE_COMPLETE]);
+            });
+          }
         })
     );
 

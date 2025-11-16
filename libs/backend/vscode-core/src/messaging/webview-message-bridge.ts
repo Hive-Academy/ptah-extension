@@ -117,7 +117,10 @@ export class WebviewMessageBridge {
       // Never forward these internal events
       neverForward: [
         'commands:executeCommand', // Internal command execution
-        'analytics:trackEvent', // Internal analytics tracking
+        'analytics:trackEvent', // Internal analytics tracking (request)
+        'analytics:trackEvent:response', // Internal analytics tracking (response)
+        'analytics:getData', // Internal analytics data request
+        'analytics:getData:response', // Internal analytics data response
       ],
     };
   }

@@ -6,7 +6,9 @@
       "Bash(cat:*)",
       "Bash(npx nx build:*)",
       "Bash(npx tsc:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(npm run build:all:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": [],
