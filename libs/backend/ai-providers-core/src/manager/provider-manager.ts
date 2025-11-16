@@ -5,7 +5,13 @@
 
 import { injectable } from 'tsyringe';
 import { BehaviorSubject, Observable, interval, Subscription } from 'rxjs';
-import type { ProviderId, ProviderHealth } from '@ptah-extension/shared';
+import type {
+  ProviderId,
+  ProviderHealth,
+  IProviderManager,
+  IAIProvider,
+} from '@ptah-extension/shared';
+import { PROVIDER_MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { EventBus } from '@ptah-extension/vscode-core';
 import type {
   ProviderContext,
@@ -27,7 +33,7 @@ import { IntelligentProviderStrategy } from '../strategies';
  * @injectable Registered with DI container for dependency injection
  */
 @injectable()
-export class ProviderManager {
+export class ProviderManager implements IProviderManager {
   private readonly providersSubject: BehaviorSubject<ActiveProviderState>;
   private readonly providers = new Map<ProviderId, EnhancedAIProvider>();
   private healthMonitoringSubscription?: Subscription;
@@ -82,7 +88,7 @@ export class ProviderManager {
     this.providersSubject.next(newState);
 
     // Publish available providers updated event
-    this.eventBus.publish('providers:availableUpdated', {
+    this.eventBus.publish(PROVIDER_MESSAGE_TYPES.AVAILABLE_UPDATED, {
       availableProviders: Array.from(this.providers.values()).map((p) => ({
         id: p.providerId,
         name: p.info.name,
@@ -128,7 +134,7 @@ export class ProviderManager {
 
     // Publish provider switch event (currentChanged)
     if (previousProviderId !== result.providerId) {
-      this.eventBus.publish('providers:currentChanged', {
+      this.eventBus.publish(PROVIDER_MESSAGE_TYPES.CURRENT_CHANGED, {
         from: previousProviderId,
         to: result.providerId,
         reason: 'user-request',
@@ -140,12 +146,12 @@ export class ProviderManager {
   }
 
   /**
-   * Gets the currently active provider
+   * Gets the currently active provider (implements IProviderManager)
    *
-   * @returns Current provider or null if none selected
+   * @returns Current provider or undefined if none selected
    */
-  getCurrentProvider(): EnhancedAIProvider | null {
-    return this.providersSubject.value.current;
+  getCurrentProvider(): IAIProvider | undefined {
+    return this.providersSubject.value.current ?? undefined;
   }
 
   /**
@@ -153,8 +159,172 @@ export class ProviderManager {
    *
    * @returns Array of all registered providers
    */
-  getAvailableProviders(): readonly EnhancedAIProvider[] {
+  getAvailableProviders(): readonly IAIProvider[] {
     return Array.from(this.providers.values());
+  }
+
+  /**
+   * Gets a specific provider by ID (implements IProviderManager)
+   *
+   * @param providerId - Provider identifier
+   * @returns Provider instance or undefined if not found
+   */
+  getProvider(providerId: ProviderId): IAIProvider | undefined {
+    return this.providers.get(providerId);
+  }
+
+  /**
+   * Switches to a specific provider (implements IProviderManager)
+   *
+   * @param providerId - Provider to switch to
+   * @returns True if switch successful, false otherwise
+   */
+  async switchProvider(providerId: ProviderId): Promise<boolean> {
+    const provider = this.providers.get(providerId);
+    if (!provider) {
+      return false;
+    }
+
+    const currentState = this.providersSubject.value;
+    const previousProviderId = currentState.current?.providerId ?? null;
+
+    const newState: ActiveProviderState = {
+      ...currentState,
+      current: provider,
+      lastSwitch: {
+        timestamp: Date.now(),
+        from: previousProviderId,
+        to: providerId,
+        reason: 'user-request',
+      },
+    };
+
+    this.providersSubject.next(newState);
+
+    // Publish provider switch event
+    if (previousProviderId !== providerId) {
+      this.eventBus.publish(PROVIDER_MESSAGE_TYPES.CURRENT_CHANGED, {
+        from: previousProviderId,
+        to: providerId,
+        reason: 'user-request',
+        timestamp: Date.now(),
+      });
+    }
+
+    return true;
+  }
+
+  /**
+   * Gets health status for a specific provider (implements IProviderManager)
+   *
+   * @param providerId - Provider identifier
+   * @returns Provider health or undefined if not found
+   */
+  getProviderHealth(providerId: ProviderId): ProviderHealth | undefined {
+    const currentState = this.providersSubject.value;
+    return currentState.health.get(providerId);
+  }
+
+  /**
+   * Sets the default provider (implements IProviderManager)
+   *
+   * @param providerId - Provider to set as default
+   */
+  async setDefaultProvider(providerId: ProviderId): Promise<void> {
+    // Verify provider exists
+    const provider = this.providers.get(providerId);
+    if (!provider) {
+      throw new Error(`Provider ${providerId} not found`);
+    }
+
+    // Switch to this provider (publishes providers:currentChanged event)
+    await this.switchProvider(providerId);
+
+    // TODO: Persist default provider preference to configuration
+  }
+
+  /**
+   * Enables or disables fallback behavior (implements IProviderManager)
+   *
+   * @param enabled - True to enable fallback, false to disable
+   */
+  enableFallback(enabled: boolean): void {
+    // TODO TASK_2025_004: Implement fallback configuration storage
+    // - Store preference in extension configuration
+    // - Strategy should check this setting when selecting providers
+    // - Consider publishing custom event if needed
+    console.log(
+      `[ProviderManager] Fallback ${
+        enabled ? 'enabled' : 'disabled'
+      } (not yet implemented)`
+    );
+  }
+
+  /**
+   * Sets whether to auto-switch on provider failure (implements IProviderManager)
+   *
+   * @param enabled - True to enable auto-switch, false to disable
+   */
+  setAutoSwitchOnFailure(enabled: boolean): void {
+    // TODO TASK_2025_004: Implement auto-switch configuration storage
+    // - Store preference in extension configuration
+    // - Error handler should check this setting before attempting failover
+    // - Consider publishing custom event if needed
+    console.log(
+      `[ProviderManager] Auto-switch on failure ${
+        enabled ? 'enabled' : 'disabled'
+      } (not yet implemented)`
+    );
+  }
+
+  /**
+   * Registers an event listener (implements IProviderManager)
+   *
+   * @param event - Event name to listen for
+   * @param listener - Callback function
+   */
+  on(
+    event: 'provider-switched' | 'provider-error' | 'provider-health-changed',
+    listener: (data: unknown) => void
+  ): void {
+    // Map IProviderManager event names to EventBus message types
+    // Note: Using switch statement to map interface events to MESSAGE_TYPES constants
+    let busEvent: (typeof PROVIDER_MESSAGE_TYPES)[keyof typeof PROVIDER_MESSAGE_TYPES];
+
+    switch (event) {
+      case 'provider-switched':
+        busEvent = PROVIDER_MESSAGE_TYPES.CURRENT_CHANGED;
+        break;
+      case 'provider-error':
+        busEvent = PROVIDER_MESSAGE_TYPES.ERROR;
+        break;
+      case 'provider-health-changed':
+        busEvent = PROVIDER_MESSAGE_TYPES.HEALTH_CHANGED;
+        break;
+      default:
+        return; // Unknown event
+    }
+
+    this.eventBus.subscribe(busEvent).subscribe({
+      next: (e) => listener(e.payload),
+    });
+  }
+
+  /**
+   * Removes an event listener (implements IProviderManager)
+   *
+   * @param event - Event name
+   * @param _listener - Callback function to remove (unused - TODO: implement tracking)
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  off(event: string, _listener: (data: unknown) => void): void {
+    // TODO TASK_2025_004: Implement event listener removal
+    // EventBus uses RxJS subscriptions - need to track subscriptions
+    // and provide unsubscribe mechanism
+    // This is a compatibility method for IProviderManager interface
+    console.log(
+      `[ProviderManager] off() not yet implemented for event: ${event}`
+    );
   }
 
   /**
@@ -179,7 +349,7 @@ export class ProviderManager {
    */
   private setupEventListeners(): void {
     // Listen for provider errors to trigger failover
-    this.eventBus.subscribe('providers:error').subscribe({
+    this.eventBus.subscribe(PROVIDER_MESSAGE_TYPES.ERROR).subscribe({
       next: (event) => {
         const currentState = this.providersSubject.value;
         if (currentState.current?.providerId === event.payload.providerId) {
@@ -219,7 +389,7 @@ export class ProviderManager {
         // Publish health changed event if status changed
         const previousHealth = currentState.health.get(providerId);
         if (previousHealth && previousHealth.status !== health.status) {
-          this.eventBus.publish('providers:healthChanged', {
+          this.eventBus.publish(PROVIDER_MESSAGE_TYPES.HEALTH_CHANGED, {
             providerId,
             health,
           });
@@ -262,7 +432,7 @@ export class ProviderManager {
 
     if (availableProviders.size === 0) {
       // No fallback providers available
-      this.eventBus.publish('providers:error', {
+      this.eventBus.publish(PROVIDER_MESSAGE_TYPES.ERROR, {
         providerId: failedProviderId,
         error: {
           type: 'NO_FALLBACK',
@@ -311,14 +481,14 @@ export class ProviderManager {
       this.providersSubject.next(newState);
 
       // Publish currentChanged event for successful failover
-      this.eventBus.publish('providers:currentChanged', {
+      this.eventBus.publish(PROVIDER_MESSAGE_TYPES.CURRENT_CHANGED, {
         from: failedProviderId,
         to: result.providerId,
         reason: 'auto-fallback',
         timestamp: Date.now(),
       });
     } catch (error) {
-      this.eventBus.publish('providers:error', {
+      this.eventBus.publish(PROVIDER_MESSAGE_TYPES.ERROR, {
         providerId: failedProviderId,
         error: {
           type: 'FAILOVER_FAILED',

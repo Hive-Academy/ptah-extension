@@ -21,6 +21,13 @@ import type {
   MessageResponse,
   SessionId,
 } from '@ptah-extension/shared';
+import {
+  CHAT_MESSAGE_TYPES,
+  PROVIDER_MESSAGE_TYPES,
+  CONTEXT_MESSAGE_TYPES,
+  ANALYTICS_MESSAGE_TYPES,
+  CONFIG_MESSAGE_TYPES,
+} from '@ptah-extension/shared';
 
 // Import orchestration services
 import { ChatOrchestrationService } from '../chat/chat-orchestration.service';
@@ -169,61 +176,83 @@ export class MessageHandlerService {
   private subscribeToChatMessages(): void {
     // chat:sendMessage
     this.subscriptions.push(
-      this.eventBus.subscribe('chat:sendMessage').subscribe(async (event) => {
-        const result = await this.chatOrchestration.sendMessage({
-          content: event.payload.content,
-          files: event.payload.files as string[] | undefined,
-          currentSessionId: undefined, // EventBus payload doesn't include sessionId
-        });
-        this.publishResponse('chat:sendMessage', event.correlationId, result);
-      })
+      this.eventBus
+        .subscribe(CHAT_MESSAGE_TYPES.SEND_MESSAGE)
+        .subscribe(async (event) => {
+          const result = await this.chatOrchestration.sendMessage({
+            content: event.payload.content,
+            files: event.payload.files as string[] | undefined,
+            currentSessionId: undefined, // EventBus payload doesn't include sessionId
+          });
+          this.publishResponse('chat:sendMessage', event.correlationId, result);
+        })
     );
 
     // chat:newSession
     this.subscriptions.push(
-      this.eventBus.subscribe('chat:newSession').subscribe(async (event) => {
-        const result = await this.chatOrchestration.createSession({
-          name: event.payload.name,
-        });
-        this.publishResponse('chat:newSession', event.correlationId, result);
-      })
+      this.eventBus
+        .subscribe(CHAT_MESSAGE_TYPES.NEW_SESSION)
+        .subscribe(async (event) => {
+          const result = await this.chatOrchestration.createSession({
+            name: event.payload.name,
+          });
+          this.publishResponse('chat:newSession', event.correlationId, result);
+        })
     );
 
     // chat:switchSession
     this.subscriptions.push(
-      this.eventBus.subscribe('chat:switchSession').subscribe(async (event) => {
-        const result = await this.chatOrchestration.switchSession({
-          sessionId: event.payload.sessionId, // Already SessionId type in payload
-        });
-        this.publishResponse('chat:switchSession', event.correlationId, result);
-      })
+      this.eventBus
+        .subscribe(CHAT_MESSAGE_TYPES.SWITCH_SESSION)
+        .subscribe(async (event) => {
+          const result = await this.chatOrchestration.switchSession({
+            sessionId: event.payload.sessionId, // Already SessionId type in payload
+          });
+          this.publishResponse(
+            'chat:switchSession',
+            event.correlationId,
+            result
+          );
+        })
     );
 
     // chat:renameSession
     this.subscriptions.push(
-      this.eventBus.subscribe('chat:renameSession').subscribe(async (event) => {
-        const result = await this.chatOrchestration.renameSession({
-          sessionId: event.payload.sessionId as SessionId, // Cast to SessionId
-          newName: event.payload.newName,
-        });
-        this.publishResponse('chat:renameSession', event.correlationId, result);
-      })
+      this.eventBus
+        .subscribe(CHAT_MESSAGE_TYPES.RENAME_SESSION)
+        .subscribe(async (event) => {
+          const result = await this.chatOrchestration.renameSession({
+            sessionId: event.payload.sessionId as SessionId, // Cast to SessionId
+            newName: event.payload.newName,
+          });
+          this.publishResponse(
+            'chat:renameSession',
+            event.correlationId,
+            result
+          );
+        })
     );
 
     // chat:deleteSession
     this.subscriptions.push(
-      this.eventBus.subscribe('chat:deleteSession').subscribe(async (event) => {
-        const result = await this.chatOrchestration.deleteSession({
-          sessionId: event.payload.sessionId as SessionId, // Cast to SessionId
-        });
-        this.publishResponse('chat:deleteSession', event.correlationId, result);
-      })
+      this.eventBus
+        .subscribe(CHAT_MESSAGE_TYPES.DELETE_SESSION)
+        .subscribe(async (event) => {
+          const result = await this.chatOrchestration.deleteSession({
+            sessionId: event.payload.sessionId as SessionId, // Cast to SessionId
+          });
+          this.publishResponse(
+            'chat:deleteSession',
+            event.correlationId,
+            result
+          );
+        })
     );
 
     // chat:bulkDeleteSessions
     this.subscriptions.push(
       this.eventBus
-        .subscribe('chat:bulkDeleteSessions')
+        .subscribe(CHAT_MESSAGE_TYPES.BULK_DELETE_SESSIONS)
         .subscribe(async (event) => {
           const result = await this.chatOrchestration.bulkDeleteSessions({
             sessionIds: event.payload.sessionIds as SessionId[], // Cast to SessionId[]
@@ -239,18 +268,20 @@ export class MessageHandlerService {
     // chat:getHistory
     // NOTE: GetHistoryRequest only takes sessionId (no limit/offset support yet)
     this.subscriptions.push(
-      this.eventBus.subscribe('chat:getHistory').subscribe(async (event) => {
-        const result = await this.chatOrchestration.getHistory({
-          sessionId: event.payload.sessionId, // Already SessionId in payload
-        });
-        this.publishResponse('chat:getHistory', event.correlationId, result);
-      })
+      this.eventBus
+        .subscribe(CHAT_MESSAGE_TYPES.GET_HISTORY)
+        .subscribe(async (event) => {
+          const result = await this.chatOrchestration.getHistory({
+            sessionId: event.payload.sessionId, // Already SessionId in payload
+          });
+          this.publishResponse('chat:getHistory', event.correlationId, result);
+        })
     );
 
     // chat:getSessionStats
     this.subscriptions.push(
       this.eventBus
-        .subscribe('chat:getSessionStats')
+        .subscribe(CHAT_MESSAGE_TYPES.GET_SESSION_STATS)
         .subscribe(async (event) => {
           const result = await this.chatOrchestration.getSessionStatistics();
           this.publishResponse(
@@ -263,19 +294,21 @@ export class MessageHandlerService {
 
     // chat:stopStream
     this.subscriptions.push(
-      this.eventBus.subscribe('chat:stopStream').subscribe(async (event) => {
-        const result = await this.chatOrchestration.stopStream({
-          sessionId: event.payload.sessionId || null,
-          messageId: event.payload.messageId || null,
-        });
-        this.publishResponse('chat:stopStream', event.correlationId, result);
-      })
+      this.eventBus
+        .subscribe(CHAT_MESSAGE_TYPES.STOP_STREAM)
+        .subscribe(async (event) => {
+          const result = await this.chatOrchestration.stopStream({
+            sessionId: event.payload.sessionId || null,
+            messageId: event.payload.messageId || null,
+          });
+          this.publishResponse('chat:stopStream', event.correlationId, result);
+        })
     );
 
     // chat:permissionResponse
     this.subscriptions.push(
       this.eventBus
-        .subscribe('chat:permissionResponse')
+        .subscribe(CHAT_MESSAGE_TYPES.PERMISSION_RESPONSE)
         .subscribe(async (event) => {
           const result = await this.chatOrchestration.handlePermissionResponse({
             requestId: event.payload.requestId,
@@ -298,7 +331,7 @@ export class MessageHandlerService {
     // NOTE: getAvailableProviders() takes NO parameters
     this.subscriptions.push(
       this.eventBus
-        .subscribe('providers:getAvailable')
+        .subscribe(PROVIDER_MESSAGE_TYPES.GET_AVAILABLE)
         .subscribe(async (event) => {
           console.log(
             '[MessageHandler] Received providers:getAvailable request, correlationId:',
@@ -322,7 +355,7 @@ export class MessageHandlerService {
     // NOTE: getCurrentProvider() takes NO parameters
     this.subscriptions.push(
       this.eventBus
-        .subscribe('providers:getCurrent')
+        .subscribe(PROVIDER_MESSAGE_TYPES.GET_CURRENT)
         .subscribe(async (event) => {
           const result = await this.providerOrchestration.getCurrentProvider();
           this.publishResponse(
@@ -335,19 +368,21 @@ export class MessageHandlerService {
 
     // providers:switch
     this.subscriptions.push(
-      this.eventBus.subscribe('providers:switch').subscribe(async (event) => {
-        const result = await this.providerOrchestration.switchProvider({
-          requestId: event.correlationId,
-          providerId: event.payload.providerId,
-        });
-        this.publishResponse('providers:switch', event.correlationId, result);
-      })
+      this.eventBus
+        .subscribe(PROVIDER_MESSAGE_TYPES.SWITCH)
+        .subscribe(async (event) => {
+          const result = await this.providerOrchestration.switchProvider({
+            requestId: event.correlationId,
+            providerId: event.payload.providerId,
+          });
+          this.publishResponse('providers:switch', event.correlationId, result);
+        })
     );
 
     // providers:getHealth
     this.subscriptions.push(
       this.eventBus
-        .subscribe('providers:getHealth')
+        .subscribe(PROVIDER_MESSAGE_TYPES.GET_HEALTH)
         .subscribe(async (event) => {
           const result = await this.providerOrchestration.getProviderHealth({
             requestId: event.correlationId,
@@ -365,7 +400,7 @@ export class MessageHandlerService {
     // NOTE: getAllProviderHealth() takes NO parameters
     this.subscriptions.push(
       this.eventBus
-        .subscribe('providers:getAllHealth')
+        .subscribe(PROVIDER_MESSAGE_TYPES.GET_ALL_HEALTH)
         .subscribe(async (event) => {
           const result =
             await this.providerOrchestration.getAllProviderHealth();
@@ -438,13 +473,15 @@ export class MessageHandlerService {
     // The actual VS Code URI creation must happen in the main app layer
     // TODO: Refactor to delegate URI creation to main app
     this.subscriptions.push(
-      this.eventBus.subscribe('context:getFiles').subscribe(async (event) => {
-        // getContextFiles takes no parameters (just requestId in request object)
-        const result = await this.contextOrchestration.getContextFiles({
-          requestId: event.correlationId,
-        });
-        this.publishResponse('context:getFiles', event.correlationId, result);
-      })
+      this.eventBus
+        .subscribe(CONTEXT_MESSAGE_TYPES.GET_FILES)
+        .subscribe(async (event) => {
+          // getContextFiles takes no parameters (just requestId in request object)
+          const result = await this.contextOrchestration.getContextFiles({
+            requestId: event.correlationId,
+          });
+          this.publishResponse('context:getFiles', event.correlationId, result);
+        })
     );
 
     // context:includeFile
@@ -454,7 +491,7 @@ export class MessageHandlerService {
     // For now, this is commented out to allow build to pass
     /*
     this.subscriptions.push(
-      this.eventBus.subscribe('context:includeFile').subscribe(async (event) => {
+      this.eventBus.subscribe(CONTEXT_MESSAGE_TYPES.INCLUDE_FILE).subscribe(async (event) => {
         // TEMPORARY WORKAROUND: Create minimal Uri-like object
         // This will NOT work with actual VS Code ContextService
         const mockUri = {
@@ -483,7 +520,7 @@ export class MessageHandlerService {
     // For now, this is commented out to allow build to pass
     /*
     this.subscriptions.push(
-      this.eventBus.subscribe('context:excludeFile').subscribe(async (event) => {
+      this.eventBus.subscribe(CONTEXT_MESSAGE_TYPES.EXCLUDE_FILE).subscribe(async (event) => {
         // TEMPORARY WORKAROUND: Create minimal Uri-like object
         const mockUri = {
           fsPath: event.payload.filePath,
@@ -507,7 +544,7 @@ export class MessageHandlerService {
     // context:searchFiles
     this.subscriptions.push(
       this.eventBus
-        .subscribe('context:searchFiles')
+        .subscribe(CONTEXT_MESSAGE_TYPES.SEARCH_FILES)
         .subscribe(async (event) => {
           // Cast payload to get access to optional properties
           const payload = event.payload as {
@@ -537,7 +574,7 @@ export class MessageHandlerService {
     // TODO: Verify if this is needed or should be removed
     this.subscriptions.push(
       this.eventBus
-        .subscribe('context:getAllFiles')
+        .subscribe(CONTEXT_MESSAGE_TYPES.GET_ALL_FILES)
         .subscribe(async (event) => {
           // Using getContextFiles as fallback since getAllFiles doesn't exist
           const result = await this.contextOrchestration.getContextFiles({
@@ -571,7 +608,7 @@ export class MessageHandlerService {
     // NOTE: ContextSearchImagesPayload only has query property
     this.subscriptions.push(
       this.eventBus
-        .subscribe('context:searchImages')
+        .subscribe(CONTEXT_MESSAGE_TYPES.SEARCH_IMAGES)
         .subscribe(async (event) => {
           const result = await this.contextOrchestration.searchFiles({
             requestId: event.correlationId,
@@ -595,7 +632,7 @@ export class MessageHandlerService {
     // analytics:trackEvent
     this.subscriptions.push(
       this.eventBus
-        .subscribe('analytics:trackEvent')
+        .subscribe(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT)
         .subscribe(async (event) => {
           const payload = event.payload as {
             event: string;
@@ -616,12 +653,18 @@ export class MessageHandlerService {
 
     // analytics:getData
     this.subscriptions.push(
-      this.eventBus.subscribe('analytics:getData').subscribe(async (event) => {
-        const result = await this.analyticsOrchestration.getAnalyticsData({
-          requestId: event.correlationId,
-        });
-        this.publishResponse('analytics:getData', event.correlationId, result);
-      })
+      this.eventBus
+        .subscribe(ANALYTICS_MESSAGE_TYPES.GET_DATA)
+        .subscribe(async (event) => {
+          const result = await this.analyticsOrchestration.getAnalyticsData({
+            requestId: event.correlationId,
+          });
+          this.publishResponse(
+            'analytics:getData',
+            event.correlationId,
+            result
+          );
+        })
     );
   }
 
@@ -631,10 +674,12 @@ export class MessageHandlerService {
   private subscribeToConfigMessages(): void {
     // config:get
     this.subscriptions.push(
-      this.eventBus.subscribe('config:get').subscribe(async (event) => {
-        const result = await this.configOrchestration.getConfig();
-        this.publishResponse('config:get', event.correlationId, result);
-      })
+      this.eventBus
+        .subscribe(CONFIG_MESSAGE_TYPES.GET)
+        .subscribe(async (event) => {
+          const result = await this.configOrchestration.getConfig();
+          this.publishResponse('config:get', event.correlationId, result);
+        })
     );
 
     // config:set
@@ -642,18 +687,20 @@ export class MessageHandlerService {
     // ConfigOrchestrationService.setConfig expects { requestId, key, value }
     // TODO: Fix MessagePayloadMap to use proper ConfigSetPayload type
     this.subscriptions.push(
-      this.eventBus.subscribe('config:set').subscribe(async (event) => {
-        const payload = event.payload as unknown as {
-          key: string;
-          value: unknown;
-        };
-        const result = await this.configOrchestration.setConfig({
-          requestId: event.correlationId,
-          key: payload.key,
-          value: payload.value,
-        });
-        this.publishResponse('config:set', event.correlationId, result);
-      })
+      this.eventBus
+        .subscribe(CONFIG_MESSAGE_TYPES.SET)
+        .subscribe(async (event) => {
+          const payload = event.payload as unknown as {
+            key: string;
+            value: unknown;
+          };
+          const result = await this.configOrchestration.setConfig({
+            requestId: event.correlationId,
+            key: payload.key,
+            value: payload.value,
+          });
+          this.publishResponse('config:set', event.correlationId, result);
+        })
     );
 
     // config:update
@@ -661,27 +708,31 @@ export class MessageHandlerService {
     // ConfigOrchestrationService.updateConfig expects { requestId, key, value }
     // TODO: Fix MessagePayloadMap to use proper ConfigUpdatePayload type
     this.subscriptions.push(
-      this.eventBus.subscribe('config:update').subscribe(async (event) => {
-        const payload = event.payload as unknown as {
-          key: string;
-          value: unknown;
-        };
-        const result = await this.configOrchestration.updateConfig({
-          requestId: event.correlationId,
-          key: payload.key,
-          value: payload.value,
-        });
-        this.publishResponse('config:update', event.correlationId, result);
-      })
+      this.eventBus
+        .subscribe(CONFIG_MESSAGE_TYPES.UPDATE)
+        .subscribe(async (event) => {
+          const payload = event.payload as unknown as {
+            key: string;
+            value: unknown;
+          };
+          const result = await this.configOrchestration.updateConfig({
+            requestId: event.correlationId,
+            key: payload.key,
+            value: payload.value,
+          });
+          this.publishResponse('config:update', event.correlationId, result);
+        })
     );
 
     // config:refresh
     // NOTE: refreshConfig() takes NO parameters
     this.subscriptions.push(
-      this.eventBus.subscribe('config:refresh').subscribe(async (event) => {
-        const result = await this.configOrchestration.refreshConfig();
-        this.publishResponse('config:refresh', event.correlationId, result);
-      })
+      this.eventBus
+        .subscribe(CONFIG_MESSAGE_TYPES.REFRESH)
+        .subscribe(async (event) => {
+          const result = await this.configOrchestration.refreshConfig();
+          this.publishResponse('config:refresh', event.correlationId, result);
+        })
     );
   }
 

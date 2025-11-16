@@ -43,12 +43,12 @@ This task addresses **4 interconnected event system issues** with shared root ca
 **Implementation Summary**:
 
 - Files changed:
-    - NEW: `apps/ptah-extension-vscode/src/services/webview-event-queue.ts` - Event queue service (SOLID extraction)
-    - NEW: `apps/ptah-extension-vscode/src/services/webview-initial-data-builder.ts` - Initial data builder service
-    - `apps/ptah-extension-vscode/src/providers/angular-webview.provider.ts` - Refactored to use services (now <200 lines)
-    - `apps/ptah-extension-vscode/src/di/container.ts` - Registered new services
-    - `libs/backend/vscode-core/src/di/tokens.ts` - Added WEBVIEW_EVENT_QUEUE and WEBVIEW_INITIAL_DATA_BUILDER tokens
-    - `task-tracking/TASK_2025_002/tasks.md` - Updated status
+  - NEW: `apps/ptah-extension-vscode/src/services/webview-event-queue.ts` - Event queue service (SOLID extraction)
+  - NEW: `apps/ptah-extension-vscode/src/services/webview-initial-data-builder.ts` - Initial data builder service
+  - `apps/ptah-extension-vscode/src/providers/angular-webview.provider.ts` - Refactored to use services (now <200 lines)
+  - `apps/ptah-extension-vscode/src/di/container.ts` - Registered new services
+  - `libs/backend/vscode-core/src/di/tokens.ts` - Added WEBVIEW_EVENT_QUEUE and WEBVIEW_INITIAL_DATA_BUILDER tokens
+  - `task-tracking/TASK_2025_002/tasks.md` - Updated status
 - Lines added/modified: ~1100 additions, ~650 deletions (net: +450 lines across 2 new services)
 - Quality checks: All passed ✅ (build successful, typecheck passed)
 
@@ -94,8 +94,8 @@ Create a webview readiness tracking system in AngularWebviewProvider that queues
 - Add `private _eventQueue: Array<{type: string, payload: any}> = []`
 - Add `markWebviewReady()` method (call after webview HTML loaded)
 - Modify `postMessage()` to check readiness:
-    - If not ready: queue event instead of posting
-    - If ready: post immediately
+  - If not ready: queue event instead of posting
+  - If ready: post immediately
 - Add `flushEventQueue()` method called after `markWebviewReady()`
 - Add logging for queue operations
 
@@ -126,7 +126,7 @@ Create a webview readiness tracking system in AngularWebviewProvider that queues
 **Implementation Summary**:
 
 - Files changed:
-    - `apps/ptah-extension-vscode/src/services/webview-initial-data-builder.ts` - Added comprehensive diagnostic logging
+  - `apps/ptah-extension-vscode/src/services/webview-initial-data-builder.ts` - Added comprehensive diagnostic logging
 - Lines added/modified: ~19 additions (diagnostic logging)
 - Quality checks: All passed ✅ (build successful)
 
@@ -142,13 +142,13 @@ Task 2's original description was based on pre-refactoring architecture. After T
 **Changes Made**:
 
 - Added logging before provider mapping to show:
-    - Current provider ID
-    - Available provider count
-    - Provider IDs array
+  - Current provider ID
+  - Available provider count
+  - Provider IDs array
 - Added logging after data construction to show:
-    - Final provider count
-    - Final provider IDs
-    - Health data count
+  - Final provider count
+  - Final provider IDs
+  - Health data count
 
 **Rationale**:
 
@@ -209,15 +209,16 @@ Fix the `providers:getAvailable` request handler in AngularWebviewProvider to pr
 **Implementation Summary**:
 
 - Files changed:
-    - `libs/frontend/core/src/lib/services/provider.service.ts` - Updated `providers:availableUpdated` event handler
+  - `libs/frontend/core/src/lib/services/provider.service.ts` - Updated `providers:availableUpdated` event handler
 - Components/services modified:
-    - `ProviderService` - Added state update logic for push events
+  - `ProviderService` - Added state update logic for push events
 - Lines added/modified: ~40 additions, ~10 deletions (net: +30 lines)
 - Quality checks: All passed ✅ (build successful, typecheck passed)
 
 **Changes Made**:
 
 1. **`providers:availableUpdated` handler** (lines 428-481):
+
    - Changed from logging-only to state update
    - Added payload validation guard
    - Maps `availableProviders` array from payload to `ProviderInfo` format
@@ -232,12 +233,7 @@ Fix the `providers:getAvailable` request handler in AngularWebviewProvider to pr
 
 ```typescript
 // Validate payload structure before processing
-if (
-  payload &&
-  typeof payload === 'object' &&
-  'availableProviders' in payload &&
-  Array.isArray(payload.availableProviders)
-) {
+if (payload && typeof payload === 'object' && 'availableProviders' in payload && Array.isArray(payload.availableProviders)) {
   // Safe to process
 }
 ```
@@ -309,29 +305,29 @@ Update ProviderService to properly handle `providers:availableUpdated` and `prov
 
 - **Audit Result**: ✅ **NO CODE CHANGES NEEDED** - All event names properly aligned
 - **Files audited**:
-    - `libs/shared/src/lib/constants/message-types.ts` - Complete constant definitions
-    - `libs/backend/claude-domain/src/messaging/message-handler.service.ts` - Backend subscribers
-    - `libs/frontend/core/src/lib/services/chat.service.ts` - Frontend publishers/subscribers
+  - `libs/shared/src/lib/constants/message-types.ts` - Complete constant definitions
+  - `libs/backend/claude-domain/src/messaging/message-handler.service.ts` - Backend subscribers
+  - `libs/frontend/core/src/lib/services/chat.service.ts` - Frontend publishers/subscribers
 - Lines analyzed: ~500 lines across 3 files
 - Quality checks: All passed ✅ (constants used correctly, no string literals)
 
 **Event Mapping Validation**:
 
-| Backend Subscriber | Frontend Publisher | Frontend Subscriber | Status |
-|-------------------|-------------------|---------------------|--------|
-| `'chat:sendMessage'` | `CHAT_MESSAGE_TYPES.SEND_MESSAGE` | - | ✅ MATCH |
-| `'chat:newSession'` | `CHAT_MESSAGE_TYPES.NEW_SESSION` | - | ✅ MATCH |
-| `'chat:switchSession'` | `CHAT_MESSAGE_TYPES.SWITCH_SESSION` | - | ✅ MATCH |
-| `'chat:getHistory'` | `CHAT_MESSAGE_TYPES.GET_HISTORY` | - | ✅ MATCH |
-| `'chat:renameSession'` | - | - | ✅ EXISTS |
-| `'chat:deleteSession'` | - | - | ✅ EXISTS |
-| `'chat:stopStream'` | - | - | ✅ EXISTS |
-| Push: `'chat:messageChunk'` | - | `CHAT_MESSAGE_TYPES.MESSAGE_CHUNK` | ✅ MATCH |
-| Push: `'chat:sessionCreated'` | - | `CHAT_MESSAGE_TYPES.SESSION_CREATED` | ✅ MATCH |
-| Push: `'chat:sessionSwitched'` | - | `CHAT_MESSAGE_TYPES.SESSION_SWITCHED` | ✅ MATCH |
-| Push: `'chat:messageAdded'` | - | `CHAT_MESSAGE_TYPES.MESSAGE_ADDED` | ✅ MATCH |
-| Push: `'chat:tokenUsageUpdated'` | - | `CHAT_MESSAGE_TYPES.TOKEN_USAGE_UPDATED` | ✅ MATCH |
-| Push: `'chat:sessionsUpdated'` | - | `CHAT_MESSAGE_TYPES.SESSIONS_UPDATED` | ✅ MATCH |
+| Backend Subscriber               | Frontend Publisher                  | Frontend Subscriber                      | Status    |
+| -------------------------------- | ----------------------------------- | ---------------------------------------- | --------- |
+| `'chat:sendMessage'`             | `CHAT_MESSAGE_TYPES.SEND_MESSAGE`   | -                                        | ✅ MATCH  |
+| `'chat:newSession'`              | `CHAT_MESSAGE_TYPES.NEW_SESSION`    | -                                        | ✅ MATCH  |
+| `'chat:switchSession'`           | `CHAT_MESSAGE_TYPES.SWITCH_SESSION` | -                                        | ✅ MATCH  |
+| `'chat:getHistory'`              | `CHAT_MESSAGE_TYPES.GET_HISTORY`    | -                                        | ✅ MATCH  |
+| `'chat:renameSession'`           | -                                   | -                                        | ✅ EXISTS |
+| `'chat:deleteSession'`           | -                                   | -                                        | ✅ EXISTS |
+| `'chat:stopStream'`              | -                                   | -                                        | ✅ EXISTS |
+| Push: `'chat:messageChunk'`      | -                                   | `CHAT_MESSAGE_TYPES.MESSAGE_CHUNK`       | ✅ MATCH  |
+| Push: `'chat:sessionCreated'`    | -                                   | `CHAT_MESSAGE_TYPES.SESSION_CREATED`     | ✅ MATCH  |
+| Push: `'chat:sessionSwitched'`   | -                                   | `CHAT_MESSAGE_TYPES.SESSION_SWITCHED`    | ✅ MATCH  |
+| Push: `'chat:messageAdded'`      | -                                   | `CHAT_MESSAGE_TYPES.MESSAGE_ADDED`       | ✅ MATCH  |
+| Push: `'chat:tokenUsageUpdated'` | -                                   | `CHAT_MESSAGE_TYPES.TOKEN_USAGE_UPDATED` | ✅ MATCH  |
+| Push: `'chat:sessionsUpdated'`   | -                                   | `CHAT_MESSAGE_TYPES.SESSIONS_UPDATED`    | ✅ MATCH  |
 
 **Architecture Assessment**:
 
@@ -384,7 +380,7 @@ Update ProviderService to properly handle `providers:availableUpdated` and `prov
 registerProvider(provider: EnhancedAIProvider): void {
   this.providers.set(provider.providerId, provider);
   // ... state updates ...
-  
+
   // Publishes event IMMEDIATELY
   this.eventBus.publish('providers:availableUpdated', {
     availableProviders: Array.from(this.providers.values()).map(...)
@@ -403,14 +399,14 @@ registerProvider(provider: EnhancedAIProvider): void {
 
 **Trade-off Analysis**:
 
-| Aspect | Current (with Task 1 queue) | If We Batch |
-|--------|----------------------------|-------------|
-| Events fired | 2 (Array(1), Array(2)) | 1 (Array(2)) |
-| Events delivered | 2 (batched by queue) | 1 |
-| Code complexity | Low (no changes) | Medium (suppress flag + manual publish) |
-| Performance | Excellent (queue handles it) | Excellent (1 event) |
-| Logs | 2 publish logs | 1 publish log |
-| Maintenance | Low (existing code) | Medium (new coordination logic) |
+| Aspect           | Current (with Task 1 queue)  | If We Batch                             |
+| ---------------- | ---------------------------- | --------------------------------------- |
+| Events fired     | 2 (Array(1), Array(2))       | 1 (Array(2))                            |
+| Events delivered | 2 (batched by queue)         | 1                                       |
+| Code complexity  | Low (no changes)             | Medium (suppress flag + manual publish) |
+| Performance      | Excellent (queue handles it) | Excellent (1 event)                     |
+| Logs             | 2 publish logs               | 1 publish log                           |
+| Maintenance      | Low (existing code)          | Medium (new coordination logic)         |
 
 **Conclusion**: Batching would be a **minor logging optimization** with **no functional benefit**. The queue already achieves the desired end result (events delivered together after webview ready).
 
@@ -446,9 +442,9 @@ Document all event naming conventions and the request-response vs push event pat
 **Implementation Details**:
 
 - Add JSDoc block at top of `message-types.ts` explaining:
-    - Request types: No suffix (e.g., `chat:sendMessage`)
-    - Response types: `:response` suffix (e.g., `chat:sendMessage:response`)
-    - Push events: Descriptive names (e.g., `chat:sessionCreated`, `providers:availableUpdated`)
+  - Request types: No suffix (e.g., `chat:sendMessage`)
+  - Response types: `:response` suffix (e.g., `chat:sendMessage:response`)
+  - Push events: Descriptive names (e.g., `chat:sessionCreated`, `providers:availableUpdated`)
 - Add examples for each pattern
 - Document backend vs frontend responsibilities
 - Add "CRITICAL: Never use string literals" warning
@@ -533,29 +529,32 @@ npx nx run-many -t typecheck
 
 **Architecture Validation**:
 
-| Component | Status | Evidence |
-|-----------|--------|----------|
-| WebviewEventQueue | ✅ WORKING | MAX_SIZE=100, FIFO, flush on ready |
-| WebviewInitialDataBuilder | ✅ WORKING | Diagnostic logs, type-safe construction |
-| AngularWebviewProvider | ✅ WORKING | Reduced to <200 lines, SOLID compliance |
-| MessageHandlerService | ✅ WORKING | All chat handlers subscribe correctly |
-| ChatService (frontend) | ✅ WORKING | Uses constants, proper subscriptions |
-| ProviderService (frontend) | ✅ WORKING | State updates on push events |
+| Component                  | Status     | Evidence                                |
+| -------------------------- | ---------- | --------------------------------------- |
+| WebviewEventQueue          | ✅ WORKING | MAX_SIZE=100, FIFO, flush on ready      |
+| WebviewInitialDataBuilder  | ✅ WORKING | Diagnostic logs, type-safe construction |
+| AngularWebviewProvider     | ✅ WORKING | Reduced to <200 lines, SOLID compliance |
+| MessageHandlerService      | ✅ WORKING | All chat handlers subscribe correctly   |
+| ChatService (frontend)     | ✅ WORKING | Uses constants, proper subscriptions    |
+| ProviderService (frontend) | ✅ WORKING | State updates on push events            |
 
 **Manual Runtime Testing** (User can perform when convenient):
 
 1. **Provider Loading Test**:
+
    - Launch extension (F5)
    - Open Ptah webview
    - Navigate to provider selection
    - Expected: 2 providers visible (VS Code LM + Claude CLI)
 
 2. **Analytics Flooding Test**:
+
    - Fresh launch (F5)
    - Check debug console
    - Expected: No "No active webviews" messages
 
 3. **Chat/Session Test**:
+
    - Create new session
    - Send message: "Hello"
    - Expected: Message reaches Claude CLI, response appears

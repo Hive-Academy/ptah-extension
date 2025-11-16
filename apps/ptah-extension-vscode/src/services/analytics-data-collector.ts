@@ -87,9 +87,13 @@ interface ActivityData {
 /**
  * Analytics Data Collector - Provides real system metrics
  * Replaces all mock data with actual performance and usage statistics
+ *
+ * FEATURE FLAG: Set to false to completely disable analytics tracking
  */
 @injectable()
 export class AnalyticsDataCollector implements vscode.Disposable {
+  private static readonly ANALYTICS_ENABLED = false; // Set to false to disable all analytics
+
   private performanceMetrics: PerformanceMetrics = {
     responseTimes: [],
     successCount: 0,
@@ -170,6 +174,8 @@ export class AnalyticsDataCollector implements vscode.Disposable {
    * Track response time for performance metrics
    */
   trackResponseTime(responseTime: number, success = true): void {
+    if (!AnalyticsDataCollector.ANALYTICS_ENABLED) return;
+
     this.performanceMetrics.responseTimes.push(responseTime);
 
     if (success) {
@@ -193,6 +199,7 @@ export class AnalyticsDataCollector implements vscode.Disposable {
    * Track message activity
    */
   trackMessageActivity(): void {
+    if (!AnalyticsDataCollector.ANALYTICS_ENABLED) return;
     this.activityData.messageTimestamps.push(Date.now());
   }
 
@@ -200,6 +207,7 @@ export class AnalyticsDataCollector implements vscode.Disposable {
    * Track session creation
    */
   trackSessionCreation(): void {
+    if (!AnalyticsDataCollector.ANALYTICS_ENABLED) return;
     this.activityData.sessionCreationTimestamps.push(Date.now());
   }
 
@@ -207,6 +215,7 @@ export class AnalyticsDataCollector implements vscode.Disposable {
    * Track command execution
    */
   trackCommandExecution(): void {
+    if (!AnalyticsDataCollector.ANALYTICS_ENABLED) return;
     this.activityData.commandExecutionTimestamps.push(Date.now());
   }
 
@@ -462,10 +471,15 @@ export class AnalyticsDataCollector implements vscode.Disposable {
   }
 
   /**
-   * Setup metrics tracking by listening to event bus
+   * Setup metrics tracking
    * SessionManager publishes events through the event bus, not through .on() method
    */
   private setupMetricsTracking(): void {
+    if (!AnalyticsDataCollector.ANALYTICS_ENABLED) {
+      this.logger.info('Analytics metrics tracking DISABLED via feature flag');
+      return;
+    }
+
     // SessionManager uses EventBus, not .on() - need to subscribe to event bus
     // However, this service doesn't have direct access to EventBus yet
     // For now, we'll track manually through the service methods

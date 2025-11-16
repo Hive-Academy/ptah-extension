@@ -8,6 +8,10 @@ import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
 import { EventBus } from '../messaging/event-bus';
 import { TOKENS } from '../di/tokens';
+import {
+  ANALYTICS_MESSAGE_TYPES,
+  SYSTEM_MESSAGE_TYPES,
+} from '@ptah-extension/shared';
 
 /**
  * File operation type enumeration
@@ -131,7 +135,7 @@ export class FileSystemManager {
       this.updateOperationMetrics('read', true, content.byteLength, duration);
 
       // Publish success event
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'fileSystem:operationCompleted',
         properties: {
           operation: 'read',
@@ -184,7 +188,7 @@ export class FileSystemManager {
       this.updateOperationMetrics('write', true, content.byteLength, duration);
 
       // Publish success event
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'fileSystem:operationCompleted',
         properties: {
           operation: 'write',
@@ -236,7 +240,7 @@ export class FileSystemManager {
       this.updateOperationMetrics('delete', true, stat.size, duration);
 
       // Publish success event
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'fileSystem:operationCompleted',
         properties: {
           operation: 'delete',
@@ -290,7 +294,7 @@ export class FileSystemManager {
       this.updateOperationMetrics('copy', true, sourceStat.size, duration);
 
       // Publish success event
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'fileSystem:operationCompleted',
         properties: {
           operation: 'copy',
@@ -349,7 +353,7 @@ export class FileSystemManager {
       this.updateOperationMetrics('move', true, sourceStat.size, duration);
 
       // Publish success event
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'fileSystem:operationCompleted',
         properties: {
           operation: 'move',
@@ -394,7 +398,7 @@ export class FileSystemManager {
       this.updateOperationMetrics('stat', true, 0, duration);
 
       // Publish success event
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'fileSystem:operationCompleted',
         properties: {
           operation: 'stat',
@@ -448,7 +452,7 @@ export class FileSystemManager {
       );
 
       // Publish success event
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'fileSystem:operationCompleted',
         properties: {
           operation: 'readdir',
@@ -511,7 +515,7 @@ export class FileSystemManager {
       this.context.subscriptions.push(watcher);
 
       // Publish watcher created event
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'fileSystem:watcherCreated',
         properties: {
           watcherId: config.id,
@@ -525,7 +529,7 @@ export class FileSystemManager {
 
       return watcher;
     } catch (error) {
-      this.eventBus.publish('error', {
+      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
         code: 'FILE_WATCHER_CREATE_FAILED',
         message: `Failed to create file watcher ${config.id}: ${error}`,
         source: 'FileSystemManager',
@@ -556,7 +560,7 @@ export class FileSystemManager {
       this.activeWatchers.delete(watcherId);
 
       // Publish disposal event
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'fileSystem:watcherDisposed',
         properties: {
           watcherId,
@@ -566,7 +570,7 @@ export class FileSystemManager {
 
       return true;
     } catch (error) {
-      this.eventBus.publish('error', {
+      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
         code: 'FILE_WATCHER_DISPOSE_FAILED',
         message: `Failed to dispose file watcher ${watcherId}: ${error}`,
         source: 'FileSystemManager',
@@ -612,14 +616,14 @@ export class FileSystemManager {
       this.operationMetrics.clear();
 
       // Publish disposal event
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'fileSystem:managerDisposed',
         properties: {
           timestamp: Date.now(),
         },
       });
     } catch (error) {
-      this.eventBus.publish('error', {
+      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
         code: 'FILE_SYSTEM_MANAGER_DISPOSE_FAILED',
         message: `Failed to dispose FileSystemManager: ${error}`,
         source: 'FileSystemManager',
@@ -716,7 +720,7 @@ export class FileSystemManager {
     eventType: 'created' | 'changed' | 'deleted',
     uri: vscode.Uri
   ): void {
-    this.eventBus.publish('analytics:trackEvent', {
+    this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
       event: 'fileSystem:watcherEvent',
       properties: {
         watcherId,
@@ -745,7 +749,7 @@ export class FileSystemManager {
     this.updateOperationMetrics(operation, false, 0, duration);
 
     // Publish error event
-    this.eventBus.publish('error', {
+    this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
       code: `FILE_SYSTEM_${operation.toUpperCase()}_FAILED`,
       message: `File system ${operation} operation failed: ${errorMessage}`,
       source: 'FileSystemManager',

@@ -8,6 +8,11 @@ import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
 import { EventBus } from '../messaging/event-bus';
 import { TOKENS } from '../di/tokens';
+import {
+  ANALYTICS_MESSAGE_TYPES,
+  SYSTEM_MESSAGE_TYPES,
+  COMMAND_MESSAGE_TYPES,
+} from '@ptah-extension/shared';
 
 /**
  * Command definition interface with type safety
@@ -82,7 +87,7 @@ export class CommandManager {
 
         try {
           // Publish command execution started event
-          this.eventBus.publish('commands:executeCommand', {
+          this.eventBus.publish(COMMAND_MESSAGE_TYPES.EXECUTE_COMMAND, {
             templateId: definition.id,
             parameters: this.argsToParameters(args),
           });
@@ -105,7 +110,7 @@ export class CommandManager {
 
           // Since we don't have a specific command:executed type in MessagePayloadMap,
           // we'll use the generic analytics event with flattened properties
-          this.eventBus.publish('analytics:trackEvent', {
+          this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
             event: 'command:executed',
             properties: {
               commandId: executedPayload.commandId,
@@ -129,7 +134,7 @@ export class CommandManager {
           };
 
           // Publish error using existing error event type
-          this.eventBus.publish('error', {
+          this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
             code: 'COMMAND_EXECUTION_ERROR',
             message: `Command ${definition.id} failed: ${errorPayload.error}`,
             source: 'CommandManager',

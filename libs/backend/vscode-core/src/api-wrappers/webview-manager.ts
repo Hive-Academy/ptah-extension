@@ -14,6 +14,10 @@ import type {
   MessagePayloadMap,
 } from '@ptah-extension/shared';
 import { isSystemMessage, isRoutableMessage } from '@ptah-extension/shared';
+import {
+  ANALYTICS_MESSAGE_TYPES,
+  SYSTEM_MESSAGE_TYPES,
+} from '@ptah-extension/shared';
 
 /**
  * Webview panel configuration options
@@ -157,7 +161,7 @@ export class WebviewManager {
     }
 
     // Publish webview created event
-    this.eventBus.publish('analytics:trackEvent', {
+    this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
       event: 'webview:created',
       properties: {
         webviewId: config.viewType,
@@ -199,7 +203,7 @@ export class WebviewManager {
       this.activeWebviewViews.delete(viewType);
       this.webviewMetrics.delete(viewType);
 
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'webview:disposed',
         properties: {
           webviewId: viewType,
@@ -210,7 +214,7 @@ export class WebviewManager {
     });
 
     // Publish webview created event
-    this.eventBus.publish('analytics:trackEvent', {
+    this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
       event: 'webview:created',
       properties: {
         webviewId: viewType,
@@ -254,7 +258,7 @@ export class WebviewManager {
         `[WebviewManager] Active views:`,
         Array.from(this.activeWebviewViews.keys())
       );
-      this.eventBus.publish('error', {
+      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
         code: 'WEBVIEW_NOT_FOUND',
         message: `Webview ${viewType} not found`,
         source: 'WebviewManager',
@@ -274,7 +278,7 @@ export class WebviewManager {
       return true;
     } catch (error) {
       console.error(`[WebviewManager] postMessage() threw error:`, error);
-      this.eventBus.publish('error', {
+      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
         code: 'WEBVIEW_MESSAGE_SEND_FAILED',
         message: `Failed to send message to webview ${viewType}: ${error}`,
         source: 'WebviewManager',
@@ -385,7 +389,7 @@ export class WebviewManager {
       );
     } else {
       // Fallback for messages that don't match our type system
-      this.eventBus.publish('error', {
+      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
         code: 'INVALID_WEBVIEW_MESSAGE',
         message: `Invalid message type received from webview: ${
           (message as any).type
@@ -404,7 +408,7 @@ export class WebviewManager {
   private handleSystemMessage(webviewId: string, message: any): void {
     switch (message.type) {
       case 'webview-ready':
-        this.eventBus.publish('analytics:trackEvent', {
+        this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
           event: 'webview:ready',
           properties: {
             webviewId,
@@ -433,7 +437,7 @@ export class WebviewManager {
     this.webviewMetrics.delete(viewType);
 
     // Publish disposal event
-    this.eventBus.publish('analytics:trackEvent', {
+    this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
       event: 'webview:disposed',
       properties: {
         webviewId: viewType,
@@ -454,7 +458,7 @@ export class WebviewManager {
     }
 
     // Publish visibility change event
-    this.eventBus.publish('analytics:trackEvent', {
+    this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
       event: 'webview:visibilityChanged',
       properties: {
         webviewId: viewType,

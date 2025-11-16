@@ -8,6 +8,10 @@ import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
 import { EventBus } from '../messaging/event-bus';
 import { TOKENS } from '../di/tokens';
+import {
+  ANALYTICS_MESSAGE_TYPES,
+  SYSTEM_MESSAGE_TYPES,
+} from '@ptah-extension/shared';
 
 /**
  * Output channel configuration options
@@ -128,7 +132,7 @@ export class OutputManager {
       this.context.subscriptions.push(channel);
 
       // Publish channel created event
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'output:channelCreated',
         properties: {
           channelName: config.name,
@@ -140,7 +144,7 @@ export class OutputManager {
       return channel;
     } catch (error) {
       // Publish error event
-      this.eventBus.publish('error', {
+      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
         code: 'OUTPUT_CHANNEL_CREATE_FAILED',
         message: `Failed to create output channel ${config.name}: ${error}`,
         source: 'OutputManager',
@@ -169,7 +173,7 @@ export class OutputManager {
     const channel = this.outputChannels.get(channelName);
 
     if (!channel) {
-      this.eventBus.publish('error', {
+      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
         code: 'OUTPUT_CHANNEL_NOT_FOUND',
         message: `Output channel ${channelName} not found`,
         source: 'OutputManager',
@@ -194,7 +198,7 @@ export class OutputManager {
       this.updateChannelMetrics(channelName, level, false);
 
       // Publish message written event (using analytics since we don't have specific output event)
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'output:messageWritten',
         properties: {
           channelName,
@@ -210,7 +214,7 @@ export class OutputManager {
       this.updateChannelMetrics(channelName, options.level || 'info', true);
 
       // Publish error event
-      this.eventBus.publish('error', {
+      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
         code: 'OUTPUT_WRITE_FAILED',
         message: `Failed to write to output channel ${channelName}: ${error}`,
         source: 'OutputManager',
@@ -257,7 +261,7 @@ export class OutputManager {
       channel.clear();
 
       // Publish clear event
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'output:channelCleared',
         properties: {
           channelName,
@@ -267,7 +271,7 @@ export class OutputManager {
 
       return true;
     } catch (error) {
-      this.eventBus.publish('error', {
+      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
         code: 'OUTPUT_CLEAR_FAILED',
         message: `Failed to clear output channel ${channelName}: ${error}`,
         source: 'OutputManager',
@@ -298,7 +302,7 @@ export class OutputManager {
       channel.show(preserveFocus);
 
       // Publish show event
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'output:channelShown',
         properties: {
           channelName,
@@ -309,7 +313,7 @@ export class OutputManager {
 
       return true;
     } catch (error) {
-      this.eventBus.publish('error', {
+      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
         code: 'OUTPUT_SHOW_FAILED',
         message: `Failed to show output channel ${channelName}: ${error}`,
         source: 'OutputManager',
@@ -339,7 +343,7 @@ export class OutputManager {
       channel.hide();
 
       // Publish hide event
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'output:channelHidden',
         properties: {
           channelName,
@@ -349,7 +353,7 @@ export class OutputManager {
 
       return true;
     } catch (error) {
-      this.eventBus.publish('error', {
+      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
         code: 'OUTPUT_HIDE_FAILED',
         message: `Failed to hide output channel ${channelName}: ${error}`,
         source: 'OutputManager',
@@ -425,7 +429,7 @@ export class OutputManager {
       this.channelMetrics.delete(channelName);
 
       // Publish disposal event
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'output:channelDisposed',
         properties: {
           channelName,
@@ -435,7 +439,7 @@ export class OutputManager {
 
       return true;
     } catch (error) {
-      this.eventBus.publish('error', {
+      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
         code: 'OUTPUT_DISPOSE_FAILED',
         message: `Failed to dispose output channel ${channelName}: ${error}`,
         source: 'OutputManager',
@@ -458,14 +462,14 @@ export class OutputManager {
       this.channelMetrics.clear();
 
       // Publish disposal event
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'output:managerDisposed',
         properties: {
           timestamp: Date.now(),
         },
       });
     } catch (error) {
-      this.eventBus.publish('error', {
+      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
         code: 'OUTPUT_MANAGER_DISPOSE_FAILED',
         message: `Failed to dispose OutputManager: ${error}`,
         source: 'OutputManager',
