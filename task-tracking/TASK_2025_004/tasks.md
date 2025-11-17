@@ -833,10 +833,27 @@
 
 ---
 
-### Task 24: Integrate Agent Components into ChatComponent ⏸️ PENDING
+### Task 24: Integrate Agent Components into ChatComponent ✅ COMPLETE
 
 **Assigned To**: frontend-developer
 **File(s)**:
+
+n**Git Commit**: f23f06f - feat(chat): integrate agent components into ChatComponent (TASK_2025_004)
+**Completed**: 2025-11-18
+**Architecture Assessment**:
+
+- Complexity Level: 2 (Medium - template integration, responsive design)
+- Patterns Applied: Signal-based state (agentPanelVisible), composition
+- Patterns Rejected: Separate HTML/CSS files (inline template/styles for component cohesion)
+
+**Verification Results**:
+
+- TypeScript compilation: PASS (npx tsc --noEmit)
+- All requirements met ✅
+- Agent status badge in header ✅
+- Collapsible agent panel with tree + timeline ✅
+- Responsive layout (350px sidebar, overlay on mobile) ✅
+- Slide-in animation (250ms ease-out) ✅
 
 - D:/projects/ptah-extension/libs/frontend/chat/src/lib/containers/chat/chat.component.ts
 - D:/projects/ptah-extension/libs/frontend/chat/src/lib/containers/chat/chat.component.html
@@ -869,6 +886,19 @@
 **Implementation Details** (chat.component.html):
 
 - Add <agent-status-badge> to header with [activeAgents]="chatService.activeAgents()"
+n**Git Commit**: f23f06f - feat(chat): integrate agent components into ChatComponent (TASK_2025_004)
+**Completed**: 2025-11-18
+**Architecture Assessment**:
+
+- Complexity Level: 1 (Simple exports)
+- Patterns Applied: Barrel export pattern
+
+**Verification Results**:
+
+- TypeScript compilation: PASS
+- All 3 agent components exported ✅
+- Exports added to components/index.ts ✅
+
 - Add agent panel: @if (agentPanelVisible()) { <div class="agent-panel"> }
 - Add <agent-tree> inside panel with [agents]="chatService.agents()"
 - Add <agent-timeline> below tree with [agents]="chatService.agents()"
@@ -881,9 +911,22 @@
 
 ---
 
-### Task 25: Export Agent Components from Chat Library ⏸️ PENDING
+### Task 25: Export Agent Components from Chat Library ✅ COMPLETE
 
 **Assigned To**: frontend-developer
+n**Git Commit**: f23f06f - feat(chat): integrate agent components into ChatComponent (TASK_2025_004)
+**Completed**: 2025-11-18
+**Architecture Assessment**:
+
+- Complexity Level: 1 (Simple exports)
+- Patterns Applied: Barrel export pattern
+
+**Verification Results**:
+
+- TypeScript compilation: PASS
+- All 3 agent components exported ✅
+- Exports added to components/index.ts ✅
+
 **File(s)**: D:/projects/ptah-extension/libs/frontend/chat/src/index.ts
 **Specification Reference**: implementation-plan.md:1150 (Export updates)
 **Pattern to Follow**: Existing index.ts exports
