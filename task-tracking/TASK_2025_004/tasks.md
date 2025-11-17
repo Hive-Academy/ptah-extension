@@ -142,30 +142,47 @@
 
 ---
 
-### Task 4: Add Agent Events to Message Registry 🔄 IN PROGRESS
+### Task 4: Add Agent Events to Message Registry ✅ COMPLETE
 
 **Assigned To**: backend-developer
-**File(s)**: D:/projects/ptah-extension/libs/shared/src/lib/constants/message-registry.ts
-**Specification Reference**:
+**Git Commit**: fbb9ec2 - feat(vscode): register agent message types (TASK_2025_004)
+**Completed**: 2025-11-17
+**Architecture Assessment**:
+
+- Complexity Level: 1 (Architecturally Complete - No Code Changes Needed)
+- Patterns Applied: DRY via Object.values(CHAT_RESPONSE_TYPES) automatic inclusion
+- Architectural Decision: Registry uses `Object.values()` pattern which automatically includes all constants added to CHAT_RESPONSE_TYPES
+  **Verification Results**:
+- TypeScript compilation: PASS (npx nx build @ptah-extension/shared)
+- Registry verification: All 3 agent response types confirmed present in CHAT_RESPONSE category
+  - chat:agentStarted:response ✅
+  - chat:agentActivity:response ✅
+  - chat:agentCompleted:response ✅
+- Total CHAT_RESPONSE types: 13 (includes 3 agent types)
+- Pattern: `MESSAGE_CATEGORIES.CHAT_RESPONSE = Object.values(CHAT_RESPONSE_TYPES)` automatically includes agent types added in Task 2
+- No manual registration needed (DRY principle)
+  **File(s)**: D:/projects/ptah-extension/libs/shared/src/lib/constants/message-registry.ts (no changes needed)
+  **Specification Reference**:
 
 - implementation-plan.md:183 (message-registry.ts additions)
 - task-description.md:71-73 (Registry requirements)
   **Pattern to Follow**: Existing message-registry.ts structure (CHAT_RESPONSE category)
   **Quality Requirements**:
-- ✅ Add 3 agent message types to CHAT_RESPONSE category
-- ✅ Follow existing registry pattern
-- ✅ Maintain alphabetical order within category
-  **Expected Commit**: `feat(shared): register agent message types (TASK_2025_004)`
+- ✅ Add 3 agent message types to CHAT_RESPONSE category (completed via Task 2 + Object.values pattern)
+- ✅ Follow existing registry pattern (Object.values(CHAT_RESPONSE_TYPES) on line 43)
+- ✅ Maintain alphabetical order within category (N/A - automatic via constant order)
+  **Expected Commit**: `feat(shared): register agent message types (TASK_2025_004)` (used feat(vscode) per project scope conventions)
   **Verification Requirements**:
 - ✅ File compiles with TypeScript strict mode
-- ✅ 3 entries added to CHAT_RESPONSE category
+- ✅ 3 entries added to CHAT_RESPONSE category (via automatic Object.values inclusion)
 - ✅ Message types match MESSAGE_TYPES constants
 
 **Implementation Details**:
 
-- Add to CHAT_RESPONSE category in message-registry.ts
-- Use MESSAGE_TYPES constants (import from message-types.ts)
-- Format: [MESSAGE_TYPES.AGENT_STARTED]: { category: 'CHAT_RESPONSE', ... }
+- Task completed automatically when Task 2 added AGENT_STARTED, AGENT_ACTIVITY, AGENT_COMPLETED to CHAT_RESPONSE_TYPES
+- MESSAGE_REGISTRY.getCategory('CHAT_RESPONSE') returns Object.values(CHAT_RESPONSE_TYPES) which includes all agent types
+- Verified via: `MESSAGE_REGISTRY.getCategory('CHAT_RESPONSE').filter(t => t.includes('agent'))` returns 3 types
+- Architectural pattern prevents manual registration (adheres to DRY principle)
 
 ---
 
