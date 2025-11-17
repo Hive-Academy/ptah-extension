@@ -18,6 +18,11 @@ import {
 import { CommandTemplate } from './command-builder.types';
 import { WebviewConfiguration } from './webview-ui.types';
 import {
+  ClaudeAgentStartEvent,
+  ClaudeAgentActivityEvent,
+  ClaudeAgentCompleteEvent,
+} from './claude-domain.types';
+import {
   CHAT_MESSAGE_TYPES,
   CHAT_RESPONSE_TYPES,
   PROVIDER_MESSAGE_TYPES,
@@ -205,6 +210,25 @@ export interface ContextSearchImagesPayload {
 
 export interface CommandsGetTemplatesPayload {
   // No payload needed for get templates request
+}
+
+/**
+ * Agent Event Payloads - For agent lifecycle tracking
+ * Used for chat:agentStarted, chat:agentActivity, chat:agentCompleted message types
+ */
+export interface ChatAgentStartedPayload {
+  readonly sessionId: SessionId;
+  readonly agent: ClaudeAgentStartEvent;
+}
+
+export interface ChatAgentActivityPayload {
+  readonly sessionId: SessionId;
+  readonly agent: ClaudeAgentActivityEvent;
+}
+
+export interface ChatAgentCompletedPayload {
+  readonly sessionId: SessionId;
+  readonly agent: ClaudeAgentCompleteEvent;
 }
 
 export interface CommandsExecuteCommandPayload {
@@ -536,6 +560,9 @@ export interface MessagePayloadMap {
   'chat:streamStopped': ChatStreamStoppedPayload;
   'chat:permissionRequest': ChatPermissionRequestPayload;
   'chat:permissionResponse': ChatPermissionResponsePayload;
+  'chat:agentStarted': ChatAgentStartedPayload;
+  'chat:agentActivity': ChatAgentActivityPayload;
+  'chat:agentCompleted': ChatAgentCompletedPayload;
   'providers:getAvailable': ProvidersGetAvailablePayload;
   'providers:getCurrent': ProvidersGetCurrentPayload;
   'providers:switch': ProvidersSwitchPayload;
@@ -597,6 +624,9 @@ export interface MessagePayloadMap {
   'chat:getSessionStats:response': MessageResponse;
   'chat:requestSessions:response': MessageResponse;
   'chat:stopStream:response': MessageResponse;
+  'chat:agentStarted:response': MessageResponse<ChatAgentStartedPayload>;
+  'chat:agentActivity:response': MessageResponse<ChatAgentActivityPayload>;
+  'chat:agentCompleted:response': MessageResponse<ChatAgentCompletedPayload>;
   'providers:getAvailable:response': MessageResponse;
   'providers:getCurrent:response': MessageResponse;
   'providers:switch:response': MessageResponse;
