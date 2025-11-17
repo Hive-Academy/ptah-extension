@@ -699,16 +699,7 @@ interface ComplexityTestingMatrix {
     description: 'Multi-tenant, high availability, complex business rules';
     testingApproach: 'Comprehensive testing with test automation pipeline';
     coverageTarget: '95%';
-    testTypes: [
-      'unit',
-      'integration',
-      'contract',
-      'e2e',
-      'performance',
-      'security',
-      'chaos',
-      'accessibility'
-    ];
+    testTypes: ['unit', 'integration', 'contract', 'e2e', 'performance', 'security', 'chaos', 'accessibility'];
   };
 }
 ```

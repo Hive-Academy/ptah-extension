@@ -102,7 +102,9 @@ export class LoggingService {
     // Check for debug mode flag
     if (win.PTAH_DEBUG_LOGGING === true) {
       this._currentLevel.set(LogLevel.DEBUG);
-      console.info('[LoggingService] Debug logging enabled via window.PTAH_DEBUG_LOGGING');
+      console.info(
+        '[LoggingService] Debug logging enabled via window.PTAH_DEBUG_LOGGING'
+      );
       return;
     }
 
@@ -112,13 +114,21 @@ export class LoggingService {
       const level = LogLevel[levelName as keyof typeof LogLevel];
       if (level !== undefined) {
         this._currentLevel.set(level);
-        console.info(`[LoggingService] Log level set to ${levelName} via window.PTAH_LOG_LEVEL`);
+        console.info(
+          `[LoggingService] Log level set to ${levelName} via window.PTAH_LOG_LEVEL`
+        );
         return;
       }
     }
 
-    console.info(`[LoggingService] Using default log level: ${LogLevel[this._currentLevel()]}`);
-    console.info('[LoggingService] To enable debug logging, run: window.PTAH_DEBUG_LOGGING = true');
+    console.info(
+      `[LoggingService] Using default log level: ${
+        LogLevel[this._currentLevel()]
+      }`
+    );
+    console.info(
+      '[LoggingService] To enable debug logging, run: window.PTAH_DEBUG_LOGGING = true'
+    );
   }
 
   /**
@@ -135,7 +145,9 @@ export class LoggingService {
    */
   setConsoleEnabled(enabled: boolean): void {
     this.consoleEnabled = enabled;
-    console.info(`[LoggingService] Console output ${enabled ? 'enabled' : 'disabled'}`);
+    console.info(
+      `[LoggingService] Console output ${enabled ? 'enabled' : 'disabled'}`
+    );
   }
 
   /**

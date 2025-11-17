@@ -822,11 +822,7 @@ if (!result.success) {
 // ✅ CORRECT: Constructor injection
 @Injectable()
 export class OrderService {
-  constructor(
-    private readonly repository: OrderRepository,
-    private readonly notifier: NotificationService,
-    private readonly logger: Logger
-  ) {}
+  constructor(private readonly repository: OrderRepository, private readonly notifier: NotificationService, private readonly logger: Logger) {}
 
   async processOrder(orderId: string): Promise<Result<void>> {
     // Use injected dependencies

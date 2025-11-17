@@ -54,12 +54,13 @@ export interface AgentTreeNode {
   readonly errorMessage?: string;
 
   // Forward-compatible fields for IMPLEMENTATION_PLAN integration
-  readonly cost?: number;           // Future: from result messages (IMPL Phase 4)
-  readonly tokens?: {               // Future: token tracking (IMPL Phase 4)
+  readonly cost?: number; // Future: from result messages (IMPL Phase 4)
+  readonly tokens?: {
+    // Future: token tracking (IMPL Phase 4)
     input: number;
     output: number;
   };
-  readonly mcpTools?: string[];     // Future: MCP tool correlation (IMPL Phase 3)
+  readonly mcpTools?: string[]; // Future: MCP tool correlation (IMPL Phase 3)
   readonly isCustomAgent?: boolean; // Future: from SessionCapabilities (IMPL Phase 1.3)
 }
 
@@ -132,7 +133,9 @@ export class ChatService {
   private readonly _agents = signal<readonly AgentTreeNode[]>([]);
   readonly agents = this._agents.asReadonly();
 
-  private readonly _agentActivities = signal<ReadonlyMap<string, readonly ClaudeAgentActivityEvent[]>>(new Map());
+  private readonly _agentActivities = signal<
+    ReadonlyMap<string, readonly ClaudeAgentActivityEvent[]>
+  >(new Map());
   readonly agentActivities = this._agentActivities.asReadonly();
 
   // Agent computed signals
@@ -380,7 +383,9 @@ export class ChatService {
         ) {
           // Type guard passed, safe to cast
           this.chatState.setCurrentSession(sessionData as never);
-          this.logger.debug('Session created', 'ChatService', { sessionId: sessionData.id });
+          this.logger.debug('Session created', 'ChatService', {
+            sessionId: sessionData.id,
+          });
         }
       });
 
@@ -400,7 +405,9 @@ export class ChatService {
         ) {
           // Type guard passed, safe to cast
           this.chatState.setCurrentSession(sessionData as never);
-          this.logger.debug('Session switched', 'ChatService', { sessionId: sessionData.id });
+          this.logger.debug('Session switched', 'ChatService', {
+            sessionId: sessionData.id,
+          });
 
           // Request messages for switched session
           this.vscode.postStrictMessage(CHAT_MESSAGE_TYPES.GET_HISTORY, {
@@ -432,7 +439,7 @@ export class ChatService {
 
           this.logger.debug('Message added', 'ChatService', {
             messageId: message.id,
-            type: message.type
+            type: message.type,
           });
         }
       });
@@ -454,7 +461,7 @@ export class ChatService {
             } as never);
             this.logger.debug('Token usage updated', 'ChatService', {
               used: tokenUsage.input + tokenUsage.output,
-              percentage: tokenUsage.percentage
+              percentage: tokenUsage.percentage,
             });
           }
         }
@@ -473,7 +480,7 @@ export class ChatService {
           ) as never[]; // Type guard passed, safe to cast
           // TODO: Update sessions list in state (currently no sessions state)
           this.logger.debug('Sessions list updated', 'ChatService', {
-            count: validSessions.length
+            count: validSessions.length,
           });
         }
       });
@@ -492,7 +499,7 @@ export class ChatService {
             );
             this.chatState.setMessages(validMessages);
             this.logger.debug('Loaded history', 'ChatService', {
-              messageCount: validMessages.length
+              messageCount: validMessages.length,
             });
 
             // Transform to ProcessedClaudeMessage for UI display
@@ -501,7 +508,7 @@ export class ChatService {
             );
             this.chatState.setClaudeMessages(processedMessages);
             this.logger.debug('Transformed messages for UI', 'ChatService', {
-              count: processedMessages.length
+              count: processedMessages.length,
             });
           }
         }
@@ -523,7 +530,78 @@ export class ChatService {
         this.appState.setLoading(false);
 
         this.logger.debug('Message complete', 'ChatService', {
-          messageId: payload.message?.id
+          messageId: payload.message?.id,
+        });
+      });
+
+    // Agent event handlers (TASK_2025_004)
+    this.vscode
+      .onMessageType(CHAT_MESSAGE_TYPES.AGENT_STARTED)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => {
+        const newNode: AgentTreeNode = {
+          agent: payload.agent,
+          activities: [],
+          status: 'running',
+        };
+        this._agents.update((agents) => [...agents, newNode]);
+        this.logger.debug('Agent started', 'ChatService', {
+          agentId: payload.agent.agentId,
+          subagentType: payload.agent.subagentType,
+        });
+      });
+
+    this.vscode
+      .onMessageType(CHAT_MESSAGE_TYPES.AGENT_ACTIVITY)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => {
+        const agentId = payload.agent.agentId;
+
+        // Update activities map
+        this._agentActivities.update((map) => {
+          const activities = map.get(agentId) || [];
+          const newMap = new Map(map);
+          newMap.set(agentId, [...activities, payload.agent]);
+          return newMap;
+        });
+
+        // Update agent node activities
+        this._agents.update((agents) =>
+          agents.map((node) =>
+            node.agent.agentId === agentId
+              ? {
+                  ...node,
+                  activities: this._agentActivities().get(agentId) || [],
+                }
+              : node
+          )
+        );
+
+        this.logger.debug('Agent activity', 'ChatService', {
+          agentId,
+          toolName: payload.agent.toolName,
+        });
+      });
+
+    this.vscode
+      .onMessageType(CHAT_MESSAGE_TYPES.AGENT_COMPLETED)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => {
+        this._agents.update((agents) =>
+          agents.map((node) =>
+            node.agent.agentId === payload.agent.agentId
+              ? {
+                  ...node,
+                  status: 'complete',
+                  duration: payload.agent.duration,
+                }
+              : node
+          )
+        );
+
+        this.logger.debug('Agent completed', 'ChatService', {
+          agentId: payload.agent.agentId,
+          duration: payload.agent.duration,
         });
       });
 
@@ -546,9 +624,13 @@ export class ChatService {
           // Set current session if provided
           if (payload.data.currentSession) {
             this.chatState.setCurrentSession(payload.data.currentSession);
-            this.logger.debug('Session loaded from initial data', 'ChatService', {
-              sessionId: payload.data.currentSession.id
-            });
+            this.logger.debug(
+              'Session loaded from initial data',
+              'ChatService',
+              {
+                sessionId: payload.data.currentSession.id,
+              }
+            );
           }
 
           // Load messages for current session if available
@@ -567,7 +649,7 @@ export class ChatService {
             this.chatState.setClaudeMessages(processedMessages);
 
             this.logger.debug('Initial messages loaded', 'ChatService', {
-              messageCount: processedMessages.length
+              messageCount: processedMessages.length,
             });
           }
         }

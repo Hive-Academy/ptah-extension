@@ -244,10 +244,10 @@ task-tracking/
 - ✅ Type: lowercase, required, from allowed list
 - ✅ Scope: lowercase, required, from allowed list
 - ✅ Subject:
-    - lowercase only (NOT Sentence-case, Start-case, UPPER-CASE)
-    - 3-72 characters
-    - No period at end
-    - Imperative mood ("add" not "added")
+  - lowercase only (NOT Sentence-case, Start-case, UPPER-CASE)
+  - 3-72 characters
+  - No period at end
+  - Imperative mood ("add" not "added")
 - ✅ Header: max 100 characters total
 - ✅ Body/Footer lines: max 100 characters each
 
