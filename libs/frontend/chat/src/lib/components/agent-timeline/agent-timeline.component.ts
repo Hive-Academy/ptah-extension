@@ -95,10 +95,7 @@ export class AgentTimelineComponent {
     if (agents.length === 0) return 0;
 
     return Math.max(
-      ...agents.map(
-        (agent) =>
-          (agent.agent.timestamp ?? 0) + agent.duration
-      )
+      ...agents.map((agent) => (agent.agent.timestamp ?? 0) + agent.duration)
     );
   });
 
@@ -282,7 +279,7 @@ export class AgentTimelineComponent {
   getAgentColor(subagentType: string): string {
     // Color mapping based on agent types (from design spec)
     const colorMap: Record<string, string> = {
-      'Explore': 'var(--vscode-symbolIcon-classForeground)',
+      Explore: 'var(--vscode-symbolIcon-classForeground)',
       'backend-developer': 'var(--vscode-symbolIcon-functionForeground)',
       'frontend-developer': 'var(--vscode-symbolIcon-interfaceForeground)',
       'ui-ux-designer': 'var(--vscode-charts-purple)',

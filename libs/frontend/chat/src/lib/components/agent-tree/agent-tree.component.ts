@@ -1,6 +1,17 @@
-import { Component, ChangeDetectionStrategy, input, signal, computed } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  input,
+  signal,
+  computed,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { LucideAngularModule, ChevronRight, ChevronDown, AlertCircle } from 'lucide-angular';
+import {
+  LucideAngularModule,
+  ChevronRight,
+  ChevronDown,
+  AlertCircle,
+} from 'lucide-angular';
 import type { AgentTreeNode } from '@ptah-extension/core';
 
 /**
@@ -103,9 +114,13 @@ export class AgentTreeComponent {
    * @param activity - Agent activity event
    * @returns Formatted activity string (e.g., "Bash: npm run build")
    */
-  formatActivity(activity: { toolName: string; toolInput: Record<string, unknown> }): string {
+  formatActivity(activity: {
+    toolName: string;
+    toolInput: Record<string, unknown>;
+  }): string {
     const inputStr = JSON.stringify(activity.toolInput);
-    const truncated = inputStr.length > 60 ? inputStr.slice(0, 60) + '...' : inputStr;
+    const truncated =
+      inputStr.length > 60 ? inputStr.slice(0, 60) + '...' : inputStr;
     return `${activity.toolName}: ${truncated}`;
   }
 

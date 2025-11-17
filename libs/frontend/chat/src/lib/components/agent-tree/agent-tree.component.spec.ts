@@ -44,7 +44,11 @@ describe('AgentTreeComponent', () => {
     status: 'running' | 'complete' | 'error',
     activities: readonly ClaudeAgentActivityEvent[] = []
   ): AgentTreeNode => ({
-    agent: createAgentStartEvent(agentId, subagentType, `${subagentType} agent`),
+    agent: createAgentStartEvent(
+      agentId,
+      subagentType,
+      `${subagentType} agent`
+    ),
     activities,
     status,
     duration: status === 'complete' ? 12000 : undefined,
@@ -100,13 +104,26 @@ describe('AgentTreeComponent', () => {
 
     it('should render status badges correctly', () => {
       const runningAgent = createAgentTreeNode('agent-1', 'Explore', 'running');
-      const completeAgent = createAgentTreeNode('agent-2', 'backend-developer', 'complete');
-      const errorAgent = createAgentTreeNode('agent-3', 'ui-ux-designer', 'error');
+      const completeAgent = createAgentTreeNode(
+        'agent-2',
+        'backend-developer',
+        'complete'
+      );
+      const errorAgent = createAgentTreeNode(
+        'agent-3',
+        'ui-ux-designer',
+        'error'
+      );
 
-      fixture.componentRef.setInput('agents', [runningAgent, completeAgent, errorAgent]);
+      fixture.componentRef.setInput('agents', [
+        runningAgent,
+        completeAgent,
+        errorAgent,
+      ]);
       fixture.detectChanges();
 
-      const statusBadges = fixture.nativeElement.querySelectorAll('.status-badge');
+      const statusBadges =
+        fixture.nativeElement.querySelectorAll('.status-badge');
       expect(statusBadges[0].classList.contains('running')).toBe(true);
       expect(statusBadges[1].classList.contains('complete')).toBe(true);
       expect(statusBadges[2].classList.contains('error')).toBe(true);
@@ -175,20 +192,28 @@ describe('AgentTreeComponent', () => {
     });
 
     it('should show expanded content when node is expanded', () => {
-      const activities = [createAgentActivity('agent-1', 'Bash', { command: 'npm run build' })];
-      const agents = [createAgentTreeNode('agent-1', 'Explore', 'running', activities)];
+      const activities = [
+        createAgentActivity('agent-1', 'Bash', { command: 'npm run build' }),
+      ];
+      const agents = [
+        createAgentTreeNode('agent-1', 'Explore', 'running', activities),
+      ];
 
       fixture.componentRef.setInput('agents', agents);
       fixture.detectChanges();
 
-      let expandedContent = fixture.nativeElement.querySelector('.agent-node-content');
+      let expandedContent = fixture.nativeElement.querySelector(
+        '.agent-node-content'
+      );
       expect(expandedContent).toBeFalsy();
 
       const agentNode = fixture.nativeElement.querySelector('.agent-node');
       agentNode.click();
       fixture.detectChanges();
 
-      expandedContent = fixture.nativeElement.querySelector('.agent-node-content');
+      expandedContent = fixture.nativeElement.querySelector(
+        '.agent-node-content'
+      );
       expect(expandedContent).toBeTruthy();
     });
 
@@ -197,7 +222,9 @@ describe('AgentTreeComponent', () => {
         createAgentActivity('agent-1', 'Bash', { command: 'npm run build' }),
         createAgentActivity('agent-1', 'Read', { file: 'package.json' }),
       ];
-      const agents = [createAgentTreeNode('agent-1', 'Explore', 'running', activities)];
+      const agents = [
+        createAgentTreeNode('agent-1', 'Explore', 'running', activities),
+      ];
 
       fixture.componentRef.setInput('agents', agents);
       fixture.detectChanges();
@@ -206,7 +233,9 @@ describe('AgentTreeComponent', () => {
       agentNode.click();
       fixture.detectChanges();
 
-      const activityLines = fixture.nativeElement.querySelectorAll('.tool-activity-line');
+      const activityLines = fixture.nativeElement.querySelectorAll(
+        '.tool-activity-line'
+      );
       expect(activityLines.length).toBe(2);
     });
 
@@ -220,7 +249,8 @@ describe('AgentTreeComponent', () => {
       agentNode.click();
       fixture.detectChanges();
 
-      const errorMessage = fixture.nativeElement.querySelector('.error-message');
+      const errorMessage =
+        fixture.nativeElement.querySelector('.error-message');
       expect(errorMessage).toBeTruthy();
       expect(errorMessage.textContent).toContain('Test error message');
     });
@@ -261,7 +291,10 @@ describe('AgentTreeComponent', () => {
       fixture.componentRef.setInput('agents', agents);
       fixture.detectChanges();
 
-      component.handleKeydown(new KeyboardEvent('keydown', { key: 'ArrowRight' }), 'agent-1');
+      component.handleKeydown(
+        new KeyboardEvent('keydown', { key: 'ArrowRight' }),
+        'agent-1'
+      );
       fixture.detectChanges();
 
       expect(component.isExpanded('agent-1')).toBe(true);
@@ -276,7 +309,10 @@ describe('AgentTreeComponent', () => {
       component.toggleExpanded('agent-1');
       fixture.detectChanges();
 
-      component.handleKeydown(new KeyboardEvent('keydown', { key: 'ArrowLeft' }), 'agent-1');
+      component.handleKeydown(
+        new KeyboardEvent('keydown', { key: 'ArrowLeft' }),
+        'agent-1'
+      );
       fixture.detectChanges();
 
       expect(component.isExpanded('agent-1')).toBe(false);
@@ -291,7 +327,9 @@ describe('AgentTreeComponent', () => {
 
     it('should have aria-label on tree container', () => {
       const treeElement = fixture.nativeElement.querySelector('.agent-tree');
-      expect(treeElement.getAttribute('aria-label')).toBe('Agent execution tree');
+      expect(treeElement.getAttribute('aria-label')).toBe(
+        'Agent execution tree'
+      );
     });
 
     it('should have role="treeitem" on agent nodes', () => {
@@ -352,12 +390,14 @@ describe('AgentTreeComponent', () => {
     });
 
     it('should format activity with short input', () => {
-      const activity = { toolName: 'Bash', toolInput: 'ls -la' };
-      expect(component.formatActivity(activity)).toBe('Bash: "ls -la"');
+      const activity = { toolName: 'Bash', toolInput: { command: 'ls -la' } };
+      expect(component.formatActivity(activity)).toBe(
+        'Bash: {"command":"ls -la"}'
+      );
     });
 
     it('should truncate long activity input', () => {
-      const longInput = 'a'.repeat(100);
+      const longInput = { data: 'a'.repeat(100) };
       const activity = { toolName: 'Read', toolInput: longInput };
       const formatted = component.formatActivity(activity);
 
@@ -403,7 +443,8 @@ describe('AgentTreeComponent', () => {
       agentNode.click();
       fixture.detectChanges();
 
-      const tokensElement = fixture.nativeElement.querySelector('.agent-tokens');
+      const tokensElement =
+        fixture.nativeElement.querySelector('.agent-tokens');
       expect(tokensElement).toBeTruthy();
       expect(tokensElement.textContent).toContain('1000 in');
       expect(tokensElement.textContent).toContain('500 out');
@@ -422,9 +463,12 @@ describe('AgentTreeComponent', () => {
       agentNode.click();
       fixture.detectChanges();
 
-      const mcpToolsElement = fixture.nativeElement.querySelector('.agent-mcp-tools');
+      const mcpToolsElement =
+        fixture.nativeElement.querySelector('.agent-mcp-tools');
       expect(mcpToolsElement).toBeTruthy();
-      expect(mcpToolsElement.textContent).toContain('filesystem, database, browser');
+      expect(mcpToolsElement.textContent).toContain(
+        'filesystem, database, browser'
+      );
     });
 
     it('should render custom agent badge when isCustomAgent is true', () => {
@@ -440,7 +484,9 @@ describe('AgentTreeComponent', () => {
       agentNode.click();
       fixture.detectChanges();
 
-      const customBadge = fixture.nativeElement.querySelector('.agent-custom-badge');
+      const customBadge = fixture.nativeElement.querySelector(
+        '.agent-custom-badge'
+      );
       expect(customBadge).toBeTruthy();
       expect(customBadge.textContent).toContain('Custom Agent');
     });

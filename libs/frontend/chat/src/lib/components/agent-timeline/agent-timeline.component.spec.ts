@@ -32,16 +32,24 @@ describe('AgentTimelineComponent', () => {
     fixture.componentRef.setInput('agents', []);
     fixture.detectChanges();
 
-    const container = fixture.nativeElement.querySelector('.timeline-container');
+    const container = fixture.nativeElement.querySelector(
+      '.timeline-container'
+    );
     expect(container).toBeTruthy();
 
-    const segments = fixture.nativeElement.querySelectorAll('.timeline-segment');
+    const segments =
+      fixture.nativeElement.querySelectorAll('.timeline-segment');
     expect(segments.length).toBe(0);
   });
 
   it('should render timeline scale markers', () => {
     const agents = createMockAgents([
-      { agentId: 'agent1', subagentType: 'Explore', timestamp: 0, duration: 45000 },
+      {
+        agentId: 'agent1',
+        subagentType: 'Explore',
+        timestamp: 0,
+        duration: 45000,
+      },
     ]);
     fixture.componentRef.setInput('agents', agents);
     fixture.detectChanges();
@@ -50,7 +58,9 @@ describe('AgentTimelineComponent', () => {
     expect(markers.length).toBeGreaterThan(0);
 
     // Should have markers at 0s, 10s, 20s, 30s, 40s
-    const markerTexts = Array.from(markers).map((m) => (m as Element).textContent?.trim());
+    const markerTexts = Array.from(markers).map((m) =>
+      (m as Element).textContent?.trim()
+    );
     expect(markerTexts).toContain('0s');
     expect(markerTexts).toContain('10s');
     expect(markerTexts).toContain('20s');
@@ -62,7 +72,12 @@ describe('AgentTimelineComponent', () => {
 
   it('should use base scale (2px/s) for duration < 300s', () => {
     const agents = createMockAgents([
-      { agentId: 'agent1', subagentType: 'Explore', timestamp: 0, duration: 60000 }, // 60s
+      {
+        agentId: 'agent1',
+        subagentType: 'Explore',
+        timestamp: 0,
+        duration: 60000,
+      }, // 60s
     ]);
     fixture.componentRef.setInput('agents', agents);
     fixture.detectChanges();
@@ -73,7 +88,12 @@ describe('AgentTimelineComponent', () => {
 
   it('should auto-scale for duration > 300s', () => {
     const agents = createMockAgents([
-      { agentId: 'agent1', subagentType: 'Explore', timestamp: 0, duration: 400000 }, // 400s
+      {
+        agentId: 'agent1',
+        subagentType: 'Explore',
+        timestamp: 0,
+        duration: 400000,
+      }, // 400s
     ]);
     fixture.componentRef.setInput('agents', agents);
     fixture.detectChanges();
@@ -89,8 +109,18 @@ describe('AgentTimelineComponent', () => {
 
   it('should assign sequential agents to same track', () => {
     const agents = createMockAgents([
-      { agentId: 'agent1', subagentType: 'Explore', timestamp: 0, duration: 10000 },
-      { agentId: 'agent2', subagentType: 'backend-developer', timestamp: 15000, duration: 10000 },
+      {
+        agentId: 'agent1',
+        subagentType: 'Explore',
+        timestamp: 0,
+        duration: 10000,
+      },
+      {
+        agentId: 'agent2',
+        subagentType: 'backend-developer',
+        timestamp: 15000,
+        duration: 10000,
+      },
     ]);
     fixture.componentRef.setInput('agents', agents);
     fixture.detectChanges();
@@ -102,8 +132,18 @@ describe('AgentTimelineComponent', () => {
 
   it('should assign parallel agents to separate tracks', () => {
     const agents = createMockAgents([
-      { agentId: 'agent1', subagentType: 'Explore', timestamp: 0, duration: 20000 },
-      { agentId: 'agent2', subagentType: 'backend-developer', timestamp: 5000, duration: 20000 }, // Overlaps
+      {
+        agentId: 'agent1',
+        subagentType: 'Explore',
+        timestamp: 0,
+        duration: 20000,
+      },
+      {
+        agentId: 'agent2',
+        subagentType: 'backend-developer',
+        timestamp: 5000,
+        duration: 20000,
+      }, // Overlaps
     ]);
     fixture.componentRef.setInput('agents', agents);
     fixture.detectChanges();
@@ -115,9 +155,24 @@ describe('AgentTimelineComponent', () => {
 
   it('should handle 3+ parallel agents across multiple tracks', () => {
     const agents = createMockAgents([
-      { agentId: 'agent1', subagentType: 'Explore', timestamp: 0, duration: 30000 },
-      { agentId: 'agent2', subagentType: 'backend-developer', timestamp: 5000, duration: 30000 },
-      { agentId: 'agent3', subagentType: 'frontend-developer', timestamp: 10000, duration: 30000 },
+      {
+        agentId: 'agent1',
+        subagentType: 'Explore',
+        timestamp: 0,
+        duration: 30000,
+      },
+      {
+        agentId: 'agent2',
+        subagentType: 'backend-developer',
+        timestamp: 5000,
+        duration: 30000,
+      },
+      {
+        agentId: 'agent3',
+        subagentType: 'frontend-developer',
+        timestamp: 10000,
+        duration: 30000,
+      },
     ]);
     fixture.componentRef.setInput('agents', agents);
     fixture.detectChanges();
@@ -130,9 +185,24 @@ describe('AgentTimelineComponent', () => {
 
   it('should reuse tracks when agents complete', () => {
     const agents = createMockAgents([
-      { agentId: 'agent1', subagentType: 'Explore', timestamp: 0, duration: 10000 },
-      { agentId: 'agent2', subagentType: 'backend-developer', timestamp: 5000, duration: 10000 },
-      { agentId: 'agent3', subagentType: 'frontend-developer', timestamp: 20000, duration: 10000 },
+      {
+        agentId: 'agent1',
+        subagentType: 'Explore',
+        timestamp: 0,
+        duration: 10000,
+      },
+      {
+        agentId: 'agent2',
+        subagentType: 'backend-developer',
+        timestamp: 5000,
+        duration: 10000,
+      },
+      {
+        agentId: 'agent3',
+        subagentType: 'frontend-developer',
+        timestamp: 20000,
+        duration: 10000,
+      },
     ]);
     fixture.componentRef.setInput('agents', agents);
     fixture.detectChanges();
@@ -149,7 +219,12 @@ describe('AgentTimelineComponent', () => {
 
   it('should calculate correct segment position', () => {
     const agents = createMockAgents([
-      { agentId: 'agent1', subagentType: 'Explore', timestamp: 10000, duration: 20000 },
+      {
+        agentId: 'agent1',
+        subagentType: 'Explore',
+        timestamp: 10000,
+        duration: 20000,
+      },
     ]);
     fixture.componentRef.setInput('agents', agents);
     fixture.detectChanges();
@@ -167,8 +242,18 @@ describe('AgentTimelineComponent', () => {
 
   it('should position segments on correct tracks', () => {
     const agents = createMockAgents([
-      { agentId: 'agent1', subagentType: 'Explore', timestamp: 0, duration: 10000 },
-      { agentId: 'agent2', subagentType: 'backend-developer', timestamp: 5000, duration: 10000 },
+      {
+        agentId: 'agent1',
+        subagentType: 'Explore',
+        timestamp: 0,
+        duration: 10000,
+      },
+      {
+        agentId: 'agent2',
+        subagentType: 'backend-developer',
+        timestamp: 5000,
+        duration: 10000,
+      },
     ]);
     fixture.componentRef.setInput('agents', agents);
     fixture.detectChanges();
@@ -214,7 +299,12 @@ describe('AgentTimelineComponent', () => {
 
   it('should show popover after hover delay', async () => {
     const agents = createMockAgents([
-      { agentId: 'agent1', subagentType: 'Explore', timestamp: 0, duration: 10000 },
+      {
+        agentId: 'agent1',
+        subagentType: 'Explore',
+        timestamp: 0,
+        duration: 10000,
+      },
     ]);
     fixture.componentRef.setInput('agents', agents);
     fixture.detectChanges();
@@ -233,7 +323,12 @@ describe('AgentTimelineComponent', () => {
 
   it('should hide popover on mouse leave', () => {
     const agents = createMockAgents([
-      { agentId: 'agent1', subagentType: 'Explore', timestamp: 0, duration: 10000 },
+      {
+        agentId: 'agent1',
+        subagentType: 'Explore',
+        timestamp: 0,
+        duration: 10000,
+      },
     ]);
     fixture.componentRef.setInput('agents', agents);
     fixture.detectChanges();
@@ -254,14 +349,23 @@ describe('AgentTimelineComponent', () => {
     fixture.componentRef.setInput('agents', []);
     fixture.detectChanges();
 
-    const container = fixture.nativeElement.querySelector('.timeline-container');
+    const container = fixture.nativeElement.querySelector(
+      '.timeline-container'
+    );
     expect(container.getAttribute('role')).toBe('region');
-    expect(container.getAttribute('aria-label')).toBe('Agent execution timeline');
+    expect(container.getAttribute('aria-label')).toBe(
+      'Agent execution timeline'
+    );
   });
 
   it('should have ARIA labels on timeline segments', () => {
     const agents = createMockAgents([
-      { agentId: 'agent1', subagentType: 'Explore', timestamp: 0, duration: 12000 },
+      {
+        agentId: 'agent1',
+        subagentType: 'Explore',
+        timestamp: 0,
+        duration: 12000,
+      },
     ]);
     fixture.componentRef.setInput('agents', agents);
     fixture.detectChanges();
@@ -274,7 +378,12 @@ describe('AgentTimelineComponent', () => {
 
   it('should have ARIA label on popover', () => {
     const agents = createMockAgents([
-      { agentId: 'agent1', subagentType: 'Explore', timestamp: 0, duration: 10000 },
+      {
+        agentId: 'agent1',
+        subagentType: 'Explore',
+        timestamp: 0,
+        duration: 10000,
+      },
     ]);
     fixture.componentRef.setInput('agents', agents);
     fixture.detectChanges();
@@ -285,7 +394,9 @@ describe('AgentTimelineComponent', () => {
 
     const popover = fixture.nativeElement.querySelector('.timeline-popover');
     expect(popover.getAttribute('role')).toBe('tooltip');
-    expect(popover.getAttribute('aria-label')).toContain('Details for Explore agent');
+    expect(popover.getAttribute('aria-label')).toContain(
+      'Details for Explore agent'
+    );
   });
 
   // ========================================
@@ -293,9 +404,15 @@ describe('AgentTimelineComponent', () => {
   // ========================================
 
   it('should return correct color for known agent types', () => {
-    expect(component.getAgentColor('Explore')).toBe('var(--vscode-symbolIcon-classForeground)');
-    expect(component.getAgentColor('backend-developer')).toBe('var(--vscode-symbolIcon-functionForeground)');
-    expect(component.getAgentColor('frontend-developer')).toBe('var(--vscode-symbolIcon-interfaceForeground)');
+    expect(component.getAgentColor('Explore')).toBe(
+      'var(--vscode-symbolIcon-classForeground)'
+    );
+    expect(component.getAgentColor('backend-developer')).toBe(
+      'var(--vscode-symbolIcon-functionForeground)'
+    );
+    expect(component.getAgentColor('frontend-developer')).toBe(
+      'var(--vscode-symbolIcon-interfaceForeground)'
+    );
   });
 
   it('should return default color for unknown agent types', () => {
@@ -320,7 +437,12 @@ describe('AgentTimelineComponent', () => {
 
   it('should handle very long durations', () => {
     const agents = createMockAgents([
-      { agentId: 'agent1', subagentType: 'Explore', timestamp: 0, duration: 600000 }, // 10 minutes
+      {
+        agentId: 'agent1',
+        subagentType: 'Explore',
+        timestamp: 0,
+        duration: 600000,
+      }, // 10 minutes
     ]);
     fixture.componentRef.setInput('agents', agents);
     fixture.detectChanges();

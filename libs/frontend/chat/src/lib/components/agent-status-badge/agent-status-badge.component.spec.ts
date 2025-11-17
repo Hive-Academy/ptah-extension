@@ -230,7 +230,9 @@ describe('AgentStatusBadgeComponent', () => {
       expect(tooltipItems.length).toBe(2);
       expect(tooltipItems[0].nativeElement.textContent).toContain('Explore');
       expect(tooltipItems[0].nativeElement.textContent).toContain('12s');
-      expect(tooltipItems[1].nativeElement.textContent).toContain('backend-developer');
+      expect(tooltipItems[1].nativeElement.textContent).toContain(
+        'backend-developer'
+      );
       expect(tooltipItems[1].nativeElement.textContent).toContain('45s');
     });
   });
