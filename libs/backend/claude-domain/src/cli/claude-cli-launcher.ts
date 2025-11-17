@@ -314,6 +314,33 @@ export class ClaudeCliLauncher {
           rawLine,
         });
       },
+
+      onAgentStart: (event) => {
+        console.log(
+          '[ClaudeCliLauncher] Agent started:',
+          event.agentId,
+          event.subagentType
+        );
+        this.deps.eventPublisher.emitAgentStarted(sessionId, event);
+      },
+
+      onAgentActivity: (event) => {
+        console.log(
+          '[ClaudeCliLauncher] Agent activity:',
+          event.agentId,
+          event.toolName
+        );
+        this.deps.eventPublisher.emitAgentActivity(sessionId, event);
+      },
+
+      onAgentComplete: (event) => {
+        console.log(
+          '[ClaudeCliLauncher] Agent completed:',
+          event.agentId,
+          event.duration + 'ms'
+        );
+        this.deps.eventPublisher.emitAgentCompleted(sessionId, event);
+      },
     };
 
     const parser = new JSONLStreamParser(callbacks);
