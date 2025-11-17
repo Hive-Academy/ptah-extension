@@ -886,9 +886,9 @@ n**Git Commit**: f23f06f - feat(chat): integrate agent components into ChatCompo
 **Implementation Details** (chat.component.html):
 
 - Add <agent-status-badge> to header with [activeAgents]="chatService.activeAgents()"
-n**Git Commit**: f23f06f - feat(chat): integrate agent components into ChatComponent (TASK_2025_004)
-**Completed**: 2025-11-18
-**Architecture Assessment**:
+  n**Git Commit**: f23f06f - feat(chat): integrate agent components into ChatComponent (TASK_2025_004)
+  **Completed**: 2025-11-18
+  **Architecture Assessment**:
 
 - Complexity Level: 1 (Simple exports)
 - Patterns Applied: Barrel export pattern
