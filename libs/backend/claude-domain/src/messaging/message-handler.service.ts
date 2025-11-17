@@ -197,20 +197,32 @@ export class MessageHandlerService {
               .toString(36)
               .substring(7)}` as MessageId;
 
-            result.messageStream.on('data', (chunk: Buffer) => {
-              // Accumulate content
-              const chunkStr = chunk.toString();
-              accumulatedContent += chunkStr;
+            result.messageStream.on(
+              'data',
+              (chunk: { type: string; data: unknown }) => {
+                // Stream is in object mode - extract content from { type: 'content', data: chunk }
+                if (chunk.type === 'content') {
+                  const contentData = chunk.data as { delta: string };
+                  const chunkStr = contentData.delta || '';
+                  accumulatedContent += chunkStr;
 
-              // Publish chunk to EventBus for real-time UI updates
-              this.eventBus.publish(CHAT_MESSAGE_TYPES.MESSAGE_CHUNK, {
-                sessionId: result.sessionId,
-                messageId: assistantMessageId,
-                content: chunkStr,
-                isComplete: false,
-                streaming: true,
-              } as MessagePayloadMap[typeof CHAT_MESSAGE_TYPES.MESSAGE_CHUNK]);
-            });
+                  // Publish chunk to EventBus for real-time UI updates
+                  this.eventBus.publish(CHAT_MESSAGE_TYPES.MESSAGE_CHUNK, {
+                    sessionId: result.sessionId,
+                    messageId: assistantMessageId,
+                    content: chunkStr,
+                    isComplete: false,
+                    streaming: true,
+                  } as MessagePayloadMap[typeof CHAT_MESSAGE_TYPES.MESSAGE_CHUNK]);
+                }
+                // Handle other stream events (thinking, tool, etc.)
+                else if (chunk.type === 'thinking') {
+                  console.log('[MessageHandler] Thinking:', chunk.data);
+                } else if (chunk.type === 'tool') {
+                  console.log('[MessageHandler] Tool event:', chunk.data);
+                }
+              }
+            );
 
             result.messageStream.on('end', async () => {
               // Save complete message to session

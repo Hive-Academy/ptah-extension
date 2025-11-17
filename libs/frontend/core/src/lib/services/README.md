@@ -13,18 +13,26 @@ Core services provide foundational functionality used by multiple features.
 
 ```text
 libs/frontend/core/src/lib/services/
-├── app-state.service.ts           # Global application state (signals)
-├── vscode.service.ts              # VS Code API wrapper
-├── view-manager.service.ts        # View navigation and state
-├── webview-navigation.service.ts  # Webview routing
-├── webview-config.service.ts      # Configuration management
-├── message-handler.service.ts     # Extension communication
-├── logging.service.ts             # Logging infrastructure
-├── provider.service.ts            # AI provider management
-├── analytics.service.ts           # Analytics tracking
-├── file-picker.service.ts         # File selection
-├── claude-message-transformer.service.ts  # Message transformation
+├── app-state.service.ts           # Global application state (signals) ✅
+├── vscode.service.ts              # VS Code API wrapper ✅
+├── webview-navigation.service.ts  # Webview routing ✅
+├── message-handler.service.ts     # Extension communication ✅
+├── logging.service.ts             # Logging infrastructure ✅
+├── provider.service.ts            # AI provider management ✅
+├── analytics.service.ts           # Analytics tracking ✅
+├── chat.service.ts                # Chat orchestration ✅
+├── chat-state.service.ts          # Chat state management ✅
+├── chat-validation.service.ts     # Message validation ✅
+├── message-processing.service.ts  # Message transformation ✅
+├── claude-message-transformer.service.ts  # Claude message parsing ✅
 └── README.md (this file)
+
+REMOVED/MOVED:
+├── ❌ webview-config.service.ts    # Dead code (zero imports)
+├── ❌ stream-handling.service.ts   # Dead code (zero imports)
+├── ❌ view-manager.service.ts      # Redundant (merged into WebviewNavigationService)
+├── 📦 chat-state-manager.service.ts → @ptah-extension/chat/services
+├── 📦 file-picker.service.ts       → @ptah-extension/chat/services
 ```
 
 ---

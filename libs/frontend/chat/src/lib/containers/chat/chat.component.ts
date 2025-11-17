@@ -7,10 +7,12 @@ import {
   AppStateManager,
   ChatService,
   VSCodeService,
-  ChatStateManagerService,
   LoggingService,
   WebviewNavigationService,
 } from '@ptah-extension/core';
+
+// Chat-specific services (from this library)
+import { ChatStateManagerService } from '../../services';
 
 // Shared types
 import type { DropdownOption } from '@ptah-extension/shared';

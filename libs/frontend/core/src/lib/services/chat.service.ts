@@ -17,6 +17,8 @@ import {
   ChatNewSessionPayload,
   InitialDataPayload,
   CHAT_MESSAGE_TYPES,
+  SYSTEM_MESSAGE_TYPES,
+  toResponseType,
 } from '@ptah-extension/shared';
 import { MessageProcessingService } from './message-processing.service';
 import { ChatValidationService } from './chat-validation.service';
@@ -437,7 +439,7 @@ export class ChatService {
 
     // Listen for history response (backend publishes chat:getHistory:response)
     this.vscode
-      .onMessageType('chat:getHistory:response')
+      .onMessageType(toResponseType(CHAT_MESSAGE_TYPES.GET_HISTORY))
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((response) => {
         if (response.success && response.data) {
@@ -468,7 +470,7 @@ export class ChatService {
 
     // Handle initial data
     this.vscode
-      .onMessageType('initialData')
+      .onMessageType(SYSTEM_MESSAGE_TYPES.INITIAL_DATA)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((payload: InitialDataPayload) => {
         // Mark as connected when we receive initial data

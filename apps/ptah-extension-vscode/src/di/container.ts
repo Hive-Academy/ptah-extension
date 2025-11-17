@@ -54,6 +54,17 @@ import {
   ContextOrchestrationService,
 } from '@ptah-extension/workspace-intelligence';
 
+// Import VS Code Language Model Tools
+import {
+  AnalyzeWorkspaceTool,
+  SearchFilesTool,
+  GetRelevantFilesTool,
+  GetDiagnosticsTool,
+  FindSymbolTool,
+  GetGitStatusTool,
+  LMToolsRegistrationService,
+} from '@ptah-extension/vscode-lm-tools';
+
 // Import ai-providers-core services
 import {
   IntelligentProviderStrategy,
@@ -208,6 +219,34 @@ export class DIContainer {
     container.registerSingleton(
       TOKENS.CONTEXT_ORCHESTRATION_SERVICE,
       ContextOrchestrationService
+    );
+
+    // ========================================
+    // PHASE 2.5: VS Code Language Model Tools
+    // ========================================
+    // These tools expose workspace-intelligence to GitHub Copilot and other LLMs
+
+    // Register individual tools
+    container.registerSingleton(
+      TOKENS.ANALYZE_WORKSPACE_TOOL,
+      AnalyzeWorkspaceTool
+    );
+    container.registerSingleton(TOKENS.SEARCH_FILES_TOOL, SearchFilesTool);
+    container.registerSingleton(
+      TOKENS.GET_RELEVANT_FILES_TOOL,
+      GetRelevantFilesTool
+    );
+    container.registerSingleton(
+      TOKENS.GET_DIAGNOSTICS_TOOL,
+      GetDiagnosticsTool
+    );
+    container.registerSingleton(TOKENS.FIND_SYMBOL_TOOL, FindSymbolTool);
+    container.registerSingleton(TOKENS.GET_GIT_STATUS_TOOL, GetGitStatusTool);
+
+    // Register the tools registration service
+    container.registerSingleton(
+      TOKENS.LM_TOOLS_REGISTRATION_SERVICE,
+      LMToolsRegistrationService
     );
 
     // ========================================

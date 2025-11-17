@@ -173,48 +173,6 @@ vscode.postMessage({ type: 'sendMessage', data: { content: 'message' } });
 - **Progress Tracking**: Update progress.md every 30 minutes during active development
 - **Documentation**: Document architectural decisions and patterns used In their Respective files **DON'T GENERATE MORE FILES THAN NECESSARY ASK USERS BEFORE GENERATING ANY NEW DOCUMENT.**
 
-## ⚡ AGENT WORKFLOW ORCHESTRATION
-
-### Sequential Execution Framework
-
-**MANDATORY**: All agent workflows follow this pattern:
-
-1. **User Request** → **Claude Code Main Thread** → **Registry Check**
-2. **Route Decision** → **Agent Selection** → **Single Agent Execution**
-3. **Agent Completion** → **Business Analyst Validation** → **[APPROVE/REJECT]**
-4. **If APPROVE** → **Next Agent Selection** OR **Task Completion**
-5. **If REJECT** → **Re-delegate to Same Agent with Corrections**
-
-### Core Agent Roles (Technology Agnostic)
-
-| Agent Role             | Symbol | Primary Responsibility                    | When to Invoke                        |
-| ---------------------- | ------ | ----------------------------------------- | ------------------------------------- |
-| **project-manager**    | 🪃     | Requirements analysis, strategic planning | Complex tasks, new features           |
-| **business-analyst**   | 🔍     | Workflow validation, scope adherence      | After each agent (validation gates)   |
-| **researcher-expert**  | 🔎     | Technical research, best practices        | Knowledge gaps, technology evaluation |
-| **software-architect** | 🏗️     | System design, architecture planning      | After requirements clear              |
-| **backend-developer**  | 💻     | Server-side implementation                | API, services, data layer work        |
-| **frontend-developer** | 🎨     | Client-side implementation                | UI, components, user interaction      |
-| **senior-tester**      | 🧪     | Quality assurance, testing strategy       | After implementation                  |
-| **code-reviewer**      | 🔍     | Final quality validation                  | Before task completion                |
-
-### Delegation Protocol
-
-**Standard Format for Agent Handoffs:**
-
-```markdown
-## DELEGATION REQUEST
-
-**Next Agent**: [agent-name]
-**Task Focus**: [specific deliverable]
-**Context**: [key information to pass]
-**Success Criteria**: [what constitutes success]
-**Quality Requirements**: [specific standards]
-**Time Budget**: [expected duration]
-```
-
----
-
 ## 🎨 DEVELOPMENT STANDARDS FRAMEWORK
 
 ### Universal Architecture Principles
@@ -262,29 +220,6 @@ vscode.postMessage({ type: 'sendMessage', data: { content: 'message' } });
 - User-friendly error messages with actionable guidance
 
 ---
-
-## 📁 TASK MANAGEMENT FRAMEWORK
-
-### Universal Task Structure
-
-**Task ID Format**: `TASK_[DOMAIN]_[NUMBER]`
-
-- **Domains**: CMD (command/core), INT (integration), FE (frontend), BE (backend), QA (quality), DOC (documentation)
-- **Numbering**: Sequential (001, 002, 003...)
-
-**Standard Folder Structure:**
-
-```
-task-tracking/
-  TASK_[ID]/
-    ├── task-description.md     # Business requirements, acceptance criteria
-    ├── research-report.md      # Technical research (if needed)
-    ├── implementation-plan.md  # Architecture and design
-    ├── progress.md            # Real-time progress updates
-    ├── test-report.md         # Testing results and coverage
-    ├── code-review.md         # Quality validation
-    └── completion-report.md   # Final metrics and lessons
-```
 
 ### Quality Gate Framework
 
@@ -364,22 +299,6 @@ task-tracking/
 ---
 
 **The framework automatically adapts to ANY project structure with zero configuration required. Just copy the `.claude` directory and start using `/orchestrate`.**
-
----
-
-<!-- nx configuration start-->
-<!-- Leave the start & end comments to automatically receive updates. -->
-
-# General Guidelines for working with Nx
-
-- When running tasks (for example build, lint, test, e2e, etc.), always prefer running the task through `nx` (i.e. `nx run`, `nx run-many`, `nx affected`) instead of using the underlying tooling directly
-- You have access to the Nx MCP server and its tools, use them to help the user
-- When answering questions about the repository, use the `nx_workspace` tool first to gain an understanding of the workspace architecture where applicable.
-- When working in individual projects, use the `nx_project_details` mcp tool to analyze and understand the specific project structure and dependencies
-- For questions around nx configuration, best practices or if you're unsure, use the `nx_docs` tool to get relevant, up-to-date docs. Always use this instead of assuming things about nx configuration
-- If the user needs help with an Nx configuration or project graph error, use the `nx_workspace` tool to get any errors
-
-<!-- nx configuration end-->
 
 ---
 

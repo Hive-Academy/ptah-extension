@@ -72,6 +72,19 @@ export async function activate(
     await ptahExtension.registerAll();
     console.log('[Activate] Step 7: ptahExtension.registerAll() complete');
 
+    // Register Language Model Tools with VS Code
+    console.log('[Activate] Step 8: Registering Language Model Tools...');
+    const lmToolsService = DIContainer.resolve(
+      TOKENS.LM_TOOLS_REGISTRATION_SERVICE
+    );
+    (
+      lmToolsService as {
+        registerAll: (context: vscode.ExtensionContext) => void;
+      }
+    ).registerAll(context);
+    logger.info('Language Model Tools registered (6 tools)');
+    console.log('[Activate] Step 8: Language Model Tools registered');
+
     logger.info('Ptah extension activated successfully');
     console.log('===== PTAH ACTIVATION COMPLETE =====');
 

@@ -5,7 +5,10 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ProviderService, AppStateManager } from '@ptah-extension/core';
+import {
+  ProviderService,
+  WebviewNavigationService,
+} from '@ptah-extension/core';
 import { ProviderCardComponent } from '../provider-card/provider-card.component';
 
 /**
@@ -39,7 +42,7 @@ import { ProviderCardComponent } from '../provider-card/provider-card.component'
 export class SettingsViewComponent {
   // inject() pattern (Angular 20+)
   private readonly providerService = inject(ProviderService);
-  private readonly appState = inject(AppStateManager);
+  private readonly navigationService = inject(WebviewNavigationService);
 
   // Expose provider service signals to template
   readonly availableProviders = this.providerService.availableProviders;
@@ -80,7 +83,7 @@ export class SettingsViewComponent {
    */
   navigateToChat(): void {
     console.log('Navigating back to chat view');
-    this.appState.setCurrentView('chat');
+    void this.navigationService.navigateToView('chat');
   }
 
   /**

@@ -7,7 +7,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CONTEXT_MESSAGE_TYPES } from '@ptah-extension/shared';
-import { VSCodeService } from './vscode.service';
+import { VSCodeService } from '@ptah-extension/core';
 
 /**
  * File information for inclusion in chat messages

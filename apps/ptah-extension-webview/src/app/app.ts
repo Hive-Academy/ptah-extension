@@ -11,7 +11,6 @@ import { Subject } from 'rxjs';
 // UPDATED: Import from @ptah-extension/core library
 import {
   AppStateManager,
-  ViewManagerService,
   VSCodeService,
   WebviewNavigationService,
   ViewType,
@@ -23,6 +22,7 @@ import { ChatComponent } from '@ptah-extension/chat';
 import { AnalyticsComponent } from '@ptah-extension/analytics';
 import { SettingsViewComponent } from '@ptah-extension/providers';
 import { LoadingSpinnerComponent } from '@ptah-extension/shared-ui';
+import { VIEW_MESSAGE_TYPES } from '@ptah-extension/shared';
 
 @Component({
   selector: 'ptah-root',
@@ -40,7 +40,6 @@ export class App implements OnInit, OnDestroy {
 
   // ANGULAR 20 PATTERN: Use inject() instead of constructor injection
   public readonly appState = inject(AppStateManager);
-  private readonly viewManager = inject(ViewManagerService);
   public readonly vscodeService = inject(VSCodeService);
   private readonly navigationService = inject(WebviewNavigationService);
   private readonly providerService = inject(ProviderService); // Initialize provider message subscriptions
@@ -69,9 +68,13 @@ export class App implements OnInit, OnDestroy {
     this.initializationStatus.set('initializing');
 
     try {
-      console.log('Step 1: Initializing ViewManager...');
-      await this.viewManager.initialize();
-      console.log('Step 1: COMPLETE - ViewManager initialized');
+      console.log('Step 1: Requesting initial data from extension...');
+      // Request initial data - AppStateManager handles the response
+      this.vscodeService.postStrictMessage(VIEW_MESSAGE_TYPES.CHANGED, {
+        view: 'chat',
+      });
+      this.appState.setConnected(true);
+      console.log('Step 1: COMPLETE - Initial data requested');
 
       console.log('Step 2: Notifying VS Code that webview is ready...');
       this.vscodeService.notifyReady();
@@ -112,18 +115,16 @@ export class App implements OnInit, OnDestroy {
     console.log('Ptah App - disposing...');
     this.destroy$.next();
     this.destroy$.complete();
-    this.viewManager.dispose();
+    this.appState.setConnected(false);
   }
 
   public async onViewChanged(view: ViewType): Promise<void> {
     console.log('Ptah App - View changed to:', view);
 
-    // Use hybrid navigation service for reliable navigation
+    // Use navigation service for reliable navigation
     const success = await this.navigationService.navigateToView(view);
 
     if (success) {
-      // Update view manager for consistency
-      this.viewManager.switchView(view);
       console.log(`Ptah App - Navigation to ${view} completed successfully`);
     } else {
       console.error(`Ptah App - Navigation to ${view} failed`);

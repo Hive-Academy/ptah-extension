@@ -15,9 +15,11 @@ import {
   SessionId,
   StrictChatSession,
 } from '@ptah-extension/shared';
-import { AppStateManager } from './app-state.service';
-import { ChatStateService } from './chat-state.service';
-import { VSCodeService } from './vscode.service';
+import {
+  AppStateManager,
+  ChatStateService,
+  VSCodeService,
+} from '@ptah-extension/core';
 
 /**
  * Agent Option - UI model for agent selection dropdown
@@ -225,7 +227,7 @@ export class ChatStateManagerService {
   private setupSessionHandling(): void {
     // Handle initial data from backend
     this.vscode
-      .onMessageType('initialData')
+      .onMessageType(SYSTEM_MESSAGE_TYPES.INITIAL_DATA)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((initialData) => {
         // Backend sends payload.data.sessions (see AngularWebviewProvider.sendInitialData line 101-144)

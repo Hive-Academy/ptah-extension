@@ -21,8 +21,5 @@ export {
   detectFileType,
 } from './lib/services/claude-message-transformer.service';
 
-// Export FilePickerService types
-export type {
-  ChatFile,
-  FileSuggestion,
-} from './lib/services/file-picker.service';
+// Event subscription helpers (leverages MESSAGE_REGISTRY)
+export * from './lib/utils/event-subscription-helpers';

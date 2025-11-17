@@ -41,16 +41,11 @@ export class ClaudeCliLauncher {
     message: string,
     options: ClaudeCliLaunchOptions
   ): Promise<Readable> {
-    const {
-      sessionId,
-      model,
-      resumeSessionId,
-      workspaceRoot,
-      verbose = false,
-    } = options;
+    const { sessionId, model, resumeSessionId, workspaceRoot } = options;
 
-    // Build CLI arguments
-    const args = this.buildArgs(model, resumeSessionId, verbose);
+    // Build CLI arguments with message as positional argument
+    // CRITICAL: With -p flag, message must be passed as argument, NOT via stdin!
+    const args = this.buildArgs(model, resumeSessionId, message);
 
     // Determine execution context
     const cwd = workspaceRoot || process.cwd();
@@ -72,29 +67,34 @@ export class ClaudeCliLauncher {
       args
     );
 
-    // Write message and close stdin (one-process-per-turn pattern)
-    if (childProcess.stdin) {
-      childProcess.stdin.write(message + '\n');
-      childProcess.stdin.end();
-    }
-
     // Create streaming output with event handling
     return this.createStreamingPipeline(childProcess, sessionId);
   }
 
   /**
    * Build CLI arguments array
+   * @param message - The prompt message (passed as positional argument with -p flag)
    */
   private buildArgs(
     model?: string,
     resumeSessionId?: string,
-    verbose = false
+    message?: string
   ): string[] {
-    const args = ['-p', '--output-format', 'stream-json'];
-
-    if (verbose) {
-      args.push('--verbose');
-    }
+    // CRITICAL: --verbose is REQUIRED when using --output-format=stream-json
+    // CRITICAL: --include-partial-messages enables token-by-token streaming via content_block_delta events
+    // CRITICAL: --input-format stream-json enables JSON permission responses via stdin
+    // CRITICAL: --replay-user-messages provides message acknowledgment for bidirectional streaming
+    // See: claude -p --output-format stream-json "test" → Error: requires --verbose
+    const args = [
+      '-p',
+      '--output-format',
+      'stream-json',
+      '--input-format',
+      'stream-json',
+      '--verbose',
+      '--include-partial-messages',
+      '--replay-user-messages',
+    ];
 
     if (model && model !== 'default') {
       args.push('--model', model);
@@ -102,6 +102,11 @@ export class ClaudeCliLauncher {
 
     if (resumeSessionId) {
       args.push('--resume', resumeSessionId);
+    }
+
+    // CRITICAL: With -p flag, prompt must be the LAST argument
+    if (message) {
+      args.push(message);
     }
 
     return args;
@@ -137,9 +142,28 @@ export class ClaudeCliLauncher {
     const outputStream = new Readable({
       objectMode: true,
       read() {
-        // No-op - push-based
+        // Resume child process stdout when consumer is ready for more data
+        if (childProcess.stdout?.isPaused()) {
+          childProcess.stdout.resume();
+        }
       },
     });
+
+    /**
+     * Helper to push data with backpressure handling
+     * Pauses child process stdout if internal buffer is full
+     */
+    const pushWithBackpressure = (data: unknown): void => {
+      const canContinue = outputStream.push(data);
+      if (
+        !canContinue &&
+        childProcess.stdout &&
+        !childProcess.stdout.isPaused()
+      ) {
+        // Buffer is full - pause source stream to prevent memory issues
+        childProcess.stdout.pause();
+      }
+    };
 
     // Create parser with event callbacks
     const callbacks: JSONLParserCallbacks = {
@@ -155,17 +179,17 @@ export class ClaudeCliLauncher {
       onContent: (chunk) => {
         this.deps.sessionManager.touchSession(sessionId);
         this.deps.eventPublisher.emitContentChunk(sessionId, chunk);
-        outputStream.push({ type: 'content', data: chunk });
+        pushWithBackpressure({ type: 'content', data: chunk });
       },
 
       onThinking: (thinking) => {
         this.deps.eventPublisher.emitThinking(sessionId, thinking);
-        outputStream.push({ type: 'thinking', data: thinking });
+        pushWithBackpressure({ type: 'thinking', data: thinking });
       },
 
       onTool: (toolEvent) => {
         this.deps.eventPublisher.emitToolEvent(sessionId, toolEvent);
-        outputStream.push({ type: 'tool', data: toolEvent });
+        pushWithBackpressure({ type: 'tool', data: toolEvent });
       },
 
       onPermission: async (request) => {

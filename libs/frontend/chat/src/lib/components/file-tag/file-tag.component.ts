@@ -1,20 +1,6 @@
 import { Component, computed, signal, input, output } from '@angular/core';
 import { CommonModule, NgOptimizedImage } from '@angular/common';
-
-/**
- * File information for inclusion in chat messages
- */
-export interface ChatFile {
-  readonly path: string;
-  readonly name: string;
-  readonly size: number;
-  readonly type: 'text' | 'image' | 'binary';
-  readonly content?: string;
-  readonly encoding?: string;
-  readonly preview?: string;
-  readonly isLarge: boolean;
-  readonly tokenEstimate: number;
-}
+import { ChatFile } from '../../services';
 
 /**
  * File Tag Component - Pure Presentation Component

@@ -69,6 +69,10 @@ module.exports = {
         __dirname,
         '../../libs/backend/workspace-intelligence/src'
       ),
+      '@ptah-extension/vscode-lm-tools': path.resolve(
+        __dirname,
+        '../../libs/backend/vscode-lm-tools/src'
+      ),
     },
   },
 

@@ -26,6 +26,7 @@ import {
   StrictChatSession,
   SessionId,
   CHAT_MESSAGE_TYPES,
+  SYSTEM_MESSAGE_TYPES,
 } from '@ptah-extension/shared';
 
 // Child Components
@@ -681,11 +682,8 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
   private setupSessionSynchronization(): void {
     // Handle initial data from backend
     this.vscode
-      .onMessage()
-      .pipe(
-        filter((msg) => msg.type === 'initialData'),
-        takeUntil(this.destroy$)
-      )
+      .onMessageType(SYSTEM_MESSAGE_TYPES.INITIAL_DATA)
+      .pipe(takeUntil(this.destroy$))
       .subscribe((initialData: unknown) => {
         const typedData = initialData as {
           data?: { sessions?: readonly StrictChatSession[] };
@@ -711,9 +709,7 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
     // Monitor chat service session changes for real-time updates
     combineLatest([
       toObservable(this.chatService.currentSession),
-      this.vscode
-        .onMessage()
-        .pipe(filter((msg) => msg.type === 'chat:sessionsUpdated')),
+      this.vscode.onMessageType(CHAT_MESSAGE_TYPES.SESSIONS_UPDATED),
     ])
       .pipe(debounceTime(100), takeUntil(this.destroy$))
       .subscribe(([currentSession, sessionsUpdate]) => {
@@ -757,11 +753,8 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
 
       // Listen for response
       this.vscode
-        .onMessage()
-        .pipe(
-          filter((msg) => msg.type === 'chat:sessionsUpdated'),
-          takeUntil(this.destroy$)
-        )
+        .onMessageType(CHAT_MESSAGE_TYPES.SESSIONS_UPDATED)
+        .pipe(takeUntil(this.destroy$))
         .subscribe((response: unknown) => {
           const typedResponse = response as {
             data?: { sessions?: readonly StrictChatSession[] };

@@ -2,7 +2,11 @@ import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 // Core Services - Updated import paths
-import { AppStateManager, VSCodeService } from '@ptah-extension/core';
+import {
+  AppStateManager,
+  VSCodeService,
+  WebviewNavigationService,
+} from '@ptah-extension/core';
 import { LoggingService } from '@ptah-extension/core';
 
 // Child Components (Modernized)
@@ -50,6 +54,28 @@ import { SimpleHeaderComponent } from '@ptah-extension/shared-ui';
       <!-- Analytics Content -->
       <main class="vscode-analytics-content">
         <div class="vscode-analytics-wrapper">
+          <!-- Back Button -->
+          <div class="analytics-actions">
+            <button
+              type="button"
+              class="back-button"
+              (click)="navigateToChat()"
+              aria-label="Back to chat"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="currentColor"
+              >
+                <path
+                  d="M10.707 2.293a1 1 0 0 1 0 1.414L6.414 8l4.293 4.293a1 1 0 0 1-1.414 1.414l-5-5a1 1 0 0 1 0-1.414l5-5a1 1 0 0 1 1.414 0z"
+                />
+              </svg>
+              Back to Chat
+            </button>
+          </div>
+
           <!-- Page Title -->
           <ptah-analytics-header />
 
@@ -86,6 +112,39 @@ import { SimpleHeaderComponent } from '@ptah-extension/shared-ui';
         margin: 0 auto;
       }
 
+      /* Back Button Actions */
+      .analytics-actions {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 16px;
+      }
+
+      .back-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        background: var(--vscode-button-secondaryBackground);
+        color: var(--vscode-button-secondaryForeground);
+        border: none;
+        border-radius: 3px;
+        font-size: 12px;
+        cursor: pointer;
+        transition: background-color 0.2s;
+      }
+
+      .back-button:hover {
+        background: var(--vscode-button-secondaryHoverBackground);
+      }
+
+      .back-button:active {
+        transform: translateY(1px);
+      }
+
+      .back-button svg {
+        flex-shrink: 0;
+      }
+
       /* Ensure proper flex layout for children */
       ptah-simple-header {
         flex-shrink: 0;
@@ -118,13 +177,19 @@ export class AnalyticsComponent {
   private readonly appState = inject(AppStateManager);
   private readonly logger = inject(LoggingService);
   private readonly vscode = inject(VSCodeService);
+  private readonly navigationService = inject(WebviewNavigationService);
 
   // Ptah icon URI for the header
   protected readonly ptahIconUri = this.vscode.getPtahIconUri();
 
+  navigateToChat(): void {
+    // Navigate back to chat view
+    void this.navigationService.navigateToView('chat');
+  }
+
   onNewSession(): void {
     // Navigate back to chat and start new session
-    this.appState.setCurrentView('chat');
+    void this.navigationService.navigateToView('chat');
   }
 
   onAnalytics(): void {

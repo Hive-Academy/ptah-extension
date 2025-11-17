@@ -117,7 +117,13 @@ export class WebviewNavigationService {
   }
 
   private isValidViewType(view: string): view is ViewType {
-    return ['chat', 'command-builder', 'analytics'].includes(view);
+    return [
+      'chat',
+      'command-builder',
+      'analytics',
+      'context-tree',
+      'settings',
+    ].includes(view);
   }
 
   /**

@@ -32,6 +32,9 @@
       "@ptah-extension/shared": ["libs/shared/src/index.ts"],
       "@ptah-extension/shared-ui": ["libs/frontend/shared-ui/src/index.ts"],
       "@ptah-extension/vscode-core": ["libs/backend/vscode-core/src/index.ts"],
+      "@ptah-extension/vscode-lm-tools": [
+        "libs/backend/vscode-lm-tools/src/index.ts"
+      ],
       "@ptah-extension/workspace-intelligence": [
         "libs/backend/workspace-intelligence/src/index.ts"
       ]

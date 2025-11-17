@@ -40,7 +40,7 @@ import { LucideAngularModule, Send, Command } from 'lucide-angular';
 import { type DropdownOption } from '@ptah-extension/shared';
 
 // Core services - Already migrated ✅
-import { FilePickerService, type FileSuggestion } from '@ptah-extension/core';
+import { FilePickerService, type FileSuggestion } from '../../services';
 
 // Shared UI components - Already migrated ✅
 import {

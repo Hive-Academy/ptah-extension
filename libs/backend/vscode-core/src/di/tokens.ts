@@ -78,6 +78,19 @@ export const CONTEXT_ORCHESTRATION_SERVICE = Symbol.for(
 );
 
 // ========================================
+// VS Code Language Model Tools
+// ========================================
+export const ANALYZE_WORKSPACE_TOOL = Symbol.for('AnalyzeWorkspaceTool');
+export const SEARCH_FILES_TOOL = Symbol.for('SearchFilesTool');
+export const GET_RELEVANT_FILES_TOOL = Symbol.for('GetRelevantFilesTool');
+export const GET_DIAGNOSTICS_TOOL = Symbol.for('GetDiagnosticsTool');
+export const FIND_SYMBOL_TOOL = Symbol.for('FindSymbolTool');
+export const GET_GIT_STATUS_TOOL = Symbol.for('GetGitStatusTool');
+export const LM_TOOLS_REGISTRATION_SERVICE = Symbol.for(
+  'LMToolsRegistrationService'
+);
+
+// ========================================
 // AI Providers Core Tokens
 // ========================================
 export const PROVIDER_MANAGER = Symbol.for('ProviderManager');
@@ -194,6 +207,17 @@ export const TOKENS = {
   CONTEXT_SIZE_OPTIMIZER,
   SEMANTIC_CONTEXT_EXTRACTOR,
   CONTEXT_ORCHESTRATION_SERVICE,
+
+  // ========================================
+  // VS Code Language Model Tools
+  // ========================================
+  ANALYZE_WORKSPACE_TOOL,
+  SEARCH_FILES_TOOL,
+  GET_RELEVANT_FILES_TOOL,
+  GET_DIAGNOSTICS_TOOL,
+  FIND_SYMBOL_TOOL,
+  GET_GIT_STATUS_TOOL,
+  LM_TOOLS_REGISTRATION_SERVICE,
 
   // ========================================
   // AI Providers Core

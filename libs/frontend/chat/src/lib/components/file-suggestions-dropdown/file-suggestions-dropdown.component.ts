@@ -7,21 +7,11 @@ import {
   output,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FileSuggestion } from '../../services';
 
 /**
  * File picker suggestion for @ syntax autocomplete
  */
-export interface FileSuggestion {
-  readonly path: string;
-  readonly name: string;
-  readonly directory: string;
-  readonly type: 'file' | 'directory';
-  readonly extension?: string;
-  readonly size?: number;
-  readonly lastModified?: number;
-  readonly isImage: boolean;
-  readonly isText: boolean;
-}
 
 /**
  * File Suggestions Dropdown - Pure Presentation Component

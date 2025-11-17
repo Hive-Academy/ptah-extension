@@ -1,0 +1,15 @@
+{
+  "name": "@ptah-extension/vscode-lm-tools",
+  "version": "0.0.1",
+  "private": true,
+  "type": "commonjs",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "dependencies": {
+    "@types/vscode": "^1.103.0",
+    "tsyringe": "^4.10.0",
+    "@ptah-extension/vscode-core": "0.0.1",
+    "@ptah-extension/shared": "0.0.1",
+    "@ptah-extension/workspace-intelligence": "0.0.1"
+  }
+}

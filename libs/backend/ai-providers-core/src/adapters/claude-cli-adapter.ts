@@ -357,15 +357,21 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
       // ClaudeCliService's stream emits events via ClaudeDomainEventPublisher
       const chunks: string[] = [];
 
+      // Add error handling for stream
+      stream.on('error', (streamError) => {
+        throw streamError; // Propagate to async iterator
+      });
+
       for await (const event of stream) {
         if (typeof event === 'object' && event !== null) {
           const typedEvent = event as { type: string; data: unknown };
 
           if (typedEvent.type === 'content') {
-            const chunk = typedEvent.data as { text?: string };
-            if (chunk.text) {
-              chunks.push(chunk.text);
-              yield chunk.text;
+            // FIXED: ClaudeContentChunk has 'delta' field, not 'text'
+            const chunk = typedEvent.data as { delta?: string };
+            if (chunk.delta) {
+              chunks.push(chunk.delta);
+              yield chunk.delta;
             }
           }
           // Other event types (thinking, tool) are already published via EventBus

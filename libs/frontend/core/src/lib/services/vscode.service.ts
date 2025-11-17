@@ -94,9 +94,6 @@ function getPtahWindow(): PtahWindow {
   providedIn: 'root',
 })
 export class VSCodeService {
-  // NOTE: No longer need ApplicationRef - using Zone.js-based change detection
-  // Zone.js automatically triggers change detection for window.addEventListener
-
   // VS Code API instance (null in development mode)
   private vscode: VsCodeApi | null = null;
 

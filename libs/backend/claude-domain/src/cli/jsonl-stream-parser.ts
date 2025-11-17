@@ -14,7 +14,8 @@ export type JSONLMessage =
   | JSONLSystemMessage
   | JSONLAssistantMessage
   | JSONLToolMessage
-  | JSONLPermissionMessage;
+  | JSONLPermissionMessage
+  | JSONLStreamEvent;
 
 export interface JSONLSystemMessage {
   readonly type: 'system';
@@ -51,6 +52,23 @@ export interface JSONLPermissionMessage {
   readonly tool: string;
   readonly args: Record<string, unknown>;
   readonly description?: string;
+}
+
+export interface JSONLStreamEvent {
+  readonly type: 'stream_event';
+  readonly event: {
+    readonly type: string;
+    readonly index?: number;
+    readonly delta?: {
+      readonly type: 'text_delta';
+      readonly text: string;
+    };
+    readonly content_block?: {
+      readonly type: string;
+      readonly text: string;
+    };
+  };
+  readonly session_id?: string;
 }
 
 export interface ParsedEvent {
@@ -184,6 +202,10 @@ export class JSONLStreamParser {
 
       case 'permission':
         this.handlePermissionMessage(json);
+        break;
+
+      case 'stream_event':
+        this.handleStreamEvent(json);
         break;
 
       default:
@@ -404,5 +426,37 @@ export class JSONLStreamParser {
     };
 
     this.callbacks.onPermission?.(request);
+  }
+
+  /**
+   * Handle stream_event messages (with --include-partial-messages flag)
+   *
+   * Stream events have the format:
+   * {"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello! "}}}
+   */
+  private handleStreamEvent(msg: JSONLStreamEvent): void {
+    const timestamp = Date.now();
+
+    // Handle content_block_delta events (streaming text chunks)
+    if (msg.event.type === 'content_block_delta' && msg.event.delta?.text) {
+      const contentChunk: ClaudeContentChunk = {
+        type: 'content',
+        delta: msg.event.delta.text,
+        index: msg.event.index,
+        timestamp,
+      };
+      this.callbacks.onContent?.(contentChunk);
+      return;
+    }
+
+    // Handle message_start event (contains session_id)
+    if (msg.event.type === 'message_start' && msg.session_id) {
+      // Session initialization already handled by system message
+      // This is just additional metadata
+      return;
+    }
+
+    // Other stream events (content_block_start, content_block_stop, message_delta, message_stop)
+    // are metadata events that we don't need to process for content streaming
   }
 }

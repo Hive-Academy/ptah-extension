@@ -459,7 +459,7 @@ export class ProviderService {
     // Backend sends this when providers are registered/unregistered
     // With Task 1's readiness gate, this event arrives after webview is ready
     this.vscodeService
-      .onMessageType('providers:availableUpdated')
+      .onMessageType(PROVIDER_MESSAGE_TYPES.AVAILABLE_UPDATED)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((payload) => {
         console.log(
@@ -515,7 +515,7 @@ export class ProviderService {
 
     // Handle provider current changed events (event notification when current provider changes)
     this.vscodeService
-      .onMessageType('providers:currentChanged')
+      .onMessageType(PROVIDER_MESSAGE_TYPES.CURRENT_CHANGED)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((payload) => {
         console.log(
@@ -530,19 +530,8 @@ export class ProviderService {
 
     // Handle provider errors
     this.vscodeService
-      .onMessage()
-      .pipe(
-        filter((msg) => msg.type === 'providers:error'),
-        map(
-          (msg) =>
-            msg.payload as {
-              providerId: string;
-              error: ProviderError;
-              timestamp: number;
-            }
-        ),
-        takeUntilDestroyed(this.destroyRef)
-      )
+      .onMessageType(PROVIDER_MESSAGE_TYPES.ERROR)
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((errorEvent) => {
         this._lastError.set(errorEvent.error);
       });

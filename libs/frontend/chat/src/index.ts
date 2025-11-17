@@ -4,10 +4,11 @@
  * ARCHITECTURE: Chat feature library for Ptah Extension
  *
  * EXPORTS:
-
- * - Components: (TODO: Migrate chat components)
- * - Types: AgentOption, StreamConsumptionState
+ * - Components: ChatComponent and related UI components
+ * - Services: Chat-specific services (ChatStateManagerService, FilePickerService)
+ * - Types: AgentOption, ChatFile, FileSuggestion
  */
 
 export * from './lib/components';
 export * from './lib/containers';
+export * from './lib/services';
