@@ -6,6 +6,8 @@
 // Detector
 export { ClaudeCliDetector } from './detector/claude-cli-detector';
 export type { ClaudeInstallation } from './detector/claude-cli-detector';
+export { ClaudeCliPathResolver } from './detector/claude-cli-path-resolver';
+export type { ResolvedClaudeCliPath } from './detector/claude-cli-path-resolver';
 
 // Session Management
 export { SessionManager } from './session/session-manager';

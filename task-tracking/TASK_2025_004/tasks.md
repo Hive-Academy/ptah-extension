@@ -142,7 +142,7 @@
 
 ---
 
-### Task 4: Add Agent Events to Message Registry ⏸️ PENDING
+### Task 4: Add Agent Events to Message Registry 🔄 IN PROGRESS
 
 **Assigned To**: backend-developer
 **File(s)**: D:/projects/ptah-extension/libs/shared/src/lib/constants/message-registry.ts

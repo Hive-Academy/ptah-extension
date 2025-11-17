@@ -256,6 +256,7 @@ export class ChatComponent implements OnInit, OnDestroy {
   // Message Handling
   public sendMessage(): void {
     console.log('=== ChatComponent.sendMessage() called ===');
+    console.log('Call stack:', new Error().stack);
     console.log('Current message:', this.chatState.currentMessage());
     console.log('Can send:', this.chatState.canSendMessage());
 
@@ -265,10 +266,13 @@ export class ChatComponent implements OnInit, OnDestroy {
       return;
     }
 
+    // Clear message IMMEDIATELY to prevent double-send
+    this.chatState.clearCurrentMessage();
+
     const agent = this.chatState.selectedAgent();
     console.log('Sending message with agent:', agent);
+    console.log('Message cleared, sending to backend...');
     this.chat.sendMessage(content, agent);
-    this.chatState.clearCurrentMessage();
   }
 
   // Event Handlers

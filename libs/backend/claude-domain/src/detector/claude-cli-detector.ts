@@ -9,6 +9,7 @@ import * as os from 'os';
 import { spawn } from 'child_process';
 import { injectable } from 'tsyringe';
 import { ClaudeCliHealth } from '@ptah-extension/shared';
+import { ClaudeCliPathResolver } from './claude-cli-path-resolver';
 
 export interface ClaudeInstallation {
   readonly path: string;
@@ -22,6 +23,10 @@ export interface ClaudeInstallation {
     | 'which-where'
     | 'wsl';
   readonly isWSL?: boolean;
+  /** Resolved path to cli.js for direct Node.js execution (bypasses cmd.exe buffering on Windows) */
+  readonly cliJsPath?: string;
+  /** Whether to use direct Node.js execution instead of shell spawning */
+  readonly useDirectExecution?: boolean;
 }
 
 interface CommandResult {
@@ -40,9 +45,11 @@ export class ClaudeCliDetector {
   private readonly isWSLEnvironment: boolean;
   private configuredPath?: string;
   private enableWSL = true;
+  private readonly pathResolver: ClaudeCliPathResolver;
 
   constructor() {
     this.isWSLEnvironment = this.detectWSLEnvironment();
+    this.pathResolver = new ClaudeCliPathResolver();
   }
 
   /**
@@ -110,6 +117,18 @@ export class ClaudeCliDetector {
       for (const strategy of strategies) {
         const installation = await strategy();
         if (installation && (await this.verifyInstallation(installation))) {
+          // Resolve wrapper to cli.js for direct execution (bypasses Windows buffering)
+          const resolved = await this.pathResolver.resolve(installation.path);
+          if (resolved) {
+            this.cachedInstallation = {
+              ...installation,
+              cliJsPath: resolved.cliJsPath,
+              useDirectExecution: resolved.requiresDirectExecution,
+            };
+            return this.cachedInstallation;
+          }
+
+          // Fallback: use original path if resolution fails
           this.cachedInstallation = installation;
           return installation;
         }

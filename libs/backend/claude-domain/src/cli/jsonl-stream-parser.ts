@@ -32,6 +32,19 @@ export interface JSONLAssistantMessage {
   readonly content?: string;
   readonly thinking?: string;
   readonly index?: number;
+  // Messages API format (from --output-format stream-json)
+  readonly message?: {
+    readonly model?: string;
+    readonly id?: string;
+    readonly role?: 'assistant';
+    readonly content?: Array<{
+      readonly type: 'text' | 'tool_use';
+      readonly text?: string;
+      readonly id?: string;
+      readonly name?: string;
+      readonly input?: Record<string, unknown>;
+    }>;
+  };
 }
 
 export interface JSONLToolMessage {
@@ -60,12 +73,17 @@ export interface JSONLStreamEvent {
     readonly type: string;
     readonly index?: number;
     readonly delta?: {
-      readonly type: 'text_delta';
-      readonly text: string;
+      readonly type: 'text_delta' | 'input_json_delta';
+      readonly text?: string;
+      readonly partial_json?: string;
     };
     readonly content_block?: {
       readonly type: string;
       readonly text: string;
+    };
+    readonly message?: {
+      readonly model?: string;
+      readonly id?: string;
     };
   };
   readonly session_id?: string;
@@ -261,6 +279,24 @@ export class JSONLStreamParser {
         timestamp,
       };
       this.callbacks.onContent?.(contentChunk);
+      return;
+    }
+
+    // Messages API format (from --output-format stream-json)
+    // Extract text content from nested message.content array
+    if (msg.message?.content) {
+      for (const block of msg.message.content) {
+        if (block.type === 'text' && block.text) {
+          const contentChunk: ClaudeContentChunk = {
+            type: 'content',
+            delta: block.text,
+            index: msg.index,
+            timestamp,
+          };
+          this.callbacks.onContent?.(contentChunk);
+        }
+        // Tool use blocks are handled separately by tool events
+      }
     }
   }
 
@@ -433,26 +469,31 @@ export class JSONLStreamParser {
    *
    * Stream events have the format:
    * {"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello! "}}}
+   * {"type":"stream_event","event":{"type":"message_start","message":{"model":"...","id":"msg_..."}}}
    */
   private handleStreamEvent(msg: JSONLStreamEvent): void {
     const timestamp = Date.now();
 
-    // Handle content_block_delta events (streaming text chunks)
-    if (msg.event.type === 'content_block_delta' && msg.event.delta?.text) {
-      const contentChunk: ClaudeContentChunk = {
-        type: 'content',
-        delta: msg.event.delta.text,
-        index: msg.event.index,
-        timestamp,
-      };
-      this.callbacks.onContent?.(contentChunk);
+    // Handle message_start event (contains session_id and model info)
+    if (msg.event.type === 'message_start' && msg.session_id) {
+      const model = msg.event.message?.model;
+      this.callbacks.onSessionInit?.(msg.session_id, model);
       return;
     }
 
-    // Handle message_start event (contains session_id)
-    if (msg.event.type === 'message_start' && msg.session_id) {
-      // Session initialization already handled by system message
-      // This is just additional metadata
+    // Handle content_block_delta events (streaming text chunks)
+    if (msg.event.type === 'content_block_delta' && msg.event.delta) {
+      // Handle text deltas (actual content)
+      if (msg.event.delta.type === 'text_delta' && msg.event.delta.text) {
+        const contentChunk: ClaudeContentChunk = {
+          type: 'content',
+          delta: msg.event.delta.text,
+          index: msg.event.index,
+          timestamp,
+        };
+        this.callbacks.onContent?.(contentChunk);
+      }
+      // Skip input_json_delta (tool input construction) - not user-facing content
       return;
     }
 
