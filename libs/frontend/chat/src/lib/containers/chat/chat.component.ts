@@ -230,22 +230,13 @@ export class ChatComponent implements OnInit, OnDestroy {
   });
 
   public ngOnInit(): void {
-    console.log('=== ChatComponent ngOnInit ===');
-    console.log('Current session:', this.currentSession());
-    console.log('Messages:', this.chat.messages());
-    console.log('Claude messages:', this.claudeMessages());
-    console.log('Has messages:', this.hasMessages());
+    this.logger.debug('ChatComponent initializing', 'ChatComponent', {
+      hasSession: !!this.currentSession(),
+      messageCount: this.chat.messages().length,
+      hasMessages: this.hasMessages(),
+    });
 
     this.chatState.initialize();
-
-    // Log whenever session or messages change
-    setTimeout(() => {
-      console.log('=== After initialization (1s delay) ===');
-      console.log('Current session:', this.currentSession());
-      console.log('Messages count:', this.chat.messages().length);
-      console.log('Claude messages count:', this.claudeMessages().length);
-      console.log('Has messages:', this.hasMessages());
-    }, 1000);
   }
 
   public ngOnDestroy(): void {
@@ -255,14 +246,12 @@ export class ChatComponent implements OnInit, OnDestroy {
 
   // Message Handling
   public sendMessage(): void {
-    console.log('=== ChatComponent.sendMessage() called ===');
-    console.log('Call stack:', new Error().stack);
-    console.log('Current message:', this.chatState.currentMessage());
-    console.log('Can send:', this.chatState.canSendMessage());
-
     const content = this.chatState.currentMessage().trim();
     if (!this.chatState.canSendMessage() || !content) {
-      console.log('Cannot send - returning early');
+      this.logger.debug('Cannot send message - invalid state', 'ChatComponent', {
+        canSend: this.chatState.canSendMessage(),
+        hasContent: !!content,
+      });
       return;
     }
 
@@ -270,19 +259,18 @@ export class ChatComponent implements OnInit, OnDestroy {
     this.chatState.clearCurrentMessage();
 
     const agent = this.chatState.selectedAgent();
-    console.log('Sending message with agent:', agent);
-    console.log('Message cleared, sending to backend...');
+    this.logger.debug('Sending message', 'ChatComponent', { agent, contentLength: content.length });
     this.chat.sendMessage(content, agent);
   }
 
   // Event Handlers
   public onNewSession(): void {
-    console.log('=== ChatComponent.onNewSession() called ===');
+    this.logger.debug('Creating new session', 'ChatComponent');
     this.chatState.createNewSession('New Session');
   }
 
   public onSessionCreated(name: string | undefined): void {
-    console.log('=== ChatComponent.onSessionCreated() called ===', name);
+    this.logger.debug('Session created', 'ChatComponent', { name });
     this.chatState.createNewSession(name || 'New Session');
   }
 
@@ -293,11 +281,14 @@ export class ChatComponent implements OnInit, OnDestroy {
   }
 
   public onKeyDown(event: KeyboardEvent): void {
-    if (event.key === 'Enter') {
-      if (event.ctrlKey || event.metaKey) {
-        this.sendMessage();
-      }
-    }
+    // REMOVED: Ctrl+Enter is now handled directly in ChatInputAreaComponent
+    // to prevent double event handling. This method is kept for future
+    // keyboard shortcuts if needed (e.g., Escape to cancel, etc.)
+    this.logger.debug('Key pressed in chat', 'ChatComponent', {
+      key: event.key,
+      ctrl: event.ctrlKey,
+      meta: event.metaKey,
+    });
   }
 
   public onMessageClick(message: ProcessedClaudeMessage): void {
@@ -349,24 +340,19 @@ export class ChatComponent implements OnInit, OnDestroy {
   }
 
   public onCommandsClick(): void {
-    console.log('=== ChatComponent.onCommandsClick() called ===');
-    console.log('Command button was clicked - Zone.js is working!');
     // TODO: Implement command sheet toggle
     this.logger.debug('Commands clicked', 'ChatComponent');
   }
 
   // UI Actions
   public showAnalytics(): void {
-    console.log('=== ChatComponent.showAnalytics() called ===');
-    console.log('Navigating to analytics view...');
+    this.logger.debug('Navigating to analytics', 'ChatComponent');
     void this.navigation.navigateToView('analytics');
   }
 
   public toggleProviderSettings(): void {
-    console.log('=== ChatComponent.toggleProviderSettings() called ===');
-    console.log('Navigating to settings view...');
+    this.logger.debug('Navigating to settings', 'ChatComponent');
     void this.navigation.navigateToView('settings');
-    this.logger.debug('Navigating to provider settings', 'ChatComponent');
   }
 
   // Status calculation methods

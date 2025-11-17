@@ -54,22 +54,9 @@ export class SettingsViewComponent {
   readonly hasProviders = computed(() => this.availableProviders().length > 0);
 
   constructor() {
-    // Debug logging to see what's happening
-    console.log('[SettingsViewComponent] Initializing...');
-    console.log(
-      '[SettingsViewComponent] Initial providers:',
-      this.availableProviders()
-    );
-    console.log(
-      '[SettingsViewComponent] Current provider:',
-      this.currentProvider()
-    );
-    console.log('[SettingsViewComponent] Is loading:', this.isLoading());
-
     // CRITICAL: Request fresh provider data when component loads
     // The providers:availableUpdated event only sends minimal data (id, name, status)
     // We need to fetch full ProviderInfo objects with all details
-    console.log('[SettingsViewComponent] Requesting full provider data...');
     this.providerService.refreshProviders();
   }
 
@@ -82,7 +69,6 @@ export class SettingsViewComponent {
    * Navigate back to chat view
    */
   navigateToChat(): void {
-    console.log('Navigating back to chat view');
     void this.navigationService.navigateToView('chat');
   }
 
@@ -90,7 +76,6 @@ export class SettingsViewComponent {
    * Refresh providers list
    */
   refreshProviders(): void {
-    console.log('[SettingsViewComponent] Refreshing providers...');
     this.providerService.refreshProviders();
   }
 
@@ -98,7 +83,6 @@ export class SettingsViewComponent {
    * Handle provider switch action
    */
   onSwitchProvider(providerId: string): void {
-    console.log('Switching to provider:', providerId);
     this.providerService.switchProvider(providerId);
   }
 
@@ -106,7 +90,6 @@ export class SettingsViewComponent {
    * Handle set default provider action
    */
   onSetDefaultProvider(providerId: string): void {
-    console.log('Setting default provider:', providerId);
     this.providerService.setDefaultProvider(providerId);
   }
 

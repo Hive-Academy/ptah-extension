@@ -694,7 +694,7 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
         });
 
         if (sessions.length > 0) {
-          this.logger.info(
+          this.logger.debug(
             'Setting initial sessions',
             'SessionManagerComponent',
             {
@@ -713,7 +713,7 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
     ])
       .pipe(debounceTime(100), takeUntil(this.destroy$))
       .subscribe(([currentSession, sessionsUpdate]) => {
-        this.logger.info('Session state changed', 'SessionManagerComponent', {
+        this.logger.debug('Session state changed', 'SessionManagerComponent', {
           currentSessionId: currentSession?.id,
           hasSessionsUpdate: !!sessionsUpdate,
         });

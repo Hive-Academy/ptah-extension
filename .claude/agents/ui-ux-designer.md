@@ -474,14 +474,28 @@ Read(apps/dev-brand-ui/src/app/core/angular-3d/directives/scroll-animation.direc
 
 1. **Background Particles**:
    ```html
-   <app-particle-system [count]="200" [color]="0x6366F1" [size]="0.05" float3d [floatConfig]="{ height: 0.5, speed: 3000, ease: 'sine.inOut' }" />
+   <app-particle-system
+     [count]="200"
+     [color]="0x6366F1"
+     [size]="0.05"
+     float3d
+     [floatConfig]="{ height: 0.5, speed: 3000, ease: 'sine.inOut' }"
+   />
    ```
 ````
 
 2. **Floating Accent Spheres**:
 
    ```html
-   <app-floating-sphere [position]="[-3, 2, -5]" [radius]="0.8" [color]="0x6366F1" float3d glow3d [glowConfig]="{ color: 0x6366F1, intensity: 0.3, scale: 1.4 }" performance3d />
+   <app-floating-sphere
+     [position]="[-3, 2, -5]"
+     [radius]="0.8"
+     [color]="0x6366F1"
+     float3d
+     glow3d
+     [glowConfig]="{ color: 0x6366F1, intensity: 0.3, scale: 1.4 }"
+     performance3d
+   />
    ```
 
 **Scroll Animation Integration**:
@@ -534,8 +548,14 @@ Read(apps/dev-brand-ui/src/app/core/angular-3d/directives/scroll-animation.direc
   <!-- Card content -->
 
   <!-- 3D accent element on hover -->
-  <div class="absolute top-0 right-0 w-20 h-20 opacity-0 group-hover:opacity-100 transition-opacity">
-    <app-scene-3d [sceneGraph]="miniFloatingSphereGraph" [camera]="{ position: [0, 0, 5], fov: 50 }" [enableMouseParallax]="true" />
+  <div
+    class="absolute top-0 right-0 w-20 h-20 opacity-0 group-hover:opacity-100 transition-opacity"
+  >
+    <app-scene-3d
+      [sceneGraph]="miniFloatingSphereGraph"
+      [camera]="{ position: [0, 0, 5], fov: 50 }"
+      [enableMouseParallax]="true"
+    />
   </div>
 </div>
 ```
@@ -561,7 +581,11 @@ const cardScrollConfig = {
 ```html
 <!-- Full-width 3D scene as section transition -->
 <div class="h-48 w-full relative overflow-hidden">
-  <app-scene-3d [sceneGraph]="wavyDividerSceneGraph" [camera]="{ position: [0, 0, 8], fov: 75 }" [enableMouseParallax]="false" />
+  <app-scene-3d
+    [sceneGraph]="wavyDividerSceneGraph"
+    [camera]="{ position: [0, 0, 8], fov: 75 }"
+    [enableMouseParallax]="false"
+  />
 
   <!-- Parallax scroll animation -->
   <div
@@ -724,7 +748,8 @@ Transition: "Built on this foundation, our orchestration layer..."
 mcp__Canva__generate -
   design({
     design_type: 'infographic',
-    query: '12-library architecture showing data layer, orchestration layer, agent layer, production layer with connecting arrows and icons',
+    query:
+      '12-library architecture showing data layer, orchestration layer, agent layer, production layer with connecting arrows and icons',
   });
 ```
 
@@ -1224,7 +1249,9 @@ const finalDesign =
 <section className="relative py-32 bg-white">
   <div className="max-w-7xl mx-auto px-16">
     <h1 className="text-7xl font-bold text-gray-900 mb-6">Enterprise AI Infrastructure</h1>
-    <p className="text-2xl text-gray-600 max-w-3xl mx-auto">12 production-ready libraries for modern applications</p>
+    <p className="text-2xl text-gray-600 max-w-3xl mx-auto">
+      12 production-ready libraries for modern applications
+    </p>
   </div>
 </section>
 ```
@@ -1240,7 +1267,9 @@ const finalDesign =
 
 ```tsx
 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-  <div className="bg-white border border-gray-200 rounded-card shadow-card hover:shadow-card-hover transition-all duration-300 p-8">{/* Card content */}</div>
+  <div className="bg-white border border-gray-200 rounded-card shadow-card hover:shadow-card-hover transition-all duration-300 p-8">
+    {/* Card content */}
+  </div>
 </div>
 ```
 
@@ -1493,7 +1522,12 @@ Before implementation:
 <section class="relative min-h-screen flex items-center justify-center overflow-hidden">
   <!-- 3D Background Layer -->
   <div class="absolute inset-0 z-0">
-    <app-scene-3d [sceneGraph]="heroSceneGraph" [camera]="{ position: [0, 0, 15], fov: 60 }" [enableMouseParallax]="true" [mouseParallax]="{ sensitivity: 0.35, smoothing: 6, cameraDistance: 15 }" />
+    <app-scene-3d
+      [sceneGraph]="heroSceneGraph"
+      [camera]="{ position: [0, 0, 15], fov: 60 }"
+      [enableMouseParallax]="true"
+      [mouseParallax]="{ sensitivity: 0.35, smoothing: 6, cameraDistance: 15 }"
+    />
   </div>
 
   <!-- Content Layer with Scroll Animation -->
@@ -1507,8 +1541,12 @@ Before implementation:
          ease: 'power3.out'
        }"
   >
-    <h1 class="text-8xl font-bold text-gray-900 mb-8 leading-tight">Enterprise AI<br />Infrastructure</h1>
-    <p class="text-3xl text-gray-600 max-w-4xl mx-auto mb-16">12 production-ready libraries for modern applications</p>
+    <h1 class="text-8xl font-bold text-gray-900 mb-8 leading-tight">
+      Enterprise AI<br />Infrastructure
+    </h1>
+    <p class="text-3xl text-gray-600 max-w-4xl mx-auto mb-16">
+      12 production-ready libraries for modern applications
+    </p>
 
     <!-- CTA Buttons with 3D Hover -->
     <div class="flex gap-6 justify-center">
@@ -1659,7 +1697,11 @@ Before implementation:
 
 ```html
 <div class="relative h-32 w-full overflow-hidden">
-  <app-scene-3d [sceneGraph]="waveDividerGraph" [camera]="{ position: [0, 0, 5], fov: 75 }" [enableMouseParallax]="false">
+  <app-scene-3d
+    [sceneGraph]="waveDividerGraph"
+    [camera]="{ position: [0, 0, 5], fov: 75 }"
+    [enableMouseParallax]="false"
+  >
     <!-- Wave mesh with gradient colors -->
   </app-scene-3d>
 

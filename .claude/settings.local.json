@@ -8,7 +8,11 @@
       "Bash(npx tsc:*)",
       "WebSearch",
       "Bash(npm run build:all:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(npx nx test:*)",
+      "Bash(git add:*)",
+      "Bash(git reset:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": [],

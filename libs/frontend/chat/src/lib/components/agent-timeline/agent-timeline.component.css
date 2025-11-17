@@ -1,0 +1,325 @@
+/* ========================================
+   Timeline Container
+   ======================================== */
+
+.timeline-container {
+  position: relative;
+  width: 100%;
+  min-height: 150px;
+  max-height: 400px;
+  padding: 16px;
+  background-color: var(--vscode-sideBar-background);
+  border: 1px solid var(--vscode-widget-border);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* ========================================
+   Timeline Scale (Top Header)
+   ======================================== */
+
+.timeline-scale {
+  position: relative;
+  height: 20px;
+  background-color: var(--vscode-editor-background);
+  border-bottom: 1px solid var(--vscode-widget-border);
+  margin-bottom: 16px;
+}
+
+.scale-marker {
+  position: absolute;
+  font-size: 10px;
+  font-family: var(--vscode-font-family);
+  color: var(--vscode-descriptionForeground);
+  top: 4px;
+  animation: fadeInMarker 200ms ease-out;
+}
+
+@keyframes fadeInMarker {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ========================================
+   Timeline Tracks (Swimlanes)
+   ======================================== */
+
+.timeline-tracks {
+  position: relative;
+  width: 100%;
+  min-height: 48px; /* At least 1 track */
+}
+
+/* ========================================
+   Timeline Segment (Agent Duration Line)
+   ======================================== */
+
+.timeline-segment {
+  position: absolute;
+  height: 24px;
+  border: 1px solid;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  cursor: pointer;
+  transition: transform 150ms ease-out, box-shadow 150ms ease-out;
+}
+
+.timeline-segment:hover {
+  transform: scale(1.02);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Running animation (segment growth) */
+.timeline-segment.running {
+  animation: growSegment linear;
+}
+
+@keyframes growSegment {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+/* Status-specific styles */
+.timeline-segment.complete {
+  opacity: 1;
+}
+
+.timeline-segment.error {
+  border-width: 2px;
+  border-style: dashed;
+}
+
+/* ========================================
+   Timeline Markers (● dots)
+   ======================================== */
+
+.timeline-marker {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 2px solid var(--vscode-editor-background);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+}
+
+.timeline-marker.start {
+  left: -4px;
+}
+
+.timeline-marker.end {
+  right: -4px;
+}
+
+/* ========================================
+   Segment Label (Agent Type + Duration)
+   ======================================== */
+
+.segment-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  flex: 1;
+  z-index: 1;
+}
+
+.segment-text {
+  font-size: 11px;
+  font-family: var(--vscode-font-family);
+  font-weight: 500;
+  color: var(--vscode-editor-background);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 90%;
+}
+
+/* ========================================
+   Popover (Hover Details)
+   ======================================== */
+
+.timeline-popover {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background-color: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 4px;
+  padding: 12px;
+  min-width: 250px;
+  max-width: 350px;
+  z-index: 1000;
+  animation: fadeInTooltip 150ms ease-out;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+@keyframes fadeInTooltip {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) translateY(0);
+  }
+}
+
+.popover-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.popover-title {
+  font-size: 13px;
+  font-family: var(--vscode-font-family);
+  font-weight: 600;
+  color: var(--vscode-editor-foreground);
+}
+
+.popover-divider {
+  height: 1px;
+  background-color: var(--vscode-widget-border);
+  margin: 8px 0;
+}
+
+.popover-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.popover-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  font-family: var(--vscode-font-family);
+  color: var(--vscode-editor-foreground);
+  gap: 16px;
+}
+
+.popover-label {
+  color: var(--vscode-descriptionForeground);
+  font-weight: 500;
+}
+
+.popover-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.popover-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  padding-left: 16px;
+}
+
+.popover-list-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  font-family: var(--vscode-font-family);
+  color: var(--vscode-editor-foreground);
+  margin-bottom: 4px;
+}
+
+.popover-list-item::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: var(--vscode-descriptionForeground);
+}
+
+.tool-name {
+  font-weight: 500;
+}
+
+.tool-input {
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  padding-left: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.popover-error {
+  font-size: 11px;
+  font-family: var(--vscode-font-family);
+  color: var(--vscode-errorForeground);
+  padding: 8px;
+  background-color: var(--vscode-inputValidation-errorBackground);
+  border: 1px solid var(--vscode-inputValidation-errorBorder);
+  border-radius: 2px;
+}
+
+/* ========================================
+   Scrollbar Styling
+   ======================================== */
+
+.timeline-container::-webkit-scrollbar {
+  height: 10px;
+}
+
+.timeline-container::-webkit-scrollbar-track {
+  background: var(--vscode-scrollbarSlider-background);
+}
+
+.timeline-container::-webkit-scrollbar-thumb {
+  background: var(--vscode-scrollbarSlider-hoverBackground);
+  border-radius: 5px;
+}
+
+.timeline-container::-webkit-scrollbar-thumb:hover {
+  background: var(--vscode-scrollbarSlider-activeBackground);
+}
+
+/* ========================================
+   Accessibility (Reduced Motion)
+   ======================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .timeline-segment,
+  .timeline-popover,
+  .scale-marker {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ========================================
+   High Contrast Mode Support
+   ======================================== */
+
+@media (prefers-contrast: high) {
+  .timeline-container {
+    border-width: 2px;
+  }
+
+  .timeline-segment {
+    border-width: 2px;
+  }
+
+  .timeline-popover {
+    border-width: 2px;
+  }
+}

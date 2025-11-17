@@ -328,9 +328,22 @@
 
 ---
 
-### Task 8: Add MessageHandler EventBus Subscriptions ⏸️ PENDING
+### Task 8: Add MessageHandler EventBus Subscriptions ✅ COMPLETE
 
 **Assigned To**: backend-developer
+**Git Commit**: 8073e6c - feat(vscode): add agent event subscriptions to MessageHandler (TASK_2025_004)
+**Completed**: 2025-11-17
+**Architecture Assessment**:
+
+- Complexity Level: 1 (Simple Event Transformation)
+- Patterns Applied: EventBus subscription pattern, event transformation pattern
+- Patterns Rejected: No service layer needed (YAGNI)
+**Verification Results**:
+- TypeScript compilation: PASS
+- Build verification: PASS
+- 3 EventBus subscriptions added
+- Type assertions used to bridge domain events with MessagePayloadMap
+
 **File(s)**: D:/projects/ptah-extension/libs/backend/claude-domain/src/messaging/message-handler.service.ts
 **Specification Reference**:
 

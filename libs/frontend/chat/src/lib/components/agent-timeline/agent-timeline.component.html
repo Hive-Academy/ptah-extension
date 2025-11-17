@@ -1,0 +1,120 @@
+<div class="timeline-container" role="region" aria-label="Agent execution timeline">
+  <!-- Timeline Scale (Top Header) -->
+  <div class="timeline-scale">
+    @for (marker of scaleMarkers(); track marker) {
+      <div
+        class="scale-marker"
+        [style.left.px]="marker * timelineScale()"
+      >
+        {{ marker }}s
+      </div>
+    }
+  </div>
+
+  <!-- Timeline Tracks (Swimlanes) -->
+  <div
+    class="timeline-tracks"
+    [style.height.px]="(maxTrack() + 1) * 48"
+  >
+    @for (agent of timelineAgents(); track agent.agent.agentId) {
+      <div
+        class="timeline-segment"
+        [class.running]="agent.status === 'running'"
+        [class.complete]="agent.status === 'complete'"
+        [class.error]="agent.status === 'error'"
+        [style.left]="getSegmentStyle(agent).left"
+        [style.width]="getSegmentStyle(agent).width"
+        [style.top]="getSegmentStyle(agent).top"
+        [style.background]="'linear-gradient(to right, ' + getAgentColor(agent.agent.subagentType) + ' 0%, rgba(' + getAgentColor(agent.agent.subagentType) + ', 0.4) 100%)'"
+        [style.border-color]="getAgentColor(agent.agent.subagentType)"
+        role="listitem"
+        [attr.aria-label]="agent.agent.subagentType + ' agent, ' + formatDuration(agent.duration) + ' duration, ' + agent.status + ' status'"
+        (mouseenter)="showPopover(agent, $event)"
+        (mouseleave)="hidePopover()"
+      >
+        <!-- Start Marker (● dot) -->
+        <div
+          class="timeline-marker start"
+          [style.background-color]="getAgentColor(agent.agent.subagentType)"
+        ></div>
+
+        <!-- Segment Label (Icon + Agent Type + Duration) -->
+        <div class="segment-label">
+          <span class="segment-text">
+            {{ agent.agent.subagentType }} ({{ formatDuration(agent.duration) }})
+          </span>
+        </div>
+
+        <!-- End Marker (● dot) -->
+        <div
+          class="timeline-marker end"
+          [style.background-color]="agent.status === 'complete' ? 'var(--vscode-testing-iconPassed)' : (agent.status === 'error' ? 'var(--vscode-testing-iconFailed)' : getAgentColor(agent.agent.subagentType))"
+        ></div>
+      </div>
+    }
+  </div>
+
+  <!-- Popover (Hover Details) -->
+  @if (hoveredAgent(); as hovered) {
+    <div
+      class="timeline-popover"
+      role="tooltip"
+      [attr.aria-label]="'Details for ' + hovered.agent.subagentType + ' agent'"
+    >
+      <!-- Popover Header -->
+      <div class="popover-header">
+        <span class="popover-title">{{ hovered.agent.subagentType }}</span>
+      </div>
+
+      <!-- Divider -->
+      <div class="popover-divider"></div>
+
+      <!-- Popover Content -->
+      <div class="popover-content">
+        <div class="popover-row">
+          <span class="popover-label">Start:</span>
+          <span>{{ formatDuration(hovered.startTime) }}</span>
+        </div>
+        <div class="popover-row">
+          <span class="popover-label">Duration:</span>
+          <span>{{ formatDuration(hovered.duration) }}</span>
+        </div>
+        <div class="popover-row">
+          <span class="popover-label">Status:</span>
+          <span>
+            @if (hovered.status === 'complete') {
+              ✅ Complete
+            } @else if (hovered.status === 'error') {
+              ❌ Error
+            } @else {
+              ⏱️ Running
+            }
+          </span>
+        </div>
+        @if (hovered.activities.length > 0) {
+          <div class="popover-divider"></div>
+          <div class="popover-section">
+            <div class="popover-label">Tools Used:</div>
+            <ul class="popover-list">
+              @for (activity of hovered.activities; track activity.toolName) {
+                <li class="popover-list-item">
+                  <span class="tool-name">{{ activity.toolName }}</span>
+                  @if (activity.toolInput) {
+                    <span class="tool-input">{{ activity.toolInput }}</span>
+                  }
+                </li>
+              }
+            </ul>
+          </div>
+        }
+        @if (hovered.errorMessage) {
+          <div class="popover-divider"></div>
+          <div class="popover-section">
+            <div class="popover-label">Error:</div>
+            <div class="popover-error">{{ hovered.errorMessage }}</div>
+          </div>
+        }
+      </div>
+    </div>
+  }
+</div>
