@@ -46,6 +46,11 @@ export const CHAT_MESSAGE_TYPES = {
   PERMISSION_REQUEST: 'chat:permissionRequest',
   PERMISSION_RESPONSE: 'chat:permissionResponse',
   ERROR: 'chat:error',
+
+  // Agent event types
+  AGENT_STARTED: 'chat:agentStarted' as const,
+  AGENT_ACTIVITY: 'chat:agentActivity' as const,
+  AGENT_COMPLETED: 'chat:agentCompleted' as const,
 } as const;
 
 /**
@@ -170,6 +175,11 @@ export const CHAT_RESPONSE_TYPES = {
   GET_SESSION_STATS: 'chat:getSessionStats:response',
   REQUEST_SESSIONS: 'chat:requestSessions:response',
   STOP_STREAM: 'chat:stopStream:response',
+
+  // Agent response types
+  AGENT_STARTED: 'chat:agentStarted:response' as const,
+  AGENT_ACTIVITY: 'chat:agentActivity:response' as const,
+  AGENT_COMPLETED: 'chat:agentCompleted:response' as const,
 } as const;
 
 /**
