@@ -188,11 +188,23 @@
 
 ## Phase 2: Backend Integration (Tasks 5-8) - Backend Developer
 
-### Task 5: Enhance JSONLStreamParser with Task Tool Detection ⏸️ PENDING
+### Task 5: Enhance JSONLStreamParser with Task Tool Detection ✅ COMPLETE
 
 **Assigned To**: backend-developer
-**File(s)**: D:/projects/ptah-extension/libs/backend/claude-domain/src/cli/jsonl-stream-parser.ts
-**Specification Reference**:
+**Git Commit**: 0f735c6 - feat(vscode): add Task tool detection to JSONL parser (TASK_2025_004)
+**Completed**: 2025-11-17
+**Architecture Assessment**:
+
+- Complexity Level: 2 (Business Logic Present)
+- Patterns Applied: Callback pattern, in-memory state tracking (Map)
+- Patterns Rejected: No DDD/Repository (simple parsing logic suffices)
+  **Verification Results**:
+- TypeScript compilation: PASS
+- All 3 callbacks added, activeAgents Map implemented
+- Task tool detection working, memory cleanup implemented
+- Graceful error handling for malformed JSONL
+  **File(s)**: D:/projects/ptah-extension/libs/backend/claude-domain/src/cli/jsonl-stream-parser.ts
+  **Specification Reference**:
 
 - implementation-plan.md:361-467 (JSONLStreamParser enhancement)
 - task-description.md:89-111 (Parser detection requirements)
@@ -224,9 +236,26 @@
 
 ---
 
-### Task 6: Add EventBus Agent Event Publishers ⏸️ PENDING
+### Task 6: Add EventBus Agent Event Publishers ✅ COMPLETE
 
 **Assigned To**: backend-developer
+**Git Commit**: cc59e68 - feat(vscode): add agent event publishers to EventBus (TASK_2025_004)
+**Completed**: 2025-11-17
+**Architecture Assessment**:
+
+- Complexity Level: 1 (Simple Type Definition + Method Addition)
+- Patterns Applied: Constant pattern (as const), Interface pattern (readonly), EventBus publish pattern, Dependency injection
+- Patterns Rejected: No service layer/validation/DDD (YAGNI - simple event publishing)
+
+**Verification Results**:
+
+- TypeScript compilation: PASS (npx nx build @ptah-extension/claude-domain)
+- 3 event constants added to CLAUDE_DOMAIN_EVENTS (lines 50-52)
+- 3 event payload interfaces defined (lines 104-117)
+- 3 emitter methods implemented in ClaudeDomainEventPublisher (lines 241-266)
+- Import verification: ClaudeAgentStartEvent, ClaudeAgentActivityEvent, ClaudeAgentCompleteEvent from @ptah-extension/shared (lines 15-17)
+- Zero loose types (all properties strictly typed with readonly)
+
 **File(s)**: D:/projects/ptah-extension/libs/backend/claude-domain/src/events/claude-domain.events.ts
 **Specification Reference**:
 
@@ -255,12 +284,26 @@
 
 ---
 
-### Task 7: Wire Agent Callbacks in ClaudeCliLauncher ⏸️ PENDING
+### Task 7: Wire Agent Callbacks in ClaudeCliLauncher ✅ COMPLETE
 
 **Assigned To**: backend-developer
-**File(s)**: D:/projects/ptah-extension/libs/backend/claude-domain/src/cli/claude-cli-launcher.ts
-**Specification Reference**:
+**Git Commit**: bafceac - feat(vscode): wire agent callbacks in CLI launcher (TASK_2025_004)
+**Completed**: 2025-11-17
+**Architecture Assessment**:
 
+- Complexity Level: 1 (Simple Callback Wiring)
+- Patterns Applied: Callback pattern, Event publisher pattern, Dependency injection
+- Patterns Rejected: No service layer/validation needed (YAGNI - direct wiring suffices)
+  **Verification Results**:
+- TypeScript compilation: PASS (npx nx run @ptah-extension/claude-domain:typecheck)
+- Build verification: PASS (npx nx build @ptah-extension/claude-domain)
+- All 3 callbacks wired: onAgentStart (line 318), onAgentActivity (line 327), onAgentComplete (line 336)
+- Each callback invokes corresponding eventPublisher.emitAgent\* method
+- sessionId passed correctly to all emitter methods
+- Follows existing callback pattern (matches onTool, onPermission structure)
+- Prettier formatting applied automatically by pre-commit hooks
+  **File(s)**: D:/projects/ptah-extension/libs/backend/claude-domain/src/cli/claude-cli-launcher.ts
+  **Specification Reference**:
 - implementation-plan.md:523-549 (ClaudeCliLauncher callback wiring)
 - task-description.md:95-101 (Callback wiring requirements)
   **Pattern to Follow**: claude-cli-launcher.ts:144-150 (existing createStreamingPipeline)
@@ -269,7 +312,7 @@
 - ✅ Connect callbacks to ClaudeDomainEventPublisher emitters
 - ✅ Pass sessionId to emitter methods
 - ✅ Follow existing callback pattern (onTool, onPermission)
-  **Expected Commit**: `feat(claude-domain): wire agent callbacks in CLI launcher (TASK_2025_004)`
+  **Expected Commit**: `feat(vscode): wire agent callbacks in CLI launcher (TASK_2025_004)` (used vscode scope per commitlint requirements)
   **Verification Requirements**:
 - ✅ File compiles with TypeScript strict mode
 - ✅ 3 agent callbacks wired in createStreamingPipeline
@@ -278,9 +321,10 @@
 
 **Implementation Details**:
 
-- Add agent callbacks to JSONLStreamParser instantiation (around line 150)
-- Use arrow functions to capture sessionId and deps.eventPublisher
-- Follow existing onTool callback pattern
+- Added agent callbacks to JSONLStreamParser instantiation (lines 318-343)
+- Used arrow functions to capture sessionId and deps.eventPublisher
+- Followed existing onTool callback pattern with logging + event emission
+- Console logging includes agentId, subagentType/toolName, duration for debugging
 
 ---
 
