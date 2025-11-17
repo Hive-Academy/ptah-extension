@@ -8,6 +8,9 @@ import {
   ClaudeThinkingEvent,
   ClaudeToolEvent,
   ClaudePermissionRequest,
+  ClaudeAgentStartEvent,
+  ClaudeAgentActivityEvent,
+  ClaudeAgentCompleteEvent,
 } from '@ptah-extension/shared';
 
 export type JSONLMessage =
@@ -32,6 +35,7 @@ export interface JSONLAssistantMessage {
   readonly content?: string;
   readonly thinking?: string;
   readonly index?: number;
+  readonly parent_tool_use_id?: string; // For agent activity correlation
   // Messages API format (from --output-format stream-json)
   readonly message?: {
     readonly model?: string;
@@ -56,6 +60,7 @@ export interface JSONLToolMessage {
   readonly output?: unknown;
   readonly message?: string;
   readonly error?: string;
+  readonly parent_tool_use_id?: string; // For agent activity correlation
 }
 
 export interface JSONLPermissionMessage {
@@ -102,6 +107,18 @@ export interface ParsedEvent {
 }
 
 /**
+ * Agent Metadata for Task Tool Tracking
+ */
+interface AgentMetadata {
+  readonly agentId: string;
+  readonly subagentType: string;
+  readonly description: string;
+  readonly prompt: string;
+  readonly model?: string;
+  readonly startTime: number;
+}
+
+/**
  * Callback handlers for parsed events
  */
 export interface JSONLParserCallbacks {
@@ -110,6 +127,9 @@ export interface JSONLParserCallbacks {
   onThinking?: (event: ClaudeThinkingEvent) => void;
   onTool?: (event: ClaudeToolEvent) => void;
   onPermission?: (request: ClaudePermissionRequest) => void;
+  onAgentStart?: (event: ClaudeAgentStartEvent) => void;
+  onAgentActivity?: (event: ClaudeAgentActivityEvent) => void;
+  onAgentComplete?: (event: ClaudeAgentCompleteEvent) => void;
   onError?: (error: Error, rawLine?: string) => void;
 }
 
@@ -129,6 +149,7 @@ export interface ToolFilterConfig {
 export class JSONLStreamParser {
   private buffer = '';
   private readonly config: ToolFilterConfig;
+  private readonly activeAgents = new Map<string, AgentMetadata>();
 
   // Default hidden tools (verbose internal tools that clutter the UI)
   private static readonly DEFAULT_HIDDEN_TOOLS = [
@@ -179,6 +200,7 @@ export class JSONLStreamParser {
    */
   reset(): void {
     this.buffer = '';
+    this.activeAgents.clear();
   }
 
   /**
@@ -194,6 +216,7 @@ export class JSONLStreamParser {
       const json = JSON.parse(trimmed) as JSONLMessage;
       this.handleMessage(json);
     } catch (error) {
+      // Graceful error handling: log warning and continue processing
       this.callbacks.onError?.(
         error instanceof Error ? error : new Error('JSON parse error'),
         trimmed
@@ -246,6 +269,11 @@ export class JSONLStreamParser {
    */
   private handleAssistantMessage(msg: JSONLAssistantMessage): void {
     const timestamp = Date.now();
+
+    // Check for agent activity correlation via parent_tool_use_id
+    if (msg.parent_tool_use_id) {
+      this.correlateAgentActivity(msg.parent_tool_use_id, msg);
+    }
 
     // Thinking content
     if (msg.thinking) {
@@ -301,6 +329,41 @@ export class JSONLStreamParser {
   }
 
   /**
+   * Correlate agent activity from assistant messages with parent_tool_use_id
+   */
+  private correlateAgentActivity(
+    parentToolUseId: string,
+    msg: JSONLAssistantMessage
+  ): void {
+    const agent = this.activeAgents.get(parentToolUseId);
+    if (!agent) {
+      // Orphaned activity - parent agent not found
+      // Log warning but continue processing gracefully
+      this.callbacks.onError?.(
+        new Error(`Agent activity without parent: ${parentToolUseId}`),
+        `parent_tool_use_id: ${parentToolUseId}`
+      );
+      return;
+    }
+
+    // Extract tool information from message content
+    if (msg.message?.content) {
+      for (const block of msg.message.content) {
+        if (block.type === 'tool_use' && block.name) {
+          const activityEvent: ClaudeAgentActivityEvent = {
+            type: 'agent_activity',
+            agentId: parentToolUseId,
+            toolName: block.name,
+            toolInput: (block.input as Record<string, unknown>) || {},
+            timestamp: Date.now(),
+          };
+          this.callbacks.onAgentActivity?.(activityEvent);
+        }
+      }
+    }
+  }
+
+  /**
    * Handle tool execution messages
    */
   private handleToolMessage(msg: JSONLToolMessage): void {
@@ -311,6 +374,17 @@ export class JSONLStreamParser {
     }
 
     const toolName = msg.tool || 'unknown';
+
+    // Check for Task tool events
+    if (toolName === 'Task') {
+      this.handleTaskToolEvent(msg, timestamp);
+      // Continue processing as regular tool event
+    }
+
+    // Check for agent activity correlation via parent_tool_use_id
+    if (msg.parent_tool_use_id) {
+      this.correlateToolActivity(msg.parent_tool_use_id, msg);
+    }
 
     // Apply tool filtering - skip hidden tools
     if (this.shouldHideTool(toolName, msg.subtype)) {
@@ -364,6 +438,166 @@ export class JSONLStreamParser {
         break;
       }
     }
+  }
+
+  /**
+   * Handle Task tool events for agent lifecycle tracking
+   */
+  private handleTaskToolEvent(msg: JSONLToolMessage, timestamp: number): void {
+    if (!msg.tool_call_id || !msg.subtype) {
+      return;
+    }
+
+    switch (msg.subtype) {
+      case 'start': {
+        // Extract agent metadata from Task tool args
+        const args = msg.args || {};
+        const subagentType = this.extractString(args, 'subagent_type');
+        const description = this.extractString(args, 'description');
+        const prompt = this.extractString(args, 'prompt');
+        const model = this.extractStringOptional(args, 'model');
+
+        if (!subagentType || !description || !prompt) {
+          // Missing required fields - log warning
+          this.callbacks.onError?.(
+            new Error('Task tool start missing required args'),
+            JSON.stringify(args)
+          );
+          return;
+        }
+
+        // Store agent metadata
+        const metadata: AgentMetadata = {
+          agentId: msg.tool_call_id,
+          subagentType,
+          description,
+          prompt,
+          model,
+          startTime: timestamp,
+        };
+        this.activeAgents.set(msg.tool_call_id, metadata);
+
+        // Emit agent start event
+        const startEvent: ClaudeAgentStartEvent = {
+          type: 'agent_start',
+          agentId: msg.tool_call_id,
+          subagentType,
+          description,
+          prompt,
+          model,
+          timestamp,
+        };
+        this.callbacks.onAgentStart?.(startEvent);
+        break;
+      }
+
+      case 'result': {
+        // Task tool completion
+        const agent = this.activeAgents.get(msg.tool_call_id);
+        if (!agent) {
+          // Agent not found - may have been already cleaned up or never started
+          return;
+        }
+
+        const duration = timestamp - agent.startTime;
+        const result = this.extractStringOptional(msg.output, 'result');
+
+        // Emit agent complete event
+        const completeEvent: ClaudeAgentCompleteEvent = {
+          type: 'agent_complete',
+          agentId: msg.tool_call_id,
+          duration,
+          result,
+          timestamp,
+        };
+        this.callbacks.onAgentComplete?.(completeEvent);
+
+        // Cleanup: Remove from activeAgents map to prevent memory leaks
+        this.activeAgents.delete(msg.tool_call_id);
+        break;
+      }
+
+      case 'error': {
+        // Task tool error - cleanup agent state
+        const agent = this.activeAgents.get(msg.tool_call_id);
+        if (agent) {
+          const duration = timestamp - agent.startTime;
+
+          // Emit agent complete event with error indication
+          const completeEvent: ClaudeAgentCompleteEvent = {
+            type: 'agent_complete',
+            agentId: msg.tool_call_id,
+            duration,
+            result: `Error: ${msg.error || 'Unknown error'}`,
+            timestamp,
+          };
+          this.callbacks.onAgentComplete?.(completeEvent);
+
+          // Cleanup
+          this.activeAgents.delete(msg.tool_call_id);
+        }
+        break;
+      }
+
+      // 'progress' subtype not handled for Task tool
+    }
+  }
+
+  /**
+   * Correlate tool activity from tool messages with parent_tool_use_id
+   */
+  private correlateToolActivity(
+    parentToolUseId: string,
+    msg: JSONLToolMessage
+  ): void {
+    const agent = this.activeAgents.get(parentToolUseId);
+    if (!agent) {
+      // Orphaned activity - parent agent not found
+      // Log warning but continue processing gracefully
+      this.callbacks.onError?.(
+        new Error(`Tool activity without parent agent: ${parentToolUseId}`),
+        `tool: ${msg.tool}, parent_tool_use_id: ${parentToolUseId}`
+      );
+      return;
+    }
+
+    // Only emit activity for tool start events
+    if (msg.subtype === 'start' && msg.tool) {
+      const activityEvent: ClaudeAgentActivityEvent = {
+        type: 'agent_activity',
+        agentId: parentToolUseId,
+        toolName: msg.tool,
+        toolInput: msg.args || {},
+        timestamp: Date.now(),
+      };
+      this.callbacks.onAgentActivity?.(activityEvent);
+    }
+  }
+
+  /**
+   * Extract string from unknown record
+   */
+  private extractString(
+    record: Record<string, unknown>,
+    key: string
+  ): string | undefined {
+    const value = record[key];
+    return typeof value === 'string' ? value : undefined;
+  }
+
+  /**
+   * Extract optional string from unknown value
+   */
+  private extractStringOptional(
+    value: unknown,
+    key?: string
+  ): string | undefined {
+    if (key && typeof value === 'object' && value !== null) {
+      const record = value as Record<string, unknown>;
+      const extracted = record[key];
+      return typeof extracted === 'string' ? extracted : undefined;
+    }
+    return typeof value === 'string' ? value : undefined;
   }
 
   /**
