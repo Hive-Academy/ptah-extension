@@ -94,9 +94,14 @@ export interface ChatSessionStartPayload {
   readonly workspaceId?: string;
 }
 
+/**
+ * CLI session end payload
+ * NOTE: Replaces previous webview session end payload structure
+ */
 export interface ChatSessionEndPayload {
   readonly sessionId: SessionId;
-  readonly duration: number;
+  readonly reason?: string;
+  readonly timestamp: number;
 }
 
 export interface ChatNewSessionPayload {
@@ -316,6 +321,88 @@ export interface ChatPermissionRequestPayload {
 export interface ChatPermissionResponsePayload {
   readonly requestId: string;
   readonly response: 'allow' | 'always_allow' | 'deny';
+  readonly timestamp: number;
+}
+
+/**
+ * Thinking event payload (Claude's reasoning process)
+ */
+export interface ChatThinkingPayload {
+  readonly sessionId: SessionId;
+  readonly content: string;
+  readonly timestamp: number;
+}
+
+/**
+ * Tool execution start payload
+ */
+export interface ChatToolStartPayload {
+  readonly sessionId: SessionId;
+  readonly toolCallId: string;
+  readonly tool: string;
+  readonly args: Record<string, unknown>;
+  readonly timestamp: number;
+}
+
+/**
+ * Tool execution progress payload
+ */
+export interface ChatToolProgressPayload {
+  readonly sessionId: SessionId;
+  readonly toolCallId: string;
+  readonly message: string;
+  readonly timestamp: number;
+}
+
+/**
+ * Tool execution result payload
+ */
+export interface ChatToolResultPayload {
+  readonly sessionId: SessionId;
+  readonly toolCallId: string;
+  readonly output: unknown;
+  readonly duration: number;
+  readonly timestamp: number;
+}
+
+/**
+ * Tool execution error payload
+ */
+export interface ChatToolErrorPayload {
+  readonly sessionId: SessionId;
+  readonly toolCallId: string;
+  readonly error: string;
+  readonly timestamp: number;
+}
+
+/**
+ * CLI session initialization payload
+ */
+export interface ChatSessionInitPayload {
+  readonly sessionId: SessionId;
+  readonly claudeSessionId: string;
+  readonly model?: string;
+  readonly timestamp: number;
+}
+
+/**
+ * CLI health update payload
+ */
+export interface ChatHealthUpdatePayload {
+  readonly available: boolean;
+  readonly version?: string;
+  readonly responseTime?: number;
+  readonly error?: string;
+  readonly timestamp: number;
+}
+
+/**
+ * CLI error payload
+ */
+export interface ChatCliErrorPayload {
+  readonly sessionId?: SessionId;
+  readonly error: string;
+  readonly context?: Record<string, unknown>;
   readonly timestamp: number;
 }
 
@@ -563,6 +650,14 @@ export interface MessagePayloadMap {
   'chat:agentStarted': ChatAgentStartedPayload;
   'chat:agentActivity': ChatAgentActivityPayload;
   'chat:agentCompleted': ChatAgentCompletedPayload;
+  'chat:thinking': ChatThinkingPayload;
+  'chat:toolStart': ChatToolStartPayload;
+  'chat:toolProgress': ChatToolProgressPayload;
+  'chat:toolResult': ChatToolResultPayload;
+  'chat:toolError': ChatToolErrorPayload;
+  'chat:sessionInit': ChatSessionInitPayload;
+  'chat:healthUpdate': ChatHealthUpdatePayload;
+  'chat:cliError': ChatCliErrorPayload;
   'providers:getAvailable': ProvidersGetAvailablePayload;
   'providers:getCurrent': ProvidersGetCurrentPayload;
   'providers:switch': ProvidersSwitchPayload;

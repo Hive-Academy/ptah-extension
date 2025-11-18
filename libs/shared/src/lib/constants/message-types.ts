@@ -30,6 +30,7 @@ export const CHAT_MESSAGE_TYPES = {
 
   // Event types (backend → frontend)
   MESSAGE_CHUNK: 'chat:messageChunk',
+  THINKING: 'chat:thinking', // Claude reasoning display
   MESSAGE_ADDED: 'chat:messageAdded',
   MESSAGE_COMPLETE: 'chat:messageComplete',
   SESSION_START: 'chat:sessionStart',
@@ -47,10 +48,23 @@ export const CHAT_MESSAGE_TYPES = {
   PERMISSION_RESPONSE: 'chat:permissionResponse',
   ERROR: 'chat:error',
 
+  // Tool execution events
+  TOOL_START: 'chat:toolStart',
+  TOOL_PROGRESS: 'chat:toolProgress',
+  TOOL_RESULT: 'chat:toolResult',
+  TOOL_ERROR: 'chat:toolError',
+
   // Agent event types
   AGENT_STARTED: 'chat:agentStarted' as const,
   AGENT_ACTIVITY: 'chat:agentActivity' as const,
   AGENT_COMPLETED: 'chat:agentCompleted' as const,
+
+  // CLI session lifecycle
+  SESSION_INIT: 'chat:sessionInit', // CLI subprocess initialized
+
+  // System events
+  HEALTH_UPDATE: 'chat:healthUpdate', // CLI health status changed
+  CLI_ERROR: 'chat:cliError', // CLI error occurred
 } as const;
 
 /**
