@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { signal } from '@angular/core';
 import { AgentTreeComponent } from './agent-tree.component';
 import type { AgentTreeNode } from '@ptah-extension/core';
 import type {

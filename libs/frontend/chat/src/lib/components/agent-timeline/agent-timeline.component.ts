@@ -7,22 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
-import type {
-  ClaudeAgentActivityEvent,
-  ClaudeAgentStartEvent,
-} from '@ptah-extension/shared';
-
-/**
- * AgentTreeNode Interface
- * Represents a hierarchical agent with activities and execution status
- */
-export interface AgentTreeNode {
-  readonly agent: ClaudeAgentStartEvent;
-  readonly activities: readonly ClaudeAgentActivityEvent[];
-  readonly status: 'running' | 'complete' | 'error';
-  readonly duration: number; // milliseconds
-  readonly errorMessage?: string;
-}
+import type { AgentTreeNode } from '@ptah-extension/core';
 
 /**
  * TimelineAgent Interface
@@ -95,7 +80,9 @@ export class AgentTimelineComponent {
     if (agents.length === 0) return 0;
 
     return Math.max(
-      ...agents.map((agent) => (agent.agent.timestamp ?? 0) + agent.duration)
+      ...agents.map(
+        (agent) => (agent.agent.timestamp ?? 0) + (agent.duration ?? 0)
+      )
     );
   });
 
@@ -140,7 +127,7 @@ export class AgentTimelineComponent {
 
     for (const agent of sortedAgents) {
       const startTime = agent.agent.timestamp ?? 0;
-      const endTime = startTime + agent.duration;
+      const endTime = startTime + (agent.duration ?? 0);
 
       // Find earliest available track (no time overlap)
       let assignedTrack = -1;
@@ -217,7 +204,7 @@ export class AgentTimelineComponent {
   } {
     const scale = this.timelineScale();
     const left = (agent.startTime / 1000) * scale;
-    const width = (agent.duration / 1000) * scale;
+    const width = ((agent.duration ?? 0) / 1000) * scale;
     const top = agent.track * 48; // 40px track height + 8px gap
 
     return {
@@ -288,5 +275,57 @@ export class AgentTimelineComponent {
     };
 
     return colorMap[subagentType] ?? 'var(--vscode-symbolIcon-classForeground)';
+  }
+
+  /**
+   * Get segment style with color gradient
+   * Combines positioning with gradient background
+   */
+  getSegmentStyleWithColor(agent: TimelineAgent): Record<string, string> {
+    const basicStyle = this.getSegmentStyle(agent);
+    const color = this.getAgentColor(agent.agent.subagentType);
+
+    return {
+      left: basicStyle.left,
+      width: basicStyle.width,
+      top: basicStyle.top,
+      background: `linear-gradient(to right, ${color} 0%, rgba(${this.hexToRgb(
+        color
+      )}, 0.4) 100%)`,
+      'border-color': color,
+    };
+  }
+
+  /**
+   * Get end marker color based on agent status
+   */
+  getEndMarkerColor(agent: TimelineAgent): string {
+    if (agent.status === 'complete') {
+      return 'var(--vscode-testing-iconPassed)';
+    } else if (agent.status === 'error') {
+      return 'var(--vscode-testing-iconFailed)';
+    }
+    return this.getAgentColor(agent.agent.subagentType);
+  }
+
+  /**
+   * Convert hex/CSS var color to RGB values
+   * Fallback to simple extraction for CSS variables
+   */
+  private hexToRgb(color: string): string {
+    // For CSS variables, return default opacity values
+    if (color.startsWith('var(')) {
+      return '128, 128, 128'; // Neutral gray fallback
+    }
+
+    // Remove # if present
+    const hex = color.replace('#', '');
+
+    // Parse hex values
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+
+    return `${r}, ${g}, ${b}`;
   }
 }

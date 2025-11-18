@@ -1,3 +1,5 @@
+<!-- eslint-disable @angular-eslint/template/no-inline-styles -->
+<!-- Dynamic positioning via ngStyle is required for timeline visualization -->
 <div
   class="timeline-container"
   role="region"
@@ -6,36 +8,26 @@
   <!-- Timeline Scale (Top Header) -->
   <div class="timeline-scale">
     @for (marker of scaleMarkers(); track marker) {
-    <div class="scale-marker" [style.left.px]="marker * timelineScale()">
+    <div class="scale-marker" [ngStyle]="{ left: (marker * timelineScale()) + 'px' }">
       {{ marker }}s
     </div>
     }
   </div>
 
   <!-- Timeline Tracks (Swimlanes) -->
-  <div class="timeline-tracks" [style.height.px]="(maxTrack() + 1) * 48">
+  <div class="timeline-tracks" [ngStyle]="{ height: ((maxTrack() + 1) * 48) + 'px' }">
     @for (agent of timelineAgents(); track agent.agent.agentId) {
     <div
       class="timeline-segment"
       [class.running]="agent.status === 'running'"
       [class.complete]="agent.status === 'complete'"
       [class.error]="agent.status === 'error'"
-      [style.left]="getSegmentStyle(agent).left"
-      [style.width]="getSegmentStyle(agent).width"
-      [style.top]="getSegmentStyle(agent).top"
-      [style.background]="
-        'linear-gradient(to right, ' +
-        getAgentColor(agent.agent.subagentType) +
-        ' 0%, rgba(' +
-        getAgentColor(agent.agent.subagentType) +
-        ', 0.4) 100%)'
-      "
-      [style.border-color]="getAgentColor(agent.agent.subagentType)"
+      [ngStyle]="getSegmentStyleWithColor(agent)"
       role="listitem"
       [attr.aria-label]="
         agent.agent.subagentType +
         ' agent, ' +
-        formatDuration(agent.duration) +
+        formatDuration(agent.duration ?? 0) +
         ' duration, ' +
         agent.status +
         ' status'
@@ -46,26 +38,20 @@
       <!-- Start Marker (● dot) -->
       <div
         class="timeline-marker start"
-        [style.background-color]="getAgentColor(agent.agent.subagentType)"
+        [ngStyle]="{ 'background-color': getAgentColor(agent.agent.subagentType) }"
       ></div>
 
       <!-- Segment Label (Icon + Agent Type + Duration) -->
       <div class="segment-label">
         <span class="segment-text">
-          {{ agent.agent.subagentType }} ({{ formatDuration(agent.duration) }})
+          {{ agent.agent.subagentType }} ({{ formatDuration(agent.duration ?? 0) }})
         </span>
       </div>
 
       <!-- End Marker (● dot) -->
       <div
         class="timeline-marker end"
-        [style.background-color]="
-          agent.status === 'complete'
-            ? 'var(--vscode-testing-iconPassed)'
-            : agent.status === 'error'
-            ? 'var(--vscode-testing-iconFailed)'
-            : getAgentColor(agent.agent.subagentType)
-        "
+        [ngStyle]="{ 'background-color': getEndMarkerColor(agent) }"
       ></div>
     </div>
     }
@@ -94,7 +80,7 @@
       </div>
       <div class="popover-row">
         <span class="popover-label">Duration:</span>
-        <span>{{ formatDuration(hovered.duration) }}</span>
+        <span>{{ formatDuration(hovered.duration ?? 0) }}</span>
       </div>
       <div class="popover-row">
         <span class="popover-label">Status:</span>

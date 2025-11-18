@@ -15,6 +15,9 @@ export type {
   ClaudeCliStreamMessage,
 } from './lib/services/claude-message-transformer.service';
 
+// Export AgentTreeNode from ChatService
+export type { AgentTreeNode } from './lib/services/chat.service';
+
 // Export utility functions and type guards
 export {
   isTextContent,

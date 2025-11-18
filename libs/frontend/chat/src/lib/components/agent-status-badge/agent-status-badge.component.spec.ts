@@ -2,11 +2,8 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { DebugElement } from '@angular/core';
 import { By } from '@angular/platform-browser';
 import { AgentStatusBadgeComponent } from './agent-status-badge.component';
-import { AgentTreeNode } from '@ptah-extension/core';
-import {
-  ClaudeAgentStartEvent,
-  ClaudeAgentActivityEvent,
-} from '@ptah-extension/shared';
+import type { AgentTreeNode } from '@ptah-extension/core';
+import type { ClaudeAgentStartEvent } from '@ptah-extension/shared';
 
 describe('AgentStatusBadgeComponent', () => {
   let component: AgentStatusBadgeComponent;

@@ -6,6 +6,7 @@
     [class.error]="node.status === 'error'"
     role="treeitem"
     [attr.aria-expanded]="isExpanded(node.agent.agentId)"
+    [attr.aria-selected]="false"
     [attr.aria-level]="1"
     tabindex="0"
     (click)="toggleExpanded(node.agent.agentId)"
@@ -64,6 +65,7 @@
         <div
           class="tool-activity-line"
           role="treeitem"
+          [attr.aria-selected]="false"
           [attr.aria-level]="2"
           [title]="stringify(activity.toolInput)"
         >

@@ -1,11 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { signal } from '@angular/core';
 import { AgentTimelineComponent } from './agent-timeline.component';
-import type { AgentTreeNode } from './agent-timeline.component';
-import type {
-  ClaudeAgentStartEvent,
-  ClaudeAgentActivityEvent,
-} from '@ptah-extension/shared';
+import type { AgentTreeNode } from '@ptah-extension/core';
+import type { ClaudeAgentStartEvent } from '@ptah-extension/shared';
 
 describe('AgentTimelineComponent', () => {
   let component: AgentTimelineComponent;
