@@ -364,6 +364,34 @@ export class ChatService {
     return toObservable(this.messages);
   }
 
+  /**
+   * Approve a permission request (TASK_2025_006 - Batch 4)
+   *
+   * @param requestId - The permission request ID to approve
+   */
+  approvePermission(requestId: string): void {
+    this.logger.info('[ChatService] Approving permission:', requestId);
+    this.vscode.postStrictMessage(CHAT_MESSAGE_TYPES.PERMISSION_RESPONSE, {
+      requestId,
+      response: 'allow',
+      timestamp: Date.now(),
+    } as ChatPermissionResponsePayload);
+  }
+
+  /**
+   * Deny a permission request (TASK_2025_006 - Batch 4)
+   *
+   * @param requestId - The permission request ID to deny
+   */
+  denyPermission(requestId: string): void {
+    this.logger.info('[ChatService] Denying permission:', requestId);
+    this.vscode.postStrictMessage(CHAT_MESSAGE_TYPES.PERMISSION_RESPONSE, {
+      requestId,
+      response: 'deny',
+      timestamp: Date.now(),
+    } as ChatPermissionResponsePayload);
+  }
+
   // Private initialization methods
 
   /**

@@ -38,3 +38,9 @@ export * from './chat-input';
 export * from './agent-tree/agent-tree.component';
 export * from './agent-timeline/agent-timeline.component';
 export * from './agent-status-badge/agent-status-badge.component';
+
+// Event Relay UI Components (4/4 complete) ✅ TASK_2025_006 - Batch 4
+export * from './thinking-display/thinking-display.component';
+export * from './tool-timeline/tool-timeline.component';
+export * from './permission-dialog/permission-dialog.component';
+export * from './agent-activity-timeline/agent-activity-timeline.component';

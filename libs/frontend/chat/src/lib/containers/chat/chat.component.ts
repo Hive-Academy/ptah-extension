@@ -40,6 +40,12 @@ import {
   AgentStatusBadgeComponent,
 } from '../../components';
 
+// Event Relay UI Components (TASK_2025_006 - Batch 4)
+import { ThinkingDisplayComponent } from '../../components/thinking-display/thinking-display.component';
+import { ToolTimelineComponent } from '../../components/tool-timeline/tool-timeline.component';
+import { PermissionDialogComponent } from '../../components/permission-dialog/permission-dialog.component';
+import { AgentActivityTimelineComponent } from '../../components/agent-activity-timeline/agent-activity-timeline.component';
+
 // Component-specific types (imported from individual components)
 import type { TokenUsage } from '../../components/chat-token-usage/chat-token-usage.component';
 import type { ProviderStatus } from '../../components/chat-header/chat-header.component';
@@ -77,6 +83,11 @@ import { ProviderManagerComponent } from '@ptah-extension/providers';
     ChatInputAreaComponent,
     SessionSelectorComponent,
     ProviderManagerComponent,
+    // Event Relay Components (TASK_2025_006 - Batch 4)
+    ThinkingDisplayComponent,
+    ToolTimelineComponent,
+    PermissionDialogComponent,
+    AgentActivityTimelineComponent,
   ],
   template: `
     <div class="vscode-chat-container">
@@ -128,6 +139,11 @@ import { ProviderManagerComponent } from '@ptah-extension/providers';
           (orchestration)="startOrchestration()"
         />
 
+        <!-- Event Relay Visualizations (TASK_2025_006 - Batch 4) -->
+        <ptah-thinking-display [thinking]="chatService.currentThinking()" />
+        <ptah-tool-timeline [executions]="chatService.toolExecutions()" />
+        <ptah-agent-activity-timeline [agents]="agentActivitiesForDisplay()" />
+
         <!-- Agent Panel (Collapsible) -->
         @if (agentPanelVisible()) {
         <div class="agent-panel">
@@ -177,6 +193,15 @@ import { ProviderManagerComponent } from '@ptah-extension/providers';
 
       <!-- Provider Settings Panel -->
       <ptah-provider-manager />
+
+      <!-- Permission Dialog (Overlay) - TASK_2025_006 Batch 4 -->
+      @if (chatService.pendingPermissions().length > 0) {
+      <ptah-permission-dialog
+        [permission]="chatService.pendingPermissions()[0]"
+        (approve)="handlePermissionApproval($event)"
+        (deny)="handlePermissionDenial($event)"
+      />
+      }
     </div>
   `,
   styles: [
@@ -376,6 +401,29 @@ export class ChatComponent implements OnInit, OnDestroy {
     return [...this.chatState.agentOptions()];
   });
 
+  // Transform agent activities for display (TASK_2025_006 - Batch 4)
+  readonly agentActivitiesForDisplay = computed(() => {
+    const agents = this.chatService.agents();
+    return agents.map((node) => ({
+      agentId: node.agent.agentId,
+      name: node.agent.subagentType,
+      status:
+        node.status === 'complete'
+          ? ('completed' as const)
+          : ('running' as const),
+      startTime: node.agent.timestamp ?? Date.now(),
+      endTime:
+        node.status === 'complete'
+          ? (node.agent.timestamp ?? Date.now()) + (node.duration ?? 0)
+          : undefined,
+      activity:
+        node.activities.length > 0
+          ? `Used ${node.activities.length} tools`
+          : undefined,
+      result: node.status === 'complete' ? 'Task completed' : undefined,
+    }));
+  });
+
   public ngOnInit(): void {
     this.logger.debug('ChatComponent initializing', 'ChatComponent', {
       hasSession: !!this.currentSession(),
@@ -552,5 +600,16 @@ export class ChatComponent implements OnInit, OnDestroy {
     const successRate =
       total > 0 ? Math.round(((total - errors) / total) * 100) : 100;
     return `${successRate}%`;
+  }
+
+  // Permission handlers (TASK_2025_006 - Batch 4)
+  public handlePermissionApproval(requestId: string): void {
+    this.logger.info('Permission approved', 'ChatComponent', { requestId });
+    this.chatService.approvePermission(requestId);
+  }
+
+  public handlePermissionDenial(requestId: string): void {
+    this.logger.info('Permission denied', 'ChatComponent', { requestId });
+    this.chatService.denyPermission(requestId);
   }
 }
