@@ -177,7 +177,7 @@ export class ClaudeCliLauncher {
    * Returns: { command, commandArgs, needsShell }
    *
    * If useDirectExecution is true (Windows with resolved cli.js):
-   *   command: "node" or process.execPath
+   *   command: "node" (resolved from PATH, NOT process.execPath which is Code.exe)
    *   commandArgs: ["C:\...\cli.js", ...cliArgs]
    *   needsShell: false
    *
@@ -193,8 +193,11 @@ export class ClaudeCliLauncher {
   } {
     // Strategy 1: Direct Node.js execution (bypasses Windows cmd.exe buffering)
     if (this.installation.useDirectExecution && this.installation.cliJsPath) {
+      // CRITICAL FIX: In VS Code extensions, process.execPath = Code.exe (Electron)
+      // We need the actual node.exe path. Use 'node' and let system PATH resolve it.
+      // This works because node.exe is in PATH when npm install works.
       return {
-        command: process.execPath, // Path to node.exe/node
+        command: 'node', // System will resolve to node.exe via PATH
         commandArgs: [this.installation.cliJsPath, ...cliArgs],
         needsShell: false, // No shell needed for direct node execution!
       };
