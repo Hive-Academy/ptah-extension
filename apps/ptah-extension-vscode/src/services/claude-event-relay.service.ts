@@ -21,9 +21,6 @@ import type {
   ClaudeToolEventPayload,
   ClaudePermissionRequestEvent,
   ClaudePermissionResponseEvent,
-  ClaudeAgentStartedEvent,
-  ClaudeAgentActivityEventPayload,
-  ClaudeAgentCompletedEvent,
   ClaudeSessionInitEvent,
   ClaudeSessionEndEvent,
   ClaudeHealthUpdateEvent,
@@ -75,290 +72,503 @@ export class ClaudeEventRelayService {
     // 1. Content streaming chunks
     this.subscriptions.push(
       this.eventBus
-        .subscribe<ClaudeContentChunkEvent>(CLAUDE_DOMAIN_EVENTS.CONTENT_CHUNK)
-        .subscribe((event) => {
-          const payload: ChatMessageChunkPayload = {
-            sessionId: event.payload.sessionId,
-            messageId: event.payload.chunk.messageId || MessageId.create(), // Fallback if missing
-            content: event.payload.chunk.delta,
-            isComplete: false,
-            streaming: true,
-          };
+        .subscribe(CLAUDE_DOMAIN_EVENTS.CONTENT_CHUNK as any)
+        .subscribe({
+          next: (event: any) => {
+            try {
+              const typedPayload = event.payload as ClaudeContentChunkEvent;
+              const payload: ChatMessageChunkPayload = {
+                sessionId: typedPayload.sessionId,
+                messageId: MessageId.create(), // Always create new ID for chunks
+                content: typedPayload.chunk.delta,
+                isComplete: false,
+                streaming: true,
+              };
 
-          this.webviewManager.postMessage({
-            type: CHAT_MESSAGE_TYPES.MESSAGE_CHUNK,
-            payload,
-          });
+              this.webviewManager.postMessage({
+                type: CHAT_MESSAGE_TYPES.MESSAGE_CHUNK,
+                payload,
+              });
+            } catch (error) {
+              this.logger.error(
+                '[ClaudeEventRelay] Error forwarding CONTENT_CHUNK:',
+                error
+              );
+            }
+          },
+          error: (err) =>
+            this.logger.error(
+              '[ClaudeEventRelay] CONTENT_CHUNK subscription error:',
+              err
+            ),
         })
     );
 
     // 2. Thinking events
     this.subscriptions.push(
-      this.eventBus
-        .subscribe<ClaudeThinkingEventPayload>(CLAUDE_DOMAIN_EVENTS.THINKING)
-        .subscribe((event) => {
-          const payload: ChatThinkingPayload = {
-            sessionId: event.payload.sessionId,
-            content: event.payload.thinking.content,
-            timestamp: event.payload.thinking.timestamp,
-          };
+      this.eventBus.subscribe(CLAUDE_DOMAIN_EVENTS.THINKING as any).subscribe({
+        next: (event: any) => {
+          try {
+            const typedPayload = event.payload as ClaudeThinkingEventPayload;
+            const payload: ChatThinkingPayload = {
+              sessionId: typedPayload.sessionId,
+              content: typedPayload.thinking.content,
+              timestamp: typedPayload.thinking.timestamp,
+            };
 
-          this.webviewManager.postMessage({
-            type: CHAT_MESSAGE_TYPES.THINKING,
-            payload,
-          });
-        })
+            this.webviewManager.postMessage({
+              type: CHAT_MESSAGE_TYPES.THINKING,
+              payload,
+            });
+          } catch (error) {
+            this.logger.error(
+              '[ClaudeEventRelay] Error forwarding THINKING:',
+              error
+            );
+          }
+        },
+        error: (err) =>
+          this.logger.error(
+            '[ClaudeEventRelay] THINKING subscription error:',
+            err
+          ),
+      })
     );
 
     // 3. Tool events (start, progress, result, error)
     this.subscriptions.push(
       this.eventBus
-        .subscribe<ClaudeToolEventPayload>(CLAUDE_DOMAIN_EVENTS.TOOL_START)
-        .subscribe((event) => {
-          const payload: ChatToolStartPayload = {
-            sessionId: event.payload.sessionId,
-            toolCallId: event.payload.event.toolCallId,
-            tool: event.payload.event.tool || 'unknown',
-            args: event.payload.event.args || {},
-            timestamp: event.payload.event.timestamp,
-          };
+        .subscribe(CLAUDE_DOMAIN_EVENTS.TOOL_START as any)
+        .subscribe({
+          next: (event: any) => {
+            try {
+              const typedPayload = event.payload as ClaudeToolEventPayload;
+              const toolEvent = typedPayload.event as any; // ClaudeToolEvent is discriminated union
+              const payload: ChatToolStartPayload = {
+                sessionId: typedPayload.sessionId,
+                toolCallId: toolEvent.toolCallId,
+                tool: toolEvent.tool || 'unknown',
+                args: toolEvent.args || {},
+                timestamp: toolEvent.timestamp,
+              };
 
-          this.webviewManager.postMessage({
-            type: CHAT_MESSAGE_TYPES.TOOL_START,
-            payload,
-          });
+              this.webviewManager.postMessage({
+                type: CHAT_MESSAGE_TYPES.TOOL_START,
+                payload,
+              });
+            } catch (error) {
+              this.logger.error(
+                '[ClaudeEventRelay] Error forwarding TOOL_START:',
+                error
+              );
+            }
+          },
+          error: (err) =>
+            this.logger.error(
+              '[ClaudeEventRelay] TOOL_START subscription error:',
+              err
+            ),
         })
     );
 
     this.subscriptions.push(
       this.eventBus
-        .subscribe<ClaudeToolEventPayload>(CLAUDE_DOMAIN_EVENTS.TOOL_PROGRESS)
-        .subscribe((event) => {
-          const payload: ChatToolProgressPayload = {
-            sessionId: event.payload.sessionId,
-            toolCallId: event.payload.event.toolCallId,
-            message: event.payload.event.message || '',
-            timestamp: event.payload.event.timestamp,
-          };
+        .subscribe(CLAUDE_DOMAIN_EVENTS.TOOL_PROGRESS as any)
+        .subscribe({
+          next: (event: any) => {
+            try {
+              const typedPayload = event.payload as ClaudeToolEventPayload;
+              const toolEvent = typedPayload.event as any; // ClaudeToolEvent is discriminated union
+              const payload: ChatToolProgressPayload = {
+                sessionId: typedPayload.sessionId,
+                toolCallId: toolEvent.toolCallId,
+                message: toolEvent.message || '',
+                timestamp: toolEvent.timestamp,
+              };
 
-          this.webviewManager.postMessage({
-            type: CHAT_MESSAGE_TYPES.TOOL_PROGRESS,
-            payload,
-          });
+              this.webviewManager.postMessage({
+                type: CHAT_MESSAGE_TYPES.TOOL_PROGRESS,
+                payload,
+              });
+            } catch (error) {
+              this.logger.error(
+                '[ClaudeEventRelay] Error forwarding TOOL_PROGRESS:',
+                error
+              );
+            }
+          },
+          error: (err) =>
+            this.logger.error(
+              '[ClaudeEventRelay] TOOL_PROGRESS subscription error:',
+              err
+            ),
         })
     );
 
     this.subscriptions.push(
       this.eventBus
-        .subscribe<ClaudeToolEventPayload>(CLAUDE_DOMAIN_EVENTS.TOOL_RESULT)
-        .subscribe((event) => {
-          const payload: ChatToolResultPayload = {
-            sessionId: event.payload.sessionId,
-            toolCallId: event.payload.event.toolCallId,
-            output: event.payload.event.output,
-            duration: event.payload.event.duration || 0,
-            timestamp: event.payload.event.timestamp,
-          };
+        .subscribe(CLAUDE_DOMAIN_EVENTS.TOOL_RESULT as any)
+        .subscribe({
+          next: (event: any) => {
+            try {
+              const typedPayload = event.payload as ClaudeToolEventPayload;
+              const toolEvent = typedPayload.event as any; // ClaudeToolEvent is discriminated union
+              const payload: ChatToolResultPayload = {
+                sessionId: typedPayload.sessionId,
+                toolCallId: toolEvent.toolCallId,
+                output: toolEvent.output,
+                duration: toolEvent.duration || 0,
+                timestamp: toolEvent.timestamp,
+              };
 
-          this.webviewManager.postMessage({
-            type: CHAT_MESSAGE_TYPES.TOOL_RESULT,
-            payload,
-          });
+              this.webviewManager.postMessage({
+                type: CHAT_MESSAGE_TYPES.TOOL_RESULT,
+                payload,
+              });
+            } catch (error) {
+              this.logger.error(
+                '[ClaudeEventRelay] Error forwarding TOOL_RESULT:',
+                error
+              );
+            }
+          },
+          error: (err) =>
+            this.logger.error(
+              '[ClaudeEventRelay] TOOL_RESULT subscription error:',
+              err
+            ),
         })
     );
 
     this.subscriptions.push(
       this.eventBus
-        .subscribe<ClaudeToolEventPayload>(CLAUDE_DOMAIN_EVENTS.TOOL_ERROR)
-        .subscribe((event) => {
-          const payload: ChatToolErrorPayload = {
-            sessionId: event.payload.sessionId,
-            toolCallId: event.payload.event.toolCallId,
-            error: event.payload.event.error || 'Unknown tool error',
-            timestamp: event.payload.event.timestamp,
-          };
+        .subscribe(CLAUDE_DOMAIN_EVENTS.TOOL_ERROR as any)
+        .subscribe({
+          next: (event: any) => {
+            try {
+              const typedPayload = event.payload as ClaudeToolEventPayload;
+              const toolEvent = typedPayload.event as any; // ClaudeToolEvent is discriminated union
+              const payload: ChatToolErrorPayload = {
+                sessionId: typedPayload.sessionId,
+                toolCallId: toolEvent.toolCallId,
+                error: toolEvent.error || 'Unknown tool error',
+                timestamp: toolEvent.timestamp,
+              };
 
-          this.webviewManager.postMessage({
-            type: CHAT_MESSAGE_TYPES.TOOL_ERROR,
-            payload,
-          });
+              this.webviewManager.postMessage({
+                type: CHAT_MESSAGE_TYPES.TOOL_ERROR,
+                payload,
+              });
+            } catch (error) {
+              this.logger.error(
+                '[ClaudeEventRelay] Error forwarding TOOL_ERROR:',
+                error
+              );
+            }
+          },
+          error: (err) =>
+            this.logger.error(
+              '[ClaudeEventRelay] TOOL_ERROR subscription error:',
+              err
+            ),
         })
     );
 
     // 4. Permission events
     this.subscriptions.push(
       this.eventBus
-        .subscribe<ClaudePermissionRequestEvent>(
-          CLAUDE_DOMAIN_EVENTS.PERMISSION_REQUESTED
-        )
-        .subscribe((event) => {
-          const payload: ChatPermissionRequestPayload = {
-            id: event.payload.request.toolCallId,
-            tool: event.payload.request.tool,
-            action: JSON.stringify(event.payload.request.args), // Serialize args as action
-            description: event.payload.request.description,
-          };
+        .subscribe(CLAUDE_DOMAIN_EVENTS.PERMISSION_REQUESTED as any)
+        .subscribe({
+          next: (event: any) => {
+            try {
+              const typedPayload =
+                event.payload as ClaudePermissionRequestEvent;
+              const payload: ChatPermissionRequestPayload = {
+                id: typedPayload.request.toolCallId,
+                tool: typedPayload.request.tool,
+                action: JSON.stringify(typedPayload.request.args),
+                description: typedPayload.request.description,
+                timestamp: Date.now(),
+                sessionId: typedPayload.sessionId,
+              };
 
-          this.webviewManager.postMessage({
-            type: CHAT_MESSAGE_TYPES.PERMISSION_REQUEST,
-            payload,
-          });
+              this.webviewManager.postMessage({
+                type: CHAT_MESSAGE_TYPES.PERMISSION_REQUEST,
+                payload,
+              });
+            } catch (error) {
+              this.logger.error(
+                '[ClaudeEventRelay] Error forwarding PERMISSION_REQUESTED:',
+                error
+              );
+            }
+          },
+          error: (err) =>
+            this.logger.error(
+              '[ClaudeEventRelay] PERMISSION_REQUESTED subscription error:',
+              err
+            ),
         })
     );
 
     this.subscriptions.push(
       this.eventBus
-        .subscribe<ClaudePermissionResponseEvent>(
-          CLAUDE_DOMAIN_EVENTS.PERMISSION_RESPONDED
-        )
-        .subscribe((event) => {
-          const payload: ChatPermissionResponsePayload = {
-            requestId: event.payload.response.toolCallId,
-            response: event.payload.response.decision,
-            timestamp: event.payload.response.timestamp,
-          };
+        .subscribe(CLAUDE_DOMAIN_EVENTS.PERMISSION_RESPONDED as any)
+        .subscribe({
+          next: (event: any) => {
+            try {
+              const typedPayload =
+                event.payload as ClaudePermissionResponseEvent;
+              const payload: ChatPermissionResponsePayload = {
+                requestId: typedPayload.response.toolCallId,
+                response: typedPayload.response.decision,
+                timestamp: typedPayload.response.timestamp,
+              };
 
-          this.webviewManager.postMessage({
-            type: CHAT_MESSAGE_TYPES.PERMISSION_RESPONSE,
-            payload,
-          });
+              this.webviewManager.postMessage({
+                type: CHAT_MESSAGE_TYPES.PERMISSION_RESPONSE,
+                payload,
+              });
+            } catch (error) {
+              this.logger.error(
+                '[ClaudeEventRelay] Error forwarding PERMISSION_RESPONDED:',
+                error
+              );
+            }
+          },
+          error: (err) =>
+            this.logger.error(
+              '[ClaudeEventRelay] PERMISSION_RESPONDED subscription error:',
+              err
+            ),
         })
     );
 
     // 5. Agent lifecycle events
     this.subscriptions.push(
       this.eventBus
-        .subscribe<ClaudeAgentStartedEvent>(CLAUDE_DOMAIN_EVENTS.AGENT_STARTED)
-        .subscribe((event) => {
-          const payload: ChatAgentStartedPayload = {
-            sessionId: event.payload.sessionId,
-            agentId: event.payload.agent.agentId,
-            subagentType: event.payload.agent.subagentType,
-            description: event.payload.agent.description,
-            timestamp: event.payload.agent.timestamp,
-          };
+        .subscribe(CLAUDE_DOMAIN_EVENTS.AGENT_STARTED as any)
+        .subscribe({
+          next: (event: any) => {
+            try {
+              const typedPayload = event.payload as any;
+              const payload: ChatAgentStartedPayload = {
+                sessionId: typedPayload.sessionId,
+                agent: typedPayload.agent,
+              };
 
-          this.webviewManager.postMessage({
-            type: CHAT_MESSAGE_TYPES.AGENT_STARTED,
-            payload,
-          });
+              this.webviewManager.postMessage({
+                type: CHAT_MESSAGE_TYPES.AGENT_STARTED,
+                payload,
+              });
+            } catch (error) {
+              this.logger.error(
+                '[ClaudeEventRelay] Error forwarding AGENT_STARTED:',
+                error
+              );
+            }
+          },
+          error: (err) =>
+            this.logger.error(
+              '[ClaudeEventRelay] AGENT_STARTED subscription error:',
+              err
+            ),
         })
     );
 
     this.subscriptions.push(
       this.eventBus
-        .subscribe<ClaudeAgentActivityEventPayload>(
-          CLAUDE_DOMAIN_EVENTS.AGENT_ACTIVITY
-        )
-        .subscribe((event) => {
-          const payload: ChatAgentActivityPayload = {
-            sessionId: event.payload.sessionId,
-            agentId: event.payload.agent.agentId,
-            toolName: event.payload.agent.toolName,
-            timestamp: event.payload.agent.timestamp,
-          };
+        .subscribe(CLAUDE_DOMAIN_EVENTS.AGENT_ACTIVITY as any)
+        .subscribe({
+          next: (event: any) => {
+            try {
+              const typedPayload = event.payload as any;
+              const payload: ChatAgentActivityPayload = {
+                sessionId: typedPayload.sessionId,
+                agent: typedPayload.agent,
+              };
 
-          this.webviewManager.postMessage({
-            type: CHAT_MESSAGE_TYPES.AGENT_ACTIVITY,
-            payload,
-          });
+              this.webviewManager.postMessage({
+                type: CHAT_MESSAGE_TYPES.AGENT_ACTIVITY,
+                payload,
+              });
+            } catch (error) {
+              this.logger.error(
+                '[ClaudeEventRelay] Error forwarding AGENT_ACTIVITY:',
+                error
+              );
+            }
+          },
+          error: (err) =>
+            this.logger.error(
+              '[ClaudeEventRelay] AGENT_ACTIVITY subscription error:',
+              err
+            ),
         })
     );
 
     this.subscriptions.push(
       this.eventBus
-        .subscribe<ClaudeAgentCompletedEvent>(
-          CLAUDE_DOMAIN_EVENTS.AGENT_COMPLETED
-        )
-        .subscribe((event) => {
-          const payload: ChatAgentCompletedPayload = {
-            sessionId: event.payload.sessionId,
-            agentId: event.payload.agent.agentId,
-            duration: event.payload.agent.duration,
-            result: event.payload.agent.result,
-            timestamp: event.payload.agent.timestamp,
-          };
+        .subscribe(CLAUDE_DOMAIN_EVENTS.AGENT_COMPLETED as any)
+        .subscribe({
+          next: (event: any) => {
+            try {
+              const typedPayload = event.payload as any;
+              const payload: ChatAgentCompletedPayload = {
+                sessionId: typedPayload.sessionId,
+                agent: typedPayload.agent,
+              };
 
-          this.webviewManager.postMessage({
-            type: CHAT_MESSAGE_TYPES.AGENT_COMPLETED,
-            payload,
-          });
+              this.webviewManager.postMessage({
+                type: CHAT_MESSAGE_TYPES.AGENT_COMPLETED,
+                payload,
+              });
+            } catch (error) {
+              this.logger.error(
+                '[ClaudeEventRelay] Error forwarding AGENT_COMPLETED:',
+                error
+              );
+            }
+          },
+          error: (err) =>
+            this.logger.error(
+              '[ClaudeEventRelay] AGENT_COMPLETED subscription error:',
+              err
+            ),
         })
     );
 
     // 6. Session lifecycle
     this.subscriptions.push(
       this.eventBus
-        .subscribe<ClaudeSessionInitEvent>(CLAUDE_DOMAIN_EVENTS.SESSION_INIT)
-        .subscribe((event) => {
-          const payload: ChatSessionInitPayload = {
-            sessionId: event.payload.sessionId,
-            claudeSessionId: event.payload.claudeSessionId,
-            model: event.payload.model,
-            timestamp: Date.now(),
-          };
+        .subscribe(CLAUDE_DOMAIN_EVENTS.SESSION_INIT as any)
+        .subscribe({
+          next: (event: any) => {
+            try {
+              const typedPayload = event.payload as ClaudeSessionInitEvent;
+              const payload: ChatSessionInitPayload = {
+                sessionId: typedPayload.sessionId,
+                claudeSessionId: typedPayload.claudeSessionId,
+                model: typedPayload.model,
+                timestamp: Date.now(),
+              };
 
-          this.webviewManager.postMessage({
-            type: CHAT_MESSAGE_TYPES.SESSION_INIT,
-            payload,
-          });
+              this.webviewManager.postMessage({
+                type: CHAT_MESSAGE_TYPES.SESSION_INIT,
+                payload,
+              });
+            } catch (error) {
+              this.logger.error(
+                '[ClaudeEventRelay] Error forwarding SESSION_INIT:',
+                error
+              );
+            }
+          },
+          error: (err) =>
+            this.logger.error(
+              '[ClaudeEventRelay] SESSION_INIT subscription error:',
+              err
+            ),
         })
     );
 
     this.subscriptions.push(
       this.eventBus
-        .subscribe<ClaudeSessionEndEvent>(CLAUDE_DOMAIN_EVENTS.SESSION_END)
-        .subscribe((event) => {
-          const payload: ChatSessionEndPayload = {
-            sessionId: event.payload.sessionId,
-            reason: event.payload.reason,
-            timestamp: Date.now(),
-          };
+        .subscribe(CLAUDE_DOMAIN_EVENTS.SESSION_END as any)
+        .subscribe({
+          next: (event: any) => {
+            try {
+              const typedPayload = event.payload as ClaudeSessionEndEvent;
+              const payload: ChatSessionEndPayload = {
+                sessionId: typedPayload.sessionId,
+                reason: typedPayload.reason,
+                timestamp: Date.now(),
+              };
 
-          this.webviewManager.postMessage({
-            type: CHAT_MESSAGE_TYPES.SESSION_END,
-            payload,
-          });
+              this.webviewManager.postMessage({
+                type: CHAT_MESSAGE_TYPES.SESSION_END,
+                payload,
+              });
+            } catch (error) {
+              this.logger.error(
+                '[ClaudeEventRelay] Error forwarding SESSION_END:',
+                error
+              );
+            }
+          },
+          error: (err) =>
+            this.logger.error(
+              '[ClaudeEventRelay] SESSION_END subscription error:',
+              err
+            ),
         })
     );
 
     // 7. Health updates
     this.subscriptions.push(
       this.eventBus
-        .subscribe<ClaudeHealthUpdateEvent>(CLAUDE_DOMAIN_EVENTS.HEALTH_UPDATE)
-        .subscribe((event) => {
-          const payload: ChatHealthUpdatePayload = {
-            available: event.payload.health.available,
-            version: event.payload.health.version,
-            responseTime: event.payload.health.responseTime,
-            error: event.payload.health.error,
-            timestamp: Date.now(),
-          };
+        .subscribe(CLAUDE_DOMAIN_EVENTS.HEALTH_UPDATE as any)
+        .subscribe({
+          next: (event: any) => {
+            try {
+              const typedPayload = event.payload as ClaudeHealthUpdateEvent;
+              const payload: ChatHealthUpdatePayload = {
+                available: typedPayload.health.available,
+                version: typedPayload.health.version,
+                responseTime: typedPayload.health.responseTime,
+                error: typedPayload.health.error,
+                timestamp: Date.now(),
+              };
 
-          this.webviewManager.postMessage({
-            type: CHAT_MESSAGE_TYPES.HEALTH_UPDATE,
-            payload,
-          });
+              this.webviewManager.postMessage({
+                type: CHAT_MESSAGE_TYPES.HEALTH_UPDATE,
+                payload,
+              });
+            } catch (error) {
+              this.logger.error(
+                '[ClaudeEventRelay] Error forwarding HEALTH_UPDATE:',
+                error
+              );
+            }
+          },
+          error: (err) =>
+            this.logger.error(
+              '[ClaudeEventRelay] HEALTH_UPDATE subscription error:',
+              err
+            ),
         })
     );
 
     // 8. CLI errors
     this.subscriptions.push(
-      this.eventBus
-        .subscribe<ClaudeErrorEvent>(CLAUDE_DOMAIN_EVENTS.CLI_ERROR)
-        .subscribe((event) => {
-          const payload: ChatCliErrorPayload = {
-            sessionId: event.payload.sessionId,
-            error: event.payload.error,
-            context: event.payload.context,
-            timestamp: Date.now(),
-          };
+      this.eventBus.subscribe(CLAUDE_DOMAIN_EVENTS.CLI_ERROR as any).subscribe({
+        next: (event: any) => {
+          try {
+            const typedPayload = event.payload as ClaudeErrorEvent;
+            const payload: ChatCliErrorPayload = {
+              sessionId: typedPayload.sessionId,
+              error: typedPayload.error,
+              context: typedPayload.context,
+              timestamp: Date.now(),
+            };
 
-          this.webviewManager.postMessage({
-            type: CHAT_MESSAGE_TYPES.CLI_ERROR,
-            payload,
-          });
-        })
+            this.webviewManager.postMessage({
+              type: CHAT_MESSAGE_TYPES.CLI_ERROR,
+              payload,
+            });
+          } catch (error) {
+            this.logger.error(
+              '[ClaudeEventRelay] Error forwarding CLI_ERROR:',
+              error
+            );
+          }
+        },
+        error: (err) =>
+          this.logger.error(
+            '[ClaudeEventRelay] CLI_ERROR subscription error:',
+            err
+          ),
+      })
     );
 
     this.logger.info(

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { DIContainer } from '../di/container';
+import { container } from 'tsyringe';
 import type {
   Logger,
   ErrorHandler,
@@ -128,9 +129,7 @@ export class PtahExtension implements vscode.Disposable {
       );
 
       // Initialize Claude event relay (after webview provider)
-      this.claudeEventRelay = DIContainer.resolve<ClaudeEventRelayService>(
-        ClaudeEventRelayService
-      );
+      this.claudeEventRelay = container.resolve(ClaudeEventRelayService);
       this.claudeEventRelay.initialize();
 
       // Initialize handlers and registries
