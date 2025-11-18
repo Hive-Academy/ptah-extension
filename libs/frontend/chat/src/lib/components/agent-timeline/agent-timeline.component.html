@@ -8,14 +8,20 @@
   <!-- Timeline Scale (Top Header) -->
   <div class="timeline-scale">
     @for (marker of scaleMarkers(); track marker) {
-    <div class="scale-marker" [ngStyle]="{ left: (marker * timelineScale()) + 'px' }">
+    <div
+      class="scale-marker"
+      [ngStyle]="{ left: marker * timelineScale() + 'px' }"
+    >
       {{ marker }}s
     </div>
     }
   </div>
 
   <!-- Timeline Tracks (Swimlanes) -->
-  <div class="timeline-tracks" [ngStyle]="{ height: ((maxTrack() + 1) * 48) + 'px' }">
+  <div
+    class="timeline-tracks"
+    [ngStyle]="{ height: (maxTrack() + 1) * 48 + 'px' }"
+  >
     @for (agent of timelineAgents(); track agent.agent.agentId) {
     <div
       class="timeline-segment"
@@ -38,13 +44,17 @@
       <!-- Start Marker (● dot) -->
       <div
         class="timeline-marker start"
-        [ngStyle]="{ 'background-color': getAgentColor(agent.agent.subagentType) }"
+        [ngStyle]="{
+          'background-color': getAgentColor(agent.agent.subagentType)
+        }"
       ></div>
 
       <!-- Segment Label (Icon + Agent Type + Duration) -->
       <div class="segment-label">
         <span class="segment-text">
-          {{ agent.agent.subagentType }} ({{ formatDuration(agent.duration ?? 0) }})
+          {{ agent.agent.subagentType }} ({{
+            formatDuration(agent.duration ?? 0)
+          }})
         </span>
       </div>
 
