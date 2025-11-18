@@ -21,7 +21,16 @@ import {
   toResponseType,
   ClaudeAgentStartEvent,
   ClaudeAgentActivityEvent,
-  ClaudeAgentCompleteEvent,
+  ChatThinkingPayload,
+  ChatToolStartPayload,
+  ChatToolProgressPayload,
+  ChatToolResultPayload,
+  ChatToolErrorPayload,
+  ChatPermissionRequestPayload,
+  ChatPermissionResponsePayload,
+  ChatSessionInitPayload,
+  ChatHealthUpdatePayload,
+  ChatCliErrorPayload,
 } from '@ptah-extension/shared';
 import { MessageProcessingService } from './message-processing.service';
 import { ChatValidationService } from './chat-validation.service';
@@ -36,6 +45,26 @@ interface StreamState {
   isStreaming: boolean;
   isConnected: boolean;
   lastMessageTimestamp: number;
+}
+
+interface ToolExecution {
+  toolCallId: string;
+  tool: string;
+  args: Record<string, unknown>;
+  status: 'running' | 'success' | 'error';
+  startTime: number;
+  endTime?: number;
+  output?: unknown;
+  error?: string;
+  progress?: string;
+  duration?: number;
+}
+
+interface PendingPermission {
+  requestId: string;
+  type: string;
+  details: Record<string, unknown>;
+  timestamp: number;
 }
 
 /**
@@ -137,6 +166,22 @@ export class ChatService {
     ReadonlyMap<string, readonly ClaudeAgentActivityEvent[]>
   >(new Map());
   readonly agentActivities = this._agentActivities.asReadonly();
+
+  // Event relay state signals (TASK_2025_006 - Batch 3)
+  // Thinking display state
+  private readonly _currentThinking = signal<{
+    content: string;
+    timestamp: number;
+  } | null>(null);
+  public readonly currentThinking = this._currentThinking.asReadonly();
+
+  // Tool execution state
+  private readonly _toolExecutions = signal<ToolExecution[]>([]);
+  public readonly toolExecutions = this._toolExecutions.asReadonly();
+
+  // Permission request state
+  private readonly _pendingPermissions = signal<PendingPermission[]>([]);
+  public readonly pendingPermissions = this._pendingPermissions.asReadonly();
 
   // Agent computed signals
   readonly activeAgents = computed(() =>
@@ -363,8 +408,77 @@ export class ChatService {
           lastMessageTimestamp: Date.now(),
         }));
 
-        // Process message chunk
-        // TODO: Use StreamHandlingService processing when migrated
+        // CRITICAL FIX: Process the message chunk content
+        // This was missing - chunks were being received but content was discarded!
+        const { messageId, content, sessionId, isComplete } = payload;
+
+        // Update the message in our state
+        const currentMessages = this.chatState.messages();
+        const messageIndex = currentMessages.findIndex(
+          (m) => m.id === messageId
+        );
+
+        if (messageIndex >= 0) {
+          // Update existing message by appending content
+          const existingMessage = currentMessages[messageIndex];
+          const updatedMessage: StrictChatMessage = {
+            ...existingMessage,
+            content: existingMessage.content + content,
+            streaming: !isComplete,
+            timestamp: Date.now(),
+          };
+
+          const newMessages = [...currentMessages];
+          newMessages[messageIndex] = updatedMessage;
+          this.chatState.setMessages(newMessages);
+
+          // Update claudeMessages for UI display
+          const processedMessage =
+            this.messageProcessor.convertToProcessedMessage(updatedMessage);
+          const currentClaudeMessages = this.chatState.claudeMessages();
+          const claudeIndex = currentClaudeMessages.findIndex(
+            (m) => m.id === messageId
+          );
+
+          if (claudeIndex >= 0) {
+            const newClaudeMessages = [...currentClaudeMessages];
+            newClaudeMessages[claudeIndex] = processedMessage;
+            this.chatState.setClaudeMessages(newClaudeMessages);
+          } else {
+            this.chatState.setClaudeMessages([
+              ...currentClaudeMessages,
+              processedMessage,
+            ]);
+          }
+        } else {
+          // Create new assistant message if not found
+          const newMessage: StrictChatMessage = {
+            id: messageId,
+            sessionId: sessionId,
+            type: 'assistant',
+            content: content,
+            timestamp: Date.now(),
+            streaming: !isComplete,
+            metadata: {},
+          };
+
+          this.chatState.setMessages([...currentMessages, newMessage]);
+
+          // Add to claudeMessages for UI
+          const processedMessage =
+            this.messageProcessor.convertToProcessedMessage(newMessage);
+          const currentClaudeMessages = this.chatState.claudeMessages();
+          this.chatState.setClaudeMessages([
+            ...currentClaudeMessages,
+            processedMessage,
+          ]);
+        }
+
+        this.logger.debug('Message chunk processed', 'ChatService', {
+          messageId,
+          contentLength: content.length,
+          isComplete,
+        });
       });
 
     // Listen for session created event (backend publishes chat:sessionCreated)
@@ -605,6 +719,62 @@ export class ChatService {
         });
       });
 
+    // Event relay subscriptions (TASK_2025_006 - Batch 3)
+    // Thinking display
+    this.vscode
+      .onMessageType(CHAT_MESSAGE_TYPES.THINKING)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => this.handleThinking(payload));
+
+    // Tool execution lifecycle
+    this.vscode
+      .onMessageType(CHAT_MESSAGE_TYPES.TOOL_START)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => this.handleToolStart(payload));
+
+    this.vscode
+      .onMessageType(CHAT_MESSAGE_TYPES.TOOL_PROGRESS)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => this.handleToolProgress(payload));
+
+    this.vscode
+      .onMessageType(CHAT_MESSAGE_TYPES.TOOL_RESULT)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => this.handleToolResult(payload));
+
+    this.vscode
+      .onMessageType(CHAT_MESSAGE_TYPES.TOOL_ERROR)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => this.handleToolError(payload));
+
+    // Permission lifecycle
+    this.vscode
+      .onMessageType(CHAT_MESSAGE_TYPES.PERMISSION_REQUEST)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => this.handlePermissionRequest(payload));
+
+    this.vscode
+      .onMessageType(CHAT_MESSAGE_TYPES.PERMISSION_RESPONSE)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => this.handlePermissionResponse(payload));
+
+    // Session lifecycle
+    this.vscode
+      .onMessageType(CHAT_MESSAGE_TYPES.SESSION_INIT)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => this.handleSessionInit(payload));
+
+    // System events
+    this.vscode
+      .onMessageType(CHAT_MESSAGE_TYPES.HEALTH_UPDATE)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => this.handleHealthUpdate(payload));
+
+    this.vscode
+      .onMessageType(CHAT_MESSAGE_TYPES.CLI_ERROR)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => this.handleCliError(payload));
+
     // Handle initial data
     this.vscode
       .onMessageType(SYSTEM_MESSAGE_TYPES.INITIAL_DATA)
@@ -654,5 +824,137 @@ export class ChatService {
           }
         }
       });
+  }
+
+  // Event relay handler methods (TASK_2025_006 - Batch 3)
+  private handleThinking(payload: ChatThinkingPayload): void {
+    this.logger.debug('ChatService', 'Thinking event received', payload);
+    this._currentThinking.set({
+      content: payload.content,
+      timestamp: payload.timestamp,
+    });
+  }
+
+  private handleToolStart(payload: ChatToolStartPayload): void {
+    this.logger.debug('ChatService', 'Tool started', {
+      tool: payload.tool,
+      toolCallId: payload.toolCallId,
+    });
+    const execution: ToolExecution = {
+      toolCallId: payload.toolCallId,
+      tool: payload.tool,
+      args: payload.args,
+      status: 'running',
+      startTime: payload.timestamp,
+    };
+    this._toolExecutions.update((executions) => [...executions, execution]);
+  }
+
+  private handleToolProgress(payload: ChatToolProgressPayload): void {
+    this.logger.debug('ChatService', 'Tool progress', {
+      toolCallId: payload.toolCallId,
+      message: payload.message,
+    });
+    this._toolExecutions.update((executions) =>
+      executions.map((exec) =>
+        exec.toolCallId === payload.toolCallId
+          ? { ...exec, progress: payload.message }
+          : exec
+      )
+    );
+  }
+
+  private handleToolResult(payload: ChatToolResultPayload): void {
+    this.logger.debug('ChatService', 'Tool result', {
+      toolCallId: payload.toolCallId,
+      duration: payload.duration,
+    });
+    this._toolExecutions.update((executions) =>
+      executions.map((exec) =>
+        exec.toolCallId === payload.toolCallId
+          ? {
+              ...exec,
+              status: 'success',
+              output: payload.output,
+              duration: payload.duration,
+              endTime: payload.timestamp,
+            }
+          : exec
+      )
+    );
+  }
+
+  private handleToolError(payload: ChatToolErrorPayload): void {
+    this.logger.error('ChatService', 'Tool error', {
+      toolCallId: payload.toolCallId,
+      error: payload.error,
+    });
+    this._toolExecutions.update((executions) =>
+      executions.map((exec) =>
+        exec.toolCallId === payload.toolCallId
+          ? {
+              ...exec,
+              status: 'error',
+              error: payload.error,
+              endTime: payload.timestamp,
+            }
+          : exec
+      )
+    );
+  }
+
+  private handlePermissionRequest(payload: ChatPermissionRequestPayload): void {
+    this.logger.debug('ChatService', 'Permission requested', {
+      id: payload.id,
+      tool: payload.tool,
+      action: payload.action,
+    });
+    this._pendingPermissions.update((permissions) => [
+      ...permissions,
+      {
+        requestId: payload.id,
+        type: payload.action,
+        details: { tool: payload.tool, description: payload.description },
+        timestamp: payload.timestamp,
+      },
+    ]);
+  }
+
+  private handlePermissionResponse(
+    payload: ChatPermissionResponsePayload
+  ): void {
+    this.logger.debug('ChatService', 'Permission responded', {
+      requestId: payload.requestId,
+      response: payload.response,
+    });
+    this._pendingPermissions.update((permissions) =>
+      permissions.filter((perm) => perm.requestId !== payload.requestId)
+    );
+  }
+
+  private handleSessionInit(payload: ChatSessionInitPayload): void {
+    this.logger.info('ChatService', 'CLI session initialized', {
+      sessionId: payload.sessionId,
+      claudeSessionId: payload.claudeSessionId,
+      model: payload.model,
+    });
+    // Optional: Store CLI session metadata if needed
+  }
+
+  private handleHealthUpdate(payload: ChatHealthUpdatePayload): void {
+    this.logger.debug('ChatService', 'CLI health update', {
+      available: payload.available,
+      version: payload.version,
+      error: payload.error,
+    });
+    // Optional: Update provider health state if needed
+  }
+
+  private handleCliError(payload: ChatCliErrorPayload): void {
+    this.logger.error('ChatService', 'CLI error', {
+      error: payload.error,
+      context: payload.context,
+    });
+    this.appState.handleError(payload.error);
   }
 }
