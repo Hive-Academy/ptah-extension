@@ -52,6 +52,21 @@ export class ClaudeCliLauncher {
     // CRITICAL FIX: Use direct Node.js execution if available (bypasses Windows cmd.exe buffering)
     const { command, commandArgs, needsShell } = this.buildSpawnCommand(args);
 
+    // PHASE 3: Debug logging for spawn diagnostics
+    console.log('[ClaudeCliLauncher] Spawning Claude CLI with details:', {
+      sessionId,
+      platform: os.platform(),
+      installationPath: this.installation.path,
+      installationSource: this.installation.source,
+      useDirectExecution: this.installation.useDirectExecution || false,
+      cliJsPath: this.installation.cliJsPath || 'none',
+      command,
+      needsShell,
+      cwd,
+      resumeSessionId: resumeSessionId || 'none',
+      model: model || 'default',
+    });
+
     // Spawn child process
     const childProcess = spawn(command, commandArgs, {
       cwd,
@@ -68,6 +83,12 @@ export class ClaudeCliLauncher {
       // CRITICAL: Set windowsVerbatimArguments to prevent command-line escaping issues
       windowsVerbatimArguments: false,
     });
+
+    // PHASE 3: Log successful spawn
+    console.log(
+      '[ClaudeCliLauncher] Process spawned successfully, PID:',
+      childProcess.pid
+    );
 
     // CRITICAL: Set encoding on stdout to force line-buffered mode
     if (childProcess.stdout) {
@@ -96,7 +117,12 @@ export class ClaudeCliLauncher {
     );
 
     // Create streaming output with event handling
-    return this.createStreamingPipeline(childProcess, sessionId);
+    return this.createStreamingPipeline(
+      childProcess,
+      sessionId,
+      command,
+      needsShell
+    );
   }
 
   /**
@@ -206,7 +232,9 @@ export class ClaudeCliLauncher {
    */
   private createStreamingPipeline(
     childProcess: ChildProcess,
-    sessionId: SessionId
+    sessionId: SessionId,
+    spawnCommand: string,
+    spawnShell: boolean
   ): Readable {
     if (!childProcess.stdout) {
       throw new Error('Child process stdout is null');
@@ -316,9 +344,18 @@ export class ClaudeCliLauncher {
       this.deps.eventPublisher.emitSessionEnd(sessionId, reason);
     });
 
-    // Handle process error
+    // Handle process error (ENOENT, EACCES, etc.)
     childProcess.on('error', (error) => {
-      console.error('[ClaudeCliLauncher] Process error:', error.message);
+      // PHASE 3: Enhanced error logging with diagnostic details
+      console.error('[ClaudeCliLauncher] Process spawn/execution error:', {
+        errorMessage: error.message,
+        errorCode: (error as NodeJS.ErrnoException).code,
+        sessionId,
+        command: spawnCommand,
+        needsShell: spawnShell,
+        installationPath: this.installation.path,
+        platform: os.platform(),
+      });
       this.deps.eventPublisher.emitError(error.message, sessionId);
       outputStream.destroy(error);
     });
