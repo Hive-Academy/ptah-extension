@@ -184,17 +184,34 @@ Glob(task-tracking/TASK_[ID]/**.md)
 # Check if team-leader created tasks.md
 if tasks.md exists:
   Read(task-tracking/TASK_[ID]/tasks.md)
-  # Find YOUR assigned task: Look for "🔄 IN PROGRESS - Assigned to backend-developer"
-  # Extract:
-  #   - Task number and description
-  #   - Expected file paths
-  #   - Specification line references
-  #   - Verification requirements
-  #   - Expected commit message pattern
-  # IMPLEMENT ONLY THIS TASK - nothing else!
+
+  # CRITICAL: Check for BATCH assignment
+  # Look for batch marked "🔄 IN PROGRESS - Assigned to backend-developer"
+
+  if BATCH found:
+    # Extract ALL tasks in the batch:
+    #   - Batch number and name
+    #   - ALL task numbers and descriptions in batch
+    #   - Expected file paths for EACH task
+    #   - Specification line references for EACH task
+    #   - Dependencies between tasks
+    #   - Batch verification requirements
+    # IMPLEMENT ALL TASKS IN BATCH - in order, respecting dependencies
+
+  else if single task found:
+    # Extract single task (old format):
+    #   - Task number and description
+    #   - Expected file paths
+    #   - Specification line references
+    #   - Verification requirements
+    #   - Expected commit message pattern
+    # IMPLEMENT ONLY THIS TASK
 ```
 
-**IMPORTANT**: If tasks.md exists, it contains your ATOMIC task assignment. Do NOT implement the entire plan - only your assigned task.
+**IMPORTANT**:
+
+- **Batch Mode** (new): Implement ALL tasks in assigned batch, ONE commit at end
+- **Single Task Mode** (legacy): Implement one task, commit immediately
 
 ### STEP 3: Read Architecture Documents
 
@@ -327,14 +344,155 @@ Read([example3])
 - [List patterns and why not needed]
 ```
 
-### STEP 6: Implement ONLY Your Assigned Task
+### STEP 6: Execute Your Assignment (Batch or Single Task)
+
+#### OPTION A: BATCH EXECUTION (Preferred - New Format)
+
+**If you have a BATCH assignment:**
+
+```typescript
+// BATCH: Backend Data Layer (Tasks 1.1, 1.2, 1.3)
+
+// Task 1.1: UserEntity
+// File: apps/backend-api/src/entities/user.entity.ts
+import { Neo4jEntity, Neo4jProp, Id } from '@hive-academy/nestjs-neo4j';
+
+@Neo4jEntity('User')
+export class UserEntity {
+  @Id()
+  id!: string;
+
+  @Neo4jProp()
+  email!: string;
+
+  @Neo4jProp()
+  name!: string;
+}
+// ✅ IMPLEMENT → git add apps/backend-api/src/entities/user.entity.ts
+
+// Task 1.2: UserRepository (depends on Task 1.1)
+// File: apps/backend-api/src/repositories/user.repository.ts
+import { Injectable } from '@nestjs/common';
+import { Neo4jService } from '@hive-academy/nestjs-neo4j';
+import { UserEntity } from '../entities/user.entity';
+
+@Injectable()
+export class UserRepository {
+  constructor(private neo4j: Neo4jService) {}
+
+  async findById(id: string): Promise<UserEntity | null> {
+    // Implementation
+  }
+}
+// ✅ IMPLEMENT → git add apps/backend-api/src/repositories/user.repository.ts
+
+// Task 1.3: UserService (depends on Task 1.2)
+// File: apps/backend-api/src/services/user.service.ts
+import { Injectable } from '@nestjs/common';
+import { UserRepository } from '../repositories/user.repository';
+
+@Injectable()
+export class UserService {
+  constructor(private repository: UserRepository) {}
+
+  async getUser(id: string) {
+    // Implementation
+  }
+}
+// ✅ IMPLEMENT → git add apps/backend-api/src/services/user.service.ts
+
+// ALL TASKS COMPLETE → Now commit the entire batch
+```
+
+**Batch Execution Workflow:**
+
+1. **Implement tasks in ORDER** (respect dependencies: 1.1 → 1.2 → 1.3)
+2. **Stage files progressively**: `git add [file]` after each task
+3. **Create ONE commit for entire batch** (after all tasks complete):
+
+```bash
+# All tasks in batch implemented and staged
+git commit -m "$(cat <<'EOF'
+feat(neo4j): batch 1 - backend data layer
+
+- Task 1.1: add user entity
+- Task 1.2: add user repository
+- Task 1.3: add user service
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+EOF
+)"
+```
+
+4. **Self-verify entire batch**:
+
+```bash
+# Verify commit exists
+git log --oneline -1
+
+# Verify ALL files exist
+Read(apps/backend-api/src/entities/user.entity.ts)
+Read(apps/backend-api/src/repositories/user.repository.ts)
+Read(apps/backend-api/src/services/user.service.ts)
+
+# Verify build passes
+npx nx build backend-api
+```
+
+5. **Update tasks.md**:
+
+```bash
+Edit(task-tracking/TASK_[ID]/tasks.md)
+# For EACH task in batch: Change "⏸️ PENDING" → "✅ COMPLETE"
+# For batch header: Add git commit SHA
+# Example:
+# **Batch 1 Git Commit**: abc123def
+```
+
+6. **Return batch completion report**:
+
+```markdown
+## Batch Completion Report
+
+**Batch**: Batch 1 - Backend Data Layer
+**Tasks Completed**: 3/3
+**Git Commit**: [SHA from git log]
+**Build Status**: ✅ Passing
+
+**Tasks Implemented**:
+
+- Task 1.1: UserEntity (apps/backend-api/src/entities/user.entity.ts)
+- Task 1.2: UserRepository (apps/backend-api/src/repositories/user.repository.ts)
+- Task 1.3: UserService (apps/backend-api/src/services/user.service.ts)
+
+**Architecture Assessment** (for batch):
+
+- Complexity Level: 1-2 (Simple CRUD with repository pattern)
+- Patterns Applied: Repository pattern, Dependency Injection
+- Patterns Rejected: DDD, CQRS (not needed for simple CRUD)
+
+**Verification Performed**:
+
+- ✅ All 3 files exist
+- ✅ Batch commit verified
+- ✅ Build passes: `npx nx build backend-api`
+- ✅ Dependencies respected (entity → repository → service)
+- ✅ SOLID principles applied throughout
+
+**Next Action**: Return to team-leader for batch verification
+```
+
+#### OPTION B: SINGLE TASK EXECUTION (Legacy Format)
+
+**If you have a SINGLE task assignment:**
 
 ```typescript
 // ✅ CORRECT: Implement atomic task from tasks.md
 // Task: Implement StoreItem entity for LangGraph Store
 // File: apps/dev-brand-api/src/app/entities/neo4j/store-item.entity.ts
 // Complexity Level: 1 (Simple CRUD)
-// Patterns: Basic entity pattern only
 
 import { Neo4jEntity, Neo4jProp, Id } from '@hive-academy/nestjs-neo4j';
 
@@ -349,75 +507,47 @@ export class StoreItemEntity {
   @Neo4jProp()
   value!: string;
 }
-
-// ❌ WRONG: Over-engineering for simple entity
-// Don't add: Repository, Service, DTOs, Mappers, Validators
-// until complexity signals appear
 ```
 
-### STEP 7: Commit to Git IMMEDIATELY
+**Single Task Workflow:**
+
+1. **Implement task**
+2. **Commit immediately**:
 
 ```bash
-# Commit after completing YOUR task (not at the end of all tasks)
 git add [files-for-this-task-only]
 git commit -m "[expected-commit-pattern-from-tasks.md]"
-
-# Example from tasks.md:
-# Expected Commit: "feat(neo4j): add store item entity for langgraph integration"
-git commit -m "feat(neo4j): add store item entity for langgraph integration"
 ```
 
-### STEP 8: Self-Verify Your Work
+3. **Self-verify**:
 
 ```bash
-# Verify your commit exists
 git log --oneline -1
-
-# Verify your file exists and has correct content
 Read([file-you-created])
-
-# Verify build passes
 npx nx build [project-name]
 ```
 
-### STEP 9: Update tasks.md Status
+4. **Update tasks.md**:
 
 ```bash
-# Update YOUR task status in tasks.md
 Edit(task-tracking/TASK_[ID]/tasks.md)
 # Change: "🔄 IN PROGRESS" → "✅ COMPLETE"
 # Add: Git Commit SHA
-# Add: Verification results
-# Add: Architecture assessment
 ```
 
-### STEP 10: Report Completion
+5. **Return single task completion report**
 
-```markdown
-## Task Completion Report
+---
 
-**Task**: [Task number and description from tasks.md]
-**File**: [Absolute file path]
-**Git Commit**: [SHA from git log]
-**Build Status**: ✅ Passing / ❌ Failed
+**🎯 KEY DIFFERENCES:**
 
-**Architecture Assessment**:
-
-- Complexity Level: [1/2/3/4]
-- Signals: [List]
-- Patterns Applied: [List]
-- Patterns Rejected: [List with reasons]
-
-**Verification Performed**:
-
-- ✅ Import verification: [List verified imports]
-- ✅ Example analysis: [List example files analyzed]
-- ✅ Pattern matching: [Confirmed pattern source]
-- ✅ Build verification: `npx nx build [project]` passes
-- ✅ SOLID principles: [How applied]
-
-**Next Action**: Return to team-leader for verification
-```
+| Aspect              | Batch Execution         | Single Task             |
+| ------------------- | ----------------------- | ----------------------- |
+| Tasks per iteration | 3-5 related tasks       | 1 task                  |
+| Commits             | 1 commit per batch      | 1 commit per task       |
+| Pre-commit hooks    | Runs once               | Runs every task         |
+| Efficiency          | High (fewer iterations) | Lower (many iterations) |
+| Verification        | Batch verification      | Task verification       |
 
 ---
 

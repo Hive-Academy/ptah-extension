@@ -47,16 +47,89 @@ export interface LogEntry {
  * }
  * ```
  */
+/**
+ * Configuration for logging service
+ */
+export interface LoggingConfig {
+  level: LogLevel;
+  enableConsole: boolean;
+  maxHistorySize: number;
+}
+
+/**
+ * Default logging configuration
+ * - Production: Only WARN and ERROR
+ * - Development: INFO and above (includes WARN, ERROR)
+ * - Debug mode: All logs including DEBUG
+ */
+const DEFAULT_LOG_CONFIG: LoggingConfig = {
+  // Use INFO for development (info, warnings, and errors)
+  // Set to DEBUG via window.PTAH_DEBUG_LOGGING = true for troubleshooting
+  // Set to WARN for production (only warnings and errors)
+  level: LogLevel.INFO,
+  enableConsole: true,
+  maxHistorySize: 1000,
+};
+
 @Injectable({
   providedIn: 'root',
 })
 export class LoggingService {
   // Signal-based log level for reactive updates
-  private readonly _currentLevel = signal<LogLevel>(LogLevel.INFO);
+  private readonly _currentLevel = signal<LogLevel>(DEFAULT_LOG_CONFIG.level);
   readonly currentLevel = this._currentLevel.asReadonly();
 
   private logHistory: LogEntry[] = [];
-  private readonly maxHistorySize = 1000;
+  private readonly maxHistorySize = DEFAULT_LOG_CONFIG.maxHistorySize;
+  private consoleEnabled = DEFAULT_LOG_CONFIG.enableConsole;
+
+  constructor() {
+    this.initializeFromEnvironment();
+  }
+
+  /**
+   * Initialize log level from environment/window variables
+   * Supports:
+   * - window.PTAH_LOG_LEVEL = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'NONE'
+   * - window.PTAH_DEBUG_LOGGING = true (enables DEBUG level)
+   */
+  private initializeFromEnvironment(): void {
+    const win = window as Window & {
+      PTAH_LOG_LEVEL?: string;
+      PTAH_DEBUG_LOGGING?: boolean;
+    };
+
+    // Check for debug mode flag
+    if (win.PTAH_DEBUG_LOGGING === true) {
+      this._currentLevel.set(LogLevel.DEBUG);
+      console.info(
+        '[LoggingService] Debug logging enabled via window.PTAH_DEBUG_LOGGING'
+      );
+      return;
+    }
+
+    // Check for explicit log level
+    if (win.PTAH_LOG_LEVEL) {
+      const levelName = win.PTAH_LOG_LEVEL.toUpperCase();
+      const level = LogLevel[levelName as keyof typeof LogLevel];
+      if (level !== undefined) {
+        this._currentLevel.set(level);
+        console.info(
+          `[LoggingService] Log level set to ${levelName} via window.PTAH_LOG_LEVEL`
+        );
+        return;
+      }
+    }
+
+    console.info(
+      `[LoggingService] Using default log level: ${
+        LogLevel[this._currentLevel()]
+      }`
+    );
+    console.info(
+      '[LoggingService] To enable debug logging, run: window.PTAH_DEBUG_LOGGING = true'
+    );
+  }
 
   /**
    * Set the minimum log level
@@ -64,6 +137,28 @@ export class LoggingService {
    */
   setLogLevel(level: LogLevel): void {
     this._currentLevel.set(level);
+    console.info(`[LoggingService] Log level changed to ${LogLevel[level]}`);
+  }
+
+  /**
+   * Enable or disable console output
+   */
+  setConsoleEnabled(enabled: boolean): void {
+    this.consoleEnabled = enabled;
+    console.info(
+      `[LoggingService] Console output ${enabled ? 'enabled' : 'disabled'}`
+    );
+  }
+
+  /**
+   * Get current configuration
+   */
+  getConfig(): LoggingConfig {
+    return {
+      level: this._currentLevel(),
+      enableConsole: this.consoleEnabled,
+      maxHistorySize: this.maxHistorySize,
+    };
   }
 
   /**
@@ -173,6 +268,11 @@ export class LoggingService {
    * Output log entry to browser console
    */
   private logToConsole(entry: LogEntry): void {
+    // Skip console output if disabled
+    if (!this.consoleEnabled) {
+      return;
+    }
+
     const timestamp = entry.timestamp.toISOString();
     const prefix = `[${timestamp}] [${LogLevel[entry.level]}] ${
       entry.context

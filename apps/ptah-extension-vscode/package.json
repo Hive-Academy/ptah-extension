@@ -288,7 +288,155 @@
           "description": "Use mock responses for development testing"
         }
       }
-    }
+    },
+    "languageModelTools": [
+      {
+        "name": "ptah_analyze_workspace",
+        "toolReferenceName": "ptah_analyze_workspace",
+        "displayName": "Analyze Workspace",
+        "modelDescription": "Analyzes the current workspace to detect project type (React, Angular, NestJS, etc.), frameworks, dependencies, and provides context recommendations. Use this when you need to understand the workspace structure, detect technologies in use, or determine what kind of project you're working with.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "includeHidden": {
+              "type": "boolean",
+              "description": "Include hidden files and folders in analysis"
+            }
+          }
+        },
+        "userDescription": "Analyzes workspace to detect project type and frameworks",
+        "icon": "$(search)",
+        "canBeReferencedInPrompt": true
+      },
+      {
+        "name": "ptah_search_files",
+        "toolReferenceName": "ptah_search_files",
+        "displayName": "Search Files",
+        "modelDescription": "Searches for files in the workspace matching a query pattern. Supports glob patterns, file extensions, and text search. Use this when you need to find specific files, search by extension (*.ts, *.json), or locate files containing certain names. Returns up to maxResults files with their paths.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Search query (supports glob patterns like *.ts, **/*.json)"
+            },
+            "includeImages": {
+              "type": "boolean",
+              "description": "Include image files in results"
+            },
+            "maxResults": {
+              "type": "number",
+              "description": "Maximum number of results to return"
+            }
+          },
+          "required": [
+            "query"
+          ]
+        },
+        "userDescription": "Search for files matching a query pattern",
+        "icon": "$(search)",
+        "canBeReferencedInPrompt": true
+      },
+      {
+        "name": "ptah_get_relevant_files",
+        "toolReferenceName": "ptah_get_relevant_files",
+        "displayName": "Get Relevant Files",
+        "modelDescription": "Suggests files relevant to a specific task or feature. Uses AI-powered relevance scoring to find files that are likely to be important for the given task description. Use this when you need to know which files to examine or modify for a particular feature, bug fix, or implementation task.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "taskDescription": {
+              "type": "string",
+              "description": "Description of the task or feature to find relevant files for"
+            },
+            "conversationContext": {
+              "type": "string",
+              "description": "Additional context from the conversation"
+            }
+          },
+          "required": [
+            "taskDescription"
+          ]
+        },
+        "userDescription": "Finds files relevant to a specific task",
+        "icon": "$(file-code)",
+        "canBeReferencedInPrompt": true
+      },
+      {
+        "name": "ptah_get_diagnostics",
+        "toolReferenceName": "ptah_get_diagnostics",
+        "displayName": "Get Diagnostics",
+        "modelDescription": "Retrieves VS Code diagnostics (errors, warnings, hints) for a specific file or the entire workspace. Use this to understand what problems exist in the code, check for TypeScript errors, linting issues, or other diagnostic information reported by language servers.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "filePath": {
+              "type": "string",
+              "description": "Optional: specific file path to get diagnostics for. If omitted, returns workspace-wide diagnostics."
+            },
+            "severity": {
+              "type": "string",
+              "enum": [
+                "error",
+                "warning",
+                "info",
+                "hint"
+              ],
+              "description": "Filter by diagnostic severity"
+            }
+          }
+        },
+        "userDescription": "Gets errors, warnings, and diagnostics for files",
+        "icon": "$(warning)",
+        "canBeReferencedInPrompt": true
+      },
+      {
+        "name": "ptah_find_symbol",
+        "toolReferenceName": "ptah_find_symbol",
+        "displayName": "Find Symbol",
+        "modelDescription": "Searches for classes, functions, interfaces, types, or variables across the entire workspace. Use this when you need to locate where a specific class, function, or type is defined, or to find all occurrences of a symbol name. Supports filtering by symbol type (class, function, interface, type, variable).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "symbolName": {
+              "type": "string",
+              "description": "Name of the symbol to search for"
+            },
+            "symbolType": {
+              "type": "string",
+              "enum": [
+                "class",
+                "function",
+                "interface",
+                "type",
+                "variable",
+                "any"
+              ],
+              "description": "Type of symbol to search for (defaults to any)"
+            }
+          },
+          "required": [
+            "symbolName"
+          ]
+        },
+        "userDescription": "Finds classes, functions, interfaces, or types in workspace",
+        "icon": "$(symbol-class)",
+        "canBeReferencedInPrompt": true
+      },
+      {
+        "name": "ptah_get_git_status",
+        "toolReferenceName": "ptah_get_git_status",
+        "displayName": "Get Git Status",
+        "modelDescription": "Retrieves the current git repository status including staged changes, modified files, untracked files, current branch, and commits ahead/behind remote. Use this to understand what changes have been made, what's ready to commit, or to check the state of the working tree before making code changes.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        },
+        "userDescription": "Gets current git repository status",
+        "icon": "$(git-commit)",
+        "canBeReferencedInPrompt": true
+      }
+    ]
   },
   "devDependencies": {
     "@types/node": "16.x",

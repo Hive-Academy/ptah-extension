@@ -22,7 +22,12 @@ import {
 } from '@ptah-extension/core';
 
 // Types
-import { StrictChatSession, SessionId } from '@ptah-extension/shared';
+import {
+  StrictChatSession,
+  SessionId,
+  CHAT_MESSAGE_TYPES,
+  SYSTEM_MESSAGE_TYPES,
+} from '@ptah-extension/shared';
 
 // Child Components
 import { SessionSelectorComponent } from '../../components/session-selector/session-selector.component';
@@ -677,11 +682,8 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
   private setupSessionSynchronization(): void {
     // Handle initial data from backend
     this.vscode
-      .onMessage()
-      .pipe(
-        filter((msg) => msg.type === 'initialData'),
-        takeUntil(this.destroy$)
-      )
+      .onMessageType(SYSTEM_MESSAGE_TYPES.INITIAL_DATA)
+      .pipe(takeUntil(this.destroy$))
       .subscribe((initialData: unknown) => {
         const typedData = initialData as {
           data?: { sessions?: readonly StrictChatSession[] };
@@ -692,7 +694,7 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
         });
 
         if (sessions.length > 0) {
-          this.logger.info(
+          this.logger.debug(
             'Setting initial sessions',
             'SessionManagerComponent',
             {
@@ -707,13 +709,11 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
     // Monitor chat service session changes for real-time updates
     combineLatest([
       toObservable(this.chatService.currentSession),
-      this.vscode
-        .onMessage()
-        .pipe(filter((msg) => msg.type === 'chat:sessionsUpdated')),
+      this.vscode.onMessageType(CHAT_MESSAGE_TYPES.SESSIONS_UPDATED),
     ])
       .pipe(debounceTime(100), takeUntil(this.destroy$))
       .subscribe(([currentSession, sessionsUpdate]) => {
-        this.logger.info('Session state changed', 'SessionManagerComponent', {
+        this.logger.debug('Session state changed', 'SessionManagerComponent', {
           currentSessionId: currentSession?.id,
           hasSessionsUpdate: !!sessionsUpdate,
         });
@@ -749,15 +749,12 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
       this._isLoading.set(true);
 
       // Request sessions from backend
-      this.vscode.postStrictMessage('chat:requestSessions', {});
+      this.vscode.postStrictMessage(CHAT_MESSAGE_TYPES.REQUEST_SESSIONS, {});
 
       // Listen for response
       this.vscode
-        .onMessage()
-        .pipe(
-          filter((msg) => msg.type === 'chat:sessionsUpdated'),
-          takeUntil(this.destroy$)
-        )
+        .onMessageType(CHAT_MESSAGE_TYPES.SESSIONS_UPDATED)
+        .pipe(takeUntil(this.destroy$))
         .subscribe((response: unknown) => {
           const typedResponse = response as {
             data?: { sessions?: readonly StrictChatSession[] };
@@ -864,7 +861,9 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
     this._loadingSessionId.set(sessionId);
 
     try {
-      this.vscode.postStrictMessage('chat:deleteSession', { sessionId });
+      this.vscode.postStrictMessage(CHAT_MESSAGE_TYPES.DELETE_SESSION, {
+        sessionId,
+      });
 
       // Track session deletion
       this.analyticsService.trackEvent('session_deleted', {
@@ -893,7 +892,7 @@ export class SessionManagerComponent implements OnInit, OnDestroy {
     });
 
     try {
-      this.vscode.postStrictMessage('chat:renameSession', {
+      this.vscode.postStrictMessage(CHAT_MESSAGE_TYPES.RENAME_SESSION, {
         sessionId,
         newName,
       });

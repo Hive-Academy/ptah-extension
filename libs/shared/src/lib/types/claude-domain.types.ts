@@ -247,3 +247,101 @@ export const ClaudeCliLaunchOptionsSchema = z.object({
   workspaceRoot: z.string().optional(),
   verbose: z.boolean().optional(),
 });
+
+/**
+ * Agent Event Types - For agent lifecycle tracking
+ * Pattern: Follows ClaudeToolEvent discriminated union pattern (lines 77-151)
+ *
+ * These events track the lifecycle of agents spawned via the Task tool:
+ * - agent_start: Agent initialization with prompt and configuration
+ * - agent_activity: Tool execution activity within an agent
+ * - agent_complete: Agent task completion with result
+ */
+export type ClaudeAgentEventType =
+  | 'agent_start'
+  | 'agent_activity'
+  | 'agent_complete';
+
+/**
+ * Agent Start Event - Emitted when a new agent is spawned via Task tool
+ */
+export interface ClaudeAgentStartEvent {
+  readonly type: 'agent_start';
+  readonly agentId: string; // toolCallId from Task tool
+  readonly subagentType: string; // args.subagent_type
+  readonly description: string; // args.description
+  readonly prompt: string; // args.prompt
+  readonly model?: string; // args.model (optional)
+  readonly timestamp: number;
+}
+
+/**
+ * Agent Activity Event - Emitted when an agent executes a tool
+ */
+export interface ClaudeAgentActivityEvent {
+  readonly type: 'agent_activity';
+  readonly agentId: string; // parent_tool_use_id
+  readonly toolName: string; // tool executed by agent
+  readonly toolInput: Record<string, unknown>; // tool arguments
+  readonly timestamp: number;
+}
+
+/**
+ * Agent Complete Event - Emitted when an agent completes its task
+ */
+export interface ClaudeAgentCompleteEvent {
+  readonly type: 'agent_complete';
+  readonly agentId: string; // toolCallId from Task tool
+  readonly duration: number; // milliseconds
+  readonly result?: string; // tool_result output
+  readonly timestamp: number;
+}
+
+/**
+ * Agent Event Union - Discriminated union of all agent event types
+ */
+export type ClaudeAgentEvent =
+  | ClaudeAgentStartEvent
+  | ClaudeAgentActivityEvent
+  | ClaudeAgentCompleteEvent;
+
+/**
+ * Zod Schemas for Runtime Validation
+ */
+export const ClaudeAgentStartEventSchema = z
+  .object({
+    type: z.literal('agent_start'),
+    agentId: z.string(),
+    subagentType: z.string(),
+    description: z.string(),
+    prompt: z.string(),
+    model: z.string().optional(),
+    timestamp: z.number(),
+  })
+  .strict();
+
+export const ClaudeAgentActivityEventSchema = z
+  .object({
+    type: z.literal('agent_activity'),
+    agentId: z.string(),
+    toolName: z.string(),
+    toolInput: z.record(z.unknown()),
+    timestamp: z.number(),
+  })
+  .strict();
+
+export const ClaudeAgentCompleteEventSchema = z
+  .object({
+    type: z.literal('agent_complete'),
+    agentId: z.string(),
+    duration: z.number(),
+    result: z.string().optional(),
+    timestamp: z.number(),
+  })
+  .strict();
+
+export const ClaudeAgentEventSchema = z.discriminatedUnion('type', [
+  ClaudeAgentStartEventSchema,
+  ClaudeAgentActivityEventSchema,
+  ClaudeAgentCompleteEventSchema,
+]);

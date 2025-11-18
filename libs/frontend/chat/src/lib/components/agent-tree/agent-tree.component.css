@@ -1,0 +1,244 @@
+/* Agent Tree Container */
+.agent-tree {
+  width: 100%;
+  padding: 8px;
+  background-color: var(--vscode-sideBar-background);
+  overflow-y: auto;
+  max-height: 600px;
+}
+
+/* Agent Node */
+.agent-node {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 4px;
+  background-color: var(--vscode-editor-background);
+  border-left: 2px solid var(--vscode-symbolIcon-classForeground);
+  cursor: pointer;
+  transition: background-color 150ms ease-out;
+}
+
+.agent-node:hover {
+  background-color: var(--vscode-list-hoverBackground);
+}
+
+.agent-node:focus {
+  outline: 2px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+.agent-node.error {
+  border-left-color: var(--vscode-errorForeground);
+}
+
+/* Chevron Icon */
+.chevron-icon {
+  flex-shrink: 0;
+  color: var(--vscode-descriptionForeground);
+  transition: transform 150ms ease-out;
+}
+
+.chevron-icon.expanded {
+  transform: rotate(90deg);
+}
+
+/* Agent Type Label */
+.agent-type {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--vscode-editor-foreground);
+}
+
+/* Agent Status (right-aligned) */
+.agent-status {
+  position: absolute;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-duration {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--vscode-descriptionForeground);
+}
+
+.status-badge {
+  font-size: 14px;
+}
+
+/* Expanded Content */
+.agent-node-content {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background-color: var(--vscode-editor-background);
+  border-left: 2px solid var(--vscode-symbolIcon-classForeground);
+  border-bottom: 1px solid var(--vscode-widget-border);
+  padding: 8px 12px 8px 40px;
+  animation: expandNode 300ms ease-out;
+  overflow: hidden;
+}
+
+/* Agent Description */
+.agent-description {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  margin-bottom: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* Error Message */
+.error-message {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--vscode-errorForeground);
+  margin-bottom: 8px;
+  padding: 4px 8px;
+  background-color: var(--vscode-inputValidation-errorBackground);
+  border-radius: 3px;
+}
+
+/* Tool Activities */
+.tool-activities {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding-left: 16px;
+  border-left: 1px solid var(--vscode-widget-border);
+}
+
+.tool-activity-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  background-color: transparent;
+  transition: background-color 150ms ease-out;
+  cursor: default;
+}
+
+.tool-activity-line:hover {
+  background-color: var(--vscode-list-hoverBackground);
+}
+
+.tool-activity-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Future Fields */
+.agent-cost,
+.agent-tokens,
+.agent-mcp-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  margin-top: 4px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.cost-label,
+.tokens-label,
+.mcp-tools-label {
+  font-weight: 600;
+  color: var(--vscode-editor-foreground);
+}
+
+.cost-value {
+  color: var(--vscode-charts-blue);
+}
+
+.tokens-value {
+  color: var(--vscode-charts-green);
+}
+
+.mcp-tools-value {
+  color: var(--vscode-charts-purple);
+}
+
+.agent-custom-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  margin-top: 4px;
+  background-color: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+/* Expand/Collapse Animation */
+@keyframes expandNode {
+  from {
+    max-height: 0;
+    opacity: 0;
+  }
+  to {
+    max-height: 500px;
+    opacity: 1;
+  }
+}
+
+/* Scrollbar Styling */
+.agent-tree::-webkit-scrollbar {
+  width: 8px;
+}
+
+.agent-tree::-webkit-scrollbar-track {
+  background: var(--vscode-scrollbarSlider-background);
+}
+
+.agent-tree::-webkit-scrollbar-thumb {
+  background: var(--vscode-scrollbarSlider-hoverBackground);
+  border-radius: 4px;
+}
+
+.agent-tree::-webkit-scrollbar-thumb:hover {
+  background: var(--vscode-scrollbarSlider-activeBackground);
+}
+
+/* Reduced Motion Support */
+@media (prefers-reduced-motion: reduce) {
+  .chevron-icon,
+  .agent-node,
+  .tool-activity-line {
+    transition: none;
+  }
+
+  .agent-node-content {
+    animation: none;
+  }
+}
+
+/* High Contrast Mode */
+@media (prefers-contrast: high) {
+  .agent-node {
+    border-left-width: 3px;
+  }
+
+  .agent-node:focus {
+    outline-width: 3px;
+  }
+
+  .tool-activities {
+    border-left-width: 2px;
+  }
+}

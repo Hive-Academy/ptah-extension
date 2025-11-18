@@ -1,3 +1,10 @@
+---
+agent: modernization-detector
+description: Future work consolidation phase - Extract deferred items and detect modernization opportunities
+tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
+model: Claude Sonnet 4.5 (Preview) (copilot)
+---
+
 # Phase 8: Modernization Detector - Future Work Consolidation
 
 **Agent**: modernization-detector  
@@ -160,7 +167,50 @@ grep_search("NgModule", false) # Old Angular patterns
 
 **Lessons Documented**: {count} patterns to reuse
 
-Task {TASK_ID} lifecycle COMPLETE. Ready for PR creation.
+**Next Phase Recommendations**:
+
+- ✅ **Task Lifecycle COMPLETE**: All workflow phases finished. User handles git operations (PR creation, merge) when ready. Task {TASK_ID} has completed the full orchestration cycle from requirements → implementation → QA → future work consolidation.
+
+**Note**: This is the final phase. Orchestrator will provide completion summary to user.
+```
+
+---
+
+## 📨 HANDOFF PROTOCOL
+
+### Final Completion Report
+
+After consolidating future work, provide final message:
+
+```markdown
+## 🎉 Phase 8 Complete - Workflow Finished
+
+**Future Work Extracted**:
+
+- High Priority: {count} items
+- Medium Priority: {count} items
+- Low Priority: {count} items
+
+**Deliverables Created**:
+
+- ✅ future-enhancements.md
+- ✅ future-work-dashboard.md updated
+- ✅ registry.md updated
+
+---
+
+## 📍 Final Step: Return to Orchestrator
+
+**Copy and send this command:**
+```
+
+/orchestrate TASK*2025*{XXX}
+
+```
+
+**Tell orchestrator**: "Phase 8 complete. All future work consolidated. Task lifecycle complete."
+
+The orchestrator will provide final workflow summary and git operation guidance.
 ```
 
 ---

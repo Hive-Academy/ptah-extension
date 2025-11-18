@@ -54,6 +54,17 @@ import {
   ContextOrchestrationService,
 } from '@ptah-extension/workspace-intelligence';
 
+// Import VS Code Language Model Tools
+import {
+  AnalyzeWorkspaceTool,
+  SearchFilesTool,
+  GetRelevantFilesTool,
+  GetDiagnosticsTool,
+  FindSymbolTool,
+  GetGitStatusTool,
+  LMToolsRegistrationService,
+} from '@ptah-extension/vscode-lm-tools';
+
 // Import ai-providers-core services
 import {
   IntelligentProviderStrategy,
@@ -83,6 +94,8 @@ import {
 // Import main app services
 import { AnalyticsDataCollector } from '../services/analytics-data-collector';
 import { CommandBuilderService } from '../services/command-builder.service';
+import { WebviewEventQueue } from '../services/webview-event-queue';
+import { WebviewInitialDataBuilder } from '../services/webview-initial-data-builder';
 import { AngularWebviewProvider } from '../providers/angular-webview.provider';
 import { ConfigurationProviderAdapter } from '../adapters/configuration-provider.adapter';
 import { AnalyticsDataCollectorAdapter } from '../adapters/analytics-data-collector.adapter';
@@ -114,6 +127,14 @@ export class DIContainer {
       TOKENS.MESSAGE_VALIDATOR,
       MessageValidatorService
     );
+
+    // Configuration Provider Adapter (depends on ConfigManager)
+    container.register(TOKENS.CONFIGURATION_PROVIDER, {
+      useFactory: (c) => {
+        const configManager = c.resolve<ConfigManager>(TOKENS.CONFIG_MANAGER);
+        return new ConfigurationProviderAdapter(configManager);
+      },
+    });
 
     // API Wrappers
     container.registerSingleton(TOKENS.COMMAND_MANAGER, CommandManager);
@@ -201,6 +222,34 @@ export class DIContainer {
     );
 
     // ========================================
+    // PHASE 2.5: VS Code Language Model Tools
+    // ========================================
+    // These tools expose workspace-intelligence to GitHub Copilot and other LLMs
+
+    // Register individual tools
+    container.registerSingleton(
+      TOKENS.ANALYZE_WORKSPACE_TOOL,
+      AnalyzeWorkspaceTool
+    );
+    container.registerSingleton(TOKENS.SEARCH_FILES_TOOL, SearchFilesTool);
+    container.registerSingleton(
+      TOKENS.GET_RELEVANT_FILES_TOOL,
+      GetRelevantFilesTool
+    );
+    container.registerSingleton(
+      TOKENS.GET_DIAGNOSTICS_TOOL,
+      GetDiagnosticsTool
+    );
+    container.registerSingleton(TOKENS.FIND_SYMBOL_TOOL, FindSymbolTool);
+    container.registerSingleton(TOKENS.GET_GIT_STATUS_TOOL, GetGitStatusTool);
+
+    // Register the tools registration service
+    container.registerSingleton(
+      TOKENS.LM_TOOLS_REGISTRATION_SERVICE,
+      LMToolsRegistrationService
+    );
+
+    // ========================================
     // PHASE 3: AI Providers Core Services
     // ========================================
 
@@ -214,16 +263,9 @@ export class DIContainer {
     container.registerSingleton(TOKENS.CONTEXT_MANAGER, ContextManager);
 
     // Provider Manager (depends on EventBus and Strategy)
-    // Use factory to ensure runtime resolution
-    container.register(TOKENS.PROVIDER_MANAGER, {
-      useFactory: (c) => {
-        const eventBus = c.resolve<EventBus>(TOKENS.EVENT_BUS);
-        const strategy = c.resolve<IntelligentProviderStrategy>(
-          TOKENS.INTELLIGENT_PROVIDER_STRATEGY
-        );
-        return new ProviderManager(eventBus, strategy);
-      },
-    });
+    // CRITICAL: Must be singleton to ensure all code uses the SAME instance
+    // Otherwise providers registered in one instance won't be visible to other instances!
+    container.registerSingleton(TOKENS.PROVIDER_MANAGER, ProviderManager);
 
     // Provider adapters
     container.registerSingleton(TOKENS.CLAUDE_CLI_ADAPTER, ClaudeCliAdapter);
@@ -248,13 +290,8 @@ export class DIContainer {
     };
     container.register(TOKENS.STORAGE_SERVICE, { useValue: storageAdapter });
 
-    // Configuration Provider Adapter (needs ConfigManager which is already registered)
-    container.register(TOKENS.CONFIGURATION_PROVIDER, {
-      useFactory: (c) => {
-        const configManager = c.resolve<ConfigManager>(TOKENS.CONFIG_MANAGER);
-        return new ConfigurationProviderAdapter(configManager);
-      },
-    });
+    // NOTE: CONFIGURATION_PROVIDER is NOW registered during Phase 1 (line 121)
+    // It was moved from main.ts to fix dependency injection order issues.
 
     // Core domain services
     container.registerSingleton(TOKENS.CLAUDE_CLI_DETECTOR, ClaudeCliDetector);
@@ -295,6 +332,13 @@ export class DIContainer {
     // ========================================
     // PHASE 5: Main App Services
     // ========================================
+
+    // Webview support services (Priority 2 extraction)
+    container.registerSingleton(TOKENS.WEBVIEW_EVENT_QUEUE, WebviewEventQueue);
+    container.registerSingleton(
+      TOKENS.WEBVIEW_INITIAL_DATA_BUILDER,
+      WebviewInitialDataBuilder
+    );
 
     // Main app services
     container.registerSingleton(

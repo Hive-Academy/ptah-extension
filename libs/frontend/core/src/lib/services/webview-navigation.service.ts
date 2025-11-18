@@ -1,6 +1,7 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { AppStateManager, ViewType } from './app-state.service';
 import { VSCodeService } from './vscode.service';
+import { VIEW_MESSAGE_TYPES } from '@ptah-extension/shared';
 
 export interface NavigationState {
   currentView: ViewType;
@@ -80,21 +81,12 @@ export class WebviewNavigationService {
 
     // Clear any stale error state
     this._navigationErrors.set([]);
-
-    console.log(
-      'WebviewNavigationService: Initialized with pure signal-based navigation'
-    );
   }
 
   private setupVSCodeListener(): void {
     // Listen for navigation requests from VS Code extension
     this.vscodeService.onMessageType('navigate').subscribe({
       next: (payload) => {
-        console.log(
-          'WebviewNavigationService: Received navigation request from VS Code:',
-          payload
-        );
-
         // Extract view from route
         const route =
           typeof payload === 'object' && payload !== null && 'route' in payload
@@ -108,7 +100,7 @@ export class WebviewNavigationService {
       },
       error: (error) => {
         console.error(
-          'WebviewNavigationService: Error in VS Code listener:',
+          'WebviewNavigationService: Error in VS Code listener',
           error
         );
       },
@@ -116,7 +108,13 @@ export class WebviewNavigationService {
   }
 
   private isValidViewType(view: string): view is ViewType {
-    return ['chat', 'command-builder', 'analytics'].includes(view);
+    return [
+      'chat',
+      'command-builder',
+      'analytics',
+      'context-tree',
+      'settings',
+    ].includes(view);
   }
 
   /**
@@ -127,39 +125,25 @@ export class WebviewNavigationService {
    */
   async navigateToView(view: ViewType): Promise<boolean> {
     if (!this.canNavigate()) {
-      console.warn(
-        'WebviewNavigationService: Navigation blocked - conditions not met'
-      );
       return false;
     }
 
     if (view === this.currentView()) {
-      console.info(
-        'WebviewNavigationService: Already on requested view:',
-        view
-      );
       return true;
     }
 
     this.setNavigating(true);
 
     try {
-      console.log(
-        'WebviewNavigationService: Navigating to view via signals:',
-        view
-      );
-
       // Pure signal-based navigation - update component state directly
       this.updateNavigationState(view);
 
       // Notify extension of view change (no URL manipulation)
-      await this.vscodeService.postStrictMessage('view:changed', { view });
+      await this.vscodeService.postStrictMessage(VIEW_MESSAGE_TYPES.CHANGED, {
+        view,
+      });
 
       this.setNavigating(false);
-      console.log(
-        'WebviewNavigationService: Navigation complete via signals to:',
-        view
-      );
       return true;
     } catch (error) {
       this.handleNavigationError(error, view);

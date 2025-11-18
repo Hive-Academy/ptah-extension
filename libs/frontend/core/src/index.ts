@@ -1,6 +1,9 @@
 // Main entry point for core library
 export * from './lib/services';
 
+// Export LogLevel enum for external configuration
+export { LogLevel, type LoggingConfig } from './lib/services/logging.service';
+
 // Export types and type guards from ClaudeMessageTransformerService
 export type {
   ClaudeContent,
@@ -12,6 +15,9 @@ export type {
   ClaudeCliStreamMessage,
 } from './lib/services/claude-message-transformer.service';
 
+// Export AgentTreeNode from ChatService
+export type { AgentTreeNode } from './lib/services/chat.service';
+
 // Export utility functions and type guards
 export {
   isTextContent,
@@ -21,8 +27,5 @@ export {
   detectFileType,
 } from './lib/services/claude-message-transformer.service';
 
-// Export FilePickerService types
-export type {
-  ChatFile,
-  FileSuggestion,
-} from './lib/services/file-picker.service';
+// Event subscription helpers (leverages MESSAGE_REGISTRY)
+export * from './lib/utils/event-subscription-helpers';

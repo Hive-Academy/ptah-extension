@@ -46,6 +46,11 @@ export const CHAT_MESSAGE_TYPES = {
   PERMISSION_REQUEST: 'chat:permissionRequest',
   PERMISSION_RESPONSE: 'chat:permissionResponse',
   ERROR: 'chat:error',
+
+  // Agent event types
+  AGENT_STARTED: 'chat:agentStarted' as const,
+  AGENT_ACTIVITY: 'chat:agentActivity' as const,
+  AGENT_COMPLETED: 'chat:agentCompleted' as const,
 } as const;
 
 /**
@@ -102,6 +107,13 @@ export const ANALYTICS_MESSAGE_TYPES = {
 } as const;
 
 /**
+ * Analytics response message types
+ */
+export const ANALYTICS_RESPONSE_TYPES = {
+  GET_DATA: 'analytics:getData:response',
+} as const;
+
+/**
  * Configuration message types
  */
 export const CONFIG_MESSAGE_TYPES = {
@@ -150,16 +162,100 @@ export const SYSTEM_MESSAGE_TYPES = {
 } as const;
 
 /**
+ * Chat response message types
+ */
+export const CHAT_RESPONSE_TYPES = {
+  SEND_MESSAGE: 'chat:sendMessage:response',
+  NEW_SESSION: 'chat:newSession:response',
+  SWITCH_SESSION: 'chat:switchSession:response',
+  GET_HISTORY: 'chat:getHistory:response',
+  RENAME_SESSION: 'chat:renameSession:response',
+  DELETE_SESSION: 'chat:deleteSession:response',
+  BULK_DELETE_SESSIONS: 'chat:bulkDeleteSessions:response',
+  GET_SESSION_STATS: 'chat:getSessionStats:response',
+  REQUEST_SESSIONS: 'chat:requestSessions:response',
+  STOP_STREAM: 'chat:stopStream:response',
+
+  // Agent response types
+  AGENT_STARTED: 'chat:agentStarted:response' as const,
+  AGENT_ACTIVITY: 'chat:agentActivity:response' as const,
+  AGENT_COMPLETED: 'chat:agentCompleted:response' as const,
+} as const;
+
+/**
+ * Provider response message types
+ */
+export const PROVIDER_RESPONSE_TYPES = {
+  GET_AVAILABLE: 'providers:getAvailable:response',
+  GET_CURRENT: 'providers:getCurrent:response',
+  SWITCH: 'providers:switch:response',
+  GET_HEALTH: 'providers:getHealth:response',
+  GET_ALL_HEALTH: 'providers:getAllHealth:response',
+  SET_DEFAULT: 'providers:setDefault:response',
+  ENABLE_FALLBACK: 'providers:enableFallback:response',
+  SET_AUTO_SWITCH: 'providers:setAutoSwitch:response',
+} as const;
+
+/**
+ * Context response message types
+ */
+export const CONTEXT_RESPONSE_TYPES = {
+  GET_FILES: 'context:getFiles:response',
+  INCLUDE_FILE: 'context:includeFile:response',
+  EXCLUDE_FILE: 'context:excludeFile:response',
+  SEARCH_FILES: 'context:searchFiles:response',
+  GET_ALL_FILES: 'context:getAllFiles:response',
+  GET_FILE_SUGGESTIONS: 'context:getFileSuggestions:response',
+  SEARCH_IMAGES: 'context:searchImages:response',
+} as const;
+
+/**
+ * Command response message types
+ */
+export const COMMAND_RESPONSE_TYPES = {
+  GET_TEMPLATES: 'commands:getTemplates:response',
+  EXECUTE_COMMAND: 'commands:executeCommand:response',
+  SELECT_FILE: 'commands:selectFile:response',
+  SAVE_TEMPLATE: 'commands:saveTemplate:response',
+} as const;
+
+/**
+ * Configuration response message types
+ */
+export const CONFIG_RESPONSE_TYPES = {
+  GET: 'config:get:response',
+  SET: 'config:set:response',
+  UPDATE: 'config:update:response',
+  REFRESH: 'config:refresh:response',
+} as const;
+
+/**
+ * State response message types
+ */
+export const STATE_RESPONSE_TYPES = {
+  SAVE: 'state:save:response',
+  LOAD: 'state:load:response',
+  CLEAR: 'state:clear:response',
+} as const;
+
+/**
  * All message types combined for easy access
  */
 export const MESSAGE_TYPES = {
   ...CHAT_MESSAGE_TYPES,
+  ...CHAT_RESPONSE_TYPES,
   ...PROVIDER_MESSAGE_TYPES,
+  ...PROVIDER_RESPONSE_TYPES,
   ...CONTEXT_MESSAGE_TYPES,
+  ...CONTEXT_RESPONSE_TYPES,
   ...COMMAND_MESSAGE_TYPES,
+  ...COMMAND_RESPONSE_TYPES,
   ...ANALYTICS_MESSAGE_TYPES,
+  ...ANALYTICS_RESPONSE_TYPES,
   ...CONFIG_MESSAGE_TYPES,
+  ...CONFIG_RESPONSE_TYPES,
   ...STATE_MESSAGE_TYPES,
+  ...STATE_RESPONSE_TYPES,
   ...VIEW_MESSAGE_TYPES,
   ...SYSTEM_MESSAGE_TYPES,
 } as const;

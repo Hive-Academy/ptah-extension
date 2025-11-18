@@ -1,0 +1,105 @@
+<div class="agent-tree" role="tree" aria-label="Agent execution tree">
+  @for (node of agents(); track node.agent.agentId) {
+  <div
+    class="agent-node"
+    [class.expanded]="isExpanded(node.agent.agentId)"
+    [class.error]="node.status === 'error'"
+    role="treeitem"
+    [attr.aria-expanded]="isExpanded(node.agent.agentId)"
+    [attr.aria-selected]="false"
+    [attr.aria-level]="1"
+    tabindex="0"
+    (click)="toggleExpanded(node.agent.agentId)"
+    (keydown)="handleKeydown($event, node.agent.agentId)"
+  >
+    <!-- Collapse/Expand Chevron -->
+    <lucide-icon
+      [img]="
+        isExpanded(node.agent.agentId) ? ChevronDownIcon : ChevronRightIcon
+      "
+      [size]="12"
+      class="chevron-icon"
+      [class.expanded]="isExpanded(node.agent.agentId)"
+      aria-hidden="true"
+    />
+
+    <!-- Agent Type Label -->
+    <span class="agent-type">{{ node.agent.subagentType }}</span>
+
+    <!-- Duration & Status Badge -->
+    <div class="agent-status">
+      @if (node.duration) {
+      <span class="agent-duration">{{ formatDuration(node.duration) }}</span>
+      } @if (node.status === 'complete') {
+      <span class="status-badge complete" aria-label="Complete">✅</span>
+      } @else if (node.status === 'running') {
+      <span class="status-badge running" aria-label="Running">⏱️</span>
+      } @else if (node.status === 'error') {
+      <span class="status-badge error" aria-label="Error">🔴</span>
+      }
+    </div>
+
+    <!-- Expanded Content -->
+    @if (isExpanded(node.agent.agentId)) {
+    <div class="agent-node-content">
+      <!-- Agent Description -->
+      <div
+        class="agent-description"
+        [title]="node.agent.prompt || node.agent.description"
+      >
+        {{ node.agent.description }}
+      </div>
+
+      <!-- Error Message (if any) -->
+      @if (node.errorMessage) {
+      <div class="error-message">
+        <lucide-icon [img]="AlertCircleIcon" [size]="10" aria-hidden="true" />
+        {{ node.errorMessage }}
+      </div>
+      }
+
+      <!-- Tool Activity Lines -->
+      @if (node.activities.length > 0) {
+      <div class="tool-activities" role="group" aria-label="Tool executions">
+        @for (activity of node.activities; track activity.timestamp) {
+        <div
+          class="tool-activity-line"
+          role="treeitem"
+          [attr.aria-selected]="false"
+          [attr.aria-level]="2"
+          [title]="stringify(activity.toolInput)"
+        >
+          <span class="tool-activity-text">{{ formatActivity(activity) }}</span>
+        </div>
+        }
+      </div>
+      }
+
+      <!-- Future Fields (Conditional Rendering) -->
+      @if (node.cost !== undefined) {
+      <div class="agent-cost">
+        <span class="cost-label">Cost:</span>
+        <span class="cost-value">${{ node.cost.toFixed(4) }}</span>
+      </div>
+      } @if (node.tokens !== undefined) {
+      <div class="agent-tokens">
+        <span class="tokens-label">Tokens:</span>
+        <span class="tokens-value">
+          {{ node.tokens.input }} in / {{ node.tokens.output }} out
+        </span>
+      </div>
+      } @if (node.mcpTools !== undefined && node.mcpTools.length > 0) {
+      <div class="agent-mcp-tools">
+        <span class="mcp-tools-label">MCP Tools:</span>
+        <span class="mcp-tools-value">{{ node.mcpTools.join(', ') }}</span>
+      </div>
+      } @if (node.isCustomAgent) {
+      <div class="agent-custom-badge">
+        <span class="custom-badge-text">Custom Agent</span>
+      </div>
+      }
+    </div>
+    }
+  </div>
+  }
+</div>

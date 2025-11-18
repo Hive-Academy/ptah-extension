@@ -7,23 +7,21 @@ export {
   initializeVSCodeService,
   type WebviewConfig,
 } from './vscode.service';
-export * from './message-handler.service';
+// DELETED: MessageHandlerService - redundant, components subscribe directly to VSCodeService
 
 // Core Services - State Layer (depend on foundation)
 export * from './app-state.service';
-export * from './webview-config.service';
-export * from './view-manager.service';
 export * from './webview-navigation.service';
 
 // File Management Layer (workspace file operations)
-export { FilePickerService } from './file-picker.service';
+// MOVED: FilePickerService → @ptah-extension/chat (chat-specific UI)
 
 // Chat Layer (pure chat logic, state management, validation, transformations)
 export { ChatStateService } from './chat-state.service';
 export { ChatValidationService } from './chat-validation.service';
 export { ClaudeMessageTransformerService } from './claude-message-transformer.service';
 export { MessageProcessingService } from './message-processing.service';
-export * from './chat-state-manager.service';
+// MOVED: ChatStateManagerService → @ptah-extension/chat (chat-specific UI)
 export * from './chat.service';
 
 // Provider Layer (AI provider management and health monitoring)
@@ -34,12 +32,6 @@ export {
   type ProviderError,
   type ProviderSwitchEvent,
 } from './provider.service';
-
-// Streaming Layer (chat message streaming state)
-export {
-  StreamHandlingService,
-  type StreamState,
-} from './stream-handling.service';
 
 // Analytics Layer (system analytics and metrics)
 export {

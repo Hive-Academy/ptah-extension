@@ -16,6 +16,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Readable } from 'stream';
+import { workspace } from 'vscode';
 import { SessionId, PermissionDecision } from '@ptah-extension/shared';
 import {
   ClaudeCliDetector,
@@ -80,8 +81,12 @@ export class ClaudeCliService {
   ): Promise<Readable> {
     const launcher = await this.ensureLauncher();
 
-    // Get workspace root for CLI execution context
-    const workspaceRoot = process.cwd(); // TODO: Get from workspace service
+    // Get workspace root for CLI execution context (use first workspace folder)
+    const workspaceFolders = workspace.workspaceFolders;
+    const workspaceRoot =
+      workspaceFolders && workspaceFolders.length > 0
+        ? workspaceFolders[0].uri.fsPath
+        : process.cwd();
 
     // Spawn Claude CLI turn and return stream
     return launcher.spawnTurn(message, {

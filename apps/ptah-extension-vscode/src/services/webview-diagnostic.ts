@@ -81,23 +81,23 @@ export class WebviewDiagnostic {
       </head>
       <body>
         <h1>Ptah Webview Diagnostic</h1>
-        
+
         <div id="tests">
           <div class="test">
             <h3>1. VS Code API Test</h3>
             <p id="vscode-api-test">Testing...</p>
           </div>
-          
+
           <div class="test">
             <h3>2. Resource Loading Test</h3>
             <p id="resource-test">Testing...</p>
           </div>
-          
+
           <div class="test">
             <h3>3. Angular Build Files Test</h3>
             <p id="angular-files-test">Testing...</p>
           </div>
-          
+
           <div class="test">
             <h3>4. Network Test</h3>
             <p id="network-test">Testing...</p>
@@ -166,7 +166,7 @@ export class WebviewDiagnostic {
                 'browser'
               )
             )}';
-            
+
             // Test if main.js exists
             fetch(baseUri + '/main.js')
               .then(response => {
@@ -194,7 +194,7 @@ export class WebviewDiagnostic {
 
           function testAngularLoad() {
             log('Testing Angular app load...');
-            
+
             const baseUri = '${webview.asWebviewUri(
               vscode.Uri.joinPath(
                 context.extensionUri,
@@ -203,22 +203,22 @@ export class WebviewDiagnostic {
                 'browser'
               )
             )}';
-            
+
             // Create iframe to test Angular app
             const iframe = document.createElement('iframe');
             iframe.src = baseUri + '/index.html';
             iframe.style.width = '100%';
             iframe.style.height = '400px';
             iframe.style.border = '1px solid var(--vscode-input-border)';
-            
+
             iframe.onload = () => {
               log('Angular iframe loaded successfully');
             };
-            
+
             iframe.onerror = (error) => {
               log('Angular iframe failed to load: ' + error);
             };
-            
+
             document.body.appendChild(iframe);
           }
 

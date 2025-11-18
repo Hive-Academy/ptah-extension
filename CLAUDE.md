@@ -32,363 +32,319 @@ npm run lint:all
 npm run typecheck:all
 ```
 
-### Angular Webview Development
+## 🎯 ORCHESTRATOR WORKFLOW
+
+### Architecture: Hybrid Orchestrator-Executor Pattern
+
+**Components**:
+
+1. **Slash Command** (.claude/commands/orchestrate.md): Triggers workflow
+2. **Main Thread (you)**: Execution engine implementing iterative loop
+3. **Orchestrator Agent** (.claude/agents/workflow-orchestrator.md): GPS coordinator
+   - Executes Phase 0 (git, task setup)
+   - Analyzes task type, creates dynamic strategy
+   - Provides turn-by-turn guidance
+4. **Team Leader Agent** (.claude/agents/team-leader.md): Task decomposition & assignment coordinator
+   - DECOMPOSITION mode: Breaks implementation plans into atomic tasks
+   - ASSIGNMENT mode: Assigns tasks to developers with git verification
+   - COMPLETION mode: Validates all tasks complete, triggers final review
+5. **Specialist Agents**: project-manager, researcher, architect, developers, testers, reviewers
+6. **Validation Agent**: business-analyst (quality gates)
+
+**Key Insight**: Agents return to main thread, NOT to other agents. Orchestrator = GPS, Team Leader = project manager, Main thread = driver.
+
+### Execution Flow
+
+```
+User: /orchestrate [task]
+  ↓
+You: Invoke workflow-orchestrator
+  ↓
+Orchestrator: "Phase 0 ✅ + INVOKE project-manager"
+  ↓
+You: Invoke project-manager
+  ↓
+PM: Returns requirements
+  ↓
+You: Return to orchestrator with results
+  ↓
+Orchestrator: "INVOKE business-analyst for validation"
+  ↓
+You: Invoke business-analyst
+  ↓
+BA: APPROVED ✅
+  ↓
+You: Return to orchestrator
+  ↓
+Orchestrator: "INVOKE software-architect"
+  ↓
+You: Invoke software-architect
+  ↓
+Architect: Returns implementation-plan.md
+  ↓
+You: Return to orchestrator with results
+  ↓
+Orchestrator: "INVOKE team-leader"
+  ↓
+You: Invoke team-leader (DECOMPOSITION mode)
+  ↓
+Team Leader: Creates tasks.md with atomic tasks
+  ↓
+You: Return to orchestrator
+  ↓
+Orchestrator: "INVOKE team-leader (ASSIGNMENT)"
+  ↓
+You: Invoke team-leader (ASSIGNMENT mode)
+  ↓
+Team Leader: "ASSIGN TASK [N] to senior-developer"
+  ↓
+You: Invoke senior-developer with task
+  ↓
+Developer: Implements code
+  ↓
+You: Verify git commit exists
+  ↓
+You: Return to team-leader with results
+  ↓
+Team Leader: Updates tasks.md, assigns next task OR "COMPLETION"
+  ↓
+... repeat assignment loop until all tasks complete
+  ↓
+You: Return to orchestrator
+  ↓
+Orchestrator: "INVOKE senior-tester"
+  ↓
+... continue until "WORKFLOW COMPLETE"
+```
+
+### Dynamic Task-Type Strategies
+
+- **FEATURE**: PM → Research → Architect → Team Leader (Decomposition) → Team Leader (Assignment Loop) → Test → Review → Modernization
+- **BUGFIX**: Team Leader (Decomposition) → Team Leader (Assignment Loop) → Test → Review
+- **REFACTORING**: Architect → Team Leader (Decomposition) → Team Leader (Assignment Loop) → Test → Review
+- **DOCUMENTATION**: PM → Team Leader (Decomposition) → Team Leader (Assignment Loop) → Review
+- **RESEARCH**: Researcher → conditional implementation (Team Leader if code needed)
+
+### Usage
 
 ```bash
-# Install webview dependencies
-npm run install:webview
-
-# Build webview for extension
-npm run build:webview
-
-# Watch mode for webview development
-npm run dev:webview
-
-# Quality assurance
-npm run lint:webview
-npm run typecheck:webview
-npm run test:webview
+/orchestrate implement WebSocket integration    # New feature
+/orchestrate fix auth token bug                 # Bug fix
+/orchestrate refactor user service              # Refactoring
+/orchestrate TASK_2025_001                      # Continue task
 ```
 
-### Extension Testing
+**Workflow Steps**:
 
-Press `F5` in VS Code to launch Extension Development Host for testing.
-
-## Architecture
-
-### Dual-Architecture System
-
-- **Extension Host** (`src/`) - TypeScript VS Code extension with registry-based service architecture
-- **Angular Webview** (`webview/ptah-webview/`) - Angular 20+ app with standalone components and zoneless change detection
-
-### Key Extension Components
-
-- **PtahExtension** (`src/core/ptah-extension.ts`) - Main coordinator using registry pattern
-- **ServiceRegistry** (`src/core/service-registry.ts`) - Dependency injection container
-- **ClaudeCliService** (`src/services/claude-cli.service.ts`) - Claude Code CLI integration with streaming
-- **Message Handlers** (`src/services/webview-message-handlers/`) - Extension ↔ Webview communication
-
-### Angular Webview Architecture
-
-- **Angular 20.2+** with zoneless change detection
-- **Standalone components** throughout
-- **Tailwind CSS** with Egyptian-themed custom components
-- **Hash-based routing** for webview compatibility
-- **Shared components** in `src/app/shared/`
-
-## Type System & Import Standards
-
-### Shared Types
-
-All shared types defined in `src/types/common.types.ts`:
-
-- **ChatMessage** - Core messaging with streaming support
-- **ChatSession** - Session management with token tracking
-- **CommandTemplate** - Visual command builder templates
-- **ContextInfo** - File inclusion/optimization suggestions
-
-### Import Patterns
-
-```typescript
-// Extension code (relative imports)
-import { Logger } from '../core/logger';
-import { ChatMessage } from '../types/common.types';
-
-// Angular webview (standard Angular patterns)
-import { Component } from '@angular/core';
-import { SHARED_COMPONENTS } from '../shared';
-```
-
-### VS Code Integration Points
-
-- **Activity Bar** - Ptah icon (📜) main entry point
-- **Commands** - Command palette integration (`ptah.*` commands)
-- **Context Menus** - File-level actions (review, test generation)
-- **Webview Communication** - Message passing for extension ↔ webview
-
-## Quality Standards
-
-### Code Quality & Linting
-
-- **ESLint + Angular ESLint** with modern Angular 16+ rules
-- **Signal-based APIs**: `input()`, `output()`, `viewChild()` over decorators
-- **Control Flow Syntax**: `@if`, `@for`, `@switch` over structural directives
-- **OnPush change detection** enforced for performance
-- **Prettier formatting** with pre-commit hooks via Husky
-
-### TypeScript Configuration
-
-- **Strict mode enabled** with ES2020 target
-- **CommonJS modules** for extension compatibility
-- **Source maps** enabled for debugging
-- **Separate configs** for main extension and tests
-
-### Angular Best Practices
-
-- **Standalone components** (no NgModules)
-- **Signal-based reactivity** with computed() and effect()
-- **WebView-optimized routing** with hash location strategy
-- **Egyptian-themed component system** with shared design tokens
-
-## Error Handling & Communication
-
-### Extension Error Boundaries
-
-- **ErrorHandler** class with contextual information
-- **Service-level** error boundaries with graceful fallback
-- **Logger service** with structured logging
-
-### Webview Communication Protocol
-
-```typescript
-// Extension -> Webview
-webview.postMessage({ type: 'updateChat', data: chatMessage });
-
-// Webview -> Extension
-vscode.postMessage({ type: 'sendMessage', data: { content: 'message' } });
-```
-
-## Claude CLI Integration
-
-- **Automatic detection** via ClaudeCliDetector service
-- **Process spawning** with streaming response handling
-- **Session management** with workspace-aware context
-- **Real-time token tracking** and optimization suggestions
-
-## 🚨 UNIVERSAL CRITICAL CONSTRAINTS
-
-### 🔴 ABSOLUTE REQUIREMENTS (VIOLATIONS = IMMEDIATE FAILURE)
-
-1. **MANDATORY AGENT WORKFLOW**: Every development request MUST use `/orchestrate` command - NO direct implementation unless user explicitly confirms "quick fix only"
-2. **TYPE/SCHEMA REUSE PROTOCOL**: Search existing shared/common libraries FIRST, document search in progress.md, extend existing never duplicate
-3. **NO BACKWARD COMPATIBILITY**: Never target backward compatibility unless explicitly requested by user
-4. **NO CROSS-LIBRARY POLLUTION**: Libraries/modules must not re-export types/services from other libraries
-
-### 🎯 QUALITY ENFORCEMENT STANDARDS
-
-- **Type/Schema Safety**: Zero loose types (any, object, \*, etc.) - strict typing always
-- **Import Standards**: Use project-detected alias paths consistently
-- **Code Size Limits**: Services <200 lines, modules <500 lines, functions <30 lines
-- **Test Coverage**: Minimum 80% across line/branch/function coverage
-- **Progress Tracking**: Update progress.md every 30 minutes during active development
-- **Documentation**: Document architectural decisions and patterns used In their Respective files **DON'T GENERATE MORE FILES THAN NECESSARY ASK USERS BEFORE GENERATING ANY NEW DOCUMENT.**
-
-## ⚡ AGENT WORKFLOW ORCHESTRATION
-
-### Sequential Execution Framework
-
-**MANDATORY**: All agent workflows follow this pattern:
-
-1. **User Request** → **Claude Code Main Thread** → **Registry Check**
-2. **Route Decision** → **Agent Selection** → **Single Agent Execution**
-3. **Agent Completion** → **Business Analyst Validation** → **[APPROVE/REJECT]**
-4. **If APPROVE** → **Next Agent Selection** OR **Task Completion**
-5. **If REJECT** → **Re-delegate to Same Agent with Corrections**
-
-### Core Agent Roles (Technology Agnostic)
-
-| Agent Role             | Symbol | Primary Responsibility                    | When to Invoke                        |
-| ---------------------- | ------ | ----------------------------------------- | ------------------------------------- |
-| **project-manager**    | 🪃     | Requirements analysis, strategic planning | Complex tasks, new features           |
-| **business-analyst**   | 🔍     | Workflow validation, scope adherence      | After each agent (validation gates)   |
-| **researcher-expert**  | 🔎     | Technical research, best practices        | Knowledge gaps, technology evaluation |
-| **software-architect** | 🏗️     | System design, architecture planning      | After requirements clear              |
-| **backend-developer**  | 💻     | Server-side implementation                | API, services, data layer work        |
-| **frontend-developer** | 🎨     | Client-side implementation                | UI, components, user interaction      |
-| **senior-tester**      | 🧪     | Quality assurance, testing strategy       | After implementation                  |
-| **code-reviewer**      | 🔍     | Final quality validation                  | Before task completion                |
-
-### Delegation Protocol
-
-**Standard Format for Agent Handoffs:**
-
-```markdown
-## DELEGATION REQUEST
-
-**Next Agent**: [agent-name]
-**Task Focus**: [specific deliverable]
-**Context**: [key information to pass]
-**Success Criteria**: [what constitutes success]
-**Quality Requirements**: [specific standards]
-**Time Budget**: [expected duration]
-```
+1. You receive command → invoke workflow-orchestrator
+2. Orchestrator returns: "NEXT ACTION: INVOKE [agent] with [prompt]"
+3. You invoke recommended agent
+4. Agent returns results
+5. You return to orchestrator with results
+6. **Team Leader Iterative Loop** (when in ASSIGNMENT mode):
+   - Team Leader assigns task to developer
+   - You invoke developer with task details
+   - Developer implements and commits code
+   - You verify git commit exists before returning to Team Leader
+   - Team Leader updates tasks.md and assigns next task OR signals COMPLETION
+   - Repeat until all tasks complete
+7. Repeat orchestrator loop until "WORKFLOW COMPLETE"
 
 ---
 
-## 🎨 DEVELOPMENT STANDARDS FRAMEWORK
+## 🚨 WORKFLOW PROTOCOL
 
-### Universal Architecture Principles
+### Before ANY Request
 
-**SOLID Compliance (Language Agnostic):**
+1. **Check Registry**: `cat task-tracking/registry.md`
+2. **Present Context**: Show active/pending/complete tasks
+3. **Route Decision**:
+   - Complex work → `/orchestrate [description]`
+   - Continue task → `/orchestrate TASK_2025_XXX`
+   - Quick fix → Only if user confirms
 
-- **Single Responsibility**: Each component has one clear purpose
-- **Open/Closed**: Extensible through interfaces/protocols/traits
-- **Liskov Substitution**: All implementations honor their contracts
-- **Interface Segregation**: Focused contracts for specific use cases
-- **Dependency Inversion**: Depend on abstractions, not concretions
+### Agent Selection Matrix
 
-**Design Pattern Guidelines:**
+| Request Type | Agent Path                                      | Trigger             |
+| ------------ | ----------------------------------------------- | ------------------- |
+| Implement X  | project-manager → architect → team-leader → dev | New features        |
+| Fix bug      | team-leader → dev → test → review               | Bug reports         |
+| Research X   | researcher-expert → architect                   | Technical questions |
+| Review code  | code-reviewer                                   | Quality checks      |
+| Test X       | senior-tester                                   | Testing             |
+| Architecture | software-architect                              | Design              |
 
-- **Module Pattern**: Consistent initialization and configuration
-- **Factory Pattern**: Dynamic component creation
-- **Strategy Pattern**: Multiple implementations with selection logic
-- **Observer/Event Pattern**: Decoupled communication between components
-- **Decorator/Wrapper Pattern**: Cross-cutting concerns (logging, validation, etc.)
-
-### Code Quality Standards
-
-**Type/Schema Safety:**
-
-- Comprehensive type definitions for all data structures
-- Runtime validation where static typing unavailable
-- Proper error handling and boundary conditions
-- No escape hatches unless absolutely necessary with documentation
-
-**Testing Strategy:**
-
-- **Unit Tests**: Mock external dependencies, test individual components
-- **Integration Tests**: Test component interactions with real services
-- **E2E Tests**: Full workflow testing from user perspective
-- **Performance Tests**: Validate response times and resource usage
-
-### Error Handling Framework
-
-**Universal Error Principles:**
-
-- Comprehensive error boundaries at module/service levels
-- Contextual error information (what failed, why, how to recover)
-- Graceful degradation where possible
-- Proper logging and monitoring for debugging
-- User-friendly error messages with actionable guidance
+**Default**: When uncertain, use `/orchestrate`
 
 ---
 
-## 📁 TASK MANAGEMENT FRAMEWORK
+## 📁 Task Management
 
-### Universal Task Structure
+### Task ID Format
 
-**Task ID Format**: `TASK_[DOMAIN]_[NUMBER]`
+`TASK_YYYY_NNN` - Sequential format (TASK_2025_001, TASK_2025_002, etc.)
 
-- **Domains**: CMD (command/core), INT (integration), FE (frontend), BE (backend), QA (quality), DOC (documentation)
-- **Numbering**: Sequential (001, 002, 003...)
-
-**Standard Folder Structure:**
+### Folder Structure
 
 ```
 task-tracking/
   TASK_[ID]/
-    ├── task-description.md     # Business requirements, acceptance criteria
-    ├── research-report.md      # Technical research (if needed)
-    ├── implementation-plan.md  # Architecture and design
-    ├── progress.md            # Real-time progress updates
-    ├── test-report.md         # Testing results and coverage
-    ├── code-review.md         # Quality validation
-    └── completion-report.md   # Final metrics and lessons
+    ├── context.md            # User intent, conversation summary
+    ├── task-description.md   # Requirements
+    ├── implementation-plan.md # Design
+    ├── tasks.md              # Atomic task breakdown & assignments (team-leader managed)
+    ├── test-report.md        # Testing
+    ├── code-review.md        # Review
+    └── future-enhancements.md # Future work
 ```
 
-### Quality Gate Framework
+### Git Operations & Commit Standards
 
-**Mandatory Validation at Each Phase:**
+**CRITICAL**: All commits MUST follow commitlint rules to pass pre-commit hooks.
 
-1. **Requirements Phase** (Project Manager)
+#### Commit Message Format
 
-   - [ ] SMART criteria compliance (Specific, Measurable, Achievable, Relevant, Time-bound)
-   - [ ] BDD format acceptance criteria (Given/When/Then)
-   - [ ] Comprehensive risk assessment
-   - [ ] Stakeholder impact analysis
+```
+<type>(<scope>): <subject>
 
-2. **Research Phase** (Researcher Expert - if needed)
+[optional body]
 
-   - [ ] Multiple authoritative sources (minimum 3-5)
-   - [ ] Comparative analysis of approaches
-   - [ ] Performance and security implications
-   - [ ] Production case studies or examples
+[optional footer]
+```
 
-3. **Architecture Phase** (Software Architect)
+#### Allowed Types (REQUIRED)
 
-   - [ ] SOLID principles compliance
-   - [ ] Design pattern justification
-   - [ ] Type/schema reuse documented
-   - [ ] Integration strategy defined
-   - [ ] Performance and scalability considerations
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation changes
+- `style`: Code style (formatting, no logic change)
+- `refactor`: Code restructuring (no bug fix or feature)
+- `perf`: Performance improvements
+- `test`: Adding/updating tests
+- `build`: Build system/dependency changes
+- `ci`: CI configuration changes
+- `chore`: Maintenance tasks (no src/test changes)
+- `revert`: Revert previous commit
 
-4. **Implementation Phase** (Developers)
+#### Allowed Scopes (REQUIRED)
 
-   - [ ] Code compiles/builds successfully
-   - [ ] Zero loose types or escape hatches
-   - [ ] Comprehensive error handling
-   - [ ] Unit tests written and passing
-   - [ ] Performance within acceptable limits
+- `chromadb`: ChromaDB library changes
+- `neo4j`: Neo4j library changes
+- `langgraph`: LangGraph modules changes
+- `deps`: Dependency updates
+- `release`: Release-related changes
+- `ci`: CI/CD changes
+- `docs`: Documentation changes
+- `hooks`: Git hooks changes
+- `scripts`: Script changes
+- `angular-3d`: Angular 3D UI changes
 
-5. **Testing Phase** (Senior Tester)
+#### Commit Rules (ENFORCED)
 
-   - [ ] Coverage above minimum threshold
-   - [ ] All acceptance criteria tested
-   - [ ] Edge cases and error conditions covered
-   - [ ] Performance benchmarks validated
-   - [ ] Security testing completed
+- ✅ Type: lowercase, required, from allowed list
+- ✅ Scope: lowercase, required, from allowed list
+- ✅ Subject:
+  - lowercase only (NOT Sentence-case, Start-case, UPPER-CASE)
+  - 3-72 characters
+  - No period at end
+  - Imperative mood ("add" not "added")
+- ✅ Header: max 100 characters total
+- ✅ Body/Footer lines: max 100 characters each
 
-6. **Review Phase** (Code Reviewer)
-   - [ ] All previous gates passed
-   - [ ] Code follows project conventions
-   - [ ] No critical security issues
-   - [ ] Documentation adequate
-   - [ ] Ready for production deployment
+#### Valid Examples
 
----
+```bash
+feat(chromadb): add semantic search for documents
+fix(neo4j): resolve connection timeout issue
+docs(langgraph): update workflow examples
+refactor(hooks): simplify pre-commit validation
+chore(deps): update langchain to v0.3.30
+```
 
-## 🚀 INSTANT DEPLOYMENT
+#### Invalid Examples (WILL FAIL)
 
-### Zero-Configuration Setup
+```bash
+❌ "Feature: Add search" # Wrong type, wrong case
+❌ "feat: Add search"    # Missing scope
+❌ "feat(search): Add search" # Invalid scope, wrong case
+❌ "feat(chromadb): Add search." # Period at end
+❌ "feat(chromadb): Add Search" # Uppercase in subject
+```
 
-**For Any New Project:**
+#### Branch & PR Operations
 
-1. **Copy Complete `.claude/` Directory**: Framework adapts automatically
-2. **Run `/orchestrate [task]`**: Agents detect project context and begin work
-3. **That's It**: No customization, configuration, or setup required
+```bash
+# New task (orchestrator handles this)
+git checkout -b feature/TASK_2025_XXX
+git push -u origin feature/TASK_2025_XXX
 
-**Auto-Detected Capabilities:**
+# Continue task
+git checkout feature/TASK_2025_XXX
+git pull origin feature/TASK_2025_XXX --rebase
 
-- Language and framework detection
-- Build system and tooling identification
-- Import alias and shared library discovery
-- Quality standards and testing framework detection
+# Commit changes
+git add .
+git commit -m "type(scope): description"
 
-**Universal Compatibility:**
+# Complete task (orchestrator handles this)
+gh pr create --title "type(scope): description"
+```
 
-- **Languages**: TypeScript, JavaScript, Python, Go, Rust, Java, C#, PHP, etc.
-- **Frameworks**: React, Angular, Vue, Django, Rails, Spring, NestJS, Express, etc.
-- **Build Systems**: Nx, Lerna, Rush, Webpack, Vite, Cargo, Go modules, etc.
-- **Project Types**: Web apps, mobile apps, desktop apps, libraries, microservices, monorepos
+#### Pre-commit Checks
 
----
+All commits automatically run:
 
-**The framework automatically adapts to ANY project structure with zero configuration required. Just copy the `.claude` directory and start using `/orchestrate`.**
+1. **lint-staged** (no auto-stash): Format & lint staged files
+2. **typecheck:affected**: Type-check changed libraries
+3. **commitlint**: Validate commit message format
 
----
+#### Commit Hook Failure Protocol
 
-<!-- nx configuration start-->
-<!-- Leave the start & end comments to automatically receive updates. -->
+**CRITICAL**: When a commit hook fails, ALWAYS stop and ask the user to choose:
 
-# General Guidelines for working with Nx
+```
+⚠️ Pre-commit hook failed: [specific error]
 
-- When running tasks (for example build, lint, test, e2e, etc.), always prefer running the task through `nx` (i.e. `nx run`, `nx run-many`, `nx affected`) instead of using the underlying tooling directly
-- You have access to the Nx MCP server and its tools, use them to help the user
-- When answering questions about the repository, use the `nx_workspace` tool first to gain an understanding of the workspace architecture where applicable.
-- When working in individual projects, use the `nx_project_details` mcp tool to analyze and understand the specific project structure and dependencies
-- For questions around nx configuration, best practices or if you're unsure, use the `nx_docs` tool to get relevant, up-to-date docs. Always use this instead of assuming things about nx configuration
-- If the user needs help with an Nx configuration or project graph error, use the `nx_workspace` tool to get any errors
+Please choose how to proceed:
 
-# CI Error Guidelines
+1. **Fix Issue** - I'll fix the issue if it's related to current work
+   (Use for: lint errors, type errors, commit message format issues in current changes)
 
-If the user wants help with fixing an error in their CI pipeline, use the following flow:
+2. **Bypass Hook** - Commit with --no-verify flag
+   (Use for: Unrelated errors in other files, blocking issues outside current scope)
 
-- Retrieve the list of current CI Pipeline Executions (CIPEs) using the `nx_cloud_cipe_details` tool
-- If there are any errors, use the `nx_cloud_fix_cipe_failure` tool to retrieve the logs for a specific task
-- Use the task logs to see what's wrong and help the user fix their problem. Use the appropriate tools if necessary
-- Make sure that the problem is fixed by running the task that you passed into the `nx_cloud_fix_cipe_failure` tool
+3. **Stop & Report** - Mark as blocker and escalate
+   (Use for: Critical infrastructure issues, complex errors requiring investigation)
 
-<!-- nx configuration end-->
+Which option would you like? (1/2/3)
+```
+
+**Agent Behavior**:
+
+- NEVER automatically bypass hooks with --no-verify
+- NEVER automatically fix issues without user consent
+- NEVER proceed with alternative approaches without user decision
+- ALWAYS present the 3 options and wait for user choice
+- Document the chosen option in task tracking if option 2 or 3 is selected
+
+**Example Scenarios**:
+
+```bash
+# Scenario 1: Lint error in current file
+User chooses: Option 1 (Fix Issue)
+Action: Run npm run lint:fix, verify, retry commit
+
+# Scenario 2: Type error in unrelated library
+User chooses: Option 2 (Bypass Hook)
+Action: git commit --no-verify -m "message"
+Document: Add note to tasks.md about bypassed hook
+
+# Scenario 3: Complex build failure
+User chooses: Option 3 (Stop & Report)
+Action: Mark current task as blocked, create detailed error report
+```
+
+**NEVER run destructive git commands** (reset, force push, rebase --hard, etc.) that cause data loss.
 
 ---
 

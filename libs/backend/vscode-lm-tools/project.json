@@ -1,0 +1,37 @@
+{
+  "name": "vscode-lm-tools",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/backend/vscode-lm-tools/src",
+  "projectType": "library",
+  "tags": ["scope:extension", "type:feature", "domain:vscode"],
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/backend/claude-domain",
+        "main": "libs/backend/vscode-lm-tools/src/index.ts",
+        "tsConfig": "libs/backend/vscode-lm-tools/tsconfig.lib.json",
+        "assets": ["libs/backend/vscode-lm-tools/*.md"],
+        "format": ["cjs"],
+        "external": ["vscode", "tsyringe", "eventemitter3", "rxjs", "minimatch"]
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/backend/vscode-lm-tools/jest.config.ts"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project libs/backend/vscode-lm-tools/tsconfig.lib.json"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    }
+  }
+}

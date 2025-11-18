@@ -6,7 +6,15 @@
       "Bash(cat:*)",
       "Bash(npx nx build:*)",
       "Bash(npx tsc:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(npm run build:all:*)",
+      "Bash(find:*)",
+      "Bash(npx nx test:*)",
+      "Bash(git add:*)",
+      "Bash(git reset:*)",
+      "Bash(git commit:*)",
+      "Bash(npm run lint:all:*)",
+      "Bash(npx nx:*)"
     ],
     "deny": [],
     "ask": [],

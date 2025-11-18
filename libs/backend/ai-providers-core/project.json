@@ -29,6 +29,9 @@
       "options": {
         "command": "tsc --noEmit --project libs/backend/ai-providers-core/tsconfig.lib.json"
       }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
     }
   }
 }

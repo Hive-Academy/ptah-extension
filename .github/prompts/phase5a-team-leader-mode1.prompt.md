@@ -1,3 +1,10 @@
+---
+agent: team-leader
+description: Task decomposition phase (MODE 1) - Break implementation plan into atomic tasks
+tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
+model: Claude Sonnet 4.5 (Preview) (copilot)
+---
+
 # Phase 5a: Team-Leader MODE 1 - Task Decomposition
 
 **Agent**: team-leader  
@@ -218,12 +225,76 @@ After creating tasks.md and assigning Task 1:
 
 **Execution Strategy**: {Sequential | Parallel opportunities | Dependencies}
 
-Ready for iterative development. Team-leader MODE 2 will verify each task completion and assign next.
+**Next Phase Recommendations**:
+
+After task decomposition completion, workflow proceeds to:
+
+- ✅ **Phase 5b (team-leader MODE 2)**: Iterative VERIFICATION+ASSIGNMENT cycle begins. Team-leader will be invoked N times (once per task) to verify developer work and assign next task. This ensures atomic progress tracking and prevents hallucination.
+
+**Note**: MODE 2 is highly iterative. For N tasks, expect N invocations of team-leader MODE 2 (one per developer return).
 ```
 
 ---
 
-## 🚨 ANTI-PATTERNS TO AVOID
+## � HANDOFF PROTOCOL
+
+### Provide Command for First Task
+
+After creating tasks.md with N tasks, provide the command to invoke the appropriate developer for Task 1:
+
+**If Task 1 is assigned to backend-developer:**
+
+```markdown
+## 📍 Next Step: Begin Development (Task 1)
+
+**Task 1 Assignment**: [Task title from tasks.md]
+**Developer Type**: backend-developer
+
+**Copy and send this command:**
+```
+
+/phase6-be-developer Task ID: {TASK_ID}, Execute Task 1 from tasks.md: [task title]
+
+```
+
+**After developer completes Task 1, they will provide a completion report. Then send:**
+
+```
+
+/phase5b-team-leader-mode2 Task ID: {TASK_ID}, Verify Task 1 completion and assign Task 2
+
+```
+
+```
+
+**If Task 1 is assigned to frontend-developer:**
+
+```markdown
+## 📍 Next Step: Begin Development (Task 1)
+
+**Task 1 Assignment**: [Task title from tasks.md]
+**Developer Type**: frontend-developer
+
+**Copy and send this command:**
+```
+
+/phase6-fe-developer Task ID: {TASK_ID}, Execute Task 1 from tasks.md: [task title]
+
+```
+
+**After developer completes Task 1, they will provide a completion report. Then send:**
+
+```
+
+/phase5b-team-leader-mode2 Task ID: {TASK_ID}, Verify Task 1 completion and assign Task 2
+
+```
+
+```
+
+---
+
+## �🚨 ANTI-PATTERNS TO AVOID
 
 ❌ **TOO BROAD**: "Implement user authentication" → Split into: Create schema, implement service, add routes, create UI, integrate  
 ❌ **TOO GRANULAR**: "Add import statement" → Combine with actual implementation  

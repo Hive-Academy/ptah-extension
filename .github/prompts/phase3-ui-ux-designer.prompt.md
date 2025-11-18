@@ -1,3 +1,10 @@
+---
+agent: ui-ux-designer
+description: Visual design specification phase with Canva integration and WCAG 2.1 compliance (CONDITIONAL)
+tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
+model: Claude Sonnet 4.5 (Preview) (copilot)
+---
+
 # Phase 3: UI/UX Designer - Visual Design Specification
 
 **Agent**: ui-ux-designer  
@@ -442,7 +449,11 @@ Each component MUST include:
 - Canva mockups linked ✅
 - Implementation notes provided ✅
 
-Ready for software-architect to incorporate design into implementation plan.
+**Next Phase Recommendations**:
+
+After visual design specification completion, workflow proceeds to:
+
+- ✅ **Phase 4 (software-architect)**: Architect will incorporate design specifications into implementation plan, ensuring developers have complete visual blueprint for implementation.
 ````
 
 ---

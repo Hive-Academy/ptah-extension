@@ -1,3 +1,10 @@
+---
+agent: team-leader
+description: Iterative verification and assignment phase (MODE 2) - Verify task completion and assign next task
+tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
+model: Claude Sonnet 4.5 (Preview) (copilot)
+---
+
 # Phase 5b: Team-Leader MODE 2 - Iterative Verification + Assignment
 
 **Agent**: team-leader  
@@ -240,6 +247,11 @@ After verification + assignment:
 - Current iteration: {N} of estimated {TOTAL}
 
 **Status**: Awaiting Task {N} completion. Will return for next verification cycle.
+
+**Next Phase Recommendations**:
+
+- ✅ **Continue MODE 2 iterations**: More tasks remain. After developer completes Task {N}, team-leader MODE 2 will be invoked again for verification.
+- ✅ **When all tasks complete**: Team-leader MODE 3 (COMPLETION) for final comprehensive verification.
 ```
 
 Or if all tasks complete:
@@ -251,12 +263,92 @@ Or if all tasks complete:
 **Total Commits**: {N}
 **All Tasks Status**: COMPLETED ✅
 
-Ready for team-leader MODE 3 (FINAL COMPLETION).
+**Next Phase Recommendations**:
+
+- ✅ **Phase 5c (team-leader MODE 3)**: Final comprehensive verification phase to ensure all N tasks are truly complete with real implementation, then transition to QA.
 ```
 
 ---
 
-## 🚨 ANTI-PATTERNS TO AVOID
+## � HANDOFF PROTOCOL
+
+### If More Tasks Remain
+
+After verifying current task and assigning next task, provide command:
+
+**If next task is backend-developer:**
+
+```markdown
+## 📍 Next Step: Continue Development (Task {N})
+
+**Task {N} Assignment**: [Task title from tasks.md]
+**Developer Type**: backend-developer
+**Progress**: {N-1} / {TOTAL} tasks complete
+
+**Copy and send this command:**
+```
+
+/phase6-be-developer Task ID: {TASK_ID}, Execute Task {N} from tasks.md: [task title]
+
+```
+
+**After developer completes Task {N}, send:**
+
+```
+
+/phase5b-team-leader-mode2 Task ID: {TASK_ID}, Verify Task {N} and assign next
+
+```
+
+```
+
+**If next task is frontend-developer:**
+
+```markdown
+## 📍 Next Step: Continue Development (Task {N})
+
+**Task {N} Assignment**: [Task title from tasks.md]
+**Developer Type**: frontend-developer
+**Progress**: {N-1} / {TOTAL} tasks complete
+
+**Copy and send this command:**
+```
+
+/phase6-fe-developer Task ID: {TASK_ID}, Execute Task {N} from tasks.md: [task title]
+
+```
+
+**After developer completes Task {N}, send:**
+
+```
+
+/phase5b-team-leader-mode2 Task ID: {TASK_ID}, Verify Task {N} and assign next
+
+```
+
+```
+
+### If All Tasks Complete
+
+After verifying final task, provide command to invoke MODE 3:
+
+```markdown
+## 📍 Next Step: Final Verification
+
+**All {TOTAL} tasks verified ✅**
+
+**Copy and send this command:**
+```
+
+/phase5c-team-leader-mode3 Task ID: {TASK_ID}, Final comprehensive verification
+
+```
+
+```
+
+---
+
+## �🚨 ANTI-PATTERNS TO AVOID
 
 ❌ **SKIP VERIFICATION**: Never assign next task without verifying previous completion  
 ❌ **ASSUME COMPLETION**: Always check git log, read files, verify tasks.md  

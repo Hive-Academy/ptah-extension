@@ -78,6 +78,19 @@ export const CONTEXT_ORCHESTRATION_SERVICE = Symbol.for(
 );
 
 // ========================================
+// VS Code Language Model Tools
+// ========================================
+export const ANALYZE_WORKSPACE_TOOL = Symbol.for('AnalyzeWorkspaceTool');
+export const SEARCH_FILES_TOOL = Symbol.for('SearchFilesTool');
+export const GET_RELEVANT_FILES_TOOL = Symbol.for('GetRelevantFilesTool');
+export const GET_DIAGNOSTICS_TOOL = Symbol.for('GetDiagnosticsTool');
+export const FIND_SYMBOL_TOOL = Symbol.for('FindSymbolTool');
+export const GET_GIT_STATUS_TOOL = Symbol.for('GetGitStatusTool');
+export const LM_TOOLS_REGISTRATION_SERVICE = Symbol.for(
+  'LMToolsRegistrationService'
+);
+
+// ========================================
 // AI Providers Core Tokens
 // ========================================
 export const PROVIDER_MANAGER = Symbol.for('ProviderManager');
@@ -127,6 +140,10 @@ export const COMMAND_BUILDER_SERVICE = Symbol.for('CommandBuilderService');
 export const ANALYTICS_DATA_COLLECTOR = Symbol.for('AnalyticsDataCollector');
 export const ANGULAR_WEBVIEW_PROVIDER = Symbol.for('AngularWebviewProvider');
 export const COMMAND_HANDLERS = Symbol.for('CommandHandlers');
+export const WEBVIEW_EVENT_QUEUE = Symbol.for('WebviewEventQueue');
+export const WEBVIEW_INITIAL_DATA_BUILDER = Symbol.for(
+  'WebviewInitialDataBuilder'
+);
 
 // Legacy tokens (being phased out)
 export const CLAUDE_SERVICE = Symbol.for('ClaudeService');
@@ -192,6 +209,17 @@ export const TOKENS = {
   CONTEXT_ORCHESTRATION_SERVICE,
 
   // ========================================
+  // VS Code Language Model Tools
+  // ========================================
+  ANALYZE_WORKSPACE_TOOL,
+  SEARCH_FILES_TOOL,
+  GET_RELEVANT_FILES_TOOL,
+  GET_DIAGNOSTICS_TOOL,
+  FIND_SYMBOL_TOOL,
+  GET_GIT_STATUS_TOOL,
+  LM_TOOLS_REGISTRATION_SERVICE,
+
+  // ========================================
   // AI Providers Core
   // ========================================
   PROVIDER_MANAGER,
@@ -224,6 +252,8 @@ export const TOKENS = {
   ANALYTICS_DATA_COLLECTOR,
   ANGULAR_WEBVIEW_PROVIDER,
   COMMAND_HANDLERS,
+  WEBVIEW_EVENT_QUEUE,
+  WEBVIEW_INITIAL_DATA_BUILDER,
 
   // Legacy (being phased out)
   CLAUDE_SERVICE,

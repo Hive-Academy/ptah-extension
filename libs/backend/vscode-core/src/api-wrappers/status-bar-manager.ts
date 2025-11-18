@@ -8,6 +8,10 @@ import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
 import { EventBus } from '../messaging/event-bus';
 import { TOKENS } from '../di/tokens';
+import {
+  ANALYTICS_MESSAGE_TYPES,
+  SYSTEM_MESSAGE_TYPES,
+} from '@ptah-extension/shared';
 
 /**
  * Status bar item configuration options
@@ -149,7 +153,7 @@ export class StatusBarManager {
       this.context.subscriptions.push(item);
 
       // Publish item created event
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'statusBar:itemCreated',
         properties: {
           itemId: config.id,
@@ -165,7 +169,7 @@ export class StatusBarManager {
       return item;
     } catch (error) {
       // Publish error event
-      this.eventBus.publish('error', {
+      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
         code: 'STATUS_BAR_ITEM_CREATE_FAILED',
         message: `Failed to create status bar item ${config.id}: ${error}`,
         source: 'StatusBarManager',
@@ -190,7 +194,7 @@ export class StatusBarManager {
     const item = this.statusBarItems.get(itemId);
 
     if (!item) {
-      this.eventBus.publish('error', {
+      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
         code: 'STATUS_BAR_ITEM_NOT_FOUND',
         message: `Status bar item ${itemId} not found`,
         source: 'StatusBarManager',
@@ -233,7 +237,7 @@ export class StatusBarManager {
       this.updateItemMetrics(itemId, 'update', false);
 
       // Publish update event
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'statusBar:itemUpdated',
         properties: {
           itemId,
@@ -249,7 +253,7 @@ export class StatusBarManager {
       this.updateItemMetrics(itemId, 'update', true);
 
       // Publish error event
-      this.eventBus.publish('error', {
+      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
         code: 'STATUS_BAR_ITEM_UPDATE_FAILED',
         message: `Failed to update status bar item ${itemId}: ${error}`,
         source: 'StatusBarManager',
@@ -285,7 +289,7 @@ export class StatusBarManager {
       }
 
       // Publish show event
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'statusBar:itemShown',
         properties: {
           itemId,
@@ -295,7 +299,7 @@ export class StatusBarManager {
 
       return true;
     } catch (error) {
-      this.eventBus.publish('error', {
+      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
         code: 'STATUS_BAR_ITEM_SHOW_FAILED',
         message: `Failed to show status bar item ${itemId}: ${error}`,
         source: 'StatusBarManager',
@@ -331,7 +335,7 @@ export class StatusBarManager {
       }
 
       // Publish hide event
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'statusBar:itemHidden',
         properties: {
           itemId,
@@ -341,7 +345,7 @@ export class StatusBarManager {
 
       return true;
     } catch (error) {
-      this.eventBus.publish('error', {
+      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
         code: 'STATUS_BAR_ITEM_HIDE_FAILED',
         message: `Failed to hide status bar item ${itemId}: ${error}`,
         source: 'StatusBarManager',
@@ -369,7 +373,7 @@ export class StatusBarManager {
     this.updateItemMetrics(itemId, 'click', false);
 
     // Publish click event
-    this.eventBus.publish('analytics:trackEvent', {
+    this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
       event: 'statusBar:itemClicked',
       properties: {
         itemId,
@@ -444,7 +448,7 @@ export class StatusBarManager {
       this.itemMetrics.delete(itemId);
 
       // Publish disposal event
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'statusBar:itemDisposed',
         properties: {
           itemId,
@@ -454,7 +458,7 @@ export class StatusBarManager {
 
       return true;
     } catch (error) {
-      this.eventBus.publish('error', {
+      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
         code: 'STATUS_BAR_ITEM_DISPOSE_FAILED',
         message: `Failed to dispose status bar item ${itemId}: ${error}`,
         source: 'StatusBarManager',
@@ -477,14 +481,14 @@ export class StatusBarManager {
       this.itemMetrics.clear();
 
       // Publish disposal event
-      this.eventBus.publish('analytics:trackEvent', {
+      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
         event: 'statusBar:managerDisposed',
         properties: {
           timestamp: Date.now(),
         },
       });
     } catch (error) {
-      this.eventBus.publish('error', {
+      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
         code: 'STATUS_BAR_MANAGER_DISPOSE_FAILED',
         message: `Failed to dispose StatusBarManager: ${error}`,
         source: 'StatusBarManager',

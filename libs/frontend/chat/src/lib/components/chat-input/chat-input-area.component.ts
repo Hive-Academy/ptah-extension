@@ -40,7 +40,7 @@ import { LucideAngularModule, Send, Command } from 'lucide-angular';
 import { type DropdownOption } from '@ptah-extension/shared';
 
 // Core services - Already migrated ✅
-import { FilePickerService, type FileSuggestion } from '@ptah-extension/core';
+import { FilePickerService, type FileSuggestion } from '../../services';
 
 // Shared UI components - Already migrated ✅
 import {
@@ -410,6 +410,16 @@ export class ChatInputAreaComponent {
       }
     }
 
+    // CRITICAL FIX: Handle Ctrl+Enter to send message
+    // This should NOT emit keyDown event to prevent double handling
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault(); // Prevent default textarea behavior
+      event.stopPropagation(); // Stop event bubbling
+      this.sendMessage.emit(); // Directly emit sendMessage
+      return; // Exit early - DO NOT emit keyDown
+    }
+
+    // Only emit keyDown for other keys
     this.keyDown.emit(event);
   }
 

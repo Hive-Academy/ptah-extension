@@ -1,3 +1,10 @@
+---
+agent: business-analyst
+description: User validation gate for critical deliverables (Phase 1 PM and Phase 4 Architect only)
+tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
+model: Claude Sonnet 4.5 (Preview) (copilot)
+---
+
 # Validation Gate - User Approval for Critical Deliverables
 
 **Purpose**: Facilitate user validation of PM and Architect deliverables  
@@ -266,6 +273,11 @@ After user approves OR provides feedback:
 
 [If approved]
 Validation passed. Ready for next phase.
+
+**Next Phase Recommendations**:
+
+- ✅ **If Phase 1 validated**: Proceed based on PM recommendations (Phase 2 researcher-expert, Phase 3 ui-ux-designer, or Phase 4 software-architect)
+- ✅ **If Phase 4 validated**: Proceed to Phase 5a (team-leader MODE 1) for task decomposition
 
 [If feedback provided]
 Feedback captured. Re-invoke {AGENT_NAME} with:

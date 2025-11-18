@@ -196,7 +196,11 @@ export class ProviderOrchestrationService {
    */
   async getAvailableProviders(): Promise<GetAvailableProvidersResult> {
     try {
+      console.log(`[ProviderOrchestration] getAvailableProviders() called`);
       const availableProviders = this.providerManager.getAvailableProviders();
+      console.log(
+        `[ProviderOrchestration] ProviderManager returned ${availableProviders.length} providers`
+      );
 
       const providerData: ProviderData[] = availableProviders.map(
         (provider: IAIProvider) => ({
@@ -209,12 +213,23 @@ export class ProviderOrchestrationService {
         })
       );
 
+      console.log(
+        `[ProviderOrchestration] Mapped to ${providerData.length} ProviderData objects`
+      );
+      console.log(
+        `[ProviderOrchestration] Provider IDs:`,
+        providerData.map((p) => p.id)
+      );
+
       return {
         success: true,
         providers: providerData,
       };
     } catch (error) {
-      console.error('Error getting available providers:', error);
+      console.error(
+        '[ProviderOrchestration] Error getting available providers:',
+        error
+      );
       return {
         success: false,
         error: {

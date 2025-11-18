@@ -15,28 +15,35 @@ import {
 import { CommandBuilderService } from '../services/command-builder.service';
 import { AnalyticsDataCollector } from '../services/analytics-data-collector';
 import { WebviewHtmlGenerator } from '../services/webview-html-generator';
+import { WebviewEventQueue } from '../services/webview-event-queue';
+import { WebviewInitialDataBuilder } from '../services/webview-initial-data-builder';
 import {
-  MessagePayloadMap,
-  WebviewMessage,
-  isRoutableMessage,
+  MESSAGE_TYPES,
+  type MessagePayloadMap,
+  type WebviewMessage,
 } from '@ptah-extension/shared';
 
 /**
  * Workspace information interface
  */
-interface WorkspaceInfo {
-  name: string;
-  path: string;
-  projectType: string;
-}
-
 /**
- * Unified Angular Webview Provider - REFACTORED with EventBus Architecture
- * Single Responsibility: Manage webview lifecycle and publish messages to EventBus
- * Follows Dependency Inversion: Depends on EventBus abstraction
+ * Unified Angular Webview Provider - REFACTORED with Service Extraction
+ *
+ * Responsibilities (SOLID Single Responsibility):
+ * 1. Webview lifecycle management (create/resolve/dispose)
+ * 2. Message routing (webview ↔ extension via EventBus)
+ * 3. Development hot reload (file watching)
+ *
+ * Extracted Services (Priority 2):
+ * - WebviewEventQueue: Event queueing before webview ready
+ * - WebviewInitialDataBuilder: Type-safe initial data construction
  *
  * ARCHITECTURE: Webview → EventBus → MessageHandlerService → Orchestration Services
  */
+/**
+ * Maximum queue size constant removed - now in WebviewEventQueue
+ */
+
 @injectable()
 export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
@@ -59,6 +66,10 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     private readonly providerManager: ProviderManager,
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: WebviewManager,
+    @inject(TOKENS.WEBVIEW_EVENT_QUEUE)
+    private readonly eventQueue: WebviewEventQueue,
+    @inject(TOKENS.WEBVIEW_INITIAL_DATA_BUILDER)
+    private readonly initialDataBuilder: WebviewInitialDataBuilder,
     // TODO: Convert these to DI once they are available
     private commandBuilderService: CommandBuilderService,
     private analyticsDataCollector: AnalyticsDataCollector
@@ -67,15 +78,15 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     this.initializeDevelopmentWatcher();
     this.setupEventBusToWebviewBridge();
     this.logger.info(
-      'AngularWebviewProvider initialized with EventBus architecture and WebviewManager'
+      'AngularWebviewProvider initialized with extracted services (WebviewEventQueue + WebviewInitialDataBuilder)'
     );
   }
 
-  resolveWebviewView(
+  async resolveWebviewView(
     webviewView: vscode.WebviewView,
     _context: vscode.WebviewViewResolveContext<unknown>,
     _token: vscode.CancellationToken
-  ): void | Thenable<void> {
+  ): Promise<void> {
     this._view = webviewView;
 
     // CRITICAL: Register webview with WebviewManager for message routing
@@ -94,7 +105,10 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     };
 
     // Set Angular HTML content using dedicated generator
-    const workspaceInfo = this.getWorkspaceInfo();
+    // Get workspace info from initial data builder
+    const initialData = await this.initialDataBuilder.build();
+    const workspaceInfo = initialData.config.workspaceInfo;
+
     webviewView.webview.html = this.htmlGenerator.generateAngularWebviewContent(
       webviewView.webview,
       workspaceInfo
@@ -124,7 +138,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   /**
    * Create a full-screen Angular SPA panel
    */
-  public createPanel(): void {
+  public async createPanel(): Promise<void> {
     if (this._panel) {
       this._panel.reveal(vscode.ViewColumn.One);
       return;
@@ -145,7 +159,10 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       }
     );
 
-    const workspaceInfo = this.getWorkspaceInfo();
+    // Get workspace info from initial data builder
+    const initialData = await this.initialDataBuilder.build();
+    const workspaceInfo = initialData.config.workspaceInfo;
+
     this._panel.webview.html = this.htmlGenerator.generateAngularWebviewContent(
       this._panel.webview,
       workspaceInfo
@@ -184,9 +201,20 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   /**
    * Send message directly to Angular webview
    * Public interface for external services to communicate with the webview
+   * Implements readiness gate to prevent events from being dropped
    */
   public sendMessage(message: WebviewMessage): void {
     this.postMessage(message);
+  }
+
+  /**
+   * Mark webview as ready and flush queued events
+   * Called after webview HTML loaded and Angular app initialized
+   * FIX-002: Ensures all queued events are delivered after initialization
+   */
+  private markWebviewReady(): void {
+    this.eventQueue.markReady();
+    this.eventQueue.flush((event) => this.postMessageDirect(event));
   }
 
   /**
@@ -205,6 +233,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       // Handle special system messages locally (don't publish to EventBus)
       if (message.type === 'ready' || message.type === 'webview-ready') {
         this.logger.info('Webview ready signal received');
+        this.markWebviewReady(); // Mark as ready and flush queue
         await this.sendInitialData();
         return;
       }
@@ -215,14 +244,27 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         return;
       }
 
-      // Publish all routable messages to EventBus
+      // Publish all routable messages to EventBus (exclude system messages)
       // MessageHandlerService will handle routing to appropriate orchestration services
-      if (isRoutableMessage(message)) {
+      // System messages: initialData, ready, webview-ready, requestInitialData, themeChanged, navigate, error, refresh
+      const systemMessageTypes = [
+        'initialData',
+        'ready',
+        'webview-ready',
+        'requestInitialData',
+        'themeChanged',
+        'navigate',
+        'error',
+        'refresh',
+      ];
+      const isSystemMessage = systemMessageTypes.includes(message.type);
+
+      if (!isSystemMessage) {
         this.logger.info(`Publishing message to EventBus: ${message.type}`);
 
         // Publish to EventBus with webview as source
         this.eventBus.publish(
-          message.type as keyof import('@ptah-extension/shared').MessagePayloadMap,
+          message.type as keyof MessagePayloadMap,
           message.payload,
           'webview'
         );
@@ -246,6 +288,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
 
   /**
    * Send initial data to Angular application (with guard to prevent redundant calls)
+   * Now uses WebviewInitialDataBuilder for type-safe construction
    */
   private async sendInitialData(webview?: vscode.Webview): Promise<void> {
     const target = webview || this._view?.webview || this._panel?.webview;
@@ -258,56 +301,20 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     try {
-      // Get current state
-      const currentSession = this.sessionManager.getCurrentSession();
-      const context = await this.contextManager.getCurrentContext();
-      const workspaceInfo = this.getWorkspaceInfo();
+      // Build type-safe initial data using service
+      const payload = await this.initialDataBuilder.build();
 
-      // Get provider state (TASK_INT_003)
-      const currentProvider = this.providerManager.getCurrentProvider();
-      const availableProviders = this.providerManager.getAvailableProviders();
-      const providerHealth = this.providerManager.getAllProviderHealth();
-
-      const initialData = {
+      // Send to webview
+      target.postMessage({
         type: 'initialData',
-        payload: {
-          success: true,
-          data: {
-            sessions: this.sessionManager.getAllSessions(),
-            currentSession: currentSession,
-            // Provider state (TASK_INT_003)
-            providers: {
-              current: currentProvider
-                ? {
-                    id: currentProvider.providerId,
-                    name: currentProvider.info.name,
-                    status: currentProvider.getHealth().status,
-                    capabilities: currentProvider.info.capabilities,
-                  }
-                : null,
-              available: availableProviders.map((p) => ({
-                id: p.providerId,
-                name: p.info.name,
-                status: p.getHealth().status,
-                capabilities: p.info.capabilities,
-              })),
-              health: providerHealth,
-            },
-          },
-          config: {
-            context,
-            workspaceInfo,
-            theme: vscode.window.activeColorTheme.kind,
-            isVSCode: true,
-            extensionVersion: this.context.extension.packageJSON.version,
-          },
-          timestamp: Date.now(),
-        },
-      };
+        payload,
+      });
 
-      target.postMessage(initialData);
       this._initialDataSent = true;
-      this.logger.info('Initial data sent to webview');
+      this.logger.info('Initial data sent to webview', {
+        sessionCount: payload.data.sessions.length,
+        providerCount: payload.data.providers.available.length,
+      });
     } catch (error) {
       // Reset flag on error to allow retry
       this._initialDataSent = false;
@@ -317,93 +324,34 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
 
   /**
    * Send message to Angular application - Type-safe messaging
+   * Uses WebviewEventQueue service for readiness gate
    */
   private postMessage(message: WebviewMessage): void {
+    // Try to enqueue if not ready
+    const wasQueued = this.eventQueue.enqueue(message);
+
+    if (wasQueued) {
+      // Event was queued (webview not ready)
+      return;
+    }
+
+    // Webview ready - deliver immediately
+    this.postMessageDirect(message);
+  }
+
+  /**
+   * Send message directly to webview (bypasses readiness check)
+   * Internal method used by postMessage and flushEventQueue
+   */
+  private postMessageDirect(message: WebviewMessage): void {
     if (this._panel?.webview) {
       this._panel.webview.postMessage(message);
     } else if (this._view?.webview) {
       this._view.webview.postMessage(message);
-    }
-  }
-
-  /**
-   * Get workspace information
-   */
-  private getWorkspaceInfo(): WorkspaceInfo | null {
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders) return null;
-
-    return {
-      name: workspaceFolders[0].name,
-      path: workspaceFolders[0].uri.fsPath,
-      projectType: this.detectProjectType(workspaceFolders[0].uri.fsPath),
-    };
-  }
-
-  /**
-   * Detect project type based on files
-   */
-  private detectProjectType(workspacePath: string): string {
-    const fs = require('fs');
-    const path = require('path');
-
-    try {
-      // Check for package.json first
-      const packageJsonPath = path.join(workspacePath, 'package.json');
-      if (fs.existsSync(packageJsonPath)) {
-        const packageJson = JSON.parse(
-          fs.readFileSync(packageJsonPath, 'utf8')
-        );
-
-        // Check for specific framework indicators
-        if (packageJson.dependencies || packageJson.devDependencies) {
-          const allDeps = {
-            ...packageJson.dependencies,
-            ...packageJson.devDependencies,
-          };
-
-          if (allDeps['@angular/core']) return 'angular';
-          if (allDeps['react']) return 'react';
-          if (allDeps['vue']) return 'vue';
-          if (allDeps['@nestjs/core']) return 'nestjs';
-          if (allDeps['express']) return 'express';
-          if (allDeps['next']) return 'nextjs';
-          if (allDeps['nuxt']) return 'nuxt';
-          if (allDeps['svelte']) return 'svelte';
-          if (allDeps['typescript']) return 'typescript';
-        }
-
-        return 'nodejs';
-      }
-
-      // Check for other project indicators
-      if (fs.existsSync(path.join(workspacePath, 'angular.json')))
-        return 'angular';
-      if (fs.existsSync(path.join(workspacePath, 'nx.json'))) return 'nx';
-      if (fs.existsSync(path.join(workspacePath, 'pom.xml')))
-        return 'java-maven';
-      if (fs.existsSync(path.join(workspacePath, 'build.gradle')))
-        return 'java-gradle';
-      if (fs.existsSync(path.join(workspacePath, 'Cargo.toml'))) return 'rust';
-      if (fs.existsSync(path.join(workspacePath, 'go.mod'))) return 'go';
-      if (
-        fs.existsSync(path.join(workspacePath, 'requirements.txt')) ||
-        fs.existsSync(path.join(workspacePath, 'pyproject.toml'))
-      )
-        return 'python';
-      if (fs.existsSync(path.join(workspacePath, 'Gemfile'))) return 'ruby';
-      if (fs.existsSync(path.join(workspacePath, 'composer.json')))
-        return 'php';
-      if (
-        fs.existsSync(path.join(workspacePath, '.csproj')) ||
-        fs.existsSync(path.join(workspacePath, '*.sln'))
-      )
-        return 'csharp';
-
-      return 'generic';
-    } catch (error) {
-      this.logger.warn('Error detecting project type:', error);
-      return 'unknown';
+    } else {
+      this.logger.warn(
+        `No active webviews available to send message: ${message.type}`
+      );
     }
   }
 
@@ -460,15 +408,19 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
    * Reload webview content (for hot reload during development)
    */
   private async reloadWebview(): Promise<void> {
-    const workspaceInfo = this.getWorkspaceInfo();
     const webview = this._panel?.webview || this._view?.webview;
     if (!webview) {
       this.logger.warn('No webview available to reload.');
       return;
     }
 
-    // Reset initialization guard on reload
+    // Reset initialization guards on reload
     this._initialDataSent = false;
+    this.eventQueue.reset(); // Webview instance changes on reload
+
+    // Get workspace info from builder
+    const payload = await this.initialDataBuilder.build();
+    const workspaceInfo = payload.config.workspaceInfo;
 
     const newHtml = this.htmlGenerator.generateAngularWebviewContent(
       webview,
@@ -503,48 +455,39 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
 
   /**
    * Setup EventBus to Webview bridge
-   * Forwards all response messages from EventBus to the webview
+   * AUTO-REGISTERS all response types from MESSAGE_TYPES
+   *
+   * Benefits:
+   * - Zero maintenance: New response types auto-registered
+   * - No silent failures: All responses forwarded automatically
+   * - Type-safe: TypeScript validates response types
    */
   private setupEventBusToWebviewBridge(): void {
-    // Subscribe to all response events and forward to webview
-    const responseTypes: Array<keyof MessagePayloadMap> = [
-      'providers:getAvailable:response',
-      'providers:getCurrent:response',
-      'providers:switch:response',
-      'providers:getHealth:response',
-      'providers:getAllHealth:response',
-      'providers:setDefault:response',
-      'providers:enableFallback:response',
-      'providers:setAutoSwitch:response',
-      'chat:sendMessage:response',
-      'chat:newSession:response',
-      'chat:switchSession:response',
-      'chat:getHistory:response',
-      // Add more as needed
-    ];
+    // Extract all response types (end with ':response')
+    const allResponseTypes = Object.values(MESSAGE_TYPES).filter(
+      (type) => typeof type === 'string' && type.endsWith(':response')
+    ) as Array<keyof MessagePayloadMap>;
 
     this.logger.info(
-      `Setting up EventBus→Webview bridge for ${responseTypes.length} response types:`,
-      responseTypes
+      `[Bridge] Auto-registering ${allResponseTypes.length} response types from MESSAGE_TYPES`
     );
 
-    responseTypes.forEach((responseType) => {
-      this.logger.info(`[Bridge] Subscribing to EventBus for: ${responseType}`);
+    // Subscribe to each response type and forward to webview
+    allResponseTypes.forEach((responseType) => {
       this.eventBus.subscribe(responseType).subscribe((event) => {
-        this.logger.info(
-          `[Bridge] Received ${responseType} from EventBus, forwarding to webview`,
-          event.payload
-        );
+        this.logger.debug(`[Bridge] ${responseType} → webview`, {
+          payloadSize: JSON.stringify(event.payload).length,
+        });
+
         this.postMessage({
           type: responseType,
           payload: event.payload,
         });
-        this.logger.info(`[Bridge] Posted ${responseType} to webview`);
       });
     });
 
     this.logger.info(
-      `[Bridge] EventBus→Webview bridge setup complete for ${responseTypes.length} response types`
+      `[Bridge] EventBus→Webview bridge setup complete (${allResponseTypes.length} types)`
     );
   }
 
@@ -553,6 +496,9 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
    */
   dispose(): void {
     this.logger.info('Disposing Angular Webview Provider...');
+
+    // Clear event queue using service
+    this.eventQueue.dispose();
 
     // Dispose file watcher
     if (this.fileWatcher) {

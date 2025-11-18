@@ -1,5 +1,12 @@
 import { CommonModule } from '@angular/common';
-import { Component, computed, inject, OnDestroy, OnInit } from '@angular/core';
+import {
+  Component,
+  computed,
+  inject,
+  OnDestroy,
+  OnInit,
+  signal,
+} from '@angular/core';
 import { Subject } from 'rxjs';
 
 // Core Services (from core library)
@@ -7,10 +14,12 @@ import {
   AppStateManager,
   ChatService,
   VSCodeService,
-  ChatStateManagerService,
   LoggingService,
   WebviewNavigationService,
 } from '@ptah-extension/core';
+
+// Chat-specific services (from this library)
+import { ChatStateManagerService } from '../../services';
 
 // Shared types
 import type { DropdownOption } from '@ptah-extension/shared';
@@ -26,6 +35,9 @@ import {
   ChatMessagesContainerComponent,
   ChatTokenUsageComponent,
   ChatInputAreaComponent,
+  AgentTreeComponent,
+  AgentTimelineComponent,
+  AgentStatusBadgeComponent,
 } from '../../components';
 
 // Component-specific types (imported from individual components)
@@ -59,19 +71,28 @@ import { ProviderManagerComponent } from '@ptah-extension/providers';
     ChatStreamingStatusComponent,
     ChatMessagesContainerComponent,
     ChatTokenUsageComponent,
+    AgentTreeComponent,
+    AgentTimelineComponent,
+    AgentStatusBadgeComponent,
     ChatInputAreaComponent,
     SessionSelectorComponent,
     ProviderManagerComponent,
   ],
   template: `
     <div class="vscode-chat-container">
-      <!-- Header with Provider Settings -->
-      <ptah-chat-header
-        [providerStatus]="providerStatus()"
-        (newSession)="onNewSession()"
-        (analytics)="showAnalytics()"
-        (providerSettings)="toggleProviderSettings()"
-      />
+      <!-- Header with Provider Settings and Agent Status Badge -->
+      <div class="vscode-header-section">
+        <ptah-chat-header
+          [providerStatus]="providerStatus()"
+          (newSession)="onNewSession()"
+          (analytics)="showAnalytics()"
+          (providerSettings)="toggleProviderSettings()"
+        />
+        <ptah-agent-status-badge
+          [activeAgents]="chatService.activeAgents()"
+          (togglePanel)="onToggleAgentPanel()"
+        />
+      </div>
 
       <!-- Session Management -->
       <div class="vscode-session-section">
@@ -90,20 +111,43 @@ import { ProviderManagerComponent } from '@ptah-extension/providers';
       <!-- Token Usage Progress -->
       <ptah-chat-token-usage [tokenUsage]="tokenUsage()" />
 
-      <!-- Messages Container -->
-      <ptah-chat-messages-container
-        [hasMessages]="hasMessages()"
-        [messages]="claudeMessages()"
-        [sessionId]="currentSession()?.id || null"
-        [loading]="isLoading()"
-        (messageClicked)="onMessageClick($event)"
-        (fileClicked)="handleFileClick($event)"
-        (toolActionRequested)="handleToolAction($event)"
-        (messageActioned)="handleMessageAction($event)"
-        (scrolledToTop)="handleScrolledToTop()"
-        (quickHelp)="startQuickHelp()"
-        (orchestration)="startOrchestration()"
-      />
+      <!-- Main Content Area with Agent Panel -->
+      <div class="vscode-main-content">
+        <!-- Messages Container -->
+        <ptah-chat-messages-container
+          [hasMessages]="hasMessages()"
+          [messages]="claudeMessages()"
+          [sessionId]="currentSession()?.id || null"
+          [loading]="isLoading()"
+          (messageClicked)="onMessageClick($event)"
+          (fileClicked)="handleFileClick($event)"
+          (toolActionRequested)="handleToolAction($event)"
+          (messageActioned)="handleMessageAction($event)"
+          (scrolledToTop)="handleScrolledToTop()"
+          (quickHelp)="startQuickHelp()"
+          (orchestration)="startOrchestration()"
+        />
+
+        <!-- Agent Panel (Collapsible) -->
+        @if (agentPanelVisible()) {
+        <div class="agent-panel">
+          <div class="agent-panel-header">
+            <h3>Agent Execution</h3>
+            <button
+              class="close-button"
+              (click)="onToggleAgentPanel()"
+              aria-label="Close agent panel"
+            >
+              ✕
+            </button>
+          </div>
+          <div class="agent-panel-content">
+            <ptah-agent-tree [agents]="chatService.agents()" />
+            <ptah-agent-timeline [agents]="chatService.agents()" />
+          </div>
+        </div>
+        }
+      </div>
 
       <!-- Streaming Status Banner -->
       <ptah-chat-streaming-status
@@ -154,14 +198,116 @@ import { ProviderManagerComponent } from '@ptah-extension/providers';
         border-bottom: 1px solid var(--vscode-panel-border);
       }
 
-      ptah-chat-messages-container {
+      .vscode-header-section {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 16px;
+        background-color: var(--vscode-editor-background);
+        border-bottom: 1px solid var(--vscode-panel-border);
+      }
+
+      .vscode-header-section ptah-chat-header {
+        flex: 1;
+      }
+
+      .vscode-main-content {
         flex: 1;
         min-height: 0;
+        display: flex;
+        position: relative;
+      }
+
+      ptah-chat-messages-container {
+        flex: 1;
+        min-width: 0;
+      }
+
+      /* Agent Panel Styles */
+      .agent-panel {
+        width: 350px;
+        flex-shrink: 0;
+        background-color: var(--vscode-sideBar-background);
+        border-left: 1px solid var(--vscode-panel-border);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        animation: slideIn 250ms ease-out;
+      }
+
+      @keyframes slideIn {
+        from {
+          transform: translateX(100%);
+          opacity: 0;
+        }
+        to {
+          transform: translateX(0);
+          opacity: 1;
+        }
+      }
+
+      .agent-panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        background-color: var(--vscode-sideBarSectionHeader-background);
+        border-bottom: 1px solid var(--vscode-panel-border);
+      }
+
+      .agent-panel-header h3 {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--vscode-sideBarSectionHeader-foreground);
+      }
+
+      .close-button {
+        background: transparent;
+        border: none;
+        color: var(--vscode-icon-foreground);
+        font-size: 16px;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: 4px;
+        transition: background-color 150ms;
+      }
+
+      .close-button:hover {
+        background-color: var(--vscode-toolbar-hoverBackground);
+      }
+
+      .close-button:focus {
+        outline: 2px solid var(--vscode-focusBorder);
+        outline-offset: 2px;
+      }
+
+      .agent-panel-content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      /* Responsive: Overlay on narrow viewports */
+      @media (max-width: 800px) {
+        .agent-panel {
+          position: absolute;
+          top: 0;
+          right: 0;
+          bottom: 0;
+          width: 100%;
+          max-width: 400px;
+          z-index: 10;
+          box-shadow: -4px 0 12px rgba(0, 0, 0, 0.3);
+        }
       }
 
       ptah-chat-input-area,
       ptah-chat-token-usage,
-      ptah-chat-header,
       ptah-chat-status-bar {
         flex-shrink: 0;
       }
@@ -173,6 +319,7 @@ export class ChatComponent implements OnInit, OnDestroy {
   private readonly appState = inject(AppStateManager);
   private readonly chat = inject(ChatService);
   private readonly vscode = inject(VSCodeService);
+  readonly chatService = inject(ChatService); // Public for template access
   protected readonly chatState = inject(ChatStateManagerService);
   private readonly logger = inject(LoggingService);
   private readonly navigation = inject(WebviewNavigationService);
@@ -180,6 +327,8 @@ export class ChatComponent implements OnInit, OnDestroy {
   // Component State
   private readonly destroy$ = new Subject<void>();
 
+  // Agent Panel State (TASK_2025_004)
+  readonly agentPanelVisible = signal(false);
   // Readonly computed properties from services
   readonly claudeMessages = this.chat.claudeMessages;
   readonly isStreaming = this.chat.isStreaming;
@@ -228,22 +377,13 @@ export class ChatComponent implements OnInit, OnDestroy {
   });
 
   public ngOnInit(): void {
-    console.log('=== ChatComponent ngOnInit ===');
-    console.log('Current session:', this.currentSession());
-    console.log('Messages:', this.chat.messages());
-    console.log('Claude messages:', this.claudeMessages());
-    console.log('Has messages:', this.hasMessages());
+    this.logger.debug('ChatComponent initializing', 'ChatComponent', {
+      hasSession: !!this.currentSession(),
+      messageCount: this.chat.messages().length,
+      hasMessages: this.hasMessages(),
+    });
 
     this.chatState.initialize();
-
-    // Log whenever session or messages change
-    setTimeout(() => {
-      console.log('=== After initialization (1s delay) ===');
-      console.log('Current session:', this.currentSession());
-      console.log('Messages count:', this.chat.messages().length);
-      console.log('Claude messages count:', this.claudeMessages().length);
-      console.log('Has messages:', this.hasMessages());
-    }, 1000);
   }
 
   public ngOnDestroy(): void {
@@ -251,32 +391,47 @@ export class ChatComponent implements OnInit, OnDestroy {
     this.destroy$.complete();
   }
 
+  // Agent Panel Toggle (TASK_2025_004)
+  public onToggleAgentPanel(): void {
+    this.agentPanelVisible.update((visible) => !visible);
+    this.logger.debug('Agent panel toggled', 'ChatComponent', {
+      visible: this.agentPanelVisible(),
+    });
+  }
   // Message Handling
   public sendMessage(): void {
-    console.log('=== ChatComponent.sendMessage() called ===');
-    console.log('Current message:', this.chatState.currentMessage());
-    console.log('Can send:', this.chatState.canSendMessage());
-
     const content = this.chatState.currentMessage().trim();
     if (!this.chatState.canSendMessage() || !content) {
-      console.log('Cannot send - returning early');
+      this.logger.debug(
+        'Cannot send message - invalid state',
+        'ChatComponent',
+        {
+          canSend: this.chatState.canSendMessage(),
+          hasContent: !!content,
+        }
+      );
       return;
     }
 
-    const agent = this.chatState.selectedAgent();
-    console.log('Sending message with agent:', agent);
-    this.chat.sendMessage(content, agent);
+    // Clear message IMMEDIATELY to prevent double-send
     this.chatState.clearCurrentMessage();
+
+    const agent = this.chatState.selectedAgent();
+    this.logger.debug('Sending message', 'ChatComponent', {
+      agent,
+      contentLength: content.length,
+    });
+    this.chat.sendMessage(content, agent);
   }
 
   // Event Handlers
   public onNewSession(): void {
-    console.log('=== ChatComponent.onNewSession() called ===');
+    this.logger.debug('Creating new session', 'ChatComponent');
     this.chatState.createNewSession('New Session');
   }
 
   public onSessionCreated(name: string | undefined): void {
-    console.log('=== ChatComponent.onSessionCreated() called ===', name);
+    this.logger.debug('Session created', 'ChatComponent', { name });
     this.chatState.createNewSession(name || 'New Session');
   }
 
@@ -287,11 +442,14 @@ export class ChatComponent implements OnInit, OnDestroy {
   }
 
   public onKeyDown(event: KeyboardEvent): void {
-    if (event.key === 'Enter') {
-      if (event.ctrlKey || event.metaKey) {
-        this.sendMessage();
-      }
-    }
+    // REMOVED: Ctrl+Enter is now handled directly in ChatInputAreaComponent
+    // to prevent double event handling. This method is kept for future
+    // keyboard shortcuts if needed (e.g., Escape to cancel, etc.)
+    this.logger.debug('Key pressed in chat', 'ChatComponent', {
+      key: event.key,
+      ctrl: event.ctrlKey,
+      meta: event.metaKey,
+    });
   }
 
   public onMessageClick(message: ProcessedClaudeMessage): void {
@@ -343,24 +501,19 @@ export class ChatComponent implements OnInit, OnDestroy {
   }
 
   public onCommandsClick(): void {
-    console.log('=== ChatComponent.onCommandsClick() called ===');
-    console.log('Command button was clicked - Zone.js is working!');
     // TODO: Implement command sheet toggle
     this.logger.debug('Commands clicked', 'ChatComponent');
   }
 
   // UI Actions
   public showAnalytics(): void {
-    console.log('=== ChatComponent.showAnalytics() called ===');
-    console.log('Navigating to analytics view...');
+    this.logger.debug('Navigating to analytics', 'ChatComponent');
     void this.navigation.navigateToView('analytics');
   }
 
   public toggleProviderSettings(): void {
-    console.log('=== ChatComponent.toggleProviderSettings() called ===');
-    console.log('Navigating to settings view...');
+    this.logger.debug('Navigating to settings', 'ChatComponent');
     void this.navigation.navigateToView('settings');
-    this.logger.debug('Navigating to provider settings', 'ChatComponent');
   }
 
   // Status calculation methods

@@ -146,11 +146,9 @@ export class ProviderService {
    */
   initialize(): void {
     if (this._initialized) {
-      console.warn('[ProviderService] Already initialized, skipping...');
       return;
     }
 
-    console.log('[ProviderService] Initializing...');
     this._initialized = true;
 
     this.setupMessageListeners();
@@ -158,8 +156,6 @@ export class ProviderService {
 
     // Request initial data
     this.refreshProviders();
-
-    console.log('[ProviderService] Initialized successfully');
   }
 
   /**
@@ -168,7 +164,6 @@ export class ProviderService {
   async refreshProviders(): Promise<void> {
     // Prevent concurrent refresh calls
     if (this._isRefreshing) {
-      console.log('[ProviderService] Refresh already in progress, skipping...');
       return;
     }
 
@@ -180,7 +175,7 @@ export class ProviderService {
       this.vscodeService.getCurrentProvider();
       this.vscodeService.getAllProviderHealth();
     } catch (error) {
-      console.error('Failed to refresh providers:', error);
+      console.error('ProviderService: Failed to refresh providers', error);
     } finally {
       // Reset the refreshing flag after a short delay to allow responses to arrive
       setTimeout(() => {
@@ -329,38 +324,47 @@ export class ProviderService {
    * Private: Setup message listeners
    */
   private setupMessageListeners(): void {
-    console.log('[ProviderService] Setting up message listeners...');
-
     // Handle available providers response (backend sends :response, not event notifications)
     this.vscodeService
       .onMessageType(toResponseType(PROVIDER_MESSAGE_TYPES.GET_AVAILABLE))
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((response) => {
-        console.log(
-          '[ProviderService] Received providers:getAvailable:response:',
-          response
-        );
         if (response.success && response.data) {
           const result = response.data as { providers?: ProviderInfo[] };
-          console.log(
-            '[ProviderService] Providers from response:',
-            result.providers
-          );
-          console.log(
-            '[ProviderService] Setting available providers to:',
-            result.providers?.length,
-            'items'
-          );
+
+          // FIX: Warn if zero providers available (CRITICAL)
+          if (!result.providers || result.providers.length === 0) {
+            console.error(
+              '╔═══════════════════════════════════════════════════════════════╗'
+            );
+            console.error(
+              '║ [ProviderService] CRITICAL: NO PROVIDERS AVAILABLE!          ║'
+            );
+            console.error(
+              '║ This means provider registration FAILED in the backend       ║'
+            );
+            console.error(
+              '║ Check Extension Host console for registration errors         ║'
+            );
+            console.error(
+              '║ Look for messages from [registerProviders]                   ║'
+            );
+            console.error(
+              '╚═══════════════════════════════════════════════════════════════╝'
+            );
+
+            // Set error state
+            this._lastError.set({
+              type: 'no-providers',
+              message:
+                'No AI providers are available. Extension may not have initialized properly.',
+              recoverable: true,
+              suggestedAction:
+                'Check Extension Host console logs and restart VS Code',
+            });
+          }
+
           this._availableProviders.set(result.providers || []);
-          console.log(
-            '[ProviderService] Available providers after set:',
-            this._availableProviders()
-          );
-        } else {
-          console.warn(
-            '[ProviderService] Failed response or no data:',
-            response
-          );
         }
         this._isLoading.set(false);
       });
@@ -422,29 +426,54 @@ export class ProviderService {
         }));
       });
 
-    // Handle providers available updated events (simplified notification)
-    // Note: This event only contains minimal data (id, name, status), not full ProviderInfo
-    // We DON'T auto-refresh here to prevent infinite loops
-    // The settings view component will refresh on mount instead
+    // Handle providers available updated events (push notification from backend)
+    // Backend sends this when providers are registered/unregistered
+    // With Task 1's readiness gate, this event arrives after webview is ready
     this.vscodeService
-      .onMessageType('providers:availableUpdated')
+      .onMessageType(PROVIDER_MESSAGE_TYPES.AVAILABLE_UPDATED)
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => {
-        console.log(
-          '[ProviderService] Received providers:availableUpdated notification'
-        );
-        // Just log it - don't trigger refresh to avoid loops
+      .subscribe((payload) => {
+        // Guard: Validate payload structure
+        if (
+          payload &&
+          typeof payload === 'object' &&
+          'availableProviders' in payload &&
+          Array.isArray(payload.availableProviders)
+        ) {
+          // Map minimal provider data to ProviderInfo format
+          // Note: This contains basic data (id, name, status) for quick updates
+          // Full provider details come from getAvailable response
+          const providers = payload.availableProviders.map((p) => ({
+            id: p.id,
+            name: p.name,
+            description: '', // Not included in notification
+            vendor: '', // Not included in notification
+            capabilities: {
+              streaming: false,
+              fileAttachments: false,
+              contextManagement: false,
+              sessionPersistence: false,
+              multiTurn: false,
+              codeGeneration: false,
+              imageAnalysis: false,
+              functionCalling: false,
+            },
+            health: {
+              status: p.status,
+              lastCheck: Date.now(),
+              uptime: 0,
+            },
+          })) as ProviderInfo[];
+
+          this._availableProviders.set(providers);
+        }
       });
 
     // Handle provider current changed events (event notification when current provider changes)
     this.vscodeService
-      .onMessageType('providers:currentChanged')
+      .onMessageType(PROVIDER_MESSAGE_TYPES.CURRENT_CHANGED)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((payload) => {
-        console.log(
-          '[ProviderService] Received providers:currentChanged:',
-          payload
-        );
         const update = payload as { provider?: ProviderInfo | null };
         if (update.provider !== undefined) {
           this._currentProvider.set(update.provider);
@@ -453,19 +482,8 @@ export class ProviderService {
 
     // Handle provider errors
     this.vscodeService
-      .onMessage()
-      .pipe(
-        filter((msg) => msg.type === 'providers:error'),
-        map(
-          (msg) =>
-            msg.payload as {
-              providerId: string;
-              error: ProviderError;
-              timestamp: number;
-            }
-        ),
-        takeUntilDestroyed(this.destroyRef)
-      )
+      .onMessageType(PROVIDER_MESSAGE_TYPES.ERROR)
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((errorEvent) => {
         this._lastError.set(errorEvent.error);
       });

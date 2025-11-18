@@ -17,132 +17,56 @@ import {
 } from './branded.types';
 import { CommandTemplate } from './command-builder.types';
 import { WebviewConfiguration } from './webview-ui.types';
+import {
+  ClaudeAgentStartEvent,
+  ClaudeAgentActivityEvent,
+  ClaudeAgentCompleteEvent,
+} from './claude-domain.types';
+import {
+  CHAT_MESSAGE_TYPES,
+  CHAT_RESPONSE_TYPES,
+  PROVIDER_MESSAGE_TYPES,
+  PROVIDER_RESPONSE_TYPES,
+  CONTEXT_MESSAGE_TYPES,
+  CONTEXT_RESPONSE_TYPES,
+  COMMAND_MESSAGE_TYPES,
+  COMMAND_RESPONSE_TYPES,
+  ANALYTICS_MESSAGE_TYPES,
+  ANALYTICS_RESPONSE_TYPES,
+  CONFIG_MESSAGE_TYPES,
+  CONFIG_RESPONSE_TYPES,
+  STATE_MESSAGE_TYPES,
+  STATE_RESPONSE_TYPES,
+  VIEW_MESSAGE_TYPES,
+  SYSTEM_MESSAGE_TYPES,
+} from '../constants/message-types';
 
 // Re-export for convenience
 export { CorrelationId };
 
 /**
- * Strict Message Types - replaces generic 'string' with exact literals
+ * Strict Message Types - derives from MESSAGE_TYPES constants
+ * This ensures automatic sync between constants and types (single source of truth)
+ *
+ * By importing each category separately and creating a union, we maintain proper type narrowing
  */
 export type StrictMessageType =
-  | 'chat:sendMessage'
-  | 'chat:messageChunk'
-  | 'chat:sessionStart'
-  | 'chat:sessionEnd'
-  | 'chat:newSession'
-  | 'chat:switchSession'
-  | 'chat:getHistory'
-  | 'chat:messageAdded'
-  | 'chat:messageComplete'
-  | 'chat:sessionCreated'
-  | 'chat:sessionSwitched'
-  | 'chat:sessionUpdated'
-  | 'chat:tokenUsageUpdated'
-  | 'chat:historyLoaded'
-  | 'chat:error'
-  | 'chat:sessionsUpdated'
-  | 'chat:requestSessions'
-  | 'chat:renameSession'
-  | 'chat:deleteSession'
-  | 'chat:bulkDeleteSessions'
-  | 'chat:sessionRenamed'
-  | 'chat:sessionDeleted'
-  | 'chat:getSessionStats'
-  | 'chat:stopStream'
-  | 'chat:streamStopped'
-  | 'chat:permissionRequest'
-  | 'chat:permissionResponse'
-  | 'chat:sessionsUpdated'
-  | 'providers:getAvailable'
-  | 'providers:getCurrent'
-  | 'providers:switch'
-  | 'providers:getHealth'
-  | 'providers:getAllHealth'
-  | 'providers:setDefault'
-  | 'providers:enableFallback'
-  | 'providers:setAutoSwitch'
-  | 'providers:currentChanged'
-  | 'providers:healthChanged'
-  | 'providers:error'
-  | 'providers:availableUpdated'
-  | 'context:updateFiles'
-  | 'context:getFiles'
-  | 'context:includeFile'
-  | 'context:excludeFile'
-  | 'context:searchFiles'
-  | 'context:getAllFiles'
-  | 'context:getFileSuggestions'
-  | 'context:searchImages'
-  | 'commands:getTemplates'
-  | 'commands:executeCommand'
-  | 'commands:selectFile'
-  | 'commands:saveTemplate'
-  | 'analytics:trackEvent'
-  | 'analytics:getData'
-  | 'config:get'
-  | 'config:set'
-  | 'config:update'
-  | 'config:refresh'
-  | 'state:save'
-  | 'state:load'
-  | 'state:clear'
-  | 'view:changed'
-  | 'view:routeChanged'
-  | 'view:generic'
-  // System message types
-  | 'ready'
-  | 'webview-ready'
-  | 'requestInitialData'
-  | 'initialData'
-  | 'themeChanged'
-  | 'navigate'
-  | 'state:saved'
-  | 'state:loaded'
-  | 'error'
-  | 'refresh' // Refresh signal for hot-reload
-  // Legacy message types for compatibility
-  | 'switchView'
-  | 'workspaceChanged'
-  // Response event types
-  | 'chat:sendMessage:response'
-  | 'chat:newSession:response'
-  | 'chat:switchSession:response'
-  | 'chat:getHistory:response'
-  | 'chat:renameSession:response'
-  | 'chat:deleteSession:response'
-  | 'chat:bulkDeleteSessions:response'
-  | 'chat:getSessionStats:response'
-  | 'chat:requestSessions:response'
-  | 'chat:stopStream:response'
-  | 'providers:getAvailable:response'
-  | 'providers:getCurrent:response'
-  | 'providers:switch:response'
-  | 'providers:getHealth:response'
-  | 'providers:getAllHealth:response'
-  | 'providers:setDefault:response'
-  | 'providers:enableFallback:response'
-  | 'providers:setAutoSwitch:response'
-  | 'context:getFiles:response'
-  | 'context:includeFile:response'
-  | 'context:excludeFile:response'
-  | 'context:searchFiles:response'
-  | 'context:getAllFiles:response'
-  | 'context:getFileSuggestions:response'
-  | 'context:searchImages:response'
-  | 'commands:getTemplates:response'
-  | 'commands:executeCommand:response'
-  | 'commands:selectFile:response'
-  | 'commands:saveTemplate:response'
-  | 'analytics:getData:response'
-  | 'config:get:response'
-  | 'config:set:response'
-  | 'config:update:response'
-  | 'config:refresh:response'
-  | 'state:save:response'
-  | 'state:load:response'
-  | 'state:clear:response';
-
-// System message types are now included in StrictMessageType above
+  | (typeof CHAT_MESSAGE_TYPES)[keyof typeof CHAT_MESSAGE_TYPES]
+  | (typeof CHAT_RESPONSE_TYPES)[keyof typeof CHAT_RESPONSE_TYPES]
+  | (typeof PROVIDER_MESSAGE_TYPES)[keyof typeof PROVIDER_MESSAGE_TYPES]
+  | (typeof PROVIDER_RESPONSE_TYPES)[keyof typeof PROVIDER_RESPONSE_TYPES]
+  | (typeof CONTEXT_MESSAGE_TYPES)[keyof typeof CONTEXT_MESSAGE_TYPES]
+  | (typeof CONTEXT_RESPONSE_TYPES)[keyof typeof CONTEXT_RESPONSE_TYPES]
+  | (typeof COMMAND_MESSAGE_TYPES)[keyof typeof COMMAND_MESSAGE_TYPES]
+  | (typeof COMMAND_RESPONSE_TYPES)[keyof typeof COMMAND_RESPONSE_TYPES]
+  | (typeof ANALYTICS_MESSAGE_TYPES)[keyof typeof ANALYTICS_MESSAGE_TYPES]
+  | (typeof ANALYTICS_RESPONSE_TYPES)[keyof typeof ANALYTICS_RESPONSE_TYPES]
+  | (typeof CONFIG_MESSAGE_TYPES)[keyof typeof CONFIG_MESSAGE_TYPES]
+  | (typeof CONFIG_RESPONSE_TYPES)[keyof typeof CONFIG_RESPONSE_TYPES]
+  | (typeof STATE_MESSAGE_TYPES)[keyof typeof STATE_MESSAGE_TYPES]
+  | (typeof STATE_RESPONSE_TYPES)[keyof typeof STATE_RESPONSE_TYPES]
+  | (typeof VIEW_MESSAGE_TYPES)[keyof typeof VIEW_MESSAGE_TYPES]
+  | (typeof SYSTEM_MESSAGE_TYPES)[keyof typeof SYSTEM_MESSAGE_TYPES]; // System message types are now included in StrictMessageType above
 
 /**
  * Message Payloads - Strict typing for each message type
@@ -286,6 +210,25 @@ export interface ContextSearchImagesPayload {
 
 export interface CommandsGetTemplatesPayload {
   // No payload needed for get templates request
+}
+
+/**
+ * Agent Event Payloads - For agent lifecycle tracking
+ * Used for chat:agentStarted, chat:agentActivity, chat:agentCompleted message types
+ */
+export interface ChatAgentStartedPayload {
+  readonly sessionId: SessionId;
+  readonly agent: ClaudeAgentStartEvent;
+}
+
+export interface ChatAgentActivityPayload {
+  readonly sessionId: SessionId;
+  readonly agent: ClaudeAgentActivityEvent;
+}
+
+export interface ChatAgentCompletedPayload {
+  readonly sessionId: SessionId;
+  readonly agent: ClaudeAgentCompleteEvent;
 }
 
 export interface CommandsExecuteCommandPayload {
@@ -494,18 +437,92 @@ export interface ThemeChangedPayload {
 }
 
 /**
+ * Provider information for initial data
+ * Subset of ProviderInfo for webview initialization
+ */
+export interface InitialDataProviderInfo {
+  readonly id: string;
+  readonly name: string;
+  readonly status:
+    | 'available'
+    | 'unavailable'
+    | 'error'
+    | 'initializing'
+    | 'disabled';
+  readonly capabilities: Readonly<{
+    streaming: boolean;
+    fileAttachments: boolean;
+    contextManagement: boolean;
+    sessionPersistence: boolean;
+    multiTurn: boolean;
+    codeGeneration: boolean;
+    imageAnalysis: boolean;
+    functionCalling: boolean;
+  }>;
+}
+
+/**
+ * Provider health for initial data
+ */
+export interface InitialDataProviderHealth {
+  readonly status:
+    | 'available'
+    | 'unavailable'
+    | 'error'
+    | 'initializing'
+    | 'disabled';
+  readonly lastCheck: number;
+  readonly errorMessage?: string;
+  readonly responseTime?: number;
+  readonly uptime?: number;
+}
+
+/**
+ * Context information for initial data
+ */
+export interface InitialDataContextInfo {
+  readonly includedFiles: readonly string[];
+  readonly excludedFiles: readonly string[];
+  readonly tokenEstimate: number;
+  readonly optimizations?: readonly {
+    readonly type: 'exclude_pattern' | 'include_only' | 'summarize';
+    readonly description: string;
+    readonly estimatedSavings: number;
+    readonly autoApplicable: boolean;
+    readonly files?: readonly string[];
+  }[];
+}
+
+/**
+ * Workspace information for initial data
+ */
+export interface InitialDataWorkspaceInfo {
+  readonly name: string;
+  readonly path: string;
+  readonly projectType: string;
+}
+
+/**
  * Initial data payload for webview initialization
- * Sent by AngularWebviewProvider on webview load (line 101-144)
+ * Sent by AngularWebviewProvider on webview load
+ *
+ * CRITICAL: This must match the structure sent in angular-webview.provider.ts sendInitialData()
  */
 export interface InitialDataPayload {
   readonly success: boolean;
   readonly data: {
     readonly sessions: readonly StrictChatSession[];
     readonly currentSession: StrictChatSession | null;
+    // Provider state (added for type safety)
+    readonly providers: {
+      readonly current: InitialDataProviderInfo | null;
+      readonly available: readonly InitialDataProviderInfo[];
+      readonly health: Readonly<Record<string, InitialDataProviderHealth>>;
+    };
   };
   readonly config: {
-    readonly context: unknown;
-    readonly workspaceInfo: unknown;
+    readonly context: InitialDataContextInfo;
+    readonly workspaceInfo: InitialDataWorkspaceInfo | null;
     readonly theme: number; // vscode.ColorThemeKind enum
     readonly isVSCode: boolean;
     readonly extensionVersion: string;
@@ -543,6 +560,9 @@ export interface MessagePayloadMap {
   'chat:streamStopped': ChatStreamStoppedPayload;
   'chat:permissionRequest': ChatPermissionRequestPayload;
   'chat:permissionResponse': ChatPermissionResponsePayload;
+  'chat:agentStarted': ChatAgentStartedPayload;
+  'chat:agentActivity': ChatAgentActivityPayload;
+  'chat:agentCompleted': ChatAgentCompletedPayload;
   'providers:getAvailable': ProvidersGetAvailablePayload;
   'providers:getCurrent': ProvidersGetCurrentPayload;
   'providers:switch': ProvidersSwitchPayload;
@@ -604,6 +624,9 @@ export interface MessagePayloadMap {
   'chat:getSessionStats:response': MessageResponse;
   'chat:requestSessions:response': MessageResponse;
   'chat:stopStream:response': MessageResponse;
+  'chat:agentStarted:response': MessageResponse<ChatAgentStartedPayload>;
+  'chat:agentActivity:response': MessageResponse<ChatAgentActivityPayload>;
+  'chat:agentCompleted:response': MessageResponse<ChatAgentCompletedPayload>;
   'providers:getAvailable:response': MessageResponse;
   'providers:getCurrent:response': MessageResponse;
   'providers:switch:response': MessageResponse;

@@ -12,6 +12,9 @@ import {
   ClaudePermissionRequest,
   ClaudePermissionResponse,
   ClaudeCliHealth,
+  ClaudeAgentStartEvent,
+  ClaudeAgentActivityEvent,
+  ClaudeAgentCompleteEvent,
 } from '@ptah-extension/shared';
 import { TOKENS } from '@ptah-extension/vscode-core';
 
@@ -42,6 +45,11 @@ export const CLAUDE_DOMAIN_EVENTS = {
 
   // Errors
   CLI_ERROR: 'claude:error',
+
+  // Agent lifecycle events
+  AGENT_STARTED: 'claude:agent:started',
+  AGENT_ACTIVITY: 'claude:agent:activity',
+  AGENT_COMPLETED: 'claude:agent:completed',
 } as const;
 
 /**
@@ -91,6 +99,21 @@ export interface ClaudeErrorEvent {
   readonly sessionId?: SessionId;
   readonly error: string;
   readonly context?: Record<string, unknown>;
+}
+
+export interface ClaudeAgentStartedEvent {
+  readonly sessionId: SessionId;
+  readonly agent: ClaudeAgentStartEvent;
+}
+
+export interface ClaudeAgentActivityEventPayload {
+  readonly sessionId: SessionId;
+  readonly agent: ClaudeAgentActivityEvent;
+}
+
+export interface ClaudeAgentCompletedEvent {
+  readonly sessionId: SessionId;
+  readonly agent: ClaudeAgentCompleteEvent;
 }
 
 /**
@@ -213,5 +236,32 @@ export class ClaudeDomainEventPublisher {
       error,
       context,
     });
+  }
+
+  emitAgentStarted(sessionId: SessionId, agent: ClaudeAgentStartEvent): void {
+    this.eventBus.publish<ClaudeAgentStartedEvent>(
+      CLAUDE_DOMAIN_EVENTS.AGENT_STARTED,
+      { sessionId, agent }
+    );
+  }
+
+  emitAgentActivity(
+    sessionId: SessionId,
+    agent: ClaudeAgentActivityEvent
+  ): void {
+    this.eventBus.publish<ClaudeAgentActivityEventPayload>(
+      CLAUDE_DOMAIN_EVENTS.AGENT_ACTIVITY,
+      { sessionId, agent }
+    );
+  }
+
+  emitAgentCompleted(
+    sessionId: SessionId,
+    agent: ClaudeAgentCompleteEvent
+  ): void {
+    this.eventBus.publish<ClaudeAgentCompletedEvent>(
+      CLAUDE_DOMAIN_EVENTS.AGENT_COMPLETED,
+      { sessionId, agent }
+    );
   }
 }
