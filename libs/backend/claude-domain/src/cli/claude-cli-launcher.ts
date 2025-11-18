@@ -165,6 +165,14 @@ export class ClaudeCliLauncher {
 
   /**
    * Determine if shell execution is needed for wrapper (Windows CMD/BAT files)
+   *
+   * FIX: Always use shell on Windows for .cmd/.bat files OR bare commands OR non-.exe files
+   * This fixes ENOENT errors when spawning NPM global installs (claude.cmd wrapper)
+   *
+   * Cross-platform behavior:
+   * - Windows: shell=true for .cmd/.bat/bare commands/non-.exe (fixes NPM installs)
+   * - Windows: shell=false for .exe files (direct execution, better performance)
+   * - macOS/Linux: shell=false (symlinks work directly)
    */
   private needsShellExecution(): boolean {
     if (os.platform() !== 'win32') {
@@ -172,11 +180,25 @@ export class ClaudeCliLauncher {
     }
 
     const path = this.installation.path.toLowerCase();
-    return (
-      path.endsWith('.cmd') ||
-      path.endsWith('.bat') ||
-      (!path.includes('\\') && !path.includes('/'))
-    );
+
+    // Case 1: Explicit wrapper extensions MUST use shell
+    if (path.endsWith('.cmd') || path.endsWith('.bat')) {
+      return true;
+    }
+
+    // Case 2: Bare command without path (e.g., 'claude') needs shell to resolve from PATH
+    if (!path.includes('\\') && !path.includes('/')) {
+      return true;
+    }
+
+    // Case 3: Native .exe doesn't need shell (direct execution, better performance)
+    if (path.endsWith('.exe')) {
+      return false;
+    }
+
+    // Case 4: Default to shell for unknown extensions on Windows (safe fallback)
+    // This handles edge cases like custom wrappers or unusual installation methods
+    return true;
   }
 
   /**
