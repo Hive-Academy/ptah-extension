@@ -53,19 +53,39 @@ export class ClaudeCliLauncher {
     const { command, commandArgs, needsShell } = this.buildSpawnCommand(args);
 
     // PHASE 3: Debug logging for spawn diagnostics
-    console.log('[ClaudeCliLauncher] Spawning Claude CLI with details:', {
-      sessionId,
-      platform: os.platform(),
-      installationPath: this.installation.path,
-      installationSource: this.installation.source,
-      useDirectExecution: this.installation.useDirectExecution || false,
-      cliJsPath: this.installation.cliJsPath || 'none',
-      command,
-      needsShell,
-      cwd,
-      resumeSessionId: resumeSessionId || 'none',
-      model: model || 'default',
-    });
+    console.log(
+      '[ClaudeCliLauncher] =========================================='
+    );
+    console.log('[ClaudeCliLauncher] SPAWN CONFIGURATION:');
+    console.log('[ClaudeCliLauncher] SessionID:', sessionId);
+    console.log('[ClaudeCliLauncher] Platform:', os.platform());
+    console.log(
+      '[ClaudeCliLauncher] Installation Path:',
+      this.installation.path
+    );
+    console.log(
+      '[ClaudeCliLauncher] Installation Source:',
+      this.installation.source
+    );
+    console.log(
+      '[ClaudeCliLauncher] Use Direct Execution:',
+      this.installation.useDirectExecution || false
+    );
+    console.log(
+      '[ClaudeCliLauncher] CLI.js Path:',
+      this.installation.cliJsPath || 'NONE'
+    );
+    console.log('[ClaudeCliLauncher] Spawn Command:', command);
+    console.log('[ClaudeCliLauncher] Needs Shell:', needsShell);
+    console.log('[ClaudeCliLauncher] Working Directory:', cwd);
+    console.log(
+      '[ClaudeCliLauncher] Resume Session ID:',
+      resumeSessionId || 'none'
+    );
+    console.log('[ClaudeCliLauncher] Model:', model || 'default');
+    console.log(
+      '[ClaudeCliLauncher] =========================================='
+    );
 
     // Spawn child process
     const childProcess = spawn(command, commandArgs, {
