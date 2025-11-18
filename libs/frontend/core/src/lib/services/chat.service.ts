@@ -19,6 +19,9 @@ import {
   CHAT_MESSAGE_TYPES,
   SYSTEM_MESSAGE_TYPES,
   toResponseType,
+  ClaudeAgentStartEvent,
+  ClaudeAgentActivityEvent,
+  ClaudeAgentCompleteEvent,
 } from '@ptah-extension/shared';
 import { MessageProcessingService } from './message-processing.service';
 import { ChatValidationService } from './chat-validation.service';
@@ -33,6 +36,32 @@ interface StreamState {
   isStreaming: boolean;
   isConnected: boolean;
   lastMessageTimestamp: number;
+}
+
+/**
+ * Agent Tree Node - Represents a subagent in the agent execution tree
+ *
+ * FORWARD COMPATIBILITY (IMPLEMENTATION_PLAN Integration):
+ * - cost/tokens: Future integration with Phase 4 (Cost Tracking)
+ * - mcpTools: Future integration with Phase 3 (MCP Server Status)
+ * - isCustomAgent: Future integration with Phase 1.3 (SessionCapabilities)
+ */
+export interface AgentTreeNode {
+  readonly agent: ClaudeAgentStartEvent;
+  readonly activities: readonly ClaudeAgentActivityEvent[];
+  readonly status: 'running' | 'complete' | 'error';
+  readonly duration?: number;
+  readonly errorMessage?: string;
+
+  // Forward-compatible fields for IMPLEMENTATION_PLAN integration
+  readonly cost?: number; // Future: from result messages (IMPL Phase 4)
+  readonly tokens?: {
+    // Future: token tracking (IMPL Phase 4)
+    input: number;
+    output: number;
+  };
+  readonly mcpTools?: string[]; // Future: MCP tool correlation (IMPL Phase 3)
+  readonly isCustomAgent?: boolean; // Future: from SessionCapabilities (IMPL Phase 1.3)
 }
 
 /**
@@ -99,6 +128,26 @@ export class ChatService {
     isConnected: true, // Default to true - backend connection is established when webview loads
     lastMessageTimestamp: 0,
   });
+
+  // Agent state signals (TASK_2025_004)
+  private readonly _agents = signal<readonly AgentTreeNode[]>([]);
+  readonly agents = this._agents.asReadonly();
+
+  private readonly _agentActivities = signal<
+    ReadonlyMap<string, readonly ClaudeAgentActivityEvent[]>
+  >(new Map());
+  readonly agentActivities = this._agentActivities.asReadonly();
+
+  // Agent computed signals
+  readonly activeAgents = computed(() =>
+    this.agents().filter((node) => node.status === 'running')
+  );
+
+  readonly agentCount = computed(() => ({
+    total: this.agents().length,
+    active: this.activeAgents().length,
+    complete: this.agents().filter((n) => n.status === 'complete').length,
+  }));
 
   // Public signal-based API - delegates to ChatStateService
   readonly messages = this.chatState.messages;
@@ -283,11 +332,6 @@ export class ChatService {
       )
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((response: unknown) => {
-        console.log(
-          '[ChatService] Received chat:sendMessage:response:',
-          response
-        );
-
         const typedResponse = response as {
           success: boolean;
           data?: unknown;
@@ -295,14 +339,12 @@ export class ChatService {
         };
 
         if (typedResponse.success) {
-          this.logger.info('Message sent successfully', 'ChatService');
-          console.log('[ChatService] Message sent successfully');
+          this.logger.debug('Message sent successfully', 'ChatService');
           // Message will appear via chat:messageAdded event
         } else {
           const errorMsg =
             typedResponse.error?.message || 'Unknown error sending message';
           this.logger.error(`Message send failed: ${errorMsg}`, 'ChatService');
-          console.error('[ChatService] Message send failed:', errorMsg);
 
           // Show error to user
           this.appState.handleError(`Failed to send message: ${errorMsg}`);
@@ -341,7 +383,9 @@ export class ChatService {
         ) {
           // Type guard passed, safe to cast
           this.chatState.setCurrentSession(sessionData as never);
-          this.logger.info('Session created event received', 'ChatService');
+          this.logger.debug('Session created', 'ChatService', {
+            sessionId: sessionData.id,
+          });
         }
       });
 
@@ -361,7 +405,9 @@ export class ChatService {
         ) {
           // Type guard passed, safe to cast
           this.chatState.setCurrentSession(sessionData as never);
-          this.logger.info('Session switched event received', 'ChatService');
+          this.logger.debug('Session switched', 'ChatService', {
+            sessionId: sessionData.id,
+          });
 
           // Request messages for switched session
           this.vscode.postStrictMessage(CHAT_MESSAGE_TYPES.GET_HISTORY, {
@@ -391,7 +437,10 @@ export class ChatService {
             processedMessage,
           ]);
 
-          this.logger.info('Message added event received', 'ChatService');
+          this.logger.debug('Message added', 'ChatService', {
+            messageId: message.id,
+            type: message.type,
+          });
         }
       });
 
@@ -410,10 +459,10 @@ export class ChatService {
               ...currentSession,
               tokenUsage,
             } as never);
-            this.logger.info(
-              'Token usage updated event received',
-              'ChatService'
-            );
+            this.logger.debug('Token usage updated', 'ChatService', {
+              used: tokenUsage.input + tokenUsage.output,
+              percentage: tokenUsage.percentage,
+            });
           }
         }
       });
@@ -430,10 +479,9 @@ export class ChatService {
             (session) => this.validator.validateSession(session).isValid
           ) as never[]; // Type guard passed, safe to cast
           // TODO: Update sessions list in state (currently no sessions state)
-          this.logger.info(
-            `Sessions list updated: ${validSessions.length} sessions`,
-            'ChatService'
-          );
+          this.logger.debug('Sessions list updated', 'ChatService', {
+            count: validSessions.length,
+          });
         }
       });
 
@@ -450,22 +498,111 @@ export class ChatService {
               (msg) => this.validator.validateChatMessage(msg).isValid
             );
             this.chatState.setMessages(validMessages);
-            this.logger.info(
-              `Loaded ${validMessages.length} messages from history response`,
-              'ChatService'
-            );
+            this.logger.debug('Loaded history', 'ChatService', {
+              messageCount: validMessages.length,
+            });
 
             // Transform to ProcessedClaudeMessage for UI display
             const processedMessages = validMessages.map((msg) =>
               this.messageProcessor.convertToProcessedMessage(msg)
             );
             this.chatState.setClaudeMessages(processedMessages);
-            this.logger.info(
-              `Transformed ${processedMessages.length} messages to ProcessedClaudeMessage for UI`,
-              'ChatService'
-            );
+            this.logger.debug('Transformed messages for UI', 'ChatService', {
+              count: processedMessages.length,
+            });
           }
         }
+      });
+
+    // CRITICAL FIX: Listen for messageComplete event to clear loading/streaming state
+    this.vscode
+      .onMessageType(CHAT_MESSAGE_TYPES.MESSAGE_COMPLETE)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => {
+        // Clear streaming state
+        this._streamState.update((state) => ({
+          ...state,
+          isStreaming: false,
+          lastMessageTimestamp: Date.now(),
+        }));
+
+        // Clear loading state in app
+        this.appState.setLoading(false);
+
+        this.logger.debug('Message complete', 'ChatService', {
+          messageId: payload.message?.id,
+        });
+      });
+
+    // Agent event handlers (TASK_2025_004)
+    this.vscode
+      .onMessageType(CHAT_MESSAGE_TYPES.AGENT_STARTED)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => {
+        const newNode: AgentTreeNode = {
+          agent: payload.agent,
+          activities: [],
+          status: 'running',
+        };
+        this._agents.update((agents) => [...agents, newNode]);
+        this.logger.debug('Agent started', 'ChatService', {
+          agentId: payload.agent.agentId,
+          subagentType: payload.agent.subagentType,
+        });
+      });
+
+    this.vscode
+      .onMessageType(CHAT_MESSAGE_TYPES.AGENT_ACTIVITY)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => {
+        const agentId = payload.agent.agentId;
+
+        // Update activities map
+        this._agentActivities.update((map) => {
+          const activities = map.get(agentId) || [];
+          const newMap = new Map(map);
+          newMap.set(agentId, [...activities, payload.agent]);
+          return newMap;
+        });
+
+        // Update agent node activities
+        this._agents.update((agents) =>
+          agents.map((node) =>
+            node.agent.agentId === agentId
+              ? {
+                  ...node,
+                  activities: this._agentActivities().get(agentId) || [],
+                }
+              : node
+          )
+        );
+
+        this.logger.debug('Agent activity', 'ChatService', {
+          agentId,
+          toolName: payload.agent.toolName,
+        });
+      });
+
+    this.vscode
+      .onMessageType(CHAT_MESSAGE_TYPES.AGENT_COMPLETED)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => {
+        this._agents.update((agents) =>
+          agents.map((node) =>
+            node.agent.agentId === payload.agent.agentId
+              ? {
+                  ...node,
+                  status: 'complete',
+                  duration: payload.agent.duration,
+                }
+              : node
+          )
+        );
+
+        this.logger.debug('Agent completed', 'ChatService', {
+          agentId: payload.agent.agentId,
+          duration: payload.agent.duration,
+        });
       });
 
     // Handle initial data
@@ -476,14 +613,9 @@ export class ChatService {
         // Mark as connected when we receive initial data
         this._streamState.update((state) => ({ ...state, isConnected: true }));
 
-        console.log('=== ChatService: Received initialData ===', {
-          success: payload.success,
-          hasData: !!payload.data,
-          hasCurrentSession: !!payload.data?.currentSession,
-          sessionId: payload.data?.currentSession?.id,
-          sessionName: payload.data?.currentSession?.name,
-          messagesCount: payload.data?.currentSession?.messages?.length || 0,
-          fullPayload: payload,
+        this.logger.debug('Received initial data', 'ChatService', {
+          hasSession: !!payload.data?.currentSession,
+          messageCount: payload.data?.currentSession?.messages?.length || 0,
         });
 
         // Backend sends payload.data.sessions and payload.data.currentSession
@@ -492,52 +624,22 @@ export class ChatService {
           // Set current session if provided
           if (payload.data.currentSession) {
             this.chatState.setCurrentSession(payload.data.currentSession);
-            this.logger.info(
-              'Current session loaded from initial data',
-              'ChatService'
+            this.logger.debug(
+              'Session loaded from initial data',
+              'ChatService',
+              {
+                sessionId: payload.data.currentSession.id,
+              }
             );
           }
 
           // Load messages for current session if available
           if (payload.data.currentSession?.messages) {
-            console.log('=== ChatService: Messages array exists ===', {
-              messagesLength: payload.data.currentSession.messages.length,
-              firstMessage: payload.data.currentSession.messages[0],
-            });
-
-            // Validate each message and log results
-            const validationResults = payload.data.currentSession.messages.map(
-              (msg) => ({
-                msg,
-                validation: this.validator.validateChatMessage(msg),
-              })
-            );
-
-            console.log('=== ChatService: Validation Results ===', {
-              total: validationResults.length,
-              valid: validationResults.filter((r) => r.validation.isValid)
-                .length,
-              invalid: validationResults.filter((r) => !r.validation.isValid)
-                .length,
-              firstInvalid: validationResults.find(
-                (r) => !r.validation.isValid
-              ),
-            });
-
             const validMessages = payload.data.currentSession.messages.filter(
               (msg) => this.validator.validateChatMessage(msg).isValid
             );
 
-            console.log('=== ChatService: After filtering ===', {
-              validMessagesCount: validMessages.length,
-              validMessages: validMessages,
-            });
-
             this.chatState.setMessages(validMessages);
-            this.logger.info(
-              `Loaded ${validMessages.length} messages from initial data`,
-              'ChatService'
-            );
 
             // CRITICAL FIX: Transform StrictChatMessage[] to ProcessedClaudeMessage[] for UI display
             // The UI displays claudeMessages(), not messages(), so we must populate both collections
@@ -545,14 +647,9 @@ export class ChatService {
               this.messageProcessor.convertToProcessedMessage(msg)
             );
             this.chatState.setClaudeMessages(processedMessages);
-            this.logger.info(
-              `Transformed ${processedMessages.length} messages to ProcessedClaudeMessage for UI`,
-              'ChatService'
-            );
-          } else {
-            console.warn('=== ChatService: No messages in currentSession ===', {
-              hasCurrentSession: !!payload.data.currentSession,
-              currentSession: payload.data.currentSession,
+
+            this.logger.debug('Initial messages loaded', 'ChatService', {
+              messageCount: processedMessages.length,
             });
           }
         }

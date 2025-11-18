@@ -88,12 +88,6 @@ export class ClaudeCliService {
         ? workspaceFolders[0].uri.fsPath
         : process.cwd();
 
-    console.log('[ClaudeCliService] Workspace root determined:', workspaceRoot);
-    console.log(
-      '[ClaudeCliService] Workspace folders available:',
-      workspaceFolders?.length || 0
-    );
-
     // Spawn Claude CLI turn and return stream
     return launcher.spawnTurn(message, {
       sessionId,

@@ -191,8 +191,6 @@ export class SessionManager {
     this.sessions.set(session.id, session);
     this.currentSessionId = session.id;
 
-    console.info(`Created new session: ${session.name} (${session.id})`);
-
     await this.saveSessions();
 
     // Publish session created event
@@ -244,15 +242,12 @@ export class SessionManager {
   async switchSession(sessionId: SessionId): Promise<boolean> {
     const session = this.sessions.get(sessionId);
     if (!session) {
-      console.warn(`Attempted to switch to non-existent session: ${sessionId}`);
       return false;
     }
 
     this.currentSessionId = sessionId;
     const now = Date.now();
     this.mutateSession(session, { lastActiveAt: now, updatedAt: now });
-
-    console.info(`Switched to session: ${session.name} (${sessionId})`);
 
     await this.saveSessions();
 
@@ -283,8 +278,6 @@ export class SessionManager {
       this.currentSessionId = undefined;
     }
 
-    console.info(`Deleted session: ${sessionId}`);
-
     await this.saveSessions();
 
     // Publish session deleted event
@@ -313,8 +306,6 @@ export class SessionManager {
       lastActiveAt: now,
       updatedAt: now,
     });
-
-    console.info(`Renamed session ${sessionId} to: ${newName}`);
 
     await this.saveSessions();
 
@@ -354,8 +345,6 @@ export class SessionManager {
       lastActiveAt: now,
       updatedAt: now,
     });
-
-    console.info(`Cleared session: ${sessionId}`);
 
     await this.saveSessions();
 
@@ -425,8 +414,6 @@ export class SessionManager {
 
     this.updateTokenPercentage(session);
 
-    console.info(`Added user message to session ${options.sessionId}`);
-
     await this.saveSessions();
 
     // Publish events
@@ -488,8 +475,6 @@ export class SessionManager {
 
     this.updateTokenPercentage(session);
 
-    console.info(`Added assistant message to session ${options.sessionId}`);
-
     await this.saveSessions();
 
     // Publish events
@@ -539,9 +524,6 @@ export class SessionManager {
    */
   setClaudeSessionId(sessionId: SessionId, claudeSessionId: string): void {
     this.claudeSessionIds.set(sessionId, claudeSessionId);
-    console.info(
-      `Mapped session ${sessionId} to Claude CLI session ${claudeSessionId}`
-    );
   }
 
   /**
@@ -565,12 +547,6 @@ export class SessionManager {
       });
       this.updateTokenPercentage(session);
     }
-
-    console.info(`Stored Claude CLI info for session ${sessionId}:`, {
-      model: info.model,
-      toolCount: info.tools.length,
-      cwd: info.cwd,
-    });
   }
 
   /**
@@ -834,8 +810,6 @@ export class SessionManager {
       if (sessionNumbers.length > 0) {
         this.sessionCounter = Math.max(...sessionNumbers) + 1;
       }
-
-      console.info(`Loaded ${this.sessions.size} sessions from storage`);
     } catch (error) {
       console.error('Failed to load sessions from storage:', error);
     }
@@ -849,8 +823,6 @@ export class SessionManager {
       const sessionsData = Array.from(this.sessions.values());
       await this.storage.set(this.SESSIONS_KEY, sessionsData);
       await this.storage.set(this.CURRENT_SESSION_KEY, this.currentSessionId);
-
-      console.info(`Saved ${sessionsData.length} sessions to storage`);
     } catch (error) {
       console.error('Failed to save sessions to storage:', error);
     }

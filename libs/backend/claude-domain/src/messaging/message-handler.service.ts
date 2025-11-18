@@ -156,8 +156,6 @@ export class MessageHandlerService {
    * Subscribe to all message types and route to orchestration services
    */
   initialize(): void {
-    console.info('MessageHandlerService: Initializing EventBus subscriptions');
-
     // Chat message subscriptions
     this.subscribeToChatMessages();
 
@@ -175,10 +173,6 @@ export class MessageHandlerService {
 
     // Agent event subscriptions (from CLAUDE_DOMAIN_EVENTS)
     this.subscribeToAgentEvents();
-
-    console.info(
-      `MessageHandlerService: Initialized ${this.subscriptions.length} EventBus subscriptions`
-    );
   }
 
   /**
@@ -225,11 +219,7 @@ export class MessageHandlerService {
                   } as MessagePayloadMap[typeof CHAT_MESSAGE_TYPES.MESSAGE_CHUNK]);
                 }
                 // Handle other stream events (thinking, tool, etc.)
-                else if (chunk.type === 'thinking') {
-                  console.log('[MessageHandler] Thinking:', chunk.data);
-                } else if (chunk.type === 'tool') {
-                  console.log('[MessageHandler] Tool event:', chunk.data);
-                }
+                // Events are already published via EventBus by ClaudeCliService
               }
             );
 
@@ -255,10 +245,6 @@ export class MessageHandlerService {
               this.eventBus.publish(CHAT_MESSAGE_TYPES.MESSAGE_COMPLETE, {
                 message: completeMessage,
               } as MessagePayloadMap[typeof CHAT_MESSAGE_TYPES.MESSAGE_COMPLETE]);
-
-              console.info(
-                `[MessageHandler] Message stream completed for session ${result.sessionId}`
-              );
             });
 
             result.messageStream.on('error', (error: Error) => {
@@ -429,20 +415,12 @@ export class MessageHandlerService {
       this.eventBus
         .subscribe(PROVIDER_MESSAGE_TYPES.GET_AVAILABLE)
         .subscribe(async (event) => {
-          console.log(
-            '[MessageHandler] Received providers:getAvailable request, correlationId:',
-            event.correlationId
-          );
           const result =
             await this.providerOrchestration.getAvailableProviders();
-          console.log('[MessageHandler] getAvailableProviders result:', result);
           this.publishResponse(
             'providers:getAvailable',
             event.correlationId,
             result
-          );
-          console.log(
-            '[MessageHandler] Published providers:getAvailable:response to EventBus'
           );
         })
     );
@@ -896,11 +874,6 @@ export class MessageHandlerService {
     correlationId: CorrelationId,
     result: unknown
   ): void {
-    console.log(
-      `[MessageHandler] publishResponse called for ${messageType}, correlationId:`,
-      correlationId
-    );
-
     // Convert result to MessageResponse format
     const response: MessageResponse = {
       requestId: correlationId,
@@ -913,19 +886,11 @@ export class MessageHandlerService {
       },
     };
 
-    console.log(`[MessageHandler] Response payload:`, response);
-
     // Publish response event
     const responseType = `${messageType}:response` as keyof MessagePayloadMap;
-    console.log(`[MessageHandler] Publishing to EventBus as: ${responseType}`);
-
     this.eventBus.publish(
       responseType,
       response as MessagePayloadMap[typeof responseType]
-    );
-
-    console.log(
-      `[MessageHandler] Successfully published ${responseType} to EventBus`
     );
   }
 
@@ -934,7 +899,6 @@ export class MessageHandlerService {
    * Should be called when extension is deactivated
    */
   dispose(): void {
-    console.info('MessageHandlerService: Disposing EventBus subscriptions');
     this.subscriptions.forEach((subscription) => subscription.unsubscribe());
     this.subscriptions = [];
   }

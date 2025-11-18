@@ -137,11 +137,8 @@ export class WebviewMessageBridge {
    */
   initialize(): void {
     if (this.isInitialized) {
-      console.warn('WebviewMessageBridge: Already initialized, skipping');
       return;
     }
-
-    console.info('WebviewMessageBridge: Initializing event forwarding');
 
     // Subscribe to all events from EventBus
     this.subscriptions.push(
@@ -158,7 +155,6 @@ export class WebviewMessageBridge {
     );
 
     this.isInitialized = true;
-    console.info('WebviewMessageBridge: Initialization complete');
   }
 
   /**
@@ -170,10 +166,6 @@ export class WebviewMessageBridge {
     if (!this.shouldForwardEvent(event.type)) {
       return;
     }
-
-    console.info(
-      `WebviewMessageBridge: Forwarding event '${event.type}' to webview`
-    );
 
     // Forward to webview
     this.forwardToWebview(event).catch((error) => {
@@ -214,40 +206,19 @@ export class WebviewMessageBridge {
   private async forwardToWebview(event: TypedEvent): Promise<void> {
     const activeWebviews = this.webviewManager.getActiveWebviews();
 
-    console.log(
-      `[WebviewMessageBridge] forwardToWebview() called for event '${event.type}'`
-    );
-    console.log(`[WebviewMessageBridge] Active webviews:`, activeWebviews);
-
     if (activeWebviews.length === 0) {
-      console.warn(
-        `[WebviewMessageBridge] No active webviews to forward event '${event.type}' to`
-      );
       // No active webviews to forward to - this is normal when webview isn't open
       return;
     }
 
-    console.log(
-      `[WebviewMessageBridge] Forwarding to ${activeWebviews.length} webview(s)`
-    );
-
     // Forward to all active webviews
     const forwardPromises = activeWebviews.map((viewType) => {
-      console.log(
-        `[WebviewMessageBridge] Calling webviewManager.sendMessage('${viewType}', '${event.type}', ...)`
-      );
       return this.webviewManager
         .sendMessage(viewType, event.type, event.payload)
         .then((success) => {
           if (success) {
-            console.log(
-              `[WebviewMessageBridge] Successfully forwarded '${event.type}' to '${viewType}'`
-            );
             this.forwardedMessageCount++;
           } else {
-            console.warn(
-              `WebviewMessageBridge: Failed to send message to webview '${viewType}'`
-            );
             this.failedForwardCount++;
           }
           return success;
@@ -256,9 +227,6 @@ export class WebviewMessageBridge {
 
     // Wait for all forwards to complete
     await Promise.allSettled(forwardPromises);
-    console.log(
-      `[WebviewMessageBridge] Finished forwarding event '${event.type}'`
-    );
   }
 
   /**
@@ -286,14 +254,8 @@ export class WebviewMessageBridge {
    * Should be called during extension deactivation
    */
   dispose(): void {
-    console.info('WebviewMessageBridge: Disposing subscriptions');
-
     this.subscriptions.forEach((subscription) => subscription.unsubscribe());
     this.subscriptions = [];
     this.isInitialized = false;
-
-    console.info(
-      `WebviewMessageBridge: Disposed. Stats - Forwarded: ${this.forwardedMessageCount}, Failed: ${this.failedForwardCount}`
-    );
   }
 }

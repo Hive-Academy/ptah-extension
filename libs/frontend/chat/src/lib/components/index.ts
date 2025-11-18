@@ -33,3 +33,8 @@ export * from './chat-messages';
 
 // Input Components (1/1 complete) ✅
 export * from './chat-input';
+
+// Agent Visualization Components (3/3 complete) ✅ TASK_2025_004
+export * from './agent-tree/agent-tree.component';
+export * from './agent-timeline/agent-timeline.component';
+export * from './agent-status-badge/agent-status-badge.component';

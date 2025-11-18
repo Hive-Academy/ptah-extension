@@ -276,11 +276,11 @@ export class ChatMessageContentComponent implements AfterViewInit {
 
   toggleImagePreview(file: ExtractedFileInfo, event: Event): void {
     event.stopPropagation();
-    console.log('Toggle image preview for:', file.path);
+    // Image preview toggle (no logging needed for UI interaction)
   }
 
   onImageError(event: Event, file: ExtractedFileInfo): void {
-    console.warn('Failed to load image:', file.path);
+    // Image failed to load - show fallback icon
     const img = event.target as HTMLImageElement;
     img.src =
       'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTIxIDNIMTlWMUgxN1YzSDdWMUg1VjNIM1Y1VjE5VjIxSDVWMTlIMTlWMjFIMjFWMTlWNVYzWk01IDE5VjVIMTlWMTlINVoiIGZpbGw9IiM5OTk5OTkiLz4KPHBhdGggZD0iTTcgMTdIMTdWMTVIN1YxN1oiIGZpbGw9IiM5OTk5OTkiLz4KPHBhdGggZD0iTTcgMTNIMTNWMTFIN1YxM1oiIGZpbGw9IiM5OTk5OTkiLz4KPC9zdmc+';

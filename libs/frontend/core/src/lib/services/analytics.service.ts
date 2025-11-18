@@ -206,7 +206,7 @@ export class AnalyticsService {
    * Manually refresh analytics data
    */
   refreshData(): Promise<void> {
-    this.logger.interaction('manualRefresh', 'AnalyticsService', {
+    this.logger.interaction('AnalyticsService', 'manualRefresh', {
       timestamp: Date.now(),
     });
     return this.fetchAnalyticsData(true);

@@ -30,6 +30,7 @@
     "test:shared": "nx test shared",
     "test:all": "nx run-many -t test",
     "test:watch": "nx run-many -t test --watch",
+    "test:e2e": "jest --config=e2e/jest.config.js --testPathPattern=e2e",
     "clean": "nx reset && rm -rf dist node_modules/.cache",
     "graph": "nx graph",
     "affected": "nx affected",

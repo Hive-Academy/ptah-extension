@@ -203,19 +203,36 @@ Glob(task-tracking/TASK_[ID]/**.md)
 # Check if team-leader created tasks.md
 if tasks.md exists:
   Read(task-tracking/TASK_[ID]/tasks.md)
-  # Find YOUR assigned task: Look for "🔄 IN PROGRESS - Assigned to frontend-developer"
-  # Extract:
-  #   - Task number and description
-  #   - Expected file paths
-  #   - Design spec line references (visual-design-specification.md:XXX-YYY)
-  #   - Exact Tailwind classes to use
-  #   - 3D enhancement specifications
-  #   - Verification requirements
-  #   - Expected commit message pattern
-  # IMPLEMENT ONLY THIS TASK - nothing else!
+
+  # CRITICAL: Check for BATCH assignment
+  # Look for batch marked "🔄 IN PROGRESS - Assigned to frontend-developer"
+
+  if BATCH found:
+    # Extract ALL tasks in the batch:
+    #   - Batch number and name
+    #   - ALL task numbers and descriptions in batch
+    #   - Expected file paths for EACH task
+    #   - Design spec line references for EACH task
+    #   - Exact Tailwind classes for EACH task
+    #   - 3D enhancement specifications
+    #   - Dependencies between tasks
+    #   - Batch verification requirements
+    # IMPLEMENT ALL TASKS IN BATCH - in order, respecting dependencies
+
+  else if single task found:
+    # Extract single task (old format):
+    #   - Task number and description
+    #   - Expected file paths
+    #   - Design spec line references
+    #   - Exact Tailwind classes
+    #   - Verification requirements
+    # IMPLEMENT ONLY THIS TASK
 ```
 
-**IMPORTANT**: If tasks.md exists, it contains your ATOMIC task assignment. Do NOT implement multiple sections - only your assigned task.
+**IMPORTANT**:
+
+- **Batch Mode** (new): Implement ALL tasks in assigned batch, ONE commit at end
+- **Single Task Mode** (legacy): Implement one task, commit immediately
 
 ### STEP 3: Read UI/UX Design Documents (If UI/UX Work)
 
@@ -344,7 +361,162 @@ Read([example2])
 - [List patterns and why not needed]
 ```
 
-### STEP 6: Implement ONLY Your Assigned Task
+### STEP 6: Execute Your Assignment (Batch or Single Task)
+
+#### OPTION A: BATCH EXECUTION (Preferred - New Format)
+
+**If you have a BATCH assignment:**
+
+```typescript
+// BATCH: Frontend Hero Section (Tasks 3.1, 3.2, 3.3)
+
+// Task 3.1: HeroSection Component
+// File: apps/dev-brand-ui/src/app/features/landing-page/sections/hero-section.component.ts
+// Design Spec: visual-design-specification.md:120-180
+import { Component } from '@angular/core';
+import { Scene3DComponent } from '../../../core/angular-3d/components/scene-3d.component';
+
+@Component({
+  selector: 'app-hero-section',
+  standalone: true,
+  imports: [Scene3DComponent],
+  template: `
+    <section class="relative h-screen bg-gradient-to-br from-sky-400 to-indigo-600 py-32">
+      <Scene3D />
+      <div class="container mx-auto px-6">
+        <h1 class="text-6xl font-bold text-white">Welcome</h1>
+      </div>
+    </section>
+  `,
+})
+export class HeroSectionComponent {}
+// ✅ IMPLEMENT → git add apps/dev-brand-ui/src/app/features/landing-page/sections/hero-section.component.ts
+
+// Task 3.2: FeaturesSection Component
+// File: apps/dev-brand-ui/src/app/features/landing-page/sections/features-section.component.ts
+// Design Spec: visual-design-specification.md:200-260
+import { Component } from '@angular/core';
+
+@Component({
+  selector: 'app-features-section',
+  standalone: true,
+  template: `
+    <section class="py-20 bg-white">
+      <div class="container mx-auto px-6">
+        <h2 class="text-4xl font-bold text-center">Features</h2>
+        <!-- Features content -->
+      </div>
+    </section>
+  `,
+})
+export class FeaturesSectionComponent {}
+// ✅ IMPLEMENT → git add apps/dev-brand-ui/src/app/features/landing-page/sections/features-section.component.ts
+
+// Task 3.3: CTASection Component
+// File: apps/dev-brand-ui/src/app/features/landing-page/sections/cta-section.component.ts
+// Design Spec: visual-design-specification.md:280-320
+import { Component } from '@angular/core';
+
+@Component({
+  selector: 'app-cta-section',
+  standalone: true,
+  template: `
+    <section class="py-16 bg-indigo-600">
+      <div class="container mx-auto px-6 text-center">
+        <h2 class="text-3xl font-bold text-white">Ready to Start?</h2>
+        <button class="mt-6 px-8 py-3 bg-white text-indigo-600 rounded-lg">Get Started</button>
+      </div>
+    </section>
+  `,
+})
+export class CTASectionComponent {}
+// ✅ IMPLEMENT → git add apps/dev-brand-ui/src/app/features/landing-page/sections/cta-section.component.ts
+
+// ALL TASKS COMPLETE → Now commit the entire batch
+```
+
+**Batch Execution Workflow:**
+
+1. **Implement tasks in ORDER** (respect any dependencies)
+2. **Stage files progressively**: `git add [file]` after each task
+3. **Create ONE commit for entire batch** (after all tasks complete):
+
+```bash
+# All tasks in batch implemented and staged
+git commit -m "$(cat <<'EOF'
+feat(angular-3d): batch 3 - landing page sections
+
+- Task 3.1: add hero section component
+- Task 3.2: add features section component
+- Task 3.3: add cta section component
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+EOF
+)"
+```
+
+4. **Self-verify entire batch**:
+
+```bash
+# Verify commit exists
+git log --oneline -1
+
+# Verify ALL files exist
+Read(apps/dev-brand-ui/src/app/features/landing-page/sections/hero-section.component.ts)
+Read(apps/dev-brand-ui/src/app/features/landing-page/sections/features-section.component.ts)
+Read(apps/dev-brand-ui/src/app/features/landing-page/sections/cta-section.component.ts)
+
+# Verify Tailwind classes match design specs
+```
+
+5. **Update tasks.md**:
+
+```bash
+Edit(task-tracking/TASK_[ID]/tasks.md)
+# For EACH task in batch: Change "⏸️ PENDING" → "✅ COMPLETE"
+# For batch header: Add git commit SHA
+# Example:
+# **Batch 3 Git Commit**: xyz789abc
+```
+
+6. **Return batch completion report**:
+
+```markdown
+## Batch Completion Report
+
+**Batch**: Batch 3 - Frontend Hero Section
+**Tasks Completed**: 3/3
+**Git Commit**: [SHA from git log]
+
+**Tasks Implemented**:
+
+- Task 3.1: HeroSection (apps/.../hero-section.component.ts)
+- Task 3.2: FeaturesSection (apps/.../features-section.component.ts)
+- Task 3.3: CTASection (apps/.../cta-section.component.ts)
+
+**Component Assessment** (for batch):
+
+- Complexity Level: 1-2 (Simple presentational components)
+- Patterns Applied: Standalone components, Composition
+- Patterns Rejected: State management, Container/Presentational (not needed)
+
+**Verification Performed**:
+
+- ✅ All 3 files exist
+- ✅ Batch commit verified
+- ✅ Tailwind classes match design specs
+- ✅ Accessibility requirements met (semantic HTML, ARIA where needed)
+- ✅ Responsive design applied (mobile-first)
+- ✅ SOLID principles applied throughout
+
+**Next Action**: Return to team-leader for batch verification
+```
+
+#### OPTION B: SINGLE TASK EXECUTION (Legacy Format)
+
+**If you have a SINGLE task assignment:**
 
 ```typescript
 // ✅ CORRECT: Implement atomic task from tasks.md
@@ -368,74 +540,47 @@ import { Scene3DComponent } from '../../../core/angular-3d/components/scene-3d.c
   `,
 })
 export class HeroSectionComponent {}
-
-// ❌ WRONG: Over-engineering simple section
-// Don't add: State management, services, complex patterns
-// until complexity signals appear
 ```
 
-### STEP 7: Commit to Git IMMEDIATELY
+**Single Task Workflow:**
+
+1. **Implement task**
+2. **Commit immediately**:
 
 ```bash
-# Commit after completing YOUR task (not at the end of all tasks)
 git add [files-for-this-task-only]
 git commit -m "[expected-commit-pattern-from-tasks.md]"
-
-# Example from tasks.md:
-# Expected Commit: "feat(angular-3d): implement hero section with 3d background"
-git commit -m "feat(angular-3d): implement hero section with 3d background"
 ```
 
-### STEP 8: Self-Verify Your Work
+3. **Self-verify**:
 
 ```bash
-# Verify your commit exists
 git log --oneline -1
-
-# Verify your file exists and has correct content
 Read([file-you-created])
-
 # Verify Tailwind classes match design spec
-# Compare your component template to visual-design-specification.md line references
 ```
 
-### STEP 9: Update tasks.md Status
+4. **Update tasks.md**:
 
 ```bash
-# Update YOUR task status in tasks.md
 Edit(task-tracking/TASK_[ID]/tasks.md)
 # Change: "🔄 IN PROGRESS" → "✅ COMPLETE"
 # Add: Git Commit SHA
-# Add: Verification results
-# Add: Component complexity assessment
 ```
 
-### STEP 10: Report Completion
+5. **Return single task completion report**
 
-```markdown
-## Task Completion Report
+---
 
-**Task**: [Task number and description from tasks.md]
-**File**: [Absolute file path]
-**Git Commit**: [SHA from git log]
-**Component Complexity**: [1/2/3/4]
+**🎯 KEY DIFFERENCES:**
 
-**Component Assessment**:
-
-- Complexity Level: [1/2/3/4]
-- Signals: [List]
-- Patterns Applied: [List]
-- Patterns Rejected: [List with reasons]
-
-**Verification Performed**:
-
-- ✅ Design spec line references verified
-- ✅ Tailwind classes match visual-design-specification.md
-- ✅ Accessibility requirements met
-- ✅ SOLID principles: [How applied]
-
-**Next Action**: Return to team-leader for verification
-```
+| Aspect              | Batch Execution         | Single Task             |
+| ------------------- | ----------------------- | ----------------------- |
+| Tasks per iteration | 3-4 related components  | 1 component             |
+| Commits             | 1 commit per batch      | 1 commit per task       |
+| Pre-commit hooks    | Runs once               | Runs every task         |
+| Efficiency          | High (fewer iterations) | Lower (many iterations) |
+| Verification        | Batch verification      | Task verification       |
 
 ---
 

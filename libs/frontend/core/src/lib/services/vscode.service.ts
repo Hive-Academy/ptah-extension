@@ -126,15 +126,9 @@ export class VSCodeService {
   readonly currentTheme = computed(() => this.config().theme);
 
   constructor() {
-    console.log('=== VSCodeService Constructor Called ===');
     this.initializeFromGlobals();
     this.setupMessageListener();
     this.setupThemeListener();
-    console.log('=== VSCodeService Initialization Complete ===', {
-      isConnected: this._isConnected(),
-      hasVscode: !!this.vscode,
-      config: this._config(),
-    });
   }
 
   /**
@@ -161,23 +155,13 @@ export class VSCodeService {
       // Load configuration from injected global
       if (ptahWindow.ptahConfig) {
         this._config.set(ptahWindow.ptahConfig);
-        console.log(
-          'VSCodeService: Initialized with VS Code config',
-          ptahWindow.ptahConfig
-        );
       } else {
         console.warn('VSCodeService: VS Code API found but no ptahConfig');
       }
 
-      // Restore previous state if available
-      if (ptahWindow.ptahPreviousState) {
-        console.log('VSCodeService: Restored previous state');
-      }
+      // Restore previous state if available (no logging needed)
     } else {
       // Development mode - no VS Code API available
-      console.log(
-        'VSCodeService: Running in development mode (no VS Code API)'
-      );
       this._isConnected.set(false);
     }
   }
@@ -190,10 +174,6 @@ export class VSCodeService {
    * change detection when the callback runs. No manual triggering needed.
    */
   private setupMessageListener(): void {
-    console.log(
-      '=== VSCodeService: Setting up message listener (Zone.js mode) ==='
-    );
-
     window.addEventListener('message', (event: MessageEvent) => {
       // FILTER OUT Angular DevTools messages (memory leak prevention)
       const data = event.data;
@@ -215,17 +195,8 @@ export class VSCodeService {
       const message = event.data as StrictMessage;
       if (!message || !message.type || typeof message.type !== 'string') {
         // Silently ignore invalid messages (likely more DevTools spam)
-        // Only log in development mode for debugging
-        if (console.debug) {
-          console.debug(
-            '[VSCodeService] Ignoring invalid message:',
-            event.data
-          );
-        }
         return;
       }
-
-      console.log(`[VSCodeService] Message received: ${message.type}`);
 
       // Emit to RxJS subject for subscribers
       this.messageSubject.next(message);
@@ -233,8 +204,6 @@ export class VSCodeService {
       // Update signal (Zone.js will automatically detect this and trigger change detection)
       this._lastMessageTime.set(Date.now());
     });
-
-    console.log('=== VSCodeService: Message listener setup complete ===');
   }
 
   /**
@@ -248,7 +217,6 @@ export class VSCodeService {
         ...currentConfig,
         theme: payload.theme,
       });
-      console.log('VSCodeService: Theme changed to', payload.theme);
     });
   }
 
@@ -265,9 +233,8 @@ export class VSCodeService {
 
     if (this.vscode) {
       this.vscode.postMessage(message);
-    } else {
-      console.log('[Dev Mode] Would send message:', message);
     }
+    // Development mode - silently skip message sending
   }
 
   /**
@@ -555,11 +522,7 @@ export function initializeVSCodeService(
   return () => {
     // Service is already initialized in constructor
     // This function ensures it happens during APP_INITIALIZER phase
-    console.log('VSCodeService: Initialized via APP_INITIALIZER', {
-      isConnected: vscodeService.isConnected(),
-      isDevelopmentMode: vscodeService.isDevelopmentMode(),
-      theme: vscodeService.currentTheme(),
-    });
+    // (initialization is silent - use window.PTAH_DEBUG_LOGGING = true to see details)
   };
 }
 
