@@ -100,14 +100,17 @@ export class ClaudeCliDetector {
     }
 
     try {
-      // Priority order: config → system paths → WSL (if enabled)
+      // Priority order: config → which/where (full paths) → npm → common paths → system PATH
+      // PHASE 2 FIX: Moved detectWithWhichWhere() to priority #2 (after config)
+      // This ensures we get full paths (e.g., C:\...\npm\claude.cmd) instead of bare commands
+      // Full paths avoid ENOENT errors and don't require shell resolution
       const strategies = [
         () => this.detectFromConfig(),
-        () => this.detectInSystemPath(),
+        () => this.detectWithWhichWhere(), // ← MOVED UP (was priority #6)
         () => this.detectNpmGlobal(),
         () => this.detectCommonPaths(),
         () => this.detectUserHome(),
-        () => this.detectWithWhichWhere(),
+        () => this.detectInSystemPath(), // ← MOVED DOWN (fallback for bare commands)
       ];
 
       if (this.enableWSL && os.platform() === 'win32') {
@@ -346,6 +349,15 @@ export class ClaudeCliDetector {
 
   /**
    * Strategy: which/where commands
+   *
+   * PHASE 2 FIX: Returns FULL PATH to Claude CLI (e.g., C:\Users\...\npm\claude.cmd)
+   * This avoids ENOENT errors because:
+   * 1. Full paths can be spawned directly without shell resolution
+   * 2. No ambiguity about which executable to run
+   * 3. Works with paths containing spaces (no shell escaping needed)
+   *
+   * On Windows, 'where claude' returns: C:\Users\...\AppData\Roaming\npm\claude.cmd
+   * On macOS/Linux, 'which claude' returns: /usr/local/bin/claude
    */
   private async detectWithWhichWhere(): Promise<ClaudeInstallation | null> {
     const isWindows = os.platform() === 'win32';
@@ -362,14 +374,17 @@ export class ClaudeCliDetector {
           .map((p) => p.trim())
           .filter((p) => p);
 
+        // Return FIRST valid path found (usually the primary installation)
         for (const claudePath of paths) {
           if (fs.existsSync(claudePath)) {
+            // CRITICAL: Return the FULL PATH, not just 'claude'
+            // This enables direct spawning without shell resolution
             return { path: claudePath, source: 'which-where' };
           }
         }
       }
     } catch {
-      // Silently fail
+      // Silently fail (which/where command not available or claude not found)
     }
 
     return null;
