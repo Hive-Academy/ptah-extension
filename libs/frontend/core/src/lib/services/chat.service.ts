@@ -587,6 +587,7 @@ export class ChatService {
       });
 
     // Listen for token usage updates (backend publishes chat:tokenUsageUpdated)
+    // TASK_2025_008 - Batch 3: Cumulative token tracking
     this.vscode
       .onMessageType(CHAT_MESSAGE_TYPES.TOKEN_USAGE_UPDATED)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -597,13 +598,25 @@ export class ChatService {
           // Update current session token usage if it matches
           const currentSession = this.chatState.currentSession();
           if (currentSession && currentSession.id === sessionId) {
-            this.chatState.setCurrentSession({
+            // Cumulative token tracking using Batch 2 fields
+            const cumulativeInput =
+              (currentSession.totalTokensInput || 0) + tokenUsage.input;
+            const cumulativeOutput =
+              (currentSession.totalTokensOutput || 0) + tokenUsage.output;
+
+            const updatedSession = {
               ...currentSession,
               tokenUsage,
-            } as never);
+              totalTokensInput: cumulativeInput,
+              totalTokensOutput: cumulativeOutput,
+            } as never;
+
+            this.chatState.setCurrentSession(updatedSession);
             this.logger.debug('Token usage updated', 'ChatService', {
               used: tokenUsage.input + tokenUsage.output,
               percentage: tokenUsage.percentage,
+              cumulativeInput,
+              cumulativeOutput,
             });
           }
         }
