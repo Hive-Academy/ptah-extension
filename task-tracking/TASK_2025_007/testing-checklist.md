@@ -36,10 +36,10 @@
 
 **Actual Results**:
 
-- [ ] Process spawned: ****\_\_\_****
-- [ ] stdin written: ****\_\_\_****
-- [ ] Response received: ****\_\_\_****
-- [ ] UI updated: ****\_\_\_****
+- [ ] Process spawned: \***\*\_\_\_\*\***
+- [ ] stdin written: \***\*\_\_\_\*\***
+- [ ] Response received: \***\*\_\_\_\*\***
+- [ ] UI updated: \***\*\_\_\_\*\***
 
 **Status**: 🎯 PENDING
 
@@ -66,9 +66,9 @@
 
 **Actual Results**:
 
-- [ ] Chunks logged in console: ****\_\_\_****
-- [ ] UI updates incrementally: ****\_\_\_****
-- [ ] No lag between chunks: ****\_\_\_****
+- [ ] Chunks logged in console: \***\*\_\_\_\*\***
+- [ ] UI updates incrementally: \***\*\_\_\_\*\***
+- [ ] No lag between chunks: \***\*\_\_\_\*\***
 
 **Status**: 🎯 PENDING
 
@@ -94,9 +94,9 @@
 
 **Actual Results**:
 
-- [ ] message_stop logged: ****\_\_\_****
-- [ ] MESSAGE_COMPLETE emitted: ****\_\_\_****
-- [ ] Timestamp: ****\_\_\_****
+- [ ] message_stop logged: \***\*\_\_\_\*\***
+- [ ] MESSAGE_COMPLETE emitted: \***\*\_\_\_\*\***
+- [ ] Timestamp: \***\*\_\_\_\*\***
 
 **Status**: 🎯 PENDING
 
@@ -128,10 +128,10 @@
 
 **Actual Results**:
 
-- [ ] result message logged: ****\_\_\_****
-- [ ] Cost displayed: ****\_\_\_****
-- [ ] Token counts shown: ****\_\_\_****
-- [ ] Duration logged: ****\_\_\_****
+- [ ] result message logged: \***\*\_\_\_\*\***
+- [ ] Cost displayed: \***\*\_\_\_\*\***
+- [ ] Token counts shown: \***\*\_\_\_\*\***
+- [ ] Duration logged: \***\*\_\_\_\*\***
 
 **Status**: 🎯 PENDING
 
@@ -158,10 +158,10 @@
 
 **Actual Results**:
 
-- [ ] Process spawned: PID ****\_\_\_****
-- [ ] Process closed: ****\_\_\_****
-- [ ] Exit code: ****\_\_\_****
-- [ ] No zombies: ****\_\_\_****
+- [ ] Process spawned: PID \***\*\_\_\_\*\***
+- [ ] Process closed: \***\*\_\_\_\*\***
+- [ ] Exit code: \***\*\_\_\_\*\***
+- [ ] No zombies: \***\*\_\_\_\*\***
 
 **Status**: 🎯 PENDING
 
@@ -190,9 +190,9 @@
 
 **Actual Results**:
 
-- [ ] Typing indicator appeared: ****\_\_\_****
-- [ ] Typing indicator cleared: ****\_\_\_****
-- [ ] Time to clear: ****\_\_\_**** ms
+- [ ] Typing indicator appeared: \***\*\_\_\_\*\***
+- [ ] Typing indicator cleared: \***\*\_\_\_\*\***
+- [ ] Time to clear: \***\*\_\_\_\*\*** ms
 
 **Status**: 🎯 PENDING
 
@@ -220,9 +220,9 @@
 
 **Actual Results**:
 
-- [ ] User message count: ****\_\_\_****
-- [ ] Assistant message count: ****\_\_\_****
-- [ ] Duplicates found: ****\_\_\_****
+- [ ] User message count: \***\*\_\_\_\*\***
+- [ ] Assistant message count: \***\*\_\_\_\*\***
+- [ ] Duplicates found: \***\*\_\_\_\*\***
 
 **Status**: 🎯 PENDING
 
@@ -249,9 +249,9 @@
 
 **Actual Results**:
 
-- [ ] Thinking appeared: ****\_\_\_****
-- [ ] Thinking cleared: ****\_\_\_****
-- [ ] Time displayed: ****\_\_\_**** seconds
+- [ ] Thinking appeared: \***\*\_\_\_\*\***
+- [ ] Thinking cleared: \***\*\_\_\_\*\***
+- [ ] Time displayed: \***\*\_\_\_\*\*** seconds
 
 **Status**: 🎯 PENDING
 
@@ -281,10 +281,10 @@
 
 **Actual Results**:
 
-- [ ] Message 1 worked: ****\_\_\_****
-- [ ] Message 2 worked: ****\_\_\_****
-- [ ] Message 3 worked: ****\_\_\_****
-- [ ] Issues encountered: ****\_\_\_****
+- [ ] Message 1 worked: \***\*\_\_\_\*\***
+- [ ] Message 2 worked: \***\*\_\_\_\*\***
+- [ ] Message 3 worked: \***\*\_\_\_\*\***
+- [ ] Issues encountered: \***\*\_\_\_\*\***
 
 **Status**: 🎯 PENDING
 
@@ -314,9 +314,9 @@
 
 **Actual Results**:
 
-- [ ] Session A messages: ****\_\_\_****
-- [ ] Session B messages: ****\_\_\_****
-- [ ] Mixing occurred: ****\_\_\_****
+- [ ] Session A messages: \***\*\_\_\_\*\***
+- [ ] Session B messages: \***\*\_\_\_\*\***
+- [ ] Mixing occurred: \***\*\_\_\_\*\***
 
 **Status**: 🎯 PENDING
 
@@ -346,9 +346,9 @@
 
 **Actual Results**:
 
-- [ ] Error handled gracefully: ****\_\_\_****
-- [ ] Retry worked: ****\_\_\_****
-- [ ] Duplicates: ****\_\_\_****
+- [ ] Error handled gracefully: \***\*\_\_\_\*\***
+- [ ] Retry worked: \***\*\_\_\_\*\***
+- [ ] Duplicates: \***\*\_\_\_\*\***
 
 **Status**: 📋 PLANNED
 
@@ -374,8 +374,8 @@
 
 **Actual Results**:
 
-- [ ] Error message shown: ****\_\_\_****
-- [ ] Extension stable: ****\_\_\_****
+- [ ] Error message shown: \***\*\_\_\_\*\***
+- [ ] Extension stable: \***\*\_\_\_\*\***
 
 **Status**: 📋 PLANNED
 
@@ -402,9 +402,9 @@
 
 **Actual Results**:
 
-- [ ] Full text received: ****\_\_\_****
-- [ ] Performance issues: ****\_\_\_****
-- [ ] Indicator cleared: ****\_\_\_****
+- [ ] Full text received: \***\*\_\_\_\*\***
+- [ ] Performance issues: \***\*\_\_\_\*\***
+- [ ] Indicator cleared: \***\*\_\_\_\*\***
 
 **Status**: 📋 PLANNED
 
@@ -432,9 +432,9 @@
 
 **Actual Results**:
 
-- [ ] All messages sent: ****\_\_\_****
-- [ ] Responses received: ****\_\_\_****
-- [ ] Order preserved: ****\_\_\_****
+- [ ] All messages sent: \***\*\_\_\_\*\***
+- [ ] Responses received: \***\*\_\_\_\*\***
+- [ ] Order preserved: \***\*\_\_\_\*\***
 
 **Status**: 📋 PLANNED
 
@@ -465,10 +465,10 @@
 
 **Actual Results**:
 
-- [ ] Initial memory: ****\_\_\_**** MB
-- [ ] After 20 messages: ****\_\_\_**** MB
-- [ ] Growth: ****\_\_\_**** MB
-- [ ] Leaks detected: ****\_\_\_****
+- [ ] Initial memory: \***\*\_\_\_\*\*** MB
+- [ ] After 20 messages: \***\*\_\_\_\*\*** MB
+- [ ] Growth: \***\*\_\_\_\*\*** MB
+- [ ] Leaks detected: \***\*\_\_\_\*\***
 
 **Status**: 📋 PLANNED
 
@@ -495,9 +495,9 @@
 
 **Actual Results**:
 
-- [ ] Cycles before fix: ****\_\_\_****
-- [ ] Cycles after fix: ****\_\_\_****
-- [ ] Reduction: ****\_\_\_**** %
+- [ ] Cycles before fix: \***\*\_\_\_\*\***
+- [ ] Cycles after fix: \***\*\_\_\_\*\***
+- [ ] Reduction: \***\*\_\_\_\*\*** %
 
 **Status**: 📋 PLANNED
 
@@ -531,9 +531,9 @@
 
 **Actual Results**:
 
-- [ ] Average latency: ****\_\_\_**** ms
-- [ ] Max latency: ****\_\_\_**** ms
-- [ ] p95 latency: ****\_\_\_**** ms
+- [ ] Average latency: \***\*\_\_\_\*\*** ms
+- [ ] Max latency: \***\*\_\_\_\*\*** ms
+- [ ] p95 latency: \***\*\_\_\_\*\*** ms
 
 **Status**: 📋 PLANNED
 
@@ -561,8 +561,8 @@
 
 **Actual Results**:
 
-- [ ] Tools executed: ****\_\_\_****
-- [ ] Timeline shown: ****\_\_\_****
+- [ ] Tools executed: \***\*\_\_\_\*\***
+- [ ] Timeline shown: \***\*\_\_\_\*\***
 
 **Status**: 📋 PLANNED
 
@@ -589,9 +589,9 @@
 
 **Actual Results**:
 
-- [ ] Prompt appeared: ****\_\_\_****
-- [ ] Grant worked: ****\_\_\_****
-- [ ] Response continued: ****\_\_\_****
+- [ ] Prompt appeared: \***\*\_\_\_\*\***
+- [ ] Grant worked: \***\*\_\_\_\*\***
+- [ ] Response continued: \***\*\_\_\_\*\***
 
 **Status**: 📋 PLANNED
 
@@ -617,8 +617,8 @@
 
 **Actual Results**:
 
-- [ ] Agents tracked: ****\_\_\_****
-- [ ] Timeline shown: ****\_\_\_****
+- [ ] Agents tracked: \***\*\_\_\_\*\***
+- [ ] Timeline shown: \***\*\_\_\_\*\***
 
 **Status**: 📋 PLANNED
 
@@ -628,12 +628,12 @@
 
 ### Test Run Information
 
-- **Date**: ****\_\_\_****
-- **Tester**: ****\_\_\_****
-- **Extension Version**: ****\_\_\_****
-- **Claude CLI Version**: ****\_\_\_****
-- **VS Code Version**: ****\_\_\_****
-- **OS**: ****\_\_\_****
+- **Date**: \***\*\_\_\_\*\***
+- **Tester**: \***\*\_\_\_\*\***
+- **Extension Version**: \***\*\_\_\_\*\***
+- **Claude CLI Version**: \***\*\_\_\_\*\***
+- **VS Code Version**: \***\*\_\_\_\*\***
+- **OS**: \***\*\_\_\_\*\***
 
 ### Overall Results
 
@@ -657,6 +657,6 @@
 
 ### Sign-Off
 
-- **Tested By**: ****\_\_\_****
-- **Approved By**: ****\_\_\_****
-- **Date**: ****\_\_\_****
+- **Tested By**: \***\*\_\_\_\*\***
+- **Approved By**: \***\*\_\_\_\*\***
+- **Date**: \***\*\_\_\_\*\***

@@ -26,12 +26,14 @@
 **Expected Commit Pattern**: `feat(vscode): add result message interface to parser`
 
 **Quality Requirements**:
+
 - ✅ Interface includes all result fields (cost, usage, duration)
 - ✅ Added to JSONLMessage union type
 - ✅ Follows readonly property pattern
 - ✅ TypeScript compilation passes
 
 **Implementation Details**:
+
 - **Interface Location**: Lines 98-123
 - **Fields Added**:
   - `type: 'result'`
@@ -60,12 +62,14 @@
 **Pattern to Follow**: Existing onContent, onThinking callbacks
 
 **Quality Requirements**:
+
 - ✅ onMessageStop callback added
 - ✅ onResult callback added with JSONLResultMessage type
 - ✅ Optional callback pattern maintained
 - ✅ TypeScript compilation passes
 
 **Implementation Details**:
+
 - **Callbacks Added**:
   - `onMessageStop?: () => void` (line 161) - Signals streaming complete
   - `onResult?: (result: JSONLResultMessage) => void` (line 162) - Final result with cost/usage
@@ -85,14 +89,17 @@
 **Pattern to Follow**: Existing stream event handlers (content_block_delta, etc.)
 
 **Quality Requirements**:
+
 - ✅ message_stop event type detected
 - ✅ onMessageStop callback invoked
 - ✅ Console logging for debugging
 - ✅ Returns early (no further processing)
 
 **Implementation Details**:
+
 - **Location**: handleStreamEvent() method (lines 782-788)
 - **Logic**:
+
   ```typescript
   if (msg.event.type === 'message_stop') {
     console.log('[JSONLStreamParser] message_stop received - streaming complete');
@@ -100,6 +107,7 @@
     return;
   }
   ```
+
 - **Critical**: Signals end of streaming to prevent "Claude is typing..." from hanging
 
 **Verification**: ✅ Event handler added, logic correct, build passes
@@ -116,19 +124,24 @@
 **Pattern to Follow**: Existing handleSystemMessage, handleAssistantMessage methods
 
 **Quality Requirements**:
+
 - ✅ 'result' case added to handleMessage() switch
 - ✅ handleResultMessage() method implemented
 - ✅ Console logging for cost, usage, duration
 - ✅ onResult callback invoked
 
 **Implementation Details**:
+
 - **Switch Case**: Line 279-281
+
   ```typescript
   case 'result':
     this.handleResultMessage(json);
     break;
   ```
+
 - **Handler Method**: Lines 738-747
+
   ```typescript
   private handleResultMessage(msg: JSONLResultMessage): void {
     console.log('[JSONLStreamParser] result message received:', {
@@ -155,20 +168,25 @@
 **Pattern to Follow**: Existing onContent, onThinking callback wiring
 
 **Quality Requirements**:
+
 - ✅ onMessageStop callback wired to emitMessageComplete()
 - ✅ onResult callback wired to emitTokenUsage() and emitSessionEnd()
 - ✅ Console logging for debugging
 - ✅ Event publisher integration working
 
 **Implementation Details**:
+
 - **onMessageStop Callback** (lines 356-361):
+
   ```typescript
   onMessageStop: () => {
     console.log('[ClaudeCliLauncher] Streaming complete (message_stop received)');
     this.deps.eventPublisher.emitMessageComplete(sessionId);
-  }
+  };
   ```
+
 - **onResult Callback** (lines 363-386):
+
   ```typescript
   onResult: (result) => {
     console.log('[ClaudeCliLauncher] Final result received:', {
@@ -191,7 +209,7 @@
     // Emit session end
     const reason = result.subtype === 'success' ? 'completed' : 'error';
     this.deps.eventPublisher.emitSessionEnd(sessionId, reason);
-  }
+  };
   ```
 
 **Verification**: ✅ Callbacks wired, events published, build passes
@@ -208,19 +226,23 @@
 **Pattern to Follow**: Standard Node.js stdin.end() pattern (like echo pipe)
 
 **Quality Requirements**:
+
 - ✅ stdin.write() sends message
 - ✅ stdin.end() called after write
 - ✅ Console logging for debugging
 - ✅ Fixes Claude CLI hang (required for -p flag)
 
 **Implementation Details**:
+
 - **Critical Fix**: Lines 137-140
+
   ```typescript
   // CRITICAL FIX: End stdin to signal EOF (like echo pipe does)
   // Without this, Claude CLI waits forever for more stdin input!
   childProcess.stdin.end();
   console.log('[ClaudeCliLauncher] stdin ended (EOF signaled)');
   ```
+
 - **Root Cause**: Claude CLI's `-p` flag expects stdin to be closed (EOF) after the message, like `echo "message" |` does
 - **Impact**: WITHOUT this fix, CLI waits forever for stdin input
 
@@ -233,6 +255,7 @@
 **Batch 1 Git Commit**: fd1bf34e6eafe72f038a2c1cfd6c2d9784dd322b
 
 **Commit Message**:
+
 ```
 chore: update claude cli nnode starter
 
@@ -245,6 +268,7 @@ chore: update claude cli nnode starter
 ```
 
 **Batch 1 Verification Results**:
+
 - ✅ All 6 tasks completed
 - ✅ Batch commit exists (fd1bf34)
 - ✅ All files modified correctly
@@ -253,6 +277,7 @@ chore: update claude cli nnode starter
 - ✅ Dependencies respected (task order maintained)
 
 **Files Modified in Batch 1**:
+
 1. libs/backend/claude-domain/src/cli/jsonl-stream-parser.ts (4 tasks)
 2. libs/backend/claude-domain/src/cli/claude-cli-launcher.ts (2 tasks)
 
@@ -272,14 +297,17 @@ chore: update claude cli nnode starter
 **Pattern to Follow**: Existing MESSAGE_CHUNK handler
 
 **Quality Requirements**:
+
 - ✅ MESSAGE_COMPLETE event subscribed
-- ✅ Clear _streamState.isStreaming on completion
-- ✅ Clear _currentThinking on completion
+- ✅ Clear \_streamState.isStreaming on completion
+- ✅ Clear \_currentThinking on completion
 - ✅ Call appState.setLoading(false)
 
 **Implementation Details**:
+
 - **Subscription**: Use vscodeService.onMessageType(CHAT_MESSAGE_TYPES.MESSAGE_COMPLETE)
 - **Handler Logic**:
+
   ```typescript
   onMessageComplete: (payload) => {
     // Clear streaming state
@@ -294,7 +322,7 @@ chore: update claude cli nnode starter
 
     // Clear loading
     this.appState.setLoading(false);
-  }
+  };
   ```
 
 ---
@@ -306,13 +334,16 @@ chore: update claude cli nnode starter
 **Specification Reference**: implementation-plan.md:299-332
 
 **Quality Requirements**:
-- ✅ Clear _currentThinking when first chunk arrives
+
+- ✅ Clear \_currentThinking when first chunk arrives
 - ✅ Logic: "If thinking active and chunk arrives, thinking is done"
 - ✅ No side effects on existing chunk handling
 
 **Implementation Details**:
+
 - **Location**: Beginning of onMessageChunk handler
 - **Logic**:
+
   ```typescript
   onMessageChunk: (payload) => {
     // If thinking was active, clear it (chunks mean thinking is done)
@@ -321,7 +352,7 @@ chore: update claude cli nnode starter
     }
 
     // ... existing chunk handling
-  }
+  };
   ```
 
 ---
@@ -333,13 +364,16 @@ chore: update claude cli nnode starter
 **Specification Reference**: migration-strategy.md:69-113
 
 **Quality Requirements**:
+
 - ✅ Thinking timeout: 60 seconds
 - ✅ Streaming timeout: 30 seconds
 - ✅ Timeout cleared on normal completion
 - ✅ Console warning when timeout fires
 
 **Implementation Details**:
+
 - **Thinking Timeout**:
+
   ```typescript
   private thinkingTimeout?: NodeJS.Timeout;
 
@@ -363,6 +397,7 @@ chore: update claude cli nnode starter
 ---
 
 **Batch 2 Verification Requirements**:
+
 - ✅ All 3 handlers added
 - ✅ All 3 git commits match expected patterns
 - ✅ Build passes: `npx nx build @ptah-extension/core`
@@ -386,13 +421,16 @@ chore: update claude cli nnode starter
 **Pattern to Follow**: Standard Angular injectable service
 
 **Quality Requirements**:
+
 - ✅ Injectable with providedIn: 'root'
 - ✅ isDuplicate() method checks within 1-second window
 - ✅ Automatic cleanup of old cache entries
 - ✅ Unit tests written
 
 **Implementation Details**:
+
 - **Service Structure**:
+
   ```typescript
   @Injectable({ providedIn: 'root' })
   export class EventDeduplicationService {
@@ -413,6 +451,7 @@ chore: update claude cli nnode starter
     }
   }
   ```
+
 - **Integration**: VSCodeService.setupMessageListener() checks isDuplicate() before emitting
 
 ---
@@ -424,6 +463,7 @@ chore: update claude cli nnode starter
 **Specification Reference**: implementation-plan.md:420-540
 
 **Quality Requirements**:
+
 - ✅ Injectable with providedIn: 'root'
 - ✅ register() method accepts cleanup strategies
 - ✅ scheduleCleanup() sets timeout fallback
@@ -431,23 +471,24 @@ chore: update claude cli nnode starter
 - ✅ Unit tests written
 
 **Implementation Details**:
+
 - **Cleanup Strategy Interface**:
+
   ```typescript
   interface CleanupStrategy {
-    triggerEvents: string[];   // Events that mark completion
-    timeout?: number;           // Fallback timeout (ms)
-    clearSignals: string[];     // Signals to clear
+    triggerEvents: string[]; // Events that mark completion
+    timeout?: number; // Fallback timeout (ms)
+    clearSignals: string[]; // Signals to clear
   }
   ```
+
 - **Registration** (in ChatService constructor):
+
   ```typescript
   this.cleanupRegistry.register(CHAT_MESSAGE_TYPES.THINKING, {
-    triggerEvents: [
-      CHAT_MESSAGE_TYPES.MESSAGE_CHUNK,
-      CHAT_MESSAGE_TYPES.MESSAGE_COMPLETE
-    ],
+    triggerEvents: [CHAT_MESSAGE_TYPES.MESSAGE_CHUNK, CHAT_MESSAGE_TYPES.MESSAGE_COMPLETE],
     timeout: 60000,
-    clearSignals: ['_currentThinking']
+    clearSignals: ['_currentThinking'],
   });
   ```
 
@@ -456,25 +497,28 @@ chore: update claude cli nnode starter
 ### Task 3.3: Remove Duplicate Event Subscriptions ⏸️ PENDING
 
 **File(s)**:
+
 - D:/projects/ptah-extension/libs/frontend/core/src/lib/services/chat.service.ts
 - D:/projects/ptah-extension/libs/frontend/chat/src/lib/services/chat-state-manager.service.ts
-**Dependencies**: Tasks 3.1, 3.2
-**Specification Reference**: implementation-plan.md:269-293, migration-strategy.md:279-374
+  **Dependencies**: Tasks 3.1, 3.2
+  **Specification Reference**: implementation-plan.md:269-293, migration-strategy.md:279-374
 
 **Quality Requirements**:
+
 - ✅ ChatService handles ALL message events
 - ✅ ChatStateManagerService handles ONLY session events
 - ✅ NO overlap between services
 - ✅ Duplicate subscriptions removed
 
 **Implementation Details**:
+
 - **Split Responsibilities**:
-  - ChatService: MESSAGE_*, THINKING, TOOL_* events
-  - ChatStateManagerService: SESSION_*, SESSIONS_* events
+  - ChatService: MESSAGE*\*, THINKING, TOOL*\* events
+  - ChatStateManagerService: SESSION*\*, SESSIONS*\* events
 - **Remove from ChatStateManagerService**:
   - INITIAL_DATA subscription
   - MESSAGE_CHUNK subscription (if exists)
-  - Any MESSAGE_* event subscriptions
+  - Any MESSAGE\_\* event subscriptions
 
 ---
 
@@ -485,29 +529,36 @@ chore: update claude cli nnode starter
 **Specification Reference**: implementation-plan.md:222-261, migration-strategy.md:376-475
 
 **Quality Requirements**:
-- ✅ Remove _messages signal
-- ✅ Rename _claudeMessages to _messages
+
+- ✅ Remove \_messages signal
+- ✅ Rename \_claudeMessages to_messages
 - ✅ Update MESSAGE_CHUNK handler to only update one collection
 - ✅ No duplicate message rendering
 
 **Implementation Details**:
+
 - **Remove**:
+
   ```typescript
   private readonly _messages = signal<StrictChatMessage[]>([]);
   readonly messages = this._messages.asReadonly();
   ```
+
 - **Rename**:
+
   ```typescript
   // BEFORE: _claudeMessages
   // AFTER: _messages
   private readonly _messages = signal<ProcessedClaudeMessage[]>([]);
   readonly messages = this._messages.asReadonly();
   ```
-- **Update MESSAGE_CHUNK**: Only update _messages, remove dual update logic
+
+- **Update MESSAGE_CHUNK**: Only update \_messages, remove dual update logic
 
 ---
 
 **Batch 3 Verification Requirements**:
+
 - ✅ All 4 services/refactors complete
 - ✅ All 4 git commits match expected patterns
 - ✅ Build passes: `npx nx build @ptah-extension/core`
@@ -521,6 +572,7 @@ chore: update claude cli nnode starter
 ## Batch Execution Protocol
 
 **For Each Batch**:
+
 1. Team-leader assigns entire batch to developer
 2. Developer executes ALL tasks in batch (in order)
 3. Developer stages files progressively (git add after each task)
@@ -531,11 +583,13 @@ chore: update claude cli nnode starter
 8. If verification fails: Create fix batch
 
 **Commit Strategy**:
+
 - Batch 1: Single commit (already done) - fd1bf34
 - Batch 2: 3 commits (one per handler/feature)
 - Batch 3: 4 commits (one per service/refactor)
 
 **Completion Criteria**:
+
 - All batch statuses are "✅ COMPLETE"
 - All batch commits verified
 - All files exist
@@ -547,6 +601,7 @@ chore: update claude cli nnode starter
 ## Verification Protocol
 
 **After Batch Completion**:
+
 1. Developer updates all task statuses in batch to "✅ COMPLETE"
 2. Developer adds git commit SHAs to task headers
 3. Team-leader verifies:
@@ -564,28 +619,33 @@ chore: update claude cli nnode starter
 **Manual Testing Required** (from testing-checklist.md):
 
 ### Test 1.1: Basic Message Sending
+
 - [ ] Launch extension (F5)
 - [ ] Send message: "Hello"
 - [ ] Verify response appears
 - [ ] Check logs for process spawn, stdin write, EOF signal
 
 ### Test 1.2: Streaming Works
+
 - [ ] Send message: "Write a 200-word story"
 - [ ] Watch for incremental text updates
 - [ ] Verify chunks logged in console
 
 ### Test 1.3: message_stop Event Handled
+
 - [ ] Send message: "Hello"
 - [ ] Wait for completion
 - [ ] Check console logs for "[JSONLStreamParser] message_stop received"
 
 ### Test 1.4: result Message Parsed
+
 - [ ] Send message: "Hello"
 - [ ] Wait for completion
 - [ ] Check console logs for "[JSONLStreamParser] result message received"
 - [ ] Verify cost, tokens, duration logged
 
 ### Test 1.5: Process Cleanup
+
 - [ ] Send message: "Hello"
 - [ ] Check Task Manager for process PID during streaming
 - [ ] Verify process disappears after completion
@@ -597,20 +657,24 @@ chore: update claude cli nnode starter
 ## Current Status Summary
 
 **Completed Work**:
+
 - ✅ Batch 1: Backend Parser & Launcher Fixes (6 tasks) - fd1bf34
 - ✅ Build passes with no errors
 - ✅ All backend code changes verified
 
 **Pending Work**:
+
 - ⏸️ Batch 2: Frontend Quick Wins (3 tasks)
 - ⏸️ Batch 3: Frontend Architecture Refactor (4 tasks)
 
 **Next Actions**:
+
 1. **CRITICAL**: Run Phase 1 manual tests (Test 1.1-1.5)
 2. If tests pass: Assign Batch 2 to frontend-developer
 3. If tests fail: Create bugfix batch for backend
 
 **Estimated Completion**:
+
 - Batch 2: 2-3 hours
 - Batch 3: 4-6 hours
 - Total remaining: 6-9 hours
