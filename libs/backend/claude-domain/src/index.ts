@@ -142,10 +142,7 @@ export {
 } from './permissions/permission-rules.store';
 
 // Events
-export {
-  ClaudeDomainEventPublisher,
-  CLAUDE_DOMAIN_EVENTS,
-} from './events/claude-domain.events';
+export { ClaudeDomainEventPublisher } from './events/claude-domain.events';
 export type {
   ClaudeContentChunkEvent,
   ClaudeThinkingEventPayload,

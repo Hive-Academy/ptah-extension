@@ -15,48 +15,9 @@ import {
   ClaudeAgentStartEvent,
   ClaudeAgentActivityEvent,
   ClaudeAgentCompleteEvent,
+  CHAT_MESSAGE_TYPES,
 } from '@ptah-extension/shared';
 import { TOKENS } from '@ptah-extension/vscode-core';
-
-/**
- * Event topics for claude-domain
- */
-export const CLAUDE_DOMAIN_EVENTS = {
-  // Content streaming
-  CONTENT_CHUNK: 'claude:content:chunk',
-  THINKING: 'claude:thinking',
-
-  // Tool execution
-  TOOL_START: 'claude:tool:start',
-  TOOL_PROGRESS: 'claude:tool:progress',
-  TOOL_RESULT: 'claude:tool:result',
-  TOOL_ERROR: 'claude:tool:error',
-
-  // Permissions
-  PERMISSION_REQUESTED: 'claude:permission:requested',
-  PERMISSION_RESPONDED: 'claude:permission:responded',
-
-  // Session lifecycle
-  SESSION_INIT: 'claude:session:init',
-  SESSION_END: 'claude:session:end',
-
-  // Message lifecycle
-  MESSAGE_COMPLETE: 'claude:message:complete',
-
-  // Token usage tracking
-  TOKEN_USAGE_UPDATED: 'claude:token:usage',
-
-  // Health
-  HEALTH_UPDATE: 'claude:health:update',
-
-  // Errors
-  CLI_ERROR: 'claude:error',
-
-  // Agent lifecycle events
-  AGENT_STARTED: 'claude:agent:started',
-  AGENT_ACTIVITY: 'claude:agent:activity',
-  AGENT_COMPLETED: 'claude:agent:completed',
-} as const;
 
 /**
  * Event payload types
@@ -153,7 +114,7 @@ export class ClaudeDomainEventPublisher {
 
   emitContentChunk(sessionId: SessionId, chunk: ClaudeContentChunk): void {
     this.eventBus.publish<ClaudeContentChunkEvent>(
-      CLAUDE_DOMAIN_EVENTS.CONTENT_CHUNK,
+      CHAT_MESSAGE_TYPES.MESSAGE_CHUNK,
       {
         sessionId,
         chunk,
@@ -163,7 +124,7 @@ export class ClaudeDomainEventPublisher {
 
   emitThinking(sessionId: SessionId, thinking: ClaudeThinkingEvent): void {
     this.eventBus.publish<ClaudeThinkingEventPayload>(
-      CLAUDE_DOMAIN_EVENTS.THINKING,
+      CHAT_MESSAGE_TYPES.THINKING,
       {
         sessionId,
         thinking,
@@ -174,12 +135,12 @@ export class ClaudeDomainEventPublisher {
   emitToolEvent(sessionId: SessionId, event: ClaudeToolEvent): void {
     const topic =
       event.type === 'start'
-        ? CLAUDE_DOMAIN_EVENTS.TOOL_START
+        ? CHAT_MESSAGE_TYPES.TOOL_START
         : event.type === 'progress'
-        ? CLAUDE_DOMAIN_EVENTS.TOOL_PROGRESS
+        ? CHAT_MESSAGE_TYPES.TOOL_PROGRESS
         : event.type === 'result'
-        ? CLAUDE_DOMAIN_EVENTS.TOOL_RESULT
-        : CLAUDE_DOMAIN_EVENTS.TOOL_ERROR;
+        ? CHAT_MESSAGE_TYPES.TOOL_RESULT
+        : CHAT_MESSAGE_TYPES.TOOL_ERROR;
 
     this.eventBus.publish<ClaudeToolEventPayload>(topic, {
       sessionId,
@@ -192,7 +153,7 @@ export class ClaudeDomainEventPublisher {
     request: ClaudePermissionRequest
   ): void {
     this.eventBus.publish<ClaudePermissionRequestEvent>(
-      CLAUDE_DOMAIN_EVENTS.PERMISSION_REQUESTED,
+      CHAT_MESSAGE_TYPES.PERMISSION_REQUEST,
       {
         sessionId,
         request,
@@ -205,7 +166,7 @@ export class ClaudeDomainEventPublisher {
     response: ClaudePermissionResponse
   ): void {
     this.eventBus.publish<ClaudePermissionResponseEvent>(
-      CLAUDE_DOMAIN_EVENTS.PERMISSION_RESPONDED,
+      CHAT_MESSAGE_TYPES.PERMISSION_RESPONSE,
       {
         sessionId,
         response,
@@ -219,7 +180,7 @@ export class ClaudeDomainEventPublisher {
     model?: string
   ): void {
     this.eventBus.publish<ClaudeSessionInitEvent>(
-      CLAUDE_DOMAIN_EVENTS.SESSION_INIT,
+      CHAT_MESSAGE_TYPES.SESSION_INIT,
       {
         sessionId,
         claudeSessionId,
@@ -230,7 +191,7 @@ export class ClaudeDomainEventPublisher {
 
   emitSessionEnd(sessionId: SessionId, reason?: string): void {
     this.eventBus.publish<ClaudeSessionEndEvent>(
-      CLAUDE_DOMAIN_EVENTS.SESSION_END,
+      CHAT_MESSAGE_TYPES.SESSION_END,
       {
         sessionId,
         reason,
@@ -240,7 +201,7 @@ export class ClaudeDomainEventPublisher {
 
   emitHealthUpdate(health: ClaudeCliHealth): void {
     this.eventBus.publish<ClaudeHealthUpdateEvent>(
-      CLAUDE_DOMAIN_EVENTS.HEALTH_UPDATE,
+      CHAT_MESSAGE_TYPES.HEALTH_UPDATE,
       {
         health,
       }
@@ -252,7 +213,7 @@ export class ClaudeDomainEventPublisher {
     sessionId?: SessionId,
     context?: Record<string, unknown>
   ): void {
-    this.eventBus.publish<ClaudeErrorEvent>(CLAUDE_DOMAIN_EVENTS.CLI_ERROR, {
+    this.eventBus.publish<ClaudeErrorEvent>(CHAT_MESSAGE_TYPES.CLI_ERROR, {
       sessionId,
       error,
       context,
@@ -261,7 +222,7 @@ export class ClaudeDomainEventPublisher {
 
   emitAgentStarted(sessionId: SessionId, agent: ClaudeAgentStartEvent): void {
     this.eventBus.publish<ClaudeAgentStartedEvent>(
-      CLAUDE_DOMAIN_EVENTS.AGENT_STARTED,
+      CHAT_MESSAGE_TYPES.AGENT_STARTED,
       { sessionId, agent }
     );
   }
@@ -271,7 +232,7 @@ export class ClaudeDomainEventPublisher {
     agent: ClaudeAgentActivityEvent
   ): void {
     this.eventBus.publish<ClaudeAgentActivityEventPayload>(
-      CLAUDE_DOMAIN_EVENTS.AGENT_ACTIVITY,
+      CHAT_MESSAGE_TYPES.AGENT_ACTIVITY,
       { sessionId, agent }
     );
   }
@@ -281,14 +242,14 @@ export class ClaudeDomainEventPublisher {
     agent: ClaudeAgentCompleteEvent
   ): void {
     this.eventBus.publish<ClaudeAgentCompletedEvent>(
-      CLAUDE_DOMAIN_EVENTS.AGENT_COMPLETED,
+      CHAT_MESSAGE_TYPES.AGENT_COMPLETED,
       { sessionId, agent }
     );
   }
 
   emitMessageComplete(sessionId: SessionId): void {
     this.eventBus.publish<ClaudeMessageCompleteEvent>(
-      CLAUDE_DOMAIN_EVENTS.MESSAGE_COMPLETE,
+      CHAT_MESSAGE_TYPES.MESSAGE_COMPLETE,
       { sessionId }
     );
   }
@@ -304,7 +265,7 @@ export class ClaudeDomainEventPublisher {
     }
   ): void {
     this.eventBus.publish<ClaudeTokenUsageEvent>(
-      CLAUDE_DOMAIN_EVENTS.TOKEN_USAGE_UPDATED,
+      CHAT_MESSAGE_TYPES.TOKEN_USAGE_UPDATED,
       { sessionId, usage }
     );
   }

@@ -37,7 +37,6 @@ import { ProviderOrchestrationService } from '../provider/provider-orchestration
 import { AnalyticsOrchestrationService } from '../analytics/analytics-orchestration.service';
 import { ConfigOrchestrationService } from '../config/config-orchestration.service';
 import { TOKENS, EventBus } from '@ptah-extension/vscode-core';
-import { CLAUDE_DOMAIN_EVENTS } from '../events/claude-domain.events';
 import type {
   ClaudeAgentStartedEvent,
   ClaudeAgentActivityEventPayload,
@@ -171,7 +170,7 @@ export class MessageHandlerService {
     // Config message subscriptions
     this.subscribeToConfigMessages();
 
-    // Agent event subscriptions (from CLAUDE_DOMAIN_EVENTS)
+    // Agent event subscriptions (from CHAT_MESSAGE_TYPES)
     this.subscribeToAgentEvents();
   }
 
@@ -811,18 +810,16 @@ export class MessageHandlerService {
   }
 
   /**
-   * Subscribe to agent lifecycle events from CLAUDE_DOMAIN_EVENTS
+   * Subscribe to agent lifecycle events from CHAT_MESSAGE_TYPES
    * Transform domain events to webview messages
    */
   private subscribeToAgentEvents(): void {
-    // CLAUDE_DOMAIN_EVENTS.AGENT_STARTED -> chat:agentStarted
+    // CHAT_MESSAGE_TYPES.AGENT_STARTED -> chat:agentStarted
     // Type assertion needed: EventBus.subscribe expects MessagePayloadMap keys,
     // but CLAUDE_DOMAIN_EVENTS are domain-specific topics
     this.subscriptions.push(
       this.eventBus
-        .subscribe(
-          CLAUDE_DOMAIN_EVENTS.AGENT_STARTED as keyof MessagePayloadMap
-        )
+        .subscribe(CHAT_MESSAGE_TYPES.AGENT_STARTED as keyof MessagePayloadMap)
         .subscribe((event) => {
           // Extract payload - EventBus emits TypedEvent with payload property
           const payload = event.payload as unknown as ClaudeAgentStartedEvent;
@@ -833,12 +830,10 @@ export class MessageHandlerService {
         })
     );
 
-    // CLAUDE_DOMAIN_EVENTS.AGENT_ACTIVITY -> chat:agentActivity
+    // CHAT_MESSAGE_TYPES.AGENT_ACTIVITY -> chat:agentActivity
     this.subscriptions.push(
       this.eventBus
-        .subscribe(
-          CLAUDE_DOMAIN_EVENTS.AGENT_ACTIVITY as keyof MessagePayloadMap
-        )
+        .subscribe(CHAT_MESSAGE_TYPES.AGENT_ACTIVITY as keyof MessagePayloadMap)
         .subscribe((event) => {
           const payload =
             event.payload as unknown as ClaudeAgentActivityEventPayload;
@@ -849,11 +844,11 @@ export class MessageHandlerService {
         })
     );
 
-    // CLAUDE_DOMAIN_EVENTS.AGENT_COMPLETED -> chat:agentCompleted
+    // CHAT_MESSAGE_TYPES.AGENT_COMPLETED -> chat:agentCompleted
     this.subscriptions.push(
       this.eventBus
         .subscribe(
-          CLAUDE_DOMAIN_EVENTS.AGENT_COMPLETED as keyof MessagePayloadMap
+          CHAT_MESSAGE_TYPES.AGENT_COMPLETED as keyof MessagePayloadMap
         )
         .subscribe((event) => {
           const payload = event.payload as unknown as ClaudeAgentCompletedEvent;
