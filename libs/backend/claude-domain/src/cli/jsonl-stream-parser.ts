@@ -18,7 +18,8 @@ export type JSONLMessage =
   | JSONLAssistantMessage
   | JSONLToolMessage
   | JSONLPermissionMessage
-  | JSONLStreamEvent;
+  | JSONLStreamEvent
+  | JSONLResultMessage;
 
 export interface JSONLSystemMessage {
   readonly type: 'system';
@@ -94,6 +95,33 @@ export interface JSONLStreamEvent {
   readonly session_id?: string;
 }
 
+export interface JSONLResultMessage {
+  readonly type: 'result';
+  readonly subtype: 'success' | 'error';
+  readonly session_id?: string;
+  readonly result?: string;
+  readonly duration_ms?: number;
+  readonly duration_api_ms?: number;
+  readonly num_turns?: number;
+  readonly total_cost_usd?: number;
+  readonly usage?: {
+    readonly input_tokens?: number;
+    readonly output_tokens?: number;
+    readonly cache_read_input_tokens?: number;
+    readonly cache_creation_input_tokens?: number;
+  };
+  readonly modelUsage?: Record<
+    string,
+    {
+      readonly inputTokens: number;
+      readonly outputTokens: number;
+      readonly cacheReadInputTokens: number;
+      readonly cacheCreationInputTokens: number;
+      readonly costUSD: number;
+    }
+  >;
+}
+
 export interface ParsedEvent {
   readonly type:
     | 'content'
@@ -130,6 +158,8 @@ export interface JSONLParserCallbacks {
   onAgentStart?: (event: ClaudeAgentStartEvent) => void;
   onAgentActivity?: (event: ClaudeAgentActivityEvent) => void;
   onAgentComplete?: (event: ClaudeAgentCompleteEvent) => void;
+  onMessageStop?: () => void; // NEW: Called when message streaming completes
+  onResult?: (result: JSONLResultMessage) => void; // NEW: Called with final result (cost, usage, duration)
   onError?: (error: Error, rawLine?: string) => void;
 }
 
@@ -247,6 +277,10 @@ export class JSONLStreamParser {
 
       case 'stream_event':
         this.handleStreamEvent(json);
+        break;
+
+      case 'result':
+        this.handleResultMessage(json);
         break;
 
       default:
@@ -699,6 +733,20 @@ export class JSONLStreamParser {
   }
 
   /**
+   * Handle result messages (final response with cost/usage/duration)
+   */
+  private handleResultMessage(msg: JSONLResultMessage): void {
+    console.log('[JSONLStreamParser] result message received:', {
+      subtype: msg.subtype,
+      duration: msg.duration_ms,
+      cost: msg.total_cost_usd,
+      tokens: msg.usage,
+    });
+
+    this.callbacks.onResult?.(msg);
+  }
+
+  /**
    * Handle stream_event messages (with --include-partial-messages flag)
    *
    * Stream events have the format:
@@ -731,7 +779,16 @@ export class JSONLStreamParser {
       return;
     }
 
-    // Other stream events (content_block_start, content_block_stop, message_delta, message_stop)
+    // CRITICAL: Handle message_stop to signal end of streaming
+    if (msg.event.type === 'message_stop') {
+      console.log(
+        '[JSONLStreamParser] message_stop received - streaming complete'
+      );
+      this.callbacks.onMessageStop?.();
+      return;
+    }
+
+    // Other stream events (content_block_start, content_block_stop, message_delta)
     // are metadata events that we don't need to process for content streaming
   }
 }

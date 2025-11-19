@@ -26,7 +26,6 @@ import type {
 import { CommandBuilderService } from '../services/command-builder.service';
 import { AnalyticsDataCollector } from '../services/analytics-data-collector';
 import { AngularWebviewProvider } from '../providers/angular-webview.provider';
-import { ClaudeEventRelayService } from '../services/claude-event-relay.service';
 import { CommandHandlers } from '../handlers/command-handlers';
 
 export interface ServiceDependencies {
@@ -72,7 +71,6 @@ export class PtahExtension implements vscode.Disposable {
   private commandBuilderService?: CommandBuilderService;
   private analyticsDataCollector?: AnalyticsDataCollector;
   private angularWebviewProvider?: AngularWebviewProvider;
-  private claudeEventRelay?: ClaudeEventRelayService;
 
   // Command handlers (uses library services instead of legacy registries)
   private commandHandlers?: CommandHandlers;
@@ -127,10 +125,6 @@ export class PtahExtension implements vscode.Disposable {
       this.logger.info(
         'WebviewMessageBridge initialized - responses will now reach webview'
       );
-
-      // Initialize Claude event relay (after webview provider)
-      this.claudeEventRelay = container.resolve(ClaudeEventRelayService);
-      this.claudeEventRelay.initialize();
 
       // Initialize handlers and registries
       this.initializeComponents();
@@ -831,11 +825,6 @@ export class PtahExtension implements vscode.Disposable {
 
       // Dispose WebviewMessageBridge
       this.webviewMessageBridge.dispose();
-
-      // Dispose event relay
-      if (this.claudeEventRelay) {
-        this.claudeEventRelay.dispose();
-      }
 
       // Dispose legacy services
       this.angularWebviewProvider?.dispose?.();

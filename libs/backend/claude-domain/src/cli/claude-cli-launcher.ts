@@ -43,7 +43,7 @@ export class ClaudeCliLauncher {
   ): Promise<Readable> {
     const { sessionId, model, resumeSessionId, workspaceRoot } = options;
 
-    // Build CLI arguments WITHOUT message (message goes to stdin, not args!)
+    // Build CLI arguments (message will be sent via stdin)
     const args = this.buildArgs(model, resumeSessionId);
 
     // Determine execution context
@@ -76,6 +76,11 @@ export class ClaudeCliLauncher {
       this.installation.cliJsPath || 'NONE'
     );
     console.log('[ClaudeCliLauncher] Spawn Command:', command);
+    console.log('[ClaudeCliLauncher] Command Arguments:', commandArgs);
+    console.log(
+      '[ClaudeCliLauncher] Full Command:',
+      `${command} ${commandArgs.join(' ')}`
+    );
     console.log('[ClaudeCliLauncher] Needs Shell:', needsShell);
     console.log('[ClaudeCliLauncher] Working Directory:', cwd);
     console.log(
@@ -118,14 +123,23 @@ export class ClaudeCliLauncher {
       childProcess.stderr.setEncoding('utf8');
     }
 
-    // CRITICAL: Write message to stdin (but DON'T close it for permissions!)
-    if (childProcess.stdin) {
+    // CRITICAL: Write message to stdin (required for -p flag)
+    // The -p flag tells Claude CLI to read the message from stdin
+    // CRITICAL: Must call stdin.end() to signal EOF, otherwise CLI hangs forever!
+    if (childProcess.stdin && !childProcess.stdin.destroyed) {
+      console.log('[ClaudeCliLauncher] Writing message to stdin:', {
+        messageLength: message.length,
+        messagePreview: message.substring(0, 50),
+      });
       childProcess.stdin.write(message + '\n');
-      // NOTE: We do NOT call stdin.end() here because permissions require
-      // writing responses to stdin later. stdin will be closed when the
-      // process exits or we explicitly kill it.
+      console.log('[ClaudeCliLauncher] Message written to stdin');
+
+      // CRITICAL FIX: End stdin to signal EOF (like echo pipe does)
+      // Without this, Claude CLI waits forever for more stdin input!
+      childProcess.stdin.end();
+      console.log('[ClaudeCliLauncher] stdin ended (EOF signaled)');
     } else {
-      console.error('[ClaudeCliLauncher] ERROR: stdin is null!');
+      console.error('[ClaudeCliLauncher] ERROR: stdin is not writable!');
     }
 
     // Register process
@@ -147,12 +161,12 @@ export class ClaudeCliLauncher {
 
   /**
    * Build CLI arguments array
-   * Message is written to stdin, NOT passed as argument (per working-example.md)
+   * NOTE: Message is NOT passed as argument - it's written to stdin after spawn
    */
   private buildArgs(model?: string, resumeSessionId?: string): string[] {
+    // CRITICAL: -p flag tells CLI to read message from stdin (NOT argument)
     // CRITICAL: --verbose is REQUIRED when using --output-format=stream-json
     // CRITICAL: --include-partial-messages enables token-by-token streaming
-    // Message goes to STDIN, not as an argument!
     const args = [
       '-p',
       '--output-format',
@@ -338,12 +352,46 @@ export class ClaudeCliLauncher {
       onAgentComplete: (event) => {
         this.deps.eventPublisher.emitAgentCompleted(sessionId, event);
       },
+
+      onMessageStop: () => {
+        console.log(
+          '[ClaudeCliLauncher] Streaming complete (message_stop received)'
+        );
+        this.deps.eventPublisher.emitMessageComplete(sessionId);
+      },
+
+      onResult: (result) => {
+        console.log('[ClaudeCliLauncher] Final result received:', {
+          cost: result.total_cost_usd,
+          duration: result.duration_ms,
+          tokens: result.usage,
+        });
+
+        // Emit token usage if available
+        if (result.usage) {
+          this.deps.eventPublisher.emitTokenUsage(sessionId, {
+            inputTokens: result.usage.input_tokens || 0,
+            outputTokens: result.usage.output_tokens || 0,
+            cacheReadTokens: result.usage.cache_read_input_tokens || 0,
+            cacheCreationTokens: result.usage.cache_creation_input_tokens || 0,
+            totalCost: result.total_cost_usd || 0,
+          });
+        }
+
+        // Emit session end
+        const reason = result.subtype === 'success' ? 'completed' : 'error';
+        this.deps.eventPublisher.emitSessionEnd(sessionId, reason);
+      },
     };
 
     const parser = new JSONLStreamParser(callbacks);
 
     // Pipe stdout through parser
     childProcess.stdout.on('data', (chunk: Buffer) => {
+      console.log('[ClaudeCliLauncher] Received stdout data:', {
+        chunkLength: chunk.length,
+        chunkPreview: chunk.toString('utf8').substring(0, 200),
+      });
       parser.processChunk(chunk);
     });
 

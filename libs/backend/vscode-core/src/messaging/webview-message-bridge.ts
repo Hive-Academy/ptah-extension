@@ -77,6 +77,7 @@ export class WebviewMessageBridge {
         CHAT_MESSAGE_TYPES.MESSAGE_ADDED,
         CHAT_MESSAGE_TYPES.MESSAGE_COMPLETE,
         CHAT_MESSAGE_TYPES.STREAM_STOPPED,
+        CHAT_MESSAGE_TYPES.THINKING,
 
         // Session lifecycle events
         CHAT_MESSAGE_TYPES.SESSION_CREATED,
@@ -84,8 +85,29 @@ export class WebviewMessageBridge {
         CHAT_MESSAGE_TYPES.SESSION_DELETED,
         CHAT_MESSAGE_TYPES.SESSION_RENAMED,
         CHAT_MESSAGE_TYPES.SESSION_UPDATED,
+        CHAT_MESSAGE_TYPES.SESSION_INIT,
+        CHAT_MESSAGE_TYPES.SESSION_END,
         CHAT_MESSAGE_TYPES.TOKEN_USAGE_UPDATED,
         CHAT_MESSAGE_TYPES.SESSIONS_UPDATED,
+
+        // Tool execution events
+        CHAT_MESSAGE_TYPES.TOOL_START,
+        CHAT_MESSAGE_TYPES.TOOL_PROGRESS,
+        CHAT_MESSAGE_TYPES.TOOL_RESULT,
+        CHAT_MESSAGE_TYPES.TOOL_ERROR,
+
+        // Permission events
+        CHAT_MESSAGE_TYPES.PERMISSION_REQUEST,
+        CHAT_MESSAGE_TYPES.PERMISSION_RESPONSE,
+
+        // Agent lifecycle events
+        CHAT_MESSAGE_TYPES.AGENT_STARTED,
+        CHAT_MESSAGE_TYPES.AGENT_ACTIVITY,
+        CHAT_MESSAGE_TYPES.AGENT_COMPLETED,
+
+        // Health and error events
+        CHAT_MESSAGE_TYPES.HEALTH_UPDATE,
+        CHAT_MESSAGE_TYPES.CLI_ERROR,
 
         // Provider events
         PROVIDER_MESSAGE_TYPES.CURRENT_CHANGED,
@@ -100,9 +122,6 @@ export class WebviewMessageBridge {
         SYSTEM_MESSAGE_TYPES.THEME_CHANGED,
         SYSTEM_MESSAGE_TYPES.ERROR,
         SYSTEM_MESSAGE_TYPES.INITIAL_DATA,
-
-        // Permission events
-        CHAT_MESSAGE_TYPES.PERMISSION_REQUEST,
       ],
 
       // Forward events matching these patterns

@@ -40,6 +40,12 @@ export const CLAUDE_DOMAIN_EVENTS = {
   SESSION_INIT: 'claude:session:init',
   SESSION_END: 'claude:session:end',
 
+  // Message lifecycle
+  MESSAGE_COMPLETE: 'claude:message:complete',
+
+  // Token usage tracking
+  TOKEN_USAGE_UPDATED: 'claude:token:usage',
+
   // Health
   HEALTH_UPDATE: 'claude:health:update',
 
@@ -114,6 +120,21 @@ export interface ClaudeAgentActivityEventPayload {
 export interface ClaudeAgentCompletedEvent {
   readonly sessionId: SessionId;
   readonly agent: ClaudeAgentCompleteEvent;
+}
+
+export interface ClaudeMessageCompleteEvent {
+  readonly sessionId: SessionId;
+}
+
+export interface ClaudeTokenUsageEvent {
+  readonly sessionId: SessionId;
+  readonly usage: {
+    readonly inputTokens: number;
+    readonly outputTokens: number;
+    readonly cacheReadTokens: number;
+    readonly cacheCreationTokens: number;
+    readonly totalCost: number;
+  };
 }
 
 /**
@@ -262,6 +283,29 @@ export class ClaudeDomainEventPublisher {
     this.eventBus.publish<ClaudeAgentCompletedEvent>(
       CLAUDE_DOMAIN_EVENTS.AGENT_COMPLETED,
       { sessionId, agent }
+    );
+  }
+
+  emitMessageComplete(sessionId: SessionId): void {
+    this.eventBus.publish<ClaudeMessageCompleteEvent>(
+      CLAUDE_DOMAIN_EVENTS.MESSAGE_COMPLETE,
+      { sessionId }
+    );
+  }
+
+  emitTokenUsage(
+    sessionId: SessionId,
+    usage: {
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadTokens: number;
+      cacheCreationTokens: number;
+      totalCost: number;
+    }
+  ): void {
+    this.eventBus.publish<ClaudeTokenUsageEvent>(
+      CLAUDE_DOMAIN_EVENTS.TOKEN_USAGE_UPDATED,
+      { sessionId, usage }
     );
   }
 }

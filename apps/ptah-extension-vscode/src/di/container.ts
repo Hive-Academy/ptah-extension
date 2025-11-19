@@ -96,7 +96,6 @@ import { AnalyticsDataCollector } from '../services/analytics-data-collector';
 import { CommandBuilderService } from '../services/command-builder.service';
 import { WebviewEventQueue } from '../services/webview-event-queue';
 import { WebviewInitialDataBuilder } from '../services/webview-initial-data-builder';
-import { ClaudeEventRelayService } from '../services/claude-event-relay.service';
 import { AngularWebviewProvider } from '../providers/angular-webview.provider';
 import { ConfigurationProviderAdapter } from '../adapters/configuration-provider.adapter';
 import { AnalyticsDataCollectorAdapter } from '../adapters/analytics-data-collector.adapter';
@@ -353,10 +352,6 @@ export class DIContainer {
     container.registerSingleton(
       TOKENS.ANGULAR_WEBVIEW_PROVIDER,
       AngularWebviewProvider
-    );
-    container.registerSingleton(
-      ClaudeEventRelayService,
-      ClaudeEventRelayService
     );
 
     // Adapters (registered later in main.ts after PtahExtension initialization)
