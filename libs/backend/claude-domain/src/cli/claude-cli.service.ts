@@ -134,6 +134,25 @@ export class ClaudeCliService {
   }
 
   /**
+   * Kill active CLI process for a session
+   *
+   * @param sessionId - Session ID to kill process for
+   * @returns True if process was killed, false if no process was running
+   */
+  async killProcess(sessionId: SessionId): Promise<boolean> {
+    if (!sessionId) {
+      return false;
+    }
+
+    // If launcher doesn't exist yet, no process is running
+    if (!this.launcher) {
+      return false;
+    }
+
+    return this.launcher.killSession(sessionId);
+  }
+
+  /**
    * Ensure CLI installation is detected and cached
    */
   private async ensureInstallation(): Promise<ClaudeInstallation> {

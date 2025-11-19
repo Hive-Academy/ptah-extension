@@ -60,6 +60,7 @@ export interface IClaudeCliService {
     sessionId: SessionId,
     response: 'allow' | 'always_allow' | 'deny'
   ): Promise<void>;
+  killProcess(sessionId: SessionId): Promise<boolean>;
 }
 
 /**
@@ -687,12 +688,25 @@ export class ChatOrchestrationService {
         `Stop streaming requested for session: ${request.sessionId}, message: ${request.messageId}`
       );
 
-      // TODO: Implement actual process termination in ClaudeCliService
-      // For now, just acknowledge the stop request
+      // Kill the CLI process for this session
+      if (!request.sessionId) {
+        return {
+          success: false,
+          error: 'No session ID provided',
+        };
+      }
+
+      const killed = await this.claudeService.killProcess(request.sessionId);
+
+      if (!killed) {
+        console.warn(
+          `Failed to kill process for session ${request.sessionId} - process may not be running`
+        );
+      }
 
       return {
         success: true,
-        stopped: true,
+        stopped: killed,
         sessionId: request.sessionId,
         messageId: request.messageId,
       };

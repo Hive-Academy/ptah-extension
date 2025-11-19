@@ -336,8 +336,20 @@ export class ChatService {
    * Stop current streaming
    */
   stopStreaming(): void {
+    // Update frontend state immediately for responsive UX
     this._streamState.update((state) => ({ ...state, isStreaming: false }));
-    // TODO: Send stop signal to backend when StreamHandlingService is migrated
+
+    // Send stop signal to backend to kill CLI process
+    const currentSession = this.currentSession();
+    const messages = this.messages();
+    const lastMessage =
+      messages.length > 0 ? messages[messages.length - 1] : null;
+
+    this.vscode.postStrictMessage(CHAT_MESSAGE_TYPES.STOP_STREAM, {
+      sessionId: currentSession?.id ?? null,
+      messageId: lastMessage?.id ?? null,
+      timestamp: Date.now(),
+    });
   }
 
   /**
