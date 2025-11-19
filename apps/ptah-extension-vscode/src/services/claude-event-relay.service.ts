@@ -6,7 +6,7 @@
  * Architecture:
  * - Subscribes to all 15 CLAUDE_DOMAIN_EVENTS
  * - Maps claude:* events → chat:* messages
- * - Forwards to webview via WebviewManager.postMessage()
+ * - Forwards to webview via WebviewManager.sendMessage()
  *
  * This service fills the critical gap identified in EVENT_SYSTEM_GAP_ANALYSIS.md
  */
@@ -47,7 +47,7 @@ import {
 } from '@ptah-extension/shared';
 
 export interface IWebviewManager {
-  postMessage(message: { type: string; payload: unknown }): boolean;
+  sendMessage<T>(viewType: string, type: T, payload: unknown): Promise<boolean>;
 }
 
 @injectable()
@@ -74,7 +74,7 @@ export class ClaudeEventRelayService {
       this.eventBus
         .subscribe(CLAUDE_DOMAIN_EVENTS.CONTENT_CHUNK as any)
         .subscribe({
-          next: (event: any) => {
+          next: async (event: any) => {
             try {
               const typedPayload = event.payload as ClaudeContentChunkEvent;
               const payload: ChatMessageChunkPayload = {
@@ -85,10 +85,11 @@ export class ClaudeEventRelayService {
                 streaming: true,
               };
 
-              this.webviewManager.postMessage({
-                type: CHAT_MESSAGE_TYPES.MESSAGE_CHUNK,
-                payload,
-              });
+              await this.webviewManager.sendMessage(
+                'ptah.main',
+                CHAT_MESSAGE_TYPES.MESSAGE_CHUNK,
+                payload
+              );
             } catch (error) {
               this.logger.error(
                 '[ClaudeEventRelay] Error forwarding CONTENT_CHUNK:',
@@ -107,7 +108,7 @@ export class ClaudeEventRelayService {
     // 2. Thinking events
     this.subscriptions.push(
       this.eventBus.subscribe(CLAUDE_DOMAIN_EVENTS.THINKING as any).subscribe({
-        next: (event: any) => {
+        next: async (event: any) => {
           try {
             const typedPayload = event.payload as ClaudeThinkingEventPayload;
             const payload: ChatThinkingPayload = {
@@ -116,10 +117,11 @@ export class ClaudeEventRelayService {
               timestamp: typedPayload.thinking.timestamp,
             };
 
-            this.webviewManager.postMessage({
-              type: CHAT_MESSAGE_TYPES.THINKING,
-              payload,
-            });
+            await this.webviewManager.sendMessage(
+              'ptah.main',
+              CHAT_MESSAGE_TYPES.THINKING,
+              payload
+            );
           } catch (error) {
             this.logger.error(
               '[ClaudeEventRelay] Error forwarding THINKING:',
@@ -140,7 +142,7 @@ export class ClaudeEventRelayService {
       this.eventBus
         .subscribe(CLAUDE_DOMAIN_EVENTS.TOOL_START as any)
         .subscribe({
-          next: (event: any) => {
+          next: async (event: any) => {
             try {
               const typedPayload = event.payload as ClaudeToolEventPayload;
               const toolEvent = typedPayload.event as any; // ClaudeToolEvent is discriminated union
@@ -175,7 +177,7 @@ export class ClaudeEventRelayService {
       this.eventBus
         .subscribe(CLAUDE_DOMAIN_EVENTS.TOOL_PROGRESS as any)
         .subscribe({
-          next: (event: any) => {
+          next: async (event: any) => {
             try {
               const typedPayload = event.payload as ClaudeToolEventPayload;
               const toolEvent = typedPayload.event as any; // ClaudeToolEvent is discriminated union
@@ -209,7 +211,7 @@ export class ClaudeEventRelayService {
       this.eventBus
         .subscribe(CLAUDE_DOMAIN_EVENTS.TOOL_RESULT as any)
         .subscribe({
-          next: (event: any) => {
+          next: async (event: any) => {
             try {
               const typedPayload = event.payload as ClaudeToolEventPayload;
               const toolEvent = typedPayload.event as any; // ClaudeToolEvent is discriminated union
@@ -244,7 +246,7 @@ export class ClaudeEventRelayService {
       this.eventBus
         .subscribe(CLAUDE_DOMAIN_EVENTS.TOOL_ERROR as any)
         .subscribe({
-          next: (event: any) => {
+          next: async (event: any) => {
             try {
               const typedPayload = event.payload as ClaudeToolEventPayload;
               const toolEvent = typedPayload.event as any; // ClaudeToolEvent is discriminated union
@@ -279,7 +281,7 @@ export class ClaudeEventRelayService {
       this.eventBus
         .subscribe(CLAUDE_DOMAIN_EVENTS.PERMISSION_REQUESTED as any)
         .subscribe({
-          next: (event: any) => {
+          next: async (event: any) => {
             try {
               const typedPayload =
                 event.payload as ClaudePermissionRequestEvent;
@@ -315,7 +317,7 @@ export class ClaudeEventRelayService {
       this.eventBus
         .subscribe(CLAUDE_DOMAIN_EVENTS.PERMISSION_RESPONDED as any)
         .subscribe({
-          next: (event: any) => {
+          next: async (event: any) => {
             try {
               const typedPayload =
                 event.payload as ClaudePermissionResponseEvent;
@@ -349,7 +351,7 @@ export class ClaudeEventRelayService {
       this.eventBus
         .subscribe(CLAUDE_DOMAIN_EVENTS.AGENT_STARTED as any)
         .subscribe({
-          next: (event: any) => {
+          next: async (event: any) => {
             try {
               const typedPayload = event.payload as any;
               const payload: ChatAgentStartedPayload = {
@@ -380,7 +382,7 @@ export class ClaudeEventRelayService {
       this.eventBus
         .subscribe(CLAUDE_DOMAIN_EVENTS.AGENT_ACTIVITY as any)
         .subscribe({
-          next: (event: any) => {
+          next: async (event: any) => {
             try {
               const typedPayload = event.payload as any;
               const payload: ChatAgentActivityPayload = {
@@ -411,7 +413,7 @@ export class ClaudeEventRelayService {
       this.eventBus
         .subscribe(CLAUDE_DOMAIN_EVENTS.AGENT_COMPLETED as any)
         .subscribe({
-          next: (event: any) => {
+          next: async (event: any) => {
             try {
               const typedPayload = event.payload as any;
               const payload: ChatAgentCompletedPayload = {
@@ -443,7 +445,7 @@ export class ClaudeEventRelayService {
       this.eventBus
         .subscribe(CLAUDE_DOMAIN_EVENTS.SESSION_INIT as any)
         .subscribe({
-          next: (event: any) => {
+          next: async (event: any) => {
             try {
               const typedPayload = event.payload as ClaudeSessionInitEvent;
               const payload: ChatSessionInitPayload = {
@@ -476,7 +478,7 @@ export class ClaudeEventRelayService {
       this.eventBus
         .subscribe(CLAUDE_DOMAIN_EVENTS.SESSION_END as any)
         .subscribe({
-          next: (event: any) => {
+          next: async (event: any) => {
             try {
               const typedPayload = event.payload as ClaudeSessionEndEvent;
               const payload: ChatSessionEndPayload = {
@@ -509,7 +511,7 @@ export class ClaudeEventRelayService {
       this.eventBus
         .subscribe(CLAUDE_DOMAIN_EVENTS.HEALTH_UPDATE as any)
         .subscribe({
-          next: (event: any) => {
+          next: async (event: any) => {
             try {
               const typedPayload = event.payload as ClaudeHealthUpdateEvent;
               const payload: ChatHealthUpdatePayload = {
@@ -542,7 +544,7 @@ export class ClaudeEventRelayService {
     // 8. CLI errors
     this.subscriptions.push(
       this.eventBus.subscribe(CLAUDE_DOMAIN_EVENTS.CLI_ERROR as any).subscribe({
-        next: (event: any) => {
+        next: async (event: any) => {
           try {
             const typedPayload = event.payload as ClaudeErrorEvent;
             const payload: ChatCliErrorPayload = {
@@ -552,10 +554,11 @@ export class ClaudeEventRelayService {
               timestamp: Date.now(),
             };
 
-            this.webviewManager.postMessage({
-              type: CHAT_MESSAGE_TYPES.CLI_ERROR,
-              payload,
-            });
+            await this.webviewManager.sendMessage(
+              'ptah.main',
+              CHAT_MESSAGE_TYPES.CLI_ERROR,
+              payload
+            );
           } catch (error) {
             this.logger.error(
               '[ClaudeEventRelay] Error forwarding CLI_ERROR:',
