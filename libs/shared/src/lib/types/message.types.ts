@@ -821,6 +821,40 @@ export interface StrictChatMessage {
   readonly isComplete?: boolean;
   // For system messages
   readonly level?: 'info' | 'warning' | 'error';
+
+  // NEW: Missing fields for full message lifecycle (TASK_2025_008 - Batch 2)
+  readonly cost?: number; // Message cost in USD
+  readonly tokens?: {
+    // Token breakdown
+    readonly input: number;
+    readonly output: number;
+    readonly cacheHit?: number;
+  };
+  readonly duration?: number; // Processing time in ms
+}
+
+/**
+ * MCP Server Information
+ * Used in SessionCapabilities to track connected MCP servers
+ */
+export interface MCPServerInfo {
+  readonly name: string;
+  readonly status: 'connected' | 'disabled' | 'failed';
+  readonly tools?: readonly string[];
+}
+
+/**
+ * Session Capabilities
+ * Tracks Claude Code capabilities available in a session
+ */
+export interface SessionCapabilities {
+  readonly cwd: string;
+  readonly model: string;
+  readonly tools: readonly string[];
+  readonly agents: readonly string[];
+  readonly slash_commands: readonly string[];
+  readonly mcp_servers: readonly MCPServerInfo[];
+  readonly claude_code_version: string;
 }
 
 /**
@@ -842,6 +876,13 @@ export interface StrictChatSession {
     percentage: number;
     maxTokens?: number;
   }>;
+
+  // NEW: Missing fields for IMPLEMENTATION_PLAN compatibility (TASK_2025_008 - Batch 2)
+  readonly capabilities?: SessionCapabilities; // Claude Code capabilities
+  readonly model?: string; // Active model (e.g., "claude-sonnet-4")
+  readonly totalCost?: number; // Cumulative cost in USD
+  readonly totalTokensInput?: number; // Cumulative input tokens
+  readonly totalTokensOutput?: number; // Cumulative output tokens
 }
 
 /**
@@ -924,6 +965,24 @@ export const MessageResponseSchema = z
   })
   .strict();
 
+// Zod schema for MCPServerInfo
+export const MCPServerInfoSchema = z.object({
+  name: z.string(),
+  status: z.enum(['connected', 'disabled', 'failed']),
+  tools: z.array(z.string()).optional(),
+});
+
+// Zod schema for SessionCapabilities
+export const SessionCapabilitiesSchema = z.object({
+  cwd: z.string(),
+  model: z.string(),
+  tools: z.array(z.string()),
+  agents: z.array(z.string()),
+  slash_commands: z.array(z.string()),
+  mcp_servers: z.array(MCPServerInfoSchema),
+  claude_code_version: z.string(),
+});
+
 export const StrictChatMessageSchema = z.object({
   id: MessageIdSchema,
   sessionId: SessionIdSchema,
@@ -938,6 +997,16 @@ export const StrictChatMessageSchema = z.object({
   isComplete: z.boolean().optional(),
   // For system messages
   level: z.enum(['info', 'warning', 'error']).optional(),
+  // NEW: Message lifecycle fields (TASK_2025_008 - Batch 2)
+  cost: z.number().nonnegative().optional(),
+  tokens: z
+    .object({
+      input: z.number().nonnegative(),
+      output: z.number().nonnegative(),
+      cacheHit: z.number().nonnegative().optional(),
+    })
+    .optional(),
+  duration: z.number().nonnegative().optional(),
 });
 
 export const StrictChatSessionSchema = z
@@ -959,6 +1028,12 @@ export const StrictChatSessionSchema = z
         maxTokens: z.number().positive().optional(),
       })
       .strict(),
+    // NEW: IMPLEMENTATION_PLAN compatibility fields (TASK_2025_008 - Batch 2)
+    capabilities: SessionCapabilitiesSchema.optional(),
+    model: z.string().optional(),
+    totalCost: z.number().nonnegative().optional(),
+    totalTokensInput: z.number().nonnegative().optional(),
+    totalTokensOutput: z.number().nonnegative().optional(),
   })
   .strict();
 
