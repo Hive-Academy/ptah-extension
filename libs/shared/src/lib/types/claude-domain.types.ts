@@ -5,6 +5,7 @@
 
 import { z } from 'zod';
 import { SessionId } from './branded.types';
+import { ContentBlock } from './message.types';
 
 /**
  * Permission Decision Types
@@ -155,14 +156,14 @@ export const ClaudeToolEventSchema = z.discriminatedUnion('type', [
  */
 export interface ClaudeContentChunk {
   readonly type: 'content';
-  readonly delta: string;
+  readonly blocks: readonly ContentBlock[];
   readonly index?: number;
   readonly timestamp: number;
 }
 
 export const ClaudeContentChunkSchema = z.object({
   type: z.literal('content'),
-  delta: z.string(),
+  blocks: z.array(z.unknown()), // ContentBlock validation handled separately
   index: z.number().optional(),
   timestamp: z.number(),
 });
