@@ -4,6 +4,7 @@ export * from './lib/types/claude-domain.types';
 export * from './lib/types/command-builder.types';
 export * from './lib/types/common.types';
 export * from './lib/types/message.types';
+export * from './lib/types/content-block.types';
 export * from './lib/types/webview-ui.types';
 
 // Message type constants (SINGLE SOURCE OF TRUTH)

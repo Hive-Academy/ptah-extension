@@ -47,6 +47,19 @@ import type {
   ToolUseContentBlock,
   ToolResultContentBlock,
 } from './content-block.types';
+
+// Re-export for convenience
+export { CorrelationId };
+
+// Re-export ContentBlock types from foundation layer
+export type {
+  ContentBlock,
+  TextContentBlock,
+  ThinkingContentBlock,
+  ToolUseContentBlock,
+  ToolResultContentBlock,
+};
+
 /**
  * Strict Message Types - derives from MESSAGE_TYPES constants
  * This ensures automatic sync between constants and types (single source of truth)
