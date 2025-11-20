@@ -133,7 +133,7 @@
           border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
           border-radius: 4px;
           background-color: var(--surface-color, transparent);
-          color: var(--text-primary, #333);
+          color: var(--text-primary, #dad8d8);
           font-size: 0.8rem;
           cursor: pointer;
           transition: all 0.2s ease;
@@ -149,18 +149,6 @@
           &:active {
             transform: scale(0.98);
           }
-
-          &.copy-btn:hover {
-            color: var(--info-color, #0066cc);
-          }
-
-          &.regenerate-btn:hover {
-            color: var(--primary-color, #d4af37);
-          }
-
-          &.export-btn:hover {
-            color: var(--success-color, #2e7d32);
-          }
         }
       }
     }
@@ -174,7 +162,7 @@
     width: 40px;
     height: 40px;
     border-radius: 50%;
-    background-color: var(--primary-color, #d4af37);
+    background-color: var(--primary-color, #3b3b3b);
     color: white;
     border: none;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);

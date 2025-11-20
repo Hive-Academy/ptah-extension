@@ -283,10 +283,10 @@ export class WebviewHtmlGenerator {
         <!-- Angular App Root -->
         <app-root></app-root>
 
-        <!-- VS Code Integration Script -->
+        <!-- VS Code Integration Script
         <script nonce="${nonce}">
           ${this.getVSCodeIntegrationScript(theme, workspaceInfo, webview)}
-        </script>
+        </script>  -->
 
         <!-- Angular Main Bundle (ES Module) -->
         <script src="${scriptUri}" type="module" nonce="${nonce}" onerror="console.error('Failed to load main Angular bundle')"></script>
@@ -384,6 +384,8 @@ export class WebviewHtmlGenerator {
         baseUri: '${baseUri}',
         iconUri: '${iconUri}'
       };
+
+
 
       // Restore previous state
       const previousState = vscode.getState();

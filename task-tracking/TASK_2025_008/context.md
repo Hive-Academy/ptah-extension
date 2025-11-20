@@ -2,68 +2,72 @@
 
 ## User Intent
 
-Implement critical frontend event handling fixes based on comprehensive architectural analysis. This is a REFACTORING task with all research and architecture work already completed.
+Comprehensive frontend architecture evaluation and modernization to establish a solid, professional foundation for future feature development.
 
-## Problem Statement
+## User Request (Full)
 
-Three critical issues were identified through architectural analysis of event flow between backend (claude-domain) and frontend (Angular webview):
-
-1. **Event Namespace Mismatch** (CRITICAL): Backend publishes `claude:*` events but frontend expects `chat:*` events, causing ALL streaming events to be dropped at WebviewMessageBridge
-2. **Missing Type System Fields** (CRITICAL): StrictChatSession missing 5 fields, StrictChatMessage missing 3 fields - blocks all IMPLEMENTATION_PLAN phases
-3. **Missing Frontend Subscriptions** (IMPORTANT): ChatService not subscribed to TOKEN_USAGE_UPDATED event
+Comprehensive frontend architecture evaluation and modernization: (1) Research - deep dive into Ptah extension purpose, value proposition, and target UX to establish evaluation criteria; (2) Systematic audit of all 50+ components across 7 frontend libraries (core, chat, session, providers, analytics, dashboard, shared-ui) to identify duplication, unused code, misalignment with TASK_2025_004 patterns, and architectural issues; (3) Create detailed component inventory with usage analysis, dependency mapping, and quality scores; (4) Develop refactoring plan to eliminate duplication, align with signal-based patterns, consolidate components, and prepare foundation for IMPLEMENTATION_PLAN.md features (@ mentions, model selection, MCP status, cost tracking, capabilities panel); (5) Design system audit - ensure professional, clean UI matching advanced AI coding extensions; (6) Implementation roadmap for modernization while building TASK_2025_005 features on solid foundation
 
 ## Conversation Summary
 
-**Research Completed**:
-
-- EVENT_FLOW_RESEARCH.md - Complete event flow tracing with evidence
-- EVENT_HANDLING_ENHANCEMENT_ARCHITECTURE.md - Architecture blueprint
-- Requirements Gap Analysis - IMPLEMENTATION_PLAN validation
-
-**Key Architectural Decision**: User confirmed single source of truth approach - eliminate dual namespaces, use CHAT_MESSAGE_TYPES directly in backend.
-
-**Critical Path Tasks (4-7 hours total)**:
-
-1. Event Namespace Unification (2-3h) - Change backend to use CHAT_MESSAGE_TYPES directly
-2. Type System Foundation (1-2h) - Add 8 missing fields to StrictChatSession/StrictChatMessage
-3. Frontend Subscriptions (1-2h) - Add TOKEN_USAGE_UPDATED subscription
-
-**Files to Modify**:
-
-- libs/backend/claude-domain/src/events/claude-domain.events.ts (namespace fix)
-- libs/shared/src/lib/types/message.types.ts (type system)
-- libs/frontend/core/src/lib/services/chat.service.ts (subscriptions)
-
-**Parallel Execution Strategy**:
-
-- Batch 1 (Backend namespace) and Batch 2 (Type system) can run PARALLEL (no dependencies)
-- Batch 3 (Frontend subscriptions) must run SEQUENTIAL after Batch 1 (depends on namespace unification)
+No prior conversation - task initiated directly from comprehensive requirement.
 
 ## Technical Context
 
+- Task ID: TASK_2025_008
 - Branch: feature/008
-- Created: 2025-11-19
-- Task Type: REFACTORING
-- Priority: CRITICAL
-- Effort Estimate: 4-7 hours
-- Research Phase: COMPLETE (skip PM and Architect)
+- Created: 2025-11-20
+- Task Type: RESEARCH + REFACTORING (hybrid)
+- Priority: HIGH (foundation for future features)
+- Effort Estimate: 16-24 hours (complex multi-phase work)
+
+## Key Objectives
+
+1. **Research Phase**: Understand Ptah's purpose, value proposition, and target UX
+2. **Audit Phase**: Systematic evaluation of 50+ components across 7 frontend libraries
+3. **Analysis Phase**: Identify duplication, unused code, architectural issues, misalignment
+4. **Planning Phase**: Create refactoring plan to modernize architecture
+5. **Design Phase**: Ensure professional UI/UX matching advanced AI coding extensions
+6. **Roadmap Phase**: Implementation plan for modernization + TASK_2025_005 features
+
+## Scope
+
+**In Scope**:
+
+- All frontend libraries: core, chat, session, providers, analytics, dashboard, shared-ui
+- Component inventory with usage analysis and quality scores
+- Dependency mapping and architectural documentation
+- Signal-based pattern alignment assessment
+- Design system evaluation
+- Refactoring plan for duplication elimination
+- Foundation preparation for @ mentions, model selection, MCP status, cost tracking, capabilities panel
+
+**Out of Scope**:
+
+- Backend libraries (vscode-core, claude-domain, ai-providers-core, workspace-intelligence)
+- Actual implementation of refactoring (planning only)
+- Implementation of TASK_2025_005 features (foundation planning only)
+
+## Related Tasks
+
+- TASK_2025_004: Agent System Visualization (reference for signal-based patterns)
+- TASK_2025_005: Rich Claude CLI Features (target feature set for foundation planning)
+
+## Success Criteria
+
+- Complete component inventory with usage metrics
+- Clear identification of all duplication and unused code
+- Detailed refactoring plan with effort estimates
+- Design system recommendations for professional UI/UX
+- Implementation roadmap aligning modernization with feature development
+- Zero backward compatibility concerns (direct replacement approach)
 
 ## Execution Strategy
 
-**REFACTORING_STREAMLINED** (Research Complete):
+Given the hybrid nature (RESEARCH + REFACTORING), this will follow:
 
-1. Skip project-manager (requirements clear from research)
-2. Skip software-architect (architecture already defined)
-3. team-leader MODE 1 (DECOMPOSITION - create tasks.md with 3 atomic batches)
-4. team-leader MODE 2 (ITERATIVE ASSIGNMENT - parallel execution for Batch 1+2, sequential for Batch 3)
-5. team-leader MODE 3 (COMPLETION - final verification)
-6. User chooses QA (senior-tester and/or code-reviewer)
-7. modernization-detector (future work analysis)
-
-## Referenced Documentation
-
-- task-tracking/TASK_2025_007/EVENT_FLOW_RESEARCH.md
-- task-tracking/TASK_2025_007/EVENT_HANDLING_ENHANCEMENT_ARCHITECTURE.md
-- libs/backend/claude-domain/src/events/claude-domain.events.ts
-- libs/shared/src/lib/types/message.types.ts
-- libs/frontend/core/src/lib/services/chat.service.ts
+1. researcher-expert (deep dive into Ptah purpose, UX goals, component ecosystem)
+2. software-architect (systematic audit, inventory creation, refactoring plan)
+3. team-leader (break down implementation plan into atomic tasks)
+4. Iterative development cycles
+5. Quality gates (testing, review)

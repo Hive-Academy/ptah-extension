@@ -345,7 +345,7 @@ export class JSONLStreamParser {
     }
 
     // Messages API format (from --output-format stream-json)
-    // Extract text content from nested message.content array
+    // Extract text content and tool_use blocks from nested message.content array
     if (msg.message?.content) {
       for (const block of msg.message.content) {
         if (block.type === 'text' && block.text) {
@@ -356,14 +356,25 @@ export class JSONLStreamParser {
             timestamp,
           };
           this.callbacks.onContent?.(contentChunk);
+        } else if (block.type === 'tool_use' && block.id && block.name) {
+          // Handle tool_use blocks - emit TOOL_START events
+          const toolEvent: ClaudeToolEvent = {
+            type: 'start',
+            toolCallId: block.id,
+            tool: block.name,
+            args: (block.input as Record<string, unknown>) || {},
+            timestamp,
+          };
+          this.callbacks.onTool?.(toolEvent);
         }
-        // Tool use blocks are handled separately by tool events
       }
     }
   }
 
   /**
    * Correlate agent activity from assistant messages with parent_tool_use_id
+   * ONLY processes if the parent is actually a Task tool (tracked in activeAgents)
+   * Regular tools with parent_tool_use_id are NOT agents, just nested tool calls
    */
   private correlateAgentActivity(
     parentToolUseId: string,
@@ -371,16 +382,13 @@ export class JSONLStreamParser {
   ): void {
     const agent = this.activeAgents.get(parentToolUseId);
     if (!agent) {
-      // Orphaned activity - parent agent not found
-      // Log warning but continue processing gracefully
-      this.callbacks.onError?.(
-        new Error(`Agent activity without parent: ${parentToolUseId}`),
-        `parent_tool_use_id: ${parentToolUseId}`
-      );
+      // NOT an error - regular tools can have parent_tool_use_id without being agents
+      // Only Task tools create agents tracked in activeAgents map
+      // Silently skip correlation if parent is not an active agent
       return;
     }
 
-    // Extract tool information from message content
+    // Extract tool information from message content (only for real agents)
     if (msg.message?.content) {
       for (const block of msg.message.content) {
         if (block.type === 'tool_use' && block.name) {
@@ -579,6 +587,8 @@ export class JSONLStreamParser {
 
   /**
    * Correlate tool activity from tool messages with parent_tool_use_id
+   * ONLY processes if the parent is actually a Task tool (tracked in activeAgents)
+   * Regular tools with parent_tool_use_id are NOT agents, just nested tool calls
    */
   private correlateToolActivity(
     parentToolUseId: string,
@@ -586,16 +596,13 @@ export class JSONLStreamParser {
   ): void {
     const agent = this.activeAgents.get(parentToolUseId);
     if (!agent) {
-      // Orphaned activity - parent agent not found
-      // Log warning but continue processing gracefully
-      this.callbacks.onError?.(
-        new Error(`Tool activity without parent agent: ${parentToolUseId}`),
-        `tool: ${msg.tool}, parent_tool_use_id: ${parentToolUseId}`
-      );
+      // NOT an error - regular tools can have parent_tool_use_id without being agents
+      // Only Task tools create agents tracked in activeAgents map
+      // Silently skip correlation if parent is not an active agent
       return;
     }
 
-    // Only emit activity for tool start events
+    // Only emit activity for tool start events (only for real agents)
     if (msg.subtype === 'start' && msg.tool) {
       const activityEvent: ClaudeAgentActivityEvent = {
         type: 'agent_activity',

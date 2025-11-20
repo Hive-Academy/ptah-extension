@@ -442,15 +442,30 @@ export class ChatService {
       .onMessageType(CHAT_MESSAGE_TYPES.MESSAGE_CHUNK)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((payload) => {
+        // Validate payload has required fields
+        if (!payload.messageId || !payload.sessionId) {
+          this.logger.error(
+            'Invalid MESSAGE_CHUNK payload: missing messageId or sessionId',
+            'ChatService',
+            { payload }
+          );
+          return;
+        }
+
+        // Safe destructuring with defaults
+        const {
+          messageId,
+          content = '',
+          sessionId,
+          isComplete = false,
+        } = payload;
+
+        // Update streaming state
         this._streamState.update((state) => ({
           ...state,
-          isStreaming: !payload.isComplete,
+          isStreaming: !isComplete,
           lastMessageTimestamp: Date.now(),
         }));
-
-        // CRITICAL FIX: Process the message chunk content
-        // This was missing - chunks were being received but content was discarded!
-        const { messageId, content, sessionId, isComplete } = payload;
 
         // Update the message in our state
         const currentMessages = this.chatState.messages();
@@ -485,13 +500,14 @@ export class ChatService {
             newClaudeMessages[claudeIndex] = processedMessage;
             this.chatState.setClaudeMessages(newClaudeMessages);
           } else {
+            // Message exists in messages[] but not in claudeMessages[] - add it
             this.chatState.setClaudeMessages([
               ...currentClaudeMessages,
               processedMessage,
             ]);
           }
         } else {
-          // Create new assistant message if not found
+          // First chunk - create new assistant message
           const newMessage: StrictChatMessage = {
             id: messageId,
             sessionId: sessionId,
@@ -516,7 +532,7 @@ export class ChatService {
 
         this.logger.debug('Message chunk processed', 'ChatService', {
           messageId,
-          contentLength: content.length,
+          contentLength: content?.length ?? 0,
           isComplete,
         });
       });
@@ -661,9 +677,52 @@ export class ChatService {
           const messages = (response.data as { messages?: StrictChatMessage[] })
             .messages;
           if (Array.isArray(messages)) {
+            // 🔍 DIAGNOSTIC LOGGING: Log ALL raw messages received from backend
+            console.group('📥 HISTORY LOADED - RAW MESSAGES FROM BACKEND');
+            console.log('Total messages received:', messages.length);
+            messages.forEach((msg, index) => {
+              console.group(`Message ${index + 1} of ${messages.length}`);
+              console.log('Message ID:', msg.id);
+              console.log('Type:', msg.type);
+              console.log('SessionId:', msg.sessionId);
+              console.log('Timestamp:', new Date(msg.timestamp).toISOString());
+              console.log(
+                'Content preview:',
+                msg.content?.substring(0, 100) || '(no content)'
+              );
+              console.log('Streaming:', msg.streaming);
+              console.log('Metadata:', msg.metadata);
+              console.log('FULL MESSAGE OBJECT:', JSON.stringify(msg, null, 2));
+              console.groupEnd();
+            });
+            console.groupEnd();
+
             const validMessages = messages.filter(
               (msg) => this.validator.validateChatMessage(msg).isValid
             );
+
+            // 🔍 DIAGNOSTIC LOGGING: Log validation results
+            console.group('✅ VALIDATION RESULTS');
+            console.log('Valid messages:', validMessages.length);
+            console.log(
+              'Invalid/filtered messages:',
+              messages.length - validMessages.length
+            );
+            if (messages.length !== validMessages.length) {
+              console.warn('⚠️ SOME MESSAGES WERE FILTERED OUT!');
+              const invalidMessages = messages.filter(
+                (msg) => !this.validator.validateChatMessage(msg).isValid
+              );
+              invalidMessages.forEach((msg) => {
+                console.error('Invalid message:', {
+                  id: msg.id,
+                  type: msg.type,
+                  validationResult: this.validator.validateChatMessage(msg),
+                });
+              });
+            }
+            console.groupEnd();
+
             this.chatState.setMessages(validMessages);
             this.logger.debug('Loaded history', 'ChatService', {
               messageCount: validMessages.length,
@@ -673,6 +732,27 @@ export class ChatService {
             const processedMessages = validMessages.map((msg) =>
               this.messageProcessor.convertToProcessedMessage(msg)
             );
+
+            // 🔍 DIAGNOSTIC LOGGING: Log processed messages for UI
+            console.group('🎨 PROCESSED MESSAGES FOR UI');
+            console.log('Processed messages count:', processedMessages.length);
+            processedMessages.forEach((msg, index) => {
+              console.group(`Processed Message ${index + 1}`);
+              console.log('ID:', msg.id);
+              console.log('Type:', msg.type);
+              console.log('Content items count:', msg.content.length);
+              console.log(
+                'Content types:',
+                msg.content.map((c: { type: string }) => c.type)
+              );
+              console.log(
+                'FULL PROCESSED MESSAGE:',
+                JSON.stringify(msg, null, 2)
+              );
+              console.groupEnd();
+            });
+            console.groupEnd();
+
             this.chatState.setClaudeMessages(processedMessages);
             this.logger.debug('Transformed messages for UI', 'ChatService', {
               count: processedMessages.length,
@@ -881,6 +961,13 @@ export class ChatService {
 
   // Event relay handler methods (TASK_2025_006 - Batch 3)
   private handleThinking(payload: ChatThinkingPayload): void {
+    // 🔍 DIAGNOSTIC LOGGING: Log ALL thinking events
+    console.group('💭 THINKING EVENT RECEIVED');
+    console.log('Content preview:', payload.content.substring(0, 200));
+    console.log('Timestamp:', new Date(payload.timestamp).toISOString());
+    console.log('FULL PAYLOAD:', JSON.stringify(payload, null, 2));
+    console.groupEnd();
+
     this.logger.debug('ChatService', 'Thinking event received', payload);
     this._currentThinking.set({
       content: payload.content,
@@ -889,6 +976,15 @@ export class ChatService {
   }
 
   private handleToolStart(payload: ChatToolStartPayload): void {
+    // 🔍 DIAGNOSTIC LOGGING: Log ALL tool start events
+    console.group('🔧 TOOL_START EVENT RECEIVED');
+    console.log('Tool name:', payload.tool);
+    console.log('Tool call ID:', payload.toolCallId);
+    console.log('Arguments:', payload.args);
+    console.log('Timestamp:', new Date(payload.timestamp).toISOString());
+    console.log('FULL PAYLOAD:', JSON.stringify(payload, null, 2));
+    console.groupEnd();
+
     this.logger.debug('ChatService', 'Tool started', {
       tool: payload.tool,
       toolCallId: payload.toolCallId,
@@ -918,6 +1014,17 @@ export class ChatService {
   }
 
   private handleToolResult(payload: ChatToolResultPayload): void {
+    // 🔍 DIAGNOSTIC LOGGING: Log ALL tool result events
+    console.group('✅ TOOL_RESULT EVENT RECEIVED');
+    console.log('Tool call ID:', payload.toolCallId);
+    console.log('Duration:', payload.duration, 'ms');
+    console.log(
+      'Output preview:',
+      JSON.stringify(payload.output).substring(0, 200)
+    );
+    console.log('FULL PAYLOAD:', JSON.stringify(payload, null, 2));
+    console.groupEnd();
+
     this.logger.debug('ChatService', 'Tool result', {
       toolCallId: payload.toolCallId,
       duration: payload.duration,
@@ -957,6 +1064,16 @@ export class ChatService {
   }
 
   private handlePermissionRequest(payload: ChatPermissionRequestPayload): void {
+    // 🔍 DIAGNOSTIC LOGGING: Log ALL permission request events
+    console.group('🔐 PERMISSION_REQUEST EVENT RECEIVED');
+    console.log('Request ID:', payload.id);
+    console.log('Tool:', payload.tool);
+    console.log('Action:', payload.action);
+    console.log('Description:', payload.description);
+    console.log('Timestamp:', new Date(payload.timestamp).toISOString());
+    console.log('FULL PAYLOAD:', JSON.stringify(payload, null, 2));
+    console.groupEnd();
+
     this.logger.debug('ChatService', 'Permission requested', {
       id: payload.id,
       tool: payload.tool,

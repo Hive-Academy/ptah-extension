@@ -160,23 +160,6 @@ interface MessageGroup {
         }
       </button>
       }
-
-      <!-- Typing Indicators -->
-      @if (hasTypingIndicators()) {
-      <div class="typing-indicators">
-        <div class="typing-indicator typing-indicator-assistant">
-          <div class="typing-avatar">
-            <span>{{ getRoleIcon('assistant') }}</span>
-          </div>
-          <div class="typing-animation">
-            <div class="typing-dots">
-              <span></span><span></span><span></span>
-            </div>
-            <span class="typing-text">Claude is typing...</span>
-          </div>
-        </div>
-      </div>
-      }
     </div>
   `,
   styleUrl: './chat-messages-list.component.scss',
@@ -225,12 +208,6 @@ export class ChatMessagesListComponent implements AfterViewInit {
 
   readonly isAtBottom = computed(() => this.scrollPosition().isAtBottom);
   readonly hasNewMessages = computed(() => this.newMessagesCount() > 0);
-
-  readonly isTyping = computed(() =>
-    this.messages().some((m) => m.isStreaming === true)
-  );
-
-  readonly hasTypingIndicators = computed(() => this.isTyping());
 
   constructor() {
     // Auto-scroll effect when new messages arrive

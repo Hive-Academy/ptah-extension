@@ -18,7 +18,6 @@ import { WebviewHtmlGenerator } from '../services/webview-html-generator';
 import { WebviewEventQueue } from '../services/webview-event-queue';
 import { WebviewInitialDataBuilder } from '../services/webview-initial-data-builder';
 import {
-  MESSAGE_TYPES,
   type MessagePayloadMap,
   type WebviewMessage,
 } from '@ptah-extension/shared';
@@ -76,9 +75,8 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   ) {
     this.htmlGenerator = new WebviewHtmlGenerator(context);
     this.initializeDevelopmentWatcher();
-    this.setupEventBusToWebviewBridge();
     this.logger.info(
-      'AngularWebviewProvider initialized with extracted services (WebviewEventQueue + WebviewInitialDataBuilder)'
+      'AngularWebviewProvider initialized - message forwarding handled by WebviewMessageBridge'
     );
   }
 
@@ -451,44 +449,6 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     vscode.commands.registerCommand('ptah.openFullPanel', () => {
       this.createPanel();
     });
-  }
-
-  /**
-   * Setup EventBus to Webview bridge
-   * AUTO-REGISTERS all response types from MESSAGE_TYPES
-   *
-   * Benefits:
-   * - Zero maintenance: New response types auto-registered
-   * - No silent failures: All responses forwarded automatically
-   * - Type-safe: TypeScript validates response types
-   */
-  private setupEventBusToWebviewBridge(): void {
-    // Extract all response types (end with ':response')
-    const allResponseTypes = Object.values(MESSAGE_TYPES).filter(
-      (type) => typeof type === 'string' && type.endsWith(':response')
-    ) as Array<keyof MessagePayloadMap>;
-
-    this.logger.info(
-      `[Bridge] Auto-registering ${allResponseTypes.length} response types from MESSAGE_TYPES`
-    );
-
-    // Subscribe to each response type and forward to webview
-    allResponseTypes.forEach((responseType) => {
-      this.eventBus.subscribe(responseType).subscribe((event) => {
-        this.logger.debug(`[Bridge] ${responseType} → webview`, {
-          payloadSize: JSON.stringify(event.payload).length,
-        });
-
-        this.postMessage({
-          type: responseType,
-          payload: event.payload,
-        });
-      });
-    });
-
-    this.logger.info(
-      `[Bridge] EventBus→Webview bridge setup complete (${allResponseTypes.length} types)`
-    );
   }
 
   /**

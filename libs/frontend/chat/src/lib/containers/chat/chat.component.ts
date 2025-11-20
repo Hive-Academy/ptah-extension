@@ -13,8 +13,8 @@ import { Subject } from 'rxjs';
 import {
   AppStateManager,
   ChatService,
-  VSCodeService,
   LoggingService,
+  VSCodeService,
   WebviewNavigationService,
 } from '@ptah-extension/core';
 
@@ -29,33 +29,32 @@ import type { ProcessedClaudeMessage } from '@ptah-extension/core';
 
 // Chat Components (from same library)
 import {
+  AgentStatusBadgeComponent,
+  AgentTimelineComponent,
+  AgentTreeComponent,
   ChatHeaderComponent,
+  ChatInputAreaComponent,
+  ChatMessagesContainerComponent,
   ChatStatusBarComponent,
   ChatStreamingStatusComponent,
-  ChatMessagesContainerComponent,
   ChatTokenUsageComponent,
-  ChatInputAreaComponent,
-  AgentTreeComponent,
-  AgentTimelineComponent,
-  AgentStatusBadgeComponent,
 } from '../../components';
 
 // Event Relay UI Components (TASK_2025_006 - Batch 4)
+import { AgentActivityTimelineComponent } from '../../components/agent-activity-timeline/agent-activity-timeline.component';
+import { PermissionDialogComponent } from '../../components/permission-dialog/permission-dialog.component';
 import { ThinkingDisplayComponent } from '../../components/thinking-display/thinking-display.component';
 import { ToolTimelineComponent } from '../../components/tool-timeline/tool-timeline.component';
-import { PermissionDialogComponent } from '../../components/permission-dialog/permission-dialog.component';
-import { AgentActivityTimelineComponent } from '../../components/agent-activity-timeline/agent-activity-timeline.component';
 
 // Component-specific types (imported from individual components)
-import type { TokenUsage } from '../../components/chat-token-usage/chat-token-usage.component';
 import type { ProviderStatus } from '../../components/chat-header/chat-header.component';
 import type { ChatStatusMetrics } from '../../components/chat-status-bar/chat-status-bar.component';
+import type { TokenUsage } from '../../components/chat-token-usage/chat-token-usage.component';
 
 // Session Components
 import { SessionSelectorComponent } from '@ptah-extension/session';
 
 // Provider Components
-import { ProviderManagerComponent } from '@ptah-extension/providers';
 
 /**
  * Chat Container Component - Orchestrates Chat Feature
@@ -82,8 +81,6 @@ import { ProviderManagerComponent } from '@ptah-extension/providers';
     AgentStatusBadgeComponent,
     ChatInputAreaComponent,
     SessionSelectorComponent,
-    ProviderManagerComponent,
-    // Event Relay Components (TASK_2025_006 - Batch 4)
     ThinkingDisplayComponent,
     ToolTimelineComponent,
     PermissionDialogComponent,
@@ -190,9 +187,6 @@ import { ProviderManagerComponent } from '@ptah-extension/providers';
 
       <!-- Status Bar -->
       <ptah-chat-status-bar [metrics]="statusMetrics()" />
-
-      <!-- Provider Settings Panel -->
-      <ptah-provider-manager />
 
       <!-- Permission Dialog (Overlay) - TASK_2025_006 Batch 4 -->
       @if (chatService.pendingPermissions().length > 0) {

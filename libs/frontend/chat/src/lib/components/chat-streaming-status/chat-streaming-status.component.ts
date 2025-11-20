@@ -47,8 +47,8 @@ import { Component, input, output } from '@angular/core';
           type="button"
           [disabled]="!canStop()"
         >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-            <rect x="6" y="6" width="4" height="4" rx="1" />
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <rect x="4" y="4" width="8" height="8" rx="1.5" />
           </svg>
           Stop
         </button>
@@ -66,29 +66,35 @@ import { Component, input, output } from '@angular/core';
         position: sticky;
         top: 0;
         z-index: 10;
-        background-color: var(--vscode-notifications-background);
-        border: 1px solid var(--vscode-notifications-border);
+        background-color: var(
+          --vscode-editor-selectionBackground,
+          rgba(0, 122, 204, 0.15)
+        );
+        border: 1px solid var(--vscode-focusBorder, rgba(0, 122, 204, 0.5));
+        border-left: 3px solid var(--vscode-progressBar-background, #0078d4);
         border-radius: 3px;
         margin: 8px 12px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        backdrop-filter: blur(8px);
       }
 
       .streaming-banner-content {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 8px 12px;
-        gap: 8px;
+        padding: 10px 14px;
+        gap: 12px;
       }
 
       .streaming-spinner {
-        width: 14px;
-        height: 14px;
-        border: 2px solid transparent;
-        border-top: 2px solid var(--vscode-progressBar-background);
+        width: 16px;
+        height: 16px;
+        border: 2px solid var(--vscode-editor-foreground, #cccccc);
+        border-top-color: var(--vscode-progressBar-background, #0078d4);
         border-radius: 50%;
-        animation: spin 1s linear infinite;
+        animation: spin 0.8s linear infinite;
         flex-shrink: 0;
+        opacity: 0.9;
       }
 
       @keyframes spin {
@@ -104,40 +110,46 @@ import { Component, input, output } from '@angular/core';
       @media (prefers-reduced-motion: reduce) {
         .streaming-spinner {
           animation: none;
-          border: 2px solid var(--vscode-progressBar-background);
+          border-top-color: var(--vscode-progressBar-background, #0078d4);
         }
       }
 
       .streaming-text {
         flex: 1;
-        color: var(--vscode-notifications-foreground);
+        color: var(--vscode-editor-foreground, #cccccc);
         font-family: var(--vscode-font-family);
         font-size: 13px;
         font-weight: 500;
+        letter-spacing: 0.2px;
       }
 
       .streaming-stop-button {
         display: inline-flex;
         align-items: center;
-        gap: 4px;
-        padding: 4px 8px;
-        background: var(--vscode-button-background);
-        border: 1px solid var(--vscode-button-border);
-        border-radius: 2px;
-        color: var(--vscode-button-foreground);
+        gap: 6px;
+        padding: 6px 12px;
+        background: var(--vscode-button-background, #0078d4);
+        border: 1px solid var(--vscode-button-border, transparent);
+        border-radius: 3px;
+        color: var(--vscode-button-foreground, #ffffff);
         font-family: var(--vscode-font-family);
-        font-size: 11px;
+        font-size: 12px;
+        font-weight: 500;
         cursor: pointer;
-        transition: all 0.2s ease;
+        transition: all 0.15s ease;
+        flex-shrink: 0;
       }
 
       .streaming-stop-button:hover:not(:disabled) {
-        background: var(--vscode-button-hoverBackground);
+        background: var(--vscode-button-hoverBackground, #005a9e);
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
       }
 
       .streaming-stop-button:active:not(:disabled) {
-        background: var(--vscode-button-background);
-        transform: translateY(1px);
+        background: var(--vscode-button-background, #0078d4);
+        transform: translateY(0);
+        box-shadow: none;
       }
 
       .streaming-stop-button:disabled {
@@ -147,16 +159,23 @@ import { Component, input, output } from '@angular/core';
 
       .streaming-stop-button svg {
         flex-shrink: 0;
+        width: 14px;
+        height: 14px;
       }
 
       /* High Contrast Mode Support */
       @media (prefers-contrast: high) {
         .streaming-banner {
           border-width: 2px;
+          background-color: var(--vscode-editor-background);
         }
 
         .streaming-stop-button {
           border-width: 2px;
+        }
+
+        .streaming-spinner {
+          border-width: 3px;
         }
       }
     `,

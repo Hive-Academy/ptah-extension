@@ -188,7 +188,7 @@
       }
     ],
     "configuration": {
-      "title": "Ptah - Claude Code",
+      "title": "Ptah",
       "properties": {
         "ptah.claudeCliPath": {
           "type": "string",

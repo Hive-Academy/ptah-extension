@@ -1,0 +1,336 @@
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 3: Initializing MessageHandlerService... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] MessageHandlerService initialized and subscribed to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 3: MessageHandlerService initialized (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] AngularWebviewProvider initialized - message forwarding handled by WebviewMessageBridge (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] WebviewMessageBridge initialized - responses will now reach webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+ Sending webview-ready message to extension...
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: view:changed Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: view:changed (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message view:changed published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: webview-ready Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: providers:getAvailable Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: providers:getAvailable (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message providers:getAvailable published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: providers:getCurrent Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: providers:getCurrent (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message providers:getCurrent published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: providers:getAllHealth Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: context:getFiles Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: context:getFiles (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message context:getFiles published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: requestInitialData Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: webview-ready Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: providers:getHealth Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: providers:getHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message providers:getHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: providers:getAllHealth Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: providers:getAllHealth Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: providers:getAllHealth Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: providers:getAllHealth Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: chat:switchSession Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: chat:switchSession (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message chat:switchSession published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: chat:getHistory Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: chat:getHistory (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message chat:getHistory published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+main.js:44 📥 HISTORY LOADED - RAW MESSAGES FROM BACKEND
+main.js:44 Total messages received: 4
+main.js:44 Message 1 of 4
+main.js:44 Message ID: 828ac087-366e-47f9-91d7-4e6312dde941
+main.js:44 Type: user
+main.js:44 SessionId: 0754f6c1-ff22-492e-ace7-03693ae2b01a
+main.js:44 Timestamp: 2025-11-20T04:54:50.299Z
+main.js:44 Content preview: hey
+main.js:44 Streaming: undefined
+main.js:44 Metadata: undefined
+main.js:44 FULL MESSAGE OBJECT: {
+  "id": "828ac087-366e-47f9-91d7-4e6312dde941",
+  "sessionId": "0754f6c1-ff22-492e-ace7-03693ae2b01a",
+  "type": "user",
+  "content": "hey",
+  "timestamp": 1763614490299,
+  "files": []
+}
+main.js:44 Message 2 of 4
+main.js:44 Message ID: 366c977d-fe0e-4b71-803b-c300e08f54ec
+main.js:44 Type: assistant
+main.js:44 SessionId: 0754f6c1-ff22-492e-ace7-03693ae2b01a
+main.js:44 Timestamp: 2025-11-20T04:54:56.233Z
+main.js:44 Content preview: Hey! How can I help you today?Hey! How can I help you today?
+main.js:44 Streaming: false
+main.js:44 Metadata: undefined
+main.js:44 FULL MESSAGE OBJECT: {
+  "id": "366c977d-fe0e-4b71-803b-c300e08f54ec",
+  "sessionId": "0754f6c1-ff22-492e-ace7-03693ae2b01a",
+  "type": "assistant",
+  "content": "Hey! How can I help you today?Hey! How can I help you today?",
+  "timestamp": 1763614496233,
+  "streaming": false,
+  "isComplete": true
+}
+main.js:44 Message 3 of 4
+main.js:44 Message ID: 6932c6e8-d83b-4c5e-ad01-0008ce4ef740
+main.js:44 Type: user
+main.js:44 SessionId: 0754f6c1-ff22-492e-ace7-03693ae2b01a
+main.js:44 Timestamp: 2025-11-20T05:36:02.722Z
+main.js:44 Content preview: /init lets intiialize claude and analyze our workspace
+main.js:44 Streaming: undefined
+main.js:44 Metadata: undefined
+main.js:44 FULL MESSAGE OBJECT: {
+  "id": "6932c6e8-d83b-4c5e-ad01-0008ce4ef740",
+  "sessionId": "0754f6c1-ff22-492e-ace7-03693ae2b01a",
+  "type": "user",
+  "content": "/init lets intiialize claude and analyze our workspace",
+  "timestamp": 1763616962722,
+  "files": []
+}
+main.js:44 Message 4 of 4
+main.js:44 Message ID: 8d671088-2dfe-401a-a929-24e4d9a2e450
+main.js:44 Type: assistant
+main.js:44 SessionId: 0754f6c1-ff22-492e-ace7-03693ae2b01a
+main.js:44 Timestamp: 2025-11-20T05:43:17.364Z
+main.js:44 Content preview: I'll analyze the codebase to create a comprehensive CLAUDE.md file. Let me start by exploring the re
+main.js:44 Streaming: false
+main.js:44 Metadata: undefined
+main.js:44 FULL MESSAGE OBJECT: {
+  "id": "8d671088-2dfe-401a-a929-24e4d9a2e450",
+  "sessionId": "0754f6c1-ff22-492e-ace7-03693ae2b01a",
+  "type": "assistant",
+  "content": "I'll analyze the codebase to create a comprehensive CLAUDE.md file. Let me start by exploring the repository structure and key files.I'll analyze the codebase to create a comprehensive CLAUDE.md file. Let me start by exploring the repository structure and key files.Now let me explore a few more critical aspects to complete the CLAUDE.md file:Now let me explore a few more critical aspects to complete the CLAUDE.md file:Perfect! Now I have all the information needed to create a comprehensive CLAUDE.md file. Let me create it:Perfect! Now I have all the information needed to create a comprehensive CLAUDE.md file. Let me create it:I've created a comprehensive CLAUDE.md file for the Anubis-MCP repository. The file includes:\n\n## What's Included:\n\n1. **Project Overview** - High-level description of Anubis as an MCP server with key technologies\n\n2. **Architecture Principles** - Repository Pattern, SOLID, DDD, and Type Safety focus\n\n3. **Essential Commands** - Organized by category:\n   - Development & Build commands\n   - Database operations (init, migrate, seed, reset)\n   - Testing & quality checks\n   - Version management\n\n4. **Core Architecture** - Deep dive into:\n   - Domain structure (workflow-rules, task-management, init-rules)\n   - Database schema organization (multi-file Prisma setup)\n   - All 12 MCP tools exposed\n   - Repository pattern implementation examples\n   - Base classes for services\n\n5. **Role-Based Workflow System** - Explanation of:\n   - 5 defined roles with priorities\n   - Role transition flow\n   - Workflow execution modes\n\n6. **Important Implementation Notes** - Critical details like:\n   - Windows compatibility requirements (absolute paths)\n   - Database location and structure\n   - Prisma client generation\n   - MCP transport modes\n   - Real-time dashboard WebSocket events\n   - Type safety with Zod\n\n7. **Common Development Patterns** - Step-by-step guides for:\n   - Creating new MCP tools\n   - Adding repositories\n   - Creating workflow roles\n   - Adding database entities\n\n8. **Troubleshooting** - Common issues and solutions\n\n9. **Key File References** - Important files organized by category\n\nThe CLAUDE.md focuses on the \"big picture\" architecture that requires understanding multiple files, avoids repeating obvious information, and provides practical guidance for working effectively in this codebase. It's specifically tailored to help future Claude Code instances be productive quickly.\n\nWould you like me to make any adjustments to the content before we save it?I've created a comprehensive CLAUDE.md file for the Anubis-MCP repository. The file includes:\n\n## What's Included:\n\n1. **Project Overview** - High-level description of Anubis as an MCP server with key technologies\n\n2. **Architecture Principles** - Repository Pattern, SOLID, DDD, and Type Safety focus\n\n3. **Essential Commands** - Organized by category:\n   - Development & Build commands\n   - Database operations (init, migrate, seed, reset)\n   - Testing & quality checks\n   - Version management\n\n4. **Core Architecture** - Deep dive into:\n   - Domain structure (workflow-rules, task-management, init-rules)\n   - Database schema organization (multi-file Prisma setup)\n   - All 12 MCP tools exposed\n   - Repository pattern implementation examples\n   - Base classes for services\n\n5. **Role-Based Workflow System** - Explanation of:\n   - 5 defined roles with priorities\n   - Role transition flow\n   - Workflow execution modes\n\n6. **Important Implementation Notes** - Critical details like:\n   - Windows compatibility requirements (absolute paths)\n   - Database location and structure\n   - Prisma client generation\n   - MCP transport modes\n   - Real-time dashboard WebSocket events\n   - Type safety with Zod\n\n7. **Common Development Patterns** - Step-by-step guides for:\n   - Creating new MCP tools\n   - Adding repositories\n   - Creating workflow roles\n   - Adding database entities\n\n8. **Troubleshooting** - Common issues and solutions\n\n9. **Key File References** - Important files organized by category\n\nThe CLAUDE.md focuses on the \"big picture\" architecture that requires understanding multiple files, avoids repeating obvious information, and provides practical guidance for working effectively in this codebase. It's specifically tailored to help future Claude Code instances be productive quickly.\n\nWould you like me to make any adjustments to the content before we save it?",
+  "timestamp": 1763617397364,
+  "streaming": false,
+  "isComplete": true
+}
+main.js:44 ✅ VALIDATION RESULTS
+main.js:44 Valid messages: 4
+main.js:44 Invalid/filtered messages: 0
+main.js:44 🎨 PROCESSED MESSAGES FOR UI
+main.js:44 Processed messages count: 4
+main.js:44 Processed Message 1
+main.js:44 ID: 828ac087-366e-47f9-91d7-4e6312dde941
+main.js:44 Type: user
+main.js:44 Content items count: 1
+main.js:44 Content types: Array(1)
+main.js:44 FULL PROCESSED MESSAGE: {
+  "id": "828ac087-366e-47f9-91d7-4e6312dde941",
+  "sessionId": "0754f6c1-ff22-492e-ace7-03693ae2b01a",
+  "timestamp": 1763614490299,
+  "type": "user",
+  "content": [
+    {
+      "type": "text",
+      "text": "hey"
+    }
+  ],
+  "filePaths": []
+}
+main.js:44 Processed Message 2
+main.js:44 ID: 366c977d-fe0e-4b71-803b-c300e08f54ec
+main.js:44 Type: assistant
+main.js:44 Content items count: 1
+main.js:44 Content types: Array(1)
+main.js:44 FULL PROCESSED MESSAGE: {
+  "id": "366c977d-fe0e-4b71-803b-c300e08f54ec",
+  "sessionId": "0754f6c1-ff22-492e-ace7-03693ae2b01a",
+  "timestamp": 1763614496233,
+  "type": "assistant",
+  "content": [
+    {
+      "type": "text",
+      "text": "Hey! How can I help you today?Hey! How can I help you today?"
+    }
+  ],
+  "isComplete": true,
+  "isStreaming": false
+}
+main.js:44 Processed Message 3
+main.js:44 ID: 6932c6e8-d83b-4c5e-ad01-0008ce4ef740
+main.js:44 Type: user
+main.js:44 Content items count: 1
+main.js:44 Content types: Array(1)
+main.js:44 FULL PROCESSED MESSAGE: {
+  "id": "6932c6e8-d83b-4c5e-ad01-0008ce4ef740",
+  "sessionId": "0754f6c1-ff22-492e-ace7-03693ae2b01a",
+  "timestamp": 1763616962722,
+  "type": "user",
+  "content": [
+    {
+      "type": "text",
+      "text": "/init lets intiialize claude and analyze our workspace"
+    }
+  ],
+  "filePaths": []
+}
+main.js:44 Processed Message 4
+main.js:44 ID: 8d671088-2dfe-401a-a929-24e4d9a2e450
+main.js:44 Type: assistant
+main.js:44 Content items count: 1
+main.js:44 Content types: Array(1)
+main.js:44 FULL PROCESSED MESSAGE: {
+  "id": "8d671088-2dfe-401a-a929-24e4d9a2e450",
+  "sessionId": "0754f6c1-ff22-492e-ace7-03693ae2b01a",
+  "timestamp": 1763617397364,
+  "type": "assistant",
+  "content": [
+    {
+      "type": "text",
+      "text": "I'll analyze the codebase to create a comprehensive CLAUDE.md file. Let me start by exploring the repository structure and key files.I'll analyze the codebase to create a comprehensive CLAUDE.md file. Let me start by exploring the repository structure and key files.Now let me explore a few more critical aspects to complete the CLAUDE.md file:Now let me explore a few more critical aspects to complete the CLAUDE.md file:Perfect! Now I have all the information needed to create a comprehensive CLAUDE.md file. Let me create it:Perfect! Now I have all the information needed to create a comprehensive CLAUDE.md file. Let me create it:I've created a comprehensive CLAUDE.md file for the Anubis-MCP repository. The file includes:\n\n## What's Included:\n\n1. **Project Overview** - High-level description of Anubis as an MCP server with key technologies\n\n2. **Architecture Principles** - Repository Pattern, SOLID, DDD, and Type Safety focus\n\n3. **Essential Commands** - Organized by category:\n   - Development & Build commands\n   - Database operations (init, migrate, seed, reset)\n   - Testing & quality checks\n   - Version management\n\n4. **Core Architecture** - Deep dive into:\n   - Domain structure (workflow-rules, task-management, init-rules)\n   - Database schema organization (multi-file Prisma setup)\n   - All 12 MCP tools exposed\n   - Repository pattern implementation examples\n   - Base classes for services\n\n5. **Role-Based Workflow System** - Explanation of:\n   - 5 defined roles with priorities\n   - Role transition flow\n   - Workflow execution modes\n\n6. **Important Implementation Notes** - Critical details like:\n   - Windows compatibility requirements (absolute paths)\n   - Database location and structure\n   - Prisma client generation\n   - MCP transport modes\n   - Real-time dashboard WebSocket events\n   - Type safety with Zod\n\n7. **Common Development Patterns** - Step-by-step guides for:\n   - Creating new MCP tools\n   - Adding repositories\n   - Creating workflow roles\n   - Adding database entities\n\n8. **Troubleshooting** - Common issues and solutions\n\n9. **Key File References** - Important files organized by category\n\nThe CLAUDE.md focuses on the \"big picture\" architecture that requires understanding multiple files, avoids repeating obvious information, and provides practical guidance for working effectively in this codebase. It's specifically tailored to help future Claude Code instances be productive quickly.\n\nWould you like me to make any adjustments to the content before we save it?I've created a comprehensive CLAUDE.md file for the Anubis-MCP repository. The file includes:\n\n## What's Included:\n\n1. **Project Overview** - High-level description of Anubis as an MCP server with key technologies\n\n2. **Architecture Principles** - Repository Pattern, SOLID, DDD, and Type Safety focus\n\n3. **Essential Commands** - Organized by category:\n   - Development & Build commands\n   - Database operations (init, migrate, seed, reset)\n   - Testing & quality checks\n   - Version management\n\n4. **Core Architecture** - Deep dive into:\n   - Domain structure (workflow-rules, task-management, init-rules)\n   - Database schema organization (multi-file Prisma setup)\n   - All 12 MCP tools exposed\n   - Repository pattern implementation examples\n   - Base classes for services\n\n5. **Role-Based Workflow System** - Explanation of:\n   - 5 defined roles with priorities\n   - Role transition flow\n   - Workflow execution modes\n\n6. **Important Implementation Notes** - Critical details like:\n   - Windows compatibility requirements (absolute paths)\n   - Database location and structure\n   - Prisma client generation\n   - MCP transport modes\n   - Real-time dashboard WebSocket events\n   - Type safety with Zod\n\n7. **Common Development Patterns** - Step-by-step guides for:\n   - Creating new MCP tools\n   - Adding repositories\n   - Creating workflow roles\n   - Adding database entities\n\n8. **Troubleshooting** - Common issues and solutions\n\n9. **Key File References** - Important files organized by category\n\nThe CLAUDE.md focuses on the \"big picture\" architecture that requires understanding multiple files, avoids repeating obvious information, and provides practical guidance for working effectively in this codebase. It's specifically tailored to help future Claude Code instances be productive quickly.\n\nWould you like me to make any adjustments to the content before we save it?"
+    }
+  ],
+  "isComplete": true,
+  "isStreaming": false
+}
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: chat:switchSession Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: chat:switchSession (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message chat:switchSession published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: chat:getHistory Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: chat:getHistory (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message chat:getHistory published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+main.js:44 📥 HISTORY LOADED - RAW MESSAGES FROM BACKEND
+main.js:44 Total messages received: 1
+main.js:44 Message 1 of 1
+main.js:44 Message ID: bd162a0b-44ff-46a4-bce0-b736081b5d02
+main.js:44 Type: user
+main.js:44 SessionId: 172b8f88-2e3b-4893-9de6-fe2ec7e4befa
+main.js:44 Timestamp: 2025-11-20T06:32:08.362Z
+main.js:44 Content preview: lets analyze our codebase and create claude.md file
+main.js:44 Streaming: undefined
+main.js:44 Metadata: undefined
+main.js:44 FULL MESSAGE OBJECT: {
+  "id": "bd162a0b-44ff-46a4-bce0-b736081b5d02",
+  "sessionId": "172b8f88-2e3b-4893-9de6-fe2ec7e4befa",
+  "type": "user",
+  "content": "lets analyze our codebase and create claude.md file",
+  "timestamp": 1763620328362,
+  "files": []
+}
+main.js:44 ✅ VALIDATION RESULTS
+main.js:44 Valid messages: 1
+main.js:44 Invalid/filtered messages: 0
+main.js:44 🎨 PROCESSED MESSAGES FOR UI
+main.js:44 Processed messages count: 1
+main.js:44 Processed Message 1
+main.js:44 ID: bd162a0b-44ff-46a4-bce0-b736081b5d02
+main.js:44 Type: user
+main.js:44 Content items count: 1
+main.js:44 Content types: Array(1)
+main.js:44 FULL PROCESSED MESSAGE: {
+  "id": "bd162a0b-44ff-46a4-bce0-b736081b5d02",
+  "sessionId": "172b8f88-2e3b-4893-9de6-fe2ec7e4befa",
+  "timestamp": 1763620328362,
+  "type": "user",
+  "content": [
+    {
+      "type": "text",
+      "text": "lets analyze our codebase and create claude.md file"
+    }
+  ],
+  "filePaths": []
+}
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: providers:getAllHealth Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: providers:getAllHealth Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: providers:getAllHealth Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: providers:getAllHealth Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: providers:getAllHealth Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: providers:getAllHealth Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: providers:getAllHealth Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: providers:getAllHealth Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Received webview message: providers:getAllHealth Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))

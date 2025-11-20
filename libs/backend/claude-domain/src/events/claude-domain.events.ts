@@ -113,75 +113,98 @@ export class ClaudeDomainEventPublisher {
   constructor(@inject(TOKENS.EVENT_BUS) private readonly eventBus: IEventBus) {}
 
   emitContentChunk(sessionId: SessionId, chunk: ClaudeContentChunk): void {
-    // 🔍 DIAGNOSTIC LOGGING: Track MESSAGE_CHUNK events to identify duplicates
-    console.log('[MESSAGE_CHUNK]', {
-      timestamp: new Date().toISOString(),
-      sessionId,
-      chunkTimestamp: chunk.timestamp,
-      deltaLength: chunk.delta?.length || 0,
-      index: chunk.index,
-      caller: new Error().stack?.split('\n')[2]?.trim() || 'unknown',
-    });
+    // NOTE: This emits an INTERNAL event 'claude:domain:contentChunk'
+    // NOT MESSAGE_CHUNK which is the user-facing webview event
+    // message-handler.service.ts transforms the stream into proper MESSAGE_CHUNK events
 
-    this.eventBus.publish<ClaudeContentChunkEvent>(
-      CHAT_MESSAGE_TYPES.MESSAGE_CHUNK,
-      {
-        sessionId,
-        chunk,
-      }
-    );
+    // INTERNAL event topic (NOT in CHAT_MESSAGE_TYPES - internal to claude-domain)
+    const INTERNAL_CONTENT_CHUNK = 'claude:domain:contentChunk';
+
+    this.eventBus.publish<ClaudeContentChunkEvent>(INTERNAL_CONTENT_CHUNK, {
+      sessionId,
+      chunk,
+    });
   }
 
   emitThinking(sessionId: SessionId, thinking: ClaudeThinkingEvent): void {
-    this.eventBus.publish<ClaudeThinkingEventPayload>(
-      CHAT_MESSAGE_TYPES.THINKING,
-      {
-        sessionId,
-        thinking,
-      }
-    );
+    // Flatten the thinking structure to match webview payload expectations
+    // Webview expects ChatThinkingPayload (flat structure)
+    // NOT ClaudeThinkingEventPayload (nested structure)
+    this.eventBus.publish(CHAT_MESSAGE_TYPES.THINKING, {
+      sessionId,
+      content: thinking.content,
+      timestamp: thinking.timestamp,
+    });
   }
 
   emitToolEvent(sessionId: SessionId, event: ClaudeToolEvent): void {
-    const topic =
-      event.type === 'start'
-        ? CHAT_MESSAGE_TYPES.TOOL_START
-        : event.type === 'progress'
-        ? CHAT_MESSAGE_TYPES.TOOL_PROGRESS
-        : event.type === 'result'
-        ? CHAT_MESSAGE_TYPES.TOOL_RESULT
-        : CHAT_MESSAGE_TYPES.TOOL_ERROR;
+    // Flatten the event structure to match webview payload expectations
+    // Webview expects ChatToolStartPayload, ChatToolResultPayload, etc. (flat structure)
+    // NOT ClaudeToolEventPayload (nested structure)
 
-    this.eventBus.publish<ClaudeToolEventPayload>(topic, {
-      sessionId,
-      event,
-    });
+    if (event.type === 'start') {
+      this.eventBus.publish(CHAT_MESSAGE_TYPES.TOOL_START, {
+        sessionId,
+        toolCallId: event.toolCallId,
+        tool: event.tool,
+        args: event.args,
+        timestamp: event.timestamp,
+      });
+    } else if (event.type === 'progress') {
+      this.eventBus.publish(CHAT_MESSAGE_TYPES.TOOL_PROGRESS, {
+        sessionId,
+        toolCallId: event.toolCallId,
+        message: event.message,
+        timestamp: event.timestamp,
+      });
+    } else if (event.type === 'result') {
+      this.eventBus.publish(CHAT_MESSAGE_TYPES.TOOL_RESULT, {
+        sessionId,
+        toolCallId: event.toolCallId,
+        output: event.output,
+        duration: event.duration,
+        timestamp: event.timestamp,
+      });
+    } else if (event.type === 'error') {
+      this.eventBus.publish(CHAT_MESSAGE_TYPES.TOOL_ERROR, {
+        sessionId,
+        toolCallId: event.toolCallId,
+        error: event.error,
+        timestamp: event.timestamp,
+      });
+    }
   }
 
   emitPermissionRequested(
     sessionId: SessionId,
     request: ClaudePermissionRequest
   ): void {
-    this.eventBus.publish<ClaudePermissionRequestEvent>(
-      CHAT_MESSAGE_TYPES.PERMISSION_REQUEST,
-      {
-        sessionId,
-        request,
-      }
-    );
+    // Flatten the request structure to match webview payload expectations
+    // ChatPermissionRequestPayload expects: id, tool, action, description, timestamp, sessionId
+    // ClaudePermissionRequest has: toolCallId, tool, args, description?, timestamp
+    this.eventBus.publish(CHAT_MESSAGE_TYPES.PERMISSION_REQUEST, {
+      id: request.toolCallId,
+      tool: request.tool,
+      action: JSON.stringify(request.args), // Convert args object to string for action field
+      description: request.description || '',
+      timestamp: request.timestamp,
+      sessionId,
+    });
   }
 
   emitPermissionResponded(
     sessionId: SessionId,
     response: ClaudePermissionResponse
   ): void {
-    this.eventBus.publish<ClaudePermissionResponseEvent>(
-      CHAT_MESSAGE_TYPES.PERMISSION_RESPONSE,
-      {
-        sessionId,
-        response,
-      }
-    );
+    // Flatten the response structure to match webview payload expectations
+    // ChatPermissionResponsePayload expects: requestId, decision, timestamp, sessionId
+    // ClaudePermissionResponse has: decision, provenance, timestamp
+    this.eventBus.publish(CHAT_MESSAGE_TYPES.PERMISSION_RESPONSE, {
+      requestId: 'unknown', // ClaudePermissionResponse doesn't have requestId - need to track this
+      decision: response.decision,
+      timestamp: response.timestamp,
+      sessionId,
+    });
   }
 
   emitSessionInit(
