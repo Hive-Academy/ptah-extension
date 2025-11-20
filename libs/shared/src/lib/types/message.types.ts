@@ -854,7 +854,7 @@ export interface StrictChatMessage {
   readonly id: MessageId;
   readonly sessionId: SessionId;
   readonly type: 'user' | 'assistant' | 'system';
-  readonly content: string;
+  readonly contentBlocks: readonly ContentBlock[];
   readonly timestamp: number;
   readonly streaming?: boolean;
   readonly files?: readonly string[];
@@ -1026,60 +1026,6 @@ export const SessionCapabilitiesSchema = z.object({
   claude_code_version: z.string(),
 });
 
-export const StrictChatMessageSchema = z.object({
-  id: MessageIdSchema,
-  sessionId: SessionIdSchema,
-  type: z.enum(['user', 'assistant', 'system']),
-  content: z.string(),
-  timestamp: z.number().positive(),
-  streaming: z.boolean().optional(),
-  files: z.array(z.string()).optional(),
-  isError: z.boolean().optional(),
-  metadata: z.record(z.unknown()).optional(),
-  // For assistant messages
-  isComplete: z.boolean().optional(),
-  // For system messages
-  level: z.enum(['info', 'warning', 'error']).optional(),
-  // NEW: Message lifecycle fields (TASK_2025_008 - Batch 2)
-  cost: z.number().nonnegative().optional(),
-  tokens: z
-    .object({
-      input: z.number().nonnegative(),
-      output: z.number().nonnegative(),
-      cacheHit: z.number().nonnegative().optional(),
-    })
-    .optional(),
-  duration: z.number().nonnegative().optional(),
-});
-
-export const StrictChatSessionSchema = z
-  .object({
-    id: SessionIdSchema,
-    name: z.string(),
-    workspaceId: z.string().optional(),
-    messages: z.array(StrictChatMessageSchema),
-    createdAt: z.number().positive(),
-    lastActiveAt: z.number().positive(),
-    updatedAt: z.number().positive(),
-    messageCount: z.number().nonnegative(),
-    tokenUsage: z
-      .object({
-        input: z.number().nonnegative(),
-        output: z.number().nonnegative(),
-        total: z.number().nonnegative(),
-        percentage: z.number().nonnegative(),
-        maxTokens: z.number().positive().optional(),
-      })
-      .strict(),
-    // NEW: IMPLEMENTATION_PLAN compatibility fields (TASK_2025_008 - Batch 2)
-    capabilities: SessionCapabilitiesSchema.optional(),
-    model: z.string().optional(),
-    totalCost: z.number().nonnegative().optional(),
-    totalTokensInput: z.number().nonnegative().optional(),
-    totalTokensOutput: z.number().nonnegative().optional(),
-  })
-  .strict();
-
 /**
  * Zod Schemas for ContentBlock Runtime Validation
  */
@@ -1128,6 +1074,60 @@ export const ContentBlockSchema = z.discriminatedUnion('type', [
   ToolUseContentBlockSchema,
   ThinkingContentBlockSchema,
 ]);
+
+export const StrictChatMessageSchema = z.object({
+  id: MessageIdSchema,
+  sessionId: SessionIdSchema,
+  type: z.enum(['user', 'assistant', 'system']),
+  contentBlocks: z.array(ContentBlockSchema),
+  timestamp: z.number().positive(),
+  streaming: z.boolean().optional(),
+  files: z.array(z.string()).optional(),
+  isError: z.boolean().optional(),
+  metadata: z.record(z.unknown()).optional(),
+  // For assistant messages
+  isComplete: z.boolean().optional(),
+  // For system messages
+  level: z.enum(['info', 'warning', 'error']).optional(),
+  // NEW: Message lifecycle fields (TASK_2025_008 - Batch 2)
+  cost: z.number().nonnegative().optional(),
+  tokens: z
+    .object({
+      input: z.number().nonnegative(),
+      output: z.number().nonnegative(),
+      cacheHit: z.number().nonnegative().optional(),
+    })
+    .optional(),
+  duration: z.number().nonnegative().optional(),
+});
+
+export const StrictChatSessionSchema = z
+  .object({
+    id: SessionIdSchema,
+    name: z.string(),
+    workspaceId: z.string().optional(),
+    messages: z.array(StrictChatMessageSchema),
+    createdAt: z.number().positive(),
+    lastActiveAt: z.number().positive(),
+    updatedAt: z.number().positive(),
+    messageCount: z.number().nonnegative(),
+    tokenUsage: z
+      .object({
+        input: z.number().nonnegative(),
+        output: z.number().nonnegative(),
+        total: z.number().nonnegative(),
+        percentage: z.number().nonnegative(),
+        maxTokens: z.number().positive().optional(),
+      })
+      .strict(),
+    // NEW: IMPLEMENTATION_PLAN compatibility fields (TASK_2025_008 - Batch 2)
+    capabilities: SessionCapabilitiesSchema.optional(),
+    model: z.string().optional(),
+    totalCost: z.number().nonnegative().optional(),
+    totalTokensInput: z.number().nonnegative().optional(),
+    totalTokensOutput: z.number().nonnegative().optional(),
+  })
+  .strict();
 
 /**
  * System Message Payloads - For webview lifecycle messages
