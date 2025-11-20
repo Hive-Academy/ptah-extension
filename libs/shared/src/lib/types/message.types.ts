@@ -40,53 +40,13 @@ import {
   VIEW_MESSAGE_TYPES,
   SYSTEM_MESSAGE_TYPES,
 } from '../constants/message-types';
-
-// Re-export for convenience
-export { CorrelationId };
-
-/**
- * ContentBlock Discriminated Union - Structured Message Content
- * Replaces flat string content with typed blocks for text, tool use, and thinking
- */
-
-/**
- * TextContentBlock - Plain text content from assistant or user
- */
-export interface TextContentBlock {
-  readonly type: 'text';
-  readonly text: string;
-  readonly index?: number;
-}
-
-/**
- * ToolUseContentBlock - Tool execution request from assistant
- */
-export interface ToolUseContentBlock {
-  readonly type: 'tool_use';
-  readonly id: string;
-  readonly name: string;
-  readonly input: Readonly<Record<string, unknown>>;
-  readonly index?: number;
-}
-
-/**
- * ThinkingContentBlock - Claude's reasoning process (extended thinking)
- */
-export interface ThinkingContentBlock {
-  readonly type: 'thinking';
-  readonly thinking: string;
-  readonly index?: number;
-}
-
-/**
- * ContentBlock - Discriminated union of all content block types
- * Enables type-safe pattern matching with TypeScript discriminated unions
- */
-export type ContentBlock =
-  | TextContentBlock
-  | ToolUseContentBlock
-  | ThinkingContentBlock;
-
+import type {
+  ContentBlock,
+  TextContentBlock,
+  ThinkingContentBlock,
+  ToolUseContentBlock,
+  ToolResultContentBlock,
+} from './content-block.types';
 /**
  * Strict Message Types - derives from MESSAGE_TYPES constants
  * This ensures automatic sync between constants and types (single source of truth)
