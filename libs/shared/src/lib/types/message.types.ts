@@ -127,7 +127,7 @@ export interface ChatSendMessagePayload {
 export interface ChatMessageChunkPayload {
   readonly sessionId: SessionId;
   readonly messageId: MessageId;
-  readonly content: string;
+  readonly contentBlocks: readonly ContentBlock[];
   readonly isComplete: boolean;
   readonly streaming: boolean;
 }
