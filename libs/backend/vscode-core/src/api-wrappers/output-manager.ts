@@ -101,6 +101,7 @@ export class OutputManager {
   createOutputChannel(config: OutputChannelConfig): vscode.OutputChannel {
     // Check if channel already exists
     if (this.outputChannels.has(config.name)) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       return this.outputChannels.get(config.name)!;
     }
 

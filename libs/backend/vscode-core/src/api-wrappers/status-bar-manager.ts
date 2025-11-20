@@ -114,6 +114,7 @@ export class StatusBarManager {
   createStatusBarItem(config: StatusBarItemConfig): vscode.StatusBarItem {
     // Check if item already exists
     if (this.statusBarItems.has(config.id)) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       return this.statusBarItems.get(config.id)!;
     }
 

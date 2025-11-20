@@ -4,6 +4,7 @@
  * Validates WEBVIEW_MESSAGING_WIRING_ANALYSIS.md solution implementation
  */
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import 'reflect-metadata';
 import { Subject } from 'rxjs';
 

@@ -101,6 +101,7 @@ export class WebviewManager {
   ): vscode.WebviewPanel {
     // Check if webview already exists
     if (this.activeWebviews.has(config.viewType)) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const existing = this.activeWebviews.get(config.viewType)!;
       existing.reveal(
         config.showOptions?.viewColumn,
@@ -241,6 +242,7 @@ export class WebviewManager {
   async sendMessage<T extends StrictMessageType>(
     viewType: string,
     type: T,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     payload: any
   ): Promise<boolean> {
     // Check both panels and views
@@ -385,6 +387,7 @@ export class WebviewManager {
       // Type assertion is safe here since isRoutableMessage validates the type
       this.eventBus.publish(
         message.type as keyof MessagePayloadMap,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         message.payload as any
       );
     } else {
@@ -392,6 +395,7 @@ export class WebviewManager {
       this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
         code: 'INVALID_WEBVIEW_MESSAGE',
         message: `Invalid message type received from webview: ${
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (message as any).type
         }`,
         source: 'WebviewManager',
@@ -405,6 +409,7 @@ export class WebviewManager {
    * Handle system messages (ready, initialization, etc.)
    * These are handled internally and not routed to the event bus
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private handleSystemMessage(webviewId: string, message: any): void {
     switch (message.type) {
       case 'webview-ready':

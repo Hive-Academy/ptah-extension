@@ -119,7 +119,8 @@ export class FileSystemManager {
    */
   async readFile(
     uri: vscode.Uri,
-    options: FileOperationOptions = {}
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options?: FileOperationOptions
   ): Promise<Uint8Array> {
     const startTime = Date.now();
 
@@ -217,7 +218,8 @@ export class FileSystemManager {
    */
   async delete(
     uri: vscode.Uri,
-    options: FileOperationOptions = {}
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options?: FileOperationOptions
   ): Promise<void> {
     const startTime = Date.now();
 
@@ -483,6 +485,7 @@ export class FileSystemManager {
   createWatcher(config: FileWatcherConfig): vscode.FileSystemWatcher {
     if (this.activeWatchers.has(config.id)) {
       // Return existing watcher
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       return this.activeWatchers.get(config.id)!;
     }
 
@@ -702,6 +705,7 @@ export class FileSystemManager {
     // Apply exclude patterns if specified
     if (options.exclude && options.exclude.length > 0) {
       filtered = filtered.filter(([name]) => {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         return !options.exclude!.some((pattern) => {
           // Simple pattern matching - can be enhanced with glob patterns
           return name.includes(pattern);
