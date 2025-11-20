@@ -21,6 +21,7 @@ import {
   ClaudeAgentStartEvent,
   ClaudeAgentActivityEvent,
   ClaudeAgentCompleteEvent,
+  SessionSummary,
 } from './claude-domain.types';
 import {
   CHAT_MESSAGE_TYPES,
@@ -434,7 +435,7 @@ export interface ChatRequestSessionsPayload {
 }
 
 export interface ChatSessionsUpdatedPayload {
-  readonly sessions: readonly StrictChatSession[];
+  readonly sessions: readonly SessionSummary[];
 }
 
 /**
