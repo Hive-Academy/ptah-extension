@@ -24,6 +24,7 @@ import { MessageId, SessionId } from '@ptah-extension/shared';
 export interface ClaudeContent {
   type: string;
   text?: string;
+  thinking?: string;
   name?: string;
   id?: string;
   input?: Record<string, unknown>;
@@ -619,6 +620,12 @@ export function isToolResultContent(
   is_error?: boolean;
 } {
   return block.type === 'tool_result' && typeof block.tool_use_id === 'string';
+}
+
+export function isThinkingContent(
+  block: ClaudeContent
+): block is ClaudeContent & { thinking: string } {
+  return block.type === 'thinking' && typeof block.thinking === 'string';
 }
 
 /**

@@ -23,6 +23,7 @@ export {
   isTextContent,
   isToolUseContent,
   isToolResultContent,
+  isThinkingContent,
   extractFilePathsFromText,
   detectFileType,
 } from './lib/services/claude-message-transformer.service';

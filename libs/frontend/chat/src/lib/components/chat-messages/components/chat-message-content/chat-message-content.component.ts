@@ -35,6 +35,7 @@ import {
   isTextContent,
   isToolUseContent,
   isToolResultContent,
+  isThinkingContent,
   extractFilePathsFromText,
   detectFileType,
 } from '@ptah-extension/core';
@@ -122,6 +123,7 @@ export class ChatMessageContentComponent implements AfterViewInit {
   readonly isTextContent = isTextContent;
   readonly isToolUseContent = isToolUseContent;
   readonly isToolResultContent = isToolResultContent;
+  readonly isThinkingContent = isThinkingContent;
 
   // === Track by function for content blocks ===
   trackByContent(index: number, content: ClaudeContent): string {

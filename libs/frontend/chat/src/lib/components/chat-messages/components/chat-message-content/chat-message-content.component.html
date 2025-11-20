@@ -53,6 +53,19 @@
       ></div>
       }
 
+      <!-- Thinking Content -->
+      @if (isThinkingContent(contentBlock)) {
+      <div class="thinking-block">
+        <div class="thinking-header">
+          <div class="thinking-icon">💭</div>
+          <div class="thinking-label">Claude is thinking...</div>
+        </div>
+        <div class="thinking-content">
+          <pre>{{ contentBlock.thinking }}</pre>
+        </div>
+      </div>
+      }
+
       <!-- Tool Use Visualization -->
       @if (isToolUseContent(contentBlock)) {
       <div class="tool-use-block" [class.running]="message().isStreaming">

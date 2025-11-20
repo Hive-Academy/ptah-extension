@@ -118,7 +118,9 @@ export class MockDataGenerator {
         id: `msg-${sessionId}-${i}` as MessageId,
         sessionId,
         type: isUser ? 'user' : 'assistant',
-        content: isUser ? userMsg : assistantMsg,
+        contentBlocks: [
+          { type: 'text', text: isUser ? userMsg : assistantMsg },
+        ],
         timestamp: baseTime + i * 300000,
         isComplete: !isUser ? true : undefined,
       });

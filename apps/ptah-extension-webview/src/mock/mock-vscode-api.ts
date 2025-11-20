@@ -219,7 +219,7 @@ export class MockVSCodeApiImpl implements MockVSCodeApi {
             id: userMessageId,
             sessionId: this.currentSessionId,
             type: 'user',
-            content,
+            contentBlocks: [{ type: 'text', text: content }],
             timestamp: Date.now(),
           };
 
@@ -588,7 +588,7 @@ export class MockVSCodeApiImpl implements MockVSCodeApi {
         this.simulateExtensionMessage('chat:messageChunk', {
           sessionId,
           messageId,
-          content: chunk,
+          contentBlocks: [{ type: 'text', text: chunk }],
           isComplete,
           streaming: true,
         });
@@ -600,7 +600,7 @@ export class MockVSCodeApiImpl implements MockVSCodeApi {
               id: messageId,
               sessionId,
               type: 'assistant',
-              content: response,
+              contentBlocks: [{ type: 'text', text: response }],
               timestamp: Date.now(),
               isComplete: true,
               streaming: false,

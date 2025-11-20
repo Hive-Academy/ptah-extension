@@ -1,6 +1,10 @@
 import { Component, input, output, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { StrictChatSession, SessionId } from '@ptah-extension/shared';
+import {
+  StrictChatSession,
+  SessionId,
+  ContentBlock,
+} from '@ptah-extension/shared';
 
 export interface SessionAction {
   readonly type: 'switch' | 'rename' | 'delete' | 'duplicate' | 'export';
@@ -203,7 +207,7 @@ export interface SessionAction {
               {{ message.type }}
             </span>
             <span class="message-content-preview">
-              {{ getMessagePreview(message.content) }}
+              {{ getMessagePreview(message.contentBlocks) }}
             </span>
           </div>
           }
@@ -642,7 +646,13 @@ export class SessionCardComponent {
     this._showActionsMenu.set(false);
   }
 
-  getMessagePreview(content: string): string {
+  getMessagePreview(contentBlocks: readonly ContentBlock[]): string {
+    // Extract text from first text block
+    const textBlock = contentBlocks.find((block) => block.type === 'text');
+    if (!textBlock || textBlock.type !== 'text') {
+      return '(No text content)';
+    }
+    const content = textBlock.text;
     return content.length > 80 ? content.substring(0, 80) + '...' : content;
   }
 
