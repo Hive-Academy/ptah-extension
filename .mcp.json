@@ -11,7 +11,7 @@
     },
     "nx-mcp": {
       "command": "cmd.exe",
-      "args": ["/c", "npx", "nx", "mcp"]
+      "args": ["/c", "npx", "-y", "nx", "mcp"]
     },
     "angular-cli": {
       "command": "cmd.exe",
