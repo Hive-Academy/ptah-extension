@@ -390,7 +390,7 @@ export class SessionManager {
       id: this.generateMessageId(),
       sessionId: options.sessionId,
       type: 'user',
-      content: options.content,
+      contentBlocks: [{ type: 'text', text: options.content }] as const,
       timestamp: Date.now(),
       files: options.files,
     };
@@ -449,7 +449,7 @@ export class SessionManager {
       id: this.generateMessageId(),
       sessionId: options.sessionId,
       type: 'assistant',
-      content: options.content,
+      contentBlocks: [{ type: 'text', text: options.content }] as const,
       timestamp: Date.now(),
       streaming: false,
       isComplete: true,
@@ -692,7 +692,12 @@ export class SessionManager {
 
       if (message.type === 'user') {
         lines.push(`## 👤 User (${timestamp})\n`);
-        lines.push(`${message.content}\n`);
+        // Extract text from contentBlocks
+        const textContent = message.contentBlocks
+          .filter((block) => block.type === 'text')
+          .map((block) => (block as { type: 'text'; text: string }).text)
+          .join('\n');
+        lines.push(`${textContent}\n`);
 
         if (message.files && message.files.length > 0) {
           lines.push(`**Attached Files:**`);
@@ -703,7 +708,12 @@ export class SessionManager {
         }
       } else if (message.type === 'assistant') {
         lines.push(`## 🤖 Claude (${timestamp})\n`);
-        lines.push(`${message.content}\n`);
+        // Extract text from contentBlocks
+        const textContent = message.contentBlocks
+          .filter((block) => block.type === 'text')
+          .map((block) => (block as { type: 'text'; text: string }).text)
+          .join('\n');
+        lines.push(`${textContent}\n`);
       }
 
       lines.push(`---\n`);
