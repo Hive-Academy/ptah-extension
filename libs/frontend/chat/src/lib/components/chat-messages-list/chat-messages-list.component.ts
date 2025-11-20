@@ -164,19 +164,17 @@ interface MessageGroup {
       <!-- Typing Indicators -->
       @if (hasTypingIndicators()) {
       <div class="typing-indicators">
-        @for (indicator of typingIndicators(); track indicator.messageId) {
-        <div class="typing-indicator typing-indicator-{{ indicator.role }}">
+        <div class="typing-indicator typing-indicator-assistant">
           <div class="typing-avatar">
-            <span>{{ getRoleIcon(indicator.role) }}</span>
+            <span>{{ getRoleIcon('assistant') }}</span>
           </div>
           <div class="typing-animation">
             <div class="typing-dots">
               <span></span><span></span><span></span>
             </div>
-            <span class="typing-text">{{ indicator.text }}</span>
+            <span class="typing-text">Claude is typing...</span>
           </div>
         </div>
-        }
       </div>
       }
     </div>
@@ -228,18 +226,11 @@ export class ChatMessagesListComponent implements AfterViewInit {
   readonly isAtBottom = computed(() => this.scrollPosition().isAtBottom);
   readonly hasNewMessages = computed(() => this.newMessagesCount() > 0);
 
-  readonly typingIndicators = computed(() => {
-    const streamingMessages = this.messages().filter((m) => m.isStreaming);
-    return streamingMessages.map((m) => ({
-      role: m.type as 'user' | 'assistant' | 'system',
-      text: `${this.getRoleDisplayName(m.type)} is typing...`,
-      messageId: m.id,
-    }));
-  });
-
-  readonly hasTypingIndicators = computed(
-    () => this.typingIndicators().length > 0
+  readonly isTyping = computed(() =>
+    this.messages().some((m) => m.status === 'streaming')
   );
+
+  readonly hasTypingIndicators = computed(() => this.isTyping());
 
   constructor() {
     // Auto-scroll effect when new messages arrive
