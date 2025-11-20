@@ -259,7 +259,7 @@ export class ChatService {
       id: crypto.randomUUID() as MessageId,
       sessionId: currentSession.id,
       type: 'user',
-      content: sanitizedContent,
+      contentBlocks: [{ type: 'text', text: sanitizedContent }],
       timestamp: Date.now(),
       streaming: false,
       metadata: { agent },
@@ -455,7 +455,7 @@ export class ChatService {
         // Safe destructuring with defaults
         const {
           messageId,
-          content = '',
+          contentBlocks = [],
           sessionId,
           isComplete = false,
         } = payload;
@@ -478,7 +478,7 @@ export class ChatService {
           const existingMessage = currentMessages[messageIndex];
           const updatedMessage: StrictChatMessage = {
             ...existingMessage,
-            content: existingMessage.content + content,
+            contentBlocks: [...existingMessage.contentBlocks, ...contentBlocks],
             streaming: !isComplete,
             timestamp: Date.now(),
           };
@@ -512,7 +512,7 @@ export class ChatService {
             id: messageId,
             sessionId: sessionId,
             type: 'assistant',
-            content: content,
+            contentBlocks: contentBlocks,
             timestamp: Date.now(),
             streaming: !isComplete,
             metadata: {},
@@ -532,7 +532,7 @@ export class ChatService {
 
         this.logger.debug('Message chunk processed', 'ChatService', {
           messageId,
-          contentLength: content?.length ?? 0,
+          contentBlocksCount: contentBlocks?.length ?? 0,
           isComplete,
         });
       });
