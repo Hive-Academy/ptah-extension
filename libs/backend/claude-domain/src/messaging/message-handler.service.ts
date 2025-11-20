@@ -204,15 +204,26 @@ export class MessageHandlerService {
               (chunk: { type: string; data: unknown }) => {
                 // Stream is in object mode - extract content from { type: 'content', data: chunk }
                 if (chunk.type === 'content') {
-                  const contentData = chunk.data as { delta: string };
-                  const chunkStr = contentData.delta || '';
+                  // ClaudeContentChunk now has blocks: readonly ContentBlock[]
+                  const contentChunk = chunk.data as {
+                    blocks: readonly { type: string; text?: string }[];
+                  };
+
+                  // Extract text from all text blocks
+                  const textBlocks = contentChunk.blocks.filter(
+                    (block) => block.type === 'text'
+                  );
+                  const chunkStr = textBlocks
+                    .map((block) => block.text || '')
+                    .join('');
+
                   accumulatedContent += chunkStr;
 
                   // Publish chunk to EventBus for real-time UI updates
                   this.eventBus.publish(CHAT_MESSAGE_TYPES.MESSAGE_CHUNK, {
                     sessionId: result.sessionId,
                     messageId: assistantMessageId,
-                    content: chunkStr,
+                    contentBlocks: contentChunk.blocks,
                     isComplete: false,
                     streaming: true,
                   } as MessagePayloadMap[typeof CHAT_MESSAGE_TYPES.MESSAGE_CHUNK]);
@@ -234,7 +245,9 @@ export class MessageHandlerService {
                 id: assistantMessageId,
                 sessionId: result.sessionId,
                 type: 'assistant',
-                content: accumulatedContent,
+                contentBlocks: [
+                  { type: 'text', text: accumulatedContent },
+                ] as const,
                 timestamp: Date.now(),
                 streaming: false,
                 isComplete: true,
@@ -254,7 +267,9 @@ export class MessageHandlerService {
                 id: assistantMessageId,
                 sessionId: result.sessionId,
                 type: 'system',
-                content: `Stream error: ${error.message}`,
+                contentBlocks: [
+                  { type: 'text', text: `Stream error: ${error.message}` },
+                ] as const,
                 timestamp: Date.now(),
                 isError: true,
                 level: 'error',
