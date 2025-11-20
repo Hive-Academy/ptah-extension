@@ -3,12 +3,12 @@
 ## Workspace Intelligence Commands for Claude CLI
 
 **Status**: 📋 Ready for Assignment
-**Total Tasks**: 12
-**Estimated Effort**: 14-20 hours
+**Total Tasks**: 13
+**Estimated Effort**: 16-23 hours
 
 ---
 
-## Phase 1: Core Command Registration (6-8 hours)
+## Phase 1: Core Command Registration (8-11 hours)
 
 ### Task 1.1: Register `ptah.analyzeWorkspace` Command
 
@@ -104,7 +104,7 @@
 
 ---
 
-### Task 1.6: Register `ptah.getCurrentContext` Command (Bonus)
+### Task 1.6: Register `ptah.getCurrentContext` Command
 
 **Owner**: Unassigned
 **Status**: ⬜ Pending
@@ -119,6 +119,35 @@
 - ✅ Returns included files, excluded files, token estimate
 - ✅ Async token estimation using `getTokenEstimateAsync()`
 - ✅ Manual test shows current context state
+
+---
+
+### Task 1.7: Register `ptah.callVsCodeLM` Command 🆕 AI Delegation
+
+**Owner**: Unassigned
+**Status**: ⬜ Pending
+**Effort**: 2 hours
+**Files**:
+
+- `apps/ptah-extension-vscode/src/handlers/command-handlers.ts`
+
+**Acceptance Criteria**:
+
+- ✅ Command accepts `{ prompt, model?, includeContext?, maxTokens?, systemPrompt? }` args
+- ✅ Validates VsCodeLmAdapter is available (GitHub Copilot installed)
+- ✅ Creates ephemeral session for each call
+- ✅ Optionally includes workspace context in prompt (max 5 files)
+- ✅ Streams response from VS Code LM API
+- ✅ Returns full response with token counts and timing
+- ✅ Cleanup session after response
+- ✅ Error handling for unavailable API
+- ✅ Manual test: `@code ptah.callVsCodeLM --prompt="Generate utility function"`
+
+**Strategic Impact**:
+
+- ✅ **Validates multi-provider architecture** - ai-providers-core is NOT over-engineering
+- ✅ **Cost optimization** - Free Copilot for simple tasks
+- ✅ **Unique value** - Claude CLI can orchestrate Copilot (no other extension does this)
 
 ---
 
@@ -203,7 +232,8 @@ export function createCommandResponse<T>(data?: T, error?: Error | string): Comm
 - ✅ Test `ptah.optimizeContext` - verify suggestions
 - ✅ Test `ptah.getProjectStructure` - verify tree structure
 - ✅ Test `ptah.getCurrentContext` - verify current state
-- ✅ Test error scenarios (missing workspace, invalid args)
+- ✅ Test `ptah.callVsCodeLM --prompt="Generate function"` - verify Copilot response 🆕
+- ✅ Test error scenarios (missing workspace, invalid args, Copilot not installed)
 
 ---
 
@@ -223,8 +253,11 @@ export function createCommandResponse<T>(data?: T, error?: Error | string): Comm
 - ✅ Verify Claude understands file search results
 - ✅ Execute: `@code ptah.getTokenEstimate --files=["..."]`
 - ✅ Verify token estimation works
-- ✅ Test all 6 commands via Claude CLI
-- ✅ Verify error handling (invalid args, missing files)
+- ✅ **Execute: `@code ptah.callVsCodeLM --prompt="Generate utility"` 🆕**
+- ✅ **Verify Claude can delegate to Copilot and receive response 🆕**
+- ✅ **Test multi-model workflow: Claude asks Copilot for second opinion 🆕**
+- ✅ Test all 7 commands via Claude CLI
+- ✅ Verify error handling (invalid args, missing files, Copilot unavailable)
 
 ---
 
@@ -369,12 +402,14 @@ Task 2.1 (Response Types) ────> Task 1.1-1.6 (All Commands)
 
 ## Success Criteria Summary
 
-- ✅ All 6 commands registered and callable
+- ✅ All 7 commands registered and callable (including AI delegation! 🆕)
 - ✅ Claude CLI can execute all commands successfully
+- ✅ **Claude CLI can delegate tasks to VS Code LM (Copilot) 🆕**
 - ✅ All commands return JSON-serializable data
 - ✅ Error handling covers edge cases
 - ✅ Manual testing passes in Extension Development Host
 - ✅ Integration testing with Claude CLI passes
+- ✅ **Multi-provider architecture validated as strategic feature 🆕**
 - ✅ User documentation complete with examples
 - ✅ Developer documentation explains architecture
 - ✅ Commit follows commitlint rules

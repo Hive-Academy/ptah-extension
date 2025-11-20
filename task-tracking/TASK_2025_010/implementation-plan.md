@@ -360,7 +360,7 @@ Show me the project folder structure.
 
 ---
 
-### Command 6: `ptah.getCurrentContext` (Bonus)
+### Command 6: `ptah.getCurrentContext`
 
 **Purpose**: Show currently included/excluded files in context
 
@@ -388,6 +388,174 @@ this.commandManager.registerCommand('ptah.getCurrentContext', async () => {
   }
 });
 ```
+
+---
+
+### Command 7: `ptah.callVsCodeLM` 🆕 AI Delegation
+
+**Purpose**: Allow Claude CLI to delegate tasks to VS Code Language Model (GitHub Copilot)
+
+**Strategic Value**:
+
+- **Cost Optimization**: Use free Copilot for simple tasks, reserve Claude for complex reasoning
+- **Speed**: Copilot typically responds faster for code generation tasks
+- **Fallback**: Redundancy if Claude CLI is slow/unavailable
+- **Multi-Model Consensus**: Get second opinions on code quality/security
+- **Validates Architecture**: Proves multi-provider abstraction is not over-engineering
+
+**Implementation**:
+
+```typescript
+interface VsCodeLMCallArgs {
+  prompt: string;
+  model?: 'gpt-4o' | 'gpt-4-turbo' | 'gpt-3.5-turbo';
+  includeContext?: boolean;
+  maxTokens?: number;
+  systemPrompt?: string;
+}
+
+this.commandManager.registerCommand('ptah.callVsCodeLM', async (args: VsCodeLMCallArgs) => {
+  try {
+    // Validate VS Code LM is available
+    const isAvailable = await this.vsCodeLmAdapter.initialize();
+    if (!isAvailable) {
+      return {
+        success: false,
+        error: 'VS Code Language Model API is not available. Ensure GitHub Copilot or compatible extension is installed.',
+        timestamp: Date.now(),
+      };
+    }
+
+    // Create ephemeral session for this call
+    const sessionId = SessionId.create();
+
+    await this.vsCodeLmAdapter.createSession(sessionId, {
+      model: args.model || 'gpt-4o',
+      maxTokens: args.maxTokens || 4000,
+      systemPrompt: args.systemPrompt,
+    });
+
+    // Optionally enhance prompt with workspace context
+    let enhancedPrompt = args.prompt;
+    if (args.includeContext) {
+      const context = this.contextManager.getCurrentContext();
+      const relevantFiles = context.includedFiles.slice(0, 5); // Limit to 5 files for token efficiency
+
+      if (relevantFiles.length > 0) {
+        enhancedPrompt = `Workspace Context (${relevantFiles.length} files):\n${relevantFiles.join('\n')}\n\nTask:\n${args.prompt}`;
+      }
+    }
+
+    // Stream response from VS Code LM
+    let fullResponse = '';
+    const startTime = Date.now();
+
+    for await (const chunk of this.vsCodeLmAdapter.sendMessage(sessionId, enhancedPrompt)) {
+      fullResponse += chunk;
+    }
+
+    const responseTime = Date.now() - startTime;
+
+    // Cleanup ephemeral session
+    this.vsCodeLmAdapter.endSession(sessionId);
+
+    // Calculate approximate token usage
+    const promptTokens = Math.ceil(enhancedPrompt.length / 4);
+    const responseTokens = Math.ceil(fullResponse.length / 4);
+
+    return {
+      success: true,
+      data: {
+        response: fullResponse,
+        model: args.model || 'gpt-4o',
+        provider: 'vscode-lm',
+        responseTime,
+        tokensUsed: {
+          prompt: promptTokens,
+          response: responseTokens,
+          total: promptTokens + responseTokens,
+        },
+        contextIncluded: args.includeContext || false,
+      },
+      timestamp: Date.now(),
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'VS Code LM call failed',
+      timestamp: Date.now(),
+    };
+  }
+});
+```
+
+**Claude CLI Usage Examples**:
+
+```bash
+# Simple delegation (cost-optimized)
+User: "Generate a debounce utility function"
+
+Claude CLI:
+  > This is simple boilerplate. Let me delegate to Copilot (free).
+  > @code ptah.callVsCodeLM --prompt="Generate TypeScript debounce utility function with generics"
+
+  > Copilot generated: [debounce code]
+
+  > I'll integrate that into your utils folder...
+```
+
+```bash
+# With model selection
+@code ptah.callVsCodeLM --model="gpt-3.5-turbo" --prompt="Add JSDoc comments to debounce function"
+```
+
+```bash
+# With workspace context
+@code ptah.callVsCodeLM --includeContext=true --prompt="Find inconsistencies in our error handling patterns"
+```
+
+```bash
+# Second opinion / consensus
+User: "Is this JWT implementation secure?"
+
+Claude CLI:
+  > Let me get Copilot's opinion too.
+  > @code ptah.callVsCodeLM --prompt="Review this JWT authentication for security vulnerabilities: [code]"
+
+  > Copilot found: Token stored in localStorage (XSS risk)
+  > I also see: Missing token expiration validation
+
+  > Here's a secure implementation addressing both issues...
+```
+
+**Expected Output**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "response": "function debounce<T extends (...args: any[]) => any>(\n  func: T,\n  delay: number\n): (...args: Parameters<T>) => void {\n  let timeoutId: NodeJS.Timeout;\n  \n  return function(...args: Parameters<T>) {\n    clearTimeout(timeoutId);\n    timeoutId = setTimeout(() => func(...args), delay);\n  };\n}",
+    "model": "gpt-4o",
+    "provider": "vscode-lm",
+    "responseTime": 1842,
+    "tokensUsed": {
+      "prompt": 32,
+      "response": 93,
+      "total": 125
+    },
+    "contextIncluded": false
+  },
+  "timestamp": 1732118400000
+}
+```
+
+**Use Cases**:
+
+1. **Cost Optimization**: Free Copilot for boilerplate, reserve Claude for architecture
+2. **Speed**: Copilot often faster for simple code generation
+3. **Redundancy**: Fallback if Claude CLI is slow/unavailable
+4. **Multi-Model Validation**: Compare responses for critical code
+5. **Specialized Tasks**: Use best model for each task type
 
 ---
 
@@ -654,12 +822,18 @@ Apply the suggestions and show the new token count:
 
 | Phase     | Task                                   | Hours           |
 | --------- | -------------------------------------- | --------------- |
-| 1         | Core Command Registration (6 commands) | 6-8             |
+| 1         | Core Command Registration (7 commands) | 8-11            |
 | 2         | JSON Serialization & Error Handling    | 1-2             |
 | 3         | Testing & Validation                   | 3-4             |
 | 4         | Documentation                          | 2-3             |
 | 5         | Integration Examples                   | 2-3             |
-| **Total** |                                        | **14-20 hours** |
+| **Total** |                                        | **16-23 hours** |
+
+**Command 7 Impact** (+2-3 hours):
+
+- Registration & implementation: +1.5 hours
+- VsCodeLmAdapter integration: +0.5 hours (already exists!)
+- Testing with both providers: +1 hour
 
 ---
 
