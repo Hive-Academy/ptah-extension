@@ -45,6 +45,49 @@ import {
 export { CorrelationId };
 
 /**
+ * ContentBlock Discriminated Union - Structured Message Content
+ * Replaces flat string content with typed blocks for text, tool use, and thinking
+ */
+
+/**
+ * TextContentBlock - Plain text content from assistant or user
+ */
+export interface TextContentBlock {
+  readonly type: 'text';
+  readonly text: string;
+  readonly index?: number;
+}
+
+/**
+ * ToolUseContentBlock - Tool execution request from assistant
+ */
+export interface ToolUseContentBlock {
+  readonly type: 'tool_use';
+  readonly id: string;
+  readonly name: string;
+  readonly input: Readonly<Record<string, unknown>>;
+  readonly index?: number;
+}
+
+/**
+ * ThinkingContentBlock - Claude's reasoning process (extended thinking)
+ */
+export interface ThinkingContentBlock {
+  readonly type: 'thinking';
+  readonly thinking: string;
+  readonly index?: number;
+}
+
+/**
+ * ContentBlock - Discriminated union of all content block types
+ * Enables type-safe pattern matching with TypeScript discriminated unions
+ */
+export type ContentBlock =
+  | TextContentBlock
+  | ToolUseContentBlock
+  | ThinkingContentBlock;
+
+/**
  * Strict Message Types - derives from MESSAGE_TYPES constants
  * This ensures automatic sync between constants and types (single source of truth)
  *
@@ -1036,6 +1079,55 @@ export const StrictChatSessionSchema = z
     totalTokensOutput: z.number().nonnegative().optional(),
   })
   .strict();
+
+/**
+ * Zod Schemas for ContentBlock Runtime Validation
+ */
+
+/**
+ * TextContentBlock Zod schema
+ */
+export const TextContentBlockSchema = z
+  .object({
+    type: z.literal('text'),
+    text: z.string(),
+    index: z.number().optional(),
+  })
+  .strict();
+
+/**
+ * ToolUseContentBlock Zod schema
+ */
+export const ToolUseContentBlockSchema = z
+  .object({
+    type: z.literal('tool_use'),
+    id: z.string(),
+    name: z.string(),
+    input: z.record(z.unknown()),
+    index: z.number().optional(),
+  })
+  .strict();
+
+/**
+ * ThinkingContentBlock Zod schema
+ */
+export const ThinkingContentBlockSchema = z
+  .object({
+    type: z.literal('thinking'),
+    thinking: z.string(),
+    index: z.number().optional(),
+  })
+  .strict();
+
+/**
+ * ContentBlock Zod schema - discriminated union
+ * Enables runtime validation of structured content blocks
+ */
+export const ContentBlockSchema = z.discriminatedUnion('type', [
+  TextContentBlockSchema,
+  ToolUseContentBlockSchema,
+  ThinkingContentBlockSchema,
+]);
 
 /**
  * System Message Payloads - For webview lifecycle messages
