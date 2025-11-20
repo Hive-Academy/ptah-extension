@@ -12,3 +12,4 @@
 | TASK_2025_008 | Comprehensive Frontend Architecture Evaluation & Modernization                                                                | 🔄 Active (Bugfix Architecture Complete) | software-architect | 2025-11-20 | -          |
 | TASK_2025_009 | Message Type System Refactoring - ContentBlocks Migration                                                                     | ✅ Complete                              | software-architect | 2025-11-20 | 2025-11-20 |
 | TASK_2025_010 | Workspace Intelligence Commands - Expose context-manager & workspace-intelligence as internal VS Code commands for Claude CLI | 📋 Planned                               | team-leader        | 2025-11-20 | -          |
+| TASK_2025_011 | Session Management Simplification - Remove duplicate storage, use Claude CLI `.claude_sessions/` as single source of truth    | 📋 Planned                               | software-architect | 2025-11-21 | -          |
