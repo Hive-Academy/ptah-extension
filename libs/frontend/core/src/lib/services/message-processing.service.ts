@@ -100,7 +100,20 @@ export class MessageProcessingService {
       id: processedMessage.id,
       sessionId: processedMessage.sessionId,
       type: processedMessage.type,
-      content: this.extractTextContent(processedMessage),
+      contentBlocks: processedMessage.content.map((block) => ({
+        type: block.type as 'text' | 'tool_use' | 'thinking',
+        ...(block.type === 'text' && block.text ? { text: block.text } : {}),
+        ...(block.type === 'tool_use' && block.name && block.id
+          ? {
+              id: block.id,
+              name: block.name,
+              input: block.input || {},
+            }
+          : {}),
+        ...(block.type === 'thinking' && block.text
+          ? { thinking: block.text }
+          : {}),
+      })),
       timestamp: processedMessage.timestamp || Date.now(),
       streaming: processedMessage.isStreaming || false,
       isComplete: processedMessage.isComplete,
@@ -151,12 +164,20 @@ export class MessageProcessingService {
       sessionId: strictMessage.sessionId,
       timestamp: strictMessage.timestamp,
       type: strictMessage.type,
-      content: [
-        {
-          type: 'text',
-          text: strictMessage.content,
-        },
-      ],
+      content: strictMessage.contentBlocks.map((block) => {
+        if (block.type === 'text') {
+          return { type: 'text', text: block.text };
+        } else if (block.type === 'tool_use') {
+          return {
+            type: 'tool_use',
+            id: block.id,
+            name: block.name,
+            input: block.input,
+          };
+        } else {
+          return { type: 'text', text: block.thinking };
+        }
+      }),
       isComplete: strictMessage.isComplete,
       isStreaming: strictMessage.streaming,
       filePaths: strictMessage.files as string[] | undefined,
@@ -198,8 +219,8 @@ export class MessageProcessingService {
       msg.sessionId &&
       msg.type &&
       ['user', 'assistant', 'system'].includes(msg.type) &&
-      msg.content &&
-      typeof msg.content === 'string' &&
+      msg.contentBlocks &&
+      Array.isArray(msg.contentBlocks) &&
       typeof msg.timestamp === 'number'
     );
   }
