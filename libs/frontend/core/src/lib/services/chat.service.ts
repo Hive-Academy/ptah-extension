@@ -688,7 +688,9 @@ export class ChatService {
               console.log('Timestamp:', new Date(msg.timestamp).toISOString());
               console.log(
                 'Content preview:',
-                msg.content?.substring(0, 100) || '(no content)'
+                msg.contentBlocks?.[0]?.type === 'text'
+                  ? msg.contentBlocks[0].text.substring(0, 100)
+                  : '(no content)'
               );
               console.log('Streaming:', msg.streaming);
               console.log('Metadata:', msg.metadata);
