@@ -413,7 +413,7 @@ export class UserService {
 ```bash
 # All tasks in batch implemented and staged
 git commit -m "$(cat <<'EOF'
-feat(neo4j): batch 1 - backend data layer
+feat(vscode): batch 1 - backend data layer
 
 - Task 1.1: add user entity
 - Task 1.2: add user repository

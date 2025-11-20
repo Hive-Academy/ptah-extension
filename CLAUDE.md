@@ -1,5 +1,7 @@
 # 📜 PTAH PROJECT SPECIFICS
 
+## **IMPORTANT**: There's a file modification bug in Claude Code. The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Always use full paths for all of our Read/Write/Modify operations
+
 ## Project Overview
 
 **Ptah** is a VS Code extension that provides a complete visual interface for Claude Code CLI. Built with TypeScript and Angular webviews, it transforms Claude Code's CLI experience into native, integrated VS Code functionality.
@@ -228,16 +230,14 @@ task-tracking/
 
 #### Allowed Scopes (REQUIRED)
 
-- `chromadb`: ChromaDB library changes
-- `neo4j`: Neo4j library changes
-- `langgraph`: LangGraph modules changes
+- `webview`: Webview (Angular SPA) changes
+- `vscode`: VS Code extension changes
 - `deps`: Dependency updates
 - `release`: Release-related changes
 - `ci`: CI/CD changes
 - `docs`: Documentation changes
 - `hooks`: Git hooks changes
 - `scripts`: Script changes
-- `angular-3d`: Angular 3D UI changes
 
 #### Commit Rules (ENFORCED)
 
@@ -254,11 +254,11 @@ task-tracking/
 #### Valid Examples
 
 ```bash
-feat(chromadb): add semantic search for documents
-fix(neo4j): resolve connection timeout issue
-docs(langgraph): update workflow examples
+feat(webview): add semantic search for chat messages
+fix(vscode): resolve webview communication timeout issue
+docs(webview): update component usage examples
 refactor(hooks): simplify pre-commit validation
-chore(deps): update langchain to v0.3.30
+chore(deps): update @angular/core to v20.1.2
 ```
 
 #### Invalid Examples (WILL FAIL)
@@ -266,9 +266,9 @@ chore(deps): update langchain to v0.3.30
 ```bash
 ❌ "Feature: Add search" # Wrong type, wrong case
 ❌ "feat: Add search"    # Missing scope
-❌ "feat(search): Add search" # Invalid scope, wrong case
-❌ "feat(chromadb): Add search." # Period at end
-❌ "feat(chromadb): Add Search" # Uppercase in subject
+❌ "feat(search): Add search" # Invalid scope (not in allowed list), wrong case
+❌ "feat(webview): Add search." # Period at end
+❌ "feat(webview): Add Search" # Uppercase in subject
 ```
 
 #### Branch & PR Operations

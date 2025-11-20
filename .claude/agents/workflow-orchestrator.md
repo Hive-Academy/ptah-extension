@@ -769,11 +769,13 @@ git checkout -b feature/XXX
 
 # Commit work
 git add .
-git commit -m "feat(TASK_2025_XXX): [description]"
+git commit -m "[type]([scope]): [description]"
+# Example: git commit -m "feat(webview): add chat session management"
 
 # Push and create PR
 git push -u origin feature/XXX
-gh pr create --title "feat(TASK_2025_XXX): [description]" --body "[summary]"
+gh pr create --title "[type]([scope]): [description]" --body "[summary]"
+# Example PR title: "feat(webview): add chat session management"
 ````
 
 **Then invoke modernization-detector** for Phase 8 (future work analysis).

@@ -444,7 +444,7 @@ export class CTASectionComponent {}
 ```bash
 # All tasks in batch implemented and staged
 git commit -m "$(cat <<'EOF'
-feat(angular-3d): batch 3 - landing page sections
+feat(webview): batch 3 - landing page sections
 
 - Task 3.1: add hero section component
 - Task 3.2: add features section component
