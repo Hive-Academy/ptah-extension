@@ -100,20 +100,52 @@ export class MessageProcessingService {
       id: processedMessage.id,
       sessionId: processedMessage.sessionId,
       type: processedMessage.type,
-      contentBlocks: processedMessage.content.map((block) => ({
-        type: block.type as 'text' | 'tool_use' | 'thinking',
-        ...(block.type === 'text' && block.text ? { text: block.text } : {}),
-        ...(block.type === 'tool_use' && block.name && block.id
-          ? {
-              id: block.id,
-              name: block.name,
-              input: block.input || {},
-            }
-          : {}),
-        ...(block.type === 'thinking' && block.text
-          ? { thinking: block.text }
-          : {}),
-      })),
+      contentBlocks: processedMessage.content.map((block, index) => {
+        // Convert ClaudeContent to proper ContentBlock discriminated union
+        if (block.type === 'text' && block.text !== undefined) {
+          return {
+            type: 'text' as const,
+            text: block.text,
+            index,
+          };
+        } else if (block.type === 'thinking' && block.text !== undefined) {
+          return {
+            type: 'thinking' as const,
+            thinking: block.text,
+            index,
+          };
+        } else if (
+          block.type === 'tool_use' &&
+          block.id !== undefined &&
+          block.name !== undefined
+        ) {
+          return {
+            type: 'tool_use' as const,
+            id: block.id,
+            name: block.name,
+            input: block.input || {},
+            index,
+          };
+        } else if (
+          block.type === 'tool_result' &&
+          block.tool_use_id !== undefined
+        ) {
+          return {
+            type: 'tool_result' as const,
+            tool_use_id: block.tool_use_id,
+            content: block.content || '',
+            is_error: block.is_error,
+            index,
+          };
+        } else {
+          // Fallback for unexpected types - convert to text block
+          return {
+            type: 'text' as const,
+            text: JSON.stringify(block),
+            index,
+          };
+        }
+      }),
       timestamp: processedMessage.timestamp || Date.now(),
       streaming: processedMessage.isStreaming || false,
       isComplete: processedMessage.isComplete,
@@ -174,8 +206,23 @@ export class MessageProcessingService {
             name: block.name,
             input: block.input,
           };
+        } else if (block.type === 'thinking') {
+          return { type: 'thinking', text: block.thinking };
+        } else if (block.type === 'tool_result') {
+          // Convert tool_result content to string if it's an array
+          const contentString =
+            typeof block.content === 'string'
+              ? block.content
+              : JSON.stringify(block.content);
+          return {
+            type: 'tool_result',
+            tool_use_id: block.tool_use_id,
+            content: contentString,
+            is_error: block.is_error,
+          };
         } else {
-          return { type: 'text', text: block.thinking };
+          // Fallback for unexpected types
+          return { type: 'text', text: '' };
         }
       }),
       isComplete: strictMessage.isComplete,
