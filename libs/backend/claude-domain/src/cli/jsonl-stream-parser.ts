@@ -11,6 +11,7 @@ import {
   ClaudeAgentStartEvent,
   ClaudeAgentActivityEvent,
   ClaudeAgentCompleteEvent,
+  ContentBlock,
 } from '@ptah-extension/shared';
 
 export type JSONLMessage =
@@ -320,54 +321,59 @@ export class JSONLStreamParser {
       return;
     }
 
-    // Streaming content delta
+    // Convert JSONL message to ContentBlock array and emit single MESSAGE_CHUNK event
+    const blocks: ContentBlock[] = [];
+
+    // Streaming content delta (simple text)
     if (msg.delta) {
-      const contentChunk: ClaudeContentChunk = {
-        type: 'content',
-        delta: msg.delta,
+      blocks.push({
+        type: 'text',
+        text: msg.delta,
         index: msg.index,
-        timestamp,
-      };
-      this.callbacks.onContent?.(contentChunk);
-      return;
+      });
     }
 
-    // Full content (non-streaming)
+    // Full content (non-streaming, simple text)
     if (msg.content) {
-      const contentChunk: ClaudeContentChunk = {
-        type: 'content',
-        delta: msg.content,
+      blocks.push({
+        type: 'text',
+        text: msg.content,
         index: msg.index,
-        timestamp,
-      };
-      this.callbacks.onContent?.(contentChunk);
-      return;
+      });
     }
 
     // Messages API format (from --output-format stream-json)
-    // Extract text content and tool_use blocks from nested message.content array
+    // Convert message.content array to ContentBlock array (preserves structure)
     if (msg.message?.content) {
       for (const block of msg.message.content) {
         if (block.type === 'text' && block.text) {
-          const contentChunk: ClaudeContentChunk = {
-            type: 'content',
-            delta: block.text,
+          blocks.push({
+            type: 'text',
+            text: block.text,
             index: msg.index,
-            timestamp,
-          };
-          this.callbacks.onContent?.(contentChunk);
+          });
         } else if (block.type === 'tool_use' && block.id && block.name) {
-          // Handle tool_use blocks - emit TOOL_START events
-          const toolEvent: ClaudeToolEvent = {
-            type: 'start',
-            toolCallId: block.id,
-            tool: block.name,
-            args: (block.input as Record<string, unknown>) || {},
-            timestamp,
-          };
-          this.callbacks.onTool?.(toolEvent);
+          // Include tool_use blocks in contentBlocks (NOT separate TOOL_START events)
+          blocks.push({
+            type: 'tool_use',
+            id: block.id,
+            name: block.name,
+            input: (block.input as Record<string, unknown>) || {},
+            index: msg.index,
+          });
         }
       }
+    }
+
+    // Emit single MESSAGE_CHUNK event with all content blocks
+    if (blocks.length > 0) {
+      const contentChunk: ClaudeContentChunk = {
+        type: 'content',
+        blocks,
+        index: msg.index,
+        timestamp,
+      };
+      this.callbacks.onContent?.(contentChunk);
     }
   }
 
@@ -776,7 +782,13 @@ export class JSONLStreamParser {
       if (msg.event.delta.type === 'text_delta' && msg.event.delta.text) {
         const contentChunk: ClaudeContentChunk = {
           type: 'content',
-          delta: msg.event.delta.text,
+          blocks: [
+            {
+              type: 'text',
+              text: msg.event.delta.text,
+              index: msg.event.index,
+            },
+          ],
           index: msg.event.index,
           timestamp,
         };
