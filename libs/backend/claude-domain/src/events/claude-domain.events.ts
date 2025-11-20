@@ -113,6 +113,16 @@ export class ClaudeDomainEventPublisher {
   constructor(@inject(TOKENS.EVENT_BUS) private readonly eventBus: IEventBus) {}
 
   emitContentChunk(sessionId: SessionId, chunk: ClaudeContentChunk): void {
+    // 🔍 DIAGNOSTIC LOGGING: Track MESSAGE_CHUNK events to identify duplicates
+    console.log('[MESSAGE_CHUNK]', {
+      timestamp: new Date().toISOString(),
+      sessionId,
+      chunkTimestamp: chunk.timestamp,
+      deltaLength: chunk.delta?.length || 0,
+      index: chunk.index,
+      caller: new Error().stack?.split('\n')[2]?.trim() || 'unknown',
+    });
+
     this.eventBus.publish<ClaudeContentChunkEvent>(
       CHAT_MESSAGE_TYPES.MESSAGE_CHUNK,
       {
