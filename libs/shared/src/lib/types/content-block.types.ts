@@ -14,6 +14,7 @@ export type ContentBlockType = 'text' | 'thinking' | 'tool_use' | 'tool_result';
 export interface TextContentBlock {
   type: 'text';
   text: string;
+  index?: number;
 }
 
 /**
@@ -22,6 +23,7 @@ export interface TextContentBlock {
 export interface ThinkingContentBlock {
   type: 'thinking';
   thinking: string;
+  index?: number;
 }
 
 /**
@@ -32,6 +34,7 @@ export interface ToolUseContentBlock {
   id: string;
   name: string;
   input: Record<string, unknown>;
+  index?: number;
 }
 
 /**
@@ -42,6 +45,7 @@ export interface ToolResultContentBlock {
   tool_use_id: string;
   content: string | Array<{ type: string; [key: string]: unknown }>;
   is_error?: boolean;
+  index?: number;
 }
 
 /**

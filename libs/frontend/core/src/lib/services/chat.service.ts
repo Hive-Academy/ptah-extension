@@ -151,6 +151,10 @@ export class ChatService {
   private readonly logger = inject(LoggingService);
   private readonly destroyRef = inject(DestroyRef);
 
+  // Deduplication sets (TASK_2025_008 - Bug 1)
+  private readonly processedMessageIds = new Set<string>();
+  private readonly processedChunkIds = new Set<string>();
+
   // Temporary streaming state (until StreamHandlingService migration)
   private readonly _streamState = signal<StreamState>({
     isStreaming: false,
@@ -460,6 +464,17 @@ export class ChatService {
           isComplete = false,
         } = payload;
 
+        // Deduplicate chunks (TASK_2025_008 - Bug 1)
+        const chunkContent = JSON.stringify(contentBlocks);
+        const chunkId = `${messageId}-${chunkContent}`;
+        if (this.processedChunkIds.has(chunkId)) {
+          this.logger.warn('Duplicate chunk detected:', 'ChatService', {
+            chunkId,
+          });
+          return;
+        }
+        this.processedChunkIds.add(chunkId);
+
         // Update streaming state
         this._streamState.update((state) => ({
           ...state,
@@ -594,6 +609,15 @@ export class ChatService {
         // Extract message from event payload
         const message = payload.message;
         if (message && this.validator.validateChatMessage(message).isValid) {
+          // Deduplicate messages (TASK_2025_008 - Bug 1)
+          if (this.processedMessageIds.has(message.id)) {
+            this.logger.warn('Duplicate message detected:', 'ChatService', {
+              messageId: message.id,
+            });
+            return;
+          }
+          this.processedMessageIds.add(message.id);
+
           // Add message to state
           const currentMessages = this.chatState.messages();
           this.chatState.setMessages([...currentMessages, message as never]);
