@@ -316,7 +316,7 @@ export class ClaudeCliLauncher {
 
       onContent: (chunk) => {
         this.deps.sessionManager.touchSession(sessionId);
-        this.deps.eventPublisher.emitContentChunk(sessionId, chunk);
+        this.deps.eventPublisher.emitContentChunk(sessionId, chunk.blocks);
         pushWithBackpressure({ type: 'content', data: chunk });
       },
 

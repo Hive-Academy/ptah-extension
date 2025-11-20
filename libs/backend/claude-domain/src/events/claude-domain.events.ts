@@ -16,6 +16,7 @@ import {
   ClaudeAgentActivityEvent,
   ClaudeAgentCompleteEvent,
   CHAT_MESSAGE_TYPES,
+  ContentBlock,
 } from '@ptah-extension/shared';
 import { TOKENS } from '@ptah-extension/vscode-core';
 
@@ -112,13 +113,23 @@ export interface IEventBus {
 export class ClaudeDomainEventPublisher {
   constructor(@inject(TOKENS.EVENT_BUS) private readonly eventBus: IEventBus) {}
 
-  emitContentChunk(sessionId: SessionId, chunk: ClaudeContentChunk): void {
+  emitContentChunk(
+    sessionId: SessionId,
+    blocks: readonly ContentBlock[]
+  ): void {
     // NOTE: This emits an INTERNAL event 'claude:domain:contentChunk'
     // NOT MESSAGE_CHUNK which is the user-facing webview event
     // message-handler.service.ts transforms the stream into proper MESSAGE_CHUNK events
 
     // INTERNAL event topic (NOT in CHAT_MESSAGE_TYPES - internal to claude-domain)
     const INTERNAL_CONTENT_CHUNK = 'claude:domain:contentChunk';
+
+    // Construct ClaudeContentChunk with blocks
+    const chunk: ClaudeContentChunk = {
+      type: 'content',
+      blocks,
+      timestamp: Date.now(),
+    };
 
     this.eventBus.publish<ClaudeContentChunkEvent>(INTERNAL_CONTENT_CHUNK, {
       sessionId,
