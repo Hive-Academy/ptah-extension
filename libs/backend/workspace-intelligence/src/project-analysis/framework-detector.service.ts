@@ -69,7 +69,8 @@ export class FrameworkDetectorService {
       }
 
       return undefined;
-    } catch (error) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (_error) {
       // Graceful error handling - return undefined instead of crashing
       return undefined;
     }
@@ -153,7 +154,8 @@ export class FrameworkDetectorService {
       }
 
       return undefined;
-    } catch (error) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (_error) {
       // JSON parse error or file read error - return undefined
       return undefined;
     }
@@ -188,7 +190,8 @@ export class FrameworkDetectorService {
         if (lowerContent.includes('django')) {
           return Framework.Django;
         }
-      } catch (error) {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      } catch (_error) {
         // Ignore read errors
       }
     }
@@ -224,7 +227,8 @@ export class FrameworkDetectorService {
         if (composer.require && composer.require['laravel/framework']) {
           return Framework.Laravel;
         }
-      } catch (error) {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      } catch (_error) {
         // Ignore parse errors
       }
     }
@@ -256,7 +260,8 @@ export class FrameworkDetectorService {
         if (content.includes('rails')) {
           return Framework.Rails;
         }
-      } catch (error) {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      } catch (_error) {
         // Ignore read errors
       }
     }

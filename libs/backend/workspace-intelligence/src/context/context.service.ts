@@ -517,7 +517,7 @@ export class ContextService {
           const stat = await vscode.workspace.fs.stat(file);
           const relativePath = path.relative(workspacePath, file.fsPath);
           const fileName = path.basename(file.fsPath);
-          const fileType = this.detectFileType(fileName, file);
+          const fileType = this.detectFileType(fileName);
 
           results.push({
             uri: file,
@@ -856,7 +856,7 @@ export class ContextService {
         const stat = await vscode.workspace.fs.stat(file);
         const relativePath = path.relative(workspacePath, file.fsPath);
         const fileName = path.basename(file.fsPath);
-        const fileType = this.detectFileType(fileName, file);
+        const fileType = this.detectFileType(fileName);
 
         // Calculate relevance score
         const relevanceScore = this.calculateRelevanceScore(
@@ -895,10 +895,7 @@ export class ContextService {
     return results;
   }
 
-  private detectFileType(
-    fileName: string,
-    _uri: vscode.Uri
-  ): FileSearchResult['fileType'] {
+  private detectFileType(fileName: string): FileSearchResult['fileType'] {
     const ext = path.extname(fileName).toLowerCase();
 
     const imageExts = [

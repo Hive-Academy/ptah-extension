@@ -7,10 +7,7 @@ import { WorkspaceIndexerService } from './workspace-indexer.service';
 import { FileSystemService } from '../services/file-system.service';
 import { TokenCounterService } from '../services/token-counter.service';
 import { PatternMatcherService } from './pattern-matcher.service';
-import {
-  IgnorePatternResolverService,
-  type IgnorePattern,
-} from './ignore-pattern-resolver.service';
+import { IgnorePatternResolverService } from './ignore-pattern-resolver.service';
 import { FileTypeClassifierService } from '../context-analysis/file-type-classifier.service';
 import { FileType } from '../types/workspace.types';
 import * as vscode from 'vscode';
