@@ -227,7 +227,7 @@ export class ChatMessagesListComponent implements AfterViewInit {
   readonly hasNewMessages = computed(() => this.newMessagesCount() > 0);
 
   readonly isTyping = computed(() =>
-    this.messages().some((m) => m.status === 'streaming')
+    this.messages().some((m) => m.isStreaming === true)
   );
 
   readonly hasTypingIndicators = computed(() => this.isTyping());
