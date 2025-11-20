@@ -346,3 +346,36 @@ export const ClaudeAgentEventSchema = z.discriminatedUnion('type', [
   ClaudeAgentActivityEventSchema,
   ClaudeAgentCompleteEventSchema,
 ]);
+
+/**
+ * Session Summary - Lightweight session metadata from .claude_sessions/
+ * Used by SessionProxy to list available Claude CLI sessions
+ * Pattern: Follows ClaudePermissionRule interface (lines 24-38)
+ *
+ * Source: .claude_sessions/*.json files
+ * Purpose: Display session list in ChatEmptyStateComponent without loading full session data
+ */
+export interface SessionSummary {
+  /** Unique session identifier (matches .claude_sessions/ filename) */
+  readonly id: string;
+  /** Session name (user-provided or auto-generated) */
+  readonly name: string;
+  /** Total messages in session */
+  readonly messageCount: number;
+  /** Last activity timestamp (Unix epoch milliseconds) */
+  readonly lastActiveAt: number;
+  /** Session creation timestamp (Unix epoch milliseconds) */
+  readonly createdAt: number;
+}
+
+/**
+ * SessionSummary Zod Schema - Runtime validation
+ * Used by SessionProxy.listSessions() to validate parsed session data
+ */
+export const SessionSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  messageCount: z.number().int().nonnegative(),
+  lastActiveAt: z.number().int().positive(),
+  createdAt: z.number().int().positive(),
+});
