@@ -31,6 +31,7 @@ import {
   ChatSessionInitPayload,
   ChatHealthUpdatePayload,
   ChatCliErrorPayload,
+  SessionSummary,
 } from '@ptah-extension/shared';
 import { MessageProcessingService } from './message-processing.service';
 import { ChatValidationService } from './chat-validation.service';
@@ -186,6 +187,10 @@ export class ChatService {
   // Permission request state
   private readonly _pendingPermissions = signal<PendingPermission[]>([]);
   public readonly pendingPermissions = this._pendingPermissions.asReadonly();
+
+  // Sessions state (TASK_2025_011 - Batch 3)
+  private readonly _sessions = signal<SessionSummary[]>([]);
+  readonly sessions = this._sessions.asReadonly();
 
   // Agent computed signals
   readonly activeAgents = computed(() =>
@@ -362,6 +367,13 @@ export class ChatService {
   clearMessages(): void {
     this.chatState.clearMessages();
     this.chatState.clearClaudeMessages();
+  }
+
+  /**
+   * Refresh sessions list from backend (TASK_2025_011 - Batch 3)
+   */
+  async refreshSessions(): Promise<void> {
+    this.vscode.postStrictMessage(CHAT_MESSAGE_TYPES.REQUEST_SESSIONS, {});
   }
 
   /**
@@ -675,6 +687,7 @@ export class ChatService {
       });
 
     // Listen for sessions list updates (backend publishes chat:sessionsUpdated)
+    // TASK_2025_011 - Batch 3: Update sessions signal
     this.vscode
       .onMessageType(CHAT_MESSAGE_TYPES.SESSIONS_UPDATED)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -682,12 +695,10 @@ export class ChatService {
         // Extract sessions array from event payload
         const sessions = payload.sessions;
         if (Array.isArray(sessions)) {
-          const validSessions = sessions.filter(
-            (session) => this.validator.validateSession(session).isValid
-          ) as never[]; // Type guard passed, safe to cast
-          // TODO: Update sessions list in state (currently no sessions state)
+          // Update sessions signal (no validation needed - SessionSummary is already validated by backend)
+          this._sessions.set(sessions);
           this.logger.debug('Sessions list updated', 'ChatService', {
-            count: validSessions.length,
+            count: sessions.length,
           });
         }
       });

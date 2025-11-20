@@ -107,7 +107,7 @@ export class SessionProxy {
   async getSessionDetails(
     sessionId: string,
     workspaceRoot?: string
-  ): Promise<any | null> {
+  ): Promise<Record<string, unknown> | null> {
     try {
       const sessionsDir = this.getSessionsDirectory(workspaceRoot);
       const filePath = path.join(sessionsDir, `${sessionId}.json`);
@@ -116,9 +116,9 @@ export class SessionProxy {
       const content = await fs.readFile(filePath, 'utf-8');
 
       // Parse JSON
-      const session = JSON.parse(content);
+      const session = JSON.parse(content) as Record<string, unknown>;
       return session;
-    } catch (error) {
+    } catch {
       // File doesn't exist or is corrupt - return null
       return null;
     }
@@ -174,8 +174,6 @@ export class SessionProxy {
     files: string[],
     sessionsDir: string
   ): Promise<SessionSummary[]> {
-    const sessions: SessionSummary[] = [];
-
     // Process files in parallel for performance
     const promises = files.map(async (file) => {
       try {
