@@ -78,6 +78,7 @@ import {
 import {
   ClaudeCliDetector,
   SessionManager,
+  SessionProxy,
   ProcessManager,
   ClaudeDomainEventPublisher,
   PermissionService,
@@ -296,6 +297,7 @@ export class DIContainer {
     // Core domain services
     container.registerSingleton(TOKENS.CLAUDE_CLI_DETECTOR, ClaudeCliDetector);
     container.registerSingleton(TOKENS.SESSION_MANAGER, SessionManager);
+    container.registerSingleton(TOKENS.SESSION_PROXY, SessionProxy);
     container.registerSingleton(TOKENS.PROCESS_MANAGER, ProcessManager);
     container.registerSingleton(
       TOKENS.CLAUDE_DOMAIN_EVENT_PUBLISHER,

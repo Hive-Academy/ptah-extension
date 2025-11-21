@@ -105,6 +105,7 @@ export const VSCODE_LM_ADAPTER = Symbol.for('VsCodeLmAdapter');
 // ========================================
 // Core domain services
 export const SESSION_MANAGER = Symbol.for('SessionManager');
+export const SESSION_PROXY = Symbol.for('SessionProxy');
 export const CLAUDE_CLI_DETECTOR = Symbol.for('ClaudeCliDetector');
 export const CLAUDE_CLI_SERVICE = Symbol.for('ClaudeCliService');
 export const CLAUDE_CLI_LAUNCHER = Symbol.for('ClaudeCliLauncher');
@@ -231,6 +232,7 @@ export const TOKENS = {
   // Claude Domain Services
   // ========================================
   SESSION_MANAGER,
+  SESSION_PROXY,
   CLAUDE_CLI_DETECTOR,
   CLAUDE_CLI_SERVICE,
   CLAUDE_CLI_LAUNCHER,
