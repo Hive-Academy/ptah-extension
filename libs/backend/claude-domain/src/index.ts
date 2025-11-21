@@ -20,6 +20,7 @@ export type {
   BulkDeleteResult,
   IStorageService,
 } from './session/session-manager';
+export { SessionProxy } from './session/session-proxy';
 
 // Command Execution
 export { CommandService } from './commands/command.service';
