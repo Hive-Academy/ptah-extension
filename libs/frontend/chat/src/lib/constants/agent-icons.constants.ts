@@ -27,7 +27,7 @@ import {
 /**
  * Maps agent types to lucide-angular icon components
  *
- * Supports 16 agent types with semantic icon mappings:
+ * Supports 15 agent types with semantic icon mappings:
  * - general-purpose: CircleDotIcon (flexible, all-purpose)
  * - Explore: SearchIcon (code exploration, discovery)
  * - Plan: MapIcon (strategic planning, design)
@@ -42,7 +42,6 @@ import {
  * - researcher-expert: BookOpenIcon (deep research, knowledge)
  * - ui-ux-designer: PaletteIcon (visual design specifications)
  * - team-leader: UsersIcon (task delegation, coordination)
- * - workflow-orchestrator: GitBranchIcon (git workflows, automation)
  * - statusline-setup: SettingsIcon (configuration, setup)
  */
 export const AGENT_ICON_MAP: Record<string, typeof SearchIcon> = {
@@ -60,7 +59,6 @@ export const AGENT_ICON_MAP: Record<string, typeof SearchIcon> = {
   'researcher-expert': BookOpenIcon,
   'ui-ux-designer': PaletteIcon,
   'team-leader': UsersIcon,
-  'workflow-orchestrator': GitBranchIcon,
   'statusline-setup': SettingsIcon,
 };
 
@@ -88,8 +86,6 @@ export const AGENT_COLOR_MAP: Record<string, string> = {
   'researcher-expert': 'var(--vscode-symbolIcon-stringForeground)',
   'ui-ux-designer': 'var(--vscode-symbolIcon-colorForeground)',
   'team-leader': 'var(--vscode-symbolIcon-interfaceForeground)',
-  'workflow-orchestrator':
-    'var(--vscode-gitDecoration-modifiedResourceForeground)',
   'statusline-setup': 'var(--vscode-symbolIcon-variableForeground)',
 };
 

@@ -36,96 +36,95 @@ npm run typecheck:all
 
 ## 🎯 ORCHESTRATOR WORKFLOW
 
-### Architecture: Hybrid Orchestrator-Executor Pattern
+### Architecture: Direct Orchestration Pattern
 
 **Components**:
 
-1. **Slash Command** (.claude/commands/orchestrate.md): Triggers workflow
-2. **Main Thread (you)**: Execution engine implementing iterative loop
-3. **Orchestrator Agent** (.claude/agents/workflow-orchestrator.md): GPS coordinator
-   - Executes Phase 0 (git, task setup)
-   - Analyzes task type, creates dynamic strategy
-   - Provides turn-by-turn guidance
-4. **Team Leader Agent** (.claude/agents/team-leader.md): Task decomposition & assignment coordinator
+1. **Slash Command** (.claude/commands/orchestrate.md): Complete orchestration logic
+2. **Main Thread (you)**: **YOU ARE THE ORCHESTRATOR** - you execute all coordination directly
+   - Execute Phase 0 (task ID generation, context.md creation)
+   - Analyze task type, determine dynamic strategy
+   - Invoke specialist agents directly
+   - Manage user validation checkpoints
+   - Track all workflow state
+3. **Team Leader Agent** (.claude/agents/team-leader.md): Task decomposition & assignment coordinator
    - DECOMPOSITION mode: Breaks implementation plans into atomic tasks
    - ASSIGNMENT mode: Assigns tasks to developers with git verification
    - COMPLETION mode: Validates all tasks complete, triggers final review
-5. **Specialist Agents**: project-manager, researcher, architect, developers, testers, reviewers
-6. **Validation Agent**: business-analyst (quality gates)
+4. **Specialist Agents**: project-manager, researcher, architect, developers, testers, reviewers
 
-**Key Insight**: Agents return to main thread, NOT to other agents. Orchestrator = GPS, Team Leader = project manager, Main thread = driver.
+**Key Insight**: No separate orchestrator agent. Main thread (you) has all orchestration logic built-in, making decisions directly using tools.
 
 ### Execution Flow
 
 ```
 User: /orchestrate [task]
   ↓
-You: Invoke workflow-orchestrator
+You (Main Thread - THE ORCHESTRATOR):
+  1. Read task-tracking/registry.md
+  2. Generate TASK_2025_XXX
+  3. Create context.md
+  4. Analyze task type & complexity
+  5. Choose execution strategy
   ↓
-Orchestrator: "Phase 0 ✅ + INVOKE project-manager"
+You: Invoke project-manager directly
   ↓
-You: Invoke project-manager
+PM: Returns requirements (task-description.md)
   ↓
-PM: Returns requirements
+You: Ask USER for validation ✋
   ↓
-You: Return to orchestrator with results
+User: "APPROVED ✅"
   ↓
-Orchestrator: "INVOKE business-analyst for validation"
-  ↓
-You: Invoke business-analyst
-  ↓
-BA: APPROVED ✅
-  ↓
-You: Return to orchestrator
-  ↓
-Orchestrator: "INVOKE software-architect"
-  ↓
-You: Invoke software-architect
+You: Invoke software-architect directly
   ↓
 Architect: Returns implementation-plan.md
   ↓
-You: Return to orchestrator with results
+You: Ask USER for validation ✋
   ↓
-Orchestrator: "INVOKE team-leader"
+User: "APPROVED ✅"
   ↓
-You: Invoke team-leader (DECOMPOSITION mode)
+You: Invoke team-leader MODE 1 (DECOMPOSITION)
   ↓
 Team Leader: Creates tasks.md with atomic tasks
   ↓
-You: Return to orchestrator
+You: Invoke team-leader MODE 2 (ASSIGNMENT - first task)
   ↓
-Orchestrator: "INVOKE team-leader (ASSIGNMENT)"
+Team Leader: "ASSIGN TASK 1 to [developer]"
   ↓
-You: Invoke team-leader (ASSIGNMENT mode)
+You: Invoke developer with task details
   ↓
-Team Leader: "ASSIGN TASK [N] to senior-developer"
+Developer: Implements code, commits git
   ↓
-You: Invoke senior-developer with task
+You: Invoke team-leader MODE 2 (VERIFICATION+ASSIGNMENT)
   ↓
-Developer: Implements code
+Team Leader: Verifies git commit ✅, assigns next task
   ↓
-You: Verify git commit exists
+... repeat MODE 2 loop for each task
   ↓
-You: Return to team-leader with results
+You: Invoke team-leader MODE 3 (COMPLETION)
   ↓
-Team Leader: Updates tasks.md, assigns next task OR "COMPLETION"
+Team Leader: Final verification, all tasks complete ✅
   ↓
-... repeat assignment loop until all tasks complete
+You: Ask USER for QA choice ✋
   ↓
-You: Return to orchestrator
+User: "both" (tester + reviewer)
   ↓
-Orchestrator: "INVOKE senior-tester"
+You: Invoke senior-tester AND code-reviewer in PARALLEL
   ↓
-... continue until "WORKFLOW COMPLETE"
+You: Guide user through git operations
+  ↓
+You: Invoke modernization-detector
+  ↓
+You: Present final summary - WORKFLOW COMPLETE 🎯
 ```
 
 ### Dynamic Task-Type Strategies
 
-- **FEATURE**: PM → Research → Architect → Team Leader (Decomposition) → Team Leader (Assignment Loop) → Test → Review → Modernization
-- **BUGFIX**: Team Leader (Decomposition) → Team Leader (Assignment Loop) → Test → Review
-- **REFACTORING**: Architect → Team Leader (Decomposition) → Team Leader (Assignment Loop) → Test → Review
-- **DOCUMENTATION**: PM → Team Leader (Decomposition) → Team Leader (Assignment Loop) → Review
-- **RESEARCH**: Researcher → conditional implementation (Team Leader if code needed)
+- **FEATURE**: PM → USER VALIDATES → [Research] → [UI/UX Designer] → Architect → USER VALIDATES → Team Leader (3 modes) → USER CHOOSES QA → Modernization
+- **BUGFIX**: Team Leader (3 modes) → USER CHOOSES QA (skip PM/Architect - requirements clear)
+- **REFACTORING**: Architect → USER VALIDATES → Team Leader (3 modes) → USER CHOOSES QA
+- **DOCUMENTATION**: PM → USER VALIDATES → Developer → Reviewer
+- **RESEARCH**: Researcher → [conditional implementation]
 
 ### Usage
 
@@ -136,21 +135,25 @@ Orchestrator: "INVOKE senior-tester"
 /orchestrate TASK_2025_001                      # Continue task
 ```
 
-**Workflow Steps**:
+**How It Works**:
 
-1. You receive command → invoke workflow-orchestrator
-2. Orchestrator returns: "NEXT ACTION: INVOKE [agent] with [prompt]"
-3. You invoke recommended agent
-4. Agent returns results
-5. You return to orchestrator with results
-6. **Team Leader Iterative Loop** (when in ASSIGNMENT mode):
-   - Team Leader assigns task to developer
-   - You invoke developer with task details
-   - Developer implements and commits code
-   - You verify git commit exists before returning to Team Leader
-   - Team Leader updates tasks.md and assigns next task OR signals COMPLETION
-   - Repeat until all tasks complete
-7. Repeat orchestrator loop until "WORKFLOW COMPLETE"
+1. You receive `/orchestrate` command
+2. **You execute Phase 0 directly** (read registry, create context.md, analyze task)
+3. **You choose execution strategy** based on task type analysis
+4. **You invoke agents directly** following chosen strategy
+5. **You handle user validation** (PM & Architect deliverables)
+6. **You manage team-leader 3-mode loop** (DECOMPOSITION → ITERATIVE ASSIGNMENT → COMPLETION)
+7. **You handle QA choice** (user decides: tester/reviewer/both/skip)
+8. **You guide git operations** (user handles when ready)
+9. **You invoke modernization-detector** for future work analysis
+10. **You present final summary** when all phases complete
+
+**Benefits**:
+- ✅ **Faster**: No orchestrator agent overhead
+- ✅ **More Reliable**: Direct tool access (Read, Write, Glob, Bash) prevents hallucination
+- ✅ **Simpler**: One less abstraction layer
+- ✅ **Clearer**: User sees direct progress
+- ✅ **Less Context**: No copying results between agents
 
 ---
 

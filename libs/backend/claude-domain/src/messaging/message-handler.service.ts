@@ -653,14 +653,14 @@ export class MessageHandlerService {
     // providers:selectModel
     this.subscriptions.push(
       this.eventBus
-        .subscribe('providers:selectModel')
+        .subscribe(PROVIDER_MESSAGE_TYPES.SELECT_MODEL)
         .subscribe(async (event) => {
           const result = await this.providerOrchestration.selectModel({
             modelId: event.payload.modelId,
             providerId: event.payload.providerId,
           });
           this.publishResponse(
-            'providers:selectModel',
+            PROVIDER_MESSAGE_TYPES.SELECT_MODEL,
             event.correlationId,
             result
           );
