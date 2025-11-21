@@ -169,8 +169,10 @@ describe('WorkspacePathEncoder', () => {
       // Note: On Windows, path.join uses backslashes even with Unix home dir
       // Accept both forward slash (Unix) and backslash (Windows path.join)
       expect(
-        result === '/home/testuser/.claude/projects/-home-testuser-my-project' ||
-          result === '\\home\\testuser\\.claude\\projects\\-home-testuser-my-project'
+        result ===
+          '/home/testuser/.claude/projects/-home-testuser-my-project' ||
+          result ===
+            '\\home\\testuser\\.claude\\projects\\-home-testuser-my-project'
       ).toBe(true);
     });
 
@@ -189,8 +191,10 @@ describe('WorkspacePathEncoder', () => {
       // Note: On Windows, path.join uses backslashes even with Unix home dir
       // Accept both forward slash (Unix) and backslash (Windows path.join)
       expect(
-        result === '/Users/testuser/.claude/projects/-users-testuser-workspace' ||
-          result === '\\Users\\testuser\\.claude\\projects\\-users-testuser-workspace'
+        result ===
+          '/Users/testuser/.claude/projects/-users-testuser-workspace' ||
+          result ===
+            '\\Users\\testuser\\.claude\\projects\\-users-testuser-workspace'
       ).toBe(true);
     });
 
