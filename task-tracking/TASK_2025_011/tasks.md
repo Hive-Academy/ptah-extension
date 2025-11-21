@@ -7,18 +7,21 @@
 - **Estimated Duration**: 12-16 hours
 - **Phases**: 5 phases (aligned with implementation plan)
 - **Batching Strategy**: Phase-based with developer type separation
-- **Status**: 0/5 batches complete (0%)
+- **Status**: 1/5 batches complete (20%)
 
 ---
 
-## Batch 1: Foundation - Types & SessionProxy Service (Backend) PENDING
+## Batch 1: Foundation - Types & SessionProxy Service (Backend) COMPLETE ✅
 
 **Assigned To**: backend-developer
 **Tasks in Batch**: 3
 **Dependencies**: None (foundation)
 **Estimated Duration**: 4-5 hours
+**Commits**: e253548, 1cc81bc, 7bb949e
 
-### Task 1.1: Create SessionSummary Type PENDING
+### Task 1.1: Create SessionSummary Type COMPLETE ✅
+
+**Commit**: e253548
 
 **File(s)**: D:\projects\ptah-extension\libs\shared\src\lib\types\claude-domain.types.ts
 **Developer**: backend-developer
@@ -52,7 +55,9 @@
 
 ---
 
-### Task 1.2: Export SessionSummary from Shared Library PENDING
+### Task 1.2: Export SessionSummary from Shared Library COMPLETE ✅
+
+**Commit**: 1cc81bc
 
 **File(s)**: D:\projects\ptah-extension\libs\shared\src\index.ts
 **Developer**: backend-developer
@@ -75,7 +80,9 @@
 
 ---
 
-### Task 1.3: Create SessionProxy Service PENDING
+### Task 1.3: Create SessionProxy Service COMPLETE ✅
+
+**Commit**: 7bb949e
 
 **File(s)**: D:\projects\ptah-extension\libs\backend\claude-domain\src\session\session-proxy.ts
 **Developer**: backend-developer
@@ -124,14 +131,17 @@
 
 ---
 
-## Batch 2: SessionProxy Integration & DI Registration (Backend) PENDING
+## Batch 2: SessionProxy Integration & DI Registration (Backend) IN PROGRESS
 
 **Assigned To**: backend-developer
 **Tasks in Batch**: 4
 **Dependencies**: Batch 1 complete
 **Estimated Duration**: 3-4 hours
+**Commits**: 1cdcc83, 9fa4c96, d76a787
 
-### Task 2.1: Create SessionProxy Unit Tests PENDING
+### Task 2.1: Create SessionProxy Unit Tests COMPLETE ✅
+
+**Commit**: 1cdcc83
 
 **File(s)**: D:\projects\ptah-extension\libs\backend\claude-domain\src\session\session-proxy.spec.ts
 **Developer**: backend-developer
@@ -158,7 +168,9 @@
 
 ---
 
-### Task 2.2: Export SessionProxy from Backend Library PENDING
+### Task 2.2: Export SessionProxy from Backend Library COMPLETE ✅
+
+**Commit**: 9fa4c96
 
 **File(s)**: D:\projects\ptah-extension\libs\backend\claude-domain\src\index.ts
 **Developer**: backend-developer
@@ -179,15 +191,20 @@
 
 ---
 
-### Task 2.3: Register SessionProxy in DI Container PENDING
+### Task 2.3: Register SessionProxy in DI Container COMPLETE ✅
 
-**File(s)**: D:\projects\ptah-extension\libs\backend\claude-domain\src\di\register.ts
-**Developer**: backend-developer
-**Complexity**: Simple (30 minutes)
-**Dependencies**: Tasks 1.3, 2.2
-**Specification Reference**: architecture-analysis.md:172-181
-**Pattern to Follow**: register.ts existing registration patterns
-**Expected Commit Pattern**: `feat(vscode): register sessionproxy in di container`
+**Commit**: d76a787
+
+**File(s)**:
+
+- D:\projects\ptah-extension\libs\backend\vscode-core\src\di\tokens.ts (add token)
+- D:\projects\ptah-extension\apps\ptah-extension-vscode\src\di\container.ts (register service)
+  **Developer**: backend-developer
+  **Complexity**: Simple (30 minutes)
+  **Dependencies**: Tasks 1.3, 2.2
+  **Specification Reference**: architecture-analysis.md:172-181
+  **Pattern to Follow**: container.ts existing registration patterns
+  **Expected Commit Pattern**: `feat(vscode): register sessionproxy in di container`
 
 **Quality Requirements**:
 
@@ -244,14 +261,17 @@
 
 ---
 
-## Batch 3: Frontend Session State (Frontend) PENDING
+## Batch 3: Frontend Session State (Frontend) COMPLETE ✅
 
 **Assigned To**: frontend-developer
 **Tasks in Batch**: 3
 **Dependencies**: Batch 2 complete
 **Estimated Duration**: 2-3 hours
+**Batch Git Commits**: fc20b89 (Task 3.2), 247e2df (Task 3.3)
 
-### Task 3.1: Add Sessions Signal to ChatService PENDING
+### Task 3.1: Add Sessions Signal to ChatService COMPLETE ✅
+
+**Commit**: 1cdcc83d (completed in earlier session)
 
 **File(s)**: D:\projects\ptah-extension\libs\frontend\core\src\lib\services\chat.service.ts
 **Developer**: frontend-developer
@@ -292,7 +312,9 @@
 
 ---
 
-### Task 3.2: Enhance ChatEmptyStateComponent with Sessions List PENDING
+### Task 3.2: Enhance ChatEmptyStateComponent with Sessions List COMPLETE ✅
+
+**Commit**: fc20b89
 
 **File(s)**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\chat-empty-state\chat-empty-state.component.ts
 **Developer**: frontend-developer
@@ -327,14 +349,16 @@
 
 ---
 
-### Task 3.3: Create ChatEmptyStateComponent Unit Tests PENDING
+### Task 3.3: Create ChatEmptyStateComponent Unit Tests COMPLETE ✅
+
+**Commit**: 247e2df
 
 **File(s)**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\chat-empty-state\chat-empty-state.component.spec.ts
 **Developer**: frontend-developer
 **Complexity**: Simple (1 hour)
 **Dependencies**: Task 3.2
 **Specification Reference**: architecture-analysis.md:425-429
-**Expected Commit Pattern**: `test(webview): add chatempystate component tests`
+**Expected Commit Pattern**: `test(webview): add chatemptystate component tests`
 
 **Quality Requirements**:
 
