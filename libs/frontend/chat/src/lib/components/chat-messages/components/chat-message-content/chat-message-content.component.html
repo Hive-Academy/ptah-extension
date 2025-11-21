@@ -55,82 +55,25 @@
 
       <!-- Thinking Content -->
       @if (isThinkingContent(contentBlock)) {
-      <div class="thinking-block">
-        <div class="thinking-header">
-          <div class="thinking-icon">💭</div>
-          <div class="thinking-label">Claude is thinking...</div>
-        </div>
-        <div class="thinking-content">
-          <pre>{{ contentBlock.thinking }}</pre>
-        </div>
-      </div>
+      <ptah-thinking-block [thinking]="contentBlock.thinking" />
       }
 
       <!-- Tool Use Visualization -->
       @if (isToolUseContent(contentBlock)) {
-      <div class="tool-use-block" [class.running]="message().isStreaming">
-        <div class="tool-header">
-          <div class="tool-icon">{{ getToolIcon(contentBlock.name) }}</div>
-          <div class="tool-info">
-            <span class="tool-name">{{ contentBlock.name }}</span>
-            <span class="tool-status">
-              <span
-                class="status-indicator"
-                [class.running]="message().isStreaming"
-              ></span>
-              {{ message().isStreaming ? 'Running...' : 'Completed' }}
-            </span>
-          </div>
-        </div>
-
-        <!-- Tool Parameters -->
-        @if (hasToolParameters(contentBlock)) {
-        <div class="tool-parameters">
-          <div class="parameters-header">Parameters:</div>
-          <div class="parameter-grid">
-            @for (param of getToolParameters(contentBlock); track param.key) {
-            <div class="parameter-item">
-              <span class="param-name">{{ param.key }}:</span>
-              <span
-                class="param-value"
-                [innerHTML]="formatParameterValue(param.value) | safeHtml"
-              ></span>
-            </div>
-            }
-          </div>
-        </div>
-        }
-      </div>
+      <ptah-tool-use-block
+        [toolUseId]="contentBlock.id"
+        [toolName]="contentBlock.name"
+        [input]="contentBlock.input"
+      />
       }
 
       <!-- Tool Result Visualization -->
       @if (isToolResultContent(contentBlock)) {
-      <div class="tool-result-block" [class.error]="contentBlock.is_error">
-        <div class="result-header">
-          <span class="result-status" [class.error]="contentBlock.is_error">
-            {{ contentBlock.is_error ? '❌ Error' : '✅ Success' }}
-          </span>
-        </div>
-        <div class="result-content">
-          @if (contentBlock.content && isImageContent(contentBlock.content)) {
-          <div class="image-result">
-            <img
-              [ngSrc]="getImageSrc(contentBlock.content)"
-              alt="Tool result image"
-            />
-          </div>
-          } @else if (contentBlock.content &&
-          isCodeContent(contentBlock.content)) {
-          <div class="code-result">
-            <pre><code [innerHTML]="highlightCode(contentBlock.content) | safeHtml"></code></pre>
-          </div>
-          } @else if (contentBlock.content) {
-          <div class="text-result">
-            <pre>{{ contentBlock.content }}</pre>
-          </div>
-          }
-        </div>
-      </div>
+      <ptah-tool-result-block
+        [toolUseId]="contentBlock.tool_use_id"
+        [content]="contentBlock.content"
+        [isError]="contentBlock.is_error ?? false"
+      />
       }
     </div>
     }

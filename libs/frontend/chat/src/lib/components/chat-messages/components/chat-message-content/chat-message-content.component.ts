@@ -40,11 +40,21 @@ import {
   detectFileType,
 } from '@ptah-extension/core';
 import { SafeHtmlPipe } from '@ptah-extension/shared-ui';
+import { ThinkingBlockComponent } from '../../../thinking-block/thinking-block.component';
+import { ToolUseBlockComponent } from '../../../tool-use-block/tool-use-block.component';
+import { ToolResultBlockComponent } from '../../../tool-result-block/tool-result-block.component';
 
 @Component({
   selector: 'ptah-chat-message-content',
   standalone: true,
-  imports: [CommonModule, NgOptimizedImage, SafeHtmlPipe],
+  imports: [
+    CommonModule,
+    NgOptimizedImage,
+    SafeHtmlPipe,
+    ThinkingBlockComponent,
+    ToolUseBlockComponent,
+    ToolResultBlockComponent,
+  ],
   templateUrl: './chat-message-content.component.html',
   styleUrl: './chat-message-content.component.scss',
 })
