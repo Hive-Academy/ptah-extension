@@ -98,6 +98,7 @@ import { WebviewEventQueue } from '../services/webview-event-queue';
 import { WebviewInitialDataBuilder } from '../services/webview-initial-data-builder';
 import { AngularWebviewProvider } from '../providers/angular-webview.provider';
 import { ConfigurationProviderAdapter } from '../adapters/configuration-provider.adapter';
+import { ContextMessageBridgeService } from '../services/context-message-bridge.service';
 
 /**
  * Centralized DI Container
@@ -353,6 +354,9 @@ export class DIContainer {
       TOKENS.ANGULAR_WEBVIEW_PROVIDER,
       AngularWebviewProvider
     );
+
+    // Context Message Bridge (architectural bridge for file include/exclude)
+    container.registerSingleton(ContextMessageBridgeService);
 
     // Adapters (registered later in main.ts after PtahExtension initialization)
     // These require the extension to be partially initialized first
