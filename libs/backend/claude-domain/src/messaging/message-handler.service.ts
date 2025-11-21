@@ -593,62 +593,24 @@ export class MessageHandlerService {
         })
     );
 
-    // context:includeFile
-    // TODO: This handler requires refactoring - includeFile needs VS Code Uri object
-    // MessageHandlerService is in claude-domain and can't create VS Code objects
-    // Solution: Main app should create Uri and call contextOrchestration directly
-    // For now, this is commented out to allow build to pass
-    /*
-    this.subscriptions.push(
-      this.eventBus.subscribe(CONTEXT_MESSAGE_TYPES.INCLUDE_FILE).subscribe(async (event) => {
-        // TEMPORARY WORKAROUND: Create minimal Uri-like object
-        // This will NOT work with actual VS Code ContextService
-        const mockUri = {
-          fsPath: event.payload.filePath,
-          path: event.payload.filePath,
-          scheme: 'file',
-          toString: () => event.payload.filePath,
-        };
-
-        const result = await this.contextOrchestration.includeFile(
-          {
-            requestId: event.correlationId,
-            filePath: event.payload.filePath,
-          },
-          mockUri as any // eslint-disable-line @typescript-eslint/no-explicit-any
-        );
-        this.publishResponse('context:includeFile', event.correlationId, result);
-      })
-    );
-    */
-
-    // context:excludeFile
-    // TODO: This handler requires refactoring - excludeFile needs VS Code Uri object
-    // MessageHandlerService is in claude-domain and can't create VS Code objects
-    // Solution: Main app should create Uri and call contextOrchestration directly
-    // For now, this is commented out to allow build to pass
-    /*
-    this.subscriptions.push(
-      this.eventBus.subscribe(CONTEXT_MESSAGE_TYPES.EXCLUDE_FILE).subscribe(async (event) => {
-        // TEMPORARY WORKAROUND: Create minimal Uri-like object
-        const mockUri = {
-          fsPath: event.payload.filePath,
-          path: event.payload.filePath,
-          scheme: 'file',
-          toString: () => event.payload.filePath,
-        };
-
-        const result = await this.contextOrchestration.excludeFile(
-          {
-            requestId: event.correlationId,
-            filePath: event.payload.filePath,
-          },
-          mockUri as any // eslint-disable-line @typescript-eslint/no-explicit-any
-        );
-        this.publishResponse('context:excludeFile', event.correlationId, result);
-      })
-    );
-    */
+    /**
+     * FILE INCLUDE/EXCLUDE HANDLERS
+     *
+     * These handlers are intentionally NOT implemented in MessageHandlerService.
+     * Reason: includeFile/excludeFile require vscode.Uri objects, but MessageHandlerService
+     * is in the claude-domain library and must not depend on VS Code modules.
+     *
+     * Solution: ContextMessageBridgeService in the main app layer handles these messages.
+     * See: apps/ptah-extension-vscode/src/services/context-message-bridge.service.ts
+     *
+     * Architecture:
+     *   Frontend → INCLUDE_FILE (string path) → EventBus
+     *   → ContextMessageBridgeService (converts to Uri, delegates to contextOrchestration)
+     *   → ContextOrchestrationService (workspace-intelligence)
+     *   → EventBus response → Frontend
+     *
+     * This pattern maintains clean separation of concerns while enabling full functionality.
+     */
 
     // context:searchFiles
     this.subscriptions.push(
