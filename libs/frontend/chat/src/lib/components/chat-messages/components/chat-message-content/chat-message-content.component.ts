@@ -281,7 +281,8 @@ export class ChatMessageContentComponent implements AfterViewInit {
     // Image preview toggle (no logging needed for UI interaction)
   }
 
-  onImageError(event: Event, file: ExtractedFileInfo): void {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  onImageError(event: Event, _file: ExtractedFileInfo): void {
     // Image failed to load - show fallback icon
     const img = event.target as HTMLImageElement;
     img.src =
