@@ -10,7 +10,7 @@ import {
   effect,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Subject, takeUntil, combineLatest, debounceTime, filter } from 'rxjs';
+import { Subject, takeUntil, combineLatest, debounceTime } from 'rxjs';
 import { toObservable } from '@angular/core/rxjs-interop';
 
 // Core Services
