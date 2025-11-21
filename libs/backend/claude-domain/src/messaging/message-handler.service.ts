@@ -554,6 +554,23 @@ export class MessageHandlerService {
           );
         })
     );
+
+    // providers:selectModel
+    this.subscriptions.push(
+      this.eventBus
+        .subscribe('providers:selectModel')
+        .subscribe(async (event) => {
+          const result = await this.providerOrchestration.selectModel({
+            modelId: event.payload.modelId,
+            providerId: event.payload.providerId,
+          });
+          this.publishResponse(
+            'providers:selectModel',
+            event.correlationId,
+            result
+          );
+        })
+    );
   }
 
   /**

@@ -22,9 +22,16 @@ import type {
   ProviderHealthChangeEvent,
   IAIProvider,
 } from '@ptah-extension/shared';
-import { isValidProviderId } from '@ptah-extension/shared';
+import {
+  isValidProviderId,
+  PROVIDER_MESSAGE_TYPES,
+} from '@ptah-extension/shared';
 import type { CorrelationId } from '@ptah-extension/shared';
-import { TOKENS } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  type EventBus,
+  type Logger,
+} from '@ptah-extension/vscode-core';
 
 /**
  * Provider data returned to webview
@@ -187,7 +194,11 @@ export type ProviderEventCallback = (
 export class ProviderOrchestrationService {
   constructor(
     @inject(TOKENS.PROVIDER_MANAGER)
-    private readonly providerManager: IProviderManager
+    private readonly providerManager: IProviderManager,
+    @inject(TOKENS.EVENT_BUS)
+    private readonly eventBus: EventBus,
+    @inject(TOKENS.LOGGER)
+    private readonly logger: Logger
   ) {}
 
   /**
@@ -543,6 +554,81 @@ export class ProviderOrchestrationService {
               ? error.message
               : 'Failed to update auto-switch setting',
         },
+      };
+    }
+  }
+
+  /**
+   * Select a model for the current or specified provider.
+   *
+   * @param request - Model selection request with modelId and optional providerId
+   * @returns Selection result with success status, selected modelId, or error
+   */
+  async selectModel(request: {
+    modelId: string;
+    providerId?: string;
+  }): Promise<{ success: boolean; modelId?: string; error?: string }> {
+    try {
+      const { modelId, providerId } = request;
+
+      // Use current provider if not specified
+      const targetProviderId =
+        providerId || this.providerManager.getCurrentProvider()?.providerId;
+
+      if (!targetProviderId) {
+        return {
+          success: false,
+          error: 'No provider available',
+        };
+      }
+
+      // Get provider
+      const provider = this.providerManager.getProvider(
+        targetProviderId as ProviderId
+      );
+      if (!provider) {
+        return {
+          success: false,
+          error: `Provider ${targetProviderId} not found`,
+        };
+      }
+
+      // Validate model exists for provider
+      if (provider.getAvailableModels) {
+        const models = await provider.getAvailableModels();
+        const modelExists = models.some((m) => m === modelId);
+
+        if (!modelExists) {
+          return {
+            success: false,
+            error: `Model ${modelId} not available for provider ${targetProviderId}`,
+          };
+        }
+      }
+
+      // Publish MODEL_CHANGED event
+      this.eventBus.publish(
+        PROVIDER_MESSAGE_TYPES.MODEL_CHANGED,
+        {
+          modelId,
+          providerId: targetProviderId,
+          timestamp: Date.now(),
+        },
+        'provider'
+      );
+
+      return {
+        success: true,
+        modelId,
+      };
+    } catch (error) {
+      this.logger.error(
+        'Error selecting model',
+        error instanceof Error ? error : undefined
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
       };
     }
   }

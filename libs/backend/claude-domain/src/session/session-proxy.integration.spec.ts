@@ -249,10 +249,10 @@ describe('SessionProxy Integration', () => {
       // Assert
       expect(details).not.toBeNull();
       expect(details).toHaveProperty('content');
-      expect(typeof details?.content).toBe('string');
+      expect(typeof details?.['content']).toBe('string');
 
       // Verify JSONL format (should have newlines)
-      const content = details?.content as string;
+      const content = details?.['content'] as string;
       expect(content).toContain('\n');
 
       // Verify first line is summary or message

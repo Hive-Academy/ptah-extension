@@ -166,9 +166,12 @@ describe('WorkspacePathEncoder', () => {
       expect(result).toContain('.claude');
       expect(result).toContain('projects');
       expect(result).toContain('-home-testuser-my-project');
-      expect(result).toBe(
-        '/home/testuser/.claude/projects/-home-testuser-my-project'
-      );
+      // Note: On Windows, path.join uses backslashes even with Unix home dir
+      // Accept both forward slash (Unix) and backslash (Windows path.join)
+      expect(
+        result === '/home/testuser/.claude/projects/-home-testuser-my-project' ||
+          result === '\\home\\testuser\\.claude\\projects\\-home-testuser-my-project'
+      ).toBe(true);
     });
 
     it('should return full path to sessions directory for macOS workspace', () => {
@@ -183,9 +186,12 @@ describe('WorkspacePathEncoder', () => {
       expect(result).toContain('.claude');
       expect(result).toContain('projects');
       expect(result).toContain('-users-testuser-workspace');
-      expect(result).toBe(
-        '/Users/testuser/.claude/projects/-users-testuser-workspace'
-      );
+      // Note: On Windows, path.join uses backslashes even with Unix home dir
+      // Accept both forward slash (Unix) and backslash (Windows path.join)
+      expect(
+        result === '/Users/testuser/.claude/projects/-users-testuser-workspace' ||
+          result === '\\Users\\testuser\\.claude\\projects\\-users-testuser-workspace'
+      ).toBe(true);
     });
 
     it('should handle different user home directories', () => {
