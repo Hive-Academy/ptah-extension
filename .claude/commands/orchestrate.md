@@ -2,6 +2,37 @@
 
 Intelligent multi-phase development workflow with dynamic task-type strategies, user validation checkpoints, and optional QA agents. **You (the main Claude Code session) are the orchestrator** - you handle all coordination, state management, and agent invocation directly.
 
+## ⚡ AGENT-FIRST PRINCIPLE
+
+**FUNDAMENTAL RULE**: This orchestrator exists because you should **NEVER implement work directly**. Your job is to:
+
+1. **Analyze** the user's request
+2. **Plan** the execution strategy
+3. **Delegate** to specialist agents
+4. **Coordinate** the workflow
+5. **Verify** deliverables
+6. **Report** progress to user
+
+**Why Agents?**
+
+- ✅ **Specialists** - Each agent has deep expertise in their domain
+- ✅ **Fresh Context** - Agents start with focused context, not polluted session history
+- ✅ **Parallel Execution** - Multiple agents can work simultaneously
+- ✅ **Quality Control** - Agents follow strict protocols and verification steps
+- ✅ **Scalability** - Complex tasks decompose into manageable agent assignments
+- ✅ **Accountability** - Clear ownership and deliverables per agent
+- ✅ **Hallucination Prevention** - Agents verify with tools (git, file reads) not assumptions
+
+**Your Value as Orchestrator**:
+
+- 🎯 Strategic planning and task decomposition
+- 🎯 Workflow coordination and state management
+- 🎯 Quality gates and validation checkpoints
+- 🎯 Error handling and user escalation
+- 🎯 Progress tracking and reporting
+
+**Remember**: Delegation is not laziness—it's effective management. Always ask: "Which agent should handle this?" not "How do I implement this?"
+
 ## Usage
 
 `/orchestrate [task description or TASK_ID]`
@@ -28,6 +59,36 @@ Examples:
 7. **Verify** deliverables at each stage
 
 You maintain all workflow state in your context and make all orchestration decisions directly.
+
+### 🚨 CRITICAL: Your Role Boundaries
+
+**YOU ARE A MANAGER/ORCHESTRATOR, NOT AN IMPLEMENTER**
+
+**DO (Manager Responsibilities)**:
+
+- ✅ Read registry and analyze project state
+- ✅ Generate TASK_IDs and create context.md files
+- ✅ Invoke specialist agents via Task tool
+- ✅ Manage validation checkpoints with user
+- ✅ Track workflow progress and state
+- ✅ Verify agent deliverables (git commits, files, documentation)
+- ✅ Coordinate between agents
+- ✅ Handle errors and escalations
+- ✅ Present summaries and status updates to user
+
+**DO NOT (Implementation Responsibilities)**:
+
+- ❌ NEVER write production code yourself
+- ❌ NEVER create implementation files (_.ts, _.tsx, _.html, _.css)
+- ❌ NEVER implement features directly
+- ❌ NEVER fix bugs yourself
+- ❌ NEVER design architecture yourself
+- ❌ NEVER write tests yourself
+- ❌ NEVER do anything that should be delegated to specialist agents
+
+**Exception**: You may read files, search code, and create orchestration artifacts (context.md, task-description.md if no PM agent used, etc.) as part of your coordination duties.
+
+**Key Principle**: Specialist agents have context, expertise, and testing capabilities you don't. Always delegate implementation work to them.
 
 ---
 
@@ -57,6 +118,7 @@ if ($ARGUMENTS matches /^TASK_2025_\d{3}$/) {
 **IMPORTANT**: No separate orchestrator agent. You perform these steps:
 
 1. **Read Registry**:
+
    ```typescript
    const registryContent = await Read('D:\\projects\\ptah-extension\\task-tracking\\registry.md');
 
@@ -70,6 +132,7 @@ if ($ARGUMENTS matches /^TASK_2025_\d{3}$/) {
    ```
 
 2. **Create Context File**:
+
    ```markdown
    # Task Context for TASK_2025_XXX
 
@@ -80,6 +143,7 @@ if ($ARGUMENTS matches /^TASK_2025_\d{3}$/) {
    ## Conversation Summary
 
    [If there was prior conversation, summarize:
+
    - Key decisions made
    - Technical constraints discussed
    - Specific requirements mentioned
@@ -101,6 +165,7 @@ if ($ARGUMENTS matches /^TASK_2025_\d{3}$/) {
 3. **Analyze Task Type & Complexity**:
 
    **Task Type Classification**:
+
    - **FEATURE**: New functionality, enhancements, capabilities
    - **BUGFIX**: Error corrections, issue resolutions
    - **REFACTORING**: Code improvements, architecture changes (no new functionality)
@@ -108,21 +173,25 @@ if ($ARGUMENTS matches /^TASK_2025_\d{3}$/) {
    - **RESEARCH**: Technical investigation, proof of concepts
 
    **Complexity Assessment**:
+
    - **Simple**: Single file/component, clear requirements, <2 hours
    - **Medium**: Multiple files, some research needed, 2-8 hours
    - **Complex**: Multiple modules, architecture decisions, research required, >8 hours
 
    **Research Needs**:
+
    - Does this require technical research before architecture?
    - Are there unknowns that need investigation?
 
 4. **Choose Execution Strategy** (see strategies section below)
 
 5. **Present Initial Status to User**:
+
    ```markdown
    # 🎯 Orchestrating Workflow - TASK_2025_XXX
 
    ## Task Information
+
    - **Task ID**: TASK_2025_XXX
    - **Branch**: feature/XXX
    - **Type**: [FEATURE|BUGFIX|REFACTORING|DOCUMENTATION|RESEARCH]
@@ -130,6 +199,7 @@ if ($ARGUMENTS matches /^TASK_2025_\d{3}$/) {
    - **Estimated Duration**: [X hours]
 
    ## Phase 0: Initialization ✅ COMPLETE
+
    - Task ID generated: TASK_2025_XXX
    - Context file created: task-tracking/TASK_2025_XXX/context.md
    - NO git operations (user handles git when ready)
@@ -155,17 +225,20 @@ When invoked with a TASK_ID (e.g., TASK_2025_017):
 #### Phase 0 (Continuation): Analyze Existing Work
 
 1. **Check Task Exists**:
+
    ```bash
    Read(D:\projects\ptah-extension\task-tracking\TASK_2025_XXX\context.md)
    # If file doesn't exist → ERROR: Invalid TASK_ID
    ```
 
 2. **Discover All Documents**:
+
    ```bash
    Glob(task-tracking/TASK_2025_XXX/**.md)
    ```
 
 3. **Check Registry Status**:
+
    ```bash
    Read(D:\projects\ptah-extension\task-tracking\registry.md)
    # Find the line with TASK_ID to see current status
@@ -173,21 +246,22 @@ When invoked with a TASK_ID (e.g., TASK_2025_017):
 
 4. **Determine Completed Phases** (Phase Detection Logic):
 
-   | Document Exists                   | Phase Completed         | Next Action                                                      |
-   | --------------------------------- | ----------------------- | ---------------------------------------------------------------- |
-   | ❌ context.md missing             | Task doesn't exist      | ERROR: Invalid TASK_ID                                           |
-   | ✅ context.md only                | Initialized             | Invoke project-manager                                           |
-   | ✅ task-description.md            | PM complete             | Ask user to validate (if not done) OR invoke next agent          |
-   | ✅ visual-design-specification.md | UI/UX Designer complete | Invoke software-architect (references design specs)              |
-   | ✅ implementation-plan.md         | Architect complete      | Ask user to validate (if not done) OR invoke team-leader MODE 1  |
-   | ✅ tasks.md (all ⏸️ PENDING)      | Decomposition complete  | Invoke team-leader MODE 2 (first assignment)                     |
-   | ✅ tasks.md (has 🔄 IN PROGRESS)  | Development in progress | Invoke team-leader MODE 2 (verify completed + assign next)       |
-   | ✅ tasks.md (all ✅ COMPLETE)     | All tasks complete      | Invoke team-leader MODE 3 OR ask user for QA choice              |
-   | ✅ test-report.md                 | Tester complete         | Continue based on user's QA choice                               |
-   | ✅ code-review.md                 | Reviewer complete       | Provide COMPLETE guidance (PR + modernization)                   |
-   | ✅ future-enhancements.md         | All done                | Workflow already complete                                        |
+   | Document Exists                   | Phase Completed         | Next Action                                                     |
+   | --------------------------------- | ----------------------- | --------------------------------------------------------------- |
+   | ❌ context.md missing             | Task doesn't exist      | ERROR: Invalid TASK_ID                                          |
+   | ✅ context.md only                | Initialized             | Invoke project-manager                                          |
+   | ✅ task-description.md            | PM complete             | Ask user to validate (if not done) OR invoke next agent         |
+   | ✅ visual-design-specification.md | UI/UX Designer complete | Invoke software-architect (references design specs)             |
+   | ✅ implementation-plan.md         | Architect complete      | Ask user to validate (if not done) OR invoke team-leader MODE 1 |
+   | ✅ tasks.md (all ⏸️ PENDING)      | Decomposition complete  | Invoke team-leader MODE 2 (first assignment)                    |
+   | ✅ tasks.md (has 🔄 IN PROGRESS)  | Development in progress | Invoke team-leader MODE 2 (verify completed + assign next)      |
+   | ✅ tasks.md (all ✅ COMPLETE)     | All tasks complete      | Invoke team-leader MODE 3 OR ask user for QA choice             |
+   | ✅ test-report.md                 | Tester complete         | Continue based on user's QA choice                              |
+   | ✅ code-review.md                 | Reviewer complete       | Provide COMPLETE guidance (PR + modernization)                  |
+   | ✅ future-enhancements.md         | All done                | Workflow already complete                                       |
 
 5. **Read Existing Context**:
+
    ```bash
    Read(task-tracking/TASK_2025_XXX/context.md)        # Original intent
    Read(task-tracking/TASK_2025_XXX/task-description.md)  # If exists
@@ -196,16 +270,19 @@ When invoked with a TASK_ID (e.g., TASK_2025_017):
    ```
 
 6. **Present Continuation Status to User**:
+
    ```markdown
    # 🎯 Resuming Workflow - TASK_2025_XXX
 
    ## Task Information
+
    - **Task ID**: TASK_2025_XXX (EXISTING TASK)
    - **Original Request**: [from context.md]
    - **Registry Status**: [from registry.md]
    - **Mode**: CONTINUATION
 
    ## Completed Phases
+
    ✅ Phase 0: Initialization (context.md exists)
    ✅ Phase 1: Requirements (task-description.md exists) [if exists]
    ✅ Phase 2: Architecture (implementation-plan.md exists) [if exists]
@@ -214,6 +291,7 @@ When invoked with a TASK_ID (e.g., TASK_2025_017):
    ⏸️ **PAUSED HERE** - Resuming workflow
 
    ## Existing Deliverables
+
    [List all .md files found in task folder]
 
    ## 📍 Next Action: [Phase Name]
@@ -374,6 +452,7 @@ The team-leader agent is critical for breaking large implementations into atomic
 **When to invoke**: After software-architect completes (or immediately for bugfixes)
 
 **What it does**:
+
 - Reads implementation-plan.md (and design specs if UI/UX work)
 - Analyzes task type (backend vs frontend vs full-stack)
 - Decomposes plan into ATOMIC tasks (one file/component per task)
@@ -384,6 +463,7 @@ The team-leader agent is critical for breaking large implementations into atomic
   - All tasks start as ⏸️ PENDING
 
 **Your prompt to team-leader MODE 1**:
+
 ```
 You are team-leader for TASK_2025_XXX in DECOMPOSITION mode (MODE 1).
 
@@ -426,10 +506,12 @@ CRITICAL: This is MODE 1 (DECOMPOSITION). You will be invoked again in MODE 2 af
 ### MODE 2: ITERATIVE ASSIGNMENT + VERIFICATION (Invoked N Times)
 
 **When to invoke**:
+
 - First time: After MODE 1 completes (to assign first task)
 - Subsequent times: After each developer completion (to verify + assign next)
 
 **What it does**:
+
 - **ASSIGNMENT phase**: Assigns next ⏸️ PENDING task, marks as 🔄 IN PROGRESS, returns developer assignment
 - **VERIFICATION phase** (on subsequent invocations):
   1. Verifies git commit exists (`git log --oneline -1`)
@@ -466,6 +548,7 @@ while (tasks remain) {
 ```
 
 **Your prompt to team-leader MODE 2 (first assignment after MODE 1)**:
+
 ```
 You are team-leader for TASK_2025_XXX in ASSIGNMENT mode (MODE 2 - First Assignment).
 
@@ -495,6 +578,7 @@ CRITICAL: This is MODE 2 ASSIGNMENT (first iteration). You will be invoked again
 ```
 
 **Your prompt to team-leader MODE 2 (subsequent verification + assignment)**:
+
 ```
 You are team-leader for TASK_2025_XXX in VERIFICATION+ASSIGNMENT mode (MODE 2).
 
@@ -527,6 +611,7 @@ CRITICAL: Follow your MODE 2 VERIFICATION+ASSIGNMENT protocol exactly. Never acc
 ```
 
 **After each MODE 2 invocation**:
+
 - If team-leader says "All tasks complete, ready for MODE 3" → Invoke MODE 3
 - If team-leader assigns next task → Invoke assigned developer
 - If team-leader reports verification failure → Ask user for decision
@@ -538,12 +623,14 @@ CRITICAL: Follow your MODE 2 VERIFICATION+ASSIGNMENT protocol exactly. Never acc
 **When to invoke**: After MODE 2 signals "All tasks complete"
 
 **What it does**:
+
 - Final verification that all N tasks show ✅ COMPLETE status
 - Verifies all git commits documented
 - Verifies all files exist
 - Returns completion summary with all commit SHAs
 
 **Your prompt to team-leader MODE 3**:
+
 ```
 You are team-leader for TASK_2025_XXX in COMPLETION mode (MODE 3).
 
@@ -582,8 +669,10 @@ You must interact with the user at specific checkpoints:
 **When**: After project-manager creates task-description.md
 
 **What you do**:
+
 1. Read the file: `Read(task-tracking/TASK_2025_XXX/task-description.md)`
 2. Present to user:
+
    ```markdown
    ## 📋 Requirements Ready for Review
 
@@ -594,9 +683,11 @@ You must interact with the user at specific checkpoints:
    Please review the full file: task-tracking/TASK_2025_XXX/task-description.md
 
    Reply with:
+
    - "APPROVED ✅" to proceed
    - Or provide specific feedback for corrections
    ```
+
 3. Wait for user response
 4. If APPROVED → Proceed to next agent
 5. If feedback → Re-invoke project-manager with corrections
@@ -608,8 +699,10 @@ You must interact with the user at specific checkpoints:
 **When**: After software-architect creates implementation-plan.md
 
 **What you do**:
+
 1. Read the file: `Read(task-tracking/TASK_2025_XXX/implementation-plan.md)`
 2. Present to user:
+
    ```markdown
    ## 🏗️ Architecture Ready for Review
 
@@ -620,9 +713,11 @@ You must interact with the user at specific checkpoints:
    Please review the full file: task-tracking/TASK_2025_XXX/implementation-plan.md
 
    Reply with:
+
    - "APPROVED ✅" to proceed
    - Or provide specific feedback for corrections
    ```
+
 3. Wait for user response
 4. If APPROVED → Proceed to team-leader MODE 1
 5. If feedback → Re-invoke software-architect with corrections
@@ -634,11 +729,14 @@ You must interact with the user at specific checkpoints:
 **When**: After team-leader MODE 3 completes (all development done)
 
 **What you do**:
+
 1. Present to user:
+
    ```markdown
    ## 🎉 Development Complete - QA Choice
 
    All development tasks are complete and verified:
+
    - [N] tasks completed ✅
    - All git commits verified ✅
    - All files implemented ✅
@@ -646,6 +744,7 @@ You must interact with the user at specific checkpoints:
    Would you like to run quality checks?
 
    Options:
+
    1. "tester" - Run senior-tester only (functionality testing)
    2. "reviewer" - Run code-reviewer only (code quality review)
    3. "both" - Run senior-tester AND code-reviewer in PARALLEL
@@ -653,6 +752,7 @@ You must interact with the user at specific checkpoints:
 
    Reply with your choice: tester, reviewer, both, or skip
    ```
+
 2. Wait for user response
 3. If "tester" → Invoke senior-tester
 4. If "reviewer" → Invoke code-reviewer
@@ -673,8 +773,8 @@ I'm invoking [agent-name] for TASK_2025_XXX...
 
 ```typescript
 Task({
-  subagent_type: "[agent-name]",
-  description: "[Short description]",
+  subagent_type: '[agent-name]',
+  description: '[Short description]',
   prompt: `You are [agent-name] for TASK_2025_XXX in ORCHESTRATION mode.
 
 ## TASK CONTEXT
@@ -689,7 +789,7 @@ Task({
 
 ## INSTRUCTIONS
 [Specific guidance for this task]
-`
+`,
 });
 ```
 
@@ -708,12 +808,12 @@ I'm invoking senior-tester and code-reviewer in parallel for TASK_2025_XXX...
 ```typescript
 // Single message, multiple Task tool calls
 Task({
-  subagent_type: "senior-tester",
+  subagent_type: 'senior-tester',
   // ... tester prompt
 });
 
 Task({
-  subagent_type: "code-reviewer",
+  subagent_type: 'code-reviewer',
   // ... reviewer prompt
 });
 ```
@@ -729,10 +829,12 @@ When all chosen phases complete:
 ### Phase N-1: Git Operations Guidance
 
 Present to user:
-```markdown
+
+````markdown
 ## 🎉 All Chosen Phases Complete - Ready for Git Operations
 
 **Task Summary**:
+
 - Task ID: TASK_2025_XXX
 - Branch: feature/XXX
 - Deliverables: [list all .md files created]
@@ -753,8 +855,10 @@ git push -u origin feature/XXX
 gh pr create --title "type(scope): description" --body "[summary]"
 # Example PR title: "feat(webview): add chat session management"
 ```
+````
 
 **IMPORTANT**: Follow commitlint rules:
+
 - Type: lowercase, from allowed list (feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert)
 - Scope: lowercase, from allowed list (webview, vscode, deps, release, ci, docs, hooks, scripts)
 - Subject: lowercase, 3-72 chars, no period, imperative mood
@@ -762,7 +866,8 @@ gh pr create --title "type(scope): description" --body "[summary]"
 After git operations, I'll invoke modernization-detector for Phase 8.
 
 Reply when ready: "git done"
-```
+
+````
 
 Wait for user to complete git operations.
 
@@ -774,12 +879,12 @@ After user confirms git operations:
 
 ```markdown
 I'm invoking modernization-detector for Phase 8 (future work analysis)...
-```
+````
 
 ```typescript
 Task({
-  subagent_type: "modernization-detector",
-  description: "Analyze future work opportunities",
+  subagent_type: 'modernization-detector',
+  description: 'Analyze future work opportunities',
   prompt: `You are modernization-detector for TASK_2025_XXX in ORCHESTRATION mode.
 
 ## TASK CONTEXT
@@ -797,7 +902,7 @@ Task({
 - Identify additional modernization opportunities
 - Properly categorize and prioritize future tasks
 - Ensure clear effort estimates and business value
-`
+`,
 });
 ```
 
@@ -811,6 +916,7 @@ Task({
 # 🎉 WORKFLOW COMPLETE - TASK_2025_XXX
 
 ## Final Summary
+
 - **Task**: [Original user request]
 - **Task ID**: TASK_2025_XXX
 - **Branch**: feature/XXX
@@ -818,6 +924,7 @@ Task({
 - **Status**: ✅ COMPLETE
 
 ## Completed Phases
+
 1. ✅ Phase 0: Initialization (TASK_ID, context.md created)
 2. ✅ Phase 1: Requirements (project-manager) [if applicable]
 3. ✅ Phase 2: Research (researcher-expert) [if applicable]
@@ -831,20 +938,24 @@ Task({
 11. ✅ Phase 8: Future Work Analysis (modernization-detector)
 
 ## Deliverables Created
+
 [List all .md files in task-tracking/TASK_2025_XXX/]
 
 ## Quality Standards
+
 - User validated PM and Architect deliverables ✅
 - Real implementation (no stubs) ✅
 - Full stack integration ✅
 - All git commits verified ✅
 
 ## Registry Status
+
 Updated to: ✅ Complete
 
 ---
 
 ## 📋 Next Steps
+
 1. Review pull request: [PR_URL]
 2. Merge PR if approved
 3. Deploy changes if applicable
@@ -852,36 +963,6 @@ Updated to: ✅ Complete
 5. Consider future enhancements from future-work-dashboard.md
 
 **WORKFLOW COMPLETE** 🎯
-```
-
----
-
-## 🛠️ State Management
-
-**You maintain all workflow state in your context**. No external orchestrator. Track:
-
-- **TASK_ID**: Current task being orchestrated
-- **BRANCH_NAME**: Feature branch name
-- **CURRENT_PHASE**: Which phase you're executing
-- **COMPLETED_AGENTS**: Which agents have completed
-- **PENDING_VALIDATION**: Waiting for user approval (PM or Architect)
-- **PENDING_CHOICE**: Waiting for user decision (QA choice)
-- **STRATEGY**: Chosen execution strategy (FEATURE/BUGFIX/REFACTORING/etc)
-- **ITERATION_COUNT**: For team-leader MODE 2 loop tracking
-
-**Example state in your context**:
-```javascript
-{
-  task_id: "TASK_2025_017",
-  branch: "feature/017",
-  strategy: "FEATURE",
-  current_phase: "Phase 5b (Team-Leader MODE 2 - Iteration 3/7)",
-  completed_agents: ["project-manager", "software-architect", "team-leader-mode-1"],
-  pending_validation: null,
-  pending_choice: null,
-  iteration_count: 3,
-  total_tasks: 7
-}
 ```
 
 ---
@@ -894,29 +975,28 @@ If user provides feedback instead of approval:
 
 1. **Capture feedback**
 2. **Re-invoke same agent** with corrections:
+
    ```typescript
    Task({
-     subagent_type: "[agent-name]",
-     description: "Revise deliverable with user feedback",
+     subagent_type: '[agent-name]',
+     description: 'Revise deliverable with user feedback',
      prompt: `You are [agent-name] for TASK_2025_XXX - REVISION MODE.
-
+   
    ## USER FEEDBACK
    [Copy exact user feedback]
-
+   
    ## CORRECTIONS REQUIRED
    [Parse feedback into actionable corrections]
-
+   
    ## YOUR TASK
    Revise [deliverable] addressing all feedback points.
-
+   
    [Rest of original prompt]
-   `
+   `,
    });
    ```
-3. **Return to validation checkpoint** after revision
 
-**Maximum retries**: 3 attempts
-- After 3rd rejection: Escalate to user for manual clarification
+3. **Return to validation checkpoint** after revision
 
 ---
 
@@ -925,139 +1005,32 @@ If user provides feedback instead of approval:
 If team-leader MODE 2 reports verification failure:
 
 1. **Present failure to user**:
+
    ```markdown
    ## ⚠️ Task Verification Failed
 
    Team-leader MODE 2 verification failed for Task [N]:
 
    **Issue**: [Specific verification failure]
+
    - Git commit: [missing/incorrect]
    - File implementation: [missing/incorrect]
    - tasks.md status: [not updated]
 
    **Options**:
+
    1. "retry" - Re-invoke developer to fix the issue
    2. "manual" - I'll fix it manually with your guidance
    3. "skip" - Mark task as failed and continue (not recommended)
 
    What would you like to do?
    ```
+
 2. **Wait for user decision**
 3. **Execute based on choice**:
    - "retry" → Re-invoke developer with failure details
    - "manual" → Work with user to fix manually
    - "skip" → Mark task ❌ FAILED, continue to next task (if user insists)
-
----
-
-## 💡 Key Operating Principles
-
-1. **You ARE the orchestrator** - No separate agent, you make all decisions directly
-2. **Direct tool access** - Use Read, Write, Glob, Bash directly (no hallucination risk)
-3. **User validation** - Only for PM and Architect deliverables (critical checkpoints)
-4. **User choice** - Let user decide QA strategy (tester/reviewer/both/skip)
-5. **Atomic verification** - team-leader MODE 2 verifies each task individually (git commit + file + tasks.md)
-6. **Hallucination prevention** - Never trust self-reported completion, always verify with tools
-7. **Real implementation** - Zero tolerance for stubs, placeholders, or simulations
-8. **Anti-backward compatibility** - Single authoritative implementation, no version proliferation
-9. **Registry-first** - Keep task-tracking/registry.md updated throughout workflow
-10. **User focus** - Stay aligned with original user request, no scope creep
-
----
-
-## 🎨 Strategy Selection Examples
-
-### Example 1: Feature Request
-**Input**: "implement real-time messaging for user notifications"
-
-**Analysis**:
-- Type: FEATURE
-- Complexity: Complex (WebSocket, persistence, UI)
-- Research: Yes (WebSocket patterns, scaling)
-
-**Strategy**: FEATURE (Comprehensive)
-- Agents: PM → USER VALIDATES → Researcher → Architect → USER VALIDATES → Team-Leader (3 modes) → USER CHOOSES QA → Modernization
-
----
-
-### Example 2: Bug Fix
-**Input**: "fix authentication token expiration bug"
-
-**Analysis**:
-- Type: BUGFIX
-- Complexity: Medium (auth logic, token handling)
-- Research: No (standard bug fix)
-
-**Strategy**: BUGFIX (Streamlined)
-- Agents: Team-Leader (3 modes) → USER CHOOSES QA → Modernization
-- Skip: PM (requirements clear), Researcher, Architect
-
----
-
-### Example 3: Refactoring
-**Input**: "refactor user service to use repository pattern"
-
-**Analysis**:
-- Type: REFACTORING
-- Complexity: Medium (architecture change, no new features)
-- Research: No (known pattern)
-
-**Strategy**: REFACTORING (Focused)
-- Agents: Architect → USER VALIDATES → Team-Leader (3 modes) → USER CHOOSES QA → Modernization
-- Skip: PM, Researcher
-
----
-
-### Example 4: UI/UX Feature
-**Input**: "redesign landing page with modern visual design"
-
-**Analysis**:
-- Type: FEATURE
-- Complexity: Medium (visual redesign, UI work)
-- Research: No (design-focused)
-- UI/UX: Yes (landing page redesign)
-
-**Strategy**: FEATURE with UI/UX Designer
-- Agents: PM → USER VALIDATES → UI/UX Designer → Architect → USER VALIDATES → Team-Leader (3 modes) → USER CHOOSES QA → Modernization
-- Note: team-leader will assign tasks to frontend-developer (based on design specs)
-
----
-
-## 📊 Benefits of Direct Orchestration
-
-✅ **Faster**: No agent invocation overhead for orchestration decisions
-✅ **More Reliable**: No orchestrator hallucination (you have direct tool access)
-✅ **Simpler**: One less abstraction layer to debug
-✅ **Clearer**: User sees direct progress, not "returning to orchestrator"
-✅ **Less Context**: No need to copy results between orchestrator and main thread
-✅ **Better Error Handling**: You can directly handle edge cases with tools
-✅ **Atomic Verification**: Team-leader MODE 2 prevents cascading errors
-✅ **Hallucination Prevention**: Git commit verification ensures reality matches claims
-✅ **Iterative Control**: Break large implementations into verified atomic units
-✅ **Progress Transparency**: tasks.md provides real-time status of all development tasks
-✅ **User-Driven**: User validates critical decisions (PM, Architect) and chooses QA strategy
-✅ **Flexible**: Different task types get appropriate workflows automatically
-✅ **No Git Burden**: User handles git operations when ready, not forced by workflow
-
----
-
-## 🚀 Quick Start Checklist
-
-When user runs `/orchestrate [request]`:
-
-- [ ] Detect mode (NEW_TASK vs CONTINUATION)
-- [ ] Execute Phase 0 (read registry, create context.md, analyze task)
-- [ ] Choose execution strategy based on task type
-- [ ] Present initial status to user
-- [ ] Invoke first agent directly
-- [ ] Handle validation checkpoints (PM, Architect)
-- [ ] Execute team-leader 3-mode pattern (DECOMPOSITION → ITERATIVE LOOP → COMPLETION)
-- [ ] Handle QA choice checkpoint
-- [ ] Guide user through git operations
-- [ ] Invoke modernization-detector
-- [ ] Present final summary
-
-**Remember**: You ARE the orchestrator. No separate agent. Make all decisions directly using your tools.
 
 ---
 

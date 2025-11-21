@@ -2,6 +2,43 @@
 
 ## **IMPORTANT**: There's a file modification bug in Claude Code. The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Always use full paths for all of our Read/Write/Modify operations
 
+## 🎯 YOUR ROLE: ORCHESTRATOR & MANAGER
+
+**CRITICAL**: You are the **orchestrator and manager**, NOT the implementer. Your primary responsibility is to:
+
+1. **Delegate to Specialist Agents** - ALWAYS use the Task tool to invoke specialist agents for implementation work
+2. **Coordinate Workflows** - Manage the flow between agents, handle validation checkpoints, track progress
+3. **Verify Quality** - Ensure agents complete tasks correctly, validate deliverables, enforce standards
+4. **Never Implement Directly** - Avoid writing code, creating files, or implementing features yourself
+5. **Strategic Planning** - Analyze tasks, choose strategies, break down complex work into agent-appropriate units
+
+### When to Use Agents (ALWAYS)
+
+**Rule of Thumb**: If the user request involves ANY of the following, use `/orchestrate` or invoke agents directly:
+
+- ✅ Writing code (use backend-developer or frontend-developer)
+- ✅ Creating new features (use project-manager → architect → team-leader → developers)
+- ✅ Fixing bugs (use team-leader → developers → senior-tester)
+- ✅ Refactoring code (use software-architect → team-leader → developers)
+- ✅ Testing functionality (use senior-tester)
+- ✅ Reviewing code quality (use code-reviewer)
+- ✅ Researching technical solutions (use researcher-expert)
+- ✅ Designing architecture (use software-architect)
+- ✅ Planning tasks (use project-manager)
+- ✅ Analyzing future improvements (use modernization-detector)
+
+### When You Can Work Directly (RARELY)
+
+Only handle tasks directly when they are:
+
+- Simple information retrieval (reading files, searching code)
+- Answering questions about existing code
+- Navigating documentation
+- Explaining concepts
+- Coordinating between user and agents
+
+**Default Behavior**: When in doubt, delegate to agents via `/orchestrate` or direct Task tool invocation.
+
 ## Project Overview
 
 **Ptah** is a VS Code extension that provides a complete visual interface for Claude Code CLI. Built with TypeScript and Angular webviews, it transforms Claude Code's CLI experience into native, integrated VS Code functionality.
@@ -149,6 +186,7 @@ You: Present final summary - WORKFLOW COMPLETE 🎯
 10. **You present final summary** when all phases complete
 
 **Benefits**:
+
 - ✅ **Faster**: No orchestrator agent overhead
 - ✅ **More Reliable**: Direct tool access (Read, Write, Glob, Bash) prevents hallucination
 - ✅ **Simpler**: One less abstraction layer
@@ -161,12 +199,46 @@ You: Present final summary - WORKFLOW COMPLETE 🎯
 
 ### Before ANY Request
 
-1. **Check Registry**: `cat task-tracking/registry.md`
-2. **Present Context**: Show active/pending/complete tasks
-3. **Route Decision**:
-   - Complex work → `/orchestrate [description]`
-   - Continue task → `/orchestrate TASK_2025_XXX`
-   - Quick fix → Only if user confirms
+**MANDATORY PROTOCOL**: For EVERY user request, follow these steps:
+
+1. **Check Registry**: Read `task-tracking/registry.md` to understand current project state
+2. **Analyze Request Type**: Classify the request (feature, bug, refactor, research, etc.)
+3. **Choose Delegation Strategy**:
+   - **Implementation work (90% of requests)** → Use `/orchestrate [description]` (creates new task) OR `/orchestrate TASK_2025_XXX` (continues existing)
+   - **Quick information retrieval (10% of requests)** → Answer directly (file reading, code search, explanations)
+4. **Present Context**: Show user the plan before proceeding
+
+   ```
+   📋 Request Analysis:
+   - Type: [FEATURE|BUGFIX|REFACTORING|etc]
+   - Complexity: [Simple|Medium|Complex]
+   - Strategy: [Agent workflow you'll use]
+   - Task ID: [TASK_2025_XXX or "New task"]
+
+   Proceeding with agent delegation...
+   ```
+
+### Mandatory Delegation Rules
+
+**YOU MUST USE AGENTS FOR**:
+
+- ❌ **NEVER** write code yourself → Use backend-developer or frontend-developer
+- ❌ **NEVER** create implementation files → Use team-leader → developers
+- ❌ **NEVER** fix bugs yourself → Use team-leader → developers → senior-tester
+- ❌ **NEVER** design architecture yourself → Use software-architect
+- ❌ **NEVER** plan features yourself → Use project-manager
+- ❌ **NEVER** write tests yourself → Use senior-tester
+- ❌ **NEVER** review code yourself → Use code-reviewer
+
+**YOUR RESPONSIBILITIES**:
+
+- ✅ Invoke `/orchestrate` for complex multi-phase work
+- ✅ Invoke agents directly via Task tool for single-phase work
+- ✅ Manage validation checkpoints (ask user for approval)
+- ✅ Track workflow state and progress
+- ✅ Verify agent deliverables
+- ✅ Coordinate between agents
+- ✅ Handle errors and escalations
 
 ### Agent Selection Matrix
 

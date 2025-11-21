@@ -433,6 +433,7 @@ Ensure these exist in `libs/shared/src/lib/types/message-payload.types.ts`:
 
 - 705b0b1: feat(vscode): add select model message type
 - aeeb3cf: feat(vscode): implement select model backend handler
+- 67d58fa: fix(vscode): add missing select model event handler (code review fix)
 
 ### Task 4.1: [REQ-4.1] Add SELECT_MODEL Message Type ✅ COMPLETE
 
@@ -513,13 +514,16 @@ export interface MessagePayloadMap {
 
 ### Task 4.2: [REQ-4.2] Implement SELECT_MODEL Backend Handler ✅ COMPLETE
 
-**Status**: ✅ COMPLETE
-**Git Commit**: aeeb3cf
-**Developer**: backend-developer
-**Batch**: 4
-**Dependencies**: Task 4.1 (must complete first)
-**Estimated Effort**: 1-2h
-**Risk Level**: LOW
+**Status**: ✅ COMPLETE (FIX APPLIED)
+**Git Commits**:
+
+- aeeb3cf: feat(vscode): implement select model backend handler
+- 67d58fa: fix(vscode): add missing select model event handler (code review fix)
+  **Developer**: backend-developer
+  **Batch**: 4
+  **Dependencies**: Task 4.1 (must complete first)
+  **Estimated Effort**: 1-2h
+  **Risk Level**: LOW
 
 #### Files to Modify
 

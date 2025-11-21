@@ -321,16 +321,69 @@ export class WebviewHtmlGenerator {
   private getThemeStyles(): string {
     return `
       :root {
+        /* Typography */
         --vscode-font-family: var(--vscode-font-family, 'Segoe WPC', 'Segoe UI', sans-serif);
         --vscode-font-size: var(--vscode-font-size, 13px);
+
+        /* Base Colors */
         --vscode-foreground: var(--vscode-foreground);
         --vscode-background: var(--vscode-editor-background);
+        --vscode-editor-foreground: var(--vscode-editor-foreground);
+
+        /* Sidebar */
         --vscode-sidebar-background: var(--vscode-sideBar-background);
+
+        /* Buttons */
         --vscode-button-background: var(--vscode-button-background);
         --vscode-button-foreground: var(--vscode-button-foreground);
+        --vscode-button-hoverBackground: var(--vscode-button-hoverBackground);
+        --vscode-button-border: var(--vscode-button-border);
+        --vscode-button-secondaryBackground: var(--vscode-button-secondaryBackground);
+        --vscode-button-secondaryForeground: var(--vscode-button-secondaryForeground);
+
+        /* Inputs */
         --vscode-input-background: var(--vscode-input-background);
         --vscode-input-foreground: var(--vscode-input-foreground);
         --vscode-input-border: var(--vscode-input-border);
+        --vscode-input-placeholderForeground: var(--vscode-input-placeholderForeground);
+        --vscode-inputValidation-warningBackground: var(--vscode-inputValidation-warningBackground);
+
+        /* Dropdowns (CRITICAL for SessionDropdown) */
+        --vscode-dropdown-background: var(--vscode-dropdown-background);
+        --vscode-dropdown-listBackground: var(--vscode-dropdown-listBackground);
+        --vscode-dropdown-foreground: var(--vscode-dropdown-foreground);
+        --vscode-dropdown-border: var(--vscode-dropdown-border);
+
+        /* Lists (CRITICAL for SessionDropdown) */
+        --vscode-list-activeSelectionBackground: var(--vscode-list-activeSelectionBackground);
+        --vscode-list-activeSelectionForeground: var(--vscode-list-activeSelectionForeground);
+        --vscode-list-hoverBackground: var(--vscode-list-hoverBackground);
+
+        /* Panels */
+        --vscode-panel-background: var(--vscode-panel-background);
+        --vscode-panel-border: var(--vscode-panel-border);
+
+        /* Widgets */
+        --vscode-widget-border: var(--vscode-widget-border);
+
+        /* Focus & Interaction (CRITICAL) */
+        --vscode-focusBorder: var(--vscode-focusBorder);
+
+        /* Status & Charts */
+        --vscode-charts-green: var(--vscode-charts-green);
+        --vscode-charts-blue: var(--vscode-charts-blue);
+        --vscode-charts-red: var(--vscode-charts-red);
+        --vscode-charts-orange: var(--vscode-charts-orange);
+
+        /* Text Colors */
+        --vscode-descriptionForeground: var(--vscode-descriptionForeground);
+        --vscode-errorForeground: var(--vscode-errorForeground);
+        --vscode-textPreformat-foreground: var(--vscode-textPreformat-foreground);
+
+        /* Scrollbars */
+        --vscode-scrollbar-shadow: var(--vscode-scrollbar-shadow);
+        --vscode-scrollbarSlider-background: var(--vscode-scrollbarSlider-background);
+        --vscode-scrollbarSlider-hoverBackground: var(--vscode-scrollbarSlider-hoverBackground);
       }
 
       body {
