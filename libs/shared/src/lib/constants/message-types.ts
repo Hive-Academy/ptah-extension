@@ -80,12 +80,14 @@ export const PROVIDER_MESSAGE_TYPES = {
   SET_DEFAULT: 'providers:setDefault',
   ENABLE_FALLBACK: 'providers:enableFallback',
   SET_AUTO_SWITCH: 'providers:setAutoSwitch',
+  SELECT_MODEL: 'providers:selectModel',
 
   // Event types
   CURRENT_CHANGED: 'providers:currentChanged',
   HEALTH_CHANGED: 'providers:healthChanged',
   ERROR: 'providers:error',
   AVAILABLE_UPDATED: 'providers:availableUpdated',
+  MODEL_CHANGED: 'providers:modelChanged',
 } as const;
 
 /**

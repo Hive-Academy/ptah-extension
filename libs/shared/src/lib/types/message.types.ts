@@ -474,10 +474,21 @@ export interface ProvidersSetAutoSwitchPayload {
   readonly enabled: boolean;
 }
 
+export interface ProvidersSelectModelPayload {
+  readonly modelId: string;
+  readonly providerId?: string; // Optional - use current provider if omitted
+}
+
 export interface ProvidersCurrentChangedPayload {
   readonly from: string | null; // ProviderId | null
   readonly to: string; // ProviderId
   readonly reason: 'user-request' | 'auto-fallback' | 'error-recovery';
+  readonly timestamp: number;
+}
+
+export interface ProvidersModelChangedPayload {
+  readonly modelId: string;
+  readonly providerId: string;
   readonly timestamp: number;
 }
 
@@ -683,10 +694,12 @@ export interface MessagePayloadMap {
   'providers:setDefault': ProvidersSetDefaultPayload;
   'providers:enableFallback': ProvidersEnableFallbackPayload;
   'providers:setAutoSwitch': ProvidersSetAutoSwitchPayload;
+  'providers:selectModel': ProvidersSelectModelPayload;
   'providers:currentChanged': ProvidersCurrentChangedPayload;
   'providers:healthChanged': ProvidersHealthChangedPayload;
   'providers:error': ProvidersErrorPayload;
   'providers:availableUpdated': ProvidersAvailableUpdatedPayload;
+  'providers:modelChanged': ProvidersModelChangedPayload;
   'context:updateFiles': ContextUpdatePayload;
   'context:getFiles': ContextGetFilesPayload;
   'context:includeFile': ContextIncludeFilePayload;
