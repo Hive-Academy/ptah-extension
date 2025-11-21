@@ -116,58 +116,6 @@ export interface SessionOperationResult {
 }
 
 /**
- * Session rename request
- */
-export interface RenameSessionRequest {
-  sessionId: SessionId;
-  newName: string;
-}
-
-/**
- * Session rename result
- */
-export interface RenameSessionResult {
-  success: boolean;
-  sessionId?: SessionId;
-  newName?: string;
-  error?: string;
-}
-
-/**
- * Session delete request
- */
-export interface DeleteSessionRequest {
-  sessionId: SessionId;
-}
-
-/**
- * Session delete result
- */
-export interface DeleteSessionResult {
-  success: boolean;
-  sessionId?: SessionId;
-  deleted?: boolean;
-  error?: string;
-}
-
-/**
- * Bulk delete sessions request
- */
-export interface BulkDeleteSessionsRequest {
-  sessionIds: SessionId[];
-}
-
-/**
- * Bulk delete sessions result
- */
-export interface BulkDeleteSessionsResult {
-  success: boolean;
-  deleted: string[];
-  failed: Array<{ id: string; reason: string }>;
-  error?: string;
-}
-
-/**
  * Session history request
  */
 export interface GetHistoryRequest {
@@ -241,7 +189,7 @@ export interface StopStreamResult {
  *
  * Complete business logic implementation for:
  * - Claude CLI streaming with permission handling
- * - Session orchestration (create, switch, rename, delete, bulk delete)
+ * - Session orchestration (create, switch)
  * - Message streaming with token counting
  * - Error recovery and retry logic
  * - Permission approval workflow
@@ -467,115 +415,6 @@ export class ChatOrchestrationService {
 
       return {
         success: false,
-        error: errorMessage,
-      };
-    }
-  }
-
-  /**
-   * Rename a session
-   *
-   * @param request - Rename session request
-   * @returns Rename session result
-   */
-  async renameSession(
-    request: RenameSessionRequest
-  ): Promise<RenameSessionResult> {
-    try {
-      const success = await this.sessionManager.renameSession(
-        request.sessionId,
-        request.newName
-      );
-
-      if (!success) {
-        throw new Error('Session not found');
-      }
-
-      return {
-        success: true,
-        sessionId: request.sessionId,
-        newName: request.newName,
-      };
-    } catch (error) {
-      console.error('Error renaming session:', error);
-      const errorMessage =
-        error instanceof Error ? error.message : 'Failed to rename session';
-
-      return {
-        success: false,
-        error: errorMessage,
-      };
-    }
-  }
-
-  /**
-   * Delete a session
-   *
-   * @param request - Delete session request
-   * @returns Delete session result
-   */
-  async deleteSession(
-    request: DeleteSessionRequest
-  ): Promise<DeleteSessionResult> {
-    try {
-      const success = await this.sessionManager.deleteSession(
-        request.sessionId
-      );
-
-      if (!success) {
-        throw new Error('Session not found');
-      }
-
-      return {
-        success: true,
-        sessionId: request.sessionId,
-        deleted: true,
-      };
-    } catch (error) {
-      console.error('Error deleting session:', error);
-      const errorMessage =
-        error instanceof Error ? error.message : 'Failed to delete session';
-
-      return {
-        success: false,
-        error: errorMessage,
-      };
-    }
-  }
-
-  /**
-   * Bulk delete sessions
-   *
-   * @param request - Bulk delete sessions request
-   * @returns Bulk delete sessions result
-   */
-  async bulkDeleteSessions(
-    request: BulkDeleteSessionsRequest
-  ): Promise<BulkDeleteSessionsResult> {
-    try {
-      const result = await this.sessionManager.bulkDeleteSessions([
-        ...request.sessionIds,
-      ]);
-
-      return {
-        success: true,
-        deleted: result.deleted,
-        failed: result.failed,
-      };
-    } catch (error) {
-      console.error('Error bulk deleting sessions:', error);
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : 'Failed to bulk delete sessions';
-
-      return {
-        success: false,
-        deleted: [],
-        failed: request.sessionIds.map((id) => ({
-          id: id as string,
-          reason: errorMessage,
-        })),
         error: errorMessage,
       };
     }

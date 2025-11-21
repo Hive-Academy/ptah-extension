@@ -316,55 +316,6 @@ export class MessageHandlerService {
         })
     );
 
-    // chat:renameSession
-    this.subscriptions.push(
-      this.eventBus
-        .subscribe(CHAT_MESSAGE_TYPES.RENAME_SESSION)
-        .subscribe(async (event) => {
-          const result = await this.chatOrchestration.renameSession({
-            sessionId: event.payload.sessionId as SessionId, // Cast to SessionId
-            newName: event.payload.newName,
-          });
-          this.publishResponse(
-            'chat:renameSession',
-            event.correlationId,
-            result
-          );
-        })
-    );
-
-    // chat:deleteSession
-    this.subscriptions.push(
-      this.eventBus
-        .subscribe(CHAT_MESSAGE_TYPES.DELETE_SESSION)
-        .subscribe(async (event) => {
-          const result = await this.chatOrchestration.deleteSession({
-            sessionId: event.payload.sessionId as SessionId, // Cast to SessionId
-          });
-          this.publishResponse(
-            'chat:deleteSession',
-            event.correlationId,
-            result
-          );
-        })
-    );
-
-    // chat:bulkDeleteSessions
-    this.subscriptions.push(
-      this.eventBus
-        .subscribe(CHAT_MESSAGE_TYPES.BULK_DELETE_SESSIONS)
-        .subscribe(async (event) => {
-          const result = await this.chatOrchestration.bulkDeleteSessions({
-            sessionIds: event.payload.sessionIds as SessionId[], // Cast to SessionId[]
-          });
-          this.publishResponse(
-            'chat:bulkDeleteSessions',
-            event.correlationId,
-            result
-          );
-        })
-    );
-
     // chat:getHistory
     // NOTE: GetHistoryRequest only takes sessionId (no limit/offset support yet)
     this.subscriptions.push(

@@ -302,13 +302,11 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
 
   /**
    * End a chat session and cleanup
-   * Delegates to SessionManager for cleanup
+   * Note: Claude CLI doesn't support deleting sessions - sessions persist in .claude_sessions/
    */
   endSession(sessionId: SessionId): void {
-    // Delete session in SessionManager (which handles process cleanup)
-    this.sessionManager.deleteSession(sessionId);
-
-    // Remove local tracking
+    // Claude CLI sessions cannot be deleted - they persist in .claude_sessions/ directory
+    // Only remove local tracking
     this.sessions.delete(sessionId);
   }
 
