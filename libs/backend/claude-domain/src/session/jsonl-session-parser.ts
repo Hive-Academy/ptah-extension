@@ -272,10 +272,14 @@ export class JsonlSessionParser {
     // Handle content blocks (array format)
     if (Array.isArray(message.content)) {
       const textBlocks = message.content.filter(
-        (block: { type?: string }) => block.type === 'text'
+        (block): block is { type: string; text?: string } =>
+          typeof block === 'object' &&
+          block !== null &&
+          'type' in block &&
+          block.type === 'text'
       );
       return textBlocks
-        .map((block: { text?: string }) => block.text || '')
+        .map((block) => block.text || '')
         .join(' ')
         .trim();
     }
