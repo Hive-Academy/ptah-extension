@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 // Core Services - Updated import paths
@@ -8,6 +8,12 @@ import {
   WebviewNavigationService,
 } from '@ptah-extension/core';
 import { LoggingService } from '@ptah-extension/core';
+
+// Analytics Service
+import {
+  AnalyticsService,
+  AnalyticsData,
+} from '../../services/analytics.service';
 
 // Child Components (Modernized)
 import { AnalyticsHeaderComponent } from '../../components/analytics-header/analytics-header.component';
@@ -30,6 +36,14 @@ import { SimpleHeaderComponent } from '@ptah-extension/shared-ui';
  * - ✅ OnPush change detection (already present)
  * - ✅ Standalone component (already present)
  * - ✅ Modern child component imports
+ * - ✅ Signal-based reactive state for analytics data
+ * - ✅ Real analytics service integration (replaced hardcoded values)
+ *
+ * COMPLEXITY LEVEL: 2 (Medium)
+ * - Signal-based state management for loading/error/data
+ * - Service integration for real analytics data
+ * - Computed properties for derived stats
+ * - Error handling with graceful degradation
  */
 @Component({
   selector: 'ptah-analytics',
@@ -80,7 +94,7 @@ import { SimpleHeaderComponent } from '@ptah-extension/shared-ui';
           <ptah-analytics-header />
 
           <!-- Statistics Grid -->
-          <ptah-analytics-stats-grid [statsData]="getStatsData()" />
+          <ptah-analytics-stats-grid [statsData]="statsData()" />
 
           <!-- Coming Soon Section -->
           <ptah-analytics-coming-soon />
@@ -173,14 +187,110 @@ import { SimpleHeaderComponent } from '@ptah-extension/shared-ui';
     `,
   ],
 })
-export class AnalyticsComponent {
+export class AnalyticsComponent implements OnInit {
   private readonly appState = inject(AppStateManager);
   private readonly logger = inject(LoggingService);
   private readonly vscode = inject(VSCodeService);
   private readonly navigationService = inject(WebviewNavigationService);
+  private readonly analyticsService = inject(AnalyticsService);
 
   // Ptah icon URI for the header
   protected readonly ptahIconUri = this.vscode.getPtahIconUri();
+
+  // Signal-based reactive state
+  readonly analyticsData = signal<AnalyticsData | null>(null);
+  readonly isLoading = signal(true);
+  readonly error = signal<string | null>(null);
+
+  // Computed stats data for template binding
+  readonly statsData = computed(() => {
+    const data = this.analyticsData();
+    if (!data) return this.getEmptyStats();
+
+    return {
+      todayStats: {
+        sessions: data.todaySessions,
+        label: 'Chat Sessions',
+        timeframe: 'Today',
+      },
+      weekStats: {
+        messages: data.weekMessages,
+        label: 'Messages Sent',
+        timeframe: 'This Week',
+      },
+      totalStats: {
+        tokens: data.totalTokens,
+        label: 'Tokens Used',
+        timeframe: 'Total',
+      },
+    };
+  });
+
+  /**
+   * Component initialization
+   * Fetches analytics data from backend on load
+   */
+  ngOnInit(): void {
+    void this.loadAnalytics();
+  }
+
+  /**
+   * Load analytics data from service
+   * Handles loading state, error state, and graceful degradation
+   */
+  private async loadAnalytics(): Promise<void> {
+    try {
+      this.isLoading.set(true);
+      this.error.set(null);
+
+      const data = await this.analyticsService.fetchAnalyticsData();
+      this.analyticsData.set(data);
+
+      this.logger.info(
+        'Analytics data loaded successfully',
+        'AnalyticsComponent',
+        {
+          todaySessions: data.todaySessions,
+          weekMessages: data.weekMessages,
+          totalTokens: data.totalTokens,
+        }
+      );
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : 'Failed to load analytics';
+      this.error.set(errorMessage);
+      this.logger.error(
+        'Failed to load analytics data',
+        'AnalyticsComponent',
+        err
+      );
+    } finally {
+      this.isLoading.set(false);
+    }
+  }
+
+  /**
+   * Get empty stats structure for fallback state
+   */
+  private getEmptyStats() {
+    return {
+      todayStats: {
+        sessions: 0,
+        label: 'Chat Sessions',
+        timeframe: 'Today',
+      },
+      weekStats: {
+        messages: 0,
+        label: 'Messages Sent',
+        timeframe: 'This Week',
+      },
+      totalStats: {
+        tokens: 0,
+        label: 'Tokens Used',
+        timeframe: 'Total',
+      },
+    };
+  }
 
   navigateToChat(): void {
     // Navigate back to chat view
@@ -193,28 +303,8 @@ export class AnalyticsComponent {
   }
 
   onAnalytics(): void {
-    // Already on analytics - do nothing or refresh data
-    this.logger.info('Already on analytics view', 'AnalyticsComponent');
-  }
-
-  getStatsData() {
-    // TODO: Replace with real analytics data from service
-    return {
-      todayStats: {
-        sessions: 12,
-        label: 'Chat Sessions',
-        timeframe: 'Today',
-      },
-      weekStats: {
-        messages: 47,
-        label: 'Messages Sent',
-        timeframe: 'This Week',
-      },
-      totalStats: {
-        tokens: 1234,
-        label: 'Tokens Used',
-        timeframe: 'Total',
-      },
-    };
+    // Already on analytics - refresh data
+    this.logger.info('Refreshing analytics data', 'AnalyticsComponent');
+    void this.loadAnalytics();
   }
 }
