@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import { AnalyticsDataCollectorAdapter } from './adapters/analytics-data-collector.adapter';
 import { PtahExtension } from './core/ptah-extension';
 import { DIContainer } from './di/container';
+import { ContextMessageBridgeService } from './services/context-message-bridge.service';
 
 let ptahExtension: PtahExtension | undefined;
 
@@ -32,6 +33,18 @@ export async function activate(
     (messageHandler as { initialize: () => void }).initialize();
     logger.info('MessageHandlerService initialized and subscribed to EventBus');
     console.log('[Activate] Step 3: MessageHandlerService initialized');
+
+    // Initialize ContextMessageBridgeService (architectural bridge for file include/exclude)
+    console.log(
+      '[Activate] Step 3.5: Initializing ContextMessageBridgeService...'
+    );
+    const contextBridge = DIContainer.getContainer().resolve(
+      ContextMessageBridgeService
+    );
+    contextBridge.initialize();
+    context.subscriptions.push({ dispose: () => contextBridge.dispose() });
+    logger.info('ContextMessageBridgeService initialized');
+    console.log('[Activate] Step 3.5: ContextMessageBridgeService initialized');
 
     // Initialize main extension controller
     console.log('[Activate] Step 4: Creating PtahExtension instance...');
