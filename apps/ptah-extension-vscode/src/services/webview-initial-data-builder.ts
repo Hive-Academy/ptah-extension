@@ -107,7 +107,7 @@ export class WebviewInitialDataBuilder {
       this.logger.error('Failed to build initial data payload', { error });
 
       // Return minimal valid payload on error
-      return this.buildErrorPayload(error);
+      return this.buildErrorPayload();
     }
   }
 
@@ -338,7 +338,7 @@ export class WebviewInitialDataBuilder {
   /**
    * Build minimal error payload
    */
-  private buildErrorPayload(error: unknown): InitialDataPayload {
+  private buildErrorPayload(): InitialDataPayload {
     return {
       success: false,
       data: {

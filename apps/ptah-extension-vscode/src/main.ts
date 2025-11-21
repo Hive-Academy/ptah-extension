@@ -1,11 +1,10 @@
 // CRITICAL: reflect-metadata MUST be imported first for TSyringe to work
 import 'reflect-metadata';
 
-import type { ConfigManager, Logger } from '@ptah-extension/vscode-core';
+import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import * as vscode from 'vscode';
 import { AnalyticsDataCollectorAdapter } from './adapters/analytics-data-collector.adapter';
-import { ConfigurationProviderAdapter } from './adapters/configuration-provider.adapter';
 import { PtahExtension } from './core/ptah-extension';
 import { DIContainer } from './di/container';
 

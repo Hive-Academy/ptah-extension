@@ -242,9 +242,6 @@ export class AnalyticsDataCollector implements vscode.Disposable {
         ? this.performanceMetrics.errorCount / totalRequests
         : 0.0;
 
-    // Simple service availability check
-    const serviceAvailable = errorRate < 0.8; // Consider service available if error rate < 80%
-
     return {
       avgResponseTime: Math.round(avgResponseTime * 100) / 100,
       successRate: Math.round(successRate * 10000) / 10000,
@@ -317,8 +314,8 @@ export class AnalyticsDataCollector implements vscode.Disposable {
       const topCommands = templates.slice(0, 10).map((template) => ({
         name: template.name,
         category: template.category,
-        usageCount: (template as any).usageCount || 0,
-        lastUsed: (template as any).lastUsed,
+        usageCount: (template as { usageCount?: number }).usageCount || 0,
+        lastUsed: (template as { lastUsed?: number }).lastUsed,
       }));
 
       const totalExecutions = topCommands.reduce(
@@ -532,12 +529,13 @@ export class AnalyticsDataCollector implements vscode.Disposable {
   /**
    * Transform backend analytics data to match frontend AnalyticsData interface
    */
-  private transformToFrontendFormat(backendData: any): any {
+  private transformToFrontendFormat(
+    backendData: Record<string, unknown>
+  ): Record<string, unknown> {
     const now = Date.now();
     const sessionStats = backendData.sessions;
     const performanceData = backendData.performance;
     const systemData = backendData.system;
-    const activityData = backendData.activity;
 
     // Calculate derived metrics
     const messagesPerMinute = this.calculateMessagesPerMinute();
@@ -635,7 +633,7 @@ export class AnalyticsDataCollector implements vscode.Disposable {
   /**
    * Calculate performance trends
    */
-  private calculateTrends(historicalData: any[]): {
+  private calculateTrends(historicalData: Array<Record<string, unknown>>): {
     latency: 'improving' | 'stable' | 'degrading';
     memory: 'improving' | 'stable' | 'degrading';
     throughput: 'improving' | 'stable' | 'degrading';
@@ -710,7 +708,7 @@ export class AnalyticsDataCollector implements vscode.Disposable {
 
     // Add recent message activities
     const recentMessages = this.activityData.messageTimestamps.slice(-5);
-    recentMessages.forEach((ts, i) => {
+    recentMessages.forEach((ts) => {
       activities.push({
         id: `msg-${ts}`,
         type: 'message' as const,
@@ -724,7 +722,7 @@ export class AnalyticsDataCollector implements vscode.Disposable {
     // Add recent session activities
     const recentSessions =
       this.activityData.sessionCreationTimestamps.slice(-3);
-    recentSessions.forEach((ts, i) => {
+    recentSessions.forEach((ts) => {
       activities.push({
         id: `session-${ts}`,
         type: 'system' as const,
@@ -738,7 +736,7 @@ export class AnalyticsDataCollector implements vscode.Disposable {
     // Add recent command activities
     const recentCommands =
       this.activityData.commandExecutionTimestamps.slice(-3);
-    recentCommands.forEach((ts, i) => {
+    recentCommands.forEach((ts) => {
       activities.push({
         id: `cmd-${ts}`,
         type: 'user' as const,

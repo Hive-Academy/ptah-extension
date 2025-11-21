@@ -88,7 +88,6 @@ import {
   AnalyticsOrchestrationService,
   ConfigOrchestrationService,
   MessageHandlerService,
-  CommandService,
   InMemoryPermissionRulesStore,
 } from '@ptah-extension/claude-domain';
 
@@ -99,7 +98,6 @@ import { WebviewEventQueue } from '../services/webview-event-queue';
 import { WebviewInitialDataBuilder } from '../services/webview-initial-data-builder';
 import { AngularWebviewProvider } from '../providers/angular-webview.provider';
 import { ConfigurationProviderAdapter } from '../adapters/configuration-provider.adapter';
-import { AnalyticsDataCollectorAdapter } from '../adapters/analytics-data-collector.adapter';
 
 /**
  * Centralized DI Container

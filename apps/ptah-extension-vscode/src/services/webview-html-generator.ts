@@ -17,7 +17,7 @@ export class WebviewHtmlGenerator {
    */
   generateAngularWebviewContent(
     webview: vscode.Webview,
-    workspaceInfo?: any
+    workspaceInfo?: Record<string, unknown>
   ): string {
     try {
       const htmlContent = this._getHtmlForWebview(webview, workspaceInfo);
@@ -35,7 +35,7 @@ export class WebviewHtmlGenerator {
    */
   private _getHtmlForWebview(
     webview: vscode.Webview,
-    workspaceInfo?: any
+    workspaceInfo?: Record<string, unknown>
   ): string {
     // Path to Angular dist folder (browser build output)
     // FIXED: context.extensionPath already points to dist/apps/ptah-extension-vscode
@@ -250,7 +250,7 @@ export class WebviewHtmlGenerator {
    */
   private generateFallbackHtml(
     webview: vscode.Webview,
-    workspaceInfo?: any
+    workspaceInfo?: Record<string, unknown>
   ): string {
     const { scriptUri, stylesUri } = this.getAssetUris(webview);
     const nonce = this.generateNonce();
@@ -351,7 +351,7 @@ export class WebviewHtmlGenerator {
 
   private getVSCodeIntegrationScript(
     theme: vscode.ColorThemeKind,
-    workspaceInfo?: any,
+    workspaceInfo?: Record<string, unknown>,
     webview?: vscode.Webview
   ): string {
     // Generate proper webview URIs for assets

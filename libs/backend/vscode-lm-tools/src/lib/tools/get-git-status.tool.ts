@@ -13,7 +13,7 @@ export class GetGitStatusTool
   implements vscode.LanguageModelTool<IGetGitStatusParameters>
 {
   async prepareInvocation(
-    options: vscode.LanguageModelToolInvocationPrepareOptions<IGetGitStatusParameters>
+    _options: vscode.LanguageModelToolInvocationPrepareOptions<IGetGitStatusParameters>
   ): Promise<vscode.PreparedToolInvocation> {
     return {
       invocationMessage: 'Getting git repository status...',
@@ -27,7 +27,7 @@ export class GetGitStatusTool
   }
 
   async invoke(
-    options: vscode.LanguageModelToolInvocationOptions<IGetGitStatusParameters>
+    _options: vscode.LanguageModelToolInvocationOptions<IGetGitStatusParameters>
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       // Get git extension
@@ -49,7 +49,11 @@ export class GetGitStatusTool
       const repo = git.repositories[0]; // Use first repository
       const state = repo.state;
 
-      const formatChanges = (changes: any[], icon: string, label: string) => {
+      const formatChanges = (
+        changes: Array<{ uri: vscode.Uri }>,
+        icon: string,
+        label: string
+      ) => {
         if (changes.length === 0) return '';
 
         const fileList = changes

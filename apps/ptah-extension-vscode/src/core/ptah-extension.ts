@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { DIContainer } from '../di/container';
-import { container } from 'tsyringe';
 import type {
   Logger,
   ErrorHandler,
