@@ -12,12 +12,14 @@ describe('SessionDropdownComponent', () => {
       name: 'Test Session 1',
       messageCount: 12,
       lastActiveAt: Date.now() - 1000 * 60 * 5, // 5 minutes ago
+      createdAt: Date.now() - 1000 * 60 * 60 * 24, // 1 day ago
     },
     {
       id: 'session-2' as any,
       name: 'Test Session 2',
       messageCount: 8,
       lastActiveAt: Date.now() - 1000 * 60 * 60, // 1 hour ago
+      createdAt: Date.now() - 1000 * 60 * 60 * 24 * 2, // 2 days ago
     },
   ];
 
@@ -173,6 +175,7 @@ describe('SessionDropdownComponent', () => {
       name: '',
       messageCount: 5,
       lastActiveAt: Date.now(),
+      createdAt: Date.now(),
     };
 
     fixture.componentRef.setInput('recentSessions', [sessionWithoutName]);
