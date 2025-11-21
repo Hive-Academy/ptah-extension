@@ -1,7 +1,7 @@
 import {
   Component,
   OnInit,
-  OnDestroy,
+  DestroyRef,
   signal,
   computed,
   inject,
@@ -9,8 +9,8 @@ import {
   output,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Subject, takeUntil, combineLatest } from 'rxjs';
-import { toObservable } from '@angular/core/rxjs-interop';
+import { combineLatest } from 'rxjs';
+import { toObservable, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 // Core Services
 import { ChatService, StreamConsumptionState } from '@ptah-extension/core';
@@ -129,11 +129,11 @@ import {
     `,
   ],
 })
-export class DashboardComponent implements OnInit, OnDestroy {
+export class DashboardComponent implements OnInit {
   private readonly enhancedChat = inject(ChatService);
   readonly analyticsService = inject(AnalyticsService);
   private readonly logger = inject(LoggingService);
-  private readonly destroy$ = new Subject<void>();
+  private readonly destroyRef = inject(DestroyRef);
 
   // Configuration inputs
   readonly displayMode = input<'inline' | 'expanded'>('inline');
@@ -198,11 +198,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.setupPerformanceMonitoring();
   }
 
-  ngOnDestroy(): void {
-    this.destroy$.next();
-    this.destroy$.complete();
-  }
-
   toggleExpanded(): void {
     const wasExpanded = this._isExpanded();
     this._isExpanded.set(!wasExpanded);
@@ -255,7 +250,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
       toObservable(this.enhancedChat.messages),
       toObservable(this.enhancedChat.isStreaming),
     ])
-      .pipe(takeUntil(this.destroy$))
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(([streamState, messages]) => {
         this.trackPerformanceEvents(streamState, messages.length);
       });
