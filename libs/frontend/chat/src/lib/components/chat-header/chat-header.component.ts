@@ -1,5 +1,15 @@
 import { CommonModule } from '@angular/common';
-import { Component, input, output, computed } from '@angular/core';
+import {
+  Component,
+  input,
+  output,
+  computed,
+  signal,
+  inject,
+} from '@angular/core';
+import { SessionDropdownComponent } from '../session-dropdown/session-dropdown.component';
+import { ChatService } from '@ptah-extension/core';
+import { SessionSummary, SessionId } from '@ptah-extension/shared';
 
 /**
  * Provider Status - Chat header provider display data
@@ -42,28 +52,19 @@ export interface ProviderStatus {
   selector: 'ptah-chat-header',
   standalone: true,
 
-  imports: [CommonModule],
+  imports: [CommonModule, SessionDropdownComponent],
   template: `
     <div class="header-container">
-      <!-- Header with new session and analytics buttons -->
+      <!-- Header with session dropdown and analytics button -->
       <div class="header-main">
         <div class="header-actions">
-          <button
-            type="button"
-            class="header-action-btn"
-            (click)="newSession.emit()"
-            title="Start New Chat Session"
-            aria-label="Start new chat session"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" class="action-icon">
-              <path
-                d="M14 2H8L7 1H2C1.45 1 1 1.45 1 2v11c0 .55.45 1 1 1h11c.55 0 1-.45 1-1V3c0-.55-.45-1-1-1zm-1 10H3V4h10v8z"
-                fill="currentColor"
-              />
-              <path d="M6 7h1v3H6V7zm2 0h1v3H8V7z" fill="currentColor" />
-            </svg>
-            <span>New Session</span>
-          </button>
+          <ptah-session-dropdown
+            [currentSessionId]="currentSession()?.id ?? null"
+            [recentSessions]="recentSessions()"
+            (sessionSelected)="onSessionSelected($event)"
+            (newSessionClicked)="newSession.emit()"
+            (searchAllClicked)="showSearchOverlay.set(true)"
+          />
 
           <button
             type="button"
@@ -199,13 +200,21 @@ export interface ProviderStatus {
   ],
 })
 export class ChatHeaderComponent {
+  // Services
+  protected readonly chatService = inject(ChatService);
+
   // Signal-based inputs (modern Angular 20+ API)
   readonly providerStatus = input.required<ProviderStatus>();
+  readonly currentSession = input<{ id: SessionId } | null>(null);
+  readonly recentSessions = input<SessionSummary[]>([]);
 
   // Signal-based outputs (modern Angular 20+ API)
   readonly newSession = output<void>();
   readonly analytics = output<void>();
   readonly providerSettings = output<void>();
+
+  // Internal state
+  readonly showSearchOverlay = signal(false);
 
   // Computed display strings (derived state)
   readonly providerTitle = computed(
@@ -218,4 +227,9 @@ export class ChatHeaderComponent {
         this.providerStatus().name || 'Unknown'
       }. Status: ${this.providerStatus().status}`
   );
+
+  // Methods
+  onSessionSelected(sessionId: SessionId): void {
+    void this.chatService.switchToSession(sessionId);
+  }
 }
