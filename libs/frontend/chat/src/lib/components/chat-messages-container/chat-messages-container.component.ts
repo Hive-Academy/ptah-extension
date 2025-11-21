@@ -1,7 +1,7 @@
 import { Component, input, output } from '@angular/core';
 import { ChatMessagesListComponent } from '../chat-messages-list/chat-messages-list.component';
 import { ChatEmptyStateComponent } from '../chat-empty-state/chat-empty-state.component';
-import type { SessionId } from '@ptah-extension/shared';
+import type { SessionId, SessionSummary } from '@ptah-extension/shared';
 import type { ProcessedClaudeMessage } from '@ptah-extension/core';
 
 /**
@@ -59,6 +59,8 @@ import type { ProcessedClaudeMessage } from '@ptah-extension/core';
     } @else {
     <!-- Empty State -->
     <ptah-chat-empty-state
+      [sessions]="sessions()"
+      (sessionSelected)="sessionSelected.emit($event)"
       (quickHelp)="quickHelp.emit()"
       (orchestration)="orchestration.emit()"
     />
@@ -96,6 +98,9 @@ export class ChatMessagesContainerComponent {
   readonly showMessageActions = input<boolean>(true);
   readonly enableImagePreviews = input<boolean>(true);
 
+  // Sessions input (TASK_2025_011 - Batch 4)
+  readonly sessions = input<SessionSummary[]>([]);
+
   // Message interaction outputs
   readonly messageClicked = output<ProcessedClaudeMessage>();
   readonly fileClicked = output<string>();
@@ -113,4 +118,5 @@ export class ChatMessagesContainerComponent {
   // Empty state outputs
   readonly quickHelp = output<void>();
   readonly orchestration = output<void>();
+  readonly sessionSelected = output<string>();
 }

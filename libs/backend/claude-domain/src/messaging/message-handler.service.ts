@@ -15,6 +15,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Subscription } from 'rxjs';
+import * as vscode from 'vscode';
 import type {
   MessagePayloadMap,
   CorrelationId,
@@ -36,6 +37,7 @@ import { ChatOrchestrationService } from '../chat/chat-orchestration.service';
 import { ProviderOrchestrationService } from '../provider/provider-orchestration.service';
 import { AnalyticsOrchestrationService } from '../analytics/analytics-orchestration.service';
 import { ConfigOrchestrationService } from '../config/config-orchestration.service';
+import { SessionProxy } from '../session/session-proxy';
 import { TOKENS, EventBus } from '@ptah-extension/vscode-core';
 import type {
   ClaudeAgentStartedEvent,
@@ -147,7 +149,9 @@ export class MessageHandlerService {
     @inject(AnalyticsOrchestrationService)
     private readonly analyticsOrchestration: AnalyticsOrchestrationService,
     @inject(ConfigOrchestrationService)
-    private readonly configOrchestration: ConfigOrchestrationService
+    private readonly configOrchestration: ConfigOrchestrationService,
+    @inject(TOKENS.SESSION_PROXY)
+    private readonly sessionProxy: SessionProxy
   ) {}
 
   /**
@@ -415,6 +419,55 @@ export class MessageHandlerService {
             event.correlationId,
             result
           );
+        })
+    );
+
+    // chat:requestSessions
+    this.subscriptions.push(
+      this.eventBus
+        .subscribe(CHAT_MESSAGE_TYPES.REQUEST_SESSIONS)
+        .subscribe(async (event) => {
+          try {
+            // Get workspace root from VS Code workspace API
+            const workspaceRoot =
+              vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+            // Call SessionProxy to list sessions from .claude_sessions/
+            const sessions = await this.sessionProxy.listSessions(
+              workspaceRoot
+            );
+
+            // Publish SESSIONS_UPDATED message to webview
+            this.eventBus.publish(CHAT_MESSAGE_TYPES.SESSIONS_UPDATED, {
+              sessions,
+            } as MessagePayloadMap[typeof CHAT_MESSAGE_TYPES.SESSIONS_UPDATED]);
+
+            // Publish response acknowledgment
+            this.publishResponse('chat:requestSessions', event.correlationId, {
+              success: true,
+              sessions,
+            });
+          } catch (error) {
+            // Graceful degradation - log error and return empty array
+            console.error('[MessageHandler] Failed to list sessions:', error);
+
+            // Publish empty sessions array
+            this.eventBus.publish(CHAT_MESSAGE_TYPES.SESSIONS_UPDATED, {
+              sessions: [],
+            } as MessagePayloadMap[typeof CHAT_MESSAGE_TYPES.SESSIONS_UPDATED]);
+
+            // Publish error response
+            this.publishResponse('chat:requestSessions', event.correlationId, {
+              success: false,
+              error: {
+                code: 'SESSION_LIST_FAILED',
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : 'Failed to list sessions',
+              },
+            });
+          }
         })
     );
   }
