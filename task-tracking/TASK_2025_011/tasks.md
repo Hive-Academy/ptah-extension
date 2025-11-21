@@ -7,7 +7,7 @@
 - **Estimated Duration**: 12-16 hours
 - **Phases**: 5 phases (aligned with implementation plan)
 - **Batching Strategy**: Phase-based with developer type separation
-- **Status**: 1/5 batches complete (20%)
+- **Status**: 4/5 batches complete (80%)
 
 ---
 
@@ -131,13 +131,13 @@
 
 ---
 
-## Batch 2: SessionProxy Integration & DI Registration (Backend) IN PROGRESS
+## Batch 2: SessionProxy Integration & DI Registration (Backend) COMPLETE ✅
 
 **Assigned To**: backend-developer
 **Tasks in Batch**: 4
 **Dependencies**: Batch 1 complete
 **Estimated Duration**: 3-4 hours
-**Commits**: 1cdcc83, 9fa4c96, d76a787
+**Commits**: 1cdcc83, 2d1e3cf, 9fa4c96, d76a787
 
 ### Task 2.1: Create SessionProxy Unit Tests COMPLETE ✅
 
@@ -388,21 +388,24 @@
 
 ---
 
-## Batch 4: Backend Handler Integration (Backend) PENDING
+## Batch 4: Backend Handler Integration (Backend) COMPLETE ✅
 
-**Assigned To**: backend-developer
+**Assigned To**: backend-developer, frontend-developer
 **Tasks in Batch**: 4
 **Dependencies**: Batch 3 complete
 **Estimated Duration**: 2-3 hours
+**Git Commits**: 385f3bd, 7617af4
 
-### Task 4.1: Update REQUEST_SESSIONS Handler to Use SessionProxy PENDING
+### Task 4.1: Update REQUEST_SESSIONS Handler to Use SessionProxy COMPLETE ✅
 
-**File(s)**: D:\projects\ptah-extension\apps\ptah-extension-vscode\src\providers\angular-webview.provider.ts
+**Commit**: 385f3bd
+
+**File(s)**: D:\projects\ptah-extension\libs\backend\claude-domain\src\messaging\message-handler.service.ts
 **Developer**: backend-developer
 **Complexity**: Medium (1.5 hours)
 **Dependencies**: Tasks 2.3, 2.4
 **Specification Reference**: implementation-plan.md:418-427
-**Pattern to Follow**: Existing message handler patterns in angular-webview.provider.ts
+**Pattern to Follow**: Existing message handler patterns in message-handler.service.ts
 **Expected Commit Pattern**: `feat(vscode): update request sessions handler to use sessionproxy`
 
 **Quality Requirements**:
@@ -425,8 +428,9 @@
 
 ---
 
-### Task 4.2: Update ChatComponent to Show Empty State with Sessions PENDING
+### Task 4.2: Update ChatComponent to Show Empty State with Sessions COMPLETE ✅
 
+**Git Commit**: 7617af4, 385f3bd (ChatMessagesContainerComponent)
 **File(s)**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\containers\chat\chat.component.ts
 **Developer**: frontend-developer
 **Complexity**: Medium (1 hour)
@@ -457,8 +461,9 @@
 
 ---
 
-### Task 4.3: Remove SessionSelector Import from ChatComponent PENDING
+### Task 4.3: Remove SessionSelector Import from ChatComponent COMPLETE ✅
 
+**Git Commit**: 7617af4 (combined with Task 4.2)
 **File(s)**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\containers\chat\chat.component.ts
 **Developer**: frontend-developer
 **Complexity**: Simple (30 minutes)
