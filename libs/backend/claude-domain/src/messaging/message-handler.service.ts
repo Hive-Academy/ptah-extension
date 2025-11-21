@@ -30,6 +30,7 @@ import {
   CONTEXT_MESSAGE_TYPES,
   ANALYTICS_MESSAGE_TYPES,
   CONFIG_MESSAGE_TYPES,
+  SYSTEM_MESSAGE_TYPES,
 } from '@ptah-extension/shared';
 
 // Import orchestration services
@@ -417,6 +418,100 @@ export class MessageHandlerService {
                     ? error.message
                     : 'Failed to list sessions',
               },
+            });
+          }
+        })
+    );
+
+    // requestInitialData: Restore webview state on reload
+    // NOTE: This handler gathers minimal state for webview initialization.
+    // InitialDataPayload expects StrictChatSession[] but we only have SessionSummary[] available.
+    // For now, we send empty arrays and let the frontend request full session data separately.
+    this.subscriptions.push(
+      this.eventBus
+        .subscribe(SYSTEM_MESSAGE_TYPES.REQUEST_INITIAL_DATA)
+        .subscribe(async (event) => {
+          try {
+            // 1. Get workspace root from VS Code workspace API
+            const workspaceRoot =
+              vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+
+            // 2. Get provider info
+            const providerInfo =
+              await this.providerOrchestration.getAvailableProviders();
+
+            // 3. Map ProviderData to InitialDataProviderInfo
+            const mappedProviders =
+              providerInfo.providers?.map((provider) => ({
+                id: provider.id,
+                name: provider.name,
+                status:
+                  provider.health.status === 'available'
+                    ? ('available' as const)
+                    : provider.health.status === 'unavailable'
+                    ? ('unavailable' as const)
+                    : provider.health.status === 'error'
+                    ? ('error' as const)
+                    : ('disabled' as const),
+                capabilities: provider.capabilities,
+              })) || [];
+
+            // 4. Publish INITIAL_DATA event
+            // NOTE: Sending empty sessions/currentSession because:
+            // - SessionProxy returns SessionSummary[] not StrictChatSession[]
+            // - Frontend will request sessions separately via CHAT_MESSAGE_TYPES.REQUEST_SESSIONS
+            this.eventBus.publish(SYSTEM_MESSAGE_TYPES.INITIAL_DATA, {
+              success: true,
+              data: {
+                sessions: [], // Frontend will request via REQUEST_SESSIONS
+                currentSession: null, // Frontend will track current session
+                providers: {
+                  current:
+                    mappedProviders.length > 0 ? mappedProviders[0] : null,
+                  available: mappedProviders,
+                  health: {},
+                },
+              },
+              config: {
+                context: {
+                  includedFiles: [],
+                  excludedFiles: [],
+                  tokenEstimate: 0,
+                },
+                workspaceInfo: workspaceRoot
+                  ? {
+                      name:
+                        vscode.workspace.workspaceFolders?.[0]?.name ||
+                        'Unknown',
+                      path: workspaceRoot,
+                      projectType: 'unknown',
+                    }
+                  : null,
+                theme: 1, // Default to light theme
+                isVSCode: true,
+                extensionVersion: '0.1.0',
+              },
+              timestamp: Date.now(),
+            } as MessagePayloadMap[typeof SYSTEM_MESSAGE_TYPES.INITIAL_DATA]);
+
+            // 5. Send acknowledgment response
+            this.publishResponse('requestInitialData', event.correlationId, {
+              success: true,
+              timestamp: Date.now(),
+            });
+          } catch (error) {
+            console.error(
+              '[MessageHandler] Failed to gather initial data:',
+              error
+            );
+
+            // Send error response
+            this.publishResponse('requestInitialData', event.correlationId, {
+              success: false,
+              error:
+                error instanceof Error
+                  ? error.message
+                  : 'Failed to gather initial data',
             });
           }
         })
