@@ -1,19 +1,23 @@
-import { Component, output, inject } from '@angular/core';
+import { Component, output, inject, input, computed } from '@angular/core';
 import { CommonModule, NgOptimizedImage } from '@angular/common';
 import {
   LucideAngularModule,
   MessageSquareIcon,
   WorkflowIcon,
+  ClockIcon,
+  MessageCircleIcon,
 } from 'lucide-angular';
 import { VSCodeService } from '@ptah-extension/core';
+import { SessionSummary } from '@ptah-extension/shared';
 
 /**
- * Chat Empty State Component - Welcome Screen
+ * Chat Empty State Component - Welcome Screen with Sessions List
  *
- * **Purpose**: Welcome message with action cards for new sessions
+ * **Purpose**: Welcome message with action cards and recent sessions
  *
  * **Modernizations**:
- * - `@Output()` → `output<void>()` for all events (quickHelp, orchestration)
+ * - `@Output()` → `output<void>()` for all events (quickHelp, orchestration, sessionSelected)
+ * - `@Input()` → `input<SessionSummary[]>()` for sessions list
  * - Already has OnPush change detection ✅
  * - Already has modern control flow (no structural directives) ✅
  * - Selector: vscode-chat-empty-state → ptah-chat-empty-state
@@ -29,13 +33,16 @@ import { VSCodeService } from '@ptah-extension/core';
  * - Welcome message with Ptah branding
  * - Quick Help action card
  * - Code Orchestration action card
+ * - Recent sessions list (if available)
  * - Feature highlights section
  *
  * @example
  * ```html
  * <ptah-chat-empty-state
+ *   [sessions]="chatService.sessions()"
  *   (quickHelp)="handleQuickHelp()"
  *   (orchestration)="handleOrchestration()"
+ *   (sessionSelected)="handleSessionSelected($event)"
  * />
  * ```
  */
@@ -101,6 +108,42 @@ import { VSCodeService } from '@ptah-extension/core';
           </p>
         </button>
       </div>
+
+      <!-- Recent Sessions -->
+      @if (hasSessions()) {
+      <div class="sessions-section">
+        <h4 class="sessions-title">Recent Sessions</h4>
+        <div class="sessions-list">
+          @for (session of sessions(); track session.id) {
+          <button
+            class="session-item"
+            (click)="sessionSelected.emit(session.id)"
+            type="button"
+            [attr.aria-label]="'Open session ' + session.name"
+          >
+            <div class="session-icon">
+              <lucide-angular [img]="MessageCircleIcon" class="icon" />
+            </div>
+            <div class="session-info">
+              <p class="session-name">{{ session.name }}</p>
+              <div class="session-meta">
+                <span class="meta-item">
+                  {{ session.messageCount }} message{{
+                    session.messageCount === 1 ? '' : 's'
+                  }}
+                </span>
+                <span class="meta-separator">•</span>
+                <span class="meta-item">
+                  <lucide-angular [img]="ClockIcon" class="meta-icon" />
+                  {{ getRelativeTime(session.lastActiveAt) }}
+                </span>
+              </div>
+            </div>
+          </button>
+          }
+        </div>
+      </div>
+      }
 
       <!-- Feature Highlights -->
       <div class="feature-highlights">
@@ -255,6 +298,115 @@ import { VSCodeService } from '@ptah-extension/core';
         line-height: 1.3;
       }
 
+      .sessions-section {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        width: 100%;
+        max-width: 500px;
+      }
+
+      .sessions-title {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--vscode-foreground);
+        text-align: left;
+      }
+
+      .sessions-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .session-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        background-color: var(--vscode-input-background);
+        border: 1px solid var(--vscode-input-border);
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        text-align: left;
+        width: 100%;
+      }
+
+      .session-item:hover {
+        background-color: var(--vscode-list-hoverBackground);
+        border-color: var(--vscode-focusBorder);
+      }
+
+      .session-item:focus {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: 2px;
+      }
+
+      .session-item:active {
+        transform: translateY(1px);
+      }
+
+      .session-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background-color: var(--vscode-button-secondaryBackground);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+
+      .session-icon .icon {
+        width: 18px;
+        height: 18px;
+        color: var(--vscode-button-secondaryForeground);
+      }
+
+      .session-info {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        overflow: hidden;
+      }
+
+      .session-name {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--vscode-foreground);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .session-meta {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--vscode-descriptionForeground);
+      }
+
+      .meta-item {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .meta-icon {
+        width: 12px;
+        height: 12px;
+      }
+
+      .meta-separator {
+        color: var(--vscode-descriptionForeground);
+        opacity: 0.5;
+      }
+
       .feature-highlights {
         display: flex;
         flex-direction: column;
@@ -301,18 +453,21 @@ import { VSCodeService } from '@ptah-extension/core';
 
       /* High Contrast Mode */
       @media (prefers-contrast: high) {
-        .action-card {
+        .action-card,
+        .session-item {
           border-width: 2px;
         }
       }
 
       /* Reduced Motion */
       @media (prefers-reduced-motion: reduce) {
-        .action-card {
+        .action-card,
+        .session-item {
           transition: none;
         }
 
-        .action-card:active {
+        .action-card:active,
+        .session-item:active {
           transform: none;
         }
       }
@@ -331,6 +486,16 @@ export class ChatEmptyStateComponent {
   readonly ptahIconUri = this.vscode.getPtahIconUri();
 
   /**
+   * Input signal: List of recent sessions to display
+   */
+  readonly sessions = input<SessionSummary[]>([]);
+
+  /**
+   * Computed signal: Whether there are sessions to display
+   */
+  readonly hasSessions = computed(() => this.sessions().length > 0);
+
+  /**
    * Emitted when Quick Help action card is clicked
    */
   readonly quickHelp = output<void>();
@@ -341,8 +506,35 @@ export class ChatEmptyStateComponent {
   readonly orchestration = output<void>();
 
   /**
-   * Lucide icons for action cards
+   * Emitted when a session is selected from the list
+   */
+  readonly sessionSelected = output<string>();
+
+  /**
+   * Lucide icons for action cards and sessions
    */
   readonly MessageSquareIcon = MessageSquareIcon;
   readonly WorkflowIcon = WorkflowIcon;
+  readonly MessageCircleIcon = MessageCircleIcon;
+  readonly ClockIcon = ClockIcon;
+
+  /**
+   * Get relative time string from timestamp (e.g., "2 hours ago")
+   *
+   * @param timestamp - Unix epoch milliseconds
+   * @returns Human-readable relative time
+   */
+  getRelativeTime(timestamp: number): string {
+    const now = Date.now();
+    const diff = now - timestamp;
+    const minutes = Math.floor(diff / (1000 * 60));
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+
+    if (minutes < 1) return 'Just now';
+    if (minutes < 60) return `${minutes}m ago`;
+    if (hours < 24) return `${hours}h ago`;
+    if (days < 7) return `${days}d ago`;
+    return new Date(timestamp).toLocaleDateString();
+  }
 }
