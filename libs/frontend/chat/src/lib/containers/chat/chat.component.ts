@@ -23,6 +23,7 @@ import { ChatStateManagerService } from '../../services';
 
 // Shared types
 import type { DropdownOption } from '@ptah-extension/shared';
+import { SessionId } from '@ptah-extension/shared';
 
 // Core types (ProcessedClaudeMessage from core has richer type information)
 import type { ProcessedClaudeMessage } from '@ptah-extension/core';
@@ -51,9 +52,6 @@ import type { ProviderStatus } from '../../components/chat-header/chat-header.co
 import type { ChatStatusMetrics } from '../../components/chat-status-bar/chat-status-bar.component';
 import type { TokenUsage } from '../../components/chat-token-usage/chat-token-usage.component';
 
-// Session Components
-import { SessionSelectorComponent } from '@ptah-extension/session';
-
 // Provider Components
 
 /**
@@ -80,7 +78,6 @@ import { SessionSelectorComponent } from '@ptah-extension/session';
     AgentTimelineComponent,
     AgentStatusBadgeComponent,
     ChatInputAreaComponent,
-    SessionSelectorComponent,
     ThinkingDisplayComponent,
     ToolTimelineComponent,
     PermissionDialogComponent,
@@ -102,20 +99,6 @@ import { SessionSelectorComponent } from '@ptah-extension/session';
         />
       </div>
 
-      <!-- Session Management -->
-      <div class="vscode-session-section">
-        <ptah-session-selector
-          [currentSession]="currentSession()"
-          [sessions]="chatState.availableSessions()"
-          [isLoading]="chatState.isSessionLoading()"
-          [showSessionManager]="true"
-          (sessionSelected)="chatState.switchToSession($event)"
-          (sessionCreated)="onSessionCreated($event)"
-          (sessionDeleted)="chatState.deleteSession($event)"
-          (sessionManagerRequested)="chatState.openSessionManager()"
-        />
-      </div>
-
       <!-- Token Usage Progress -->
       <ptah-chat-token-usage [tokenUsage]="tokenUsage()" />
 
@@ -127,11 +110,13 @@ import { SessionSelectorComponent } from '@ptah-extension/session';
           [messages]="claudeMessages()"
           [sessionId]="currentSession()?.id || null"
           [loading]="isLoading()"
+          [sessions]="chatService.sessions()"
           (messageClicked)="onMessageClick($event)"
           (fileClicked)="handleFileClick($event)"
           (toolActionRequested)="handleToolAction($event)"
           (messageActioned)="handleMessageAction($event)"
           (scrolledToTop)="handleScrolledToTop()"
+          (sessionSelected)="onSessionSelected($event)"
           (quickHelp)="startQuickHelp()"
           (orchestration)="startOrchestration()"
         />
@@ -208,13 +193,6 @@ import { SessionSelectorComponent } from '@ptah-extension/session';
         color: var(--vscode-editor-foreground);
         font-family: var(--vscode-font-family);
         overflow: hidden;
-      }
-
-      .vscode-session-section {
-        flex-shrink: 0;
-        padding: 8px 16px;
-        background-color: var(--vscode-editor-background);
-        border-bottom: 1px solid var(--vscode-panel-border);
       }
 
       .vscode-header-section {
@@ -426,6 +404,11 @@ export class ChatComponent implements OnInit, OnDestroy {
     });
 
     this.chatState.initialize();
+
+    // Refresh sessions if no messages (TASK_2025_011 - Batch 4)
+    if (this.chat.messages().length === 0) {
+      void this.chatService.refreshSessions();
+    }
   }
 
   public ngOnDestroy(): void {
@@ -475,6 +458,13 @@ export class ChatComponent implements OnInit, OnDestroy {
   public onSessionCreated(name: string | undefined): void {
     this.logger.debug('Session created', 'ChatComponent', { name });
     this.chatState.createNewSession(name || 'New Session');
+  }
+
+  public onSessionSelected(sessionId: string): void {
+    this.logger.debug('Session selected from empty state', 'ChatComponent', {
+      sessionId,
+    });
+    void this.chatService.switchToSession(SessionId.from(sessionId));
   }
 
   public onAgentChange(option: DropdownOption): void {
