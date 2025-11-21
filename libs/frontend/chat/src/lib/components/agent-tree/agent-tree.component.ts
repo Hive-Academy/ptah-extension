@@ -12,6 +12,7 @@ import {
   AlertCircle,
 } from 'lucide-angular';
 import type { AgentTreeNode } from '@ptah-extension/core';
+import { formatDuration } from '@ptah-extension/shared-ui';
 
 /**
  * Agent Tree Component - Collapsible Tree Visualization
@@ -60,6 +61,9 @@ export class AgentTreeComponent {
   readonly ChevronDownIcon = ChevronDown;
   readonly AlertCircleIcon = AlertCircle;
 
+  // Expose imported utility function for template access
+  readonly formatDuration = formatDuration;
+
   // Signal inputs (modern Angular 20+ API)
   readonly agents = input<readonly AgentTreeNode[]>([]);
 
@@ -91,21 +95,6 @@ export class AgentTreeComponent {
    */
   isExpanded(agentId: string): boolean {
     return this.expandedAgents().has(agentId);
-  }
-
-  /**
-   * Format duration from milliseconds to human-readable string
-   * @param durationMs - Duration in milliseconds
-   * @returns Formatted string (e.g., "12s" or "2m 30s")
-   */
-  formatDuration(durationMs: number): string {
-    const seconds = Math.floor(durationMs / 1000);
-    if (seconds < 60) {
-      return `${seconds}s`;
-    }
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}m ${remainingSeconds}s`;
   }
 
   /**

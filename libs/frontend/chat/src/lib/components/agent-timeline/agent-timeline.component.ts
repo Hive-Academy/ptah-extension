@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
 import type { AgentTreeNode } from '@ptah-extension/core';
+import { formatDuration } from '@ptah-extension/shared-ui';
 
 /**
  * TimelineAgent Interface
@@ -215,16 +216,9 @@ export class AgentTimelineComponent {
   }
 
   /**
-   * Format duration for display (e.g., "12s", "2m 30s")
+   * Expose imported utility function for template access
    */
-  formatDuration(durationMs: number): string {
-    const seconds = Math.floor(durationMs / 1000);
-    if (seconds < 60) return `${seconds}s`;
-
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}m ${remainingSeconds}s`;
-  }
+  readonly formatDuration = formatDuration;
 
   /**
    * Show popover after 300ms hover delay

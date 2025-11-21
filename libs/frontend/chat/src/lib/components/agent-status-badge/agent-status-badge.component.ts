@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { AgentTreeNode } from '@ptah-extension/core';
+import { formatDuration } from '@ptah-extension/shared-ui';
 
 /**
  * Agent Status Badge Component - Compact Active Agent Indicator
@@ -56,6 +57,9 @@ import { AgentTreeNode } from '@ptah-extension/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AgentStatusBadgeComponent {
+  // Expose imported utility function for template access
+  readonly formatDuration = formatDuration;
+
   // Signal inputs
   readonly activeAgents = input<readonly AgentTreeNode[]>([]);
 
@@ -115,7 +119,7 @@ export class AgentStatusBadgeComponent {
     const items = agents.map((node) => {
       const type = node.agent.subagentType;
       const duration = node.duration
-        ? this.formatDuration(node.duration)
+        ? formatDuration(node.duration)
         : this.getRunningDuration(node.agent.timestamp);
       const status = node.status === 'error' ? ' (error)' : '';
       return `• ${type} (${duration})${status}`;
@@ -146,19 +150,9 @@ export class AgentStatusBadgeComponent {
   }
 
   // Helper methods (public for template access)
-  formatDuration(ms: number): string {
-    const seconds = Math.floor(ms / 1000);
-    if (seconds < 60) {
-      return `${seconds}s`;
-    }
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}m ${remainingSeconds}s`;
-  }
-
   getRunningDuration(startTimestamp: number): string {
     const now = Date.now();
     const elapsed = now - startTimestamp;
-    return this.formatDuration(elapsed);
+    return formatDuration(elapsed);
   }
 }

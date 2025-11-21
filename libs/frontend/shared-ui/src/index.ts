@@ -5,3 +5,4 @@ export * from './lib/ui';
 export * from './lib/layout';
 export * from './lib/overlays';
 export * from './lib/pipes/safe-html.pipe';
+export * from './lib/utils/time-formatting.utils';
