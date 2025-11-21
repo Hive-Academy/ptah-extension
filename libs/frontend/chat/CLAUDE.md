@@ -26,7 +26,7 @@ Complete Angular chat interface with message display, input, streaming, session 
 - `ChatStatusBarComponent`: System metrics
 - `ChatStreamingStatusComponent`: Streaming banner
 - `ChatTokenUsageComponent`: Token progress bar
-- `ChatEmptyStateComponent`: Welcome screen
+- `ChatEmptyStateComponent`: Welcome screen with session management (list + new session)
 
 **Utilities**:
 
@@ -62,12 +62,46 @@ readonly sessionStats = computed(() => ({
 }));
 ```
 
+## Key Features
+
+### Session Management
+
+**ChatEmptyStateComponent** provides complete session management:
+
+```typescript
+// Session list display
+<div class="sessions-list">
+  @for (session of sessions(); track session.id) {
+    <button (click)="onSessionClick(session)">
+      {{ session.name }} - {{ formatDate(session.lastActiveAt) }}
+    </button>
+  }
+</div>
+
+// New session button
+<button (click)="onNewSessionClick()">+ New Session</button>
+```
+
+**Features**:
+
+- Display all sessions from `.claude_sessions/` directory
+- Click to switch to existing session
+- Create new session button
+- Empty state when no sessions exist
+- Real-time session list updates via `REQUEST_SESSIONS` message
+
+**Backend Integration**:
+
+- Requests sessions via `chatService.refreshSessions()`
+- Receives `SESSIONS_UPDATED` message with session summaries
+- Switches sessions via `chatService.switchToSession(sessionId)`
+- Creates new sessions via `chatService.createNewSession()`
+
 ## Dependencies
 
 - `@ptah-extension/core`: ChatService, FilePickerService, etc.
 - `@ptah-extension/shared`: Types
 - `@ptah-extension/shared-ui`: DropdownComponent, ActionButtonComponent
-- `@ptah-extension/session`: SessionSelectorComponent
 - `@ptah-extension/providers`: ProviderManagerComponent
 
 ## Testing

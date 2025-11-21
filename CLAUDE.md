@@ -363,7 +363,7 @@ The Ptah workspace is organized as an Nx monorepo with **14 projects** (2 apps +
 │  - ptah-extension-webview (Angular SPA)             │
 ├─────────────────────────────────────────────────────┤
 │  Frontend Feature Libraries                          │
-│  - chat, session, providers, analytics, dashboard   │
+│  - chat, providers, analytics, dashboard            │
 ├─────────────────────────────────────────────────────┤
 │  Frontend Core Services                              │
 │  - core (state, services, VS Code integration)      │
@@ -391,19 +391,18 @@ Each library has a dedicated `CLAUDE.md` file with architecture details, usage p
 - **[ptah-extension-vscode](apps/ptah-extension-vscode/CLAUDE.md)** - Main VS Code extension with command handlers, webview providers, and DI orchestration
 - **[ptah-extension-webview](apps/ptah-extension-webview/CLAUDE.md)** - Angular 20+ SPA with signal-based navigation and zoneless change detection
 
-#### **Backend Libraries** (4)
+#### **Backend Libraries** (5)
 
 - **[shared](libs/shared/CLAUDE.md)** - Type system foundation: Branded types (SessionId, MessageId), message protocol (94 types), AI provider abstractions
 - **[vscode-core](libs/backend/vscode-core/CLAUDE.md)** - Infrastructure layer: DI container (60+ tokens), API wrappers (CommandManager, WebviewManager), EventBus, Logger
-- **[claude-domain](libs/backend/claude-domain/CLAUDE.md)** - Business logic: CLI integration, session management, orchestration services, permission handling
+- **[claude-domain](libs/backend/claude-domain/CLAUDE.md)** - Business logic: CLI integration, session management via SessionProxy, orchestration services, permission handling
 - **[ai-providers-core](libs/backend/ai-providers-core/CLAUDE.md)** - Multi-provider abstraction: Intelligent provider selection, context management, Claude CLI & VS Code LM adapters
 - **[workspace-intelligence](libs/backend/workspace-intelligence/CLAUDE.md)** - Workspace analysis: Project detection (13+ types), file indexing, token optimization
 
-#### **Frontend Libraries** (7)
+#### **Frontend Libraries** (6)
 
 - **[core](libs/frontend/core/CLAUDE.md)** - Service layer: AppStateManager, VSCodeService, ChatService, signal-based state management
-- **[chat](libs/frontend/chat/CLAUDE.md)** - Chat UI: 11 components for message display, input, streaming, session management
-- **[session](libs/frontend/session/CLAUDE.md)** - Session management: SessionSelector, SessionCard, session lifecycle operations
+- **[chat](libs/frontend/chat/CLAUDE.md)** - Chat UI: 11 components for message display, input, streaming, session management (via ChatEmptyStateComponent)
 - **[providers](libs/frontend/providers/CLAUDE.md)** - Provider UI: Provider selection, health monitoring, capabilities display
 - **[analytics](libs/frontend/analytics/CLAUDE.md)** - Analytics dashboard: Usage statistics, performance metrics visualization
 - **[dashboard](libs/frontend/dashboard/CLAUDE.md)** - Performance dashboard: Real-time metrics, historical trends, activity feed
@@ -444,7 +443,6 @@ Apps → Feature Libs → Core Services → Domain Libs → Infrastructure → S
 '@ptah-extension/workspace-intelligence'; // Workspace analysis
 '@ptah-extension/core'; // Frontend services
 '@ptah-extension/chat'; // Chat UI
-'@ptah-extension/session'; // Session UI
 '@ptah-extension/providers'; // Provider UI
 '@ptah-extension/analytics'; // Analytics UI
 '@ptah-extension/dashboard'; // Dashboard UI
@@ -494,10 +492,10 @@ For detailed information about any library:
 
 ### Workspace Stats
 
-- **Total Projects**: 14 (2 apps + 12 libraries)
-- **Total Components**: 50+ Angular components
+- **Total Projects**: 13 (2 apps + 11 libraries)
+- **Total Components**: 48+ Angular components
 - **Total Services**: 40+ backend/frontend services
-- **TypeScript Files**: 300+ source files
+- **TypeScript Files**: 280+ source files
 - **Test Coverage Target**: 80% minimum
 - **Dependency Tokens**: 60+ DI tokens
 - **Message Types**: 94 distinct message types
