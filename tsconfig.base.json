@@ -28,7 +28,6 @@
       "@ptah-extension/core": ["libs/frontend/core/src/index.ts"],
       "@ptah-extension/dashboard": ["libs/frontend/dashboard/src/index.ts"],
       "@ptah-extension/providers": ["libs/frontend/providers/src/index.ts"],
-      "@ptah-extension/session": ["libs/frontend/session/src/index.ts"],
       "@ptah-extension/shared": ["libs/shared/src/index.ts"],
       "@ptah-extension/shared-ui": ["libs/frontend/shared-ui/src/index.ts"],
       "@ptah-extension/vscode-core": ["libs/backend/vscode-core/src/index.ts"],
