@@ -582,12 +582,27 @@
 - ✅ Remove BULK_DELETE_SESSIONS handler
 - ✅ Remove corresponding orchestration methods
 - ✅ Remove corresponding message type handlers
-- Verify no usages remain
+- ✅ Verify no usages remain
 
 **Implementation Details**:
 
-- **Handler Removal**: Search for DELETE_SESSION, RENAME_SESSION handlers
-- **Message Types**: May need to mark as deprecated in message.types.ts
+- **Handler Removal**: Removed DELETE_SESSION, RENAME_SESSION, BULK_DELETE_SESSIONS handlers from message-handler.service.ts
+- **Orchestration Methods**: Removed renameSession(), deleteSession(), bulkDeleteSessions() from chat-orchestration.service.ts
+- **Type Cleanup**: Removed exported interfaces (RenameSessionRequest/Result, DeleteSessionRequest/Result, BulkDeleteSessionsRequest/Result)
+- **Adapter Fix**: Updated claude-cli-adapter.ts endSession() to no longer call sessionManager.deleteSession()
+
+**Files Modified**:
+
+- libs/backend/claude-domain/src/messaging/message-handler.service.ts (removed 3 handler subscriptions)
+- libs/backend/claude-domain/src/chat/chat-orchestration.service.ts (removed 3 methods + 6 interfaces)
+- libs/backend/claude-domain/src/index.ts (removed 6 type exports)
+- libs/backend/ai-providers-core/src/adapters/claude-cli-adapter.ts (removed deleteSession call)
+
+**Verification**:
+
+- TypeScript compilation: `npx nx typecheck claude-domain` - PASSED
+- Build verification: `npx nx build ptah-extension-vscode` - PASSED
+- No orphaned handler calls remain
 
 ---
 
