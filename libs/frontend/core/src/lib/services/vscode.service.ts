@@ -1,10 +1,4 @@
-import {
-  Injectable,
-  computed,
-  signal,
-  inject,
-  ApplicationRef,
-} from '@angular/core';
+import { Injectable, computed, signal } from '@angular/core';
 import { Subject, Observable } from 'rxjs';
 import { filter, map } from 'rxjs/operators';
 import {
@@ -517,7 +511,8 @@ export class VSCodeService {
  * 4. Theme listener is active before first component render
  */
 export function initializeVSCodeService(
-  vscodeService: VSCodeService
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _vscodeService: VSCodeService
 ): () => void {
   return () => {
     // Service is already initialized in constructor
