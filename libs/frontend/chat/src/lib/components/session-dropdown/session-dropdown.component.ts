@@ -333,8 +333,8 @@ export class SessionDropdownComponent {
     document.removeEventListener('click', this.handleClickOutside);
   }
 
-  selectSession(sessionId: SessionId): void {
-    this.sessionSelected.emit(sessionId);
+  selectSession(sessionId: string): void {
+    this.sessionSelected.emit(sessionId as SessionId);
     this.closeDropdown();
   }
 
