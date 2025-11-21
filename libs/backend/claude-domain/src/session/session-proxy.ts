@@ -31,8 +31,8 @@
 import { injectable } from 'tsyringe';
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { SessionSummary, SessionSummarySchema } from '@ptah-extension/shared';
+import { WorkspacePathEncoder } from './workspace-path-encoder';
 
 /**
  * SessionProxy Service
@@ -125,31 +125,36 @@ export class SessionProxy {
   }
 
   /**
-   * Get .claude_sessions/ directory path
+   * Get Claude CLI sessions directory path
+   *
+   * **UPDATED**: Now uses ~/.claude/projects/{encoded-path}/ instead of .claude_sessions/
    *
    * @private
-   * @param workspaceRoot - Optional workspace root (defaults to user home directory)
-   * @returns Absolute path to .claude_sessions/ directory
+   * @param workspaceRoot - Required workspace root path
+   * @returns Absolute path to sessions directory
    *
-   * Pattern: Follows ClaudeCliDetector.findExecutable pattern (detector:120-180)
+   * Pattern: Uses WorkspacePathEncoder to get correct Claude CLI directory
    *
    * @example
    * ```typescript
-   * // Default: C:\Users\<user>\.claude_sessions\
-   * const dir = this.getSessionsDirectory();
+   * // Windows: C:\Users\user\.claude\projects\d--projects-ptah-extension\
+   * const dir = this.getSessionsDirectory('D:\\projects\\ptah-extension');
    *
-   * // With workspace root: D:\projects\my-app\.claude_sessions\
-   * const dir = this.getSessionsDirectory('D:\\projects\\my-app');
+   * // Linux: /home/user/.claude/projects/-home-user-project/
+   * const dir = this.getSessionsDirectory('/home/user/project');
    * ```
    */
   private getSessionsDirectory(workspaceRoot?: string): string {
-    if (workspaceRoot) {
-      return path.join(workspaceRoot, '.claude_sessions');
+    if (!workspaceRoot) {
+      // Cannot determine sessions directory without workspace path
+      // This is a critical error - SessionProxy requires workspace context
+      throw new Error(
+        'SessionProxy requires workspace root to locate sessions directory'
+      );
     }
 
-    // Default: user home directory
-    const homeDir = os.homedir();
-    return path.join(homeDir, '.claude_sessions');
+    // Use WorkspacePathEncoder to get correct Claude CLI directory
+    return WorkspacePathEncoder.getSessionsDirectory(workspaceRoot);
   }
 
   /**
