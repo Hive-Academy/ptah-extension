@@ -2,12 +2,11 @@ import { CommonModule } from '@angular/common';
 import {
   Component,
   computed,
+  DestroyRef,
   inject,
-  OnDestroy,
   OnInit,
   signal,
 } from '@angular/core';
-import { Subject } from 'rxjs';
 
 // Core Services (from core library)
 import {
@@ -311,7 +310,7 @@ import type { TokenUsage } from '../../components/chat-token-usage/chat-token-us
     `,
   ],
 })
-export class ChatComponent implements OnInit, OnDestroy {
+export class ChatComponent implements OnInit {
   // Injected Services
   private readonly appState = inject(AppStateManager);
   private readonly chat = inject(ChatService);
@@ -320,9 +319,7 @@ export class ChatComponent implements OnInit, OnDestroy {
   protected readonly chatState = inject(ChatStateManagerService);
   private readonly logger = inject(LoggingService);
   private readonly navigation = inject(WebviewNavigationService);
-
-  // Component State
-  private readonly destroy$ = new Subject<void>();
+  private readonly destroyRef = inject(DestroyRef);
 
   // Agent Panel State (TASK_2025_004)
   readonly agentPanelVisible = signal(false);
@@ -409,11 +406,6 @@ export class ChatComponent implements OnInit, OnDestroy {
     if (this.chat.messages().length === 0) {
       void this.chatService.refreshSessions();
     }
-  }
-
-  public ngOnDestroy(): void {
-    this.destroy$.next();
-    this.destroy$.complete();
   }
 
   // Agent Panel Toggle (TASK_2025_004)
