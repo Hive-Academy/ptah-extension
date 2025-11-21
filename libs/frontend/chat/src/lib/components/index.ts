@@ -44,3 +44,8 @@ export * from './thinking-display/thinking-display.component';
 export * from './tool-timeline/tool-timeline.component';
 export * from './permission-dialog/permission-dialog.component';
 export * from './agent-activity-timeline/agent-activity-timeline.component';
+
+// ContentBlock Rendering Components (3/3 complete) ✅ TASK_2025_009 - Batch R2
+export * from './thinking-block/thinking-block.component';
+export * from './tool-use-block/tool-use-block.component';
+export * from './tool-result-block/tool-result-block.component';
