@@ -100,51 +100,28 @@ export class MessageProcessingService {
       id: processedMessage.id,
       sessionId: processedMessage.sessionId,
       type: processedMessage.type,
-      contentBlocks: processedMessage.content.map((block, index) => {
-        // Convert ClaudeContent to proper ContentBlock discriminated union
-        if (block.type === 'text' && block.text !== undefined) {
-          return {
-            type: 'text' as const,
-            text: block.text,
-            index,
-          };
-        } else if (block.type === 'thinking' && block.text !== undefined) {
-          return {
-            type: 'thinking' as const,
-            thinking: block.text,
-            index,
-          };
-        } else if (
-          block.type === 'tool_use' &&
-          block.id !== undefined &&
-          block.name !== undefined
-        ) {
+      contentBlocks: processedMessage.content.map((block) => {
+        if (block.type === 'text') {
+          return { type: 'text' as const, text: block.text || '' };
+        } else if (block.type === 'thinking') {
+          return { type: 'thinking' as const, thinking: block.thinking || '' };
+        } else if (block.type === 'tool_use') {
           return {
             type: 'tool_use' as const,
-            id: block.id,
-            name: block.name,
+            id: block.id || '',
+            name: block.name || '',
             input: block.input || {},
-            index,
           };
-        } else if (
-          block.type === 'tool_result' &&
-          block.tool_use_id !== undefined
-        ) {
+        } else if (block.type === 'tool_result') {
           return {
             type: 'tool_result' as const,
-            tool_use_id: block.tool_use_id,
+            tool_use_id: block.tool_use_id || '',
             content: block.content || '',
             is_error: block.is_error,
-            index,
-          };
-        } else {
-          // Fallback for unexpected types - convert to text block
-          return {
-            type: 'text' as const,
-            text: JSON.stringify(block),
-            index,
           };
         }
+        // Fallback for unknown types
+        return { type: 'text' as const, text: '' };
       }),
       timestamp: processedMessage.timestamp || Date.now(),
       streaming: processedMessage.isStreaming || false,
