@@ -77,6 +77,7 @@ export class ClaudeCliService {
     message: string,
     sessionId: SessionId,
     resumeSessionId?: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _sessionManager?: SessionManager
   ): Promise<Readable> {
     const launcher = await this.ensureLauncher();
