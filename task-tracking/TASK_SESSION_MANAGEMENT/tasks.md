@@ -185,14 +185,15 @@
 
 ---
 
-## Batch 2: Search Overlay (Phase 2) ⏸️ PENDING
+## Batch 2: Search Overlay (Phase 2) ✅ COMPLETE
 
 **Assigned To**: frontend-developer
 **Tasks in Batch**: 2
 **Dependencies**: Batch 1 complete
 **Estimated Time**: 240 minutes (4h)
+**Git Commit (Batch)**: [pending commit confirmation]
 
-### Task 2.1: Create SessionSearchOverlayComponent ⏸️ PENDING
+### Task 2.1: Create SessionSearchOverlayComponent ✅ COMPLETE
 
 **File(s)**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\session-search-overlay\session-search-overlay.component.ts
 **Specification Reference**: component-specifications.md:556-1135
@@ -279,7 +280,7 @@
 
 ---
 
-### Task 2.2: Create SessionSearchOverlayComponent Unit Tests ⏸️ PENDING
+### Task 2.2: Create SessionSearchOverlayComponent Unit Tests ✅ COMPLETE
 
 **File(s)**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\session-search-overlay\session-search-overlay.component.spec.ts
 **Specification Reference**: implementation-handoff.md:462-476
