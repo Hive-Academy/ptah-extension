@@ -24,6 +24,7 @@ import {
 } from '@ptah-extension/shared';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { IEventBus } from '../events/claude-domain.events';
+import { SessionProxy } from './session-proxy';
 
 /**
  * Storage service interface for persistence
@@ -149,7 +150,8 @@ export class SessionManager {
 
   constructor(
     @inject(TOKENS.EVENT_BUS) private readonly eventBus: IEventBus,
-    @inject(TOKENS.STORAGE_SERVICE) private readonly storage: IStorageService
+    @inject(TOKENS.STORAGE_SERVICE) private readonly storage: IStorageService,
+    @inject(TOKENS.SESSION_PROXY) private readonly sessionProxy: SessionProxy
   ) {
     this.loadSessions();
   }
@@ -203,13 +205,31 @@ export class SessionManager {
   /**
    * Get current active session
    *
+   * UPDATED: Now delegates to SessionProxy for message reading
+   * Only keeps session metadata in memory
+   *
    * @returns Current session or undefined
    */
-  getCurrentSession(): StrictChatSession | undefined {
+  async getCurrentSession(): Promise<StrictChatSession | undefined> {
     if (!this.currentSessionId) {
       return undefined;
     }
-    return this.sessions.get(this.currentSessionId);
+
+    const sessionMetadata = this.sessions.get(this.currentSessionId);
+    if (!sessionMetadata) {
+      return undefined;
+    }
+
+    // Read messages from .jsonl via SessionProxy
+    const messages = await this.sessionProxy.getSessionMessages(
+      this.currentSessionId
+    );
+
+    return {
+      ...sessionMetadata,
+      messages,
+      messageCount: messages.length,
+    };
   }
 
   /**
@@ -225,12 +245,35 @@ export class SessionManager {
   /**
    * Get all sessions sorted by last activity
    *
+   * UPDATED: Now delegates to SessionProxy for session list
+   * Messages are NOT loaded for list view (performance optimization)
+   *
    * @returns Array of all sessions
    */
-  getAllSessions(): StrictChatSession[] {
-    return Array.from(this.sessions.values()).sort(
-      (a, b) => b.lastActiveAt - a.lastActiveAt
-    );
+  async getAllSessions(): Promise<StrictChatSession[]> {
+    // Read session list from .jsonl directory via SessionProxy
+    const sessionSummaries = await this.sessionProxy.listSessions();
+
+    // Convert summaries to StrictChatSession format (without messages)
+    const sessions = sessionSummaries.map((summary) => ({
+      id: summary.id as SessionId,
+      name: summary.name,
+      workspaceId: undefined, // SessionSummary doesn't have workspaceId
+      messages: [] as unknown as readonly StrictChatMessage[], // Don't load messages for list
+      createdAt: summary.createdAt,
+      lastActiveAt: summary.lastActiveAt,
+      updatedAt: summary.lastActiveAt,
+      messageCount: summary.messageCount,
+      tokenUsage: {
+        input: 0,
+        output: 0,
+        total: 0,
+        percentage: 0,
+        maxTokens: 200000,
+      },
+    }));
+
+    return sessions.sort((a, b) => b.lastActiveAt - a.lastActiveAt);
   }
 
   /**
@@ -566,10 +609,13 @@ export class SessionManager {
   /**
    * Get sessions formatted for UI display
    *
+   * UPDATED: Now delegates to SessionProxy
+   *
    * @returns Array of UI-formatted session data
    */
-  getSessionsUIData(): SessionUIData[] {
-    return Array.from(this.sessions.values())
+  async getSessionsUIData(): Promise<SessionUIData[]> {
+    const sessions = await this.getAllSessions();
+    return sessions
       .map(
         (session): SessionUIData => ({
           id: session.id,
@@ -592,10 +638,12 @@ export class SessionManager {
   /**
    * Get current session as UI data
    *
+   * UPDATED: Now awaits getCurrentSession()
+   *
    * @returns Current session UI data or undefined
    */
-  getCurrentSessionUIData(): SessionUIData | undefined {
-    const session = this.getCurrentSession();
+  async getCurrentSessionUIData(): Promise<SessionUIData | undefined> {
+    const session = await this.getCurrentSession();
     if (!session) return undefined;
 
     return {
@@ -841,9 +889,10 @@ export class SessionManager {
   /**
    * Notify subscribers of session changes
    */
-  private notifySessionsChanged(): void {
+  private async notifySessionsChanged(): Promise<void> {
+    const sessions = await this.getAllSessions();
     this.eventBus.publish(CHAT_MESSAGE_TYPES.SESSIONS_UPDATED, {
-      sessions: this.getAllSessions(),
+      sessions,
     });
   }
 }

@@ -161,7 +161,7 @@ export class CommandService {
       await this.contextService.includeFile(request.fileUri);
 
       // Step 2: Ensure we have a session for the review
-      let currentSession = this.sessionManager.getCurrentSession();
+      let currentSession = await this.sessionManager.getCurrentSession();
       if (!currentSession) {
         currentSession = await this.sessionManager.createSession({
           name: 'Code Review',
@@ -220,7 +220,7 @@ export class CommandService {
       await this.contextService.includeFile(request.fileUri);
 
       // Step 2: Ensure we have a session for test generation
-      let currentSession = this.sessionManager.getCurrentSession();
+      let currentSession = await this.sessionManager.getCurrentSession();
       if (!currentSession) {
         currentSession = await this.sessionManager.createSession({
           name: 'Test Generation',
