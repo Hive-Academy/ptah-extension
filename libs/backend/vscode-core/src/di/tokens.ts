@@ -80,6 +80,12 @@ export const TREE_SITTER_PARSER_SERVICE = Symbol.for('TreeSitterParserService');
 export const AST_ANALYSIS_SERVICE = Symbol.for('AstAnalysisService');
 
 // ========================================
+// LLM Abstraction Service Tokens
+// ========================================
+export const LLM_SERVICE = Symbol.for('LlmService');
+export const PROVIDER_REGISTRY = Symbol.for('ProviderRegistry');
+
+// ========================================
 // VS Code Language Model Tools
 // ========================================
 export const ANALYZE_WORKSPACE_TOOL = Symbol.for('AnalyzeWorkspaceTool');
@@ -212,6 +218,12 @@ export const TOKENS = {
   CONTEXT_ORCHESTRATION_SERVICE,
   TREE_SITTER_PARSER_SERVICE,
   AST_ANALYSIS_SERVICE,
+
+  // ========================================
+  // LLM Abstraction
+  // ========================================
+  LLM_SERVICE,
+  PROVIDER_REGISTRY,
 
   // ========================================
   // VS Code Language Model Tools
