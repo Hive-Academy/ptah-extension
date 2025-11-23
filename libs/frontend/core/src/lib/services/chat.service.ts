@@ -214,6 +214,18 @@ export class ChatService {
   readonly messageCount = this.chatState.messageCount;
 
   /**
+   * Recent sessions (top 10 by lastActiveAt)
+   * Filters out empty sessions (0 messages)
+   */
+  readonly recentSessions = computed(() =>
+    this.sessions()
+      .slice()
+      .sort((a, b) => b.lastActiveAt - a.lastActiveAt)
+      .slice(0, 10)
+      .filter((s) => s.messageCount > 0)
+  );
+
+  /**
    * Legacy stream consumption state for backward compatibility
    * TODO: Phase out in favor of signal-based streamHandler.streamState()
    */
@@ -420,6 +432,59 @@ export class ChatService {
     } as ChatPermissionResponsePayload);
   }
 
+  // Private helper methods
+
+  /**
+   * Update messages with deduplication (TASK_2025_014 - Batch 2, Task 2.3)
+   *
+   * Consolidates all message state updates into a single entry point to prevent
+   * duplicate rendering (7x duplication issue fixed).
+   *
+   * @param messages - Messages to add/update in state
+   * @param source - Source of update for debugging (e.g., 'MESSAGE_CHUNK', 'GET_HISTORY')
+   */
+  private updateMessages(messages: StrictChatMessage[], source: string): void {
+    // Get existing messages
+    const existingMessages = this.chatState.messages();
+    const existingClaudeMessages = this.chatState.claudeMessages();
+
+    // Deduplicate by message ID (prefer incoming messages - newer data)
+    const messageMap = new Map<MessageId, StrictChatMessage>();
+
+    // Add existing messages first
+    existingMessages.forEach((msg) => messageMap.set(msg.id, msg));
+
+    // Overwrite with incoming messages (newer data)
+    messages.forEach((msg) => {
+      // Skip if already processed (additional deduplication layer)
+      if (!this.processedMessageIds.has(msg.id)) {
+        this.processedMessageIds.add(msg.id);
+      }
+      messageMap.set(msg.id, msg);
+    });
+
+    // Convert to sorted array
+    const deduplicatedMessages = Array.from(messageMap.values()).sort(
+      (a, b) => a.timestamp - b.timestamp
+    );
+
+    // Transform to ProcessedClaudeMessage for UI display
+    const processedMessages = deduplicatedMessages.map((msg) =>
+      this.messageProcessor.convertToProcessedMessage(msg)
+    );
+
+    // Update state via single entry point
+    this.chatState.setMessages(deduplicatedMessages);
+    this.chatState.setClaudeMessages(processedMessages);
+
+    this.logger.debug(`Messages updated from ${source}`, 'ChatService', {
+      incomingCount: messages.length,
+      existingCount: existingMessages.length,
+      deduplicatedCount: deduplicatedMessages.length,
+      processedCount: processedMessages.length,
+    });
+  }
+
   // Private initialization methods
 
   /**
@@ -525,13 +590,12 @@ export class ChatService {
           if (claudeIndex >= 0) {
             const newClaudeMessages = [...currentClaudeMessages];
             newClaudeMessages[claudeIndex] = processedMessage;
-            this.chatState.setClaudeMessages(newClaudeMessages);
+            // REMOVED: this.chatState.setClaudeMessages(newClaudeMessages);
+            // Now handled via updateMessages() for final state after streaming completes
           } else {
             // Message exists in messages[] but not in claudeMessages[] - add it
-            this.chatState.setClaudeMessages([
-              ...currentClaudeMessages,
-              processedMessage,
-            ]);
+            // REMOVED: this.chatState.setClaudeMessages([...currentClaudeMessages, processedMessage]);
+            // Now handled via updateMessages() for final state after streaming completes
           }
         } else {
           // First chunk - create new assistant message
@@ -547,14 +611,8 @@ export class ChatService {
 
           this.chatState.setMessages([...currentMessages, newMessage]);
 
-          // Add to claudeMessages for UI
-          const processedMessage =
-            this.messageProcessor.convertToProcessedMessage(newMessage);
-          const currentClaudeMessages = this.chatState.claudeMessages();
-          this.chatState.setClaudeMessages([
-            ...currentClaudeMessages,
-            processedMessage,
-          ]);
+          // REMOVED: Add to claudeMessages for UI
+          // Now handled via updateMessages() for final state after streaming completes
         }
 
         this.logger.debug('Message chunk processed', 'ChatService', {
@@ -621,27 +679,8 @@ export class ChatService {
         // Extract message from event payload
         const message = payload.message;
         if (message && this.validator.validateChatMessage(message).isValid) {
-          // Deduplicate messages (TASK_2025_008 - Bug 1)
-          if (this.processedMessageIds.has(message.id)) {
-            this.logger.warn('Duplicate message detected:', 'ChatService', {
-              messageId: message.id,
-            });
-            return;
-          }
-          this.processedMessageIds.add(message.id);
-
-          // Add message to state
-          const currentMessages = this.chatState.messages();
-          this.chatState.setMessages([...currentMessages, message as never]);
-
-          // Transform to ProcessedClaudeMessage for UI display
-          const processedMessage =
-            this.messageProcessor.convertToProcessedMessage(message);
-          const currentClaudeMessages = this.chatState.claudeMessages();
-          this.chatState.setClaudeMessages([
-            ...currentClaudeMessages,
-            processedMessage,
-          ]);
+          // TASK_2025_014 - Batch 2, Task 2.3: Use consolidated updateMessages()
+          this.updateMessages([message as StrictChatMessage], 'MESSAGE_ADDED');
 
           this.logger.debug('Message added', 'ChatService', {
             messageId: message.id,
@@ -760,45 +799,18 @@ export class ChatService {
             }
             console.groupEnd();
 
-            this.chatState.setMessages(validMessages);
-            this.logger.debug('Loaded history', 'ChatService', {
+            // TASK_2025_014 - Batch 2, Task 2.3: Use consolidated updateMessages()
+            this.updateMessages(validMessages, 'GET_HISTORY');
+
+            this.logger.debug('History loaded and transformed', 'ChatService', {
               messageCount: validMessages.length,
-            });
-
-            // Transform to ProcessedClaudeMessage for UI display
-            const processedMessages = validMessages.map((msg) =>
-              this.messageProcessor.convertToProcessedMessage(msg)
-            );
-
-            // 🔍 DIAGNOSTIC LOGGING: Log processed messages for UI
-            console.group('🎨 PROCESSED MESSAGES FOR UI');
-            console.log('Processed messages count:', processedMessages.length);
-            processedMessages.forEach((msg, index) => {
-              console.group(`Processed Message ${index + 1}`);
-              console.log('ID:', msg.id);
-              console.log('Type:', msg.type);
-              console.log('Content items count:', msg.content.length);
-              console.log(
-                'Content types:',
-                msg.content.map((c: { type: string }) => c.type)
-              );
-              console.log(
-                'FULL PROCESSED MESSAGE:',
-                JSON.stringify(msg, null, 2)
-              );
-              console.groupEnd();
-            });
-            console.groupEnd();
-
-            this.chatState.setClaudeMessages(processedMessages);
-            this.logger.debug('Transformed messages for UI', 'ChatService', {
-              count: processedMessages.length,
             });
           }
         }
       });
 
     // CRITICAL FIX: Listen for messageComplete event to clear loading/streaming state
+    // TASK_2025_014 - Batch 2, Task 2.3: Trigger final state update after streaming completes
     this.vscode
       .onMessageType(CHAT_MESSAGE_TYPES.MESSAGE_COMPLETE)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -812,6 +824,18 @@ export class ChatService {
 
         // Clear loading state in app
         this.appState.setLoading(false);
+
+        // TASK_2025_014: Update UI with final message state (consolidates chunks)
+        // This ensures claudeMessages is updated after streaming completes
+        const currentMessages = this.chatState.messages();
+        if (payload.message?.id) {
+          const completedMessage = currentMessages.find(
+            (m) => m.id === payload.message.id
+          );
+          if (completedMessage) {
+            this.updateMessages([completedMessage], 'MESSAGE_COMPLETE');
+          }
+        }
 
         this.logger.debug('Message complete', 'ChatService', {
           messageId: payload.message?.id,
@@ -979,18 +1003,24 @@ export class ChatService {
               (msg) => this.validator.validateChatMessage(msg).isValid
             );
 
-            this.chatState.setMessages(validMessages);
-
-            // CRITICAL FIX: Transform StrictChatMessage[] to ProcessedClaudeMessage[] for UI display
-            // The UI displays claudeMessages(), not messages(), so we must populate both collections
-            const processedMessages = validMessages.map((msg) =>
-              this.messageProcessor.convertToProcessedMessage(msg)
-            );
-            this.chatState.setClaudeMessages(processedMessages);
+            // TASK_2025_014 - Batch 2, Task 2.3: Use consolidated updateMessages()
+            this.updateMessages(validMessages, 'INITIAL_DATA');
 
             this.logger.debug('Initial messages loaded', 'ChatService', {
-              messageCount: processedMessages.length,
+              messageCount: validMessages.length,
             });
+          }
+
+          // Set sessions list if provided (TASK_SESSION_MANAGEMENT - Batch 5 Fix)
+          if (payload.data.sessions && Array.isArray(payload.data.sessions)) {
+            this._sessions.set(payload.data.sessions);
+            this.logger.debug(
+              'Sessions loaded from initial data',
+              'ChatService',
+              {
+                count: payload.data.sessions.length,
+              }
+            );
           }
         }
       });
