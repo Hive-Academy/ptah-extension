@@ -21,8 +21,6 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 
 // Import vscode-core services
 import {
-  EventBus,
-  WebviewMessageBridge,
   Logger,
   ErrorHandler,
   ConfigManager,
@@ -81,18 +79,11 @@ import {
 // Import claude-domain services
 import {
   ClaudeCliDetector,
-  SessionManager,
-  SessionProxy,
   ProcessManager,
   ClaudeDomainEventPublisher,
   PermissionService,
   ClaudeCliService,
   MCPRegistrationService,
-  ChatOrchestrationService,
-  ProviderOrchestrationService,
-  AnalyticsOrchestrationService,
-  ConfigOrchestrationService,
-  MessageHandlerService,
   InMemoryPermissionRulesStore,
 } from '@ptah-extension/claude-domain';
 
@@ -121,9 +112,6 @@ export class DIContainer {
     // ========================================
     // These must be registered FIRST as they're dependencies for everything else
 
-    // Event Bus - CRITICAL: Register first (many services depend on it)
-    container.registerSingleton(TOKENS.EVENT_BUS, EventBus);
-
     // Core infrastructure
     container.registerSingleton(TOKENS.LOGGER, Logger);
     container.registerSingleton(TOKENS.ERROR_HANDLER, ErrorHandler);
@@ -147,12 +135,6 @@ export class DIContainer {
     container.registerSingleton(TOKENS.OUTPUT_MANAGER, OutputManager);
     container.registerSingleton(TOKENS.STATUS_BAR_MANAGER, StatusBarManager);
     container.registerSingleton(TOKENS.FILE_SYSTEM_MANAGER, FileSystemManager);
-
-    // WebviewMessageBridge (depends on EventBus + WebviewManager)
-    container.registerSingleton(
-      TOKENS.WEBVIEW_MESSAGE_BRIDGE,
-      WebviewMessageBridge
-    );
 
     // Extension Context (value registration)
     container.register(TOKENS.EXTENSION_CONTEXT, { useValue: context });
@@ -314,8 +296,6 @@ export class DIContainer {
 
     // Core domain services
     container.registerSingleton(TOKENS.CLAUDE_CLI_DETECTOR, ClaudeCliDetector);
-    container.registerSingleton(TOKENS.SESSION_MANAGER, SessionManager);
-    container.registerSingleton(TOKENS.SESSION_PROXY, SessionProxy);
     container.registerSingleton(TOKENS.PROCESS_MANAGER, ProcessManager);
     container.registerSingleton(
       TOKENS.CLAUDE_DOMAIN_EVENT_PUBLISHER,
@@ -326,31 +306,6 @@ export class DIContainer {
     container.registerSingleton(
       TOKENS.MCP_REGISTRATION_SERVICE,
       MCPRegistrationService
-    );
-    // container.registerSingleton(TOKENS.COMMAND_SERVICE, CommandService);
-
-    // Orchestration services
-    container.registerSingleton(
-      TOKENS.CHAT_ORCHESTRATION_SERVICE,
-      ChatOrchestrationService
-    );
-    container.registerSingleton(
-      TOKENS.PROVIDER_ORCHESTRATION_SERVICE,
-      ProviderOrchestrationService
-    );
-    container.registerSingleton(
-      TOKENS.ANALYTICS_ORCHESTRATION_SERVICE,
-      AnalyticsOrchestrationService
-    );
-    container.registerSingleton(
-      TOKENS.CONFIG_ORCHESTRATION_SERVICE,
-      ConfigOrchestrationService
-    );
-
-    // Message handler (depends on all orchestration services)
-    container.registerSingleton(
-      TOKENS.MESSAGE_HANDLER_SERVICE,
-      MessageHandlerService
     );
 
     // ========================================

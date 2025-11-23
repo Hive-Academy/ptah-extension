@@ -27,13 +27,6 @@ export async function activate(
     logger.info('Activating Ptah extension...');
     console.log('[Activate] Step 2: Logger resolved');
 
-    // Initialize MessageHandlerService to start event routing
-    console.log('[Activate] Step 3: Initializing MessageHandlerService...');
-    const messageHandler = DIContainer.resolve(TOKENS.MESSAGE_HANDLER_SERVICE);
-    (messageHandler as { initialize: () => void }).initialize();
-    logger.info('MessageHandlerService initialized and subscribed to EventBus');
-    console.log('[Activate] Step 3: MessageHandlerService initialized');
-
     // Initialize ContextMessageBridgeService (architectural bridge for file include/exclude)
     console.log(
       '[Activate] Step 3.5: Initializing ContextMessageBridgeService...'
