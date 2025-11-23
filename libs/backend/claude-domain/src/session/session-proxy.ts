@@ -41,11 +41,26 @@ import { WorkspacePathEncoder } from './workspace-path-encoder';
 import { JsonlSessionParser } from './jsonl-session-parser';
 
 /**
+ * Simple LRU Cache entry
+ */
+interface CacheEntry<T> {
+  value: T;
+  timestamp: number;
+}
+
+/**
  * SessionProxy Service
  * Provides read-only access to Claude CLI session files
+ *
+ * UPDATED (TASK_2025_014): Added LRU cache for session messages
  */
 @injectable()
 export class SessionProxy {
+  // LRU Cache for session messages (5 most recent sessions, 30s TTL)
+  private messageCache: Map<SessionId, CacheEntry<StrictChatMessage[]>> =
+    new Map();
+  private readonly MAX_CACHE_SIZE = 5;
+  private readonly CACHE_TTL_MS = 30000; // 30 seconds
   /**
    * List all sessions from .claude_sessions/ directory
    *
@@ -137,8 +152,9 @@ export class SessionProxy {
    * Reads .jsonl file, parses messages, normalizes to contentBlocks format.
    * Returns empty array (not error) if file doesn't exist.
    *
+   * **UPDATED (TASK_2025_014)**: Now includes LRU caching
    * **Performance**: < 1s for sessions with 1000 messages (streaming read)
-   * **Cache**: No caching (always reads from disk for latest state)
+   * **Cache**: LRU cache (5 sessions, 30s TTL) for performance optimization
    *
    * @param sessionId - Session ID (filename without .jsonl)
    * @param workspaceRoot - Optional workspace root
@@ -156,6 +172,13 @@ export class SessionProxy {
     sessionId: SessionId,
     workspaceRoot?: string
   ): Promise<StrictChatMessage[]> {
+    // Check cache first
+    const cached = this.messageCache.get(sessionId);
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL_MS) {
+      // Cache hit - return cached messages
+      return cached.value;
+    }
+
     try {
       const sessionsDir = this.getSessionsDirectory(workspaceRoot);
       const filePath = path.join(sessionsDir, `${sessionId}.jsonl`);
@@ -172,10 +195,15 @@ export class SessionProxy {
       const messages = await JsonlSessionParser.parseSessionMessages(filePath);
 
       // Update sessionId for all messages (extracted from filename)
-      return messages.map((msg) => ({
+      const normalizedMessages = messages.map((msg) => ({
         ...msg,
         sessionId: sessionId as SessionId,
       }));
+
+      // Update cache (with LRU eviction if needed)
+      this.updateCache(sessionId, normalizedMessages);
+
+      return normalizedMessages;
     } catch (error) {
       console.error(
         `SessionProxy.getSessionMessages failed for ${sessionId}:`,
@@ -183,6 +211,53 @@ export class SessionProxy {
       );
       return []; // Graceful degradation
     }
+  }
+
+  /**
+   * Invalidate cache for a specific session
+   *
+   * Call this when session messages are modified to ensure fresh reads
+   *
+   * @param sessionId - Session ID to invalidate
+   */
+  invalidateCache(sessionId: SessionId): void {
+    this.messageCache.delete(sessionId);
+  }
+
+  /**
+   * Update cache with LRU eviction
+   *
+   * @private
+   * @param sessionId - Session ID to cache
+   * @param messages - Messages to cache
+   */
+  private updateCache(
+    sessionId: SessionId,
+    messages: StrictChatMessage[]
+  ): void {
+    // Evict oldest entry if cache is full
+    if (this.messageCache.size >= this.MAX_CACHE_SIZE) {
+      // Find oldest entry (smallest timestamp)
+      let oldestKey: SessionId | undefined;
+      let oldestTimestamp = Infinity;
+
+      for (const [key, entry] of this.messageCache.entries()) {
+        if (entry.timestamp < oldestTimestamp) {
+          oldestTimestamp = entry.timestamp;
+          oldestKey = key;
+        }
+      }
+
+      if (oldestKey) {
+        this.messageCache.delete(oldestKey);
+      }
+    }
+
+    // Add new entry
+    this.messageCache.set(sessionId, {
+      value: messages,
+      timestamp: Date.now(),
+    });
   }
 
   /**
