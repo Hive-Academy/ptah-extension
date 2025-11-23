@@ -18,7 +18,6 @@ import {
   InitialDataPayload,
   CHAT_MESSAGE_TYPES,
   SYSTEM_MESSAGE_TYPES,
-  toResponseType,
   ClaudeAgentStartEvent,
   ClaudeAgentActivityEvent,
   ChatThinkingPayload,
@@ -767,73 +766,6 @@ export class ChatService {
           this.logger.debug('Sessions list updated', 'ChatService', {
             count: sessions.length,
           });
-        }
-      });
-
-    // Listen for history response (backend publishes chat:getHistory:response)
-    this.vscode
-      .onMessageType(toResponseType(CHAT_MESSAGE_TYPES.GET_HISTORY))
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((response) => {
-        if (response.success && response.data) {
-          const messages = (response.data as { messages?: StrictChatMessage[] })
-            .messages;
-          if (Array.isArray(messages)) {
-            // 🔍 DIAGNOSTIC LOGGING: Log ALL raw messages received from backend
-            console.group('📥 HISTORY LOADED - RAW MESSAGES FROM BACKEND');
-            console.log('Total messages received:', messages.length);
-            messages.forEach((msg, index) => {
-              console.group(`Message ${index + 1} of ${messages.length}`);
-              console.log('Message ID:', msg.id);
-              console.log('Type:', msg.type);
-              console.log('SessionId:', msg.sessionId);
-              console.log('Timestamp:', new Date(msg.timestamp).toISOString());
-              console.log(
-                'Content preview:',
-                msg.contentBlocks?.[0]?.type === 'text'
-                  ? msg.contentBlocks[0].text.substring(0, 100)
-                  : '(no content)'
-              );
-              console.log('Streaming:', msg.streaming);
-              console.log('Metadata:', msg.metadata);
-              console.log('FULL MESSAGE OBJECT:', JSON.stringify(msg, null, 2));
-              console.groupEnd();
-            });
-            console.groupEnd();
-
-            const validMessages = messages.filter(
-              (msg) => this.validator.validateChatMessage(msg).isValid
-            );
-
-            // 🔍 DIAGNOSTIC LOGGING: Log validation results
-            console.group('✅ VALIDATION RESULTS');
-            console.log('Valid messages:', validMessages.length);
-            console.log(
-              'Invalid/filtered messages:',
-              messages.length - validMessages.length
-            );
-            if (messages.length !== validMessages.length) {
-              console.warn('⚠️ SOME MESSAGES WERE FILTERED OUT!');
-              const invalidMessages = messages.filter(
-                (msg) => !this.validator.validateChatMessage(msg).isValid
-              );
-              invalidMessages.forEach((msg) => {
-                console.error('Invalid message:', {
-                  id: msg.id,
-                  type: msg.type,
-                  validationResult: this.validator.validateChatMessage(msg),
-                });
-              });
-            }
-            console.groupEnd();
-
-            // TASK_2025_014 - Batch 2, Task 2.3: Use consolidated updateMessages()
-            this.updateMessages(validMessages, 'GET_HISTORY');
-
-            this.logger.debug('History loaded and transformed', 'ChatService', {
-              messageCount: validMessages.length,
-            });
-          }
         }
       });
 
