@@ -1,6 +1,4 @@
 import { Injectable, computed, signal } from '@angular/core';
-import { Subject, Observable } from 'rxjs';
-import { filter, map } from 'rxjs/operators';
 import {
   StrictMessage,
   MessagePayloadMap,
@@ -8,14 +6,6 @@ import {
   CorrelationId,
   SessionId,
   createStrictMessage,
-  CHAT_MESSAGE_TYPES,
-  SYSTEM_MESSAGE_TYPES,
-  VIEW_MESSAGE_TYPES,
-  CONTEXT_MESSAGE_TYPES,
-  COMMAND_MESSAGE_TYPES,
-  STATE_MESSAGE_TYPES,
-  PROVIDER_MESSAGE_TYPES,
-  ANALYTICS_MESSAGE_TYPES,
 } from '@ptah-extension/shared';
 
 /**
@@ -91,9 +81,6 @@ export class VSCodeService {
   // VS Code API instance (null in development mode)
   private vscode: VsCodeApi | null = null;
 
-  // RxJS Subject for message streaming (appropriate use case for Subject)
-  private readonly messageSubject = new Subject<StrictMessage>();
-
   // Signal-based reactive state
   private readonly _config = signal<WebviewConfig>({
     isVSCode: false,
@@ -107,13 +94,9 @@ export class VSCodeService {
 
   private readonly _isConnected = signal(false);
 
-  // Signal to track last message timestamp (triggers change detection)
-  private readonly _lastMessageTime = signal(0);
-
   // Public readonly signals
   readonly config = this._config.asReadonly();
   readonly isConnected = this._isConnected.asReadonly();
-  readonly lastMessageTime = this._lastMessageTime.asReadonly();
 
   // Computed signals for derived state
   readonly isDevelopmentMode = computed(() => !this.isConnected());
@@ -121,8 +104,6 @@ export class VSCodeService {
 
   constructor() {
     this.initializeFromGlobals();
-    this.setupMessageListener();
-    this.setupThemeListener();
   }
 
   /**
@@ -161,60 +142,6 @@ export class VSCodeService {
   }
 
   /**
-   * Setup message listener for messages from extension
-   *
-   * WITH ZONE.JS:
-   * window.addEventListener is patched by Zone.js, so it automatically triggers
-   * change detection when the callback runs. No manual triggering needed.
-   */
-  private setupMessageListener(): void {
-    window.addEventListener('message', (event: MessageEvent) => {
-      // FILTER OUT Angular DevTools messages (memory leak prevention)
-      const data = event.data;
-      if (
-        data &&
-        typeof data === 'object' &&
-        ('__NG_DEVTOOLS_EVENT__' in data ||
-          '__ignore_ng_zone__' in data ||
-          data.source === 'angular-devtools-detect-angular' ||
-          data.topic === 'detectAngular' ||
-          // Additional DevTools detection patterns
-          ('isAngular' in data && 'isAngularDevTools' in data))
-      ) {
-        // Silently ignore Angular DevTools messages
-        return;
-      }
-
-      // Validate message structure (must have 'type' property)
-      const message = event.data as StrictMessage;
-      if (!message || !message.type || typeof message.type !== 'string') {
-        // Silently ignore invalid messages (likely more DevTools spam)
-        return;
-      }
-
-      // Emit to RxJS subject for subscribers
-      this.messageSubject.next(message);
-
-      // Update signal (Zone.js will automatically detect this and trigger change detection)
-      this._lastMessageTime.set(Date.now());
-    });
-  }
-
-  /**
-   * Setup theme change listener
-   */
-  private setupThemeListener(): void {
-    // Listen for theme changes from extension via themeChanged message
-    this.onMessageType('themeChanged').subscribe((payload) => {
-      const currentConfig = this.config();
-      this._config.set({
-        ...currentConfig,
-        theme: payload.theme,
-      });
-    });
-  }
-
-  /**
    * Post type-safe message to VS Code extension
    * Uses MessagePayloadMap for compile-time type safety
    */
@@ -229,72 +156,6 @@ export class VSCodeService {
       this.vscode.postMessage(message);
     }
     // Development mode - silently skip message sending
-  }
-
-  /**
-   * Observable stream of all messages from extension
-   */
-  onMessage(): Observable<StrictMessage> {
-    return this.messageSubject.asObservable();
-  }
-
-  /**
-   * Observable stream of messages filtered by type
-   * Provides type-safe payload access
-   */
-  onMessageType<T extends keyof MessagePayloadMap>(
-    messageType: T
-  ): Observable<MessagePayloadMap[T]> {
-    return this.messageSubject.asObservable().pipe(
-      filter((msg): msg is StrictMessage<T> => msg.type === messageType),
-      map((msg) => msg.payload)
-    );
-  }
-
-  /**
-   * Notify extension that webview is ready
-   */
-  notifyReady(): void {
-    this.postStrictMessage(SYSTEM_MESSAGE_TYPES.WEBVIEW_READY, {});
-  }
-
-  /**
-   * Navigate to a route in the webview
-   */
-  navigateToRoute(route: string): void {
-    this.postStrictMessage(VIEW_MESSAGE_TYPES.ROUTE_CHANGED, { route });
-  }
-
-  /**
-   * Request file picker from VS Code
-   * TODO: Implement proper file picker message type
-   */
-  requestFilePicker(): void {
-    this.postStrictMessage(CONTEXT_MESSAGE_TYPES.INCLUDE_FILE, {
-      filePath: '',
-    });
-  }
-
-  /**
-   * Execute VS Code command
-   */
-  executeVSCodeCommand(
-    templateId: string,
-    parameters?: Record<string, unknown>
-  ): void {
-    this.postStrictMessage(COMMAND_MESSAGE_TYPES.EXECUTE_COMMAND, {
-      templateId,
-      parameters: parameters ?? {},
-    });
-  }
-
-  /**
-   * Update VS Code configuration
-   */
-  updateConfiguration(key: string, value: unknown): void {
-    this.postStrictMessage(STATE_MESSAGE_TYPES.SAVE, {
-      state: { [key]: value },
-    });
   }
 
   /**
@@ -328,153 +189,8 @@ export class VSCodeService {
   }
 
   /**
-   * Save webview state to VS Code
+   * Get asset URI for webview resources (images, icons, etc.)
    */
-  saveState(state: unknown): void {
-    if (state !== null && state !== undefined) {
-      this.postStrictMessage(STATE_MESSAGE_TYPES.SAVE, { state });
-    } else {
-      console.warn(
-        'VSCodeService: saveState called with null/undefined state:',
-        state
-      );
-      this.postStrictMessage(STATE_MESSAGE_TYPES.SAVE, { state: {} });
-    }
-  }
-
-  /**
-   * Get saved webview state from VS Code
-   */
-  getState(): unknown {
-    if (this.vscode && this.vscode.getState) {
-      return this.vscode.getState();
-    }
-    return null;
-  }
-
-  /**
-   * Request saved state from VS Code extension
-   */
-  requestSavedState(): void {
-    this.postStrictMessage(STATE_MESSAGE_TYPES.LOAD, {});
-  }
-
-  // ==================== Chat Methods ====================
-
-  sendChatMessage(
-    content: string,
-    files?: readonly string[],
-    correlationId?: CorrelationId
-  ): void {
-    this.postStrictMessage(CHAT_MESSAGE_TYPES.SEND_MESSAGE, {
-      content,
-      files,
-      correlationId: correlationId ?? (crypto.randomUUID() as CorrelationId),
-    });
-  }
-
-  createNewChatSession(name?: string): void {
-    this.postStrictMessage(CHAT_MESSAGE_TYPES.NEW_SESSION, { name });
-  }
-
-  switchChatSession(sessionId: string): void {
-    this.postStrictMessage(CHAT_MESSAGE_TYPES.SWITCH_SESSION, {
-      sessionId: sessionId as SessionId,
-    });
-  }
-
-  // ==================== Command Builder Methods ====================
-
-  getCommandTemplates(): void {
-    this.postStrictMessage(COMMAND_MESSAGE_TYPES.GET_TEMPLATES, {});
-  }
-
-  executeCommand(
-    templateId: string,
-    parameters: Record<string, unknown>
-  ): void {
-    this.postStrictMessage(COMMAND_MESSAGE_TYPES.EXECUTE_COMMAND, {
-      templateId,
-      parameters,
-    });
-  }
-
-  saveCommandTemplate(template: CommandTemplate): void {
-    this.postStrictMessage(COMMAND_MESSAGE_TYPES.SAVE_TEMPLATE, { template });
-  }
-
-  // ==================== Context Management Methods ====================
-
-  getContextFiles(): void {
-    this.postStrictMessage(CONTEXT_MESSAGE_TYPES.GET_FILES, {});
-  }
-
-  includeFile(filePath: string): void {
-    this.postStrictMessage(CONTEXT_MESSAGE_TYPES.INCLUDE_FILE, { filePath });
-  }
-
-  excludeFile(filePath: string): void {
-    this.postStrictMessage(CONTEXT_MESSAGE_TYPES.EXCLUDE_FILE, { filePath });
-  }
-
-  // ==================== Analytics Methods ====================
-
-  getAnalyticsData(): void {
-    this.postStrictMessage(ANALYTICS_MESSAGE_TYPES.GET_DATA, {});
-  }
-
-  trackAnalyticsEvent(
-    event: string,
-    properties?: Record<string, string | number | boolean>
-  ): void {
-    this.postStrictMessage(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-      event,
-      properties: properties ?? {},
-    });
-  }
-
-  // ==================== Provider Management Methods ====================
-
-  getAvailableProviders(): void {
-    this.postStrictMessage(PROVIDER_MESSAGE_TYPES.GET_AVAILABLE, {});
-  }
-
-  getCurrentProvider(): void {
-    this.postStrictMessage(PROVIDER_MESSAGE_TYPES.GET_CURRENT, {});
-  }
-
-  switchProvider(
-    providerId: string,
-    reason?: 'user-request' | 'auto-fallback' | 'error-recovery'
-  ): void {
-    this.postStrictMessage(PROVIDER_MESSAGE_TYPES.SWITCH, {
-      providerId,
-      reason,
-    });
-  }
-
-  getProviderHealth(providerId?: string): void {
-    this.postStrictMessage(PROVIDER_MESSAGE_TYPES.GET_HEALTH, { providerId });
-  }
-
-  getAllProviderHealth(): void {
-    this.postStrictMessage(PROVIDER_MESSAGE_TYPES.GET_ALL_HEALTH, {});
-  }
-
-  setDefaultProvider(providerId: string): void {
-    this.postStrictMessage(PROVIDER_MESSAGE_TYPES.SET_DEFAULT, { providerId });
-  }
-
-  enableProviderFallback(enabled: boolean): void {
-    this.postStrictMessage(PROVIDER_MESSAGE_TYPES.ENABLE_FALLBACK, { enabled });
-  }
-
-  setProviderAutoSwitch(enabled: boolean): void {
-    this.postStrictMessage(PROVIDER_MESSAGE_TYPES.SET_AUTO_SWITCH, { enabled });
-  }
-
-  // ==================== Asset Methods ====================
-
   getImageUrl(imagePath: string): string {
     const config = this.config();
     if (this.isConnected() && config.extensionUri) {

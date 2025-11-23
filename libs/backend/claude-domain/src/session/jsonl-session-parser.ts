@@ -171,10 +171,14 @@ export class JsonlSessionParser {
             JsonlSummaryLine | JsonlMessageLine
           >;
 
-          // Skip non-message lines (summary, file-history-snapshot)
+          // Skip non-message lines (summary, queue-operation, file-history-snapshot)
           if ('type' in jsonlLine && jsonlLine.type !== undefined) {
-            // Skip summary lines and other non-message types
-            continue;
+            const lineType = (jsonlLine as { type: string }).type;
+            // Skip summary, queue operations, and other non-message types
+            // Keep only lines with type: 'user' or 'assistant'
+            if (lineType !== 'user' && lineType !== 'assistant') {
+              continue;
+            }
           }
 
           // Extract message from JSONL structure

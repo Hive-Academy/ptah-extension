@@ -1,0 +1,2162 @@
+{
+  "graph": {
+    "nodes": {
+      "@ptah-extension/workspace-intelligence": {
+        "name": "@ptah-extension/workspace-intelligence",
+        "type": "lib",
+        "data": {
+          "root": "libs/backend/workspace-intelligence",
+          "targets": {
+            "eslint:lint": {
+              "cache": true,
+              "options": {
+                "cwd": "libs/backend/workspace-intelligence",
+                "command": "eslint ."
+              },
+              "inputs": [
+                "default",
+                "^default",
+                "{workspaceRoot}/eslint.config.mjs",
+                "{workspaceRoot}/libs/backend/workspace-intelligence/eslint.config.mjs",
+                "{workspaceRoot}/tools/eslint-rules/**/*",
+                {
+                  "externalDependencies": ["eslint"]
+                }
+              ],
+              "outputs": ["{options.outputFile}"],
+              "metadata": {
+                "technologies": ["eslint"],
+                "description": "Runs ESLint on project",
+                "help": {
+                  "command": "npx eslint --help",
+                  "example": {
+                    "options": {
+                      "max-warnings": 0
+                    }
+                  }
+                }
+              },
+              "executor": "nx:run-commands",
+              "configurations": {},
+              "parallelism": true
+            },
+            "build": {
+              "executor": "@nx/esbuild:esbuild",
+              "outputs": ["{options.outputPath}"],
+              "options": {
+                "outputPath": "dist/libs/backend/workspace-intelligence",
+                "main": "libs/backend/workspace-intelligence/src/index.ts",
+                "tsConfig": "libs/backend/workspace-intelligence/tsconfig.lib.json",
+                "assets": ["libs/backend/workspace-intelligence/*.md"],
+                "format": ["cjs"],
+                "external": ["vscode", "tsyringe", "reflect-metadata"]
+              },
+              "configurations": {},
+              "parallelism": true,
+              "cache": true,
+              "dependsOn": ["^build"],
+              "inputs": ["production", "^production"]
+            },
+            "test": {
+              "executor": "@nx/jest:jest",
+              "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+              "options": {
+                "jestConfig": "libs/backend/workspace-intelligence/jest.config.ts",
+                "passWithNoTests": true
+              },
+              "configurations": {
+                "ci": {
+                  "ci": true,
+                  "codeCoverage": true
+                }
+              },
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "^production",
+                "{workspaceRoot}/jest.preset.js"
+              ]
+            },
+            "typecheck": {
+              "executor": "nx:run-commands",
+              "options": {
+                "command": "tsc --noEmit --project libs/backend/workspace-intelligence/tsconfig.lib.json"
+              },
+              "configurations": {},
+              "parallelism": true
+            },
+            "lint": {
+              "executor": "@nx/eslint:lint",
+              "configurations": {},
+              "options": {},
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "{workspaceRoot}/.eslintrc.json",
+                "{workspaceRoot}/.eslintignore",
+                "{workspaceRoot}/eslint.config.mjs"
+              ]
+            }
+          },
+          "name": "@ptah-extension/workspace-intelligence",
+          "tags": ["npm:private", "scope:extension", "type:feature"],
+          "metadata": {
+            "targetGroups": {},
+            "js": {
+              "packageName": "@ptah-extension/workspace-intelligence",
+              "packageMain": "./index.cjs",
+              "isInPackageManagerWorkspaces": false
+            }
+          },
+          "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+          "sourceRoot": "libs/backend/workspace-intelligence/src",
+          "projectType": "library",
+          "implicitDependencies": []
+        }
+      },
+      "@ptah-extension/template-generation": {
+        "name": "@ptah-extension/template-generation",
+        "type": "lib",
+        "data": {
+          "root": "libs/backend/template-generation",
+          "targets": {
+            "eslint:lint": {
+              "cache": true,
+              "options": {
+                "cwd": "libs/backend/template-generation",
+                "command": "eslint ."
+              },
+              "inputs": [
+                "default",
+                "^default",
+                "{workspaceRoot}/eslint.config.mjs",
+                "{workspaceRoot}/tools/eslint-rules/**/*",
+                {
+                  "externalDependencies": ["eslint"]
+                }
+              ],
+              "outputs": ["{options.outputFile}"],
+              "metadata": {
+                "technologies": ["eslint"],
+                "description": "Runs ESLint on project",
+                "help": {
+                  "command": "npx eslint --help",
+                  "example": {
+                    "options": {
+                      "max-warnings": 0
+                    }
+                  }
+                }
+              },
+              "executor": "nx:run-commands",
+              "configurations": {},
+              "parallelism": true
+            },
+            "build": {
+              "executor": "@nx/esbuild:esbuild",
+              "outputs": ["{options.outputPath}"],
+              "options": {
+                "outputPath": "dist/libs/backend/template-generation",
+                "main": "libs/backend/template-generation/src/index.ts",
+                "tsConfig": "libs/backend/template-generation/tsconfig.lib.json",
+                "assets": ["libs/backend/template-generation/*.md"],
+                "format": ["cjs"],
+                "external": ["tsyringe", "@langchain/core", "zod"]
+              },
+              "configurations": {},
+              "parallelism": true,
+              "cache": true,
+              "dependsOn": ["^build"],
+              "inputs": ["production", "^production"]
+            },
+            "test": {
+              "executor": "@nx/jest:jest",
+              "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+              "options": {
+                "jestConfig": "libs/backend/template-generation/jest.config.ts",
+                "passWithNoTests": true
+              },
+              "configurations": {
+                "ci": {
+                  "ci": true,
+                  "codeCoverage": true
+                }
+              },
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "^production",
+                "{workspaceRoot}/jest.preset.js"
+              ]
+            },
+            "typecheck": {
+              "executor": "nx:run-commands",
+              "options": {
+                "command": "tsc --noEmit --project libs/backend/template-generation/tsconfig.lib.json"
+              },
+              "configurations": {},
+              "parallelism": true
+            },
+            "lint": {
+              "executor": "@nx/eslint:lint",
+              "configurations": {},
+              "options": {},
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "{workspaceRoot}/.eslintrc.json",
+                "{workspaceRoot}/.eslintignore",
+                "{workspaceRoot}/eslint.config.mjs"
+              ]
+            }
+          },
+          "name": "@ptah-extension/template-generation",
+          "tags": ["npm:private", "scope:extension", "type:feature"],
+          "metadata": {
+            "targetGroups": {},
+            "js": {
+              "packageName": "@ptah-extension/template-generation",
+              "packageMain": "./index.cjs",
+              "isInPackageManagerWorkspaces": false
+            }
+          },
+          "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+          "sourceRoot": "libs/backend/template-generation/src",
+          "projectType": "library",
+          "implicitDependencies": []
+        }
+      },
+      "@ptah-extension/ai-providers-core": {
+        "name": "@ptah-extension/ai-providers-core",
+        "type": "lib",
+        "data": {
+          "root": "libs/backend/ai-providers-core",
+          "targets": {
+            "eslint:lint": {
+              "cache": true,
+              "options": {
+                "cwd": "libs/backend/ai-providers-core",
+                "command": "eslint ."
+              },
+              "inputs": [
+                "default",
+                "^default",
+                "{workspaceRoot}/eslint.config.mjs",
+                "{workspaceRoot}/libs/backend/ai-providers-core/eslint.config.mjs",
+                "{workspaceRoot}/tools/eslint-rules/**/*",
+                {
+                  "externalDependencies": ["eslint"]
+                }
+              ],
+              "outputs": ["{options.outputFile}"],
+              "metadata": {
+                "technologies": ["eslint"],
+                "description": "Runs ESLint on project",
+                "help": {
+                  "command": "npx eslint --help",
+                  "example": {
+                    "options": {
+                      "max-warnings": 0
+                    }
+                  }
+                }
+              },
+              "executor": "nx:run-commands",
+              "configurations": {},
+              "parallelism": true
+            },
+            "build": {
+              "executor": "@nx/esbuild:esbuild",
+              "outputs": ["{options.outputPath}"],
+              "options": {
+                "outputPath": "dist/libs/backend/ai-providers-core",
+                "main": "libs/backend/ai-providers-core/src/index.ts",
+                "tsConfig": "libs/backend/ai-providers-core/tsconfig.lib.json",
+                "assets": ["libs/backend/ai-providers-core/*.md"],
+                "format": ["cjs"],
+                "external": ["vscode", "tsyringe", "reflect-metadata"]
+              },
+              "configurations": {},
+              "parallelism": true,
+              "cache": true,
+              "dependsOn": ["^build"],
+              "inputs": ["production", "^production"]
+            },
+            "test": {
+              "executor": "@nx/jest:jest",
+              "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+              "options": {
+                "jestConfig": "libs/backend/ai-providers-core/jest.config.ts",
+                "passWithNoTests": true
+              },
+              "configurations": {
+                "ci": {
+                  "ci": true,
+                  "codeCoverage": true
+                }
+              },
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "^production",
+                "{workspaceRoot}/jest.preset.js"
+              ]
+            },
+            "typecheck": {
+              "executor": "nx:run-commands",
+              "options": {
+                "command": "tsc --noEmit --project libs/backend/ai-providers-core/tsconfig.lib.json"
+              },
+              "configurations": {},
+              "parallelism": true
+            },
+            "lint": {
+              "executor": "@nx/eslint:lint",
+              "configurations": {},
+              "options": {},
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "{workspaceRoot}/.eslintrc.json",
+                "{workspaceRoot}/.eslintignore",
+                "{workspaceRoot}/eslint.config.mjs"
+              ]
+            }
+          },
+          "name": "@ptah-extension/ai-providers-core",
+          "tags": ["npm:private", "scope:extension", "type:util"],
+          "metadata": {
+            "targetGroups": {},
+            "js": {
+              "packageName": "@ptah-extension/ai-providers-core",
+              "packageMain": "./index.cjs",
+              "isInPackageManagerWorkspaces": false
+            }
+          },
+          "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+          "sourceRoot": "libs/backend/ai-providers-core/src",
+          "projectType": "library",
+          "implicitDependencies": []
+        }
+      },
+      "@ptah-extension/llm-abstraction": {
+        "name": "@ptah-extension/llm-abstraction",
+        "type": "lib",
+        "data": {
+          "root": "libs/backend/llm-abstraction",
+          "targets": {
+            "eslint:lint": {
+              "cache": true,
+              "options": {
+                "cwd": "libs/backend/llm-abstraction",
+                "command": "eslint ."
+              },
+              "inputs": [
+                "default",
+                "^default",
+                "{workspaceRoot}/eslint.config.mjs",
+                "{workspaceRoot}/tools/eslint-rules/**/*",
+                {
+                  "externalDependencies": ["eslint"]
+                }
+              ],
+              "outputs": ["{options.outputFile}"],
+              "metadata": {
+                "technologies": ["eslint"],
+                "description": "Runs ESLint on project",
+                "help": {
+                  "command": "npx eslint --help",
+                  "example": {
+                    "options": {
+                      "max-warnings": 0
+                    }
+                  }
+                }
+              },
+              "executor": "nx:run-commands",
+              "configurations": {},
+              "parallelism": true
+            },
+            "build": {
+              "executor": "@nx/esbuild:esbuild",
+              "outputs": ["{options.outputPath}"],
+              "options": {
+                "outputPath": "dist/libs/backend/llm-abstraction",
+                "main": "libs/backend/llm-abstraction/src/index.ts",
+                "tsConfig": "libs/backend/llm-abstraction/tsconfig.lib.json",
+                "assets": ["libs/backend/llm-abstraction/*.md"],
+                "format": ["cjs"],
+                "external": [
+                  "tsyringe",
+                  "@langchain/core",
+                  "@langchain/anthropic",
+                  "@langchain/openai",
+                  "@langchain/google-genai",
+                  "langchain",
+                  "zod"
+                ]
+              },
+              "configurations": {},
+              "parallelism": true,
+              "cache": true,
+              "dependsOn": ["^build"],
+              "inputs": ["production", "^production"]
+            },
+            "test": {
+              "executor": "@nx/jest:jest",
+              "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+              "options": {
+                "jestConfig": "libs/backend/llm-abstraction/jest.config.ts",
+                "passWithNoTests": true
+              },
+              "configurations": {
+                "ci": {
+                  "ci": true,
+                  "codeCoverage": true
+                }
+              },
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "^production",
+                "{workspaceRoot}/jest.preset.js"
+              ]
+            },
+            "typecheck": {
+              "executor": "nx:run-commands",
+              "options": {
+                "command": "tsc --noEmit --project libs/backend/llm-abstraction/tsconfig.lib.json"
+              },
+              "configurations": {},
+              "parallelism": true
+            },
+            "lint": {
+              "executor": "@nx/eslint:lint",
+              "configurations": {},
+              "options": {},
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "{workspaceRoot}/.eslintrc.json",
+                "{workspaceRoot}/.eslintignore",
+                "{workspaceRoot}/eslint.config.mjs"
+              ]
+            }
+          },
+          "name": "@ptah-extension/llm-abstraction",
+          "tags": ["npm:private", "scope:extension", "type:feature"],
+          "metadata": {
+            "targetGroups": {},
+            "js": {
+              "packageName": "@ptah-extension/llm-abstraction",
+              "packageMain": "./index.cjs",
+              "isInPackageManagerWorkspaces": false
+            }
+          },
+          "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+          "sourceRoot": "libs/backend/llm-abstraction/src",
+          "projectType": "library",
+          "implicitDependencies": []
+        }
+      },
+      "vscode-lm-tools": {
+        "name": "vscode-lm-tools",
+        "type": "lib",
+        "data": {
+          "root": "libs/backend/vscode-lm-tools",
+          "targets": {
+            "eslint:lint": {
+              "cache": true,
+              "options": {
+                "cwd": "libs/backend/vscode-lm-tools",
+                "command": "eslint ."
+              },
+              "inputs": [
+                "default",
+                "^default",
+                "{workspaceRoot}/eslint.config.mjs",
+                "{workspaceRoot}/libs/backend/vscode-lm-tools/eslint.config.mjs",
+                "{workspaceRoot}/tools/eslint-rules/**/*",
+                {
+                  "externalDependencies": ["eslint"]
+                }
+              ],
+              "outputs": ["{options.outputFile}"],
+              "metadata": {
+                "technologies": ["eslint"],
+                "description": "Runs ESLint on project",
+                "help": {
+                  "command": "npx eslint --help",
+                  "example": {
+                    "options": {
+                      "max-warnings": 0
+                    }
+                  }
+                }
+              },
+              "executor": "nx:run-commands",
+              "configurations": {},
+              "parallelism": true
+            },
+            "build": {
+              "executor": "@nx/esbuild:esbuild",
+              "outputs": ["{options.outputPath}"],
+              "options": {
+                "outputPath": "dist/libs/backend/claude-domain",
+                "main": "libs/backend/vscode-lm-tools/src/index.ts",
+                "tsConfig": "libs/backend/vscode-lm-tools/tsconfig.lib.json",
+                "assets": ["libs/backend/vscode-lm-tools/*.md"],
+                "format": ["cjs"],
+                "external": [
+                  "vscode",
+                  "tsyringe",
+                  "eventemitter3",
+                  "rxjs",
+                  "minimatch"
+                ]
+              },
+              "configurations": {},
+              "parallelism": true,
+              "cache": true,
+              "dependsOn": ["^build"],
+              "inputs": ["production", "^production"]
+            },
+            "test": {
+              "executor": "@nx/jest:jest",
+              "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+              "options": {
+                "jestConfig": "libs/backend/vscode-lm-tools/jest.config.ts",
+                "passWithNoTests": true
+              },
+              "configurations": {
+                "ci": {
+                  "ci": true,
+                  "codeCoverage": true
+                }
+              },
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "^production",
+                "{workspaceRoot}/jest.preset.js"
+              ]
+            },
+            "typecheck": {
+              "executor": "nx:run-commands",
+              "options": {
+                "command": "tsc --noEmit --project libs/backend/vscode-lm-tools/tsconfig.lib.json"
+              },
+              "configurations": {},
+              "parallelism": true
+            },
+            "lint": {
+              "executor": "@nx/eslint:lint",
+              "configurations": {},
+              "options": {},
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "{workspaceRoot}/.eslintrc.json",
+                "{workspaceRoot}/.eslintignore",
+                "{workspaceRoot}/eslint.config.mjs"
+              ]
+            }
+          },
+          "name": "vscode-lm-tools",
+          "tags": [
+            "npm:private",
+            "scope:extension",
+            "type:feature",
+            "domain:vscode"
+          ],
+          "metadata": {
+            "targetGroups": {},
+            "js": {
+              "packageName": "@ptah-extension/vscode-lm-tools",
+              "packageMain": "./src/index.js",
+              "isInPackageManagerWorkspaces": false
+            }
+          },
+          "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+          "sourceRoot": "libs/backend/vscode-lm-tools/src",
+          "projectType": "library",
+          "implicitDependencies": []
+        }
+      },
+      "ptah-extension-webview": {
+        "name": "ptah-extension-webview",
+        "type": "app",
+        "data": {
+          "root": "apps/ptah-extension-webview",
+          "targets": {
+            "eslint:lint": {
+              "cache": true,
+              "options": {
+                "cwd": "apps/ptah-extension-webview",
+                "command": "eslint ."
+              },
+              "inputs": [
+                "default",
+                "^default",
+                "{workspaceRoot}/eslint.config.mjs",
+                "{workspaceRoot}/apps/ptah-extension-webview/eslint.config.mjs",
+                "{workspaceRoot}/tools/eslint-rules/**/*",
+                {
+                  "externalDependencies": ["eslint"]
+                }
+              ],
+              "outputs": ["{options.outputFile}"],
+              "metadata": {
+                "technologies": ["eslint"],
+                "description": "Runs ESLint on project",
+                "help": {
+                  "command": "npx eslint --help",
+                  "example": {
+                    "options": {
+                      "max-warnings": 0
+                    }
+                  }
+                }
+              },
+              "executor": "nx:run-commands",
+              "configurations": {},
+              "parallelism": true
+            },
+            "build": {
+              "executor": "@angular/build:application",
+              "outputs": ["{options.outputPath}"],
+              "options": {
+                "outputPath": "dist/apps/ptah-extension-webview",
+                "browser": "apps/ptah-extension-webview/src/main.ts",
+                "polyfills": ["zone.js"],
+                "tsConfig": "apps/ptah-extension-webview/tsconfig.app.json",
+                "assets": [
+                  {
+                    "glob": "**/*",
+                    "input": "apps/ptah-extension-webview/public"
+                  }
+                ],
+                "styles": ["apps/ptah-extension-webview/src/styles.css"]
+              },
+              "configurations": {
+                "production": {
+                  "budgets": [
+                    {
+                      "type": "initial",
+                      "maximumWarning": "600kb",
+                      "maximumError": "1.2mb"
+                    },
+                    {
+                      "type": "anyComponentStyle",
+                      "maximumWarning": "8kb",
+                      "maximumError": "16kb"
+                    }
+                  ],
+                  "outputHashing": "none",
+                  "namedChunks": false,
+                  "optimization": {
+                    "scripts": true,
+                    "styles": {
+                      "minify": true,
+                      "inlineCritical": false
+                    }
+                  },
+                  "fileReplacements": [
+                    {
+                      "replace": "apps/ptah-extension-webview/src/environments/environment.ts",
+                      "with": "apps/ptah-extension-webview/src/environments/environment.production.ts"
+                    }
+                  ]
+                },
+                "development": {
+                  "optimization": false,
+                  "extractLicenses": false,
+                  "sourceMap": true,
+                  "outputHashing": "none"
+                }
+              },
+              "defaultConfiguration": "production",
+              "parallelism": true,
+              "cache": true,
+              "dependsOn": ["^build"],
+              "inputs": ["production", "^production"]
+            },
+            "serve": {
+              "continuous": true,
+              "executor": "@angular/build:dev-server",
+              "configurations": {
+                "production": {
+                  "buildTarget": "ptah-extension-webview:build:production"
+                },
+                "development": {
+                  "buildTarget": "ptah-extension-webview:build:development"
+                }
+              },
+              "defaultConfiguration": "development",
+              "options": {},
+              "parallelism": true
+            },
+            "extract-i18n": {
+              "executor": "@angular/build:extract-i18n",
+              "options": {
+                "buildTarget": "ptah-extension-webview:build"
+              },
+              "configurations": {},
+              "parallelism": true
+            },
+            "lint": {
+              "executor": "@nx/eslint:lint",
+              "configurations": {},
+              "options": {},
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "{workspaceRoot}/.eslintrc.json",
+                "{workspaceRoot}/.eslintignore",
+                "{workspaceRoot}/eslint.config.mjs"
+              ]
+            },
+            "test": {
+              "executor": "@nx/jest:jest",
+              "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+              "options": {
+                "jestConfig": "apps/ptah-extension-webview/jest.config.ts",
+                "tsConfig": "apps/ptah-extension-webview/tsconfig.spec.json",
+                "passWithNoTests": true
+              },
+              "configurations": {
+                "ci": {
+                  "ci": true,
+                  "codeCoverage": true
+                }
+              },
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "^production",
+                "{workspaceRoot}/jest.preset.js"
+              ]
+            },
+            "serve-static": {
+              "continuous": true,
+              "executor": "@nx/web:file-server",
+              "options": {
+                "buildTarget": "ptah-extension-webview:build",
+                "staticFilePath": "dist/apps/ptah-extension-vscode/webview/browser",
+                "spa": true
+              },
+              "configurations": {},
+              "parallelism": true
+            },
+            "typecheck": {
+              "executor": "nx:run-commands",
+              "options": {
+                "command": "tsc --noEmit --project apps/ptah-extension-webview/tsconfig.app.json"
+              },
+              "configurations": {},
+              "parallelism": true
+            }
+          },
+          "name": "ptah-extension-webview",
+          "$schema": "../../node_modules/nx/schemas/project-schema.json",
+          "projectType": "application",
+          "prefix": "ptah",
+          "sourceRoot": "apps/ptah-extension-webview/src",
+          "tags": ["scope:webview", "type:app"],
+          "implicitDependencies": []
+        }
+      },
+      "@ptah-extension/claude-domain": {
+        "name": "@ptah-extension/claude-domain",
+        "type": "lib",
+        "data": {
+          "root": "libs/backend/claude-domain",
+          "targets": {
+            "eslint:lint": {
+              "cache": true,
+              "options": {
+                "cwd": "libs/backend/claude-domain",
+                "command": "eslint ."
+              },
+              "inputs": [
+                "default",
+                "^default",
+                "{workspaceRoot}/eslint.config.mjs",
+                "{workspaceRoot}/libs/backend/claude-domain/eslint.config.mjs",
+                "{workspaceRoot}/tools/eslint-rules/**/*",
+                {
+                  "externalDependencies": ["eslint"]
+                }
+              ],
+              "outputs": ["{options.outputFile}"],
+              "metadata": {
+                "technologies": ["eslint"],
+                "description": "Runs ESLint on project",
+                "help": {
+                  "command": "npx eslint --help",
+                  "example": {
+                    "options": {
+                      "max-warnings": 0
+                    }
+                  }
+                }
+              },
+              "executor": "nx:run-commands",
+              "configurations": {},
+              "parallelism": true
+            },
+            "build": {
+              "executor": "@nx/esbuild:esbuild",
+              "outputs": ["{options.outputPath}"],
+              "options": {
+                "outputPath": "dist/libs/backend/claude-domain",
+                "main": "libs/backend/claude-domain/src/index.ts",
+                "tsConfig": "libs/backend/claude-domain/tsconfig.lib.json",
+                "assets": ["libs/backend/claude-domain/*.md"],
+                "format": ["cjs"],
+                "external": [
+                  "vscode",
+                  "tsyringe",
+                  "eventemitter3",
+                  "rxjs",
+                  "minimatch"
+                ]
+              },
+              "configurations": {},
+              "parallelism": true,
+              "cache": true,
+              "dependsOn": ["^build"],
+              "inputs": ["production", "^production"]
+            },
+            "test": {
+              "executor": "@nx/jest:jest",
+              "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+              "options": {
+                "jestConfig": "libs/backend/claude-domain/jest.config.ts",
+                "passWithNoTests": true
+              },
+              "configurations": {
+                "ci": {
+                  "ci": true,
+                  "codeCoverage": true
+                }
+              },
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "^production",
+                "{workspaceRoot}/jest.preset.js"
+              ]
+            },
+            "typecheck": {
+              "executor": "nx:run-commands",
+              "options": {
+                "command": "tsc --noEmit --project libs/backend/claude-domain/tsconfig.lib.json"
+              },
+              "configurations": {},
+              "parallelism": true
+            },
+            "lint": {
+              "executor": "@nx/eslint:lint",
+              "configurations": {},
+              "options": {},
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "{workspaceRoot}/.eslintrc.json",
+                "{workspaceRoot}/.eslintignore",
+                "{workspaceRoot}/eslint.config.mjs"
+              ]
+            }
+          },
+          "name": "@ptah-extension/claude-domain",
+          "tags": ["npm:private", "scope:extension", "type:feature"],
+          "metadata": {
+            "targetGroups": {},
+            "js": {
+              "packageName": "@ptah-extension/claude-domain",
+              "packageMain": "./index.cjs",
+              "isInPackageManagerWorkspaces": false
+            }
+          },
+          "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+          "sourceRoot": "libs/backend/claude-domain/src",
+          "projectType": "library",
+          "implicitDependencies": []
+        }
+      },
+      "ptah-extension-vscode": {
+        "name": "ptah-extension-vscode",
+        "type": "app",
+        "data": {
+          "root": "apps/ptah-extension-vscode",
+          "targets": {
+            "eslint:lint": {
+              "cache": true,
+              "options": {
+                "cwd": "apps/ptah-extension-vscode",
+                "command": "eslint ."
+              },
+              "inputs": [
+                "default",
+                "^default",
+                "{workspaceRoot}/eslint.config.mjs",
+                "{workspaceRoot}/apps/ptah-extension-vscode/eslint.config.mjs",
+                "{workspaceRoot}/tools/eslint-rules/**/*",
+                {
+                  "externalDependencies": ["eslint"]
+                }
+              ],
+              "outputs": ["{options.outputFile}"],
+              "metadata": {
+                "technologies": ["eslint"],
+                "description": "Runs ESLint on project",
+                "help": {
+                  "command": "npx eslint --help",
+                  "example": {
+                    "options": {
+                      "max-warnings": 0
+                    }
+                  }
+                }
+              },
+              "executor": "nx:run-commands",
+              "configurations": {},
+              "parallelism": true
+            },
+            "nx-release-publish": {
+              "executor": "@nx/js:release-publish",
+              "dependsOn": ["^nx-release-publish"],
+              "options": {},
+              "configurations": {},
+              "parallelism": true
+            },
+            "build": {
+              "executor": "nx:noop",
+              "dependsOn": ["build-webpack", "post-build-copy"],
+              "configurations": {},
+              "options": {},
+              "parallelism": true
+            },
+            "build-webpack": {
+              "executor": "@nx/webpack:webpack",
+              "outputs": ["{options.outputPath}"],
+              "defaultConfiguration": "production",
+              "dependsOn": ["^build"],
+              "options": {
+                "target": "node",
+                "compiler": "tsc",
+                "outputPath": "dist/apps/ptah-extension-vscode",
+                "main": "apps/ptah-extension-vscode/src/main.ts",
+                "tsConfig": "apps/ptah-extension-vscode/tsconfig.app.json",
+                "webpackConfig": "apps/ptah-extension-vscode/webpack.config.js"
+              },
+              "configurations": {
+                "development": {
+                  "mode": "development",
+                  "optimization": false,
+                  "sourceMap": true
+                },
+                "production": {
+                  "mode": "production",
+                  "optimization": true,
+                  "sourceMap": false,
+                  "extractLicenses": false
+                }
+              },
+              "parallelism": true
+            },
+            "post-build-copy": {
+              "executor": "nx:run-commands",
+              "dependsOn": ["build-webpack", "ptah-extension-webview:build"],
+              "outputs": [
+                "{workspaceRoot}/dist/apps/ptah-extension-vscode/webview",
+                "{workspaceRoot}/dist/apps/ptah-extension-vscode/assets",
+                "{workspaceRoot}/dist/apps/ptah-extension-vscode/package.json"
+              ],
+              "options": {
+                "commands": [
+                  {
+                    "command": "powershell -Command \"if (!(Test-Path 'dist/apps/ptah-extension-vscode/webview')) { New-Item -ItemType Directory -Force -Path 'dist/apps/ptah-extension-vscode/webview' }\"",
+                    "forwardAllArgs": false
+                  },
+                  {
+                    "command": "powershell -Command \"Copy-Item -Path 'dist/apps/ptah-extension-webview/browser' -Destination 'dist/apps/ptah-extension-vscode/webview/' -Recurse -Force\"",
+                    "forwardAllArgs": false
+                  },
+                  {
+                    "command": "powershell -Command \"Copy-Item -Path 'apps/ptah-extension-vscode/src/assets' -Destination 'dist/apps/ptah-extension-vscode/' -Recurse -Force\"",
+                    "forwardAllArgs": false
+                  },
+                  {
+                    "command": "powershell -Command \"Copy-Item -Path 'apps/ptah-extension-vscode/package.json' -Destination 'dist/apps/ptah-extension-vscode/package.json' -Force\"",
+                    "forwardAllArgs": false
+                  }
+                ],
+                "parallel": false
+              },
+              "configurations": {},
+              "parallelism": true
+            },
+            "prune-lockfile": {
+              "dependsOn": ["build"],
+              "cache": true,
+              "executor": "@nx/js:prune-lockfile",
+              "outputs": [
+                "{workspaceRoot}/dist/apps/ptah-extension-vscode/package.json",
+                "{workspaceRoot}/dist/apps/ptah-extension-vscode/package-lock.json"
+              ],
+              "options": {
+                "buildTarget": "build"
+              },
+              "configurations": {},
+              "parallelism": true
+            },
+            "copy-workspace-modules": {
+              "dependsOn": ["build"],
+              "cache": true,
+              "outputs": [
+                "{workspaceRoot}/dist/apps/ptah-extension-vscode/workspace_modules"
+              ],
+              "executor": "@nx/js:copy-workspace-modules",
+              "options": {
+                "buildTarget": "build"
+              },
+              "configurations": {},
+              "parallelism": true
+            },
+            "prune": {
+              "dependsOn": ["prune-lockfile", "copy-workspace-modules"],
+              "executor": "nx:noop",
+              "configurations": {},
+              "options": {},
+              "parallelism": true
+            },
+            "serve": {
+              "continuous": true,
+              "executor": "@nx/js:node",
+              "defaultConfiguration": "development",
+              "dependsOn": ["build"],
+              "options": {
+                "buildTarget": "ptah-extension-vscode:build",
+                "runBuildTargetDependencies": false
+              },
+              "configurations": {
+                "development": {
+                  "buildTarget": "ptah-extension-vscode:build:development"
+                },
+                "production": {
+                  "buildTarget": "ptah-extension-vscode:build:production"
+                }
+              },
+              "parallelism": true
+            },
+            "lint": {
+              "executor": "@nx/eslint:lint",
+              "configurations": {},
+              "options": {},
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "{workspaceRoot}/.eslintrc.json",
+                "{workspaceRoot}/.eslintignore",
+                "{workspaceRoot}/eslint.config.mjs"
+              ]
+            },
+            "typecheck": {
+              "executor": "nx:run-commands",
+              "options": {
+                "command": "tsc --noEmit --project apps/ptah-extension-vscode/tsconfig.app.json"
+              },
+              "configurations": {},
+              "parallelism": true
+            },
+            "copy-assets": {
+              "executor": "nx:run-commands",
+              "dependsOn": ["build"],
+              "options": {
+                "commands": [
+                  "cp -r apps/ptah-extension-vscode/src/assets dist/apps/ptah-extension-vscode/",
+                  "cp apps/ptah-extension-vscode/package.json dist/apps/ptah-extension-vscode/"
+                ],
+                "parallel": false
+              },
+              "configurations": {},
+              "parallelism": true
+            },
+            "package": {
+              "executor": "nx:run-commands",
+              "dependsOn": ["copy-assets"],
+              "options": {
+                "command": "npx @vscode/vsce package --no-dependencies",
+                "cwd": "dist/apps/ptah-extension-vscode"
+              },
+              "configurations": {},
+              "parallelism": true
+            }
+          },
+          "name": "ptah-extension-vscode",
+          "tags": [
+            "npm:public",
+            "npm:claude",
+            "npm:ai",
+            "npm:chat",
+            "npm:code-review",
+            "npm:assistant",
+            "npm:anthropic",
+            "npm:cli-gui",
+            "scope:extension",
+            "type:application"
+          ],
+          "metadata": {
+            "targetGroups": {},
+            "description": "Complete visual interface for Claude Code CLI with chat, command building, and intelligent context management",
+            "js": {
+              "packageName": "ptah-extension-vscode",
+              "packageMain": "./main.js",
+              "isInPackageManagerWorkspaces": false
+            }
+          },
+          "$schema": "../../node_modules/nx/schemas/project-schema.json",
+          "sourceRoot": "apps/ptah-extension-vscode/src",
+          "projectType": "application",
+          "implicitDependencies": []
+        }
+      },
+      "@ptah-extension/vscode-core": {
+        "name": "@ptah-extension/vscode-core",
+        "type": "lib",
+        "data": {
+          "root": "libs/backend/vscode-core",
+          "targets": {
+            "eslint:lint": {
+              "cache": true,
+              "options": {
+                "cwd": "libs/backend/vscode-core",
+                "command": "eslint ."
+              },
+              "inputs": [
+                "default",
+                "^default",
+                "{workspaceRoot}/eslint.config.mjs",
+                "{workspaceRoot}/libs/backend/vscode-core/eslint.config.mjs",
+                "{workspaceRoot}/tools/eslint-rules/**/*",
+                {
+                  "externalDependencies": ["eslint"]
+                }
+              ],
+              "outputs": ["{options.outputFile}"],
+              "metadata": {
+                "technologies": ["eslint"],
+                "description": "Runs ESLint on project",
+                "help": {
+                  "command": "npx eslint --help",
+                  "example": {
+                    "options": {
+                      "max-warnings": 0
+                    }
+                  }
+                }
+              },
+              "executor": "nx:run-commands",
+              "configurations": {},
+              "parallelism": true
+            },
+            "build": {
+              "executor": "@nx/esbuild:esbuild",
+              "outputs": ["{options.outputPath}"],
+              "options": {
+                "outputPath": "dist/libs/backend/vscode-core",
+                "main": "libs/backend/vscode-core/src/index.ts",
+                "tsConfig": "libs/backend/vscode-core/tsconfig.lib.json",
+                "assets": ["libs/backend/vscode-core/*.md"],
+                "format": ["cjs"],
+                "external": ["vscode", "tsyringe", "eventemitter3", "rxjs"]
+              },
+              "configurations": {},
+              "parallelism": true,
+              "cache": true,
+              "dependsOn": ["^build"],
+              "inputs": ["production", "^production"]
+            },
+            "test": {
+              "executor": "@nx/jest:jest",
+              "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+              "options": {
+                "jestConfig": "libs/backend/vscode-core/jest.config.ts",
+                "passWithNoTests": true
+              },
+              "configurations": {
+                "ci": {
+                  "ci": true,
+                  "codeCoverage": true
+                }
+              },
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "^production",
+                "{workspaceRoot}/jest.preset.js"
+              ]
+            },
+            "typecheck": {
+              "executor": "nx:run-commands",
+              "options": {
+                "command": "tsc --noEmit --project libs/backend/vscode-core/tsconfig.lib.json"
+              },
+              "configurations": {},
+              "parallelism": true
+            },
+            "lint": {
+              "executor": "@nx/eslint:lint",
+              "configurations": {},
+              "options": {},
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "{workspaceRoot}/.eslintrc.json",
+                "{workspaceRoot}/.eslintignore",
+                "{workspaceRoot}/eslint.config.mjs"
+              ]
+            }
+          },
+          "name": "@ptah-extension/vscode-core",
+          "tags": ["npm:private", "scope:extension", "type:util"],
+          "metadata": {
+            "targetGroups": {},
+            "js": {
+              "packageName": "@ptah-extension/vscode-core",
+              "packageMain": "./index.cjs",
+              "isInPackageManagerWorkspaces": false
+            }
+          },
+          "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+          "sourceRoot": "libs/backend/vscode-core/src",
+          "projectType": "library",
+          "implicitDependencies": []
+        }
+      },
+      "analytics": {
+        "name": "analytics",
+        "type": "lib",
+        "data": {
+          "root": "libs/frontend/analytics",
+          "targets": {
+            "eslint:lint": {
+              "cache": true,
+              "options": {
+                "cwd": "libs/frontend/analytics",
+                "command": "eslint ."
+              },
+              "inputs": [
+                "default",
+                "^default",
+                "{workspaceRoot}/eslint.config.mjs",
+                "{workspaceRoot}/libs/frontend/analytics/eslint.config.mjs",
+                "{workspaceRoot}/tools/eslint-rules/**/*",
+                {
+                  "externalDependencies": ["eslint"]
+                }
+              ],
+              "outputs": ["{options.outputFile}"],
+              "metadata": {
+                "technologies": ["eslint"],
+                "description": "Runs ESLint on project",
+                "help": {
+                  "command": "npx eslint --help",
+                  "example": {
+                    "options": {
+                      "max-warnings": 0
+                    }
+                  }
+                }
+              },
+              "executor": "nx:run-commands",
+              "configurations": {},
+              "parallelism": true
+            },
+            "test": {
+              "executor": "@nx/jest:jest",
+              "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+              "options": {
+                "jestConfig": "libs/frontend/analytics/jest.config.ts",
+                "tsConfig": "libs/frontend/analytics/tsconfig.spec.json",
+                "passWithNoTests": true
+              },
+              "configurations": {
+                "ci": {
+                  "ci": true,
+                  "codeCoverage": true
+                }
+              },
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "^production",
+                "{workspaceRoot}/jest.preset.js"
+              ]
+            },
+            "lint": {
+              "executor": "@nx/eslint:lint",
+              "configurations": {},
+              "options": {},
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "{workspaceRoot}/.eslintrc.json",
+                "{workspaceRoot}/.eslintignore",
+                "{workspaceRoot}/eslint.config.mjs"
+              ]
+            },
+            "typecheck": {
+              "executor": "nx:run-commands",
+              "options": {
+                "command": "npx ngc --noEmit --project libs/frontend/analytics/tsconfig.lib.json"
+              },
+              "configurations": {},
+              "parallelism": true
+            }
+          },
+          "name": "analytics",
+          "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+          "sourceRoot": "libs/frontend/analytics/src",
+          "prefix": "ptah",
+          "projectType": "library",
+          "tags": ["scope:webview", "type:feature"],
+          "implicitDependencies": []
+        }
+      },
+      "dashboard": {
+        "name": "dashboard",
+        "type": "lib",
+        "data": {
+          "root": "libs/frontend/dashboard",
+          "targets": {
+            "eslint:lint": {
+              "cache": true,
+              "options": {
+                "cwd": "libs/frontend/dashboard",
+                "command": "eslint ."
+              },
+              "inputs": [
+                "default",
+                "^default",
+                "{workspaceRoot}/eslint.config.mjs",
+                "{workspaceRoot}/libs/frontend/dashboard/eslint.config.mjs",
+                "{workspaceRoot}/tools/eslint-rules/**/*",
+                {
+                  "externalDependencies": ["eslint"]
+                }
+              ],
+              "outputs": ["{options.outputFile}"],
+              "metadata": {
+                "technologies": ["eslint"],
+                "description": "Runs ESLint on project",
+                "help": {
+                  "command": "npx eslint --help",
+                  "example": {
+                    "options": {
+                      "max-warnings": 0
+                    }
+                  }
+                }
+              },
+              "executor": "nx:run-commands",
+              "configurations": {},
+              "parallelism": true
+            },
+            "test": {
+              "executor": "@nx/jest:jest",
+              "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+              "options": {
+                "jestConfig": "libs/frontend/dashboard/jest.config.ts",
+                "tsConfig": "libs/frontend/dashboard/tsconfig.spec.json",
+                "passWithNoTests": true
+              },
+              "configurations": {
+                "ci": {
+                  "ci": true,
+                  "codeCoverage": true
+                }
+              },
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "^production",
+                "{workspaceRoot}/jest.preset.js"
+              ]
+            },
+            "lint": {
+              "executor": "@nx/eslint:lint",
+              "configurations": {},
+              "options": {},
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "{workspaceRoot}/.eslintrc.json",
+                "{workspaceRoot}/.eslintignore",
+                "{workspaceRoot}/eslint.config.mjs"
+              ]
+            },
+            "typecheck": {
+              "executor": "nx:run-commands",
+              "options": {
+                "command": "npx ngc --noEmit --project libs/frontend/dashboard/tsconfig.lib.json"
+              },
+              "configurations": {},
+              "parallelism": true
+            }
+          },
+          "name": "dashboard",
+          "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+          "sourceRoot": "libs/frontend/dashboard/src",
+          "prefix": "ptah",
+          "projectType": "library",
+          "tags": ["type:ui", "scope:webview", "platform:angular"],
+          "implicitDependencies": []
+        }
+      },
+      "providers": {
+        "name": "providers",
+        "type": "lib",
+        "data": {
+          "root": "libs/frontend/providers",
+          "targets": {
+            "eslint:lint": {
+              "cache": true,
+              "options": {
+                "cwd": "libs/frontend/providers",
+                "command": "eslint ."
+              },
+              "inputs": [
+                "default",
+                "^default",
+                "{workspaceRoot}/eslint.config.mjs",
+                "{workspaceRoot}/libs/frontend/providers/eslint.config.mjs",
+                "{workspaceRoot}/tools/eslint-rules/**/*",
+                {
+                  "externalDependencies": ["eslint"]
+                }
+              ],
+              "outputs": ["{options.outputFile}"],
+              "metadata": {
+                "technologies": ["eslint"],
+                "description": "Runs ESLint on project",
+                "help": {
+                  "command": "npx eslint --help",
+                  "example": {
+                    "options": {
+                      "max-warnings": 0
+                    }
+                  }
+                }
+              },
+              "executor": "nx:run-commands",
+              "configurations": {},
+              "parallelism": true
+            },
+            "test": {
+              "executor": "@nx/jest:jest",
+              "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+              "options": {
+                "jestConfig": "libs/frontend/providers/jest.config.ts",
+                "tsConfig": "libs/frontend/providers/tsconfig.spec.json",
+                "passWithNoTests": true
+              },
+              "configurations": {
+                "ci": {
+                  "ci": true,
+                  "codeCoverage": true
+                }
+              },
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "^production",
+                "{workspaceRoot}/jest.preset.js"
+              ]
+            },
+            "lint": {
+              "executor": "@nx/eslint:lint",
+              "configurations": {},
+              "options": {},
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "{workspaceRoot}/.eslintrc.json",
+                "{workspaceRoot}/.eslintignore",
+                "{workspaceRoot}/eslint.config.mjs"
+              ]
+            },
+            "typecheck": {
+              "executor": "nx:run-commands",
+              "options": {
+                "command": "npx ngc --noEmit --project libs/frontend/providers/tsconfig.lib.json"
+              },
+              "configurations": {},
+              "parallelism": true
+            }
+          },
+          "name": "providers",
+          "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+          "sourceRoot": "libs/frontend/providers/src",
+          "prefix": "ptah",
+          "projectType": "library",
+          "tags": ["type:ui", "scope:webview", "platform:angular"],
+          "implicitDependencies": []
+        }
+      },
+      "shared-ui": {
+        "name": "shared-ui",
+        "type": "lib",
+        "data": {
+          "root": "libs/frontend/shared-ui",
+          "targets": {
+            "eslint:lint": {
+              "cache": true,
+              "options": {
+                "cwd": "libs/frontend/shared-ui",
+                "command": "eslint ."
+              },
+              "inputs": [
+                "default",
+                "^default",
+                "{workspaceRoot}/eslint.config.mjs",
+                "{workspaceRoot}/libs/frontend/shared-ui/eslint.config.mjs",
+                "{workspaceRoot}/tools/eslint-rules/**/*",
+                {
+                  "externalDependencies": ["eslint"]
+                }
+              ],
+              "outputs": ["{options.outputFile}"],
+              "metadata": {
+                "technologies": ["eslint"],
+                "description": "Runs ESLint on project",
+                "help": {
+                  "command": "npx eslint --help",
+                  "example": {
+                    "options": {
+                      "max-warnings": 0
+                    }
+                  }
+                }
+              },
+              "executor": "nx:run-commands",
+              "configurations": {},
+              "parallelism": true
+            },
+            "test": {
+              "executor": "@nx/jest:jest",
+              "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+              "options": {
+                "jestConfig": "libs/frontend/shared-ui/jest.config.ts",
+                "tsConfig": "libs/frontend/shared-ui/tsconfig.spec.json",
+                "passWithNoTests": true
+              },
+              "configurations": {
+                "ci": {
+                  "ci": true,
+                  "codeCoverage": true
+                }
+              },
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "^production",
+                "{workspaceRoot}/jest.preset.js"
+              ]
+            },
+            "lint": {
+              "executor": "@nx/eslint:lint",
+              "configurations": {},
+              "options": {},
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "{workspaceRoot}/.eslintrc.json",
+                "{workspaceRoot}/.eslintignore",
+                "{workspaceRoot}/eslint.config.mjs"
+              ]
+            },
+            "typecheck": {
+              "executor": "nx:run-commands",
+              "options": {
+                "command": "npx ngc --noEmit --project libs/frontend/shared-ui/tsconfig.lib.json"
+              },
+              "configurations": {},
+              "parallelism": true
+            }
+          },
+          "name": "shared-ui",
+          "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+          "sourceRoot": "libs/frontend/shared-ui/src",
+          "prefix": "ptah",
+          "projectType": "library",
+          "tags": ["scope:webview", "type:ui"],
+          "implicitDependencies": []
+        }
+      },
+      "chat": {
+        "name": "chat",
+        "type": "lib",
+        "data": {
+          "root": "libs/frontend/chat",
+          "targets": {
+            "eslint:lint": {
+              "cache": true,
+              "options": {
+                "cwd": "libs/frontend/chat",
+                "command": "eslint ."
+              },
+              "inputs": [
+                "default",
+                "^default",
+                "{workspaceRoot}/eslint.config.mjs",
+                "{workspaceRoot}/libs/frontend/chat/eslint.config.mjs",
+                "{workspaceRoot}/tools/eslint-rules/**/*",
+                {
+                  "externalDependencies": ["eslint"]
+                }
+              ],
+              "outputs": ["{options.outputFile}"],
+              "metadata": {
+                "technologies": ["eslint"],
+                "description": "Runs ESLint on project",
+                "help": {
+                  "command": "npx eslint --help",
+                  "example": {
+                    "options": {
+                      "max-warnings": 0
+                    }
+                  }
+                }
+              },
+              "executor": "nx:run-commands",
+              "configurations": {},
+              "parallelism": true
+            },
+            "test": {
+              "executor": "@nx/jest:jest",
+              "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+              "options": {
+                "jestConfig": "libs/frontend/chat/jest.config.ts",
+                "tsConfig": "libs/frontend/chat/tsconfig.spec.json",
+                "passWithNoTests": true
+              },
+              "configurations": {
+                "ci": {
+                  "ci": true,
+                  "codeCoverage": true
+                }
+              },
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "^production",
+                "{workspaceRoot}/jest.preset.js"
+              ]
+            },
+            "lint": {
+              "executor": "@nx/eslint:lint",
+              "configurations": {},
+              "options": {},
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "{workspaceRoot}/.eslintrc.json",
+                "{workspaceRoot}/.eslintignore",
+                "{workspaceRoot}/eslint.config.mjs"
+              ]
+            },
+            "typecheck": {
+              "executor": "nx:run-commands",
+              "options": {
+                "command": "npx ngc --noEmit --project libs/frontend/chat/tsconfig.lib.json"
+              },
+              "configurations": {},
+              "parallelism": true
+            }
+          },
+          "name": "chat",
+          "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+          "sourceRoot": "libs/frontend/chat/src",
+          "prefix": "ptah",
+          "projectType": "library",
+          "tags": ["scope:webview", "type:feature"],
+          "implicitDependencies": []
+        }
+      },
+      "core": {
+        "name": "core",
+        "type": "lib",
+        "data": {
+          "root": "libs/frontend/core",
+          "targets": {
+            "eslint:lint": {
+              "cache": true,
+              "options": {
+                "cwd": "libs/frontend/core",
+                "command": "eslint ."
+              },
+              "inputs": [
+                "default",
+                "^default",
+                "{workspaceRoot}/eslint.config.mjs",
+                "{workspaceRoot}/libs/frontend/core/eslint.config.mjs",
+                "{workspaceRoot}/tools/eslint-rules/**/*",
+                {
+                  "externalDependencies": ["eslint"]
+                }
+              ],
+              "outputs": ["{options.outputFile}"],
+              "metadata": {
+                "technologies": ["eslint"],
+                "description": "Runs ESLint on project",
+                "help": {
+                  "command": "npx eslint --help",
+                  "example": {
+                    "options": {
+                      "max-warnings": 0
+                    }
+                  }
+                }
+              },
+              "executor": "nx:run-commands",
+              "configurations": {},
+              "parallelism": true
+            },
+            "test": {
+              "executor": "@nx/jest:jest",
+              "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+              "options": {
+                "jestConfig": "libs/frontend/core/jest.config.ts",
+                "tsConfig": "libs/frontend/core/tsconfig.spec.json",
+                "passWithNoTests": true
+              },
+              "configurations": {
+                "ci": {
+                  "ci": true,
+                  "codeCoverage": true
+                }
+              },
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "^production",
+                "{workspaceRoot}/jest.preset.js"
+              ]
+            },
+            "lint": {
+              "executor": "@nx/eslint:lint",
+              "configurations": {},
+              "options": {},
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "{workspaceRoot}/.eslintrc.json",
+                "{workspaceRoot}/.eslintignore",
+                "{workspaceRoot}/eslint.config.mjs"
+              ]
+            },
+            "typecheck": {
+              "executor": "nx:run-commands",
+              "options": {
+                "command": "npx ngc --noEmit --project libs/frontend/core/tsconfig.lib.json"
+              },
+              "configurations": {},
+              "parallelism": true
+            }
+          },
+          "name": "core",
+          "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+          "sourceRoot": "libs/frontend/core/src",
+          "prefix": "ptah",
+          "projectType": "library",
+          "tags": ["scope:webview", "type:core"],
+          "implicitDependencies": []
+        }
+      },
+      "@ptah-extension/shared": {
+        "name": "@ptah-extension/shared",
+        "type": "lib",
+        "data": {
+          "root": "libs/shared",
+          "targets": {
+            "eslint:lint": {
+              "cache": true,
+              "options": {
+                "cwd": "libs/shared",
+                "command": "eslint ."
+              },
+              "inputs": [
+                "default",
+                "^default",
+                "{workspaceRoot}/eslint.config.mjs",
+                "{workspaceRoot}/libs/shared/eslint.config.mjs",
+                "{workspaceRoot}/tools/eslint-rules/**/*",
+                {
+                  "externalDependencies": ["eslint"]
+                }
+              ],
+              "outputs": ["{options.outputFile}"],
+              "metadata": {
+                "technologies": ["eslint"],
+                "description": "Runs ESLint on project",
+                "help": {
+                  "command": "npx eslint --help",
+                  "example": {
+                    "options": {
+                      "max-warnings": 0
+                    }
+                  }
+                }
+              },
+              "executor": "nx:run-commands",
+              "configurations": {},
+              "parallelism": true
+            },
+            "build": {
+              "executor": "@nx/esbuild:esbuild",
+              "outputs": ["{options.outputPath}"],
+              "options": {
+                "outputPath": "dist/libs/shared",
+                "main": "libs/shared/src/index.ts",
+                "tsConfig": "libs/shared/tsconfig.lib.json",
+                "assets": [],
+                "format": ["cjs"]
+              },
+              "configurations": {},
+              "parallelism": true,
+              "cache": true,
+              "dependsOn": ["^build"],
+              "inputs": ["production", "^production"]
+            },
+            "test": {
+              "executor": "@nx/jest:jest",
+              "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+              "options": {
+                "jestConfig": "libs/shared/jest.config.ts",
+                "passWithNoTests": true
+              },
+              "configurations": {
+                "ci": {
+                  "ci": true,
+                  "codeCoverage": true
+                }
+              },
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "^production",
+                "{workspaceRoot}/jest.preset.js"
+              ]
+            },
+            "lint": {
+              "executor": "@nx/eslint:lint",
+              "configurations": {},
+              "options": {},
+              "parallelism": true,
+              "cache": true,
+              "inputs": [
+                "default",
+                "{workspaceRoot}/.eslintrc.json",
+                "{workspaceRoot}/.eslintignore",
+                "{workspaceRoot}/eslint.config.mjs"
+              ]
+            },
+            "typecheck": {
+              "executor": "nx:run-commands",
+              "options": {
+                "command": "tsc --noEmit --project libs/shared/tsconfig.lib.json"
+              },
+              "configurations": {},
+              "parallelism": true
+            }
+          },
+          "name": "@ptah-extension/shared",
+          "tags": ["npm:private", "scope:shared", "type:util"],
+          "metadata": {
+            "targetGroups": {},
+            "js": {
+              "packageName": "@ptah-extension/shared",
+              "packageMain": "./index.cjs",
+              "isInPackageManagerWorkspaces": false
+            }
+          },
+          "$schema": "../../node_modules/nx/schemas/project-schema.json",
+          "sourceRoot": "libs/shared/src",
+          "projectType": "library",
+          "implicitDependencies": []
+        }
+      }
+    },
+    "dependencies": {
+      "@ptah-extension/workspace-intelligence": [
+        {
+          "source": "@ptah-extension/workspace-intelligence",
+          "target": "@ptah-extension/shared",
+          "type": "static"
+        },
+        {
+          "source": "@ptah-extension/workspace-intelligence",
+          "target": "@ptah-extension/vscode-core",
+          "type": "static"
+        }
+      ],
+      "@ptah-extension/template-generation": [
+        {
+          "source": "@ptah-extension/template-generation",
+          "target": "@ptah-extension/shared",
+          "type": "static"
+        },
+        {
+          "source": "@ptah-extension/template-generation",
+          "target": "@ptah-extension/vscode-core",
+          "type": "static"
+        },
+        {
+          "source": "@ptah-extension/template-generation",
+          "target": "@ptah-extension/llm-abstraction",
+          "type": "static"
+        },
+        {
+          "source": "@ptah-extension/template-generation",
+          "target": "@ptah-extension/workspace-intelligence",
+          "type": "static"
+        }
+      ],
+      "@ptah-extension/ai-providers-core": [
+        {
+          "source": "@ptah-extension/ai-providers-core",
+          "target": "@ptah-extension/shared",
+          "type": "static"
+        },
+        {
+          "source": "@ptah-extension/ai-providers-core",
+          "target": "@ptah-extension/vscode-core",
+          "type": "static"
+        },
+        {
+          "source": "@ptah-extension/ai-providers-core",
+          "target": "@ptah-extension/claude-domain",
+          "type": "static"
+        },
+        {
+          "source": "@ptah-extension/ai-providers-core",
+          "target": "@ptah-extension/workspace-intelligence",
+          "type": "static"
+        }
+      ],
+      "@ptah-extension/llm-abstraction": [
+        {
+          "source": "@ptah-extension/llm-abstraction",
+          "target": "@ptah-extension/shared",
+          "type": "static"
+        },
+        {
+          "source": "@ptah-extension/llm-abstraction",
+          "target": "@ptah-extension/vscode-core",
+          "type": "static"
+        }
+      ],
+      "vscode-lm-tools": [
+        {
+          "source": "vscode-lm-tools",
+          "target": "@ptah-extension/vscode-core",
+          "type": "static"
+        },
+        {
+          "source": "vscode-lm-tools",
+          "target": "@ptah-extension/shared",
+          "type": "static"
+        },
+        {
+          "source": "vscode-lm-tools",
+          "target": "@ptah-extension/workspace-intelligence",
+          "type": "static"
+        }
+      ],
+      "ptah-extension-webview": [
+        {
+          "source": "ptah-extension-webview",
+          "target": "core",
+          "type": "static"
+        },
+        {
+          "source": "ptah-extension-webview",
+          "target": "chat",
+          "type": "static"
+        },
+        {
+          "source": "ptah-extension-webview",
+          "target": "analytics",
+          "type": "static"
+        },
+        {
+          "source": "ptah-extension-webview",
+          "target": "providers",
+          "type": "static"
+        },
+        {
+          "source": "ptah-extension-webview",
+          "target": "shared-ui",
+          "type": "static"
+        },
+        {
+          "source": "ptah-extension-webview",
+          "target": "@ptah-extension/shared",
+          "type": "static"
+        }
+      ],
+      "@ptah-extension/claude-domain": [
+        {
+          "source": "@ptah-extension/claude-domain",
+          "target": "@ptah-extension/shared",
+          "type": "static"
+        },
+        {
+          "source": "@ptah-extension/claude-domain",
+          "target": "@ptah-extension/vscode-core",
+          "type": "static"
+        }
+      ],
+      "ptah-extension-vscode": [
+        {
+          "source": "ptah-extension-vscode",
+          "target": "@ptah-extension/claude-domain",
+          "type": "static"
+        },
+        {
+          "source": "ptah-extension-vscode",
+          "target": "@ptah-extension/vscode-core",
+          "type": "static"
+        },
+        {
+          "source": "ptah-extension-vscode",
+          "target": "@ptah-extension/shared",
+          "type": "static"
+        },
+        {
+          "source": "ptah-extension-vscode",
+          "target": "@ptah-extension/workspace-intelligence",
+          "type": "static"
+        },
+        {
+          "source": "ptah-extension-vscode",
+          "target": "@ptah-extension/ai-providers-core",
+          "type": "static"
+        },
+        {
+          "source": "ptah-extension-vscode",
+          "target": "vscode-lm-tools",
+          "type": "static"
+        }
+      ],
+      "@ptah-extension/vscode-core": [
+        {
+          "source": "@ptah-extension/vscode-core",
+          "target": "@ptah-extension/shared",
+          "type": "static"
+        }
+      ],
+      "analytics": [
+        {
+          "source": "analytics",
+          "target": "core",
+          "type": "static"
+        },
+        {
+          "source": "analytics",
+          "target": "shared-ui",
+          "type": "static"
+        },
+        {
+          "source": "analytics",
+          "target": "@ptah-extension/shared",
+          "type": "static"
+        }
+      ],
+      "dashboard": [
+        {
+          "source": "dashboard",
+          "target": "@ptah-extension/shared",
+          "type": "static"
+        },
+        {
+          "source": "dashboard",
+          "target": "core",
+          "type": "static"
+        }
+      ],
+      "providers": [
+        {
+          "source": "providers",
+          "target": "core",
+          "type": "static"
+        }
+      ],
+      "shared-ui": [
+        {
+          "source": "shared-ui",
+          "target": "@ptah-extension/shared",
+          "type": "static"
+        }
+      ],
+      "chat": [
+        {
+          "source": "chat",
+          "target": "core",
+          "type": "static"
+        },
+        {
+          "source": "chat",
+          "target": "@ptah-extension/shared",
+          "type": "static"
+        },
+        {
+          "source": "chat",
+          "target": "shared-ui",
+          "type": "static"
+        }
+      ],
+      "core": [
+        {
+          "source": "core",
+          "target": "@ptah-extension/shared",
+          "type": "static"
+        }
+      ],
+      "@ptah-extension/shared": []
+    }
+  }
+}

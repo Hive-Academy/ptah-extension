@@ -10,7 +10,6 @@
     "@ptah-extension/vscode-core": "0.0.1",
     "tsyringe": "^4.10.0",
     "minimatch": "9.0.3",
-    "@types/vscode": "^1.103.0",
-    "rxjs": "~7.8.0"
+    "@types/vscode": "^1.103.0"
   }
 }

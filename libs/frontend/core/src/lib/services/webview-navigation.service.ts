@@ -1,7 +1,5 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { AppStateManager, ViewType } from './app-state.service';
-import { VSCodeService } from './vscode.service';
-import { VIEW_MESSAGE_TYPES } from '@ptah-extension/shared';
 
 export interface NavigationState {
   currentView: ViewType;
@@ -32,7 +30,6 @@ export interface NavigationState {
 @Injectable({ providedIn: 'root' })
 export class WebviewNavigationService {
   private readonly appState = inject(AppStateManager);
-  private readonly vscodeService = inject(VSCodeService);
 
   // Private signals for internal state
   private readonly _navigationState = signal<NavigationState>({
@@ -68,7 +65,6 @@ export class WebviewNavigationService {
 
   constructor() {
     this.initializeService();
-    this.setupVSCodeListener();
   }
 
   private initializeService(): void {
@@ -81,40 +77,6 @@ export class WebviewNavigationService {
 
     // Clear any stale error state
     this._navigationErrors.set([]);
-  }
-
-  private setupVSCodeListener(): void {
-    // Listen for navigation requests from VS Code extension
-    this.vscodeService.onMessageType('navigate').subscribe({
-      next: (payload) => {
-        // Extract view from route
-        const route =
-          typeof payload === 'object' && payload !== null && 'route' in payload
-            ? String((payload as { route: unknown }).route)
-            : '';
-
-        const view = route.replace('/', '').replace('#/', '') as ViewType;
-        if (this.isValidViewType(view)) {
-          void this.navigateToView(view);
-        }
-      },
-      error: (error) => {
-        console.error(
-          'WebviewNavigationService: Error in VS Code listener',
-          error
-        );
-      },
-    });
-  }
-
-  private isValidViewType(view: string): view is ViewType {
-    return [
-      'chat',
-      'command-builder',
-      'analytics',
-      'context-tree',
-      'settings',
-    ].includes(view);
   }
 
   /**
@@ -137,12 +99,6 @@ export class WebviewNavigationService {
     try {
       // Pure signal-based navigation - update component state directly
       this.updateNavigationState(view);
-
-      // Notify extension of view change (no URL manipulation)
-      await this.vscodeService.postStrictMessage(VIEW_MESSAGE_TYPES.CHANGED, {
-        view,
-      });
-
       this.setNavigating(false);
       return true;
     } catch (error) {

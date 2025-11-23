@@ -13,10 +13,7 @@
  * - Convert Observable to Promise using firstValueFrom
  */
 
-import { Injectable, inject } from '@angular/core';
-import { VSCodeService } from '@ptah-extension/core';
-import { ANALYTICS_RESPONSE_TYPES } from '@ptah-extension/shared';
-import { firstValueFrom, timeout } from 'rxjs';
+import { Injectable } from '@angular/core';
 
 /**
  * Simplified analytics data interface
@@ -34,56 +31,5 @@ export interface AnalyticsData {
  */
 @Injectable({ providedIn: 'root' })
 export class AnalyticsService {
-  private readonly vscodeService = inject(VSCodeService);
-
-  /**
-   * Fetch analytics data from backend.
-   *
-   * Maps comprehensive backend analytics to simplified UI metrics:
-   * - todaySessions: activity.sessionsLast24h
-   * - weekMessages: activity.messagesLast24h (approximation)
-   * - totalTokens: workspace.contextTokenEstimate (approximation)
-   *
-   * @returns Promise resolving to analytics data
-   * @throws Error if fetch fails, times out, or response invalid
-   */
-  async fetchAnalyticsData(): Promise<AnalyticsData> {
-    try {
-      // Send request to backend
-      this.vscodeService.getAnalyticsData();
-
-      // Wait for response (with 5 second timeout)
-      const response = await firstValueFrom(
-        this.vscodeService
-          .onMessageType(ANALYTICS_RESPONSE_TYPES.GET_DATA)
-          .pipe(timeout(5000))
-      );
-
-      // Validate response (MessageResponse with AnalyticsData)
-      if (!response.success) {
-        throw new Error(response.error?.message || 'Failed to fetch analytics');
-      }
-
-      if (!response.data) {
-        throw new Error('Analytics data missing from response');
-      }
-
-      // Extract and map relevant metrics from comprehensive backend data
-      // Backend returns full AnalyticsData structure from analyticsOrchestration.getAnalyticsData()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const backendData = response.data as any;
-
-      return {
-        // Today's sessions from activity metrics
-        todaySessions: backendData.activity?.sessionsLast24h || 0,
-        // Week messages approximated from last 24h (multiply by 7 for weekly estimate)
-        weekMessages: (backendData.activity?.messagesLast24h || 0) * 7,
-        // Total tokens from workspace context estimate
-        totalTokens: backendData.workspace?.contextTokenEstimate || 0,
-      };
-    } catch (error) {
-      console.error('Analytics fetch error:', error);
-      throw error;
-    }
-  }
+  // All functionality removed - will be replaced with RPC pattern in phase 2
 }
