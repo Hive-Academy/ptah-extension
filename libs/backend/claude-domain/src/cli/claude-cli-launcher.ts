@@ -357,7 +357,10 @@ export class ClaudeCliLauncher {
         console.log(
           '[ClaudeCliLauncher] Streaming complete (message_stop received)'
         );
-        this.deps.eventPublisher.emitMessageComplete(sessionId);
+        // NOTE: MESSAGE_COMPLETE event is emitted by message-handler.service.ts (line 262)
+        // when the stream 'end' event fires with the complete accumulated message.
+        // Emitting here would cause duplicate MESSAGE_COMPLETE events.
+        // The message-handler has better context (full message object vs just sessionId).
       },
 
       onResult: (result) => {
@@ -411,8 +414,12 @@ export class ClaudeCliLauncher {
       parser.processEnd();
       outputStream.push(null); // End stream
 
-      const reason = code === 0 ? 'completed' : `exit code ${code}`;
-      this.deps.eventPublisher.emitSessionEnd(sessionId, reason);
+      // NOTE: sessionEnd event already emitted in onResult callback above (line 383)
+      // Emitting here would be duplicate - onResult has better context (success vs error)
+      // Only log the process exit for debugging
+      console.log(
+        `[ClaudeCliLauncher] Process closed for session ${sessionId} with exit code ${code}`
+      );
     });
 
     // Handle process error (ENOENT, EACCES, etc.)

@@ -521,10 +521,12 @@ export class SessionManager {
     await this.saveSessions();
 
     // Publish events
-    this.eventBus.publish(CHAT_MESSAGE_TYPES.MESSAGE_ADDED, {
-      sessionId: options.sessionId,
-      message,
-    });
+    // NOTE: MESSAGE_ADDED is NOT emitted here for assistant messages
+    // because the message was already sent via MESSAGE_CHUNK events during streaming
+    // and MESSAGE_COMPLETE was emitted when streaming ended (message-handler.service.ts:262).
+    // Emitting MESSAGE_ADDED here would cause duplicate message displays in the UI.
+    // For user messages, MESSAGE_ADDED is emitted in addUserMessage() (line 463).
+
     this.eventBus.publish(CHAT_MESSAGE_TYPES.TOKEN_USAGE_UPDATED, {
       sessionId: options.sessionId,
       tokenUsage: session.tokenUsage,
