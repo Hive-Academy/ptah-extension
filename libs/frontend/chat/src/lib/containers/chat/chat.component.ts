@@ -343,6 +343,9 @@ export class ChatComponent implements OnInit {
     performanceMetrics: {
       averageResponseTime: 0,
       successRate: 100,
+      messageLatencyHistory: [] as number[],
+      totalBytesProcessed: 0,
+      totalMessagesProcessed: 0,
     },
   }).asReadonly();
   readonly isLoading = this.appState.isLoading;
