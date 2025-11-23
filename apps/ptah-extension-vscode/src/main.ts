@@ -1,8 +1,9 @@
 // CRITICAL: reflect-metadata MUST be imported first for TSyringe to work
 import 'reflect-metadata';
 
-import type { Logger } from '@ptah-extension/vscode-core';
+import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import type { ClaudeCliService } from '@ptah-extension/claude-domain';
 import * as vscode from 'vscode';
 import { AnalyticsDataCollectorAdapter } from './adapters/analytics-data-collector.adapter';
 import { PtahExtension } from './core/ptah-extension';
@@ -38,6 +39,132 @@ export async function activate(
     context.subscriptions.push({ dispose: () => contextBridge.dispose() });
     logger.info('ContextMessageBridgeService initialized');
     console.log('[Activate] Step 3.5: ContextMessageBridgeService initialized');
+
+    // Register RPC Methods (Phase 2 - TASK_2025_021)
+    console.log('[Activate] Step 3.6: Registering RPC methods...');
+    const rpcHandler = DIContainer.resolve<RpcHandler>(TOKENS.RPC_HANDLER);
+    const claudeCliService = DIContainer.resolve<ClaudeCliService>(
+      TOKENS.CLAUDE_CLI_SERVICE
+    );
+
+    // Session operations (placeholder - will be implemented when SessionManager is restored)
+    rpcHandler.registerMethod('session:list', async () => {
+      try {
+        // TODO: Implement session listing when SessionManager is restored
+        logger.debug('RPC: session:list called (not yet implemented)');
+        return [];
+      } catch (error) {
+        logger.error('RPC: session:list failed', error);
+        throw new Error(
+          `Failed to list sessions: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    });
+
+    rpcHandler.registerMethod('session:get', async (params: any) => {
+      try {
+        const { id } = params;
+        // TODO: Implement session retrieval when SessionManager is restored
+        logger.debug('RPC: session:get called', { id });
+        return null;
+      } catch (error) {
+        logger.error('RPC: session:get failed', error);
+        throw new Error(
+          `Failed to get session: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    });
+
+    rpcHandler.registerMethod('session:create', async (params: any) => {
+      try {
+        const { name } = params;
+        // TODO: Implement session creation when SessionManager is restored
+        logger.debug('RPC: session:create called', { name });
+        return null;
+      } catch (error) {
+        logger.error('RPC: session:create failed', error);
+        throw new Error(
+          `Failed to create session: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    });
+
+    rpcHandler.registerMethod('session:switch', async (params: any) => {
+      try {
+        const { id } = params;
+        // TODO: Implement session switching when SessionManager is restored
+        logger.debug('RPC: session:switch called', { id });
+        return;
+      } catch (error) {
+        logger.error('RPC: session:switch failed', error);
+        throw new Error(
+          `Failed to switch session: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    });
+
+    // Chat operations (uses ClaudeCliService)
+    rpcHandler.registerMethod('chat:sendMessage', async (params: any) => {
+      try {
+        const { content, files, sessionId } = params;
+        logger.debug('RPC: chat:sendMessage called', {
+          contentLength: content?.length,
+          fileCount: files?.length,
+          sessionId,
+        });
+
+        // Use ClaudeCliService to send message
+        const stream = await claudeCliService.sendMessage(
+          sessionId,
+          content,
+          files
+        );
+
+        // For RPC, we return immediately (streaming handled separately)
+        // TODO: Implement proper streaming response when RPC streaming is added
+        return { success: true };
+      } catch (error) {
+        logger.error('RPC: chat:sendMessage failed', error);
+        throw new Error(
+          `Failed to send message: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    });
+
+    // File operations (frontend may read directly, this is optional)
+    rpcHandler.registerMethod('file:read', async (params: any) => {
+      try {
+        const { sessionId } = params;
+        // TODO: Implement session file reading when needed
+        logger.debug('RPC: file:read called', { sessionId });
+        return null;
+      } catch (error) {
+        logger.error('RPC: file:read failed', error);
+        throw new Error(
+          `Failed to read file: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    });
+
+    logger.info('RPC methods registered', {
+      methods: rpcHandler.getRegisteredMethods(),
+    });
+    console.log(
+      '[Activate] Step 3.6: RPC methods registered:',
+      rpcHandler.getRegisteredMethods()
+    );
 
     // Initialize main extension controller
     console.log('[Activate] Step 4: Creating PtahExtension instance...');

@@ -10,6 +10,7 @@ import {
 import { SessionDropdownComponent } from '../session-dropdown/session-dropdown.component';
 import { SessionSearchOverlayComponent } from '../session-search-overlay/session-search-overlay.component';
 import { ChatService } from '@ptah-extension/core';
+import { ChatStoreService } from '../../services/chat-store.service';
 import { SessionSummary, SessionId } from '@ptah-extension/shared';
 
 /**
@@ -64,8 +65,8 @@ export interface ProviderStatus {
       <div class="header-main">
         <div class="header-actions">
           <ptah-session-dropdown
-            [currentSessionId]="chatService.currentSession()?.id ?? null"
-            [recentSessions]="chatService.recentSessions()"
+            [currentSessionId]="chatStore.currentSession()?.id ?? null"
+            [recentSessions]="recentSessions()"
             (sessionSelected)="onSessionSelected($event)"
             (newSessionClicked)="newSession.emit()"
             (searchAllClicked)="showSearchOverlay.set(true)"
@@ -115,8 +116,8 @@ export interface ProviderStatus {
     @if (showSearchOverlay()) {
     <ptah-session-search-overlay
       [isOpen]="showSearchOverlay()"
-      [currentSessionId]="chatService.currentSession()?.id ?? null"
-      [sessions]="chatService.sessions()"
+      [currentSessionId]="chatStore.currentSession()?.id ?? null"
+      [sessions]="chatStore.sessions()"
       (sessionSelected)="onSessionSelected($event)"
       (closed)="showSearchOverlay.set(false)"
     />
@@ -218,6 +219,7 @@ export interface ProviderStatus {
 export class ChatHeaderComponent {
   // Services
   protected readonly chatService = inject(ChatService);
+  protected readonly chatStore = inject(ChatStoreService); // TASK_2025_021: RPC Migration
 
   // Signal-based inputs (modern Angular 20+ API)
   readonly providerStatus = input.required<ProviderStatus>();
@@ -229,6 +231,16 @@ export class ChatHeaderComponent {
 
   // Internal state
   readonly showSearchOverlay = signal(false);
+
+  // TASK_2025_021: Computed signals for session data
+  readonly recentSessions = computed(() => {
+    // Get most recent 10 sessions sorted by lastActiveAt
+    return this.chatStore
+      .sessions()
+      .slice()
+      .sort((a, b) => b.lastActiveAt - a.lastActiveAt)
+      .slice(0, 10);
+  });
 
   // Computed display strings (derived state)
   readonly providerTitle = computed(
@@ -244,7 +256,8 @@ export class ChatHeaderComponent {
 
   // Methods
   onSessionSelected(sessionId: SessionId): void {
-    void this.chatService.switchToSession(sessionId);
+    // TASK_2025_021: Use ChatStoreService for session switching
+    void this.chatStore.switchSession(sessionId);
     this.showSearchOverlay.set(false);
   }
 }

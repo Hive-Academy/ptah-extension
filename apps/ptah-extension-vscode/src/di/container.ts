@@ -30,6 +30,7 @@ import {
   OutputManager,
   StatusBarManager,
   FileSystemManager,
+  RpcHandler,
 } from '@ptah-extension/vscode-core';
 
 // Import workspace-intelligence services
@@ -135,6 +136,9 @@ export class DIContainer {
     container.registerSingleton(TOKENS.OUTPUT_MANAGER, OutputManager);
     container.registerSingleton(TOKENS.STATUS_BAR_MANAGER, StatusBarManager);
     container.registerSingleton(TOKENS.FILE_SYSTEM_MANAGER, FileSystemManager);
+
+    // RPC Handler (Phase 2 - TASK_2025_021)
+    container.registerSingleton(TOKENS.RPC_HANDLER, RpcHandler);
 
     // Extension Context (value registration)
     container.register(TOKENS.EXTENSION_CONTEXT, { useValue: context });

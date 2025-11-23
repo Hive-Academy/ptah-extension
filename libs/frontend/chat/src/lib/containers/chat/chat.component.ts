@@ -18,7 +18,7 @@ import {
 } from '@ptah-extension/core';
 
 // Chat-specific services (from this library)
-import { ChatStateManagerService } from '../../services';
+import { ChatStateManagerService, ChatStoreService } from '../../services';
 
 // Shared types
 import type { DropdownOption } from '@ptah-extension/shared';
@@ -312,6 +312,7 @@ export class ChatComponent implements OnInit {
   // Injected Services
   private readonly appState = inject(AppStateManager);
   private readonly chat = inject(ChatService);
+  private readonly chatStore = inject(ChatStoreService); // TASK_2025_021: RPC Migration
   private readonly vscode = inject(VSCodeService);
   readonly chatService = inject(ChatService); // Public for template access
   protected readonly chatState = inject(ChatStateManagerService);
@@ -321,7 +322,15 @@ export class ChatComponent implements OnInit {
 
   // Agent Panel State (TASK_2025_004)
   readonly agentPanelVisible = signal(false);
-  // Readonly computed properties from services
+
+  // TASK_2025_021: Signal-based state from ChatStoreService
+  readonly sessions = this.chatStore.sessions;
+  readonly storeCurrentSession = this.chatStore.currentSession;
+  readonly storeMessages = this.chatStore.messages;
+  readonly storeIsLoading = this.chatStore.isLoading;
+  readonly storeError = this.chatStore.error;
+
+  // Readonly computed properties from services (legacy - to be migrated)
   readonly claudeMessages = this.chat.claudeMessages;
   readonly isStreaming = this.chat.isStreaming;
   readonly currentSession = this.chat.currentSession;
@@ -400,6 +409,9 @@ export class ChatComponent implements OnInit {
 
     this.chatState.initialize();
 
+    // TASK_2025_021: Load sessions via RPC
+    void this.chatStore.loadSessions();
+
     // Refresh sessions list (backup/refresh mechanism if INITIAL_DATA is stale)
     // TASK_SESSION_MANAGEMENT - Batch 5 Fix
     void this.chatService.refreshSessions();
@@ -441,19 +453,30 @@ export class ChatComponent implements OnInit {
   // Event Handlers
   public onNewSession(): void {
     this.logger.debug('Creating new session', 'ChatComponent');
-    // this.chatState.createNewSession('New Session'); // TODO: Phase 2 RPC - restore session creation
+    // TASK_2025_021: Use ChatStoreService for session creation
+    void this.chatStore.createNewSession('New Session').then((sessionId) => {
+      if (sessionId) {
+        void this.chatStore.switchSession(sessionId);
+      }
+    });
   }
 
   public onSessionCreated(name: string | undefined): void {
     this.logger.debug('Session created', 'ChatComponent', { name });
-    // this.chatState.createNewSession(name || 'New Session'); // TODO: Phase 2 RPC - restore session creation
+    // TASK_2025_021: Use ChatStoreService for session creation
+    void this.chatStore.createNewSession(name || 'New Session').then((sessionId) => {
+      if (sessionId) {
+        void this.chatStore.switchSession(sessionId);
+      }
+    });
   }
 
   public onSessionSelected(sessionId: string): void {
     this.logger.debug('Session selected from empty state', 'ChatComponent', {
       sessionId,
     });
-    void this.chatService.switchToSession(SessionId.from(sessionId));
+    // TASK_2025_021: Use ChatStoreService for session switching
+    void this.chatStore.switchSession(SessionId.from(sessionId));
   }
 
   public onAgentChange(option: DropdownOption): void {
