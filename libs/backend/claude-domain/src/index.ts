@@ -115,6 +115,7 @@ export { ClaudeCliLauncher } from './cli/claude-cli-launcher';
 export type { LauncherDependencies } from './cli/claude-cli-launcher';
 export { ProcessManager } from './cli/process-manager';
 export type { ProcessMetadata } from './cli/process-manager';
+export { MCPRegistrationService } from './cli/mcp-registration.service';
 
 // JSONL Parsing
 export { JSONLStreamParser } from './cli/jsonl-stream-parser';

@@ -109,6 +109,38 @@ export async function activate(
       `[Activate] Step 9: Code Execution MCP Server started (port ${mcpPort})`
     );
 
+    // Register Ptah MCP server with Claude CLI (one-time)
+    console.log(
+      '[Activate] Step 10: Registering MCP server with Claude CLI...'
+    );
+    try {
+      const mcpRegistration = DIContainer.resolve(
+        TOKENS.MCP_REGISTRATION_SERVICE
+      );
+      await (
+        mcpRegistration as { registerPtahMCPServer: () => Promise<void> }
+      ).registerPtahMCPServer();
+
+      logger.info('MCP server registered with Claude CLI', {
+        context: 'Extension Activation',
+        status: 'registered',
+        scope: 'local',
+        url: 'http://localhost:${PTAH_MCP_PORT}',
+      });
+      console.log('[Activate] Step 10: MCP server registered with Claude CLI');
+    } catch (error) {
+      logger.error(
+        'Failed to register MCP server (non-blocking)',
+        'Extension Activation',
+        error
+      );
+      console.warn(
+        '[Activate] Step 10: MCP registration failed (non-blocking)',
+        error
+      );
+      // Don't block extension activation if MCP registration fails
+    }
+
     logger.info('Ptah extension activated successfully');
     console.log('===== PTAH ACTIVATION COMPLETE =====');
 

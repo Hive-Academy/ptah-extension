@@ -99,7 +99,8 @@ export class ClaudeCliLauncher {
       this.deps.context?.workspaceState.get<number>('ptah.mcp.port');
     console.log('[ClaudeCliLauncher] MCP Port from workspace state:', mcpPort);
 
-    // Spawn child process
+    // Spawn child process with PTAH_MCP_PORT environment variable
+    // This expands ${PTAH_MCP_PORT} in the registered MCP server URL
     const childProcess = spawn(command, commandArgs, {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'], // Explicit stdio: stdin, stdout, stderr
@@ -110,12 +111,9 @@ export class ClaudeCliLauncher {
         // CRITICAL: Disable output buffering on Windows
         PYTHONUNBUFFERED: '1',
         NODE_NO_READLINE: '1',
-        // MCP server configuration
+        // MCP server dynamic port (expands ${PTAH_MCP_PORT} in config)
         ...(mcpPort && {
-          ANTHROPIC_MCP_SERVER_PTAH: JSON.stringify({
-            command: 'http',
-            args: [`http://localhost:${mcpPort}`],
-          }),
+          PTAH_MCP_PORT: mcpPort.toString(),
         }),
       },
       shell: needsShell,

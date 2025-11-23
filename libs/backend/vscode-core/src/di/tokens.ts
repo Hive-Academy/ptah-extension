@@ -114,6 +114,7 @@ export const LM_TOOLS_REGISTRATION_SERVICE = Symbol.for(
 // Code Execution API
 export const PTAH_API_BUILDER = Symbol.for('PtahAPIBuilder');
 export const CODE_EXECUTION_MCP = Symbol.for('CodeExecutionMCP');
+export const MCP_REGISTRATION_SERVICE = Symbol.for('MCPRegistrationService');
 
 // ========================================
 // AI Providers Core Tokens
@@ -265,6 +266,7 @@ export const TOKENS = {
   LM_TOOLS_REGISTRATION_SERVICE,
   PTAH_API_BUILDER,
   CODE_EXECUTION_MCP,
+  MCP_REGISTRATION_SERVICE,
 
   // ========================================
   // AI Providers Core

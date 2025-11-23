@@ -87,6 +87,7 @@ import {
   ClaudeDomainEventPublisher,
   PermissionService,
   ClaudeCliService,
+  MCPRegistrationService,
   ChatOrchestrationService,
   ProviderOrchestrationService,
   AnalyticsOrchestrationService,
@@ -322,6 +323,10 @@ export class DIContainer {
     );
     container.registerSingleton(TOKENS.PERMISSION_SERVICE, PermissionService);
     container.registerSingleton(TOKENS.CLAUDE_CLI_SERVICE, ClaudeCliService);
+    container.registerSingleton(
+      TOKENS.MCP_REGISTRATION_SERVICE,
+      MCPRegistrationService
+    );
     // container.registerSingleton(TOKENS.COMMAND_SERVICE, CommandService);
 
     // Orchestration services
