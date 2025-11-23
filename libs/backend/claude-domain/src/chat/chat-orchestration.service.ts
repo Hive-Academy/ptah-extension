@@ -24,6 +24,7 @@ import type {
 } from '@ptah-extension/shared';
 import { Readable } from 'stream';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import { SessionProxy } from '../session/session-proxy';
 
 /**
  * Message response structure
@@ -226,7 +227,9 @@ export class ChatOrchestrationService {
     @inject(TOKENS.SESSION_MANAGER)
     private readonly sessionManager: SessionManager,
     @inject(TOKENS.CLAUDE_CLI_SERVICE)
-    private readonly claudeService: IClaudeCliService
+    private readonly claudeService: IClaudeCliService,
+    @inject(TOKENS.SESSION_PROXY)
+    private readonly sessionProxy: SessionProxy
   ) {}
 
   /**
@@ -245,7 +248,7 @@ export class ChatOrchestrationService {
   async sendMessage(request: SendMessageRequest): Promise<SendMessageResult> {
     try {
       // Create session on-demand when user sends first message
-      let currentSession = this.sessionManager.getCurrentSession();
+      let currentSession = await this.sessionManager.getCurrentSession();
       if (!currentSession) {
         currentSession = await this.sessionManager.createSession();
       }
@@ -374,7 +377,7 @@ export class ChatOrchestrationService {
   ): Promise<SessionOperationResult> {
     try {
       await this.sessionManager.switchSession(request.sessionId);
-      const session = this.sessionManager.getCurrentSession();
+      const session = await this.sessionManager.getCurrentSession();
 
       return {
         success: true,
@@ -395,18 +398,21 @@ export class ChatOrchestrationService {
   /**
    * Get message history for a session
    *
+   * UPDATED: Now delegates to SessionProxy for message retrieval
+   *
    * @param request - Get history request
    * @returns History result
    */
   async getHistory(request: GetHistoryRequest): Promise<HistoryResult> {
     try {
-      const sessions = this.sessionManager.getAllSessions();
-      const session = sessions.find((s) => s.id === request.sessionId);
-      const messages = session?.messages || [];
+      // Use SessionProxy to read messages from .jsonl file
+      const messages = await this.sessionProxy.getSessionMessages(
+        request.sessionId
+      );
 
       return {
         success: true,
-        messages: messages as StrictChatMessage[],
+        messages,
       };
     } catch (error) {
       console.error('Error getting history:', error);
@@ -423,10 +429,12 @@ export class ChatOrchestrationService {
   /**
    * Get all sessions
    *
+   * UPDATED: Now awaits getAllSessions()
+   *
    * @returns Array of strict chat sessions
    */
-  getAllSessions(): StrictChatSession[] {
-    return this.sessionManager.getAllSessions();
+  async getAllSessions(): Promise<StrictChatSession[]> {
+    return await this.sessionManager.getAllSessions();
   }
 
   /**
