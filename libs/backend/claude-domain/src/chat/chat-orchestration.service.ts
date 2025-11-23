@@ -442,9 +442,9 @@ export class ChatOrchestrationService {
    *
    * @returns Session statistics result
    */
-  getSessionStatistics(): SessionStatsResult {
+  async getSessionStatistics(): Promise<SessionStatsResult> {
     try {
-      const stats = this.sessionManager.getSessionStatistics();
+      const stats = await this.sessionManager.getSessionStatistics();
 
       return {
         success: true,

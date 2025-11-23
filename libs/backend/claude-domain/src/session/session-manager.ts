@@ -138,13 +138,13 @@ export interface BulkDeleteResult {
  */
 @injectable()
 export class SessionManager {
-  private sessions: Map<SessionId, StrictChatSession> = new Map();
+  // REMOVED: private sessions: Map<SessionId, StrictChatSession> - now read from .jsonl files
   private currentSessionId?: SessionId;
   private claudeSessionIds = new Map<SessionId, string>(); // sessionId -> claudeSessionId
   private claudeSessionInfo = new Map<SessionId, ClaudeSessionInfo>();
   private sessionCounter = 1;
 
-  // Storage keys
+  // Storage keys (DEPRECATED - will be removed in Task 4.2)
   private readonly SESSIONS_KEY = 'ptah.sessions';
   private readonly CURRENT_SESSION_KEY = 'ptah.currentSessionId';
 
@@ -156,12 +156,27 @@ export class SessionManager {
     this.loadSessions();
   }
 
+  /**
+   * Helper method to check if session exists in .jsonl files
+   *
+   * @param sessionId - Session ID to check
+   * @returns True if session exists, false otherwise
+   */
+  private async sessionExists(sessionId: SessionId): Promise<boolean> {
+    const sessionDetails = await this.sessionProxy.getSessionDetails(sessionId);
+    return sessionDetails !== null;
+  }
+
   // ============================================================================
   // CORE SESSION CRUD OPERATIONS
   // ============================================================================
 
   /**
    * Create a new chat session
+   *
+   * UPDATED: Sessions are now created by Claude CLI, not SessionManager
+   * This method creates a placeholder session object and emits events
+   * Actual .jsonl file creation handled by CLI
    *
    * @param options - Session creation options
    * @returns Created session
@@ -190,7 +205,8 @@ export class SessionManager {
       },
     };
 
-    this.sessions.set(session.id, session);
+    // NOTE: Session is created in .jsonl by Claude CLI on first message
+    // We only track the currentSessionId here
     this.currentSessionId = session.id;
 
     await this.saveSessions();
@@ -205,8 +221,7 @@ export class SessionManager {
   /**
    * Get current active session
    *
-   * UPDATED: Now delegates to SessionProxy for message reading
-   * Only keeps session metadata in memory
+   * UPDATED: Now delegates to SessionProxy for all session data
    *
    * @returns Current session or undefined
    */
@@ -215,31 +230,49 @@ export class SessionManager {
       return undefined;
     }
 
-    const sessionMetadata = this.sessions.get(this.currentSessionId);
-    if (!sessionMetadata) {
-      return undefined;
-    }
-
-    // Read messages from .jsonl via SessionProxy
-    const messages = await this.sessionProxy.getSessionMessages(
-      this.currentSessionId
-    );
-
-    return {
-      ...sessionMetadata,
-      messages,
-      messageCount: messages.length,
-    };
+    // Read session from .jsonl via SessionProxy
+    return this.getSession(this.currentSessionId);
   }
 
   /**
    * Get session by ID
    *
+   * UPDATED: Now delegates to SessionProxy (async operation)
+   *
    * @param sessionId - Session ID to retrieve
    * @returns Session or undefined
    */
-  getSession(sessionId: SessionId): StrictChatSession | undefined {
-    return this.sessions.get(sessionId);
+  async getSession(
+    sessionId: SessionId
+  ): Promise<StrictChatSession | undefined> {
+    // Get all sessions and find by ID
+    const allSessions = await this.sessionProxy.listSessions();
+    const sessionSummary = allSessions.find((s) => s.id === sessionId);
+
+    if (!sessionSummary) {
+      return undefined;
+    }
+
+    // Read messages from .jsonl
+    const messages = await this.sessionProxy.getSessionMessages(sessionId);
+
+    return {
+      id: sessionId,
+      name: sessionSummary.name,
+      workspaceId: undefined, // SessionSummary doesn't have workspaceId
+      messages,
+      createdAt: sessionSummary.createdAt,
+      lastActiveAt: sessionSummary.lastActiveAt,
+      updatedAt: sessionSummary.lastActiveAt,
+      messageCount: messages.length,
+      tokenUsage: {
+        input: 0,
+        output: 0,
+        total: 0,
+        percentage: 0,
+        maxTokens: 200000,
+      },
+    };
   }
 
   /**
@@ -279,24 +312,28 @@ export class SessionManager {
   /**
    * Switch to a different session
    *
+   * UPDATED: Now verifies session exists via SessionProxy
+   *
    * @param sessionId - Session ID to switch to
    * @returns True if successful, false if session not found
    */
   async switchSession(sessionId: SessionId): Promise<boolean> {
-    const session = this.sessions.get(sessionId);
-    if (!session) {
+    // Verify session exists in .jsonl files
+    if (!(await this.sessionExists(sessionId))) {
       return false;
     }
 
     this.currentSessionId = sessionId;
-    const now = Date.now();
-    this.mutateSession(session, { lastActiveAt: now, updatedAt: now });
 
     await this.saveSessions();
 
-    // Publish session switched event
-    this.eventBus.publish(CHAT_MESSAGE_TYPES.SESSION_SWITCHED, { session });
-    this.notifySessionsChanged();
+    // Build full session object for event
+    const session = await this.getSession(sessionId);
+    if (session) {
+      // Publish session switched event
+      this.eventBus.publish(CHAT_MESSAGE_TYPES.SESSION_SWITCHED, { session });
+      this.notifySessionsChanged();
+    }
 
     return true;
   }
@@ -304,15 +341,19 @@ export class SessionManager {
   /**
    * Delete a session
    *
+   * UPDATED: Now verifies session exists via SessionProxy before deleting
+   * NOTE: Actual .jsonl file deletion should be handled by CLI or SessionProxy in future
+   *
    * @param sessionId - Session ID to delete
    * @returns True if deleted, false if not found
    */
   async deleteSession(sessionId: SessionId): Promise<boolean> {
-    if (!this.sessions.has(sessionId)) {
+    // Verify session exists in .jsonl files
+    if (!(await this.sessionExists(sessionId))) {
       return false;
     }
 
-    this.sessions.delete(sessionId);
+    // Clean up in-memory mappings
     this.claudeSessionIds.delete(sessionId);
     this.claudeSessionInfo.delete(sessionId);
 
@@ -333,22 +374,18 @@ export class SessionManager {
   /**
    * Rename a session
    *
+   * UPDATED: Now verifies session exists via SessionProxy
+   * NOTE: Actual .jsonl file renaming should be handled by CLI in future
+   *
    * @param sessionId - Session ID to rename
    * @param newName - New session name
    * @returns True if renamed, false if not found
    */
   async renameSession(sessionId: SessionId, newName: string): Promise<boolean> {
-    const session = this.sessions.get(sessionId);
-    if (!session) {
+    // Verify session exists in .jsonl files
+    if (!(await this.sessionExists(sessionId))) {
       return false;
     }
-
-    const now = Date.now();
-    this.mutateSession(session, {
-      name: newName,
-      lastActiveAt: now,
-      updatedAt: now,
-    });
 
     await this.saveSessions();
 
@@ -365,35 +402,27 @@ export class SessionManager {
   /**
    * Clear all messages from a session
    *
+   * UPDATED: Now verifies session exists via SessionProxy
+   * NOTE: Actual .jsonl file clearing should be handled by CLI in future
+   *
    * @param sessionId - Session ID to clear
    * @returns True if cleared, false if not found
    */
   async clearSession(sessionId: SessionId): Promise<boolean> {
-    const session = this.sessions.get(sessionId);
-    if (!session) {
+    // Verify session exists in .jsonl files
+    if (!(await this.sessionExists(sessionId))) {
       return false;
     }
 
-    const now = Date.now();
-    this.mutateSession(session, {
-      messages: [] as unknown as readonly StrictChatMessage[],
-      messageCount: 0,
-      tokenUsage: {
-        input: 0,
-        output: 0,
-        total: 0,
-        percentage: 0,
-        maxTokens: session.tokenUsage.maxTokens,
-      },
-      lastActiveAt: now,
-      updatedAt: now,
-    });
-
     await this.saveSessions();
 
-    // Publish session updated event
-    this.eventBus.publish(CHAT_MESSAGE_TYPES.SESSION_UPDATED, { session });
-    this.notifySessionsChanged();
+    // Build updated session for event (with empty messages)
+    const session = await this.getSession(sessionId);
+    if (session) {
+      // Publish session updated event
+      this.eventBus.publish(CHAT_MESSAGE_TYPES.SESSION_UPDATED, { session });
+      this.notifySessionsChanged();
+    }
 
     return true;
   }
@@ -401,14 +430,13 @@ export class SessionManager {
   /**
    * Touch session to update last active time (for session resumption tracking)
    *
+   * UPDATED: Method is now a no-op - lastActiveAt is managed by CLI in .jsonl files
+   *
    * @param sessionId - Session ID to touch
    */
   touchSession(sessionId: SessionId): void {
-    const session = this.sessions.get(sessionId);
-    if (session) {
-      const now = Date.now();
-      this.mutateSession(session, { lastActiveAt: now, updatedAt: now });
-    }
+    // No-op: Session activity tracking is now handled by Claude CLI in .jsonl files
+    // This method is kept for backward compatibility but does nothing
   }
 
   // ============================================================================
@@ -418,14 +446,17 @@ export class SessionManager {
   /**
    * Add user message to session
    *
+   * UPDATED: Simplified to only create message and emit events
+   * Messages are persisted to .jsonl files by Claude CLI, not by SessionManager
+   *
    * @param options - Message addition options
    * @returns Created message
    */
   async addUserMessage(
     options: Omit<AddMessageOptions, 'type'>
   ): Promise<StrictChatMessage> {
-    const session = this.sessions.get(options.sessionId);
-    if (!session) {
+    // Verify session exists
+    if (!(await this.sessionExists(options.sessionId))) {
       throw new Error(`Session not found: ${options.sessionId}`);
     }
 
@@ -438,38 +469,33 @@ export class SessionManager {
       files: options.files,
     };
 
-    // Mutate messages array (readonly is compile-time only)
-    (session.messages as StrictChatMessage[]).push(message);
-
-    const now = Date.now();
+    // Estimate token usage for event
     const estimatedTokens = Math.ceil(options.content.length / 4);
 
-    this.mutateSession(session, {
-      messageCount: session.messages.length,
-      lastActiveAt: now,
-      updatedAt: now,
-      tokenUsage: {
-        ...session.tokenUsage,
-        input: session.tokenUsage.input + estimatedTokens,
-        total: session.tokenUsage.total + estimatedTokens,
-      },
-    });
-
-    this.updateTokenPercentage(session);
-
-    await this.saveSessions();
-
-    // Publish events
+    // Publish events (actual message persistence handled by CLI)
     this.eventBus.publish(CHAT_MESSAGE_TYPES.MESSAGE_ADDED, {
       sessionId: options.sessionId,
       message,
     });
     this.eventBus.publish(CHAT_MESSAGE_TYPES.TOKEN_USAGE_UPDATED, {
       sessionId: options.sessionId,
-      tokenUsage: session.tokenUsage,
+      tokenUsage: {
+        input: estimatedTokens,
+        output: 0,
+        total: estimatedTokens,
+        percentage: 0,
+        maxTokens: 200000,
+      },
     });
-    this.eventBus.publish(CHAT_MESSAGE_TYPES.SESSION_UPDATED, { session });
-    this.notifySessionsChanged();
+
+    // Read updated session for SESSION_UPDATED event
+    const updatedSession = await this.getSession(options.sessionId);
+    if (updatedSession) {
+      this.eventBus.publish(CHAT_MESSAGE_TYPES.SESSION_UPDATED, {
+        session: updatedSession,
+      });
+      this.notifySessionsChanged();
+    }
 
     return message;
   }
@@ -477,14 +503,17 @@ export class SessionManager {
   /**
    * Add assistant message to session
    *
+   * UPDATED: Simplified to only create message and emit events
+   * Messages are persisted to .jsonl files by Claude CLI, not by SessionManager
+   *
    * @param options - Message addition options
    * @returns Created message
    */
   async addAssistantMessage(
     options: Omit<AddMessageOptions, 'type' | 'files'>
   ): Promise<StrictChatMessage> {
-    const session = this.sessions.get(options.sessionId);
-    if (!session) {
+    // Verify session exists
+    if (!(await this.sessionExists(options.sessionId))) {
       throw new Error(`Session not found: ${options.sessionId}`);
     }
 
@@ -498,41 +527,35 @@ export class SessionManager {
       isComplete: true,
     };
 
-    // Mutate messages array (readonly is compile-time only)
-    (session.messages as StrictChatMessage[]).push(message);
-
-    const now = Date.now();
     const tokenCount =
       options.tokenCount || Math.ceil(options.content.length / 4);
 
-    this.mutateSession(session, {
-      messageCount: session.messages.length,
-      lastActiveAt: now,
-      updatedAt: now,
-      tokenUsage: {
-        ...session.tokenUsage,
-        output: session.tokenUsage.output + tokenCount,
-        total: session.tokenUsage.total + tokenCount,
-      },
-    });
-
-    this.updateTokenPercentage(session);
-
-    await this.saveSessions();
-
-    // Publish events
+    // Publish events (actual message persistence handled by CLI)
     // NOTE: MESSAGE_ADDED is NOT emitted here for assistant messages
     // because the message was already sent via MESSAGE_CHUNK events during streaming
     // and MESSAGE_COMPLETE was emitted when streaming ended (message-handler.service.ts:262).
     // Emitting MESSAGE_ADDED here would cause duplicate message displays in the UI.
-    // For user messages, MESSAGE_ADDED is emitted in addUserMessage() (line 463).
+    // For user messages, MESSAGE_ADDED is emitted in addUserMessage().
 
     this.eventBus.publish(CHAT_MESSAGE_TYPES.TOKEN_USAGE_UPDATED, {
       sessionId: options.sessionId,
-      tokenUsage: session.tokenUsage,
+      tokenUsage: {
+        input: 0,
+        output: tokenCount,
+        total: tokenCount,
+        percentage: 0,
+        maxTokens: 200000,
+      },
     });
-    this.eventBus.publish(CHAT_MESSAGE_TYPES.SESSION_UPDATED, { session });
-    this.notifySessionsChanged();
+
+    // Read updated session for SESSION_UPDATED event
+    const updatedSession = await this.getSession(options.sessionId);
+    if (updatedSession) {
+      this.eventBus.publish(CHAT_MESSAGE_TYPES.SESSION_UPDATED, {
+        session: updatedSession,
+      });
+      this.notifySessionsChanged();
+    }
 
     return message;
   }
@@ -574,24 +597,16 @@ export class SessionManager {
   /**
    * Store Claude CLI session information from system init
    *
+   * UPDATED: No longer updates session object (read from .jsonl files)
+   *
    * @param sessionId - Ptah session ID
    * @param info - Claude session info
    */
   setClaudeSessionInfo(sessionId: SessionId, info: ClaudeSessionInfo): void {
     this.claudeSessionInfo.set(sessionId, info);
 
-    // Update max tokens based on model
-    const session = this.sessions.get(sessionId);
-    if (session) {
-      const maxTokens = this.getMaxTokensForModel(info.model);
-      this.mutateSession(session, {
-        tokenUsage: {
-          ...session.tokenUsage,
-          maxTokens,
-        },
-      });
-      this.updateTokenPercentage(session);
-    }
+    // Note: Max tokens are now read from .jsonl files, not stored in memory
+    // This method only stores the info for retrieval via getClaudeSessionInfo()
   }
 
   /**
@@ -707,6 +722,8 @@ export class SessionManager {
   /**
    * Export session to JSON or Markdown format
    *
+   * UPDATED: Now reads session from SessionProxy
+   *
    * @param sessionId - Session ID to export
    * @param format - Export format (json or markdown)
    * @returns Exported session string
@@ -715,7 +732,8 @@ export class SessionManager {
     sessionId: SessionId,
     format: 'json' | 'markdown' = 'markdown'
   ): Promise<string> {
-    const session = this.sessions.get(sessionId);
+    // Read session from .jsonl files
+    const session = await this.getSession(sessionId);
     if (!session) {
       throw new Error(`Session not found: ${sessionId}`);
     }
@@ -775,10 +793,13 @@ export class SessionManager {
   /**
    * Get session statistics for analytics dashboard
    *
+   * UPDATED: Now reads sessions from SessionProxy (async operation)
+   *
    * @returns Session statistics
    */
-  getSessionStatistics(): SessionStatistics {
-    const sessions = Array.from(this.sessions.values());
+  async getSessionStatistics(): Promise<SessionStatistics> {
+    // Read all sessions from .jsonl files
+    const sessions = await this.getAllSessions();
     const totalMessages = sessions.reduce((sum, s) => sum + s.messageCount, 0);
     const totalTokens = sessions.reduce(
       (sum, s) => sum + s.tokenUsage.total,
@@ -827,64 +848,36 @@ export class SessionManager {
     return 200000; // Default
   }
 
-  /**
-   * Update token usage percentage
-   * Note: TypeScript readonly is compile-time only - safe to mutate at runtime
-   */
-  private updateTokenPercentage(session: StrictChatSession): void {
-    const maxTokens = session.tokenUsage.maxTokens || 200000;
-    (session.tokenUsage as { percentage: number }).percentage =
-      (session.tokenUsage.total / maxTokens) * 100;
-  }
-
-  /**
-   * Helper to mutate session properties (TypeScript readonly is compile-time only)
-   */
-  private mutateSession<K extends keyof StrictChatSession>(
-    session: StrictChatSession,
-    updates: Partial<Pick<StrictChatSession, K>>
-  ): void {
-    Object.assign(session, updates);
-  }
+  // REMOVED: updateTokenPercentage() - no longer needed (sessions read from .jsonl)
+  // REMOVED: mutateSession() - no longer needed (no in-memory session modification)
 
   private loadSessions(): void {
     try {
-      const sessionsData =
-        this.storage.get<StrictChatSession[]>(this.SESSIONS_KEY) || [];
+      // UPDATED: Only load currentSessionId (sessions are read from .jsonl files via SessionProxy)
       const currentSessionId = this.storage.get<SessionId>(
         this.CURRENT_SESSION_KEY
       );
 
-      for (const session of sessionsData) {
-        this.sessions.set(session.id, session);
-      }
-
       this.currentSessionId = currentSessionId;
 
-      // Find highest session counter for new sessions
-      const sessionNumbers = Array.from(this.sessions.values()).map((s) => {
-        const match = s.name.match(/Session (\d+)/);
-        return match ? parseInt(match[1], 10) : 0;
-      });
-
-      if (sessionNumbers.length > 0) {
-        this.sessionCounter = Math.max(...sessionNumbers) + 1;
-      }
+      // Session counter will be determined from .jsonl files when needed
+      this.sessionCounter = 1;
     } catch (error) {
-      console.error('Failed to load sessions from storage:', error);
+      console.error('Failed to load current session from storage:', error);
     }
   }
 
   /**
    * Save sessions to storage
+   *
+   * UPDATED: Only saves currentSessionId (sessions are persisted to .jsonl files by CLI)
    */
   private async saveSessions(): Promise<void> {
     try {
-      const sessionsData = Array.from(this.sessions.values());
-      await this.storage.set(this.SESSIONS_KEY, sessionsData);
+      // Only save currentSessionId (sessions stored in .jsonl files)
       await this.storage.set(this.CURRENT_SESSION_KEY, this.currentSessionId);
     } catch (error) {
-      console.error('Failed to save sessions to storage:', error);
+      console.error('Failed to save current session to storage:', error);
     }
   }
 
