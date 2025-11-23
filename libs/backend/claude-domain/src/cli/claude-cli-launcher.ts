@@ -6,6 +6,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import { Readable } from 'stream';
 import * as os from 'os';
+import type * as vscode from 'vscode';
 import {
   SessionId,
   ClaudeCliLaunchOptions,
@@ -23,6 +24,7 @@ export interface LauncherDependencies {
   readonly permissionService: PermissionService;
   readonly processManager: ProcessManager;
   readonly eventPublisher: ClaudeDomainEventPublisher;
+  readonly context: vscode.ExtensionContext;
 }
 
 /**
@@ -92,6 +94,11 @@ export class ClaudeCliLauncher {
       '[ClaudeCliLauncher] =========================================='
     );
 
+    // Get MCP server port from workspace state
+    const mcpPort =
+      this.deps.context?.workspaceState.get<number>('ptah.mcp.port');
+    console.log('[ClaudeCliLauncher] MCP Port from workspace state:', mcpPort);
+
     // Spawn child process
     const childProcess = spawn(command, commandArgs, {
       cwd,
@@ -103,6 +110,13 @@ export class ClaudeCliLauncher {
         // CRITICAL: Disable output buffering on Windows
         PYTHONUNBUFFERED: '1',
         NODE_NO_READLINE: '1',
+        // MCP server configuration
+        ...(mcpPort && {
+          ANTHROPIC_MCP_SERVER_PTAH: JSON.stringify({
+            command: 'http',
+            args: [`http://localhost:${mcpPort}`],
+          }),
+        }),
       },
       shell: needsShell,
       // CRITICAL: Set windowsVerbatimArguments to prevent command-line escaping issues

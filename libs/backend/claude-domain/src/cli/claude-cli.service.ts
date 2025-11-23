@@ -16,7 +16,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Readable } from 'stream';
-import { workspace } from 'vscode';
+import { workspace, type ExtensionContext } from 'vscode';
 import { SessionId, PermissionDecision } from '@ptah-extension/shared';
 import {
   ClaudeCliDetector,
@@ -49,7 +49,9 @@ export class ClaudeCliService {
     @inject(TOKENS.PROCESS_MANAGER)
     private readonly processManager: ProcessManager,
     @inject(TOKENS.CLAUDE_DOMAIN_EVENT_PUBLISHER)
-    private readonly eventPublisher: ClaudeDomainEventPublisher
+    private readonly eventPublisher: ClaudeDomainEventPublisher,
+    @inject(TOKENS.EXTENSION_CONTEXT)
+    private readonly context: ExtensionContext
   ) {}
 
   /**
@@ -188,6 +190,7 @@ export class ClaudeCliService {
       permissionService: this.permissionService,
       processManager: this.processManager,
       eventPublisher: this.eventPublisher,
+      context: this.context,
     };
 
     this.launcher = new ClaudeCliLauncher(installation, deps);
