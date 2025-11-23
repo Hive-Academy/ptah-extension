@@ -15,7 +15,6 @@ import {
   ClaudeAgentStartEvent,
   ClaudeAgentActivityEvent,
   ClaudeAgentCompleteEvent,
-  CHAT_MESSAGE_TYPES,
   ContentBlock,
 } from '@ptah-extension/shared';
 import { TOKENS } from '@ptah-extension/vscode-core';
@@ -141,7 +140,7 @@ export class ClaudeDomainEventPublisher {
     // Flatten the thinking structure to match webview payload expectations
     // Webview expects ChatThinkingPayload (flat structure)
     // NOT ClaudeThinkingEventPayload (nested structure)
-    this.eventBus.publish(CHAT_MESSAGE_TYPES.THINKING, {
+    this.eventBus.publish('chat:thinking', {
       sessionId,
       content: thinking.content,
       timestamp: thinking.timestamp,
@@ -154,7 +153,7 @@ export class ClaudeDomainEventPublisher {
     // NOT ClaudeToolEventPayload (nested structure)
 
     if (event.type === 'start') {
-      this.eventBus.publish(CHAT_MESSAGE_TYPES.TOOL_START, {
+      this.eventBus.publish('chat:toolStart', {
         sessionId,
         toolCallId: event.toolCallId,
         tool: event.tool,
@@ -162,14 +161,14 @@ export class ClaudeDomainEventPublisher {
         timestamp: event.timestamp,
       });
     } else if (event.type === 'progress') {
-      this.eventBus.publish(CHAT_MESSAGE_TYPES.TOOL_PROGRESS, {
+      this.eventBus.publish('chat:toolProgress', {
         sessionId,
         toolCallId: event.toolCallId,
         message: event.message,
         timestamp: event.timestamp,
       });
     } else if (event.type === 'result') {
-      this.eventBus.publish(CHAT_MESSAGE_TYPES.TOOL_RESULT, {
+      this.eventBus.publish('chat:toolResult', {
         sessionId,
         toolCallId: event.toolCallId,
         output: event.output,
@@ -177,7 +176,7 @@ export class ClaudeDomainEventPublisher {
         timestamp: event.timestamp,
       });
     } else if (event.type === 'error') {
-      this.eventBus.publish(CHAT_MESSAGE_TYPES.TOOL_ERROR, {
+      this.eventBus.publish('chat:toolError', {
         sessionId,
         toolCallId: event.toolCallId,
         error: event.error,
@@ -193,7 +192,7 @@ export class ClaudeDomainEventPublisher {
     // Flatten the request structure to match webview payload expectations
     // ChatPermissionRequestPayload expects: id, tool, action, description, timestamp, sessionId
     // ClaudePermissionRequest has: toolCallId, tool, args, description?, timestamp
-    this.eventBus.publish(CHAT_MESSAGE_TYPES.PERMISSION_REQUEST, {
+    this.eventBus.publish('chat:permissionRequest', {
       id: request.toolCallId,
       tool: request.tool,
       action: JSON.stringify(request.args), // Convert args object to string for action field
@@ -210,7 +209,7 @@ export class ClaudeDomainEventPublisher {
     // Flatten the response structure to match webview payload expectations
     // ChatPermissionResponsePayload expects: requestId, decision, timestamp, sessionId
     // ClaudePermissionResponse has: decision, provenance, timestamp
-    this.eventBus.publish(CHAT_MESSAGE_TYPES.PERMISSION_RESPONSE, {
+    this.eventBus.publish('chat:permissionResponse', {
       requestId: 'unknown', // ClaudePermissionResponse doesn't have requestId - need to track this
       decision: response.decision,
       timestamp: response.timestamp,
@@ -223,33 +222,24 @@ export class ClaudeDomainEventPublisher {
     claudeSessionId: string,
     model?: string
   ): void {
-    this.eventBus.publish<ClaudeSessionInitEvent>(
-      CHAT_MESSAGE_TYPES.SESSION_INIT,
-      {
-        sessionId,
-        claudeSessionId,
-        model,
-      }
-    );
+    this.eventBus.publish<ClaudeSessionInitEvent>('chat:sessionInit', {
+      sessionId,
+      claudeSessionId,
+      model,
+    });
   }
 
   emitSessionEnd(sessionId: SessionId, reason?: string): void {
-    this.eventBus.publish<ClaudeSessionEndEvent>(
-      CHAT_MESSAGE_TYPES.SESSION_END,
-      {
-        sessionId,
-        reason,
-      }
-    );
+    this.eventBus.publish<ClaudeSessionEndEvent>('chat:sessionEnd', {
+      sessionId,
+      reason,
+    });
   }
 
   emitHealthUpdate(health: ClaudeCliHealth): void {
-    this.eventBus.publish<ClaudeHealthUpdateEvent>(
-      CHAT_MESSAGE_TYPES.HEALTH_UPDATE,
-      {
-        health,
-      }
-    );
+    this.eventBus.publish<ClaudeHealthUpdateEvent>('chat:healthUpdate', {
+      health,
+    });
   }
 
   emitError(
@@ -257,7 +247,7 @@ export class ClaudeDomainEventPublisher {
     sessionId?: SessionId,
     context?: Record<string, unknown>
   ): void {
-    this.eventBus.publish<ClaudeErrorEvent>(CHAT_MESSAGE_TYPES.CLI_ERROR, {
+    this.eventBus.publish<ClaudeErrorEvent>('chat:cliError', {
       sessionId,
       error,
       context,
@@ -265,10 +255,10 @@ export class ClaudeDomainEventPublisher {
   }
 
   emitAgentStarted(sessionId: SessionId, agent: ClaudeAgentStartEvent): void {
-    this.eventBus.publish<ClaudeAgentStartedEvent>(
-      CHAT_MESSAGE_TYPES.AGENT_STARTED,
-      { sessionId, agent }
-    );
+    this.eventBus.publish<ClaudeAgentStartedEvent>('chat:agentStarted', {
+      sessionId,
+      agent,
+    });
   }
 
   emitAgentActivity(
@@ -276,7 +266,7 @@ export class ClaudeDomainEventPublisher {
     agent: ClaudeAgentActivityEvent
   ): void {
     this.eventBus.publish<ClaudeAgentActivityEventPayload>(
-      CHAT_MESSAGE_TYPES.AGENT_ACTIVITY,
+      'chat:agentActivity',
       { sessionId, agent }
     );
   }
@@ -285,17 +275,16 @@ export class ClaudeDomainEventPublisher {
     sessionId: SessionId,
     agent: ClaudeAgentCompleteEvent
   ): void {
-    this.eventBus.publish<ClaudeAgentCompletedEvent>(
-      CHAT_MESSAGE_TYPES.AGENT_COMPLETED,
-      { sessionId, agent }
-    );
+    this.eventBus.publish<ClaudeAgentCompletedEvent>('chat:agentCompleted', {
+      sessionId,
+      agent,
+    });
   }
 
   emitMessageComplete(sessionId: SessionId): void {
-    this.eventBus.publish<ClaudeMessageCompleteEvent>(
-      CHAT_MESSAGE_TYPES.MESSAGE_COMPLETE,
-      { sessionId }
-    );
+    this.eventBus.publish<ClaudeMessageCompleteEvent>('chat:messageComplete', {
+      sessionId,
+    });
   }
 
   emitTokenUsage(
@@ -308,9 +297,9 @@ export class ClaudeDomainEventPublisher {
       totalCost: number;
     }
   ): void {
-    this.eventBus.publish<ClaudeTokenUsageEvent>(
-      CHAT_MESSAGE_TYPES.TOKEN_USAGE_UPDATED,
-      { sessionId, usage }
-    );
+    this.eventBus.publish<ClaudeTokenUsageEvent>('chat:tokenUsageUpdated', {
+      sessionId,
+      usage,
+    });
   }
 }

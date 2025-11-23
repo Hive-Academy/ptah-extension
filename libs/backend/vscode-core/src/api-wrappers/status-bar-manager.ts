@@ -6,12 +6,7 @@
 
 import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
-import { EventBus } from '../messaging/event-bus';
 import { TOKENS } from '../di/tokens';
-import {
-  ANALYTICS_MESSAGE_TYPES,
-  SYSTEM_MESSAGE_TYPES,
-} from '@ptah-extension/shared';
 
 /**
  * Status bar item configuration options
@@ -100,8 +95,7 @@ export class StatusBarManager {
 
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT)
-    private readonly context: vscode.ExtensionContext,
-    @inject(TOKENS.EVENT_BUS) private readonly eventBus: EventBus
+    private readonly context: vscode.ExtensionContext
   ) {}
 
   /**
@@ -154,29 +148,12 @@ export class StatusBarManager {
       this.context.subscriptions.push(item);
 
       // Publish item created event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'statusBar:itemCreated',
-        properties: {
-          itemId: config.id,
-          alignment: config.alignment || vscode.StatusBarAlignment.Right,
-          priority: config.priority || 0,
-          hasText: !!config.text,
-          hasTooltip: !!config.tooltip,
-          hasCommand: !!config.command,
-          timestamp: Date.now(),
-        },
-      });
+      // TODO: Phase 2 - Restore analytics/error reporting via RPC
 
       return item;
     } catch (error) {
       // Publish error event
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'STATUS_BAR_ITEM_CREATE_FAILED',
-        message: `Failed to create status bar item ${config.id}: ${error}`,
-        source: 'StatusBarManager',
-        data: { config },
-        timestamp: Date.now(),
-      });
+      // TODO: Phase 2 - Restore analytics/error reporting via RPC
 
       // Re-throw to maintain VS Code error handling
       throw error;
@@ -195,13 +172,7 @@ export class StatusBarManager {
     const item = this.statusBarItems.get(itemId);
 
     if (!item) {
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'STATUS_BAR_ITEM_NOT_FOUND',
-        message: `Status bar item ${itemId} not found`,
-        source: 'StatusBarManager',
-        data: { itemId, update },
-        timestamp: Date.now(),
-      });
+      // TODO: Phase 2 - Restore analytics/error reporting via RPC
       return false;
     }
 
@@ -238,15 +209,7 @@ export class StatusBarManager {
       this.updateItemMetrics(itemId, 'update', false);
 
       // Publish update event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'statusBar:itemUpdated',
-        properties: {
-          itemId,
-          propertiesUpdated: updatedProperties.length,
-          updatedProperties: updatedProperties.join(','),
-          timestamp: Date.now(),
-        },
-      });
+      // TODO: Phase 2 - Restore analytics/error reporting via RPC
 
       return true;
     } catch (error) {
@@ -254,13 +217,7 @@ export class StatusBarManager {
       this.updateItemMetrics(itemId, 'update', true);
 
       // Publish error event
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'STATUS_BAR_ITEM_UPDATE_FAILED',
-        message: `Failed to update status bar item ${itemId}: ${error}`,
-        source: 'StatusBarManager',
-        data: { itemId, update },
-        timestamp: Date.now(),
-      });
+      // TODO: Phase 2 - Restore analytics/error reporting via RPC
 
       return false;
     }
@@ -290,23 +247,11 @@ export class StatusBarManager {
       }
 
       // Publish show event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'statusBar:itemShown',
-        properties: {
-          itemId,
-          timestamp: Date.now(),
-        },
-      });
+      // TODO: Phase 2 - Restore analytics/error reporting via RPC
 
       return true;
     } catch (error) {
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'STATUS_BAR_ITEM_SHOW_FAILED',
-        message: `Failed to show status bar item ${itemId}: ${error}`,
-        source: 'StatusBarManager',
-        data: { itemId },
-        timestamp: Date.now(),
-      });
+      // TODO: Phase 2 - Restore analytics/error reporting via RPC
 
       return false;
     }
@@ -336,23 +281,11 @@ export class StatusBarManager {
       }
 
       // Publish hide event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'statusBar:itemHidden',
-        properties: {
-          itemId,
-          timestamp: Date.now(),
-        },
-      });
+      // TODO: Phase 2 - Restore analytics/error reporting via RPC
 
       return true;
     } catch (error) {
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'STATUS_BAR_ITEM_HIDE_FAILED',
-        message: `Failed to hide status bar item ${itemId}: ${error}`,
-        source: 'StatusBarManager',
-        data: { itemId },
-        timestamp: Date.now(),
-      });
+      // TODO: Phase 2 - Restore analytics/error reporting via RPC
 
       return false;
     }
@@ -374,15 +307,7 @@ export class StatusBarManager {
     this.updateItemMetrics(itemId, 'click', false);
 
     // Publish click event
-    this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-      event: 'statusBar:itemClicked',
-      properties: {
-        itemId,
-        hasCommand: !!command,
-        command: command || 'none',
-        timestamp: Date.now(),
-      },
-    });
+    // TODO: Phase 2 - Restore analytics/error reporting via RPC
   }
 
   /**
@@ -449,23 +374,11 @@ export class StatusBarManager {
       this.itemMetrics.delete(itemId);
 
       // Publish disposal event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'statusBar:itemDisposed',
-        properties: {
-          itemId,
-          timestamp: Date.now(),
-        },
-      });
+      // TODO: Phase 2 - Restore analytics/error reporting via RPC
 
       return true;
     } catch (error) {
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'STATUS_BAR_ITEM_DISPOSE_FAILED',
-        message: `Failed to dispose status bar item ${itemId}: ${error}`,
-        source: 'StatusBarManager',
-        data: { itemId },
-        timestamp: Date.now(),
-      });
+      // TODO: Phase 2 - Restore analytics/error reporting via RPC
 
       return false;
     }
@@ -482,19 +395,9 @@ export class StatusBarManager {
       this.itemMetrics.clear();
 
       // Publish disposal event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'statusBar:managerDisposed',
-        properties: {
-          timestamp: Date.now(),
-        },
-      });
+      // TODO: Phase 2 - Restore analytics/error reporting via RPC
     } catch (error) {
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'STATUS_BAR_MANAGER_DISPOSE_FAILED',
-        message: `Failed to dispose StatusBarManager: ${error}`,
-        source: 'StatusBarManager',
-        timestamp: Date.now(),
-      });
+      // TODO: Phase 2 - Restore analytics/error reporting via RPC
     }
   }
 

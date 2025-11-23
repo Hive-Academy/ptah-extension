@@ -91,9 +91,9 @@ export class MyComponent {
   }
 
   ngOnInit() {
-    // Listen to messages
-    this.vscode.onMessageType('chat:messageAdded').subscribe((payload) => {
-      console.log('New message:', payload.message);
+    // Send messages to extension (Phase 2: RPC for receiving messages)
+    this.vscode.postStrictMessage('chat:loadSession', {
+      sessionId: SessionId.create(),
     });
   }
 }

@@ -52,7 +52,7 @@ function getPtahWindow(): PtahWindow {
  * Service for communicating with VS Code extension
  *
  * Provides type-safe message passing between Angular webview and VS Code extension host.
- * Uses signals for reactive state management and RxJS for message streaming.
+ * Uses signals for reactive state management.
  *
  * @example
  * ```typescript
@@ -60,12 +60,11 @@ function getPtahWindow(): PtahWindow {
  *   private readonly vscode = inject(VSCodeService);
  *
  *   ngOnInit() {
- *     // Subscribe to chat messages
- *     this.vscode.onMessageType('chat:messageChunk')
- *       .subscribe(payload => this.handleMessageChunk(payload));
- *
  *     // Send message to extension
- *     this.vscode.sendChatMessage('Hello, Claude!');
+ *     this.vscode.postStrictMessage('chat:sendMessage', {
+ *       content: 'Hello, Claude!',
+ *       correlationId: CorrelationId.create()
+ *     });
  *   }
  *
  *   get isDevelopment() {
@@ -181,10 +180,14 @@ export class VSCodeService {
    */
   showMessage(
     message: string,
-    type: 'info' | 'warning' | 'error' = 'info'
+    messageType: 'info' | 'warning' | 'error' = 'info'
   ): void {
-    this.postStrictMessage(SYSTEM_MESSAGE_TYPES.ERROR, {
-      message: `${type.toUpperCase()}: ${message}`,
+    // NOTE: Using string literal 'error' directly (MessagePayloadMap type)
+    // SYSTEM_MESSAGE_TYPES constant was deleted during event purge
+    this.postStrictMessage('error', {
+      message: `${messageType.toUpperCase()}: ${message}`,
+      code: messageType.toUpperCase(),
+      source: 'VSCodeService',
     });
   }
 

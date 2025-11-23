@@ -6,12 +6,7 @@
 
 import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
-import { EventBus } from '../messaging/event-bus';
 import { TOKENS } from '../di/tokens';
-import {
-  ANALYTICS_MESSAGE_TYPES,
-  SYSTEM_MESSAGE_TYPES,
-} from '@ptah-extension/shared';
 
 /**
  * File operation type enumeration
@@ -103,8 +98,7 @@ export class FileSystemManager {
 
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT)
-    private readonly context: vscode.ExtensionContext,
-    @inject(TOKENS.EVENT_BUS) private readonly eventBus: EventBus
+    private readonly context: vscode.ExtensionContext
   ) {
     this.initializeMetrics();
   }
@@ -135,18 +129,7 @@ export class FileSystemManager {
       // Update metrics
       this.updateOperationMetrics('read', true, content.byteLength, duration);
 
-      // Publish success event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'fileSystem:operationCompleted',
-        properties: {
-          operation: 'read',
-          uri: uri.toString(),
-          size: content.byteLength,
-          duration,
-          workspace: this.getWorkspaceForUri(uri) || 'unknown',
-          timestamp: Date.now(),
-        },
-      });
+      // TODO: Phase 2 - Restore analytics via RPC (file read operation completed)
 
       return content;
     } catch (error) {
@@ -188,20 +171,7 @@ export class FileSystemManager {
       // Update metrics
       this.updateOperationMetrics('write', true, content.byteLength, duration);
 
-      // Publish success event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'fileSystem:operationCompleted',
-        properties: {
-          operation: 'write',
-          uri: uri.toString(),
-          size: content.byteLength,
-          duration,
-          created: writeOptions.create || false,
-          overwritten: writeOptions.overwrite || false,
-          workspace: this.getWorkspaceForUri(uri) || 'unknown',
-          timestamp: Date.now(),
-        },
-      });
+      // TODO: Phase 2 - Restore analytics via RPC (file write operation completed)
     } catch (error) {
       const duration = Date.now() - startTime;
       this.handleFileSystemError('write', uri, undefined, error, duration);
@@ -241,20 +211,7 @@ export class FileSystemManager {
       // Update metrics
       this.updateOperationMetrics('delete', true, stat.size, duration);
 
-      // Publish success event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'fileSystem:operationCompleted',
-        properties: {
-          operation: 'delete',
-          uri: uri.toString(),
-          size: stat.size,
-          duration,
-          fileType:
-            stat.type === vscode.FileType.Directory ? 'directory' : 'file',
-          workspace: this.getWorkspaceForUri(uri) || 'unknown',
-          timestamp: Date.now(),
-        },
-      });
+      // TODO: Phase 2 - Restore analytics via RPC (file delete operation completed)
     } catch (error) {
       const duration = Date.now() - startTime;
       this.handleFileSystemError('delete', uri, undefined, error, duration);
@@ -295,25 +252,7 @@ export class FileSystemManager {
       // Update metrics
       this.updateOperationMetrics('copy', true, sourceStat.size, duration);
 
-      // Publish success event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'fileSystem:operationCompleted',
-        properties: {
-          operation: 'copy',
-          uri: source.toString(),
-          targetUri: target.toString(),
-          size: sourceStat.size,
-          duration,
-          fileType:
-            sourceStat.type === vscode.FileType.Directory
-              ? 'directory'
-              : 'file',
-          overwrite: copyOptions.overwrite,
-          sourceWorkspace: this.getWorkspaceForUri(source) || 'unknown',
-          targetWorkspace: this.getWorkspaceForUri(target) || 'unknown',
-          timestamp: Date.now(),
-        },
-      });
+      // TODO: Phase 2 - Restore analytics via RPC (file copy operation completed)
     } catch (error) {
       const duration = Date.now() - startTime;
       this.handleFileSystemError('copy', source, target, error, duration);
@@ -354,25 +293,7 @@ export class FileSystemManager {
       // Update metrics
       this.updateOperationMetrics('move', true, sourceStat.size, duration);
 
-      // Publish success event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'fileSystem:operationCompleted',
-        properties: {
-          operation: 'move',
-          uri: source.toString(),
-          targetUri: target.toString(),
-          size: sourceStat.size,
-          duration,
-          fileType:
-            sourceStat.type === vscode.FileType.Directory
-              ? 'directory'
-              : 'file',
-          overwrite: renameOptions.overwrite,
-          sourceWorkspace: this.getWorkspaceForUri(source) || 'unknown',
-          targetWorkspace: this.getWorkspaceForUri(target) || 'unknown',
-          timestamp: Date.now(),
-        },
-      });
+      // TODO: Phase 2 - Restore analytics via RPC (file move/rename operation completed)
     } catch (error) {
       const duration = Date.now() - startTime;
       this.handleFileSystemError('move', source, target, error, duration);
@@ -399,20 +320,7 @@ export class FileSystemManager {
       // Update metrics
       this.updateOperationMetrics('stat', true, 0, duration);
 
-      // Publish success event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'fileSystem:operationCompleted',
-        properties: {
-          operation: 'stat',
-          uri: uri.toString(),
-          size: stat.size,
-          fileType:
-            stat.type === vscode.FileType.Directory ? 'directory' : 'file',
-          duration,
-          workspace: this.getWorkspaceForUri(uri) || 'unknown',
-          timestamp: Date.now(),
-        },
-      });
+      // TODO: Phase 2 - Restore analytics via RPC (file stat operation completed)
 
       return stat;
     } catch (error) {
@@ -453,19 +361,7 @@ export class FileSystemManager {
         duration
       );
 
-      // Publish success event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'fileSystem:operationCompleted',
-        properties: {
-          operation: 'readdir',
-          uri: uri.toString(),
-          entryCount: filteredEntries.length,
-          totalEntries: entries.length,
-          duration,
-          workspace: this.getWorkspaceForUri(uri) || 'unknown',
-          timestamp: Date.now(),
-        },
-      });
+      // TODO: Phase 2 - Restore analytics via RPC (directory read operation completed)
 
       return filteredEntries;
     } catch (error) {
@@ -489,6 +385,7 @@ export class FileSystemManager {
       return this.activeWatchers.get(config.id)!;
     }
 
+    // eslint-disable-next-line no-useless-catch
     try {
       // Create watcher with configuration
       const watcher = vscode.workspace.createFileSystemWatcher(
@@ -517,28 +414,11 @@ export class FileSystemManager {
       // Add to extension subscriptions for proper cleanup
       this.context.subscriptions.push(watcher);
 
-      // Publish watcher created event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'fileSystem:watcherCreated',
-        properties: {
-          watcherId: config.id,
-          pattern: config.pattern.toString(),
-          ignoreCreate: config.ignoreCreateEvents || false,
-          ignoreChange: config.ignoreChangeEvents || false,
-          ignoreDelete: config.ignoreDeleteEvents || false,
-          timestamp: Date.now(),
-        },
-      });
+      // TODO: Phase 2 - Restore analytics via RPC (file watcher created)
 
       return watcher;
     } catch (error) {
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'FILE_WATCHER_CREATE_FAILED',
-        message: `Failed to create file watcher ${config.id}: ${error}`,
-        source: 'FileSystemManager',
-        data: { config },
-        timestamp: Date.now(),
-      });
+      // TODO: Phase 2 - Restore error reporting via RPC
 
       throw error;
     }
@@ -562,24 +442,11 @@ export class FileSystemManager {
       watcher.dispose();
       this.activeWatchers.delete(watcherId);
 
-      // Publish disposal event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'fileSystem:watcherDisposed',
-        properties: {
-          watcherId,
-          timestamp: Date.now(),
-        },
-      });
+      // TODO: Phase 2 - Restore analytics via RPC (file watcher disposed)
 
       return true;
     } catch (error) {
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'FILE_WATCHER_DISPOSE_FAILED',
-        message: `Failed to dispose file watcher ${watcherId}: ${error}`,
-        source: 'FileSystemManager',
-        data: { watcherId },
-        timestamp: Date.now(),
-      });
+      // TODO: Phase 2 - Restore error reporting via RPC
 
       return false;
     }
@@ -618,20 +485,9 @@ export class FileSystemManager {
       this.activeWatchers.clear();
       this.operationMetrics.clear();
 
-      // Publish disposal event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'fileSystem:managerDisposed',
-        properties: {
-          timestamp: Date.now(),
-        },
-      });
+      // TODO: Phase 2 - Restore analytics via RPC (file system manager disposed)
     } catch (error) {
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'FILE_SYSTEM_MANAGER_DISPOSE_FAILED',
-        message: `Failed to dispose FileSystemManager: ${error}`,
-        source: 'FileSystemManager',
-        timestamp: Date.now(),
-      });
+      // TODO: Phase 2 - Restore error reporting via RPC
     }
   }
 
@@ -724,16 +580,7 @@ export class FileSystemManager {
     eventType: 'created' | 'changed' | 'deleted',
     uri: vscode.Uri
   ): void {
-    this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-      event: 'fileSystem:watcherEvent',
-      properties: {
-        watcherId,
-        eventType,
-        uri: uri.toString(),
-        workspace: this.getWorkspaceForUri(uri) || 'unknown',
-        timestamp: Date.now(),
-      },
-    });
+    // TODO: Phase 2 - Restore analytics via RPC (file watcher event)
   }
 
   /**
@@ -752,21 +599,7 @@ export class FileSystemManager {
     // Update metrics
     this.updateOperationMetrics(operation, false, 0, duration);
 
-    // Publish error event
-    this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-      code: `FILE_SYSTEM_${operation.toUpperCase()}_FAILED`,
-      message: `File system ${operation} operation failed: ${errorMessage}`,
-      source: 'FileSystemManager',
-      data: {
-        operation,
-        uri: uri.toString(),
-        targetUri: targetUri?.toString(),
-        errorCode,
-        duration,
-        workspace: this.getWorkspaceForUri(uri) || 'unknown',
-      },
-      timestamp: Date.now(),
-    });
+    // TODO: Phase 2 - Restore error reporting via RPC
   }
 
   /**

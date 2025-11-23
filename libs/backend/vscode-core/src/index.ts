@@ -34,15 +34,6 @@ export {
   PtahError,
 } from './validation';
 
-// Messaging
-export { EventBus } from './messaging/event-bus';
-export * from './messaging/webview-message-bridge';
-export type {
-  TypedEvent,
-  RequestEvent,
-  ResponseEvent,
-} from './messaging/event-bus';
-
 // API Wrappers
 export {
   CommandManager,
@@ -53,27 +44,18 @@ export {
 } from './api-wrappers';
 export type {
   CommandDefinition,
-  CommandExecutedPayload,
-  CommandErrorPayload,
   WebviewPanelConfig,
-  WebviewMessagePayload,
-  WebviewCreatedPayload,
-  WebviewDisposedPayload,
   OutputChannelConfig,
   WriteOptions,
-  OutputMessagePayload,
-  OutputChannelCreatedPayload,
-  OutputChannelErrorPayload,
   StatusBarItemConfig,
   StatusBarItemUpdate,
-  StatusBarItemCreatedPayload,
-  StatusBarItemUpdatedPayload,
-  StatusBarItemClickedPayload,
-  StatusBarItemErrorPayload,
   FileOperationType,
   FileOperationOptions,
   FileWatcherConfig,
-  FileOperationPayload,
-  FileWatcherEventPayload,
-  FileSystemErrorPayload,
 } from './api-wrappers';
+// TODO: Phase 2 - Restore event payload types when RPC is implemented
+// CommandExecutedPayload, CommandErrorPayload,
+// WebviewMessagePayload, WebviewCreatedPayload, WebviewDisposedPayload,
+// OutputMessagePayload, OutputChannelCreatedPayload, OutputChannelErrorPayload,
+// StatusBarItemCreatedPayload, StatusBarItemUpdatedPayload, StatusBarItemClickedPayload, StatusBarItemErrorPayload,
+// FileOperationPayload, FileWatcherEventPayload, FileSystemErrorPayload

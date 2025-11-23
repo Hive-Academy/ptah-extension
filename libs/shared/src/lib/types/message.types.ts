@@ -23,24 +23,6 @@ import {
   ClaudeAgentCompleteEvent,
   SessionSummary,
 } from './claude-domain.types';
-import {
-  CHAT_MESSAGE_TYPES,
-  CHAT_RESPONSE_TYPES,
-  PROVIDER_MESSAGE_TYPES,
-  PROVIDER_RESPONSE_TYPES,
-  CONTEXT_MESSAGE_TYPES,
-  CONTEXT_RESPONSE_TYPES,
-  COMMAND_MESSAGE_TYPES,
-  COMMAND_RESPONSE_TYPES,
-  ANALYTICS_MESSAGE_TYPES,
-  ANALYTICS_RESPONSE_TYPES,
-  CONFIG_MESSAGE_TYPES,
-  CONFIG_RESPONSE_TYPES,
-  STATE_MESSAGE_TYPES,
-  STATE_RESPONSE_TYPES,
-  VIEW_MESSAGE_TYPES,
-  SYSTEM_MESSAGE_TYPES,
-} from '../constants/message-types';
 import type {
   ContentBlock,
   TextContentBlock,
@@ -62,28 +44,107 @@ export type {
 };
 
 /**
- * Strict Message Types - derives from MESSAGE_TYPES constants
- * This ensures automatic sync between constants and types (single source of truth)
- *
- * By importing each category separately and creating a union, we maintain proper type narrowing
+ * Strict Message Types - Literal string union for type-safe message handling
+ * Defines all valid message types across the extension
  */
 export type StrictMessageType =
-  | (typeof CHAT_MESSAGE_TYPES)[keyof typeof CHAT_MESSAGE_TYPES]
-  | (typeof CHAT_RESPONSE_TYPES)[keyof typeof CHAT_RESPONSE_TYPES]
-  | (typeof PROVIDER_MESSAGE_TYPES)[keyof typeof PROVIDER_MESSAGE_TYPES]
-  | (typeof PROVIDER_RESPONSE_TYPES)[keyof typeof PROVIDER_RESPONSE_TYPES]
-  | (typeof CONTEXT_MESSAGE_TYPES)[keyof typeof CONTEXT_MESSAGE_TYPES]
-  | (typeof CONTEXT_RESPONSE_TYPES)[keyof typeof CONTEXT_RESPONSE_TYPES]
-  | (typeof COMMAND_MESSAGE_TYPES)[keyof typeof COMMAND_MESSAGE_TYPES]
-  | (typeof COMMAND_RESPONSE_TYPES)[keyof typeof COMMAND_RESPONSE_TYPES]
-  | (typeof ANALYTICS_MESSAGE_TYPES)[keyof typeof ANALYTICS_MESSAGE_TYPES]
-  | (typeof ANALYTICS_RESPONSE_TYPES)[keyof typeof ANALYTICS_RESPONSE_TYPES]
-  | (typeof CONFIG_MESSAGE_TYPES)[keyof typeof CONFIG_MESSAGE_TYPES]
-  | (typeof CONFIG_RESPONSE_TYPES)[keyof typeof CONFIG_RESPONSE_TYPES]
-  | (typeof STATE_MESSAGE_TYPES)[keyof typeof STATE_MESSAGE_TYPES]
-  | (typeof STATE_RESPONSE_TYPES)[keyof typeof STATE_RESPONSE_TYPES]
-  | (typeof VIEW_MESSAGE_TYPES)[keyof typeof VIEW_MESSAGE_TYPES]
-  | (typeof SYSTEM_MESSAGE_TYPES)[keyof typeof SYSTEM_MESSAGE_TYPES]; // System message types are now included in StrictMessageType above
+  // Chat messages
+  | 'chat:sendMessage'
+  | 'chat:messageChunk'
+  | 'chat:sessionStart'
+  | 'chat:sessionEnd'
+  | 'chat:newSession'
+  | 'chat:switchSession'
+  | 'chat:getHistory'
+  | 'chat:messageAdded'
+  | 'chat:messageComplete'
+  | 'chat:sessionCreated'
+  | 'chat:sessionSwitched'
+  | 'chat:sessionUpdated'
+  | 'chat:tokenUsageUpdated'
+  | 'chat:historyLoaded'
+  | 'chat:renameSession'
+  | 'chat:deleteSession'
+  | 'chat:bulkDeleteSessions'
+  | 'chat:sessionRenamed'
+  | 'chat:sessionDeleted'
+  | 'chat:getSessionStats'
+  | 'chat:requestSessions'
+  | 'chat:sessionsUpdated'
+  | 'chat:stopStream'
+  | 'chat:streamStopped'
+  | 'chat:permissionRequest'
+  | 'chat:permissionResponse'
+  | 'chat:agentStarted'
+  | 'chat:agentActivity'
+  | 'chat:agentCompleted'
+  | 'chat:thinking'
+  | 'chat:toolStart'
+  | 'chat:toolProgress'
+  | 'chat:toolResult'
+  | 'chat:toolError'
+  | 'chat:sessionInit'
+  | 'chat:healthUpdate'
+  | 'chat:cliError'
+  // Provider messages
+  | 'providers:getAvailable'
+  | 'providers:getCurrent'
+  | 'providers:switch'
+  | 'providers:getHealth'
+  | 'providers:getAllHealth'
+  | 'providers:setDefault'
+  | 'providers:enableFallback'
+  | 'providers:setAutoSwitch'
+  | 'providers:selectModel'
+  | 'providers:currentChanged'
+  | 'providers:healthChanged'
+  | 'providers:error'
+  | 'providers:availableUpdated'
+  | 'providers:modelChanged'
+  // Context messages
+  | 'context:updateFiles'
+  | 'context:getFiles'
+  | 'context:includeFile'
+  | 'context:excludeFile'
+  | 'context:searchFiles'
+  | 'context:getAllFiles'
+  | 'context:getFileSuggestions'
+  | 'context:searchImages'
+  // Command messages
+  | 'commands:getTemplates'
+  | 'commands:executeCommand'
+  | 'commands:selectFile'
+  | 'commands:saveTemplate'
+  // Analytics messages
+  | 'analytics:trackEvent'
+  | 'analytics:getData'
+  // Config messages
+  | 'config:get'
+  | 'config:set'
+  | 'config:update'
+  | 'config:refresh'
+  // State messages
+  | 'state:save'
+  | 'state:load'
+  | 'state:clear'
+  | 'state:saved'
+  | 'state:loaded'
+  // View messages
+  | 'view:changed'
+  | 'view:routeChanged'
+  | 'view:generic'
+  // System messages
+  | 'error'
+  | 'initialData'
+  | 'webview-ready'
+  | 'ready'
+  | 'requestInitialData'
+  | 'themeChanged'
+  | 'navigate'
+  | 'refresh'
+  | 'switchView'
+  | 'workspaceChanged'
+  | string; // Allow extensibility for custom message types
 
 /**
  * Message Payloads - Strict typing for each message type

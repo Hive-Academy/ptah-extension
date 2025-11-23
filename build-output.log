@@ -1,0 +1,1063 @@
+
+> @ptah-extension/source@0.0.0 build:all
+> nx run-many -t build
+
+
+ NX   Running target build for 10 projects and 2 tasks they depend on:
+
+- @ptah-extension/workspace-intelligence
+- @ptah-extension/template-generation
+- @ptah-extension/ai-providers-core
+- @ptah-extension/llm-abstraction
+- vscode-lm-tools
+- ptah-extension-webview
+- @ptah-extension/claude-domain
+- ptah-extension-vscode
+- @ptah-extension/vscode-core
+- @ptah-extension/shared
+
+
+
+> nx run @ptah-extension/shared:build  [local cache]
+
+
+[2m..\..\dist\libs\shared\package.json[22m
+
+> nx run @ptah-extension/vscode-core:build
+
+
+[2m..\..\..\dist\libs\backend\vscode-core\CLAUDE.md[22m
+
+[2m..\..\..\dist\libs\backend\vscode-core\README.md[22m
+
+[2m..\..\..\dist\libs\backend\vscode-core\package.json[22m
+[4m[34mlibs\backend\vscode-core\src\api-wrappers\command-manager.ts:9:26[39m[24m - [31m[1merror[22m[39m [90mTS2307[39m: Cannot find module '../messaging/event-bus' or its corresponding type declarations.
+
+[0m [90m  7 | [39m[36mimport[39m [33m*[39m as vscode from [32m'vscode'[39m[33m;[39m[0m
+[0m [90m  8 | [39m[36mimport[39m { injectable[33m,[39m inject } from [32m'tsyringe'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m  9 | [39m[36mimport[39m { [33mEventBus[39m } from [32m'../messaging/event-bus'[39m[33m;[39m[0m
+[0m [90m    | [39m                         [31m[1m^[22m[39m[0m
+[0m [90m 10 | [39m[36mimport[39m { [33mTOKENS[39m } from [32m'../di/tokens'[39m[33m;[39m[0m
+[0m [90m 11 | [39m[0m
+[0m [90m 12 | [39m[90m/**[39m[0m
+
+[4m[34mlibs\backend\vscode-core\src\api-wrappers\command-manager.ts:64:20[39m[24m - [31m[1merror[22m[39m [90mTS2339[39m: Property 'EVENT_BUS' does not exist on type '{ readonly EXTENSION_CONTEXT: unique symbol; readonly WEBVIEW_PROVIDER: unique symbol; readonly COMMAND_REGISTRY: unique symbol; readonly COMMAND_MANAGER: unique symbol; readonly WEBVIEW_MANAGER: unique symbol; ... 65 more ...; readonly WORKSPACE_ANALYZER: unique symbol; }'.
+
+[0m [90m 62 | [39m    [33m@[39minject([33mTOKENS[39m[33m.[39m[33mEXTENSION_CONTEXT[39m)[0m
+[0m [90m 63 | [39m    private readonly context[33m:[39m vscode[33m.[39m[33mExtensionContext[39m[33m,[39m[0m
+[0m[31m[1m>[22m[39m[90m 64 | [39m    [33m@[39minject([33mTOKENS[39m[33m.[39m[33mEVENT_BUS[39m) private readonly eventBus[33m:[39m [33mEventBus[39m[0m
+[0m [90m    | [39m                   [31m[1m^[22m[39m[0m
+[0m [90m 65 | [39m  ) {}[0m
+[0m [90m 66 | [39m[0m
+[0m [90m 67 | [39m  [90m/**[39m[0m
+
+[4m[34mlibs\backend\vscode-core\src\api-wrappers\file-system-manager.ts:9:26[39m[24m - [31m[1merror[22m[39m [90mTS2307[39m: Cannot find module '../messaging/event-bus' or its corresponding type declarations.
+
+[0m [90m  7 | [39m[36mimport[39m [33m*[39m as vscode from [32m'vscode'[39m[33m;[39m[0m
+[0m [90m  8 | [39m[36mimport[39m { injectable[33m,[39m inject } from [32m'tsyringe'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m  9 | [39m[36mimport[39m { [33mEventBus[39m } from [32m'../messaging/event-bus'[39m[33m;[39m[0m
+[0m [90m    | [39m                         [31m[1m^[22m[39m[0m
+[0m [90m 10 | [39m[36mimport[39m { [33mTOKENS[39m } from [32m'../di/tokens'[39m[33m;[39m[0m
+[0m [90m 11 | [39m[0m
+[0m [90m 12 | [39m[90m/**[39m[0m
+
+[4m[34mlibs\backend\vscode-core\src\api-wrappers\file-system-manager.ts:103:20[39m[24m - [31m[1merror[22m[39m [90mTS2339[39m: Property 'EVENT_BUS' does not exist on type '{ readonly EXTENSION_CONTEXT: unique symbol; readonly WEBVIEW_PROVIDER: unique symbol; readonly COMMAND_REGISTRY: unique symbol; readonly COMMAND_MANAGER: unique symbol; readonly WEBVIEW_MANAGER: unique symbol; ... 65 more ...; readonly WORKSPACE_ANALYZER: unique symbol; }'.
+
+[0m [90m 101 | [39m    [33m@[39minject([33mTOKENS[39m[33m.[39m[33mEXTENSION_CONTEXT[39m)[0m
+[0m [90m 102 | [39m    private readonly context[33m:[39m vscode[33m.[39m[33mExtensionContext[39m[33m,[39m[0m
+[0m[31m[1m>[22m[39m[90m 103 | [39m    [33m@[39minject([33mTOKENS[39m[33m.[39m[33mEVENT_BUS[39m) private readonly eventBus[33m:[39m [33mEventBus[39m[0m
+[0m [90m     | [39m                   [31m[1m^[22m[39m[0m
+[0m [90m 104 | [39m  ) {[0m
+[0m [90m 105 | [39m    [36mthis[39m[33m.[39minitializeMetrics()[33m;[39m[0m
+[0m [90m 106 | [39m  }[0m
+
+[4m[34mlibs\backend\vscode-core\src\api-wrappers\output-manager.ts:9:26[39m[24m - [31m[1merror[22m[39m [90mTS2307[39m: Cannot find module '../messaging/event-bus' or its corresponding type declarations.
+
+[0m [90m  7 | [39m[36mimport[39m [33m*[39m as vscode from [32m'vscode'[39m[33m;[39m[0m
+[0m [90m  8 | [39m[36mimport[39m { injectable[33m,[39m inject } from [32m'tsyringe'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m  9 | [39m[36mimport[39m { [33mEventBus[39m } from [32m'../messaging/event-bus'[39m[33m;[39m[0m
+[0m [90m    | [39m                         [31m[1m^[22m[39m[0m
+[0m [90m 10 | [39m[36mimport[39m { [33mTOKENS[39m } from [32m'../di/tokens'[39m[33m;[39m[0m
+[0m [90m 11 | [39m[0m
+[0m [90m 12 | [39m[90m/**[39m[0m
+
+[4m[34mlibs\backend\vscode-core\src\api-wrappers\output-manager.ts:87:20[39m[24m - [31m[1merror[22m[39m [90mTS2339[39m: Property 'EVENT_BUS' does not exist on type '{ readonly EXTENSION_CONTEXT: unique symbol; readonly WEBVIEW_PROVIDER: unique symbol; readonly COMMAND_REGISTRY: unique symbol; readonly COMMAND_MANAGER: unique symbol; readonly WEBVIEW_MANAGER: unique symbol; ... 65 more ...; readonly WORKSPACE_ANALYZER: unique symbol; }'.
+
+[0m [90m 85 | [39m    [33m@[39minject([33mTOKENS[39m[33m.[39m[33mEXTENSION_CONTEXT[39m)[0m
+[0m [90m 86 | [39m    private readonly context[33m:[39m vscode[33m.[39m[33mExtensionContext[39m[33m,[39m[0m
+[0m[31m[1m>[22m[39m[90m 87 | [39m    [33m@[39minject([33mTOKENS[39m[33m.[39m[33mEVENT_BUS[39m) private readonly eventBus[33m:[39m [33mEventBus[39m[0m
+[0m [90m    | [39m                   [31m[1m^[22m[39m[0m
+[0m [90m 88 | [39m  ) {}[0m
+[0m [90m 89 | [39m[0m
+[0m [90m 90 | [39m  [90m/**[39m[0m
+
+[4m[34mlibs\backend\vscode-core\src\api-wrappers\status-bar-manager.ts:9:26[39m[24m - [31m[1merror[22m[39m [90mTS2307[39m: Cannot find module '../messaging/event-bus' or its corresponding type declarations.
+
+[0m [90m  7 | [39m[36mimport[39m [33m*[39m as vscode from [32m'vscode'[39m[33m;[39m[0m
+[0m [90m  8 | [39m[36mimport[39m { injectable[33m,[39m inject } from [32m'tsyringe'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m  9 | [39m[36mimport[39m { [33mEventBus[39m } from [32m'../messaging/event-bus'[39m[33m;[39m[0m
+[0m [90m    | [39m                         [31m[1m^[22m[39m[0m
+[0m [90m 10 | [39m[36mimport[39m { [33mTOKENS[39m } from [32m'../di/tokens'[39m[33m;[39m[0m
+[0m [90m 11 | [39m[0m
+[0m [90m 12 | [39m[90m/**[39m[0m
+
+[4m[34mlibs\backend\vscode-core\src\api-wrappers\status-bar-manager.ts:100:20[39m[24m - [31m[1merror[22m[39m [90mTS2339[39m: Property 'EVENT_BUS' does not exist on type '{ readonly EXTENSION_CONTEXT: unique symbol; readonly WEBVIEW_PROVIDER: unique symbol; readonly COMMAND_REGISTRY: unique symbol; readonly COMMAND_MANAGER: unique symbol; readonly WEBVIEW_MANAGER: unique symbol; ... 65 more ...; readonly WORKSPACE_ANALYZER: unique symbol; }'.
+
+[0m [90m  98 | [39m    [33m@[39minject([33mTOKENS[39m[33m.[39m[33mEXTENSION_CONTEXT[39m)[0m
+[0m [90m  99 | [39m    private readonly context[33m:[39m vscode[33m.[39m[33mExtensionContext[39m[33m,[39m[0m
+[0m[31m[1m>[22m[39m[90m 100 | [39m    [33m@[39minject([33mTOKENS[39m[33m.[39m[33mEVENT_BUS[39m) private readonly eventBus[33m:[39m [33mEventBus[39m[0m
+[0m [90m     | [39m                   [31m[1m^[22m[39m[0m
+[0m [90m 101 | [39m  ) {}[0m
+[0m [90m 102 | [39m[0m
+[0m [90m 103 | [39m  [90m/**[39m[0m
+
+[4m[34mlibs\backend\vscode-core\src\api-wrappers\webview-manager.ts:9:26[39m[24m - [31m[1merror[22m[39m [90mTS2307[39m: Cannot find module '../messaging/event-bus' or its corresponding type declarations.
+
+[0m [90m  7 | [39m[36mimport[39m [33m*[39m as vscode from [32m'vscode'[39m[33m;[39m[0m
+[0m [90m  8 | [39m[36mimport[39m { injectable[33m,[39m inject } from [32m'tsyringe'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m  9 | [39m[36mimport[39m { [33mEventBus[39m } from [32m'../messaging/event-bus'[39m[33m;[39m[0m
+[0m [90m    | [39m                         [31m[1m^[22m[39m[0m
+[0m [90m 10 | [39m[36mimport[39m { [33mTOKENS[39m } from [32m'../di/tokens'[39m[33m;[39m[0m
+[0m [90m 11 | [39m[36mimport[39m type {[0m
+[0m [90m 12 | [39m  [33mWebviewMessage[39m[33m,[39m[0m
+
+[4m[34mlibs\backend\vscode-core\src\api-wrappers\webview-manager.ts:83:20[39m[24m - [31m[1merror[22m[39m [90mTS2339[39m: Property 'EVENT_BUS' does not exist on type '{ readonly EXTENSION_CONTEXT: unique symbol; readonly WEBVIEW_PROVIDER: unique symbol; readonly COMMAND_REGISTRY: unique symbol; readonly COMMAND_MANAGER: unique symbol; readonly WEBVIEW_MANAGER: unique symbol; ... 65 more ...; readonly WORKSPACE_ANALYZER: unique symbol; }'.
+
+[0m [90m 81 | [39m    [33m@[39minject([33mTOKENS[39m[33m.[39m[33mEXTENSION_CONTEXT[39m)[0m
+[0m [90m 82 | [39m    private readonly context[33m:[39m vscode[33m.[39m[33mExtensionContext[39m[33m,[39m[0m
+[0m[31m[1m>[22m[39m[90m 83 | [39m    [33m@[39minject([33mTOKENS[39m[33m.[39m[33mEVENT_BUS[39m) private readonly eventBus[33m:[39m [33mEventBus[39m[0m
+[0m [90m    | [39m                   [31m[1m^[22m[39m[0m
+[0m [90m 84 | [39m  ) {}[0m
+[0m [90m 85 | [39m[0m
+[0m [90m 86 | [39m  [90m/**[39m[0m
+
+Found 10 errors.
+
+> nx run ptah-extension-webview:build:production
+
+[33m❯[39m Building...
+[32m✔[39m Building...
+[37mApplication bundle generation failed. [6.228 seconds][39m
+[37m[39m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2305: Module '"@ptah-extension/shared"' has no exported member 'VIEW_MESSAGE_TYPES'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    apps/ptah-extension-webview/src/app/app.ts:25:9:[39m[22m
+[1m[31m[37m      25 │ import { [32mVIEW_MESSAGE_TYPES[37m } from '@ptah-extension/shared';[39m[22m
+[1m[31m         ╵          [32m~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'notifyReady' does not exist on type 'VSCodeService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    apps/ptah-extension-webview/src/app/app.ts:80:25:[39m[22m
+[1m[31m[37m      80 │       this.vscodeService.[32mnotifyReady[37m();[39m[22m
+[1m[31m         ╵                          [32m~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'initialize' does not exist on type 'ProviderService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    apps/ptah-extension-webview/src/app/app.ts:84:27:[39m[22m
+[1m[31m[37m      84 │       this.providerService.[32minitialize[37m();[39m[22m
+[1m[31m         ╵                            [32m~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'fetchAnalyticsData' does not exist on type 'AnalyticsService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/analytics/src/lib/containers/analytics/analytics.component.ts:246:47:[39m[22m
+[1m[31m[37m      246 │       const data = await this.analyticsService.[32mfetchAnalyticsData[37m();[39m[22m
+[1m[31m          ╵                                                [32m~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-status-badge/agent-status-badge.component.html:29:55:[39m[22m
+[1m[31m[37m      29 │       @for (agent of activeAgents(); track agent.agent.[32magentId[37m) {[39m[22m
+[1m[31m         ╵                                                        [32m~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentStatusBadgeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/s[39m[22m[1m[31mrc/lib/components/agent-status-badge/agent-status-badge.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-status-badge.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-status-badge/agent-status-badge.component.html:31:51:[39m[22m
+[1m[31m[37m      31 │ ... <span class="tooltip-agent">{{ agent.agent.[32msubagentType[37m }}</span>[39m[22m
+[1m[31m         ╵                                                [32m~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentStatusBadgeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-status-badge/agent-status-badge.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-status-badge.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-status-badge/agent-status-badge.component.html:34:47:[39m[22m
+[1m[31m[37m      34 │           { ({{ getRunningDuration(agent.agent.[32mtimestamp[37m) }}) } @if[39m[22m
+[1m[31m         ╵                                                [32m~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentStatusBadgeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-status-badge/agent-status-badge.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-status-badge.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS18046: 'node.agent' is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-status-badge/agent-status-badge.component.ts:120:19:[39m[22m
+[1m[31m[37m      120 │       const type = [32mnode.agent[37m.subagentType;[39m[22m[1m[31m[39m[22m
+[1m[31m          ╵                    [32m~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS18046: 'node.agent' is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-status-badge/agent-status-badge.component.ts:123:34:[39m[22m
+[1m[31m[37m      123 │         : this.getRunningDuration([32mnode.agent[37m.timestamp);[39m[22m
+[1m[31m          ╵                                   [32m~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.html:25:55:[39m[22m
+[1m[31m[37m      25 │     @for (agent of timelineAgents(); track agent.agent.[32magentId[37m) {[39m[22m
+[1m[31m         ╵                                                        [32m~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTimelineComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.ts:56:15:[39m[22m
+[1m[31m[37m      56 │   templateUrl: [32m'./agent-timeline.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.html:34:20:[39m[22m
+[1m[31m[37m      34 │         agent.agent.[32msubagentType[37m +[39m[22m
+[1m[31m         ╵                     [32m~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTimelineComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.ts:56:15:[39m[22m
+[1m[31m[37m      56 │   templateUrl: [32m'./agent-timeline.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.compone[39m[22m[1m[31mnt.html:48:56:[39m[22m
+[1m[31m[37m      48 │           'background-color': getAgentColor(agent.agent.[32msubagentType[37m)[39m[22m
+[1m[31m         ╵                                                         [32m~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTimelineComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.ts:56:15:[39m[22m
+[1m[31m[37m      56 │   templateUrl: [32m'./agent-timeline.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.html:55:25:[39m[22m
+[1m[31m[37m      55 │           {{ agent.agent.[32msubagentType[37m }} ({{[39m[22m
+[1m[31m         ╵                          [32m~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTimelineComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.ts:56:15:[39m[22m
+[1m[31m[37m      56 │   templateUrl: [32m'./agent-timeline.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.html:75:54:[39m[22m
+[1m[31m[37m      75 │ ...ia-label]="'Details for ' + hovered.agent.[32msubagentType[37m + ' agent'"[39m[22m
+[1m[31m         ╵                                              [32m~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTimelineComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.ts:56:15:[39m[22m
+[1m[31m[37m      56 │   templateUrl: [32m'./agent-timeline.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.html:79:51:[39m[22m
+[1m[31m[37m      79 │ ...span class="popover-title">{{ hovered.agent.[32msubagentType[37m }}</span>[39m[22m
+[1m[31m         ╵                                                [32m~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTimelineComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.ts:56:15:[39m[22m
+[1m[31m[37m      56 │   templateUrl: [32m'./agent-timeline.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.html:107:63:[39m[22m
+[1m[31m[37m      107 │ ... @for (activity of hovered.activities; track activity.[32mtoolName[37m) {[39m[22m
+[1m[31m          ╵                                                          [32m~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTimelineComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.ts:56:15:[39m[22m
+[1m[31m[37m      56 │   templateUrl: [32m'./agent-timeline.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.html:109:48:[39m[22m
+[1m[31m[37m      109 │             <span class="tool-name">{{ activity.[32mtoolName[37m }}</span>[39m[22m
+[1m[31m          ╵                                                 [32m~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTimelineComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.ts:56:15:[39m[22m
+[1m[31m[37m      56 │   templateUrl: [32m'./agent-timeline.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.html:110:26:[39m[22m
+[1m[31m[37m      110 │             @if (activity.[32mtoolInput[37m) {[39m[22m
+[1m[31m          ╵                           [32m~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTimelineComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.ts:56:15:[39m[22m
+[1m[31m[37m      56 │   templateUrl: [32m'./agent-timeline.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.html:111:49:[39m[22m
+[1m[31m[37m      111 │             <span class="tool-input">{{ activity.[32mtoolInput[37m }}</span>[39m[22m
+[1m[31m          ╵                                                  [32m~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTimelineComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.ts:56:15:[39m[22m
+[1m[31m[37m      56 │   templateUrl: [32m'./agent-timeline.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS18046: 'agent.agent' is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.ts:85:20:[39m[22m
+[1m[31m[37m      85 │         (agent) => ([32magent.agent[37m.timestamp ?? 0) + (agent.duration ...[39m[22m
+[1m[31m         ╵                     [32m~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS18046: 'a.agent' is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.ts:122:17:[39m[22m
+[1m[31m[37m      122 │       (a, b) => ([39m[22m[1m[31m[32ma.agent[37m.timestamp ?? 0) - (b.agent.timestamp ?? 0)[39m[22m
+[1m[31m          ╵                  [32m~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS18046: 'b.agent' is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.ts:122:44:[39m[22m
+[1m[31m[37m      122 │       (a, b) => (a.agent.timestamp ?? 0) - ([32mb.agent[37m.timestamp ?? 0)[39m[22m
+[1m[31m          ╵                                             [32m~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS18046: 'agent.agent' is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.ts:130:24:[39m[22m
+[1m[31m[37m      130 │       const startTime = [32magent.agent[37m.timestamp ?? 0;[39m[22m
+[1m[31m          ╵                         [32m~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS18046: 'agent.agent' is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.ts:280:37:[39m[22m
+[1m[31m[37m      280 │     const color = this.getAgentColor([32magent.agent[37m.subagentType);[39m[22m
+[1m[31m          ╵                                      [32m~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS18046: 'agent.agent' is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-timeline/agent-timeline.component.ts:302:30:[39m[22m
+[1m[31m[37m      302 │     return this.getAgentColor([32magent.agent[37m.subagentType);[39m[22m
+[1m[31m          ╵                               [32m~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:2:43:[39m[22m
+[1m[31m[37m      2 │   @for (node of agents(); track node.agent.[32magentId[37m) {[39m[22m
+[1m[31m        ╵                                            [32m~~~~~~~[[39m[22m[1m[31m0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:5:44:[39m[22m
+[1m[31m[37m      5 │     [class.expanded]="isExpanded(node.agent.[32magentId[37m)"[39m[22m
+[1m[31m        ╵                                             [32m~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:8:48:[39m[22m
+[1m[31m[37m      8 │     [attr.aria-expanded]="isExpanded(node.agent.[32magentId[37m)"[39m[22m
+[1m[31m        ╵                                                 [32m~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:12:39:[39m[22m
+[1m[31m[37m      12 │     (click)="toggleExpanded(node.agent.[32magentId[37m)"[39m[22m
+[1m[31m         ╵                                        [32m~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of compo[39m[22m[1m[31mnent AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:13:48:[39m[22m
+[1m[31m[37m      13 │     (keydown)="handleKeydown($event, node.agent.[32magentId[37m)"[39m[22m
+[1m[31m         ╵                                                 [32m~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:18:30:[39m[22m
+[1m[31m[37m      18 │         isExpanded(node.agent.[32magentId[37m) ? ChevronDownIcon : Chevron...[39m[22m
+[1m[31m         ╵                               [32m~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:22:46:[39m[22m
+[1m[31m[37m      22 │       [class.expanded]="isExpanded(node.agent.[32magentId[37m)"[39m[22m
+[1m[31m         ╵                                               [32m~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeCompone[39m[22m[1m[31mnt.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:27:43:[39m[22m
+[1m[31m[37m      27 │     <span class="agent-type">{{ node.agent.[32msubagentType[37m }}</span>[39m[22m
+[1m[31m         ╵                                            [32m~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:43:31:[39m[22m
+[1m[31m[37m      43 │     @if (isExpanded(node.agent.[32magentId[37m)) {[39m[22m
+[1m[31m         ╵                                [32m~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:48:28:[39m[22m
+[1m[31m[37m      48 │         [title]="node.agent.[32mprompt[37m || node.agent.description"[39m[22m
+[1m[31m         ╵                             [32m~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent[39m[22m[1m[31m-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:48:49:[39m[22m
+[1m[31m[37m      48 │         [title]="node.agent.prompt || node.agent.[32mdescription[37m"[39m[22m
+[1m[31m         ╵                                                  [32m~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:50:22:[39m[22m
+[1m[31m[37m      50 │         {{ node.agent.[32mdescription[37m }}[39m[22m
+[1m[31m         ╵                       [32m~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:64:58:[39m[22m
+[1m[31m[37m      64 │ ...    @for (activity of node.activities; track activity.[32mtimestamp[37m) {[39m[22m
+[1m[31m         ╵                                                          [32m~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.compo[39m[22m[1m[31mnent.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:70:38:[39m[22m
+[1m[31m[37m      70 │           [title]="stringify(activity.[32mtoolInput[37m)"[39m[22m
+[1m[31m         ╵                                       [32m~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2345: Argument of type 'unknown' is not assignable to parameter of type '{ toolName: string; toolInput: Record<string, unknown>; }'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:72:61:[39m[22m
+[1m[31m[37m      72 │ ...n class="tool-activity-text">{{ formatActivity([32mactivity[37m) }}</span>[39m[22m
+[1m[31m         ╵                                                   [32m~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'cost' does not exist on type 'AgentTreeNode'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:79:16:[39m[22m
+[1m[31m[37m      79 │       @if (node.[32mcost[37m !== undefined) {[39m[22m
+[1m[31m         ╵                 [32m~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/fr[39m[22m[1m[31montend/chat/src/lib/components/agent-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'cost' does not exist on type 'AgentTreeNode'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:82:42:[39m[22m
+[1m[31m[37m      82 │         <span class="cost-value">${{ node.[32mcost[37m.toFixed(4) }}</span>[39m[22m
+[1m[31m         ╵                                           [32m~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'tokens' does not exist on type 'AgentTreeNode'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:84:18:[39m[22m
+[1m[31m[37m      84 │       } @if (node.[32mtokens[37m !== undefined) {[39m[22m
+[1m[31m         ╵                   [32m~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'tokens' does not exist on type 'AgentTreeNode'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:88:18:[39m[22m
+[1m[31m[37m      88 │           {{ node.[32mtokens[37m.input }} in / {{ node.tokens.output }} out[39m[22m
+[1m[31m         ╵                   [32m~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    [39m[22m[1m[31mlibs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'tokens' does not exist on type 'AgentTreeNode'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:88:47:[39m[22m
+[1m[31m[37m      88 │           {{ node.tokens.input }} in / {{ node.[32mtokens[37m.output }} out[39m[22m
+[1m[31m         ╵                                                [32m~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'mcpTools' does not exist on type 'AgentTreeNode'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:91:18:[39m[22m
+[1m[31m[37m      91 │       } @if (node.[32mmcpTools[37m !== undefined && node.mcpTools.length >...[39m[22m
+[1m[31m         ╵                   [32m~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'mcpTools' does not exist on type 'AgentTreeNode'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:91:49:[39m[22m
+[1m[31m[37m      91 │ ... } @if (node.mcpTools !== undefined && node.[32mmcpTools[37m.length > 0) {[39m[22m
+[1m[31m         ╵                                                [32m[39m[22m[1m[31m~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'mcpTools' does not exist on type 'AgentTreeNode'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:94:46:[39m[22m
+[1m[31m[37m      94 │ ...span class="mcp-tools-value">{{ node.[32mmcpTools[37m.join(', ') }}</span>[39m[22m
+[1m[31m         ╵                                         [32m~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'isCustomAgent' does not exist on type 'AgentTreeNode'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.html:96:18:[39m[22m
+[1m[31m[37m      96 │       } @if (node.[32misCustomAgent[37m) {[39m[22m
+[1m[31m         ╵                   [32m~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  Error occurs in the template of component AgentTreeComponent.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/agent-tree/agent-tree.component.ts:55:15:[39m[22m
+[1m[31m[37m      55 │   templateUrl: [32m'./agent-tree.component.html'[37m,[39m[22m
+[1m[31m         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2551: Property 'includeFile' does not exist on type 'FilePickerService'. Did you mean 'includedFiles'?[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/chat-input/chat-input-area.component.ts:468:27:[39m[22m
+[1m[31m[37m      468 │     this.filePickerService.[32mincludeFile[39m[22m[1m[31m[37m(suggestion.path);[39m[22m
+[1m[31m          ╵                            [32m~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  'includedFiles' is declared here.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/services/file-picker.service.ts:66:11:[39m[22m
+[1m[31m[37m      66 │   readonly [32mincludedFiles[37m = this._includedFiles.asReadonly();[39m[22m
+[1m[31m         ╵            [32m~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/chat-messages/components/chat-message-content/chat-message-content.component.ts:84:11:[39m[22m
+[1m[31m[37m      84 │     return [32mthis.transformer[37m.extractContent(msg.content);[39m[22m
+[1m[31m         ╵            [32m~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS7006: Parameter 'tool' implicitly has an 'any' type.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/components/chat-messages/components/chat-message-content/chat-message-content.component.ts:121:22:[39m[22m
+[1m[31m[37m      121 │     return tools.map(([32mtool[37m) => ({[39m[22m
+[1m[31m          ╵                       [32m~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'activeAgents' does not exist on type 'ChatService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/containers/chat/chat.component.ts:96:38:[39m[22m
+[1m[31m[37m      96 │           [activeAgents]="chatService.[32mactiveAgents[37m()"[39m[22m
+[1m[31m         ╵                                       [32m~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'currentThinking' does not exist on type 'ChatService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/containers/chat/chat.component.ts:122:55:[39m[22m
+[1m[31m[37m      122 │ ...ah-thinking-display [thinking]="chatService.[32mcurrentThinking[37m()" />[39m[22m
+[1m[31m          ╵                                                [32m~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'toolExecutions' does not exi[39m[22m[1m[31mst on type 'ChatService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/containers/chat/chat.component.ts:123:54:[39m[22m
+[1m[31m[37m      123 │ ...ptah-tool-timeline [executions]="chatService.[32mtoolExecutions[37m()" />[39m[22m
+[1m[31m          ╵                                                 [32m~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'pendingPermissions' does not exist on type 'ChatService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/containers/chat/chat.component.ts:174:23:[39m[22m
+[1m[31m[37m      174 │       @if (chatService.[32mpendingPermissions[37m().length > 0) {[39m[22m
+[1m[31m          ╵                        [32m~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'pendingPermissions' does not exist on type 'ChatService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/containers/chat/chat.component.ts:176:34:[39m[22m
+[1m[31m[37m      176 │         [permission]="chatService.[32mpendingPermissions[37m()[0]"[39m[22m
+[1m[31m          ╵                                   [32m~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'streamConsumptionState' does not exist on type 'ChatService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/containers/chat/chat.component.ts:328:46:[39m[22m
+[1m[31m[37m      328 │ ...adonly streamConsumptionState = this.chat.[32mstreamConsumptionState[37m;[39m[22m
+[1m[31m          ╵                                              [32m~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS18046: 'node.agent' is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/containers/chat/chat.component.ts:375:15:[39m[22m
+[1m[31m[37m      375 │       agentId: [32mnode.agent[37m.agentId,[39m[22m
+[1m[31m          ╵                [32m~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS18046: 'node.agent' is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/containers/chat/chat.component.ts:376:12:[39m[22m
+[1m[31m[37m      376 │       name: [32mnode.agent[37m.subagentType,[39m[22m
+[1m[31m          ╵             [32m~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS18046: 'node.agent' is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/containers/chat/chat.component.ts:381:17:[39m[22m
+[1m[31m[37m      381 │       startTime: [32mnode.agent[37m.timestamp ?? Date.now(),[39m[22m
+[1m[31m          ╵                  [32m~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS18046: 'node.agent' is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/containers/chat/chat.component.ts:384:13:[39m[22m
+[1m[31m[37m      384 │           ? ([32mnode.agent[37m.timestamp ?? Date.now()) + (node.duration...[39m[22m
+[1m[31m          ╵              [32m~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'initialize' does not exist on type 'ChatStateManagerService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/containers/chat/chat.component.ts:401:19:[39m[22m
+[1m[31m[37m      401 │     this.chatState.[32minitialize[37m();[39m[22m
+[1m[31m          ╵                    [32m~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2554: Expected 1 arguments, but got 2.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/containers/chat/chat.component.ts:438:35:[39m[22m
+[1m[31m[37m      438 │     this.chat.sendMessage(content, [32magent[37m);[39m[22m
+[1m[31m          ╵                                    [32m~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'createNewSession' does not exist on type 'ChatStateManagerService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/containers/chat/chat.component.ts:444:19:[39m[22m
+[1m[31m[37m      444 │     this.chatState.[32mcreateNewSession[37m('New Session');[39m[22m
+[1m[31m          ╵                    [32m~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0[39m[22m[1m[31mm [1mTS2339: Property 'createNewSession' does not exist on type 'ChatStateManagerService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/containers/chat/chat.component.ts:449:19:[39m[22m
+[1m[31m[37m      449 │     this.chatState.[32mcreateNewSession[37m(name || 'New Session');[39m[22m
+[1m[31m          ╵                    [32m~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'approvePermission' does not exist on type 'ChatService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/containers/chat/chat.component.ts:581:21:[39m[22m
+[1m[31m[37m      581 │     this.chatService.[32mapprovePermission[37m(requestId);[39m[22m
+[1m[31m          ╵                      [32m~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'denyPermission' does not exist on type 'ChatService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/containers/chat/chat.component.ts:586:21:[39m[22m
+[1m[31m[37m      586 │     this.chatService.[32mdenyPermission[37m(requestId);[39m[22m
+[1m[31m          ╵                      [32m~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2304: Cannot find name 'StrictChatSession'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/chat/src/lib/services/chat-state-manager.service.ts:43:56:[39m[22m
+[1m[31m[37m      43 │ ...eadonly _availableSessions = signal<readonly [32mStrictChatSession[37m[]>([39m[22m
+[1m[31m         ╵                                                 [32m~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2307: Cannot find module './lib/services/claude-message-transformer.service' or its corresponding type declarations.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/core/src/index.ts:16:7:[39m[22m
+[1m[31m[37m      16 │ } from [32m'./lib/services/claude-message-transformer.service'[37m;[39m[22m
+[1m[31m         ╵        [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "./lib/service[39m[22m[1m[31ms/claude-message-transformer.service"[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/core/src/index.ts:29:7:[39m[22m
+[1m[31m[37m      29 │ } from [32m'./lib/services/claude-message-transformer.service'[37m;[39m[22m
+[1m[31m         ╵        [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2307: Cannot find module './lib/services/claude-message-transformer.service' or its corresponding type declarations.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/core/src/index.ts:29:7:[39m[22m
+[1m[31m[37m      29 │ } from [32m'./lib/services/claude-message-transformer.service'[37m;[39m[22m
+[1m[31m         ╵        [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "./lib/utils/event-subscription-helpers"[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/core/src/index.ts:32:14:[39m[22m
+[1m[31m[37m      32 │ export * from [32m'./lib/utils/event-subscription-helpers'[37m;[39m[22m
+[1m[31m         ╵               [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2307: Cannot find module './lib/utils/event-subscription-helpers' or its corresponding type declarations.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/core/src/index.ts:32:14:[39m[22m
+[1m[31m[37m      32 │ export * from [32m'./lib/utils/event-subscription-helpers'[37m;[39m[22m
+[1m[31m         ╵               [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'getAnalyticsData' does not exist on type 'VSCodeService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/core/src/lib/services/analytics.service.ts:163:25:[39m[22m
+[1m[31m[37m      163 │       this.vsCodeService.[32mgetAnalyticsData[37m();[39m[22m
+[1m[31m          ╵                          [32m~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'trackAnalyticsEvent' does not exist on type 'VSCodeService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/core/src/lib/services/analytics.service.ts:199:25:[39m[22m
+[1m[31m[3[39m[22m[1m[31m7m      199 │       this.vsCodeService.[32mtrackAnalyticsEvent[37m(event, properties);[39m[22m
+[1m[31m          ╵                          [32m~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'saveState' does not exist on type 'VSCodeService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/core/src/lib/services/app-state.service.ts:145:23:[39m[22m
+[1m[31m[37m      145 │     this.vscodeService.[32msaveState[37m(state);[39m[22m
+[1m[31m          ╵                        [32m~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2307: Cannot find module './claude-message-transformer.service' or its corresponding type declarations.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/core/src/lib/services/chat-state.service.ts:7:44:[39m[22m
+[1m[31m[37m      7 │ ...ocessedClaudeMessage } from [32m'./claude-message-transformer.service'[37m;[39m[22m
+[1m[31m        ╵                                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "./chat-validation.service"[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/core/src/lib/services/index.ts:21:38:[39m[22m
+[1m[31m[37m      21 │ export { ChatValidationService } from [32m'./chat-validation.service'[37m;[39m[22m
+[1m[31m         ╵                                       [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2307: Cannot find module './chat-validation.service' or its corresponding type declarations.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/core/src/lib/services/index.ts:21:38:[39m[22m
+[1m[31m[37m      21 │ export { ChatValidationService } from [32m'./chat-validation.service'[37m;[39m[22m
+[1m[31m         ╵                                       [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "./claude-message-transformer.service"[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/core/src/lib/services/index.ts:22:48:[39m[22m
+[1m[31m[37m      22 │ ...eTransformerService } from [32m'./claude-message-transformer.service'[37m;[39m[22m
+[1m[31m         ╵         [39m[22m[1m[31m                      [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2307: Cannot find module './claude-message-transformer.service' or its corresponding type declarations.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/core/src/lib/services/index.ts:22:48:[39m[22m
+[1m[31m[37m      22 │ ...eTransformerService } from [32m'./claude-message-transformer.service'[37m;[39m[22m
+[1m[31m         ╵                               [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "./message-processing.service"[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/core/src/lib/services/index.ts:23:41:[39m[22m
+[1m[31m[37m      23 │ ... { MessageProcessingService } from [32m'./message-processing.service'[37m;[39m[22m
+[1m[31m         ╵                                       [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2307: Cannot find module './message-processing.service' or its corresponding type declarations.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/core/src/lib/services/index.ts:23:41:[39m[22m
+[1m[31m[37m      23 │ ... { MessageProcessingService } from [32m'./message-processing.service'[37m;[39m[22m
+[1m[31m         ╵                                       [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2345: Argument of type '"system:error"' is not assignable to parameter of type 'keyof MessagePayloadMap'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/core/src/lib/services/vscode.service.ts:188:27:[39m[22m
+[1m[31m[37m      188 │     this.postStrictMessage([32m'system:error'[37m, {[39m[22m
+[1m[31m          ╵                            [32m~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'refreshProviders' does not exist on type 'ProviderService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/providers/src/lib/components/settings-view/settings-view.component.ts:60:25:[39m[22m
+[1m[31m[37m      60 │     this.providerService.[32m[39m[22m[1m[31mrefreshProviders[37m();[39m[22m
+[1m[31m         ╵                          [32m~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'refreshProviders' does not exist on type 'ProviderService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/providers/src/lib/components/settings-view/settings-view.component.ts:79:25:[39m[22m
+[1m[31m[37m      79 │     this.providerService.[32mrefreshProviders[37m();[39m[22m
+[1m[31m         ╵                          [32m~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'switchProvider' does not exist on type 'ProviderService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/providers/src/lib/components/settings-view/settings-view.component.ts:86:25:[39m[22m
+[1m[31m[37m      86 │     this.providerService.[32mswitchProvider[37m(providerId);[39m[22m
+[1m[31m         ╵                          [32m~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'setDefaultProvider' does not exist on type 'ProviderService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/providers/src/lib/components/settings-view/settings-view.component.ts:93:25:[39m[22m
+[1m[31m[37m      93 │     this.providerService.[32msetDefaultProvider[37m(providerId);[39m[22m
+[1m[31m         ╵                          [32m~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'switchProvider' does not exist on type 'ProviderService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/providers/src/lib/containers/provider-manager.component.ts:150:25:[39m[22m
+[1m[31m[37m      150 │     this.providerService.[32mswitchProvider[37m(providerId, 'user-request');[39m[22m
+[1m[31m          ╵                          [32m~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2551: Property 'setFallbackEnabled' does not exist on type 'ProviderService'. Did you mean 'fallbackEnabled'?[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/providers/src/lib/containers/provider-manager.component.ts:162[39m[22m[1m[31m:25:[39m[22m
+[1m[31m[37m      162 │     this.providerService.[32msetFallbackEnabled[37m(enabled);[39m[22m
+[1m[31m          ╵                          [32m~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  'fallbackEnabled' is declared here.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/core/src/lib/services/provider.service.ts:98:11:[39m[22m
+[1m[31m[37m      98 │   readonly [32mfallbackEnabled[37m = this._fallbackEnabled.asReadonly();[39m[22m
+[1m[31m         ╵            [32m~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2551: Property 'setAutoSwitchEnabled' does not exist on type 'ProviderService'. Did you mean 'autoSwitchEnabled'?[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/providers/src/lib/containers/provider-manager.component.ts:174:25:[39m[22m
+[1m[31m[37m      174 │     this.providerService.[32msetAutoSwitchEnabled[37m(enabled);[39m[22m
+[1m[31m          ╵                          [32m~~~~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m  'autoSwitchEnabled' is declared here.[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/core/src/lib/services/provider.service.ts:99:11:[39m[22m
+[1m[31m[37m      99 │   readonly [32mautoSwitchEnabled[37m = this._autoSwitchEnabled.asReadonly();[39m[22m
+[1m[31m         ╵            [32m~~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'refreshProviders' does not exist on type 'ProviderService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/providers/src/lib/containers/provider-manager.component.ts:182:25:[39m[22m
+[1m[31m[37m      182 │     this.providerService.[32mrefreshProviders[37m();[39m[22m
+[1m[31m          ╵                          [32m~~~~~~~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2339: Property 'clearError' does not exist on type 'ProviderService'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m    libs/frontend/providers/src/lib/containers/provider-manager.component.ts:190:25:[39m[22m
+[1m[31m[37m      190 │     this.providerService.[32mclearError[37m();[39m[22m
+[1m[31m          ╵                          [32m~~~~~~~~~~[0m[39m[22m
+[1m[31m[39m[22m
+[1m[31m[39m[22m
+
+
+
+ NX   Running target build for 10 projects and 2 tasks they depend on failed
+
+Tasks not run because their dependencies failed or --nx-bail=true:
+
+- @ptah-extension/workspace-intelligence:build
+- @ptah-extension/template-generation:build
+- @ptah-extension/ai-providers-core:build
+- @ptah-extension/llm-abstraction:build
+- vscode-lm-tools:build
+- @ptah-extension/claude-domain:build
+- ptah-extension-vscode:build
+- ptah-extension-vscode:build-webpack:production
+- ptah-extension-vscode:post-build-copy
+
+Failed tasks:
+
+- @ptah-extension/vscode-core:build
+- ptah-extension-webview:build:production
+
+View structured, searchable error logs at https://cloud.nx.app/runs/6kVHCau8eA
+

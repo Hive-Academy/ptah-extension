@@ -6,13 +6,7 @@
 
 import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
-import { EventBus } from '../messaging/event-bus';
 import { TOKENS } from '../di/tokens';
-import {
-  ANALYTICS_MESSAGE_TYPES,
-  SYSTEM_MESSAGE_TYPES,
-  COMMAND_MESSAGE_TYPES,
-} from '@ptah-extension/shared';
 
 /**
  * Command definition interface with type safety
@@ -26,25 +20,7 @@ export interface CommandDefinition<T = unknown> {
   readonly when?: string; // VS Code when clause for conditional availability
 }
 
-/**
- * Command execution event payload for event bus
- */
-export interface CommandExecutedPayload {
-  readonly commandId: string;
-  readonly args: readonly unknown[];
-  readonly timestamp: number;
-  readonly duration?: number;
-}
-
-/**
- * Command error event payload for event bus
- */
-export interface CommandErrorPayload {
-  readonly commandId: string;
-  readonly error: string;
-  readonly timestamp: number;
-  readonly args?: readonly unknown[];
-}
+// TODO: Phase 2 - Restore analytics payload types when RPC is implemented
 
 /**
  * VS Code Command Manager with event integration
@@ -65,8 +41,7 @@ export class CommandManager {
 
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT)
-    private readonly context: vscode.ExtensionContext,
-    @inject(TOKENS.EVENT_BUS) private readonly eventBus: EventBus
+    private readonly context: vscode.ExtensionContext
   ) {}
 
   /**
@@ -86,11 +61,7 @@ export class CommandManager {
         const startTime = Date.now();
 
         try {
-          // Publish command execution started event
-          this.eventBus.publish(COMMAND_MESSAGE_TYPES.EXECUTE_COMMAND, {
-            templateId: definition.id,
-            parameters: this.argsToParameters(args),
-          });
+          // TODO: Phase 2 - Restore analytics via RPC (command execution started)
 
           // Execute the command handler
           await definition.handler(...args);
@@ -100,50 +71,14 @@ export class CommandManager {
           // Update metrics
           this.updateCommandMetrics(definition.id, duration, false);
 
-          // Publish successful execution event (using existing event payload structure)
-          const executedPayload: CommandExecutedPayload = {
-            commandId: definition.id,
-            args: args as readonly unknown[],
-            timestamp: Date.now(),
-            duration,
-          };
-
-          // Since we don't have a specific command:executed type in MessagePayloadMap,
-          // we'll use the generic analytics event with flattened properties
-          this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-            event: 'command:executed',
-            properties: {
-              commandId: executedPayload.commandId,
-              timestamp: executedPayload.timestamp,
-              duration: duration,
-              argsLength: executedPayload.args.length,
-            },
-          });
+          // TODO: Phase 2 - Restore analytics via RPC (command executed successfully)
         } catch (error) {
           const duration = Date.now() - startTime;
 
           // Update error metrics
           this.updateCommandMetrics(definition.id, duration, true);
 
-          // Publish error event
-          const errorPayload: CommandErrorPayload = {
-            commandId: definition.id,
-            error: error instanceof Error ? error.message : String(error),
-            timestamp: Date.now(),
-            args: args as readonly unknown[],
-          };
-
-          // Publish error using existing error event type
-          this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-            code: 'COMMAND_EXECUTION_ERROR',
-            message: `Command ${definition.id} failed: ${errorPayload.error}`,
-            source: 'CommandManager',
-            data: {
-              commandId: definition.id,
-              args: args as readonly unknown[],
-            },
-            timestamp: Date.now(),
-          });
+          // TODO: Phase 2 - Restore analytics via RPC (command execution error)
 
           // Re-throw to maintain VS Code error handling
           throw error;
@@ -238,20 +173,6 @@ export class CommandManager {
     this.registeredCommands.forEach((disposable) => disposable.dispose());
     this.registeredCommands.clear();
     this.commandMetrics.clear();
-  }
-
-  /**
-   * Convert command arguments to parameters object for event payload
-   * Handles the conversion from array args to parameter object expected by events
-   */
-  private argsToParameters(args: unknown[]): Record<string, unknown> {
-    const parameters: Record<string, unknown> = {};
-
-    args.forEach((arg, index) => {
-      parameters[`arg${index}`] = arg;
-    });
-
-    return parameters;
   }
 
   /**

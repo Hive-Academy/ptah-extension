@@ -9,8 +9,6 @@ import {
   output,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { combineLatest } from 'rxjs';
-import { toObservable, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 // Core Services
 import { ChatService, StreamConsumptionState } from '@ptah-extension/core';
@@ -244,16 +242,17 @@ export class DashboardComponent implements OnInit {
       return;
     }
 
-    // Monitor stream consumption state for additional performance insights
-    combineLatest([
-      toObservable(this.enhancedChat.streamConsumptionState),
-      toObservable(this.enhancedChat.messages),
-      toObservable(this.enhancedChat.isStreaming),
-    ])
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(([streamState, messages]) => {
-        this.trackPerformanceEvents(streamState, messages.length);
-      });
+    // TODO: Phase 2 - Replace with RPC-based performance monitoring
+    // The previous implementation used event-based observables that were removed.
+    // For now, performance tracking is handled through:
+    // 1. Signal-based reads from ChatService
+    // 2. Direct method calls to AnalyticsService
+    // 3. Manual refresh via refreshDashboard()
+    //
+    // Phase 2 will implement:
+    // - RPC-based event subscriptions for real-time updates
+    // - Proper request/response patterns for performance metrics
+    // - Structured event delivery instead of fire-and-forget
   }
 
   private trackPerformanceEvents(

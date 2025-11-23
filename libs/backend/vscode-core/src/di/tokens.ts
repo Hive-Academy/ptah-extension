@@ -17,11 +17,11 @@ export const WEBVIEW_PROVIDER = Symbol.for('WebviewProvider');
 export const COMMAND_REGISTRY = Symbol.for('CommandRegistry');
 
 // ========================================
-// Messaging System Tokens
+// Messaging System Tokens (DELETED - event-based system removed)
 // ========================================
-export const EVENT_BUS = Symbol.for('EventBus');
-export const MESSAGE_ROUTER = Symbol.for('MessageRouter');
-export const WEBVIEW_MESSAGE_BRIDGE = Symbol.for('WebviewMessageBridge');
+// EVENT_BUS - DELETED
+// MESSAGE_ROUTER - DELETED
+// WEBVIEW_MESSAGE_BRIDGE - DELETED
 
 // ========================================
 // API Wrapper Service Tokens
@@ -127,34 +127,24 @@ export const CLAUDE_CLI_ADAPTER = Symbol.for('ClaudeCliAdapter');
 export const VSCODE_LM_ADAPTER = Symbol.for('VsCodeLmAdapter');
 
 // ========================================
-// Claude Domain Service Tokens
+// Claude Domain Service Tokens (PARTIALLY DELETED)
 // ========================================
-// Core domain services
-export const SESSION_MANAGER = Symbol.for('SessionManager');
-export const SESSION_PROXY = Symbol.for('SessionProxy');
+// Core domain services (KEPT)
 export const CLAUDE_CLI_DETECTOR = Symbol.for('ClaudeCliDetector');
 export const CLAUDE_CLI_SERVICE = Symbol.for('ClaudeCliService');
 export const CLAUDE_CLI_LAUNCHER = Symbol.for('ClaudeCliLauncher');
 export const PERMISSION_SERVICE = Symbol.for('PermissionService');
 export const PROCESS_MANAGER = Symbol.for('ProcessManager');
-export const CLAUDE_DOMAIN_EVENT_PUBLISHER = Symbol.for(
-  'ClaudeDomainEventPublisher'
-);
 
-// Orchestration services
-export const CHAT_ORCHESTRATION_SERVICE = Symbol.for(
-  'ChatOrchestrationService'
-);
-export const PROVIDER_ORCHESTRATION_SERVICE = Symbol.for(
-  'ProviderOrchestrationService'
-);
-export const ANALYTICS_ORCHESTRATION_SERVICE = Symbol.for(
-  'AnalyticsOrchestrationService'
-);
-export const CONFIG_ORCHESTRATION_SERVICE = Symbol.for(
-  'ConfigOrchestrationService'
-);
-export const MESSAGE_HANDLER_SERVICE = Symbol.for('MessageHandlerService');
+// DELETED tokens (event-based orchestration removed)
+// SESSION_MANAGER - DELETED
+// SESSION_PROXY - DELETED
+// CLAUDE_DOMAIN_EVENT_PUBLISHER - DELETED
+// CHAT_ORCHESTRATION_SERVICE - DELETED
+// PROVIDER_ORCHESTRATION_SERVICE - DELETED
+// ANALYTICS_ORCHESTRATION_SERVICE - DELETED
+// CONFIG_ORCHESTRATION_SERVICE - DELETED
+// MESSAGE_HANDLER_SERVICE - DELETED
 
 // Service dependencies
 export const STORAGE_SERVICE = Symbol.for('StorageService');
@@ -191,11 +181,11 @@ export const TOKENS = {
   WEBVIEW_MANAGER,
 
   // ========================================
-  // Messaging
+  // Messaging (DELETED - event-based system removed)
   // ========================================
-  EVENT_BUS,
-  MESSAGE_ROUTER,
-  WEBVIEW_MESSAGE_BRIDGE,
+  // EVENT_BUS - DELETED
+  // MESSAGE_ROUTER - DELETED
+  // WEBVIEW_MESSAGE_BRIDGE - DELETED
 
   // ========================================
   // API Wrappers
@@ -277,23 +267,19 @@ export const TOKENS = {
   VSCODE_LM_ADAPTER,
 
   // ========================================
-  // Claude Domain Services
+  // Claude Domain Services (PARTIALLY DELETED)
   // ========================================
-  SESSION_MANAGER,
-  SESSION_PROXY,
   CLAUDE_CLI_DETECTOR,
   CLAUDE_CLI_SERVICE,
   CLAUDE_CLI_LAUNCHER,
   PERMISSION_SERVICE,
   PROCESS_MANAGER,
-  CLAUDE_DOMAIN_EVENT_PUBLISHER,
-  CHAT_ORCHESTRATION_SERVICE,
-  PROVIDER_ORCHESTRATION_SERVICE,
-  ANALYTICS_ORCHESTRATION_SERVICE,
-  CONFIG_ORCHESTRATION_SERVICE,
-  MESSAGE_HANDLER_SERVICE,
   STORAGE_SERVICE,
   CONFIGURATION_PROVIDER,
+  // DELETED: SESSION_MANAGER, SESSION_PROXY, CLAUDE_DOMAIN_EVENT_PUBLISHER,
+  // CHAT_ORCHESTRATION_SERVICE, PROVIDER_ORCHESTRATION_SERVICE,
+  // ANALYTICS_ORCHESTRATION_SERVICE, CONFIG_ORCHESTRATION_SERVICE,
+  // MESSAGE_HANDLER_SERVICE
 
   // ========================================
   // Main App Services

@@ -6,7 +6,6 @@
 
 import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
-import { EventBus } from '../messaging/event-bus';
 import { TOKENS } from '../di/tokens';
 import type {
   WebviewMessage,
@@ -14,10 +13,6 @@ import type {
   MessagePayloadMap,
 } from '@ptah-extension/shared';
 import { isSystemMessage, isRoutableMessage } from '@ptah-extension/shared';
-import {
-  ANALYTICS_MESSAGE_TYPES,
-  SYSTEM_MESSAGE_TYPES,
-} from '@ptah-extension/shared';
 
 /**
  * Webview panel configuration options
@@ -83,8 +78,7 @@ export class WebviewManager {
 
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT)
-    private readonly context: vscode.ExtensionContext,
-    @inject(TOKENS.EVENT_BUS) private readonly eventBus: EventBus
+    private readonly context: vscode.ExtensionContext
   ) {}
 
   /**
@@ -161,16 +155,7 @@ export class WebviewManager {
       });
     }
 
-    // Publish webview created event
-    this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-      event: 'webview:created',
-      properties: {
-        webviewId: config.viewType,
-        viewType: config.viewType,
-        title: config.title,
-        timestamp: Date.now(),
-      },
-    });
+    // TODO: Phase 2 - Restore analytics via RPC (webview created)
 
     return panel;
   }
@@ -204,26 +189,10 @@ export class WebviewManager {
       this.activeWebviewViews.delete(viewType);
       this.webviewMetrics.delete(viewType);
 
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'webview:disposed',
-        properties: {
-          webviewId: viewType,
-          viewType,
-          timestamp: Date.now(),
-        },
-      });
+      // TODO: Phase 2 - Restore analytics via RPC (webview disposed)
     });
 
-    // Publish webview created event
-    this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-      event: 'webview:created',
-      properties: {
-        webviewId: viewType,
-        viewType: viewType,
-        title: 'Ptah Sidebar',
-        timestamp: Date.now(),
-      },
-    });
+    // TODO: Phase 2 - Restore analytics via RPC (webview created)
 
     console.log(
       `[WebviewManager] WebviewView registered successfully: ${viewType}`
@@ -260,12 +229,7 @@ export class WebviewManager {
         `[WebviewManager] Active views:`,
         Array.from(this.activeWebviewViews.keys())
       );
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'WEBVIEW_NOT_FOUND',
-        message: `Webview ${viewType} not found`,
-        source: 'WebviewManager',
-        timestamp: Date.now(),
-      });
+      // TODO: Phase 2 - Restore error reporting via RPC
       return false;
     }
 
@@ -280,13 +244,7 @@ export class WebviewManager {
       return true;
     } catch (error) {
       console.error(`[WebviewManager] postMessage() threw error:`, error);
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'WEBVIEW_MESSAGE_SEND_FAILED',
-        message: `Failed to send message to webview ${viewType}: ${error}`,
-        source: 'WebviewManager',
-        data: { viewType, type, payload },
-        timestamp: Date.now(),
-      });
+      // TODO: Phase 2 - Restore error reporting via RPC
       return false;
     }
   }
@@ -383,25 +341,18 @@ export class WebviewManager {
       // Handle system messages internally
       this.handleSystemMessage(webviewId, message);
     } else if (isRoutableMessage(message)) {
-      // Route to event bus for handling by other services
-      // Type assertion is safe here since isRoutableMessage validates the type
-      this.eventBus.publish(
-        message.type as keyof MessagePayloadMap,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        message.payload as any
+      // TODO: Phase 2 - Route to RPC handler for message processing
+      console.warn(
+        `[WebviewManager] Routable message received but EventBus removed:`,
+        message.type
       );
     } else {
-      // Fallback for messages that don't match our type system
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'INVALID_WEBVIEW_MESSAGE',
-        message: `Invalid message type received from webview: ${
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (message as any).type
-        }`,
-        source: 'WebviewManager',
-        data: { webviewId, message },
-        timestamp: Date.now(),
-      });
+      // TODO: Phase 2 - Restore error reporting via RPC
+      console.error(
+        `[WebviewManager] Invalid message type:`,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (message as any).type
+      );
     }
   }
 
@@ -413,13 +364,7 @@ export class WebviewManager {
   private handleSystemMessage(webviewId: string, message: any): void {
     switch (message.type) {
       case 'webview-ready':
-        this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-          event: 'webview:ready',
-          properties: {
-            webviewId,
-            timestamp: Date.now(),
-          },
-        });
+        // TODO: Phase 2 - Restore analytics via RPC (webview ready)
         break;
 
       case 'requestInitialData':
@@ -441,15 +386,7 @@ export class WebviewManager {
     this.activeWebviews.delete(viewType);
     this.webviewMetrics.delete(viewType);
 
-    // Publish disposal event
-    this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-      event: 'webview:disposed',
-      properties: {
-        webviewId: viewType,
-        viewType,
-        timestamp: Date.now(),
-      },
-    });
+    // TODO: Phase 2 - Restore analytics via RPC (webview disposed)
   }
 
   /**
@@ -462,14 +399,6 @@ export class WebviewManager {
       metrics.lastActivity = Date.now();
     }
 
-    // Publish visibility change event
-    this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-      event: 'webview:visibilityChanged',
-      properties: {
-        webviewId: viewType,
-        visible,
-        timestamp: Date.now(),
-      },
-    });
+    // TODO: Phase 2 - Restore analytics via RPC (webview visibility changed)
   }
 }
