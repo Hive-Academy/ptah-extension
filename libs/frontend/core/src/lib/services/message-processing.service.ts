@@ -4,6 +4,7 @@ import {
   StrictChatMessage,
   CorrelationId,
   MessageError,
+  MessageNormalizer,
 } from '@ptah-extension/shared';
 import {
   ClaudeMessageTransformerService,
@@ -168,12 +169,24 @@ export class MessageProcessingService {
       | { input: number; output: number; total: number }
       | undefined;
 
+    // DEFENSIVE: Ensure contentBlocks exists and is array
+    let contentBlocks = strictMessage.contentBlocks || [];
+
+    // DEFENSIVE: If contentBlocks is empty, try to normalize from legacy content field
+    if (contentBlocks.length === 0 && (strictMessage as any).content) {
+      const normalized = MessageNormalizer.normalize({
+        role: strictMessage.type,
+        content: (strictMessage as any).content,
+      });
+      contentBlocks = normalized.contentBlocks;
+    }
+
     return {
       id: strictMessage.id,
       sessionId: strictMessage.sessionId,
       timestamp: strictMessage.timestamp,
       type: strictMessage.type,
-      content: strictMessage.contentBlocks.map((block) => {
+      content: contentBlocks.map((block) => {
         if (block.type === 'text') {
           return { type: 'text', text: block.text };
         } else if (block.type === 'tool_use') {
