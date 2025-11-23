@@ -1,19 +1,28 @@
 {
-  "name": "llm-abstraction",
+  "name": "@ptah-extension/llm-abstraction",
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/backend/llm-abstraction/src",
   "projectType": "library",
-  "tags": [],
+  "tags": ["scope:extension", "type:feature"],
   "targets": {
     "build": {
-      "executor": "@nx/js:tsc",
+      "executor": "@nx/esbuild:esbuild",
       "outputs": ["{options.outputPath}"],
       "options": {
         "outputPath": "dist/libs/backend/llm-abstraction",
-        "tsConfig": "libs/backend/llm-abstraction/tsconfig.lib.json",
-        "packageJson": "libs/backend/llm-abstraction/package.json",
         "main": "libs/backend/llm-abstraction/src/index.ts",
-        "assets": ["libs/backend/llm-abstraction/*.md"]
+        "tsConfig": "libs/backend/llm-abstraction/tsconfig.lib.json",
+        "assets": ["libs/backend/llm-abstraction/*.md"],
+        "format": ["cjs"],
+        "external": [
+          "tsyringe",
+          "@langchain/core",
+          "@langchain/anthropic",
+          "@langchain/openai",
+          "@langchain/google-genai",
+          "langchain",
+          "zod"
+        ]
       }
     },
     "test": {
@@ -22,6 +31,15 @@
       "options": {
         "jestConfig": "libs/backend/llm-abstraction/jest.config.ts"
       }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project libs/backend/llm-abstraction/tsconfig.lib.json"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
     }
   }
 }

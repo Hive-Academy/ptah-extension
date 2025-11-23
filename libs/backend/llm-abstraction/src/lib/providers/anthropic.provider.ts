@@ -28,7 +28,7 @@ export class AnthropicProvider extends BaseLlmProvider {
   constructor(
     private readonly apiKey: string,
     private readonly modelName: string,
-    private readonly temperature: number = 0.7,
+    private readonly temperature = 0.7,
     private readonly maxTokens?: number
   ) {
     super();

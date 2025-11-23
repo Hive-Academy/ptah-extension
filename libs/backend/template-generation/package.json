@@ -3,9 +3,13 @@
   "version": "0.0.1",
   "private": true,
   "type": "commonjs",
-  "main": "./src/index.js",
-  "types": "./src/index.d.ts",
+  "main": "./index.cjs",
+  "types": "./index.d.ts",
   "dependencies": {
-    "tslib": "^2.3.0"
+    "@ptah-extension/shared": "*",
+    "@ptah-extension/vscode-core": "0.0.1",
+    "@ptah-extension/llm-abstraction": "0.0.1",
+    "@ptah-extension/workspace-intelligence": "0.0.1",
+    "tsyringe": "^4.8.0"
   }
 }

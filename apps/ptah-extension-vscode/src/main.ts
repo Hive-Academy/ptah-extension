@@ -97,6 +97,18 @@ export async function activate(
     logger.info('Language Model Tools registered (6 tools)');
     console.log('[Activate] Step 8: Language Model Tools registered');
 
+    // Start Code Execution MCP Server
+    console.log('[Activate] Step 9: Starting Code Execution MCP Server...');
+    const codeExecutionMCP = DIContainer.resolve(TOKENS.CODE_EXECUTION_MCP);
+    const mcpPort = await (
+      codeExecutionMCP as { start: () => Promise<number> }
+    ).start();
+    context.subscriptions.push(codeExecutionMCP as vscode.Disposable);
+    logger.info(`Code Execution MCP Server started on port ${mcpPort}`);
+    console.log(
+      `[Activate] Step 9: Code Execution MCP Server started (port ${mcpPort})`
+    );
+
     logger.info('Ptah extension activated successfully');
     console.log('===== PTAH ACTIVATION COMPLETE =====');
 

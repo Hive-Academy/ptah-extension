@@ -65,6 +65,8 @@ import {
   FindSymbolTool,
   GetGitStatusTool,
   LMToolsRegistrationService,
+  PtahAPIBuilder,
+  CodeExecutionMCP,
 } from '@ptah-extension/vscode-lm-tools';
 
 // Import ai-providers-core services
@@ -260,6 +262,10 @@ export class DIContainer {
       TOKENS.LM_TOOLS_REGISTRATION_SERVICE,
       LMToolsRegistrationService
     );
+
+    // Code Execution MCP services
+    container.registerSingleton(TOKENS.PTAH_API_BUILDER, PtahAPIBuilder);
+    container.registerSingleton(TOKENS.CODE_EXECUTION_MCP, CodeExecutionMCP);
 
     // ========================================
     // PHASE 3: AI Providers Core Services

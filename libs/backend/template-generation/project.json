@@ -1,19 +1,20 @@
 {
-  "name": "template-generation",
+  "name": "@ptah-extension/template-generation",
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/backend/template-generation/src",
   "projectType": "library",
-  "tags": [],
+  "tags": ["scope:extension", "type:feature"],
   "targets": {
     "build": {
-      "executor": "@nx/js:tsc",
+      "executor": "@nx/esbuild:esbuild",
       "outputs": ["{options.outputPath}"],
       "options": {
         "outputPath": "dist/libs/backend/template-generation",
-        "tsConfig": "libs/backend/template-generation/tsconfig.lib.json",
-        "packageJson": "libs/backend/template-generation/package.json",
         "main": "libs/backend/template-generation/src/index.ts",
-        "assets": ["libs/backend/template-generation/*.md"]
+        "tsConfig": "libs/backend/template-generation/tsconfig.lib.json",
+        "assets": ["libs/backend/template-generation/*.md"],
+        "format": ["cjs"],
+        "external": ["tsyringe", "@langchain/core", "zod"]
       }
     },
     "test": {
@@ -22,6 +23,15 @@
       "options": {
         "jestConfig": "libs/backend/template-generation/jest.config.ts"
       }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project libs/backend/template-generation/tsconfig.lib.json"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
     }
   }
 }

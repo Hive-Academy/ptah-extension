@@ -12,7 +12,7 @@
 export class TemplateError extends Error {
   constructor(
     message: string,
-    public readonly code: string = 'TEMPLATE_ERROR',
+    public readonly code = 'TEMPLATE_ERROR',
     public readonly context?: Record<string, unknown>,
     public readonly cause?: Error
   ) {

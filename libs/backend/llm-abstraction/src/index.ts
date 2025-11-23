@@ -1,33 +1,33 @@
 // ========================================
 // Interfaces
 // ========================================
-export * from './interfaces/llm-provider.interface';
+export * from './lib/interfaces/llm-provider.interface';
 
 // ========================================
 // Errors
 // ========================================
-export * from './errors/llm-provider.error';
+export * from './lib/errors/llm-provider.error';
 
 // ========================================
 // Providers
 // ========================================
-export { BaseLlmProvider } from './providers/base-llm.provider';
-export { AnthropicProvider } from './providers/anthropic.provider';
-export { OpenAIProvider } from './providers/openai.provider';
-export { GoogleGenAIProvider } from './providers/google-genai.provider';
-export { OpenRouterProvider } from './providers/openrouter.provider';
+export { BaseLlmProvider } from './lib/providers/base-llm.provider';
+export { AnthropicProvider } from './lib/providers/anthropic.provider';
+export { OpenAIProvider } from './lib/providers/openai.provider';
+export { GoogleGenAIProvider } from './lib/providers/google-genai.provider';
+export { OpenRouterProvider } from './lib/providers/openrouter.provider';
 
 // ========================================
 // Registry
 // ========================================
-export { ProviderRegistry } from './registry/provider-registry';
+export { ProviderRegistry } from './lib/registry/provider-registry';
 
 // ========================================
 // Services
 // ========================================
-export { LlmService } from './services/llm.service';
+export { LlmService } from './lib/services/llm.service';
 
 // ========================================
 // DI Registration
 // ========================================
-export { registerLlmAbstraction } from './di/registration';
+export { registerLlmAbstraction } from './lib/di/registration';
