@@ -121,13 +121,32 @@ export class ChatValidationService {
     // Validate content based on type
     const msgType = chatMsg['type'] as string;
     if (msgType === 'user' || msgType === 'assistant') {
-      if (!chatMsg['content'] || typeof chatMsg['content'] !== 'string') {
-        errors.push('Content is required for user and assistant messages');
-      } else {
-        // Add warnings for content issues
-        warnings.push(
-          ...this.getChatMessageContentWarnings(chatMsg['content'] as string)
-        );
+      // UPDATED: Accept contentBlocks: Array (NEW FORMAT - preferred)
+      if (chatMsg['contentBlocks']) {
+        // Validate contentBlocks structure
+        if (!Array.isArray(chatMsg['contentBlocks'])) {
+          errors.push('contentBlocks must be an array');
+        } else if (chatMsg['contentBlocks'].length === 0) {
+          warnings.push('contentBlocks array is empty');
+        }
+      }
+      // DEPRECATED: Accept content: string (LEGACY FORMAT - for backward compatibility)
+      else if (chatMsg['content']) {
+        if (typeof chatMsg['content'] !== 'string') {
+          errors.push('content must be a string (legacy format)');
+        } else {
+          // Add warnings for content issues
+          warnings.push(
+            ...this.getChatMessageContentWarnings(chatMsg['content'] as string)
+          );
+          warnings.push(
+            'Using legacy content format - migrate to contentBlocks'
+          );
+        }
+      }
+      // NEITHER format present
+      else {
+        errors.push('Either contentBlocks or content is required');
       }
     }
 
