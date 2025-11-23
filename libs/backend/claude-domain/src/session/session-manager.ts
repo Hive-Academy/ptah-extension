@@ -15,6 +15,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import * as vscode from 'vscode';
 import {
   SessionId,
   MessageId,
@@ -165,13 +166,34 @@ export class SessionManager {
   }
 
   /**
+   * Get workspace root path from VS Code API
+   *
+   * CRITICAL FIX (TASK_2025_014): SessionProxy requires workspace root to locate .jsonl files
+   * Returns first workspace folder or undefined if no workspace is open
+   *
+   * @private
+   * @returns Workspace root path or undefined
+   */
+  private getWorkspaceRoot(): string | undefined {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+      return undefined;
+    }
+    return workspaceFolders[0].uri.fsPath;
+  }
+
+  /**
    * Helper method to check if session exists in .jsonl files
    *
    * @param sessionId - Session ID to check
    * @returns True if session exists, false otherwise
    */
   private async sessionExists(sessionId: SessionId): Promise<boolean> {
-    const sessionDetails = await this.sessionProxy.getSessionDetails(sessionId);
+    const workspaceRoot = this.getWorkspaceRoot();
+    const sessionDetails = await this.sessionProxy.getSessionDetails(
+      sessionId,
+      workspaceRoot
+    );
     return sessionDetails !== null;
   }
 
@@ -253,8 +275,10 @@ export class SessionManager {
   async getSession(
     sessionId: SessionId
   ): Promise<StrictChatSession | undefined> {
+    const workspaceRoot = this.getWorkspaceRoot();
+
     // Get all sessions and find by ID
-    const allSessions = await this.sessionProxy.listSessions();
+    const allSessions = await this.sessionProxy.listSessions(workspaceRoot);
     const sessionSummary = allSessions.find((s) => s.id === sessionId);
 
     if (!sessionSummary) {
@@ -262,7 +286,10 @@ export class SessionManager {
     }
 
     // Read messages from .jsonl
-    const messages = await this.sessionProxy.getSessionMessages(sessionId);
+    const messages = await this.sessionProxy.getSessionMessages(
+      sessionId,
+      workspaceRoot
+    );
 
     return {
       id: sessionId,
@@ -292,8 +319,12 @@ export class SessionManager {
    * @returns Array of all sessions
    */
   async getAllSessions(): Promise<StrictChatSession[]> {
+    const workspaceRoot = this.getWorkspaceRoot();
+
     // Read session list from .jsonl directory via SessionProxy
-    const sessionSummaries = await this.sessionProxy.listSessions();
+    const sessionSummaries = await this.sessionProxy.listSessions(
+      workspaceRoot
+    );
 
     // Convert summaries to StrictChatSession format (without messages)
     const sessions = sessionSummaries.map((summary) => ({
