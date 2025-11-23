@@ -13,3 +13,4 @@ export * from './lib/constants/message-registry';
 
 // Utilities
 export * from './lib/utils/message-normalizer';
+export * from './lib/utils';
