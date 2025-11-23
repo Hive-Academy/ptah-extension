@@ -86,6 +86,19 @@ export const LLM_SERVICE = Symbol.for('LlmService');
 export const PROVIDER_REGISTRY = Symbol.for('ProviderRegistry');
 
 // ========================================
+// Template Generation Service Tokens
+// ========================================
+export const TEMPLATE_MANAGER = Symbol.for('TemplateManager');
+export const CONTENT_GENERATOR = Symbol.for('ContentGenerator');
+export const CONTENT_PROCESSOR = Symbol.for('ContentProcessor');
+export const TEMPLATE_PROCESSOR = Symbol.for('TemplateProcessor');
+export const TEMPLATE_FILE_MANAGER = Symbol.for('TemplateFileManager');
+export const TEMPLATE_ORCHESTRATOR = Symbol.for('TemplateOrchestrator');
+export const TEMPLATE_GENERATOR_SERVICE = Symbol.for(
+  'TemplateGeneratorService'
+);
+
+// ========================================
 // VS Code Language Model Tools
 // ========================================
 export const ANALYZE_WORKSPACE_TOOL = Symbol.for('AnalyzeWorkspaceTool');
@@ -224,6 +237,17 @@ export const TOKENS = {
   // ========================================
   LLM_SERVICE,
   PROVIDER_REGISTRY,
+
+  // ========================================
+  // Template Generation
+  // ========================================
+  TEMPLATE_MANAGER,
+  CONTENT_GENERATOR,
+  CONTENT_PROCESSOR,
+  TEMPLATE_PROCESSOR,
+  TEMPLATE_FILE_MANAGER,
+  TEMPLATE_ORCHESTRATOR,
+  TEMPLATE_GENERATOR_SERVICE,
 
   // ========================================
   // VS Code Language Model Tools
