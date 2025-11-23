@@ -15,7 +15,8 @@
       "Bash(git commit:*)",
       "Bash(npm run lint:all:*)",
       "Bash(npx nx:*)",
-      "Bash(npx eslint:*)"
+      "Bash(npx eslint:*)",
+      "Bash(npm run build:*)"
     ],
     "deny": [],
     "ask": [],

@@ -117,12 +117,12 @@ import { toObservable, takeUntilDestroyed } from '@angular/core/rxjs-interop';
               <button
                 type="button"
                 class="session-item"
-                [class.active]="isActiveSession(session.id)"
-                (click)="selectSession(session.id)"
+                [class.active]="isActiveSession(toSessionId(session.id))"
+                (click)="selectSession(toSessionId(session.id))"
               >
                 <!-- Status Indicator -->
                 <div class="session-status">
-                  @if (isActiveSession(session.id)) {
+                  @if (isActiveSession(toSessionId(session.id))) {
                   <div
                     class="status-dot status-active"
                     aria-label="Active session"
@@ -641,6 +641,10 @@ export class SessionSearchOverlayComponent {
       event.preventDefault();
       this.close();
     }
+  }
+
+  toSessionId(id: string): SessionId {
+    return id as SessionId;
   }
 
   isActiveSession(sessionId: SessionId): boolean {

@@ -49,3 +49,7 @@ export * from './agent-activity-timeline/agent-activity-timeline.component';
 export * from './thinking-block/thinking-block.component';
 export * from './tool-use-block/tool-use-block.component';
 export * from './tool-result-block/tool-result-block.component';
+
+// Session Management Components (2/2 complete) ✅ TASK_SESSION_MANAGEMENT - Batch 3
+export * from './session-dropdown/session-dropdown.component';
+export * from './session-search-overlay/session-search-overlay.component';

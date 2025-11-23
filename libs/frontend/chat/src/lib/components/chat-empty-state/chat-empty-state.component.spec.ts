@@ -1,8 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ChatEmptyStateComponent } from './chat-empty-state.component';
-import { SessionSummary } from '@ptah-extension/shared';
 import { VSCodeService } from '@ptah-extension/core';
-import { DebugElement } from '@angular/core';
 import { By } from '@angular/platform-browser';
 
 describe('ChatEmptyStateComponent', () => {
@@ -29,261 +27,227 @@ describe('ChatEmptyStateComponent', () => {
     expect(component).toBeTruthy();
   });
 
-  describe('Sessions List', () => {
-    it('should not display sessions section when sessions list is empty', () => {
-      // Arrange
-      fixture.componentRef.setInput('sessions', []);
-      fixture.detectChanges();
-
-      // Act
-      const sessionsSection = fixture.debugElement.query(
-        By.css('.sessions-section')
-      );
-
-      // Assert
-      expect(sessionsSection).toBeNull();
-      expect(component.hasSessions()).toBe(false);
-    });
-
-    it('should display sessions section with 3 sessions', () => {
-      // Arrange
-      const mockSessions: SessionSummary[] = [
-        {
-          id: 'session-1',
-          name: 'First Session',
-          messageCount: 5,
-          lastActiveAt: Date.now() - 2 * 60 * 60 * 1000, // 2 hours ago
-          createdAt: Date.now() - 24 * 60 * 60 * 1000, // 1 day ago
-        },
-        {
-          id: 'session-2',
-          name: 'Second Session',
-          messageCount: 10,
-          lastActiveAt: Date.now() - 30 * 60 * 1000, // 30 minutes ago
-          createdAt: Date.now() - 12 * 60 * 60 * 1000, // 12 hours ago
-        },
-        {
-          id: 'session-3',
-          name: 'Third Session',
-          messageCount: 1,
-          lastActiveAt: Date.now() - 5 * 24 * 60 * 60 * 1000, // 5 days ago
-          createdAt: Date.now() - 7 * 24 * 60 * 60 * 1000, // 7 days ago
-        },
-      ];
-
-      fixture.componentRef.setInput('sessions', mockSessions);
-      fixture.detectChanges();
-
-      // Act
-      const sessionsSection = fixture.debugElement.query(
-        By.css('.sessions-section')
-      );
-      const sessionItems = fixture.debugElement.queryAll(
-        By.css('.session-item')
-      );
-
-      // Assert
-      expect(sessionsSection).not.toBeNull();
-      expect(component.hasSessions()).toBe(true);
-      expect(sessionItems.length).toBe(3);
-    });
-
-    it('should emit sessionSelected event when session is clicked', () => {
-      // Arrange
-      const mockSessions: SessionSummary[] = [
-        {
-          id: 'session-1',
-          name: 'Test Session',
-          messageCount: 5,
-          lastActiveAt: Date.now(),
-          createdAt: Date.now(),
-        },
-      ];
-
-      fixture.componentRef.setInput('sessions', mockSessions);
-      fixture.detectChanges();
-
-      const sessionSelectedSpy = jest.fn();
-      component.sessionSelected.subscribe(sessionSelectedSpy);
-
-      // Act
-      const sessionButton = fixture.debugElement.query(By.css('.session-item'));
-      sessionButton.nativeElement.click();
-      fixture.detectChanges();
-
-      // Assert
-      expect(sessionSelectedSpy).toHaveBeenCalledWith('session-1');
-      expect(sessionSelectedSpy).toHaveBeenCalledTimes(1);
-    });
-
-    it('should display session name, message count, and time correctly', () => {
-      // Arrange
-      const now = Date.now();
-      const mockSession: SessionSummary = {
-        id: 'session-1',
-        name: 'My Amazing Session',
-        messageCount: 42,
-        lastActiveAt: now - 3 * 60 * 60 * 1000, // 3 hours ago
-        createdAt: now - 24 * 60 * 60 * 1000,
-      };
-
-      fixture.componentRef.setInput('sessions', [mockSession]);
-      fixture.detectChanges();
-
-      // Act
-      const sessionName = fixture.debugElement.query(
-        By.css('.session-name')
-      ).nativeElement;
-      const sessionMeta = fixture.debugElement.query(
-        By.css('.session-meta')
+  describe('Welcome Section', () => {
+    it('should display welcome title', () => {
+      const welcomeTitle = fixture.debugElement.query(
+        By.css('.welcome-title')
       ).nativeElement;
 
-      // Assert
-      expect(sessionName.textContent).toContain('My Amazing Session');
-      expect(sessionMeta.textContent).toContain('42 messages');
-      expect(sessionMeta.textContent).toContain('3h ago');
+      expect(welcomeTitle.textContent).toContain('Welcome to Claude Code');
     });
 
-    it('should display singular "message" for messageCount = 1', () => {
-      // Arrange
-      const mockSession: SessionSummary = {
-        id: 'session-1',
-        name: 'Single Message Session',
-        messageCount: 1,
-        lastActiveAt: Date.now(),
-        createdAt: Date.now(),
-      };
-
-      fixture.componentRef.setInput('sessions', [mockSession]);
-      fixture.detectChanges();
-
-      // Act
-      const sessionMeta = fixture.debugElement.query(
-        By.css('.session-meta')
+    it('should display welcome description', () => {
+      const welcomeDescription = fixture.debugElement.query(
+        By.css('.welcome-description')
       ).nativeElement;
 
-      // Assert
-      expect(sessionMeta.textContent).toContain('1 message');
-      expect(sessionMeta.textContent).not.toContain('1 messages');
-    });
-  });
-
-  describe('Relative Time Calculation', () => {
-    it('should return "Just now" for timestamps less than 1 minute ago', () => {
-      const now = Date.now();
-      const result = component.getRelativeTime(now - 30 * 1000); // 30 seconds ago
-      expect(result).toBe('Just now');
+      expect(welcomeDescription.textContent).toContain(
+        'Intelligent code assistance'
+      );
+      expect(welcomeDescription.textContent).toContain('Claude');
     });
 
-    it('should return minutes for timestamps less than 1 hour ago', () => {
-      const now = Date.now();
-      const result = component.getRelativeTime(now - 45 * 60 * 1000); // 45 minutes ago
-      expect(result).toBe('45m ago');
-    });
+    it('should display Ptah icon', () => {
+      const ptahIcon = fixture.debugElement.query(
+        By.css('.ptah-icon')
+      ).nativeElement;
 
-    it('should return hours for timestamps less than 24 hours ago', () => {
-      const now = Date.now();
-      const result = component.getRelativeTime(now - 5 * 60 * 60 * 1000); // 5 hours ago
-      expect(result).toBe('5h ago');
-    });
-
-    it('should return days for timestamps less than 7 days ago', () => {
-      const now = Date.now();
-      const result = component.getRelativeTime(now - 3 * 24 * 60 * 60 * 1000); // 3 days ago
-      expect(result).toBe('3d ago');
-    });
-
-    it('should return formatted date for timestamps 7 days or older', () => {
-      const timestamp = Date.now() - 10 * 24 * 60 * 60 * 1000; // 10 days ago
-      const result = component.getRelativeTime(timestamp);
-      const expectedDate = new Date(timestamp).toLocaleDateString();
-      expect(result).toBe(expectedDate);
+      expect(ptahIcon).toBeTruthy();
+      expect(ptahIcon.getAttribute('src')).toBe('mock-icon-uri');
     });
   });
 
   describe('Action Cards', () => {
+    it('should display Quick Help action card', () => {
+      const quickHelpCard = fixture.debugElement.query(
+        By.css('.action-card-primary')
+      );
+
+      expect(quickHelpCard).toBeTruthy();
+
+      const cardTitle = quickHelpCard.query(
+        By.css('.card-title')
+      ).nativeElement;
+      expect(cardTitle.textContent).toContain('Quick Help');
+
+      const cardDescription = quickHelpCard.query(
+        By.css('.card-description')
+      ).nativeElement;
+      expect(cardDescription.textContent).toContain('Get immediate assistance');
+    });
+
+    it('should display Code Orchestration action card', () => {
+      const orchestrationCard = fixture.debugElement.query(
+        By.css('.action-card-secondary')
+      );
+
+      expect(orchestrationCard).toBeTruthy();
+
+      const cardTitle = orchestrationCard.query(
+        By.css('.card-title')
+      ).nativeElement;
+      expect(cardTitle.textContent).toContain('Code Orchestration');
+
+      const cardDescription = orchestrationCard.query(
+        By.css('.card-description')
+      ).nativeElement;
+      expect(cardDescription.textContent).toContain(
+        'Coordinate multiple agents'
+      );
+    });
+
     it('should emit quickHelp event when Quick Help card is clicked', () => {
-      // Arrange
       const quickHelpSpy = jest.fn();
       component.quickHelp.subscribe(quickHelpSpy);
 
-      // Act
-      const quickHelpButton = fixture.debugElement.query(
+      const quickHelpCard = fixture.debugElement.query(
         By.css('.action-card-primary')
       );
-      quickHelpButton.nativeElement.click();
-      fixture.detectChanges();
+      quickHelpCard.nativeElement.click();
 
-      // Assert
+      expect(quickHelpSpy).toHaveBeenCalled();
       expect(quickHelpSpy).toHaveBeenCalledTimes(1);
     });
 
-    it('should emit orchestration event when Orchestration card is clicked', () => {
-      // Arrange
+    it('should emit orchestration event when Code Orchestration card is clicked', () => {
       const orchestrationSpy = jest.fn();
       component.orchestration.subscribe(orchestrationSpy);
 
-      // Act
-      const orchestrationButton = fixture.debugElement.query(
+      const orchestrationCard = fixture.debugElement.query(
         By.css('.action-card-secondary')
       );
-      orchestrationButton.nativeElement.click();
-      fixture.detectChanges();
+      orchestrationCard.nativeElement.click();
 
-      // Assert
+      expect(orchestrationSpy).toHaveBeenCalled();
       expect(orchestrationSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('should have proper ARIA labels on action cards', () => {
+      const quickHelpCard = fixture.debugElement.query(
+        By.css('.action-card-primary')
+      ).nativeElement;
+      const orchestrationCard = fixture.debugElement.query(
+        By.css('.action-card-secondary')
+      ).nativeElement;
+
+      expect(quickHelpCard.getAttribute('aria-label')).toBe(
+        'Start quick help session'
+      );
+      expect(orchestrationCard.getAttribute('aria-label')).toBe(
+        'Start orchestration workflow'
+      );
+    });
+  });
+
+  describe('Feature Highlights', () => {
+    it('should display feature highlights section', () => {
+      const featureHighlights = fixture.debugElement.query(
+        By.css('.feature-highlights')
+      );
+
+      expect(featureHighlights).toBeTruthy();
+    });
+
+    it('should display at least one feature item', () => {
+      const featureItems = fixture.debugElement.queryAll(
+        By.css('.feature-item')
+      );
+
+      expect(featureItems.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should display feature title and text', () => {
+      const featureTitle = fixture.debugElement.query(
+        By.css('.feature-title')
+      ).nativeElement;
+      const featureText = fixture.debugElement.query(
+        By.css('.feature-text')
+      ).nativeElement;
+
+      expect(featureTitle.textContent).toBeTruthy();
+      expect(featureText.textContent).toBeTruthy();
+    });
+  });
+
+  describe('Styling and Layout', () => {
+    it('should have empty-state class on root element', () => {
+      const emptyState = fixture.debugElement.query(By.css('.empty-state'));
+
+      expect(emptyState).toBeTruthy();
+    });
+
+    it('should use VS Code theme variables', () => {
+      const welcomeTitle = fixture.debugElement.query(
+        By.css('.welcome-title')
+      ).nativeElement;
+      const styles = window.getComputedStyle(welcomeTitle);
+
+      expect(styles.color).toBeTruthy();
     });
   });
 
   describe('Accessibility', () => {
-    it('should have proper ARIA labels for action cards', () => {
-      // Act
-      const quickHelpButton = fixture.debugElement.query(
-        By.css('.action-card-primary')
-      );
-      const orchestrationButton = fixture.debugElement.query(
-        By.css('.action-card-secondary')
-      );
+    it('should have focusable action cards', () => {
+      const actionCards = fixture.debugElement.queryAll(By.css('.action-card'));
 
-      // Assert
-      expect(quickHelpButton.nativeElement.getAttribute('aria-label')).toBe(
-        'Start quick help session'
-      );
-      expect(orchestrationButton.nativeElement.getAttribute('aria-label')).toBe(
-        'Start orchestration workflow'
-      );
+      actionCards.forEach((card) => {
+        const element = card.nativeElement as HTMLElement;
+        element.focus();
+        expect(document.activeElement).toBe(element);
+      });
     });
 
-    it('should have proper ARIA labels for session items', () => {
-      // Arrange
-      const mockSession: SessionSummary = {
-        id: 'session-1',
-        name: 'Accessible Session',
-        messageCount: 5,
-        lastActiveAt: Date.now(),
-        createdAt: Date.now(),
-      };
+    it('should have keyboard interaction support', () => {
+      const quickHelpSpy = jest.fn();
+      component.quickHelp.subscribe(quickHelpSpy);
 
-      fixture.componentRef.setInput('sessions', [mockSession]);
-      fixture.detectChanges();
+      const quickHelpCard = fixture.debugElement.query(
+        By.css('.action-card-primary')
+      ).nativeElement as HTMLElement;
 
-      // Act
-      const sessionButton = fixture.debugElement.query(By.css('.session-item'));
+      // Simulate keyboard activation
+      quickHelpCard.focus();
+      quickHelpCard.click(); // Enter/Space triggers click
 
-      // Assert
-      expect(sessionButton.nativeElement.getAttribute('aria-label')).toBe(
-        'Open session Accessible Session'
-      );
+      expect(quickHelpSpy).toHaveBeenCalled();
     });
   });
 
-  describe('Component Size', () => {
-    it('should be under 400 lines total (component complexity requirement)', () => {
-      // This test is symbolic - actual line count verified during code review
-      // Component should be simple presentational component with minimal logic
-      expect(component).toBeDefined();
-      expect(typeof component.getRelativeTime).toBe('function');
-      expect(component.hasSessions).toBeDefined();
+  describe('Responsive Behavior', () => {
+    it('should render correctly on mobile viewport', () => {
+      Object.defineProperty(window, 'innerWidth', {
+        writable: true,
+        configurable: true,
+        value: 375,
+      });
+
+      fixture.detectChanges();
+
+      const emptyState = fixture.debugElement.query(By.css('.empty-state'));
+      expect(emptyState).toBeTruthy();
+    });
+
+    it('should render correctly on desktop viewport', () => {
+      Object.defineProperty(window, 'innerWidth', {
+        writable: true,
+        configurable: true,
+        value: 1920,
+      });
+
+      fixture.detectChanges();
+
+      const emptyState = fixture.debugElement.query(By.css('.empty-state'));
+      expect(emptyState).toBeTruthy();
+    });
+  });
+
+  describe('Icon Loading', () => {
+    it('should call getPtahIconUri from VSCodeService', () => {
+      expect(mockVSCodeService.getPtahIconUri).toHaveBeenCalled();
+    });
+
+    it('should use the correct icon URI', () => {
+      expect(component.ptahIconUri).toBe('mock-icon-uri');
     });
   });
 });

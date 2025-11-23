@@ -76,6 +76,8 @@ export const SEMANTIC_CONTEXT_EXTRACTOR = Symbol.for(
 export const CONTEXT_ORCHESTRATION_SERVICE = Symbol.for(
   'ContextOrchestrationService'
 );
+export const TREE_SITTER_PARSER_SERVICE = Symbol.for('TreeSitterParserService');
+export const AST_ANALYSIS_SERVICE = Symbol.for('AstAnalysisService');
 
 // ========================================
 // VS Code Language Model Tools
@@ -208,6 +210,8 @@ export const TOKENS = {
   CONTEXT_SIZE_OPTIMIZER,
   SEMANTIC_CONTEXT_EXTRACTOR,
   CONTEXT_ORCHESTRATION_SERVICE,
+  TREE_SITTER_PARSER_SERVICE,
+  AST_ANALYSIS_SERVICE,
 
   // ========================================
   // VS Code Language Model Tools

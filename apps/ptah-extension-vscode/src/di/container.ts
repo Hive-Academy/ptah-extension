@@ -52,6 +52,8 @@ import {
   FileRelevanceScorerService,
   ContextSizeOptimizerService,
   ContextOrchestrationService,
+  TreeSitterParserService,
+  AstAnalysisService,
 } from '@ptah-extension/workspace-intelligence';
 
 // Import VS Code Language Model Tools
@@ -219,6 +221,16 @@ export class DIContainer {
     container.registerSingleton(
       TOKENS.CONTEXT_ORCHESTRATION_SERVICE,
       ContextOrchestrationService
+    );
+
+    // AST services (Phase 2: RooCode migration)
+    container.registerSingleton(
+      TOKENS.TREE_SITTER_PARSER_SERVICE,
+      TreeSitterParserService
+    );
+    container.registerSingleton(
+      TOKENS.AST_ANALYSIS_SERVICE,
+      AstAnalysisService
     );
 
     // ========================================

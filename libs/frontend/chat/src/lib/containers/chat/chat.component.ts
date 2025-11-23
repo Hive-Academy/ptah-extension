@@ -109,13 +109,11 @@ import type { TokenUsage } from '../../components/chat-token-usage/chat-token-us
           [messages]="claudeMessages()"
           [sessionId]="currentSession()?.id || null"
           [loading]="isLoading()"
-          [sessions]="chatService.sessions()"
           (messageClicked)="onMessageClick($event)"
           (fileClicked)="handleFileClick($event)"
           (toolActionRequested)="handleToolAction($event)"
           (messageActioned)="handleMessageAction($event)"
           (scrolledToTop)="handleScrolledToTop()"
-          (sessionSelected)="onSessionSelected($event)"
           (quickHelp)="startQuickHelp()"
           (orchestration)="startOrchestration()"
         />
@@ -402,10 +400,9 @@ export class ChatComponent implements OnInit {
 
     this.chatState.initialize();
 
-    // Refresh sessions if no messages (TASK_2025_011 - Batch 4)
-    if (this.chat.messages().length === 0) {
-      void this.chatService.refreshSessions();
-    }
+    // Refresh sessions list (backup/refresh mechanism if INITIAL_DATA is stale)
+    // TASK_SESSION_MANAGEMENT - Batch 5 Fix
+    void this.chatService.refreshSessions();
   }
 
   // Agent Panel Toggle (TASK_2025_004)

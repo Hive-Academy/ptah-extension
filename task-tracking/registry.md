@@ -13,3 +13,4 @@
 | TASK_2025_009 | Message Type System Refactoring - ContentBlocks Migration                                                                     | ✅ Complete                              | software-architect | 2025-11-20 | 2025-11-20 |
 | TASK_2025_010 | Workspace Intelligence Commands - Expose context-manager & workspace-intelligence as internal VS Code commands for Claude CLI | 📋 Planned                               | team-leader        | 2025-11-20 | -          |
 | TASK_2025_011 | Session Management Simplification - Remove duplicate storage, use Claude CLI `.claude_sessions/` as single source of truth    | 📋 Planned                               | software-architect | 2025-11-21 | -          |
+| TASK_2025_015 | Code Migration from RooCode - AST Parsing, Langchain LLM, Template Generation (28 files, 2 new libraries)                     | 🔄 In Progress                           | team-leader        | 2025-11-23 | -          |

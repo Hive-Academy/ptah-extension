@@ -1,22 +1,14 @@
 console.ts:139 [Extension Host] [Activate] Step 3: Initializing MessageHandlerService... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] MessageHandlerService initialized and subscribed to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [Activate] Step 3: MessageHandlerService initialized (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [Activate] Step 3.5: Initializing ContextMessageBridgeService... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] ContextMessageBridge initialized (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] ContextMessageBridgeService initialized (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [Activate] Step 3.5: ContextMessageBridgeService initialized (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] AngularWebviewProvider initialized - message forwarding handled by WebviewMessageBridge (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] WebviewMessageBridge initialized - responses will now reach webview (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-index.html?id=79f118a0-3e51-4bff-92d6-fc07c0eabbc5&parentId=3&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:13 Sending webview-ready message to extension...
-main.js:44 Angular Error: TypeError: Cannot read properties of undefined (reading 'map')
-    at n.convertToProcessedMessage (main.js:44:4013)
-    at main.js:44:18138
-    at Array.map (<anonymous>)
-    at Object.next (main.js:44:18109)
-    at Qd.next (main.js:4:3112)
-    at wi._next (main.js:4:2795)
-    at wi.next (main.js:4:2522)
-    at main.js:4:15005
-    at Jd._next (main.js:4:5397)
-    at Jd.next (main.js:4:2522)
-handleError @ main.js:44
+index.html?id=8c04ea66-2abb-412f-b652-fadab5051dbd&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:13 Sending webview-ready message to extension...
 console.ts:139 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] Received webview message: view:changed Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] Publishing message to EventBus: view:changed (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
@@ -39,10 +31,17 @@ console.ts:139 [Extension Host] [INFO] Publishing message to EventBus: context:g
 console.ts:139 [Extension Host] [INFO] Message context:getFiles published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] Received webview message: requestInitialData Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Received webview message: chat:requestSessions Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Publishing message to EventBus: chat:requestSessions (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Message chat:requestSessions published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] Received webview message: webview-ready Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] Received webview message: providers:getHealth Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
@@ -51,87 +50,477 @@ console.ts:139 [Extension Host] [INFO] Message providers:getHealth published to 
 console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Received webview message: chat:switchSession Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Received webview message: providers:getAllHealth Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Received webview message: providers:getAllHealth Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Received webview message: providers:getAllHealth Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+main.js:45 Aria label: Send message
+console.ts:139 [Extension Host] [INFO] Received webview message: chat:sendMessage {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Publishing message to EventBus: chat:sendMessage (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Message chat:sendMessage published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:messageAdded', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:tokenUsageUpdated', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:sessionUpdated', payloadKeys: Array(1)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:sessionsUpdated', payloadKeys: Array(1)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] Sending message to Claude CLI for session: de0ee3c9-6cec-4524-850e-cee61c07069e (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [ClaudeCliLauncher] Command Arguments: (6) ['C:\\Users\\abdal\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js', '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages'] (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [ClaudeCliLauncher] Full Command: node C:\Users\abdal\AppData\Roaming\npm\node_modules\@anthropic-ai\claude-code\cli.js -p --output-format stream-json --verbose --include-partial-messages (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [ClaudeCliLauncher] Writing message to stdin: {messageLength: 3, messagePreview: 'hey'} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [ClaudeCliLauncher] Message written to stdin (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:sendMessage:response', payloadKeys: Array(4)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 81, hasTimestamp: false, hasPrefix: false, …} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:sessionInit', payloadKeys: Array(3)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [ClaudeCliLauncher] Received stdout data: {chunkLength: 575, chunkPreview: '{"type":"stream_event","event":{"type":"message_st…age","role":"assistant","content":[],"stop_reason'} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:sessionInit', payloadKeys: Array(3)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:messageChunk', payloadKeys: Array(5)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:messageChunk', payloadKeys: Array(5)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:messageChunk', payloadKeys: Array(5)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:messageChunk', payloadKeys: Array(5)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:messageChunk', payloadKeys: Array(5)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:messageChunk', payloadKeys: Array(5)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [ClaudeCliLauncher] Received stdout data: {chunkLength: 878, chunkPreview: `{"type":"assistant","message":{"model":"claude-son…{"type":"text","text":"Hey! I'm here to help you `} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:messageChunk', payloadKeys: Array(5)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [ClaudeCliLauncher] Received stdout data: {chunkLength: 530, chunkPreview: '{"type":"stream_event","event":{"type":"message_de…n_input_tokens":3442,"cache_read_input_tokens":13'} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [JSONLStreamParser] message_stop received - streaming complete (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [ClaudeCliLauncher] Streaming complete (message_stop received) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:messageComplete', payloadKeys: Array(1)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [JSONLStreamParser] result message received: {subtype: 'success', duration: 3249, cost: 0.017232900000000002, tokens: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:tokenUsageUpdated', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:sessionEnd', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:sessionEnd', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:messageAdded', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:tokenUsageUpdated', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:sessionUpdated', payloadKeys: Array(1)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:sessionsUpdated', payloadKeys: Array(1)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] Assistant message saved for session: de0ee3c9-6cec-4524-850e-cee61c07069e (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:messageComplete', payloadKeys: Array(1)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Received webview message: providers:getAllHealth {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'providers:getAllHealth:response', payloadKeys: Array(4)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 87, hasTimestamp: false, hasPrefix: false, …} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Received webview message: providers:getAllHealth {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'providers:getAllHealth:response', payloadKeys: Array(4)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 87, hasTimestamp: false, hasPrefix: false, …} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Received webview message: chat:switchSession {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] Publishing message to EventBus: chat:switchSession (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] Message chat:switchSession published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:sessionSwitched', payloadKeys: Array(1)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:sessionsUpdated', payloadKeys: Array(1)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:switchSession:response', payloadKeys: Array(4)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Received webview message: chat:getHistory Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Received webview message: chat:getHistory {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] Publishing message to EventBus: chat:getHistory (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] Message chat:getHistory published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:getHistory:response', payloadKeys: Array(4)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 main.js:44 📥 HISTORY LOADED - RAW MESSAGES FROM BACKEND
-main.js:44 Total messages received: 3
-main.js:44 Message 1 of 3
-main.js:44 Message ID: bd162a0b-44ff-46a4-bce0-b736081b5d02
+main.js:44 Total messages received: 4
+main.js:44 Message 1 of 4
+main.js:44 Message ID: 37eb8aa7-ba65-411e-9794-ec4b28be895a
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 main.js:44 Type: user
-main.js:44 SessionId: 172b8f88-2e3b-4893-9de6-fe2ec7e4befa
-main.js:44 Timestamp: 2025-11-20T06:32:08.362Z
-main.js:44 Content preview: (no content)
+main.js:44 SessionId: de0ee3c9-6cec-4524-850e-cee61c07069e
+main.js:44 Timestamp: 2025-11-21T12:25:07.524Z
+main.js:44 Content preview: hey
 main.js:44 Streaming: undefined
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 main.js:44 Metadata: undefined
 main.js:44 FULL MESSAGE OBJECT: {
-  "id": "bd162a0b-44ff-46a4-bce0-b736081b5d02",
-  "sessionId": "172b8f88-2e3b-4893-9de6-fe2ec7e4befa",
+  "id": "37eb8aa7-ba65-411e-9794-ec4b28be895a",
+  "sessionId": "de0ee3c9-6cec-4524-850e-cee61c07069e",
   "type": "user",
-  "content": "lets analyze our codebase and create claude.md file",
-  "timestamp": 1763620328362,
+  "contentBlocks": [
+    {
+      "type": "text",
+      "text": "hey"
+    }
+  ],
+  "timestamp": 1763727907524,
   "files": []
 }
-main.js:44 Message 2 of 3
-main.js:44 Message ID: c7ea9298-435e-47d7-9a79-6113d0897da5
+main.js:44 Message 2 of 4
+main.js:44 Message ID: af219f18-f375-404d-bdc6-13e8c160f601
+main.js:44 Type: assistant
+main.js:44 SessionId: de0ee3c9-6cec-4524-850e-cee61c07069e
+main.js:44 Timestamp: 2025-11-21T12:25:12.350Z
+main.js:44 Content preview: Weekly limit reached ∙ resets Nov 22, 5pm
+main.js:44 Streaming: false
+main.js:44 Metadata: undefined
+main.js:44 FULL MESSAGE OBJECT: {
+  "id": "af219f18-f375-404d-bdc6-13e8c160f601",
+  "sessionId": "de0ee3c9-6cec-4524-850e-cee61c07069e",
+  "type": "assistant",
+  "contentBlocks": [
+    {
+      "type": "text",
+      "text": "Weekly limit reached ∙ resets Nov 22, 5pm"
+    }
+  ],
+  "timestamp": 1763727912350,
+  "streaming": false,
+  "isComplete": true
+}
+main.js:44 Message 3 of 4
+main.js:44 Message ID: a5d739bf-6240-4a0d-9011-9013a501f9c2
 main.js:44 Type: user
-main.js:44 SessionId: 172b8f88-2e3b-4893-9de6-fe2ec7e4befa
-main.js:44 Timestamp: 2025-11-20T08:01:22.794Z
-main.js:44 Content preview: (no content)
+main.js:44 SessionId: de0ee3c9-6cec-4524-850e-cee61c07069e
+main.js:44 Timestamp: 2025-11-23T00:03:38.998Z
+main.js:44 Content preview: hey
 main.js:44 Streaming: undefined
 main.js:44 Metadata: undefined
 main.js:44 FULL MESSAGE OBJECT: {
-  "id": "c7ea9298-435e-47d7-9a79-6113d0897da5",
-  "sessionId": "172b8f88-2e3b-4893-9de6-fe2ec7e4befa",
+  "id": "a5d739bf-6240-4a0d-9011-9013a501f9c2",
+  "sessionId": "de0ee3c9-6cec-4524-850e-cee61c07069e",
+  "type": "user",
+  "contentBlocks": [
+    {
+      "type": "text",
+      "text": "hey"
+    }
+  ],
+  "timestamp": 1763856218998,
+  "files": []
+}
+main.js:44 Message 4 of 4
+main.js:44 Message ID: c4538d43-dd15-435b-97db-6d6529c43548
+main.js:44 Type: assistant
+main.js:44 SessionId: de0ee3c9-6cec-4524-850e-cee61c07069e
+main.js:44 Timestamp: 2025-11-23T00:03:44.816Z
+main.js:44 Content preview: Hey! I'm here to help you with your software engineering tasks. How can I assist you today?Hey! I'm 
+main.js:44 Streaming: false
+main.js:44 Metadata: undefined
+main.js:44 FULL MESSAGE OBJECT: {
+  "id": "c4538d43-dd15-435b-97db-6d6529c43548",
+  "sessionId": "de0ee3c9-6cec-4524-850e-cee61c07069e",
+  "type": "assistant",
+  "contentBlocks": [
+    {
+      "type": "text",
+      "text": "Hey! I'm here to help you with your software engineering tasks. How can I assist you today?Hey! I'm here to help you with your software engineering tasks. How can I assist you today?"
+    }
+  ],
+  "timestamp": 1763856224816,
+  "streaming": false,
+  "isComplete": true
+}
+main.js:44 ✅ VALIDATION RESULTS
+main.js:44 Valid messages: 0
+main.js:44 Invalid/filtered messages: 4
+main.js:44 ⚠️ SOME MESSAGES WERE FILTERED OUT!
+(anonymous) @ main.js:44
+next @ main.js:4
+_next @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:4
+_next @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:4
+_next @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:4
+Er @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:5
+invokeTask @ polyfills.js:1
+onInvokeTask @ main.js:5
+invokeTask @ polyfills.js:1
+runTask @ polyfills.js:1
+invokeTask @ polyfills.js:1
+L @ polyfills.js:1
+H @ polyfills.js:1
+z @ polyfills.js:1
+postMessage
+(anonymous) @ index.html?id=8c04ea66-2abb-412f-b652-fadab5051dbd&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:1282
+HostMessaging.channel.port1.onmessage @ index.html?id=8c04ea66-2abb-412f-b652-fadab5051dbd&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:342
+main.js:44 Invalid message: {id: '37eb8aa7-ba65-411e-9794-ec4b28be895a', type: 'user', validationResult: {…}}id: "37eb8aa7-ba65-411e-9794-ec4b28be895a"type: "user"validationResult: errors: ['Content is required for user and assistant messages']isValid: falsewarnings: [][[Prototype]]: Object[[Prototype]]: Object
+(anonymous) @ main.js:44
+(anonymous) @ main.js:44
+next @ main.js:4
+_next @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:4
+_next @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:4
+_next @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:4
+Er @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:5
+invokeTask @ polyfills.js:1
+onInvokeTask @ main.js:5
+invokeTask @ polyfills.js:1
+runTask @ polyfills.js:1
+invokeTask @ polyfills.js:1
+L @ polyfills.js:1
+H @ polyfills.js:1
+z @ polyfills.js:1
+postMessage
+(anonymous) @ index.html?id=8c04ea66-2abb-412f-b652-fadab5051dbd&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:1282
+HostMessaging.channel.port1.onmessage @ index.html?id=8c04ea66-2abb-412f-b652-fadab5051dbd&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:342
+main.js:44 Invalid message: {id: 'af219f18-f375-404d-bdc6-13e8c160f601', type: 'assistant', validationResult: {…}}
+(anonymous) @ main.js:44
+(anonymous) @ main.js:44
+next @ main.js:4
+_next @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:4
+_next @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:4
+_next @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:4
+Er @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:5
+invokeTask @ polyfills.js:1
+onInvokeTask @ main.js:5
+invokeTask @ polyfills.js:1
+runTask @ polyfills.js:1
+invokeTask @ polyfills.js:1
+L @ polyfills.js:1
+H @ polyfills.js:1
+z @ polyfills.js:1
+postMessage
+(anonymous) @ index.html?id=8c04ea66-2abb-412f-b652-fadab5051dbd&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:1282
+HostMessaging.channel.port1.onmessage @ index.html?id=8c04ea66-2abb-412f-b652-fadab5051dbd&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:342
+main.js:44 Invalid message: {id: 'a5d739bf-6240-4a0d-9011-9013a501f9c2', type: 'user', validationResult: {…}}
+(anonymous) @ main.js:44
+(anonymous) @ main.js:44
+next @ main.js:4
+_next @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:4
+_next @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:4
+_next @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:4
+Er @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:5
+invokeTask @ polyfills.js:1
+onInvokeTask @ main.js:5
+invokeTask @ polyfills.js:1
+runTask @ polyfills.js:1
+invokeTask @ polyfills.js:1
+L @ polyfills.js:1
+H @ polyfills.js:1
+z @ polyfills.js:1
+postMessage
+(anonymous) @ index.html?id=8c04ea66-2abb-412f-b652-fadab5051dbd&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:1282
+HostMessaging.channel.port1.onmessage @ index.html?id=8c04ea66-2abb-412f-b652-fadab5051dbd&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:342
+main.js:44 Invalid message: {id: 'c4538d43-dd15-435b-97db-6d6529c43548', type: 'assistant', validationResult: {…}}
+(anonymous) @ main.js:44
+(anonymous) @ main.js:44
+next @ main.js:4
+_next @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:4
+_next @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:4
+_next @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:4
+Er @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:5
+invokeTask @ polyfills.js:1
+onInvokeTask @ main.js:5
+invokeTask @ polyfills.js:1
+runTask @ polyfills.js:1
+invokeTask @ polyfills.js:1
+L @ polyfills.js:1
+H @ polyfills.js:1
+z @ polyfills.js:1
+postMessage
+(anonymous) @ index.html?id=8c04ea66-2abb-412f-b652-fadab5051dbd&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:1282
+HostMessaging.channel.port1.onmessage @ index.html?id=8c04ea66-2abb-412f-b652-fadab5051dbd&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:342
+main.js:44 🎨 PROCESSED MESSAGES FOR UI
+main.js:44 Processed messages count: 0
+console.ts:139 [Extension Host] Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 80, hasTimestamp: false, hasPrefix: false, …} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Received webview message: providers:getAllHealth {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'providers:getAllHealth:response', payloadKeys: Array(4)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 87, hasTimestamp: false, hasPrefix: false, …} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Received webview message: chat:switchSession {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Publishing message to EventBus: chat:switchSession (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Message chat:switchSession published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:sessionSwitched', payloadKeys: Array(1)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:sessionsUpdated', payloadKeys: Array(1)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:switchSession:response', payloadKeys: Array(4)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Received webview message: chat:getHistory {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Publishing message to EventBus: chat:getHistory (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Message chat:getHistory published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:getHistory:response', payloadKeys: Array(4)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+main.js:44 📥 HISTORY LOADED - RAW MESSAGES FROM BACKEND
+main.js:44 Total messages received: 2
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+main.js:44 Message 1 of 2
+main.js:44 Message ID: a454a140-cdee-4271-ba3f-f21d664dbe65
+main.js:44 Type: user
+main.js:44 SessionId: 1db88ae4-e1b3-4abf-a3dd-a38a1750ef92
+main.js:44 Timestamp: 2025-11-20T08:01:39.881Z
+main.js:44 Content preview: (no content)
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+main.js:44 Streaming: undefined
+main.js:44 Metadata: undefined
+main.js:44 FULL MESSAGE OBJECT: {
+  "id": "a454a140-cdee-4271-ba3f-f21d664dbe65",
+  "sessionId": "1db88ae4-e1b3-4abf-a3dd-a38a1750ef92",
   "type": "user",
   "content": "hey",
-  "timestamp": 1763625682794,
+  "timestamp": 1763625699881,
   "files": []
 }
-main.js:44 Message 3 of 3
-main.js:44 Message ID: 3492704f-b838-4466-a8e9-36dac12fe3e5
+main.js:44 Message 2 of 2
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+main.js:44 Message ID: 6c286327-0bfa-4bc5-a06e-746cf6e04cba
 main.js:44 Type: assistant
-main.js:44 SessionId: 172b8f88-2e3b-4893-9de6-fe2ec7e4befa
-main.js:44 Timestamp: 2025-11-20T08:01:28.638Z
+main.js:44 SessionId: 1db88ae4-e1b3-4abf-a3dd-a38a1750ef92
+main.js:44 Timestamp: 2025-11-20T08:01:45.392Z
 main.js:44 Content preview: (no content)
 main.js:44 Streaming: false
 main.js:44 Metadata: undefined
 main.js:44 FULL MESSAGE OBJECT: {
-  "id": "3492704f-b838-4466-a8e9-36dac12fe3e5",
-  "sessionId": "172b8f88-2e3b-4893-9de6-fe2ec7e4befa",
+  "id": "6c286327-0bfa-4bc5-a06e-746cf6e04cba",
+  "sessionId": "1db88ae4-e1b3-4abf-a3dd-a38a1750ef92",
   "type": "assistant",
   "content": "Hey! How can I help you today?Hey! How can I help you today?",
-  "timestamp": 1763625688638,
+  "timestamp": 1763625705392,
   "streaming": false,
   "isComplete": true
 }
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 main.js:44 ✅ VALIDATION RESULTS
-main.js:44 Valid messages: 3
+main.js:44 Valid messages: 2
 main.js:44 Invalid/filtered messages: 0
 main.js:44 Angular Error: TypeError: Cannot read properties of undefined (reading 'map')
-    at n.convertToProcessedMessage (main.js:44:4013)
-    at main.js:44:14472
+    at n.convertToProcessedMessage (main.js:44:3888)
+    at main.js:44:14594
     at Array.map (<anonymous>)
-    at Object.next (main.js:44:14443)
-    at Qd.next (main.js:4:3112)
-    at wi._next (main.js:4:2795)
-    at wi.next (main.js:4:2522)
-    at main.js:4:15005
-    at Jd._next (main.js:4:5397)
-    at Jd.next (main.js:4:2522)
+    at Object.next (main.js:44:14565)
+    at cl.next (main.js:4:3112)
+    at ho._next (main.js:4:2795)
+    at ho.next (main.js:4:2522)
+    at main.js:4:16082
+    at dl._next (main.js:4:5397)
+    at dl.next (main.js:4:2522)
 handleError @ main.js:44
+(anonymous) @ main.js:5
+invoke @ polyfills.js:1
+run @ polyfills.js:1
+runOutsideAngular @ main.js:5
+(anonymous) @ main.js:5
+next @ main.js:4
+_next @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:4
+Er @ main.js:4
+next @ main.js:4
+emit @ main.js:5
+(anonymous) @ main.js:5
+invoke @ polyfills.js:1
+run @ polyfills.js:1
+runOutsideAngular @ main.js:5
+onHandleError @ main.js:5
+handleError @ polyfills.js:1
+runTask @ polyfills.js:1
+invokeTask @ polyfills.js:1
+E.useG.invoke @ polyfills.js:1
+T._.args.<computed> @ polyfills.js:1
+setTimeout
+T @ polyfills.js:1
+scheduleTask @ polyfills.js:1
+onScheduleTask @ polyfills.js:1
+scheduleTask @ polyfills.js:1
+scheduleTask @ polyfills.js:1
+scheduleMacroTask @ polyfills.js:1
+xe @ polyfills.js:1
+(anonymous) @ polyfills.js:1
+e.<computed> @ polyfills.js:1
+setTimeout @ main.js:4
+is @ main.js:4
+as @ main.js:4
+next @ main.js:4
+_next @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:4
+_next @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:4
+_next @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:4
+Er @ main.js:4
+next @ main.js:4
+(anonymous) @ main.js:5
+invokeTask @ polyfills.js:1
+onInvokeTask @ main.js:5
+invokeTask @ polyfills.js:1
+runTask @ polyfills.js:1
+invokeTask @ polyfills.js:1
+L @ polyfills.js:1
+H @ polyfills.js:1
+z @ polyfills.js:1
+postMessage
+(anonymous) @ index.html?id=8c04ea66-2abb-412f-b652-fadab5051dbd&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:1282
+HostMessaging.channel.port1.onmessage @ index.html?id=8c04ea66-2abb-412f-b652-fadab5051dbd&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:342
+console.ts:139 [Extension Host] Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 80, hasTimestamp: false, hasPrefix: false, …} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Received webview message: providers:getAllHealth {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'providers:getAllHealth:response', payloadKeys: Array(4)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] Tracking analytics event: output:messageWritten Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] Tracking analytics event: output:messageWritten {channelName: 'Ptah', level: 'info', messageLength: 87, hasTimestamp: false, hasPrefix: false, …} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] Received webview message: providers:getAllHealth {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] Publishing message to EventBus: providers:getAllHealth (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] Message providers:getAllHealth published to EventBus (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))

@@ -8,6 +8,7 @@ import {
   inject,
 } from '@angular/core';
 import { SessionDropdownComponent } from '../session-dropdown/session-dropdown.component';
+import { SessionSearchOverlayComponent } from '../session-search-overlay/session-search-overlay.component';
 import { ChatService } from '@ptah-extension/core';
 import { SessionSummary, SessionId } from '@ptah-extension/shared';
 
@@ -52,15 +53,19 @@ export interface ProviderStatus {
   selector: 'ptah-chat-header',
   standalone: true,
 
-  imports: [CommonModule, SessionDropdownComponent],
+  imports: [
+    CommonModule,
+    SessionDropdownComponent,
+    SessionSearchOverlayComponent,
+  ],
   template: `
     <div class="header-container">
       <!-- Header with session dropdown and analytics button -->
       <div class="header-main">
         <div class="header-actions">
           <ptah-session-dropdown
-            [currentSessionId]="currentSession()?.id ?? null"
-            [recentSessions]="recentSessions()"
+            [currentSessionId]="chatService.currentSession()?.id ?? null"
+            [recentSessions]="chatService.recentSessions()"
             (sessionSelected)="onSessionSelected($event)"
             (newSessionClicked)="newSession.emit()"
             (searchAllClicked)="showSearchOverlay.set(true)"
@@ -105,6 +110,17 @@ export interface ProviderStatus {
         </button>
       </div>
     </div>
+
+    <!-- Session Search Overlay -->
+    @if (showSearchOverlay()) {
+    <ptah-session-search-overlay
+      [isOpen]="showSearchOverlay()"
+      [currentSessionId]="chatService.currentSession()?.id ?? null"
+      [sessions]="chatService.sessions()"
+      (sessionSelected)="onSessionSelected($event)"
+      (closed)="showSearchOverlay.set(false)"
+    />
+    }
   `,
   styles: [
     `
@@ -205,8 +221,6 @@ export class ChatHeaderComponent {
 
   // Signal-based inputs (modern Angular 20+ API)
   readonly providerStatus = input.required<ProviderStatus>();
-  readonly currentSession = input<{ id: SessionId } | null>(null);
-  readonly recentSessions = input<SessionSummary[]>([]);
 
   // Signal-based outputs (modern Angular 20+ API)
   readonly newSession = output<void>();
@@ -231,5 +245,6 @@ export class ChatHeaderComponent {
   // Methods
   onSessionSelected(sessionId: SessionId): void {
     void this.chatService.switchToSession(sessionId);
+    this.showSearchOverlay.set(false);
   }
 }
