@@ -20,7 +20,6 @@ import {
   PtahAPI,
   MCPRequest,
   MCPResponse,
-  MCPError,
   MCPToolDefinition,
   ExecuteCodeParams,
 } from './types';
@@ -342,8 +341,9 @@ export class CodeExecutionMCP implements vscode.Disposable {
 
     // Create async function with ptah API in scope
     // AsyncFunction constructor pattern: new AsyncFunction('argName', 'functionBody')
-     
+
     const AsyncFunction = Object.getPrototypeOf(
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
       async function () {}
     ).constructor;
     const asyncFunction = new AsyncFunction(
