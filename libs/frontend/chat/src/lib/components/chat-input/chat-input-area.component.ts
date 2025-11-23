@@ -465,7 +465,8 @@ export class ChatInputAreaComponent {
 
     // Emit changes
     this.messageChange.emit(newText);
-    this.filePickerService.includeFile(suggestion.path);
+    // TODO (Phase 4): Restore includeFile method or use RPC
+    // this.filePickerService.includeFile(suggestion.path);
     this.hideFileSuggestions();
     textarea.focus();
     this.filesChanged.emit(this.filePickerService.getFilePathsForMessage());

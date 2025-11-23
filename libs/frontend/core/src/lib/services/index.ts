@@ -19,7 +19,7 @@ export * from './webview-navigation.service';
 // Chat Layer (pure chat logic, state management, validation, transformations)
 export { ChatStateService } from './chat-state.service';
 // export { ChatValidationService } from './chat-validation.service'; // DELETED - Phase 0 purge
-// export { ClaudeMessageTransformerService } from './claude-message-transformer.service'; // DELETED - Phase 0 purge
+export { ClaudeMessageTransformerService } from './claude-message-transformer.service'; // STUB for Phase 0 migration
 // export { MessageProcessingService } from './message-processing.service'; // DELETED - Phase 0 purge
 // MOVED: ChatStateManagerService → @ptah-extension/chat (chat-specific UI)
 export * from './chat.service';

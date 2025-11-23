@@ -13,11 +13,13 @@
 **Total Errors**: 11 unique compilation errors
 
 **Failed Libraries**:
+
 1. @ptah-extension/claude-domain (backend)
 2. @ptah-extension/llm-abstraction (backend)
 3. ptah-extension-webview (frontend)
 
 **Blocked Libraries** (dependencies failed):
+
 - @ptah-extension/template-generation
 - @ptah-extension/ai-providers-core
 - ptah-extension-vscode
@@ -42,6 +44,7 @@
 **Error Message**: Cannot find module '../session/session-manager' or its corresponding type declarations.
 
 **Source Line**:
+
 ```typescript
 import { SessionManager } from '../session/session-manager';
 ```
@@ -58,6 +61,7 @@ import { SessionManager } from '../session/session-manager';
 **Error Message**: Cannot find module '../session/session-manager' or its corresponding type declarations.
 
 **Source Line**:
+
 ```typescript
 import { SessionManager } from '../session/session-manager';
 ```
@@ -80,6 +84,7 @@ import { SessionManager } from '../session/session-manager';
 **Error Message**: Property 'SESSION_MANAGER' does not exist on type '{ readonly EXTENSION_CONTEXT: unique symbol; readonly WEBVIEW_PROVIDER: unique symbol; ... }'.
 
 **Source Line**:
+
 ```typescript
 @inject(TOKENS.SESSION_MANAGER)
 private readonly sessionManager: SessionManager,
@@ -97,6 +102,7 @@ private readonly sessionManager: SessionManager,
 **Error Message**: Property 'CLAUDE_DOMAIN_EVENT_PUBLISHER' does not exist on type '{ readonly EXTENSION_CONTEXT: unique symbol; ... }'.
 
 **Source Line**:
+
 ```typescript
 @inject(TOKENS.CLAUDE_DOMAIN_EVENT_PUBLISHER)
 private readonly eventPublisher: ClaudeDomainEventPublisher,
@@ -114,6 +120,7 @@ private readonly eventPublisher: ClaudeDomainEventPublisher,
 **Error Message**: Property 'CLAUDE_ORCHESTRATOR' does not exist on type '{ readonly EXTENSION_CONTEXT: unique symbol; ... }'.
 
 **Source Line**:
+
 ```typescript
 @inject(TOKENS.CLAUDE_ORCHESTRATOR)
 private readonly orchestrator: ClaudeOrchestrator,
@@ -137,6 +144,7 @@ private readonly orchestrator: ClaudeOrchestrator,
 **Error Message**: Cannot find module './chat-validation.service' or its corresponding type declarations.
 
 **Source Line**:
+
 ```typescript
 export { ChatValidationService } from './chat-validation.service';
 ```
@@ -153,6 +161,7 @@ export { ChatValidationService } from './chat-validation.service';
 **Error Message**: Cannot find module './claude-message-transformer.service' or its corresponding type declarations.
 
 **Source Line**:
+
 ```typescript
 export { ClaudeMessageTransformerService } from './claude-message-transformer.service';
 ```
@@ -169,6 +178,7 @@ export { ClaudeMessageTransformerService } from './claude-message-transformer.se
 **Error Message**: Cannot find module './message-processing.service' or its corresponding type declarations.
 
 **Source Line**:
+
 ```typescript
 export { MessageProcessingService } from './message-processing.service';
 ```
@@ -185,6 +195,7 @@ export { MessageProcessingService } from './message-processing.service';
 **Error Message**: Cannot find module './provider.service' or its corresponding type declarations.
 
 **Source Line**:
+
 ```typescript
 export {
   ProviderService,
@@ -210,6 +221,7 @@ export {
 **Error Message**: Could not resolve "./claude-message-transformer.service"
 
 **Source Line**:
+
 ```typescript
 import { ClaudeMessageTransformerService, ProcessedClaudeMessage } from './claude-message-transformer.service';
 ```
@@ -226,6 +238,7 @@ import { ClaudeMessageTransformerService, ProcessedClaudeMessage } from './claud
 **Error Message**: Cannot find module '../../../../../shared/src/lib/message-types/endpoint-types' or its corresponding type declarations.
 
 **Source Line**:
+
 ```typescript
 import { EndpointType } from '../../../../../shared/src/lib/message-types/endpoint-types';
 ```
@@ -241,10 +254,13 @@ import { EndpointType } from '../../../../../shared/src/lib/message-types/endpoi
 ### Task 1.2: Fix Backend Compilation Errors
 
 **Files to Modify** (7 errors):
+
 1. D:\projects\ptah-extension\libs\backend\claude-domain\src\cli\claude-cli-launcher.ts
+
    - Remove: Line 16 SessionManager import
 
 2. D:\projects\ptah-extension\libs\backend\claude-domain\src\cli\claude-cli.service.ts
+
    - Remove: Line 26 SessionManager import
    - Comment out: Line 45-46 @inject(TOKENS.SESSION_MANAGER) parameter
    - Comment out: Line 51-52 @inject(TOKENS.CLAUDE_DOMAIN_EVENT_PUBLISHER) parameter
@@ -257,7 +273,9 @@ import { EndpointType } from '../../../../../shared/src/lib/message-types/endpoi
 ### Task 1.2: Fix Frontend Compilation Errors
 
 **Files to Modify** (4 errors):
+
 1. D:\projects\ptah-extension\libs\frontend\core\src\lib\services\index.ts
+
    - Remove: Line 21 ChatValidationService export
    - Remove: Line 22 ClaudeMessageTransformerService export
    - Remove: Line 23 MessageProcessingService export
@@ -289,6 +307,7 @@ import { EndpointType } from '../../../../../shared/src/lib/message-types/endpoi
 ## Verification Checklist
 
 After Task 1.2 completion:
+
 - [ ] All 11 errors resolved
 - [ ] `npm run build:all` exits with code 0
 - [ ] No new TypeScript errors introduced

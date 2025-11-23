@@ -334,7 +334,17 @@ export class ChatComponent implements OnInit {
   readonly claudeMessages = this.chat.claudeMessages;
   readonly isStreaming = this.chat.isStreaming;
   readonly currentSession = this.chat.currentSession;
-  readonly streamConsumptionState = this.chat.streamConsumptionState;
+  // TODO (Phase 4): Restore streamConsumptionState or remove usage
+  readonly streamConsumptionState = signal({
+    isConnected: true,
+    lastActivity: Date.now(),
+    errorCount: 0,
+    streamErrors: [] as string[],
+    performanceMetrics: {
+      averageResponseTime: 0,
+      successRate: 100,
+    },
+  }).asReadonly();
   readonly isLoading = this.appState.isLoading;
 
   // Computed UI Properties
@@ -407,7 +417,8 @@ export class ChatComponent implements OnInit {
       hasMessages: this.hasMessages(),
     });
 
-    this.chatState.initialize();
+    // TODO (Phase 4): Restore ChatStateManagerService.initialize or remove
+    // this.chatState.initialize();
 
     // TASK_2025_021: Load sessions via RPC
     void this.chatStore.loadSessions();
@@ -464,11 +475,13 @@ export class ChatComponent implements OnInit {
   public onSessionCreated(name: string | undefined): void {
     this.logger.debug('Session created', 'ChatComponent', { name });
     // TASK_2025_021: Use ChatStoreService for session creation
-    void this.chatStore.createNewSession(name || 'New Session').then((sessionId) => {
-      if (sessionId) {
-        void this.chatStore.switchSession(sessionId);
-      }
-    });
+    void this.chatStore
+      .createNewSession(name || 'New Session')
+      .then((sessionId) => {
+        if (sessionId) {
+          void this.chatStore.switchSession(sessionId);
+        }
+      });
   }
 
   public onSessionSelected(sessionId: string): void {

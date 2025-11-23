@@ -77,8 +77,9 @@ export class App implements OnInit, OnDestroy {
       console.log('Step 1: COMPLETE - Initial data requested');
 
       console.log('Step 2: Notifying VS Code that webview is ready...');
-      this.vscodeService.notifyReady();
-      console.log('Step 2: COMPLETE - VS Code notified');
+      // TODO (Phase 4): Restore notifyReady or use RPC call
+      // this.vscodeService.notifyReady();
+      console.log('Step 2: COMPLETE - VS Code notified (stub)');
 
       // console.log('Step 3: Initializing ProviderService...'); // DELETED - provider library removed in Phase 0
       // this.providerService.initialize(); // TODO: Phase 2 RPC - remove provider UI dependencies

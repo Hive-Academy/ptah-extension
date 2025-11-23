@@ -1,5 +1,6 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { AppStateManager, ChatStateService } from '@ptah-extension/core';
+import { StrictChatSession } from '@ptah-extension/shared';
 
 /**
  * Agent Option - UI model for agent selection dropdown

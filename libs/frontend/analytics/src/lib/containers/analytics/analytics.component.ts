@@ -243,7 +243,13 @@ export class AnalyticsComponent implements OnInit {
       this.isLoading.set(true);
       this.error.set(null);
 
-      const data = await this.analyticsService.fetchAnalyticsData();
+      // TODO (Phase 4): Restore fetchAnalyticsData or use RPC call
+      // const data = await this.analyticsService.fetchAnalyticsData();
+      const data = {
+        todaySessions: 0,
+        weekMessages: 0,
+        totalTokens: 0,
+      };
       this.analyticsData.set(data);
 
       this.logger.info(

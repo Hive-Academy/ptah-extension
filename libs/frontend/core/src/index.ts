@@ -4,32 +4,26 @@ export * from './lib/services';
 // Export LogLevel enum for external configuration
 export { LogLevel, type LoggingConfig } from './lib/services/logging.service';
 
-// Export types and type guards from ClaudeMessageTransformerService
-// DELETED in Phase 0
-// export type {
-//   ClaudeContent,
-//   ProcessedClaudeMessage,
-//   ExtractedFileInfo,
-//   ToolUsageSummary,
-//   ContentProcessingResult,
-//   ClaudeStreamData,
-//   ClaudeCliStreamMessage,
-// } from './lib/services/claude-message-transformer.service';
+// Export stub types for message transformer (Phase 0 migration)
+// TODO (Phase 4): Migrate components to StrictChatMessage and remove stubs
+export type {
+  ClaudeContent,
+  ProcessedClaudeMessage,
+  ExtractedFileInfo,
+  ToolUsageSummary,
+  ContentProcessingResult,
+} from './lib/types/message-transformer.types';
 
 // Export AgentTreeNode from ChatService
 export type { AgentTreeNode } from './lib/services/chat.service';
 
-// Export utility functions and type guards
-// DELETED in Phase 0
-// export {
-//   isTextContent,
-//   isToolUseContent,
-//   isToolResultContent,
-//   isThinkingContent,
-//   extractFilePathsFromText,
-//   detectFileType,
-// } from './lib/services/claude-message-transformer.service';
-
-// Event subscription helpers (leverages MESSAGE_REGISTRY)
-// DELETED in Phase 0
-// export * from './lib/utils/event-subscription-helpers';
+// Export utility functions and type guards (stub implementations)
+// TODO (Phase 4): Migrate components to direct StrictChatMessage usage
+export {
+  isTextContent,
+  isToolUseContent,
+  isToolResultContent,
+  isThinkingContent,
+  extractFilePathsFromText,
+  detectFileType,
+} from './lib/types/message-transformer.types';
