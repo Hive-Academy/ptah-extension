@@ -111,7 +111,10 @@ export class GoogleGenAIProvider extends BaseLlmProvider {
         RETRY_OPTIONS
       );
 
-      return Result.ok(response);
+      return Result.ok(response) as unknown as Result<
+        z.infer<T>,
+        LlmProviderError
+      >;
     } catch (error) {
       if (error instanceof LlmProviderError) {
         return Result.err(error);

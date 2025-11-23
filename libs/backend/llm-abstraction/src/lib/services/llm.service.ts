@@ -96,7 +96,9 @@ export class LlmService implements ILlmService {
         this.logger.error(
           `Failed to get LLM provider: ${providerResult.error!.message}`
         );
-        return Result.err(providerResult.error!);
+        return Result.err(
+          LlmProviderError.fromError(providerResult.error!, 'unknown')
+        );
       }
 
       const provider = providerResult.value!;
@@ -147,7 +149,9 @@ export class LlmService implements ILlmService {
             providerResult.error!.message
           }`
         );
-        return Result.err(providerResult.error!);
+        return Result.err(
+          LlmProviderError.fromError(providerResult.error!, 'unknown')
+        );
       }
 
       const provider = providerResult.value!;

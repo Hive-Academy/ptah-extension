@@ -116,7 +116,7 @@ export class AnthropicProvider extends BaseLlmProvider {
     if (callResult.isErr()) {
       return Result.err(callResult.error!);
     }
-    return Result.ok(callResult.value);
+    return Result.ok(callResult.value!) as Result<z.infer<T>, LlmProviderError>;
   }
 
   /**
@@ -271,7 +271,10 @@ export class AnthropicProvider extends BaseLlmProvider {
         RETRY_OPTIONS
       );
 
-      return Result.ok(response);
+      return Result.ok(response) as unknown as Result<
+        z.infer<T>,
+        LlmProviderError
+      >;
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       if (error instanceof LlmProviderError) {
