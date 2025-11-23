@@ -1,0 +1,27 @@
+{
+  "name": "llm-abstraction",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/backend/llm-abstraction/src",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/backend/llm-abstraction",
+        "tsConfig": "libs/backend/llm-abstraction/tsconfig.lib.json",
+        "packageJson": "libs/backend/llm-abstraction/package.json",
+        "main": "libs/backend/llm-abstraction/src/index.ts",
+        "assets": ["libs/backend/llm-abstraction/*.md"]
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/backend/llm-abstraction/jest.config.ts"
+      }
+    }
+  }
+}
