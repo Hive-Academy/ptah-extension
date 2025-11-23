@@ -31,7 +31,12 @@
 import { injectable } from 'tsyringe';
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import { SessionSummary, SessionSummarySchema } from '@ptah-extension/shared';
+import {
+  SessionSummary,
+  SessionSummarySchema,
+  StrictChatMessage,
+  SessionId,
+} from '@ptah-extension/shared';
 import { WorkspacePathEncoder } from './workspace-path-encoder';
 import { JsonlSessionParser } from './jsonl-session-parser';
 
@@ -123,6 +128,60 @@ export class SessionProxy {
     } catch {
       // File doesn't exist or is corrupt - return null
       return null;
+    }
+  }
+
+  /**
+   * Get all messages for a session (normalized format)
+   *
+   * Reads .jsonl file, parses messages, normalizes to contentBlocks format.
+   * Returns empty array (not error) if file doesn't exist.
+   *
+   * **Performance**: < 1s for sessions with 1000 messages (streaming read)
+   * **Cache**: No caching (always reads from disk for latest state)
+   *
+   * @param sessionId - Session ID (filename without .jsonl)
+   * @param workspaceRoot - Optional workspace root
+   * @returns Array of normalized StrictChatMessage
+   *
+   * Error Handling: Returns [] if file doesn't exist or parsing fails
+   *
+   * @example
+   * ```typescript
+   * const messages = await sessionProxy.getSessionMessages(sessionId);
+   * // All messages have contentBlocks: Array format
+   * ```
+   */
+  async getSessionMessages(
+    sessionId: SessionId,
+    workspaceRoot?: string
+  ): Promise<StrictChatMessage[]> {
+    try {
+      const sessionsDir = this.getSessionsDirectory(workspaceRoot);
+      const filePath = path.join(sessionsDir, `${sessionId}.jsonl`);
+
+      // Check if file exists
+      try {
+        await fs.access(filePath);
+      } catch {
+        // File doesn't exist - return empty array (not an error)
+        return [];
+      }
+
+      // Parse messages from .jsonl with normalization
+      const messages = await JsonlSessionParser.parseSessionMessages(filePath);
+
+      // Update sessionId for all messages (extracted from filename)
+      return messages.map((msg) => ({
+        ...msg,
+        sessionId: sessionId as SessionId,
+      }));
+    } catch (error) {
+      console.error(
+        `SessionProxy.getSessionMessages failed for ${sessionId}:`,
+        error
+      );
+      return []; // Graceful degradation
     }
   }
 

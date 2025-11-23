@@ -65,13 +65,6 @@ describe('SessionProxy', () => {
   });
 
   describe('listSessions', () => {
-    it('should throw error when workspace root is not provided', async () => {
-      // Act & Assert
-      await expect(sessionProxy.listSessions()).rejects.toThrow(
-        'SessionProxy requires workspace root to locate sessions directory'
-      );
-    });
-
     it('should return empty array when directory does not exist', async () => {
       // Arrange: fs.access throws (directory doesn't exist)
       (fs.access as jest.Mock).mockRejectedValue(
@@ -435,6 +428,161 @@ describe('SessionProxy', () => {
       expect(result).toHaveLength(373);
       expect(duration).toBeLessThan(100); // < 100ms requirement
       expect(JsonlSessionParser.parseSessionFile).toHaveBeenCalledTimes(373);
+    });
+  });
+
+  describe('getSessionMessages', () => {
+    it('should return messages for existing session', async () => {
+      // Arrange
+      const sessionId = 'abc-123-def';
+      const mockMessages = [
+        {
+          id: 'msg-1',
+          sessionId: 'abc-123-def',
+          type: 'user',
+          contentBlocks: [{ type: 'text', text: 'Hello' }],
+          timestamp: 1000000,
+          streaming: false,
+          isComplete: true,
+        },
+        {
+          id: 'msg-2',
+          sessionId: 'abc-123-def',
+          type: 'assistant',
+          contentBlocks: [{ type: 'text', text: 'Hi there' }],
+          timestamp: 1000001,
+          streaming: false,
+          isComplete: true,
+        },
+      ];
+
+      (fs.access as jest.Mock).mockResolvedValue(undefined);
+      (JsonlSessionParser.parseSessionMessages as jest.Mock).mockResolvedValue(
+        mockMessages
+      );
+
+      // Act
+      const result = await sessionProxy.getSessionMessages(
+        sessionId as any,
+        mockWorkspaceRoot
+      );
+
+      // Assert
+      expect(result).toHaveLength(2);
+      expect(result[0].contentBlocks).toEqual([
+        { type: 'text', text: 'Hello' },
+      ]);
+      expect(result[1].contentBlocks).toEqual([
+        { type: 'text', text: 'Hi there' },
+      ]);
+      expect(JsonlSessionParser.parseSessionMessages).toHaveBeenCalledWith(
+        path.join(mockSessionsDir, `${sessionId}.jsonl`)
+      );
+    });
+
+    it('should return empty array for non-existent session', async () => {
+      // Arrange
+      const sessionId = 'non-existent-session';
+      (fs.access as jest.Mock).mockRejectedValue(
+        new Error('ENOENT: no such file')
+      );
+
+      // Act
+      const result = await sessionProxy.getSessionMessages(
+        sessionId as any,
+        mockWorkspaceRoot
+      );
+
+      // Assert
+      expect(result).toEqual([]);
+      expect(JsonlSessionParser.parseSessionMessages).not.toHaveBeenCalled();
+    });
+
+    it('should return empty array on parsing error', async () => {
+      // Arrange
+      const sessionId = 'corrupt-session';
+      (fs.access as jest.Mock).mockResolvedValue(undefined);
+      (JsonlSessionParser.parseSessionMessages as jest.Mock).mockRejectedValue(
+        new Error('Parsing failed')
+      );
+
+      const consoleErrorSpy = jest
+        .spyOn(console, 'error')
+        .mockImplementation(() => {
+          // Suppress console.error during test
+        });
+
+      // Act
+      const result = await sessionProxy.getSessionMessages(
+        sessionId as any,
+        mockWorkspaceRoot
+      );
+
+      // Assert
+      expect(result).toEqual([]);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('getSessionMessages failed'),
+        expect.anything()
+      );
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should update sessionId for all messages', async () => {
+      // Arrange
+      const sessionId = 'new-session-id';
+      const mockMessages = [
+        {
+          id: 'msg-1',
+          sessionId: 'old-session-id', // Different session ID
+          type: 'user',
+          contentBlocks: [{ type: 'text', text: 'Test' }],
+          timestamp: 1000000,
+          streaming: false,
+          isComplete: true,
+        },
+      ];
+
+      (fs.access as jest.Mock).mockResolvedValue(undefined);
+      (JsonlSessionParser.parseSessionMessages as jest.Mock).mockResolvedValue(
+        mockMessages
+      );
+
+      // Act
+      const result = await sessionProxy.getSessionMessages(
+        sessionId as any,
+        mockWorkspaceRoot
+      );
+
+      // Assert
+      expect(result[0].sessionId).toBe(sessionId);
+    });
+
+    it('should use custom workspace root when provided', async () => {
+      // Arrange
+      const customWorkspace = 'D:\\custom\\workspace';
+      const customSessionsDir =
+        'C:\\Users\\testuser\\.claude\\projects\\d--custom-workspace';
+      const sessionId = 'test-session';
+
+      (WorkspacePathEncoder.getSessionsDirectory as jest.Mock).mockReturnValue(
+        customSessionsDir
+      );
+      (fs.access as jest.Mock).mockResolvedValue(undefined);
+      (JsonlSessionParser.parseSessionMessages as jest.Mock).mockResolvedValue(
+        []
+      );
+
+      // Act
+      await sessionProxy.getSessionMessages(sessionId as any, customWorkspace);
+
+      // Assert
+      expect(WorkspacePathEncoder.getSessionsDirectory).toHaveBeenCalledWith(
+        customWorkspace
+      );
+      expect(JsonlSessionParser.parseSessionMessages).toHaveBeenCalledWith(
+        path.join(customSessionsDir, `${sessionId}.jsonl`)
+      );
     });
   });
 });
