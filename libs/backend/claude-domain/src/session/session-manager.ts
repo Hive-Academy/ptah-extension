@@ -28,6 +28,10 @@ import { SessionProxy } from './session-proxy';
 
 /**
  * Storage service interface for persistence
+ *
+ * DEPRECATED: This interface is no longer used by SessionManager (TASK_2025_014)
+ * Sessions are now stored in .jsonl files only.
+ * Kept for backward compatibility with other parts of the codebase.
  */
 export interface IStorageService {
   get<T>(key: string, defaultValue?: T): T | undefined;
@@ -144,16 +148,20 @@ export class SessionManager {
   private claudeSessionInfo = new Map<SessionId, ClaudeSessionInfo>();
   private sessionCounter = 1;
 
-  // Storage keys (DEPRECATED - will be removed in Task 4.2)
-  private readonly SESSIONS_KEY = 'ptah.sessions';
-  private readonly CURRENT_SESSION_KEY = 'ptah.currentSessionId';
+  // REMOVED: Storage keys and IStorageService dependency (Task 4.2)
+  // Sessions are now ONLY stored in .jsonl files by Claude CLI
 
   constructor(
     @inject(TOKENS.EVENT_BUS) private readonly eventBus: IEventBus,
-    @inject(TOKENS.STORAGE_SERVICE) private readonly storage: IStorageService,
     @inject(TOKENS.SESSION_PROXY) private readonly sessionProxy: SessionProxy
   ) {
-    this.loadSessions();
+    // Migration warning for old workspace state data
+    console.warn(
+      'SessionManager: Sessions now read from .jsonl files only (TASK_2025_014).'
+    );
+    console.warn(
+      'Old workspace state data will be ignored. Use Claude CLI for session management.'
+    );
   }
 
   /**
@@ -209,7 +217,7 @@ export class SessionManager {
     // We only track the currentSessionId here
     this.currentSessionId = session.id;
 
-    await this.saveSessions();
+    // REMOVED: saveSessions() - no longer persisting to workspace state
 
     // Publish session created event
     this.eventBus.publish(CHAT_MESSAGE_TYPES.SESSION_CREATED, { session });
@@ -325,8 +333,6 @@ export class SessionManager {
 
     this.currentSessionId = sessionId;
 
-    await this.saveSessions();
-
     // Build full session object for event
     const session = await this.getSession(sessionId);
     if (session) {
@@ -362,8 +368,6 @@ export class SessionManager {
       this.currentSessionId = undefined;
     }
 
-    await this.saveSessions();
-
     // Publish session deleted event
     this.eventBus.publish(CHAT_MESSAGE_TYPES.SESSION_DELETED, { sessionId });
     this.notifySessionsChanged();
@@ -386,8 +390,6 @@ export class SessionManager {
     if (!(await this.sessionExists(sessionId))) {
       return false;
     }
-
-    await this.saveSessions();
 
     // Publish session renamed event
     this.eventBus.publish(CHAT_MESSAGE_TYPES.SESSION_RENAMED, {
@@ -413,8 +415,6 @@ export class SessionManager {
     if (!(await this.sessionExists(sessionId))) {
       return false;
     }
-
-    await this.saveSessions();
 
     // Build updated session for event (with empty messages)
     const session = await this.getSession(sessionId);
@@ -850,36 +850,8 @@ export class SessionManager {
 
   // REMOVED: updateTokenPercentage() - no longer needed (sessions read from .jsonl)
   // REMOVED: mutateSession() - no longer needed (no in-memory session modification)
-
-  private loadSessions(): void {
-    try {
-      // UPDATED: Only load currentSessionId (sessions are read from .jsonl files via SessionProxy)
-      const currentSessionId = this.storage.get<SessionId>(
-        this.CURRENT_SESSION_KEY
-      );
-
-      this.currentSessionId = currentSessionId;
-
-      // Session counter will be determined from .jsonl files when needed
-      this.sessionCounter = 1;
-    } catch (error) {
-      console.error('Failed to load current session from storage:', error);
-    }
-  }
-
-  /**
-   * Save sessions to storage
-   *
-   * UPDATED: Only saves currentSessionId (sessions are persisted to .jsonl files by CLI)
-   */
-  private async saveSessions(): Promise<void> {
-    try {
-      // Only save currentSessionId (sessions stored in .jsonl files)
-      await this.storage.set(this.CURRENT_SESSION_KEY, this.currentSessionId);
-    } catch (error) {
-      console.error('Failed to save current session to storage:', error);
-    }
-  }
+  // REMOVED: loadSessions() - no longer loading from workspace state (Task 4.2)
+  // REMOVED: saveSessions() - no longer persisting to workspace state (Task 4.2)
 
   /**
    * Notify subscribers of session changes
