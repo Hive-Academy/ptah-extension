@@ -660,14 +660,42 @@ export class ChatService {
         ) {
           // Type guard passed, safe to cast
           this.chatState.setCurrentSession(sessionData as never);
-          this.logger.debug('Session switched', 'ChatService', {
-            sessionId: sessionData.id,
-          });
 
-          // Request messages for switched session
-          this.vscode.postStrictMessage(CHAT_MESSAGE_TYPES.GET_HISTORY, {
-            sessionId: sessionData.id,
-          });
+          // Use messages directly from session (backend already loaded them)
+          if (sessionData.messages && Array.isArray(sessionData.messages)) {
+            // Add diagnostic logging
+            console.group('🔄 SESSION SWITCHED');
+            console.log('Session ID:', sessionData.id);
+            console.log(
+              'Message count in payload:',
+              sessionData.messages.length
+            );
+            console.groupEnd();
+
+            // Update messages using consolidated method (same pattern as MESSAGE_ADDED)
+            this.updateMessages(
+              sessionData.messages as StrictChatMessage[],
+              'SESSION_SWITCHED'
+            );
+
+            this.logger.debug(
+              'Session switched with messages loaded',
+              'ChatService',
+              {
+                sessionId: sessionData.id,
+                messageCount: sessionData.messages.length,
+              }
+            );
+          } else {
+            // Empty session (no messages yet)
+            this.logger.debug(
+              'Session switched (empty session)',
+              'ChatService',
+              {
+                sessionId: sessionData.id,
+              }
+            );
+          }
         }
       });
 
