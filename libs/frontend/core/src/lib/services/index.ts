@@ -40,3 +40,13 @@ export {
   type PerformanceData,
   type ActivityItem,
 } from './analytics.service';
+
+// RPC Services (Phase 2 - TASK_2025_021)
+export {
+  ClaudeRpcService,
+  RpcResult,
+  type RpcCallOptions,
+} from './claude-rpc.service';
+
+// File Services (Phase 2 - TASK_2025_021)
+export { ClaudeFileService, type SessionFileInfo } from './claude-file.service';

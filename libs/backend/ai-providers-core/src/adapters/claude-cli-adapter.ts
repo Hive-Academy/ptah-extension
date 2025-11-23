@@ -84,10 +84,8 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
     @inject(TOKENS.CLAUDE_CLI_DETECTOR)
     private readonly detector: ClaudeCliDetector,
     @inject(TOKENS.CLAUDE_CLI_SERVICE)
-    private readonly claudeCliService: ClaudeCliService
-  ) // @inject(TOKENS.SESSION_MANAGER) // TODO: Phase 2 RPC - use ClaudeRpcService
-  // private readonly sessionManager: SessionManager
-  {}
+    private readonly claudeCliService: ClaudeCliService // @inject(TOKENS.SESSION_MANAGER) // TODO: Phase 2 RPC - use ClaudeRpcService // private readonly sessionManager: SessionManager
+  ) {}
 
   /**
    * Verify Claude CLI installation

@@ -103,7 +103,8 @@ export class RpcHandler {
       });
       return { success: true, data, correlationId };
     } catch (error) {
-      const errorObj = error instanceof Error ? error : new Error(String(error));
+      const errorObj =
+        error instanceof Error ? error : new Error(String(error));
       this.logger.error(`RpcHandler: Method "${method}" failed`, errorObj);
       return {
         success: false,

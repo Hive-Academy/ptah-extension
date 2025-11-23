@@ -8,3 +8,6 @@ export {
   type ChatFile,
   type FileSuggestion,
 } from './file-picker.service';
+
+// Chat Store (Phase 2 - TASK_2025_021)
+export { ChatStoreService } from './chat-store.service';
