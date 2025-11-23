@@ -52,14 +52,12 @@ describe('CodeExecutionMCP', () => {
         getAll: jest.fn().mockResolvedValue([]),
       },
       git: {
-        getStatus: jest
-          .fn()
-          .mockResolvedValue({
-            branch: 'main',
-            modified: [],
-            staged: [],
-            untracked: [],
-          }),
+        getStatus: jest.fn().mockResolvedValue({
+          branch: 'main',
+          modified: [],
+          staged: [],
+          untracked: [],
+        }),
       },
       ai: {
         chat: jest.fn().mockResolvedValue('AI response'),
