@@ -59,3 +59,7 @@ export type {
 // OutputMessagePayload, OutputChannelCreatedPayload, OutputChannelErrorPayload,
 // StatusBarItemCreatedPayload, StatusBarItemUpdatedPayload, StatusBarItemClickedPayload, StatusBarItemErrorPayload,
 // FileOperationPayload, FileWatcherEventPayload, FileSystemErrorPayload
+
+// RPC System (Phase 2 - TASK_2025_021)
+export { RpcHandler } from './messaging';
+export type { RpcMessage, RpcResponse, RpcMethodHandler } from './messaging';

@@ -1,0 +1,144 @@
+/**
+ * RPC Handler - Routes RPC method calls to registered handlers
+ * Phase 2: RPC Migration (TASK_2025_021)
+ *
+ * This class replaces the old EventBus + MessageHandlerService pattern (deleted in Phase 0).
+ * Instead of 94 message types and event subscriptions, we use simple method routing.
+ *
+ * Features:
+ * - Map-based method routing (registerMethod/handleMessage)
+ * - Correlation ID support for request/response matching
+ * - Graceful error handling with try/catch
+ * - Logger integration for debugging
+ * - Dependency injection via TSyringe
+ *
+ * Usage:
+ *   rpcHandler.registerMethod('session:list', async (params) => { ... });
+ *   const response = await rpcHandler.handleMessage({
+ *     method: 'session:list',
+ *     params: {},
+ *     correlationId: '123'
+ *   });
+ */
+
+import { injectable, inject } from 'tsyringe';
+import { LOGGER } from '../di/tokens';
+import type { Logger } from '../logging/logger';
+import type { RpcMessage, RpcResponse, RpcMethodHandler } from './rpc-types';
+
+/**
+ * RPC Handler service for routing RPC method calls
+ * Manages registration and execution of RPC methods
+ */
+@injectable()
+export class RpcHandler {
+  private handlers = new Map<string, RpcMethodHandler>();
+
+  constructor(@inject(LOGGER) private readonly logger: Logger) {
+    this.logger.debug('RpcHandler: Initialized');
+  }
+
+  /**
+   * Register an RPC method handler
+   * Overwrites existing handler if method name already registered
+   *
+   * @param name - Method name (e.g., 'session:list', 'chat:sendMessage')
+   * @param handler - Async function to handle the method
+   *
+   * @example
+   * rpcHandler.registerMethod('session:list', async (params) => {
+   *   const sessions = await sessionManager.listSessions();
+   *   return sessions;
+   * });
+   */
+  registerMethod(name: string, handler: RpcMethodHandler): void {
+    if (this.handlers.has(name)) {
+      this.logger.warn(`RpcHandler: Overwriting method "${name}"`);
+    }
+    this.handlers.set(name, handler);
+    this.logger.debug(`RpcHandler: Registered method "${name}"`);
+  }
+
+  /**
+   * Handle an RPC message from the frontend
+   * Routes the message to the appropriate handler and returns a response
+   *
+   * @param message - RPC message with method, params, correlationId
+   * @returns RPC response with success/error state
+   *
+   * @example
+   * const response = await rpcHandler.handleMessage({
+   *   method: 'session:list',
+   *   params: {},
+   *   correlationId: 'abc-123'
+   * });
+   *
+   * if (response.success) {
+   *   console.log('Sessions:', response.data);
+   * } else {
+   *   console.error('Error:', response.error);
+   * }
+   */
+  async handleMessage(message: RpcMessage): Promise<RpcResponse> {
+    const { method, params, correlationId } = message;
+
+    this.logger.debug(`RpcHandler: Handling method "${method}"`, {
+      correlationId,
+    });
+
+    const handler = this.handlers.get(method);
+    if (!handler) {
+      this.logger.warn(`RpcHandler: Method not found: "${method}"`);
+      return {
+        success: false,
+        error: `Method not found: ${method}`,
+        correlationId,
+      };
+    }
+
+    try {
+      const data = await handler(params);
+      this.logger.debug(`RpcHandler: Method "${method}" succeeded`, {
+        correlationId,
+      });
+      return { success: true, data, correlationId };
+    } catch (error) {
+      const errorObj = error instanceof Error ? error : new Error(String(error));
+      this.logger.error(`RpcHandler: Method "${method}" failed`, errorObj);
+      return {
+        success: false,
+        error: errorObj.message,
+        correlationId,
+      };
+    }
+  }
+
+  /**
+   * Unregister an RPC method handler
+   * No-op if method was not registered
+   *
+   * @param name - Method name to unregister
+   *
+   * @example
+   * rpcHandler.unregisterMethod('session:list');
+   */
+  unregisterMethod(name: string): void {
+    if (this.handlers.delete(name)) {
+      this.logger.debug(`RpcHandler: Unregistered method "${name}"`);
+    }
+  }
+
+  /**
+   * Get list of registered method names
+   * Useful for debugging and introspection
+   *
+   * @returns Array of method names
+   *
+   * @example
+   * const methods = rpcHandler.getRegisteredMethods();
+   * // ['session:list', 'chat:sendMessage', 'provider:getStatus']
+   */
+  getRegisteredMethods(): string[] {
+    return Array.from(this.handlers.keys());
+  }
+}

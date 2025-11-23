@@ -40,6 +40,7 @@ export const ERROR_HANDLER = Symbol.for('ErrorHandler');
 export const CONFIG_MANAGER = Symbol.for('ConfigManager');
 export const MESSAGE_VALIDATOR = Symbol.for('MessageValidator');
 export const CONTEXT_MANAGER = Symbol.for('ContextManager');
+export const RPC_HANDLER = Symbol.for('RpcHandler');
 
 // ========================================
 // Workspace Intelligence Service Tokens
@@ -202,6 +203,7 @@ export const TOKENS = {
   CONFIG_MANAGER,
   MESSAGE_VALIDATOR,
   CONTEXT_MANAGER,
+  RPC_HANDLER,
 
   // ========================================
   // Workspace Intelligence
