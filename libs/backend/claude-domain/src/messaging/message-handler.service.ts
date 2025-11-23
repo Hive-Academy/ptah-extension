@@ -673,17 +673,26 @@ export class MessageHandlerService {
    */
   private subscribeToContextMessages(): void {
     // context:getFiles
-    // NOTE: This handler is currently non-functional and serves as a placeholder
-    // The actual VS Code URI creation must happen in the main app layer
-    // TODO: Refactor to delegate URI creation to main app
+    // BUGFIX TASK_2025_019: Fixed to publish UPDATE_FILES event for frontend
+    // Frontend FilePickerService (line 169) listens for UPDATE_FILES to populate autocomplete
     this.subscriptions.push(
       this.eventBus
         .subscribe(CONTEXT_MESSAGE_TYPES.GET_FILES)
         .subscribe(async (event) => {
-          // getContextFiles takes no parameters (just requestId in request object)
-          const result = await this.contextOrchestration.getContextFiles({
+          // Use getAllFiles to get complete workspace file list
+          const result = await this.contextOrchestration.getAllFiles({
             requestId: event.correlationId,
           });
+
+          // CRITICAL: Publish UPDATE_FILES event for frontend autocomplete
+          if (result.success && result.files) {
+            this.eventBus.publish(CONTEXT_MESSAGE_TYPES.UPDATE_FILES, {
+              includedFiles: result.files.map((f) => f.relativePath || f.uri),
+              excludedFiles: [],
+              tokenEstimate: 0,
+            } as MessagePayloadMap[typeof CONTEXT_MESSAGE_TYPES.UPDATE_FILES]);
+          }
+
           this.publishResponse('context:getFiles', event.correlationId, result);
         })
     );
