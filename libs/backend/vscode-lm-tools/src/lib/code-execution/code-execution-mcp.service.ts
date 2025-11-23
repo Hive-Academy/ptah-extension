@@ -342,7 +342,7 @@ export class CodeExecutionMCP implements vscode.Disposable {
 
     // Create async function with ptah API in scope
     // AsyncFunction constructor pattern: new AsyncFunction('argName', 'functionBody')
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
+     
     const AsyncFunction = Object.getPrototypeOf(
       async function () {}
     ).constructor;

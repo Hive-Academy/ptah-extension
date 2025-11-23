@@ -51,7 +51,7 @@ export interface ClaudePermissionRequest {
 export const ClaudePermissionRequestSchema = z.object({
   toolCallId: z.string(),
   tool: z.string(),
-  args: z.record(z.unknown()),
+  args: z.record(z.string(), z.unknown()),
   description: z.string().optional(),
   timestamp: z.number(),
 });
@@ -118,7 +118,7 @@ export const ClaudeToolEventStartSchema = z.object({
   type: z.literal('start'),
   toolCallId: z.string(),
   tool: z.string(),
-  args: z.record(z.unknown()),
+  args: z.record(z.string(), z.unknown()),
   timestamp: z.number(),
 });
 
@@ -326,7 +326,7 @@ export const ClaudeAgentActivityEventSchema = z
     type: z.literal('agent_activity'),
     agentId: z.string(),
     toolName: z.string(),
-    toolInput: z.record(z.unknown()),
+    toolInput: z.record(z.string(), z.unknown()),
     timestamp: z.number(),
   })
   .strict();

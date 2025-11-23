@@ -1,0 +1,191 @@
+
+> @ptah-extension/source@0.0.0 build:all
+> nx run-many -t build
+
+
+ NX   Running target build for 10 projects and 2 tasks they depend on:
+
+- @ptah-extension/workspace-intelligence
+- template-generation
+- @ptah-extension/ai-providers-core
+- llm-abstraction
+- vscode-lm-tools
+- ptah-extension-webview
+- @ptah-extension/claude-domain
+- ptah-extension-vscode
+- @ptah-extension/vscode-core
+- @ptah-extension/shared
+
+
+
+> nx run @ptah-extension/shared:build  [local cache]
+
+
+[2m..\..\dist\libs\shared\package.json[22m
+
+> nx run ptah-extension-webview:build:production  [local cache]
+
+[33m❯[39m Building...
+[32m✔[39m Building...
+[37m[1mInitial chunk files[22m[2m | [22m[1mNames[22m          [2m | [22m [1mRaw size[22m[2m | [22m[1mEstimated transfer size[22m[39m
+[37m[32mmain.js[39m[37m            [2m | [22m[2mmain[22m           [2m | [22m[36m799.64 kB[39m[37m[2m | [22m              [36m163.73 kB[39m[37m[39m
+[37m[32mpolyfills.js[39m[37m       [2m | [22m[2mpolyfills[22m      [2m | [22m [36m34.58 kB[39m[37m[2m | [22m               [36m11.32 kB[39m[37m[39m
+[37m[32mstyles.css[39m[37m         [2m | [22m[2mstyles[22m         [2m | [22m [36m12.33 kB[39m[37m[2m | [22m              [36m993 bytes[39m[37m[39m
+[37m[32mchunk-QEZ3K4DX.js[39m[37m  [2m | [22m[2m-[22m              [2m | [22m[36m730 bytes[39m[37m[2m | [22m              [36m730 bytes[39m[37m[39m
+[37m[32mchunk-PULQJNNA.js[39m[37m  [2m | [22m[2m-[22m              [2m | [22m[36m100 bytes[39m[37m[2m | [22m              [36m100 bytes[39m[37m[39m
+[37m[39m
+[37m[1m [22m                  [2m | [22m[1mInitial total[22m  [2m | [22m[1m[93m847.38 kB[39m[37m[22m[2m | [22m              [1m176.87 kB[22m[39m
+[37m[39m
+[37m[1mLazy chunk files[22m   [2m | [22m[1mNames[22m          [2m | [22m [1mRaw size[22m[2m | [22m[1mEstimated transfer size[22m[39m
+[37m[32mchunk-46PBHQMH.js[39m[37m  [2m | [22m[2mmock-vscode-api[22m[2m | [22m [36m13.73 kB[39m[37m[2m | [22m                [36m3.74 kB[39m[37m[39m
+[37m[32mchunk-SJFSCFBI.js[39m[37m  [2m | [22m[2mindex[22m          [2m | [22m  [36m6.57 kB[39m[37m[2m | [22m                [36m2.27 kB[39m[37m[39m
+[37m[39m
+[37mApplication bundle generation complete. [11.688 seconds][39m
+[37m[39m
+[1m[33m[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mbundle initial exceeded maximum budget. Budget 600.00 kB was not met by 247.38 kB with a total of 847.38 kB.[0m[39m[22m
+[1m[33m[39m[22m
+[1m[33m[39m[22m
+[1m[33m[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mlibs/frontend/chat/src/lib/components/chat-messages/components/chat-message-content/chat-message-content.component.scss exceeded maximum budget. Budget 8.00 kB was not met by 2.54 kB with a total of 10.54 kB.[0m[39m[22m
+[1m[33m[39m[22m
+[1m[33m[39m[22m
+[37mOutput location: D:\projects\ptah-extension\dist\apps\ptah-extension-webview[39m
+[37m[39m
+
+> nx run @ptah-extension/vscode-core:build
+
+
+[2m..\..\..\dist\libs\backend\vscode-core\CLAUDE.md[22m
+
+[2m..\..\..\dist\libs\backend\vscode-core\README.md[22m
+
+[2m..\..\..\dist\libs\backend\vscode-core\package.json[22m
+[4m[34mlibs\backend\vscode-core\src\validation\message-validator.service.ts:100:38[39m[24m - [31m[1merror[22m[39m [90mTS2339[39m: Property 'errors' does not exist on type 'ZodError<{ id: string; type: T; payload: unknown; metadata: { timestamp: number; source: "extension" | "webview"; version: string; sessionId?: string | undefined; }; }>'.
+
+[0m [90m  98 | [39m          expectedType[33m,[39m[0m
+[0m [90m  99 | [39m          {[0m
+[0m[31m[1m>[22m[39m[90m 100 | [39m            errors[33m:[39m baseResult[33m.[39merror[33m.[39merrors[33m,[39m[0m
+[0m [90m     | [39m                                     [31m[1m^[22m[39m[0m
+[0m [90m 101 | [39m            received[33m:[39m data[33m,[39m[0m
+[0m [90m 102 | [39m          }[0m
+[0m [90m 103 | [39m        )[33m;[39m[0m
+
+[4m[34mlibs\backend\vscode-core\src\validation\message-validator.service.ts:141:32[39m[24m - [31m[1merror[22m[39m [90mTS2339[39m: Property 'errors' does not exist on type 'ZodError<unknown>'.
+
+[0m [90m 139 | [39m        messageType[33m,[39m[0m
+[0m [90m 140 | [39m        {[0m
+[0m[31m[1m>[22m[39m[90m 141 | [39m          errors[33m:[39m result[33m.[39merror[33m.[39merrors[33m,[39m[0m
+[0m [90m     | [39m                               [31m[1m^[22m[39m[0m
+[0m [90m 142 | [39m          received[33m:[39m payload[33m,[39m[0m
+[0m [90m 143 | [39m        }[0m
+[0m [90m 144 | [39m      )[33m;[39m[0m
+
+[4m[34mlibs\backend\vscode-core\src\validation\message-validator.service.ts:525:30[39m[24m - [31m[1merror[22m[39m [90mTS2339[39m: Property 'errors' does not exist on type 'ZodError<{ id: string; sessionId: string; type: "system" | "user" | "assistant"; contentBlocks: ({ type: "text"; text: string; index?: number | undefined; } | { type: "tool_use"; id: string; name: string; input: Record<...>; index?: number | undefined; } | { ...; })[]; ... 9 more ...; duration?: number | undefined; }>'.
+
+[0m [90m 523 | [39m    [36mif[39m ([33m![39mresult[33m.[39msuccess) {[0m
+[0m [90m 524 | [39m      [36mthrow[39m [36mnew[39m [33mValidationError[39m([32m'Invalid chat message structure'[39m[33m,[39m {[0m
+[0m[31m[1m>[22m[39m[90m 525 | [39m        errors[33m:[39m result[33m.[39merror[33m.[39merrors[33m,[39m[0m
+[0m [90m     | [39m                             [31m[1m^[22m[39m[0m
+[0m [90m 526 | [39m        received[33m:[39m data[33m,[39m[0m
+[0m [90m 527 | [39m      })[33m;[39m[0m
+[0m [90m 528 | [39m    }[0m
+
+[4m[34mlibs\backend\vscode-core\src\validation\message-validator.service.ts:540:12[39m[24m - [31m[1merror[22m[39m [90mTS2352[39m: Conversion of type '{ id: string; sessionId: string; type: "system" | "user" | "assistant"; contentBlocks: ({ type: "text"; text: string; index?: number | undefined; } | { type: "tool_use"; id: string; name: string; input: Record<...>; index?: number | undefined; } | { ...; })[]; ... 9 more ...; duration?: number | undefined; }' to type 'StrictChatMessage' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Types of property 'id' are incompatible.
+    Type 'string' is not comparable to type 'MessageId'.
+      Type 'string' is not comparable to type '{ readonly __brand: "MessageId"; }'.
+
+[0m [90m 538 | [39m    }[0m
+[0m [90m 539 | [39m[0m
+[0m[31m[1m>[22m[39m[90m 540 | [39m    [36mreturn[39m result[33m.[39mdata as [33mStrictChatMessage[39m[33m;[39m[0m
+[0m [90m     | [39m           [31m[1m^[22m[39m[0m
+[0m [90m 541 | [39m  }[0m
+[0m [90m 542 | [39m[0m
+[0m [90m 543 | [39m  [90m/**[39m[0m
+
+[4m[34mlibs\backend\vscode-core\src\validation\message-validator.service.ts:551:30[39m[24m - [31m[1merror[22m[39m [90mTS2339[39m: Property 'errors' does not exist on type 'ZodError<{ id: string; name: string; messages: { id: string; sessionId: string; type: "system" | "user" | "assistant"; contentBlocks: ({ type: "text"; text: string; index?: number | undefined; } | { type: "tool_use"; id: string; name: string; input: Record<...>; index?: number | undefined; } | { ...; })[]; ... 9 mor...'.
+
+[0m [90m 549 | [39m    [36mif[39m ([33m![39mresult[33m.[39msuccess) {[0m
+[0m [90m 550 | [39m      [36mthrow[39m [36mnew[39m [33mValidationError[39m([32m'Invalid chat session structure'[39m[33m,[39m {[0m
+[0m[31m[1m>[22m[39m[90m 551 | [39m        errors[33m:[39m result[33m.[39merror[33m.[39merrors[33m,[39m[0m
+[0m [90m     | [39m                             [31m[1m^[22m[39m[0m
+[0m [90m 552 | [39m        received[33m:[39m data[33m,[39m[0m
+[0m [90m 553 | [39m      })[33m;[39m[0m
+[0m [90m 554 | [39m    }[0m
+
+[4m[34mlibs\backend\vscode-core\src\validation\message-validator.service.ts:556:12[39m[24m - [31m[1merror[22m[39m [90mTS2352[39m: Conversion of type '{ id: string; name: string; messages: { id: string; sessionId: string; type: "system" | "user" | "assistant"; contentBlocks: ({ type: "text"; text: string; index?: number | undefined; } | { type: "tool_use"; id: string; name: string; input: Record<...>; index?: number | undefined; } | { ...; })[]; ... 9 more ...; du...' to type 'StrictChatSession' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Types of property 'id' are incompatible.
+    Type 'string' is not comparable to type 'SessionId'.
+      Type 'string' is not comparable to type '{ readonly __brand: "SessionId"; }'.
+
+[0m [90m 554 | [39m    }[0m
+[0m [90m 555 | [39m[0m
+[0m[31m[1m>[22m[39m[90m 556 | [39m    [36mreturn[39m result[33m.[39mdata as [33mStrictChatSession[39m[33m;[39m[0m
+[0m [90m     | [39m           [31m[1m^[22m[39m[0m
+[0m [90m 557 | [39m  }[0m
+[0m [90m 558 | [39m[0m
+[0m [90m 559 | [39m  [90m/**[39m[0m
+
+[4m[34mlibs\backend\vscode-core\src\validation\message-validator.service.ts:567:30[39m[24m - [31m[1merror[22m[39m [90mTS2339[39m: Property 'errors' does not exist on type 'ZodError<{ requestId: string; success: boolean; metadata: { timestamp: number; source: "extension" | "webview"; version: string; sessionId?: string | undefined; }; data?: unknown; error?: { code: string; message: string; context?: Record<...> | undefined; stack?: string | undefined; } | undefined; }>'.
+
+[0m [90m 565 | [39m    [36mif[39m ([33m![39mresult[33m.[39msuccess) {[0m
+[0m [90m 566 | [39m      [36mthrow[39m [36mnew[39m [33mValidationError[39m([32m'Invalid message response structure'[39m[33m,[39m {[0m
+[0m[31m[1m>[22m[39m[90m 567 | [39m        errors[33m:[39m result[33m.[39merror[33m.[39merrors[33m,[39m[0m
+[0m [90m     | [39m                             [31m[1m^[22m[39m[0m
+[0m [90m 568 | [39m        received[33m:[39m data[33m,[39m[0m
+[0m [90m 569 | [39m      })[33m;[39m[0m
+[0m [90m 570 | [39m    }[0m
+
+[4m[34mlibs\backend\vscode-core\src\validation\message-validator.service.ts:640:18[39m[24m - [31m[1merror[22m[39m [90mTS2339[39m: Property 'errors' does not exist on type 'ZodError<unknown>'.
+
+[0m [90m 638 | [39m[90m   */[39m[0m
+[0m [90m 639 | [39m  formatValidationError(error[33m:[39m [33mZodError[39m)[33m:[39m string {[0m
+[0m[31m[1m>[22m[39m[90m 640 | [39m    [36mreturn[39m error[33m.[39merrors[0m
+[0m [90m     | [39m                 [31m[1m^[22m[39m[0m
+[0m [90m 641 | [39m      [33m.[39mmap((err) [33m=>[39m [32m`${err.path.join('.')}: ${err.message}`[39m)[0m
+[0m [90m 642 | [39m      [33m.[39mjoin([32m'; '[39m)[33m;[39m[0m
+[0m [90m 643 | [39m  }[0m
+
+[4m[34mlibs\backend\vscode-core\src\validation\message-validator.service.ts:641:13[39m[24m - [31m[1merror[22m[39m [90mTS7006[39m: Parameter 'err' implicitly has an 'any' type.
+
+[0m [90m 639 | [39m  formatValidationError(error[33m:[39m [33mZodError[39m)[33m:[39m string {[0m
+[0m [90m 640 | [39m    [36mreturn[39m error[33m.[39merrors[0m
+[0m[31m[1m>[22m[39m[90m 641 | [39m      [33m.[39mmap((err) [33m=>[39m [32m`${err.path.join('.')}: ${err.message}`[39m)[0m
+[0m [90m     | [39m            [31m[1m^[22m[39m[0m
+[0m [90m 642 | [39m      [33m.[39mjoin([32m'; '[39m)[33m;[39m[0m
+[0m [90m 643 | [39m  }[0m
+[0m [90m 644 | [39m[0m
+
+[4m[34mlibs\backend\vscode-core\src\validation\message-validator.service.ts:660:33[39m[24m - [31m[1merror[22m[39m [90mTS2339[39m: Property 'errors' does not exist on type 'ZodError<unknown>'.
+
+[0m [90m 658 | [39m      [36mreturn[39m {[0m
+[0m [90m 659 | [39m        [33m...[39mbaseContext[33m,[39m[0m
+[0m[31m[1m>[22m[39m[90m 660 | [39m        validationErrors[33m:[39m error[33m.[39merrors[33m,[39m[0m
+[0m [90m     | [39m                                [31m[1m^[22m[39m[0m
+[0m [90m 661 | [39m        formattedError[33m:[39m [36mthis[39m[33m.[39mformatValidationError(error)[33m,[39m[0m
+[0m [90m 662 | [39m      }[33m;[39m[0m
+[0m [90m 663 | [39m    }[0m
+
+Found 10 errors.
+
+
+
+ NX   Running target build for 10 projects and 2 tasks they depend on failed
+
+Tasks not run because their dependencies failed or --nx-bail=true:
+
+- @ptah-extension/workspace-intelligence:build
+- template-generation:build
+- @ptah-extension/ai-providers-core:build
+- llm-abstraction:build
+- vscode-lm-tools:build
+- @ptah-extension/claude-domain:build
+- ptah-extension-vscode:build
+- ptah-extension-vscode:build-webpack:production
+- ptah-extension-vscode:post-build-copy
+
+Failed tasks:
+
+- @ptah-extension/vscode-core:build
+
+View structured, searchable error logs at https://cloud.nx.app/runs/PKvrfXNnfH
+

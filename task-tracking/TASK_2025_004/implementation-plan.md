@@ -278,7 +278,7 @@ export const ClaudeAgentActivityEventSchema = z
     type: z.literal('agent_activity'),
     agentId: z.string(),
     toolName: z.string(),
-    toolInput: z.record(z.unknown()),
+    toolInput: z.record(z.string(), z.unknown()),
     timestamp: z.number(),
   })
   .strict();

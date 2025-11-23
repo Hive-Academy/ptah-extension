@@ -77,11 +77,11 @@ export class OpenAIProvider extends BaseLlmProvider {
     }
   }
 
-  async getContextWindowSize(): Promise<number> {
+  override async getContextWindowSize(): Promise<number> {
     return this.defaultContextSize;
   }
 
-  async countTokens(text: string): Promise<number> {
+  override async countTokens(text: string): Promise<number> {
     try {
       // Use the model's built-in getNumTokens method
       const tokenCount = await this.model.getNumTokens(text);
@@ -109,13 +109,10 @@ export class OpenAIProvider extends BaseLlmProvider {
     }
 
     // Create structured model with optional bind options
-    let runnableToInvoke: Runnable<
-      BaseLanguageModelInput,
-      z.infer<T>
-    > = this.model.withStructuredOutput(schema, {
+    let runnableToInvoke = this.model.withStructuredOutput(schema, {
       name:
         schema.description || `extract_${schema.constructor?.name || 'data'}`,
-    });
+    }) as Runnable<BaseLanguageModelInput, z.infer<T>>;
 
     const bindOptions: any = {};
     const runtimeCallOptions: Partial<ChatOpenAICallOptions> = {};

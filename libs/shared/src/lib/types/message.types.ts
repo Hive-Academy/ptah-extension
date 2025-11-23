@@ -987,7 +987,7 @@ export const MessageResponseSchema = z
       .object({
         code: z.string(),
         message: z.string(),
-        context: z.record(z.unknown()).optional(),
+        context: z.record(z.string(), z.unknown()).optional(),
         stack: z.string().optional(),
       })
       .optional(),
@@ -1036,7 +1036,7 @@ export const ToolUseContentBlockSchema = z
     type: z.literal('tool_use'),
     id: z.string(),
     name: z.string(),
-    input: z.record(z.unknown()),
+    input: z.record(z.string(), z.unknown()),
     index: z.number().optional(),
   })
   .strict();
@@ -1071,7 +1071,7 @@ export const StrictChatMessageSchema = z.object({
   streaming: z.boolean().optional(),
   files: z.array(z.string()).optional(),
   isError: z.boolean().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   // For assistant messages
   isComplete: z.boolean().optional(),
   // For system messages

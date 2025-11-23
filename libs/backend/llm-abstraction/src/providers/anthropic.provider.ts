@@ -57,11 +57,11 @@ export class AnthropicProvider extends BaseLlmProvider {
     }
   }
 
-  async getContextWindowSize(): Promise<number> {
+  override async getContextWindowSize(): Promise<number> {
     return this.defaultContextSize;
   }
 
-  async countTokens(text: string): Promise<number> {
+  override async countTokens(text: string): Promise<number> {
     try {
       const response = await fetch(
         'https://api.anthropic.com/v1/messages/count_tokens',

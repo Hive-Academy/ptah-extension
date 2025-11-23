@@ -4,7 +4,7 @@
  */
 export class LlmProviderError extends Error {
   constructor(
-    public readonly message: string,
+    public override readonly message: string,
     public readonly code: LlmProviderErrorCode,
     public readonly provider: string,
     public readonly details?: Record<string, unknown>

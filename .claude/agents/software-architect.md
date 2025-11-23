@@ -834,8 +834,8 @@ Focus on WHAT to build and WHY, not HOW to build it step-by-step:
 ### Integration Points
 
 - **[Integration 1]**: [How components connect]
-    - Pattern: [Integration pattern used]
-    - Evidence: [file:line]
+  - Pattern: [Integration pattern used]
+  - Evidence: [file:line]
 
 ### Data Flow
 
@@ -884,7 +884,6 @@ Focus on WHAT to build and WHY, not HOW to build it step-by-step:
 
 **Breakdown**:
 
-
 ### Files Affected Summary
 
 **CREATE**:
@@ -911,7 +910,6 @@ Focus on WHAT to build and WHY, not HOW to build it step-by-step:
    - [Import 2] from [library/file:line]
 
 2. **All patterns verified from examples**:
-
 
 3. **Library documentation consulted**:
 

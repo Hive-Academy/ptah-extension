@@ -57,11 +57,11 @@ export class OpenRouterProvider extends BaseLlmProvider {
     }
   }
 
-  async getContextWindowSize(): Promise<number> {
+  override async getContextWindowSize(): Promise<number> {
     return this.defaultContextSize;
   }
 
-  async countTokens(text: string): Promise<number> {
+  override async countTokens(text: string): Promise<number> {
     // OpenRouter doesn't provide direct token counting
     // Use approximation: ~4 characters per token
     return Math.ceil(text.length / 4);

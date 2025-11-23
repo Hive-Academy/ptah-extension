@@ -97,7 +97,7 @@ export class MessageValidatorService {
           `Invalid message structure for type ${expectedType}`,
           expectedType,
           {
-            errors: baseResult.error.errors,
+            errors: baseResult.error.issues,
             received: data,
           }
         );
@@ -138,7 +138,7 @@ export class MessageValidatorService {
         `Invalid payload for message type ${messageType}`,
         messageType,
         {
-          errors: result.error.errors,
+          errors: result.error.issues,
           received: payload,
         }
       );
@@ -163,7 +163,7 @@ export class MessageValidatorService {
       case 'analytics:trackEvent':
         return z.object({
           event: z.string(),
-          properties: z.record(z.unknown()).optional(),
+          properties: z.record(z.string(), z.unknown()).optional(),
         });
 
       // State management schemas
@@ -189,7 +189,7 @@ export class MessageValidatorService {
         });
       case 'config:update':
         return z.object({
-          updates: z.record(z.unknown()),
+          updates: z.record(z.string(), z.unknown()),
         });
       case 'config:refresh':
         return z.object({
@@ -258,7 +258,7 @@ export class MessageValidatorService {
             message: z.string(),
             recoverable: z.boolean(),
             suggestedAction: z.string(),
-            context: z.record(z.unknown()).optional(),
+            context: z.record(z.string(), z.unknown()).optional(),
           }),
           timestamp: z.number(),
         });
@@ -351,7 +351,7 @@ export class MessageValidatorService {
             streaming: z.boolean().optional(),
             files: z.array(z.string()).optional(),
             isError: z.boolean().optional(),
-            metadata: z.record(z.unknown()).optional(),
+            metadata: z.record(z.string(), z.unknown()).optional(),
           }),
         });
       case 'chat:messageComplete':
@@ -417,7 +417,7 @@ export class MessageValidatorService {
       case 'commands:executeCommand':
         return z.object({
           templateId: z.string(),
-          parameters: z.record(z.unknown()),
+          parameters: z.record(z.string(), z.unknown()),
         });
       case 'commands:selectFile':
         return z.object({
@@ -522,7 +522,7 @@ export class MessageValidatorService {
 
     if (!result.success) {
       throw new ValidationError('Invalid chat message structure', {
-        errors: result.error.errors,
+        errors: result.error.issues,
         received: data,
       });
     }
@@ -537,7 +537,7 @@ export class MessageValidatorService {
       );
     }
 
-    return result.data as StrictChatMessage;
+    return result.data as unknown as StrictChatMessage;
   }
 
   /**
@@ -548,12 +548,12 @@ export class MessageValidatorService {
 
     if (!result.success) {
       throw new ValidationError('Invalid chat session structure', {
-        errors: result.error.errors,
+        errors: result.error.issues,
         received: data,
       });
     }
 
-    return result.data as StrictChatSession;
+    return result.data as unknown as StrictChatSession;
   }
 
   /**
@@ -564,7 +564,7 @@ export class MessageValidatorService {
 
     if (!result.success) {
       throw new ValidationError('Invalid message response structure', {
-        errors: result.error.errors,
+        errors: result.error.issues,
         received: data,
       });
     }
@@ -637,7 +637,7 @@ export class MessageValidatorService {
    * Format validation errors for debugging
    */
   formatValidationError(error: ZodError): string {
-    return error.errors
+    return error.issues
       .map((err) => `${err.path.join('.')}: ${err.message}`)
       .join('; ');
   }
@@ -657,7 +657,7 @@ export class MessageValidatorService {
     if (error instanceof ZodError) {
       return {
         ...baseContext,
-        validationErrors: error.errors,
+        validationErrors: error.issues,
         formattedError: this.formatValidationError(error),
       };
     }

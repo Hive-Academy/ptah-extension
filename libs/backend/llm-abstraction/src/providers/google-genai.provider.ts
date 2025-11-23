@@ -33,7 +33,7 @@ export class GoogleGenAIProvider extends BaseLlmProvider {
     // Initialize ChatGoogleGenerativeAI model
     this.model = new ChatGoogleGenerativeAI({
       apiKey: this.apiKey,
-      modelName: this.modelName,
+      model: this.modelName,
       temperature: this.temperature,
       maxOutputTokens: this.maxOutputTokens,
     });
@@ -53,11 +53,11 @@ export class GoogleGenAIProvider extends BaseLlmProvider {
     }
   }
 
-  async getContextWindowSize(): Promise<number> {
+  override async getContextWindowSize(): Promise<number> {
     return this.defaultContextSize;
   }
 
-  async countTokens(text: string): Promise<number> {
+  override async countTokens(text: string): Promise<number> {
     // Google Gemini doesn't provide easy token counting API
     // Use approximation: ~4 characters per token
     return Math.ceil(text.length / 4);

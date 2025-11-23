@@ -222,7 +222,7 @@ export class CommandHandlers {
 
     try {
       // Get all sessions from orchestration service
-      const sessions = this.chatOrchestration.getAllSessions();
+      const sessions = await this.chatOrchestration.getAllSessions();
 
       if (sessions.length === 0) {
         vscode.window.showInformationMessage(

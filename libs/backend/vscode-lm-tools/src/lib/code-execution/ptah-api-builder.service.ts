@@ -17,11 +17,15 @@
 
 import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
-import { TOKENS, Logger, FileSystemManager, CommandManager } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  Logger,
+  FileSystemManager,
+  CommandManager,
+} from '@ptah-extension/vscode-core';
 import {
   WorkspaceAnalyzerService,
   ContextOrchestrationService,
-  FileIndexerService,
 } from '@ptah-extension/workspace-intelligence';
 import { CorrelationId } from '@ptah-extension/shared';
 import {
@@ -46,9 +50,6 @@ export class PtahAPIBuilder {
 
     @inject(TOKENS.CONTEXT_ORCHESTRATION_SERVICE)
     private readonly contextOrchestration: ContextOrchestrationService,
-
-    @inject(TOKENS.FILE_INDEXER_SERVICE)
-    private readonly fileIndexer: FileIndexerService,
 
     @inject(TOKENS.LOGGER)
     private readonly logger: Logger,
@@ -96,7 +97,7 @@ export class PtahAPIBuilder {
       },
       getFrameworks: async () => {
         const info = await this.workspaceAnalyzer.getCurrentWorkspaceInfo();
-        return info?.frameworks || [];
+        return info?.frameworks ? [...info.frameworks] : [];
       },
     };
   }
@@ -117,12 +118,12 @@ export class PtahAPIBuilder {
         return result.results || [];
       },
       getRelevantFiles: async (query: string, maxFiles = 10) => {
-        const result = await this.contextOrchestration.getRelevantFiles({
+        const result = await this.contextOrchestration.getFileSuggestions({
           requestId: `mcp-relevant-${Date.now()}` as CorrelationId,
           query,
-          maxFiles,
+          limit: maxFiles,
         });
-        return result.files || [];
+        return result.suggestions || [];
       },
     };
   }
@@ -197,9 +198,7 @@ export class PtahAPIBuilder {
 
         const status: GitStatus = {
           branch: repo.state.HEAD?.name || 'unknown',
-          modified: repo.state.workingTreeChanges.map(
-            (c: any) => c.uri.fsPath
-          ),
+          modified: repo.state.workingTreeChanges.map((c: any) => c.uri.fsPath),
           staged: repo.state.indexChanges.map((c: any) => c.uri.fsPath),
           untracked: repo.state.workingTreeChanges
             .filter((c: any) => c.status === 7) // Untracked = 7
@@ -238,7 +237,11 @@ export class PtahAPIBuilder {
         const models = await vscode.lm.selectChatModels(
           family ? { family } : undefined
         );
-        return models.map((m) => ({ id: m.id, family: m.family, name: m.name }));
+        return models.map((m) => ({
+          id: m.id,
+          family: m.family,
+          name: m.name,
+        }));
       },
     };
   }
@@ -252,7 +255,8 @@ export class PtahAPIBuilder {
       read: async (path: string) => {
         const uri = vscode.Uri.file(path);
         const content = await this.fileSystemManager.readFile(uri);
-        return content;
+        // Convert Uint8Array to string
+        return new TextDecoder('utf-8').decode(content);
       },
       list: async (directory: string) => {
         const uri = vscode.Uri.file(directory);
