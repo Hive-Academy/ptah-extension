@@ -23,7 +23,7 @@ import {
   ClaudeInstallation,
 } from '../detector/claude-cli-detector';
 import { ClaudeCliLauncher, LauncherDependencies } from './claude-cli-launcher';
-import { SessionManager } from '../session/session-manager';
+// import { SessionManager } from '../session/session-manager'; // DELETED in Phase 0
 import { PermissionService } from '../permissions/permission-service';
 import { ProcessManager } from './process-manager';
 import { ClaudeDomainEventPublisher } from '../events/claude-domain.events';
@@ -42,14 +42,14 @@ export class ClaudeCliService {
   constructor(
     @inject(TOKENS.CLAUDE_CLI_DETECTOR)
     private readonly detector: ClaudeCliDetector,
-    @inject(TOKENS.SESSION_MANAGER)
-    private readonly sessionManager: SessionManager,
+    // @inject(TOKENS.SESSION_MANAGER) // TODO: Phase 2 RPC - Inject RpcHandler instead
+    // private readonly sessionManager: SessionManager,
     @inject(TOKENS.PERMISSION_SERVICE)
     private readonly permissionService: PermissionService,
     @inject(TOKENS.PROCESS_MANAGER)
     private readonly processManager: ProcessManager,
-    @inject(TOKENS.CLAUDE_DOMAIN_EVENT_PUBLISHER)
-    private readonly eventPublisher: ClaudeDomainEventPublisher,
+    // @inject(TOKENS.CLAUDE_DOMAIN_EVENT_PUBLISHER) // TODO: Phase 2 RPC - EventBus deleted, use RpcHandler
+    // private readonly eventPublisher: ClaudeDomainEventPublisher,
     @inject(TOKENS.EXTENSION_CONTEXT)
     private readonly context: ExtensionContext
   ) {}
@@ -80,7 +80,7 @@ export class ClaudeCliService {
     sessionId: SessionId,
     resumeSessionId?: string,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _sessionManager?: SessionManager
+    _sessionManager?: any // TODO: Phase 2 RPC - Remove SessionManager parameter
   ): Promise<Readable> {
     const launcher = await this.ensureLauncher();
 
@@ -186,10 +186,10 @@ export class ClaudeCliService {
     const installation = await this.ensureInstallation();
 
     const deps: LauncherDependencies = {
-      sessionManager: this.sessionManager,
+      // sessionManager: this.sessionManager, // TODO: Phase 2 RPC - Remove
       permissionService: this.permissionService,
       processManager: this.processManager,
-      eventPublisher: this.eventPublisher,
+      // eventPublisher: this.eventPublisher, // TODO: Phase 2 RPC - Remove
       context: this.context,
     };
 

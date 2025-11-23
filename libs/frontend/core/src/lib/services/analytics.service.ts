@@ -160,7 +160,8 @@ export class AnalyticsService {
       });
 
       // Request analytics data from backend via VSCodeService
-      this.vsCodeService.getAnalyticsData();
+      // TODO: Phase 2 RPC - Restore via RPC
+      // this.vsCodeService.getAnalyticsData();
 
       // TODO: Handle response via message listener
       // For now, just set loading to false after timeout
@@ -196,7 +197,8 @@ export class AnalyticsService {
         event,
         properties,
       });
-      this.vsCodeService.trackAnalyticsEvent(event, properties);
+      // TODO: Phase 2 RPC - Restore via RPC
+      // this.vsCodeService.trackAnalyticsEvent(event, properties);
     } catch (error) {
       this.logger.error('Failed to track event', 'AnalyticsService', error);
     }

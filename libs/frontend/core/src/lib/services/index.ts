@@ -18,20 +18,20 @@ export * from './webview-navigation.service';
 
 // Chat Layer (pure chat logic, state management, validation, transformations)
 export { ChatStateService } from './chat-state.service';
-export { ChatValidationService } from './chat-validation.service';
-export { ClaudeMessageTransformerService } from './claude-message-transformer.service';
-export { MessageProcessingService } from './message-processing.service';
+// export { ChatValidationService } from './chat-validation.service'; // DELETED in Phase 0
+// export { ClaudeMessageTransformerService } from './claude-message-transformer.service'; // DELETED in Phase 0
+// export { MessageProcessingService } from './message-processing.service'; // DELETED in Phase 0
 // MOVED: ChatStateManagerService → @ptah-extension/chat (chat-specific UI)
 export * from './chat.service';
 
 // Provider Layer (AI provider management and health monitoring)
-export {
-  ProviderService,
-  type ProviderInfo,
-  type ProviderHealth,
-  type ProviderError,
-  type ProviderSwitchEvent,
-} from './provider.service';
+// export { // DELETED in Phase 0
+//   ProviderService,
+//   type ProviderInfo,
+//   type ProviderHealth,
+//   type ProviderError,
+//   type ProviderSwitchEvent,
+// } from './provider.service';
 
 // Analytics Layer (system analytics and metrics)
 export {

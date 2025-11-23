@@ -15,7 +15,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import * as vscode from 'vscode';
-import type { SessionManager } from '../session/session-manager';
+// import type { SessionManager } from '../session/session-manager'; // DELETED in Phase 0
 import type { SessionId } from '@ptah-extension/shared';
 import { TOKENS } from '@ptah-extension/vscode-core';
 
@@ -133,8 +133,8 @@ export class CommandService {
   constructor(
     @inject(TOKENS.CONTEXT_SERVICE)
     private readonly contextService: IContextService,
-    @inject(TOKENS.SESSION_MANAGER)
-    private readonly sessionManager: SessionManager,
+    // @inject(TOKENS.SESSION_MANAGER) // TODO: Phase 2 RPC - Remove SessionManager dependency
+    // private readonly sessionManager: SessionManager,
     @inject(TOKENS.CLAUDE_CLI_LAUNCHER)
     private readonly claudeLauncher: IClaudeCliLauncher
   ) {}
@@ -161,29 +161,32 @@ export class CommandService {
       await this.contextService.includeFile(request.fileUri);
 
       // Step 2: Ensure we have a session for the review
-      let currentSession = await this.sessionManager.getCurrentSession();
-      if (!currentSession) {
-        currentSession = await this.sessionManager.createSession({
-          name: 'Code Review',
-        });
-      }
+      // TODO: Phase 2 RPC - Restore via RPC
+      // let currentSession = await this.sessionManager.getCurrentSession();
+      // if (!currentSession) {
+      //   currentSession = await this.sessionManager.createSession({
+      //     name: 'Code Review',
+      //   });
+      // }
 
       // Step 3: Add user message to session
       const reviewMessage = this.buildCodeReviewMessage(
         request.fileContent,
         request.fileName
       );
-      await this.sessionManager.addUserMessage({
-        sessionId: currentSession.id,
-        content: reviewMessage,
-        files: [request.fileUri.fsPath],
-      });
+      // TODO: Phase 2 RPC - Restore via RPC
+      // await this.sessionManager.addUserMessage({
+      //   sessionId: currentSession.id,
+      //   content: reviewMessage,
+      //   files: [request.fileUri.fsPath],
+      // });
 
       // Step 4: Execute Claude CLI to get response
-      await this.claudeLauncher.executeCommand({
-        message: reviewMessage,
-        sessionId: currentSession.id,
-      });
+      // TODO: Phase 2 RPC - Restore via RPC
+      // await this.claudeLauncher.executeCommand({
+      //   message: reviewMessage,
+      //   sessionId: currentSession.id,
+      // });
 
       return {
         success: true,
@@ -220,29 +223,32 @@ export class CommandService {
       await this.contextService.includeFile(request.fileUri);
 
       // Step 2: Ensure we have a session for test generation
-      let currentSession = await this.sessionManager.getCurrentSession();
-      if (!currentSession) {
-        currentSession = await this.sessionManager.createSession({
-          name: 'Test Generation',
-        });
-      }
+      // TODO: Phase 2 RPC - Restore via RPC
+      // let currentSession = await this.sessionManager.getCurrentSession();
+      // if (!currentSession) {
+      //   currentSession = await this.sessionManager.createSession({
+      //     name: 'Test Generation',
+      //   });
+      // }
 
       // Step 3: Add user message to session
       const testMessage = this.buildTestGenerationMessage(
         request.fileContent,
         request.fileName
       );
-      await this.sessionManager.addUserMessage({
-        sessionId: currentSession.id,
-        content: testMessage,
-        files: [request.fileUri.fsPath],
-      });
+      // TODO: Phase 2 RPC - Restore via RPC
+      // await this.sessionManager.addUserMessage({
+      //   sessionId: currentSession.id,
+      //   content: testMessage,
+      //   files: [request.fileUri.fsPath],
+      // });
 
       // Step 4: Execute Claude CLI to get response
-      await this.claudeLauncher.executeCommand({
-        message: testMessage,
-        sessionId: currentSession.id,
-      });
+      // TODO: Phase 2 RPC - Restore via RPC
+      // await this.claudeLauncher.executeCommand({
+      //   message: testMessage,
+      //   sessionId: currentSession.id,
+      // });
 
       return {
         success: true,
@@ -269,13 +275,14 @@ export class CommandService {
     try {
       console.info('Creating new session');
 
-      const session = await this.sessionManager.createSession({
-        name: sessionName,
-      });
+      // TODO: Phase 2 RPC - Restore via RPC
+      // const session = await this.sessionManager.createSession({
+      //   name: sessionName,
+      // });
 
       return {
         success: true,
-        message: `New session created: ${session.name}`,
+        message: `Session creation disabled (Phase 0 purge)`,
       };
     } catch (error) {
       console.error('Failed to create new session:', error);

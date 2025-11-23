@@ -142,7 +142,8 @@ export class AppStateManager {
       timestamp: new Date().toISOString(),
     };
 
-    this.vscodeService.saveState(state);
+    // TODO: Phase 2 RPC - Restore via RPC
+    // this.vscodeService.saveState(state);
   }
 
   // Get current state snapshot
