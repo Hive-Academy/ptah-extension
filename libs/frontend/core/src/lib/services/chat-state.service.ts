@@ -4,9 +4,9 @@ import {
   StrictChatMessage,
   MessageId,
 } from '@ptah-extension/shared';
-// import type { ProcessedClaudeMessage } from './claude-message-transformer.service'; // DELETED in Phase 0
+// import type { ProcessedClaudeMessage } from './claude-message-transformer.service'; // DELETED - Phase 0 purge
 
-// TODO: Phase 2 RPC - Restore proper types for Claude messages
+// TODO: Phase 2 RPC - Restore proper types for Claude messages (remove placeholder)
 type ProcessedClaudeMessage = any; // Temporary placeholder
 
 export interface ChatState {

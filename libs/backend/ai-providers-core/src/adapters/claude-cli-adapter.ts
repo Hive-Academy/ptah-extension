@@ -19,7 +19,7 @@ import type { EnhancedAIProvider, ProviderContext } from '../interfaces';
 import type {
   ClaudeCliDetector,
   ClaudeCliService,
-  SessionManager,
+  // SessionManager, // DELETED - Phase 2 RPC will replace
 } from '@ptah-extension/claude-domain';
 import { TOKENS } from '@ptah-extension/vscode-core';
 
@@ -84,10 +84,10 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
     @inject(TOKENS.CLAUDE_CLI_DETECTOR)
     private readonly detector: ClaudeCliDetector,
     @inject(TOKENS.CLAUDE_CLI_SERVICE)
-    private readonly claudeCliService: ClaudeCliService,
-    @inject(TOKENS.SESSION_MANAGER)
-    private readonly sessionManager: SessionManager
-  ) {}
+    private readonly claudeCliService: ClaudeCliService
+  ) // @inject(TOKENS.SESSION_MANAGER) // TODO: Phase 2 RPC - use ClaudeRpcService
+  // private readonly sessionManager: SessionManager
+  {}
 
   /**
    * Verify Claude CLI installation
@@ -249,30 +249,34 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
    * Delegates to SessionManager for tracking
    */
   async createSession(config: AISessionConfig): Promise<SessionId> {
+    // TODO: Phase 2 RPC - use ClaudeRpcService instead of SessionManager
     // Create session in SessionManager with optional name
-    const session = await this.sessionManager.createSession({
-      name: config.model ? `Claude ${config.model} Session` : undefined,
-      workspaceId: config.projectPath,
-    });
+    // const session = await this.sessionManager.createSession({
+    //   name: config.model ? `Claude ${config.model} Session` : undefined,
+    //   workspaceId: config.projectPath,
+    // });
+
+    // Temporary: create a fake session ID
+    const sessionId = `session-${Date.now()}` as SessionId;
 
     // Track locally for compatibility
-    this.sessions.set(session.id, {
+    this.sessions.set(sessionId, {
       createdAt: Date.now(),
       lastActivity: Date.now(),
       messageCount: 0,
     });
 
     // Store Claude session info if we have config details
-    if (config.model || config.projectPath) {
-      this.sessionManager.setClaudeSessionInfo(session.id, {
-        model: config.model || 'default',
-        tools: [],
-        cwd: config.projectPath || process.cwd(),
-        capabilities: {},
-      });
-    }
+    // if (config.model || config.projectPath) {
+    //   this.sessionManager.setClaudeSessionInfo(session.id, {
+    //     model: config.model || 'default',
+    //     tools: [],
+    //     cwd: config.projectPath || process.cwd(),
+    //     capabilities: {},
+    //   });
+    // }
 
-    return session.id;
+    return sessionId;
   }
 
   /**
@@ -283,19 +287,20 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
     sessionId: SessionId,
     config?: AISessionConfig
   ): Promise<unknown> {
+    // TODO: Phase 2 RPC - use ClaudeRpcService instead of SessionManager
     // If config provided, create new session with that ID
-    if (config) {
-      const session = await this.sessionManager.createSession({
-        name: config.model ? `Claude ${config.model} Session` : undefined,
-        workspaceId: config.projectPath,
-      });
+    // if (config) {
+    //   const session = await this.sessionManager.createSession({
+    //     name: config.model ? `Claude ${config.model} Session` : undefined,
+    //     workspaceId: config.projectPath,
+    //   });
 
-      this.sessions.set(session.id, {
-        createdAt: Date.now(),
-        lastActivity: Date.now(),
-        messageCount: 0,
-      });
-    }
+    //   this.sessions.set(session.id, {
+    //     createdAt: Date.now(),
+    //     lastActivity: Date.now(),
+    //     messageCount: 0,
+    //   });
+    // }
 
     return sessionId;
   }
@@ -341,8 +346,10 @@ export class ClaudeCliAdapter implements EnhancedAIProvider {
       session.lastActivity = Date.now();
       session.messageCount++;
 
+      // TODO: Phase 2 RPC - use ClaudeRpcService instead of SessionManager
       // Get Claude session ID for resume support
-      const claudeSessionId = this.sessionManager.getClaudeSessionId(sessionId);
+      // const claudeSessionId = this.sessionManager.getClaudeSessionId(sessionId);
+      const claudeSessionId = undefined; // Temporary placeholder
 
       // Delegate to ClaudeCliService which handles launcher creation and streaming
       const stream = await this.claudeCliService.sendMessage(

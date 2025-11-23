@@ -441,12 +441,12 @@ export class ChatComponent implements OnInit {
   // Event Handlers
   public onNewSession(): void {
     this.logger.debug('Creating new session', 'ChatComponent');
-    this.chatState.createNewSession('New Session');
+    // this.chatState.createNewSession('New Session'); // TODO: Phase 2 RPC - restore session creation
   }
 
   public onSessionCreated(name: string | undefined): void {
     this.logger.debug('Session created', 'ChatComponent', { name });
-    this.chatState.createNewSession(name || 'New Session');
+    // this.chatState.createNewSession(name || 'New Session'); // TODO: Phase 2 RPC - restore session creation
   }
 
   public onSessionSelected(sessionId: string): void {
@@ -578,11 +578,11 @@ export class ChatComponent implements OnInit {
   // Permission handlers (TASK_2025_006 - Batch 4)
   public handlePermissionApproval(requestId: string): void {
     this.logger.info('Permission approved', 'ChatComponent', { requestId });
-    this.chatService.approvePermission(requestId);
+    // this.chatService.approvePermission(requestId); // TODO: Phase 2 RPC - restore permission handling
   }
 
   public handlePermissionDenial(requestId: string): void {
     this.logger.info('Permission denied', 'ChatComponent', { requestId });
-    this.chatService.denyPermission(requestId);
+    // this.chatService.denyPermission(requestId); // TODO: Phase 2 RPC - restore permission handling
   }
 }

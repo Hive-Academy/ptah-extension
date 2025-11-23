@@ -18,14 +18,14 @@ export * from './webview-navigation.service';
 
 // Chat Layer (pure chat logic, state management, validation, transformations)
 export { ChatStateService } from './chat-state.service';
-// export { ChatValidationService } from './chat-validation.service'; // DELETED in Phase 0
-// export { ClaudeMessageTransformerService } from './claude-message-transformer.service'; // DELETED in Phase 0
-// export { MessageProcessingService } from './message-processing.service'; // DELETED in Phase 0
+// export { ChatValidationService } from './chat-validation.service'; // DELETED - Phase 0 purge
+// export { ClaudeMessageTransformerService } from './claude-message-transformer.service'; // DELETED - Phase 0 purge
+// export { MessageProcessingService } from './message-processing.service'; // DELETED - Phase 0 purge
 // MOVED: ChatStateManagerService → @ptah-extension/chat (chat-specific UI)
 export * from './chat.service';
 
 // Provider Layer (AI provider management and health monitoring)
-// export { // DELETED in Phase 0
+// export { // DELETED - Phase 0 purge
 //   ProviderService,
 //   type ProviderInfo,
 //   type ProviderHealth,

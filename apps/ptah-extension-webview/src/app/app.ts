@@ -14,15 +14,15 @@ import {
   VSCodeService,
   WebviewNavigationService,
   ViewType,
-  ProviderService,
+  // ProviderService, // DELETED - provider library removed in Phase 0
 } from '@ptah-extension/core';
 
 // UPDATED: Import components from libraries
 import { ChatComponent } from '@ptah-extension/chat';
 import { AnalyticsComponent } from '@ptah-extension/analytics';
-import { SettingsViewComponent } from '@ptah-extension/providers';
+// import { SettingsViewComponent } from '@ptah-extension/providers'; // DELETED - provider library removed
 import { LoadingSpinnerComponent } from '@ptah-extension/shared-ui';
-import { VIEW_MESSAGE_TYPES } from '@ptah-extension/shared';
+// import { VIEW_MESSAGE_TYPES } from '@ptah-extension/shared'; // DELETED - message types purged
 
 @Component({
   selector: 'ptah-root',
@@ -30,7 +30,7 @@ import { VIEW_MESSAGE_TYPES } from '@ptah-extension/shared';
     LoadingSpinnerComponent,
     ChatComponent,
     AnalyticsComponent,
-    SettingsViewComponent,
+    // SettingsViewComponent, // DELETED - provider library removed
   ],
   templateUrl: './app.html',
   styleUrls: ['./app.css'],
@@ -42,7 +42,7 @@ export class App implements OnInit, OnDestroy {
   public readonly appState = inject(AppStateManager);
   public readonly vscodeService = inject(VSCodeService);
   private readonly navigationService = inject(WebviewNavigationService);
-  private readonly providerService = inject(ProviderService); // Initialize provider message subscriptions
+  // private readonly providerService = inject(ProviderService); // DELETED - provider library removed in Phase 0
   // REMOVED: Router injection - using pure signal-based navigation
 
   // ANGULAR 20 PATTERN: Signal-based state for reactive UI
@@ -70,9 +70,9 @@ export class App implements OnInit, OnDestroy {
     try {
       console.log('Step 1: Requesting initial data from extension...');
       // Request initial data - AppStateManager handles the response
-      this.vscodeService.postStrictMessage(VIEW_MESSAGE_TYPES.CHANGED, {
-        view: 'chat',
-      });
+      // this.vscodeService.postStrictMessage(VIEW_MESSAGE_TYPES.CHANGED, { // DELETED - message types purged
+      //   view: 'chat',
+      // });
       this.appState.setConnected(true);
       console.log('Step 1: COMPLETE - Initial data requested');
 
@@ -80,9 +80,9 @@ export class App implements OnInit, OnDestroy {
       this.vscodeService.notifyReady();
       console.log('Step 2: COMPLETE - VS Code notified');
 
-      console.log('Step 3: Initializing ProviderService...');
-      this.providerService.initialize();
-      console.log('Step 3: COMPLETE - ProviderService initialized');
+      // console.log('Step 3: Initializing ProviderService...'); // DELETED - provider library removed in Phase 0
+      // this.providerService.initialize(); // TODO: Phase 2 RPC - remove provider UI dependencies
+      // console.log('Step 3: COMPLETE - ProviderService initialized');
 
       console.log('Step 4: Handling initial view setup...');
       await this.handleInitialView();

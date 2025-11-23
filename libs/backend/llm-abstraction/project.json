@@ -15,6 +15,7 @@
         "assets": ["libs/backend/llm-abstraction/*.md"],
         "format": ["cjs"],
         "external": [
+          "vscode",
           "tsyringe",
           "@langchain/core",
           "@langchain/anthropic",
