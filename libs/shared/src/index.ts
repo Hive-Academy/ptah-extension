@@ -10,3 +10,6 @@ export * from './lib/types/webview-ui.types';
 // Message type constants (SINGLE SOURCE OF TRUTH)
 export * from './lib/constants/message-types';
 export * from './lib/constants/message-registry';
+
+// Utilities
+export * from './lib/utils/message-normalizer';
