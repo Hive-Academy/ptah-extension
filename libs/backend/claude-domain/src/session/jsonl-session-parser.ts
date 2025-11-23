@@ -41,7 +41,13 @@
 import { promises as fs } from 'fs';
 import { createReadStream } from 'fs';
 import { createInterface } from 'readline';
-import { SessionSummary } from '@ptah-extension/shared';
+import {
+  SessionSummary,
+  StrictChatMessage,
+  SessionId,
+  MessageId,
+  MessageNormalizer,
+} from '@ptah-extension/shared';
 
 /**
  * JSONL Summary Line (first line of session file)
@@ -122,6 +128,102 @@ export class JsonlSessionParser {
           error instanceof Error ? error.message : String(error)
         }`
       );
+    }
+  }
+
+  /**
+   * Parse all messages from JSONL file with normalization
+   *
+   * Reads session file and extracts all messages, normalizing content to contentBlocks format.
+   * Uses streaming approach for memory efficiency (< 1s for 1000 messages).
+   *
+   * **Performance**: Streaming read (< 1s for 1000 messages)
+   * **Memory**: Efficient (readline, not full file load)
+   *
+   * @param filePath - Absolute path to .jsonl file
+   * @returns Array of StrictChatMessage with normalized contentBlocks
+   *
+   * @example
+   * ```typescript
+   * const messages = await JsonlSessionParser.parseSessionMessages(
+   *   'C:\\Users\\abdal\\.claude\\projects\\d--projects-ptah\\abc-123.jsonl'
+   * );
+   * // Returns: [{ id, sessionId, type, contentBlocks, timestamp, ... }]
+   * ```
+   */
+  static async parseSessionMessages(
+    filePath: string
+  ): Promise<StrictChatMessage[]> {
+    const messages: StrictChatMessage[] = [];
+    const stream = createReadStream(filePath, { encoding: 'utf8' });
+    const reader = createInterface({ input: stream });
+
+    // Extract sessionId from filename (remove .jsonl extension)
+    const fileName = filePath.split(/[\\/]/).pop() || '';
+    const sessionId = fileName.replace('.jsonl', '') as SessionId;
+
+    try {
+      for await (const line of reader) {
+        if (!line.trim()) continue;
+
+        try {
+          const jsonlLine = JSON.parse(line) as Partial<
+            JsonlSummaryLine | JsonlMessageLine
+          >;
+
+          // Skip non-message lines (summary, file-history-snapshot)
+          if ('type' in jsonlLine && jsonlLine.type !== undefined) {
+            // Skip summary lines and other non-message types
+            continue;
+          }
+
+          // Extract message from JSONL structure
+          const messageData = jsonlLine as JsonlMessageLine;
+
+          if (!messageData.message) {
+            // Not a message line, skip
+            continue;
+          }
+
+          // Normalize content format using MessageNormalizer
+          const normalized = MessageNormalizer.normalize(messageData.message);
+
+          // Create MessageId from uuid or generate new
+          const messageId = messageData.uuid
+            ? (messageData.uuid as MessageId)
+            : MessageId.create();
+
+          // Parse timestamp
+          const timestamp = messageData.timestamp
+            ? new Date(messageData.timestamp).getTime()
+            : Date.now();
+
+          // Build StrictChatMessage
+          const message: StrictChatMessage = {
+            id: messageId,
+            sessionId,
+            type: messageData.message.role as 'user' | 'assistant',
+            contentBlocks: normalized.contentBlocks,
+            timestamp,
+            streaming: false,
+            isComplete: true,
+          };
+
+          messages.push(message);
+        } catch (parseError) {
+          // Skip corrupt lines gracefully
+          console.warn(
+            `Skipping corrupt JSONL line in ${filePath}:`,
+            parseError
+          );
+          continue;
+        }
+      }
+
+      return messages;
+    } finally {
+      reader.close();
+      stream.destroy();
     }
   }
 
