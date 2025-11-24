@@ -520,3 +520,98 @@ npx nx run template-generation:lint
 - ✅ template-generation ready for use
 - ✅ Clean separation of concerns
 - ✅ Future-proof architecture
+
+---
+
+## Additional Fix: Correct WorkspaceAnalyzer API Calls ✅ COMPLETE
+
+**Assigned To**: backend-developer
+**Git Commit**: a834652
+**Commit Message**: fix(template-generation): correct workspace analyzer api calls
+
+### Issue
+
+After Batch 2 completion, 2 additional TypeScript errors were discovered in `template-generator.service.ts`:
+
+- Line 38: `Property 'getWorkspaceRoot' does not exist on type 'WorkspaceAnalyzerService'`
+- Line 64: `Property 'analyzeWorkspace' does not exist on type 'WorkspaceAnalyzerService'`
+
+### Root Cause
+
+The code was calling non-existent methods on WorkspaceAnalyzerService:
+- `getWorkspaceRoot()` - does NOT exist
+- `analyzeWorkspace()` - does NOT exist
+
+### Solution
+
+**Actual WorkspaceAnalyzerService API** (verified in `libs/backend/workspace-intelligence/src/composite/workspace-analyzer.service.ts`):
+
+- `getCurrentWorkspaceInfo(): WorkspaceInfo | undefined` - synchronous workspace info
+- `getProjectInfo(): Promise<ProjectInfo>` - project metadata with dependencies, file stats, git status
+- `analyzeWorkspaceStructure(): Promise<WorkspaceStructureAnalysis | null>` - directory structure analysis
+
+**Changes Applied**:
+
+1. **Get Workspace Root** (Line 38-49):
+   - **Before**: `await this.workspaceAnalyzer.getWorkspaceRoot()` (non-existent)
+   - **After**: `vscode.workspace.workspaceFolders?.[0]?.uri.fsPath` (VS Code API directly)
+   - **Reason**: No method exists on WorkspaceAnalyzerService for workspace root
+
+2. **Get Project Context** (Line 62-74):
+   - **Before**: `await this.workspaceAnalyzer.analyzeWorkspace()` (non-existent)
+   - **After**: `await this.workspaceAnalyzer.getProjectInfo()` (correct method)
+   - **Returns**: `ProjectInfo` with `{ name, type, path, dependencies, devDependencies, fileStatistics, totalFiles, gitRepository }`
+
+3. **Build ProjectContext** (Line 65-74):
+   - Map `ProjectInfo` properties to `ProjectContext` interface
+   - Include: `projectName`, `projectDescription`, `techStack`, `fileStructure`, `projectType`, `totalFiles`, `hasGitRepository`, `version`
+
+4. **Add Missing Imports**:
+   - `import * as vscode from 'vscode'` (for workspace API)
+   - `import path from 'path'` (for path operations)
+
+5. **Update Build Configuration**:
+   - Add `vscode` to external dependencies in `project.json`
+   - Required for esbuild to not bundle VS Code API
+
+### Files Modified
+
+- `libs/backend/template-generation/src/lib/services/template-generator.service.ts` - API call fixes
+- `libs/backend/template-generation/project.json` - Add vscode to external dependencies
+
+### Verification
+
+```bash
+# TypeScript compilation
+npx tsc --noEmit --project libs/backend/template-generation/tsconfig.lib.json
+✅ 0 errors
+
+# Full build
+npx nx build template-generation
+✅ Build succeeds
+
+# Git commit
+git log --oneline -1
+✅ a834652 fix(template-generation): correct workspace analyzer api calls
+```
+
+### Quality Assurance
+
+- ✅ Verified WorkspaceAnalyzerService API by reading implementation file
+- ✅ Verified ProjectInfo interface has all required properties
+- ✅ Verified ProjectContext interface accepts additional properties via index signature
+- ✅ No method hallucination - all calls verified against actual source
+- ✅ Build passes with 0 errors
+- ✅ Proper imports added (vscode, path)
+- ✅ VS Code API marked as external in build config
+
+### Final Status
+
+**TASK_2025_023 - FULLY COMPLETE**
+
+- ✅ Batch 1: FileSystemAdapter creation (Commit: 5968207)
+- ✅ Batch 2: Service integration (Commit: 88418b8, 9bb65ab)
+- ✅ Additional Fix: WorkspaceAnalyzer API (Commit: a834652)
+- ✅ **All 6 tasks complete + 1 additional fix**
+- ✅ **Build passing with 0 TypeScript errors**
+- ✅ **template-generation library ready for use**
