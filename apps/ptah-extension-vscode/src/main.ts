@@ -189,7 +189,9 @@ export async function activate(
     console.log('[Activate] Step 6: Registering late-binding adapters...');
     // NOTE: CONFIGURATION_PROVIDER is now registered in DIContainer.setup()
     // It was moved there to fix dependency injection order (ConfigOrchestrationService depends on it)
-    console.log('[Activate] Step 6: Late-binding adapters registered (analytics removed)');
+    console.log(
+      '[Activate] Step 6: Late-binding adapters registered (analytics removed)'
+    );
 
     // Register all providers, commands, and services
     console.log('[Activate] Step 7: Calling ptahExtension.registerAll()...');

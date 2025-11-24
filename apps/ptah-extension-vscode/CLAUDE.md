@@ -13,7 +13,6 @@ DIContainer.setup()
     ↓
 Register Domain Services (hierarchical)
 ├── workspace-intelligence
-├── ai-providers-core
 ├── claude-domain
 └── App services
     ↓
@@ -28,7 +27,6 @@ PtahExtension.initialize()
 - **PtahExtension** (`src/core/ptah-extension.ts`): Main coordinator
 - **CommandHandlers** (`src/handlers/command-handlers.ts`): All VS Code commands
 - **AngularWebviewProvider** (`src/providers/angular-webview.provider.ts`): Webview lifecycle
-- **AnalyticsDataCollector** (`src/services/analytics-data-collector.ts`): Real system metrics
 - **CommandBuilderService** (`src/services/command-builder.service.ts`): Template management
 
 ## Commands

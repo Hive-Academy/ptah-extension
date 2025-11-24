@@ -8,7 +8,7 @@
  * - O: Can extend with new data sources without modifying existing code
  * - L: Substitutable (could implement IInitialDataBuilder interface)
  * - I: Focused interface (single build() method)
- * - D: Depends on abstraction interfaces (SessionManager, ProviderManager, etc.)
+ * - D: Depends on abstraction interfaces (SessionManager, etc.)
  *
  * Extracted from AngularWebviewProvider for better type safety and testability
  */

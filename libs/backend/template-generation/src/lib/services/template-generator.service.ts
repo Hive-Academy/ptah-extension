@@ -38,10 +38,9 @@ export class TemplateGeneratorService {
       // Get workspace root from VS Code API
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!workspaceRoot) {
-        const error = new TemplateGenerationError(
-          'No workspace folder open',
-          { operation: 'getWorkspaceRoot' }
-        );
+        const error = new TemplateGenerationError('No workspace folder open', {
+          operation: 'getWorkspaceRoot',
+        });
         this.logger.error(error.message, error);
         return Result.err(error);
       }
@@ -64,8 +63,12 @@ export class TemplateGeneratorService {
       // Build ProjectContext from project info
       const projectContext: ProjectContext = {
         projectName: projectInfo.name,
-        projectDescription: projectInfo.description || projectConfig.description,
-        techStack: [...projectInfo.dependencies, ...projectInfo.devDependencies],
+        projectDescription:
+          projectInfo.description || projectConfig.description,
+        techStack: [
+          ...projectInfo.dependencies,
+          ...projectInfo.devDependencies,
+        ],
         fileStructure: projectInfo.fileStatistics,
         projectType: projectInfo.type,
         totalFiles: projectInfo.totalFiles,

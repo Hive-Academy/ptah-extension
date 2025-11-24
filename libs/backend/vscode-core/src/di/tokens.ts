@@ -118,14 +118,12 @@ export const CODE_EXECUTION_MCP = Symbol.for('CodeExecutionMCP');
 export const MCP_REGISTRATION_SERVICE = Symbol.for('MCPRegistrationService');
 
 // ========================================
-// AI Providers Core Tokens
+// AI Providers Core Tokens (DELETED - library removed)
 // ========================================
-export const PROVIDER_MANAGER = Symbol.for('ProviderManager');
-export const INTELLIGENT_PROVIDER_STRATEGY = Symbol.for(
-  'IntelligentProviderStrategy'
-);
-export const CLAUDE_CLI_ADAPTER = Symbol.for('ClaudeCliAdapter');
-export const VSCODE_LM_ADAPTER = Symbol.for('VsCodeLmAdapter');
+// PROVIDER_MANAGER - DELETED
+// INTELLIGENT_PROVIDER_STRATEGY - DELETED
+// CLAUDE_CLI_ADAPTER - DELETED
+// VSCODE_LM_ADAPTER - DELETED
 
 // ========================================
 // Claude Domain Service Tokens (PARTIALLY DELETED)
@@ -154,10 +152,10 @@ export const STORAGE_SERVICE = Symbol.for('StorageService');
 export const CONFIGURATION_PROVIDER = Symbol.for('ConfigurationProvider');
 
 // ========================================
-// Main App Service Tokens
+// Main App Service Tokens (PARTIALLY DELETED)
 // ========================================
 export const COMMAND_BUILDER_SERVICE = Symbol.for('CommandBuilderService');
-export const ANALYTICS_DATA_COLLECTOR = Symbol.for('AnalyticsDataCollector');
+// ANALYTICS_DATA_COLLECTOR - DELETED (analytics-data-collector removed)
 export const ANGULAR_WEBVIEW_PROVIDER = Symbol.for('AngularWebviewProvider');
 export const COMMAND_HANDLERS = Symbol.for('CommandHandlers');
 export const WEBVIEW_EVENT_QUEUE = Symbol.for('WebviewEventQueue');
@@ -263,12 +261,12 @@ export const TOKENS = {
   MCP_REGISTRATION_SERVICE,
 
   // ========================================
-  // AI Providers Core
+  // AI Providers Core (DELETED - library removed)
   // ========================================
-  PROVIDER_MANAGER,
-  INTELLIGENT_PROVIDER_STRATEGY,
-  CLAUDE_CLI_ADAPTER,
-  VSCODE_LM_ADAPTER,
+  // PROVIDER_MANAGER - DELETED
+  // INTELLIGENT_PROVIDER_STRATEGY - DELETED
+  // CLAUDE_CLI_ADAPTER - DELETED
+  // VSCODE_LM_ADAPTER - DELETED
 
   // ========================================
   // Claude Domain Services (PARTIALLY DELETED)
@@ -287,10 +285,10 @@ export const TOKENS = {
   // MESSAGE_HANDLER_SERVICE
 
   // ========================================
-  // Main App Services
+  // Main App Services (PARTIALLY DELETED)
   // ========================================
   COMMAND_BUILDER_SERVICE,
-  ANALYTICS_DATA_COLLECTOR,
+  // ANALYTICS_DATA_COLLECTOR - DELETED
   ANGULAR_WEBVIEW_PROVIDER,
   COMMAND_HANDLERS,
   WEBVIEW_EVENT_QUEUE,

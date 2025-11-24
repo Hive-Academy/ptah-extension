@@ -17,7 +17,8 @@ export class TemplateManagerService implements IPtahTemplateManager {
   protected readonly templateExt: string;
 
   constructor(
-    @inject(TOKENS.FILE_SYSTEM_SERVICE) private readonly fileSystem: FileSystemAdapter,
+    @inject(TOKENS.FILE_SYSTEM_SERVICE)
+    private readonly fileSystem: FileSystemAdapter,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     config?: { templateDir?: string; templateExt?: string }
   ) {
