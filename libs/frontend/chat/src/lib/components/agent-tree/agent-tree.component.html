@@ -69,7 +69,9 @@
           [attr.aria-level]="2"
           [title]="getActivityTooltip(activity)"
         >
-          <span class="tool-activity-text">{{ getActivityText(activity) }}</span>
+          <span class="tool-activity-text">{{
+            getActivityText(activity)
+          }}</span>
         </div>
         }
       </div>
@@ -88,10 +90,13 @@
           {{ node.agent.tokens.input }} in / {{ node.agent.tokens.output }} out
         </span>
       </div>
-      } @if (node.agent.mcpTools !== undefined && node.agent.mcpTools.length > 0) {
+      } @if (node.agent.mcpTools !== undefined && node.agent.mcpTools.length >
+      0) {
       <div class="agent-mcp-tools">
         <span class="mcp-tools-label">MCP Tools:</span>
-        <span class="mcp-tools-value">{{ node.agent.mcpTools.join(', ') }}</span>
+        <span class="mcp-tools-value">{{
+          node.agent.mcpTools.join(', ')
+        }}</span>
       </div>
       } @if (node.agent.isCustomAgent) {
       <div class="agent-custom-badge">

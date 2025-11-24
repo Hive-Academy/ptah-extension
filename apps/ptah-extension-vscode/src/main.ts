@@ -1,13 +1,8 @@
 // CRITICAL: reflect-metadata MUST be imported first for TSyringe to work
 import 'reflect-metadata';
 
-import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
+import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
-import type {
-  ClaudeCliService,
-  SessionManager,
-} from '@ptah-extension/claude-domain';
-import type { SessionId } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
 import { PtahExtension } from './core/ptah-extension';
 import { DIContainer } from './di/container';
@@ -31,155 +26,30 @@ export async function activate(
     console.log('[Activate] Step 2: Logger resolved');
 
     // Register RPC Methods (Phase 2 - TASK_2025_021)
+    // Extracted to RpcMethodRegistrationService for clean separation
     console.log('[Activate] Step 3.6: Registering RPC methods...');
-    const rpcHandler = DIContainer.resolve<RpcHandler>(TOKENS.RPC_HANDLER);
-    const claudeCliService = DIContainer.resolve<ClaudeCliService>(
-      TOKENS.CLAUDE_CLI_SERVICE
-    );
-    const sessionManager = DIContainer.resolve<SessionManager>(
-      TOKENS.SESSION_MANAGER
-    );
+    const rpcMethodRegistration = DIContainer.resolve(
+      TOKENS.RPC_METHOD_REGISTRATION_SERVICE
+    ) as { registerAll: () => void };
+    rpcMethodRegistration.registerAll();
+    console.log('[Activate] Step 3.6: RPC methods registered');
 
-    // Session operations (restored - TASK_2025_021)
-    rpcHandler.registerMethod('session:list', async () => {
-      try {
-        logger.debug('RPC: session:list called');
-        const sessions = sessionManager.getAllSessions();
-        // Return SessionUIData format for frontend
-        return sessionManager.getSessionsUIData();
-      } catch (error) {
-        logger.error(
-          'RPC: session:list failed',
-          error instanceof Error ? error : new Error(String(error))
-        );
-        throw new Error(
-          `Failed to list sessions: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
-      }
-    });
-
-    rpcHandler.registerMethod('session:get', async (params: any) => {
-      try {
-        const { id } = params;
-        logger.debug('RPC: session:get called', { id });
-        const session = sessionManager.getSession(id as SessionId);
-        return session ?? null;
-      } catch (error) {
-        logger.error(
-          'RPC: session:get failed',
-          error instanceof Error ? error : new Error(String(error))
-        );
-        throw new Error(
-          `Failed to get session: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
-      }
-    });
-
-    rpcHandler.registerMethod('session:create', async (params: any) => {
-      try {
-        const { name } = params;
-        logger.debug('RPC: session:create called', { name });
-        const session = await sessionManager.createSession({ name });
-        return session.id;
-      } catch (error) {
-        logger.error(
-          'RPC: session:create failed',
-          error instanceof Error ? error : new Error(String(error))
-        );
-        throw new Error(
-          `Failed to create session: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
-      }
-    });
-
-    rpcHandler.registerMethod('session:switch', async (params: any) => {
-      try {
-        const { id } = params;
-        logger.debug('RPC: session:switch called', { id });
-        const success = await sessionManager.switchSession(id as SessionId);
-        if (!success) {
-          throw new Error(`Session not found: ${id}`);
-        }
-        return;
-      } catch (error) {
-        logger.error(
-          'RPC: session:switch failed',
-          error instanceof Error ? error : new Error(String(error))
-        );
-        throw new Error(
-          `Failed to switch session: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
-      }
-    });
-
-    // Chat operations (uses ClaudeCliService)
-    rpcHandler.registerMethod('chat:sendMessage', async (params: any) => {
-      try {
-        const { content, files, sessionId } = params;
-        logger.debug('RPC: chat:sendMessage called', {
-          contentLength: content?.length,
-          fileCount: files?.length,
-          sessionId,
-        });
-
-        // Use ClaudeCliService to send message
-        const stream = await claudeCliService.sendMessage(
-          sessionId,
-          content,
-          files
-        );
-
-        // For RPC, we return immediately (streaming handled separately)
-        // TODO: Implement proper streaming response when RPC streaming is added
-        return { success: true };
-      } catch (error) {
-        logger.error(
-          'RPC: chat:sendMessage failed',
-          error instanceof Error ? error : new Error(String(error))
-        );
-        throw new Error(
-          `Failed to send message: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
-      }
-    });
-
-    // File operations (frontend may read directly, this is optional)
-    rpcHandler.registerMethod('file:read', async (params: any) => {
-      try {
-        const { sessionId } = params;
-        // TODO: Implement session file reading when needed
-        logger.debug('RPC: file:read called', { sessionId });
-        return null;
-      } catch (error) {
-        logger.error(
-          'RPC: file:read failed',
-          error instanceof Error ? error : new Error(String(error))
-        );
-        throw new Error(
-          `Failed to read file: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
-      }
-    });
-
-    logger.info('RPC methods registered', {
-      methods: rpcHandler.getRegisteredMethods(),
-    });
-    console.log(
-      '[Activate] Step 3.6: RPC methods registered:',
-      rpcHandler.getRegisteredMethods()
-    );
+    // Initialize autocomplete discovery watchers (TASK_2025_019 Phase 2)
+    console.log('[Activate] Step 3.7: Initializing autocomplete watchers...');
+    const agentDiscovery = DIContainer.resolve(
+      TOKENS.AGENT_DISCOVERY_SERVICE
+    ) as any;
+    const mcpDiscovery = DIContainer.resolve(
+      TOKENS.MCP_DISCOVERY_SERVICE
+    ) as any;
+    const commandDiscovery = DIContainer.resolve(
+      TOKENS.COMMAND_DISCOVERY_SERVICE
+    ) as any;
+    agentDiscovery.initializeWatchers();
+    mcpDiscovery.initializeWatchers();
+    commandDiscovery.initializeWatchers();
+    logger.info('Autocomplete discovery watchers initialized (3 services)');
+    console.log('[Activate] Step 3.7: Autocomplete watchers initialized');
 
     // Initialize main extension controller
     console.log('[Activate] Step 4: Creating PtahExtension instance...');

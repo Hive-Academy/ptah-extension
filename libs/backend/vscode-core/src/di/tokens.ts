@@ -41,6 +41,9 @@ export const CONFIG_MANAGER = Symbol.for('ConfigManager');
 export const MESSAGE_VALIDATOR = Symbol.for('MessageValidator');
 export const CONTEXT_MANAGER = Symbol.for('ContextManager');
 export const RPC_HANDLER = Symbol.for('RpcHandler');
+export const RPC_METHOD_REGISTRATION_SERVICE = Symbol.for(
+  'RpcMethodRegistrationService'
+);
 
 // ========================================
 // Workspace Intelligence Service Tokens
@@ -79,6 +82,9 @@ export const CONTEXT_ORCHESTRATION_SERVICE = Symbol.for(
 );
 export const TREE_SITTER_PARSER_SERVICE = Symbol.for('TreeSitterParserService');
 export const AST_ANALYSIS_SERVICE = Symbol.for('AstAnalysisService');
+export const AGENT_DISCOVERY_SERVICE = Symbol.for('AgentDiscoveryService');
+export const MCP_DISCOVERY_SERVICE = Symbol.for('MCPDiscoveryService');
+export const COMMAND_DISCOVERY_SERVICE = Symbol.for('CommandDiscoveryService');
 
 // ========================================
 // LLM Abstraction Service Tokens
@@ -137,6 +143,11 @@ export const PROCESS_MANAGER = Symbol.for('ProcessManager');
 
 // Session management (restored for RPC)
 export const SESSION_MANAGER = Symbol.for('SessionManager');
+
+// Interactive session management (TASK_2025_010)
+export const INTERACTIVE_SESSION_MANAGER = Symbol.for(
+  'InteractiveSessionManager'
+);
 
 // DELETED tokens (event-based orchestration removed)
 // SESSION_PROXY - DELETED
@@ -204,6 +215,7 @@ export const TOKENS = {
   MESSAGE_VALIDATOR,
   CONTEXT_MANAGER,
   RPC_HANDLER,
+  RPC_METHOD_REGISTRATION_SERVICE,
 
   // ========================================
   // Workspace Intelligence
@@ -228,6 +240,9 @@ export const TOKENS = {
   CONTEXT_ORCHESTRATION_SERVICE,
   TREE_SITTER_PARSER_SERVICE,
   AST_ANALYSIS_SERVICE,
+  AGENT_DISCOVERY_SERVICE,
+  MCP_DISCOVERY_SERVICE,
+  COMMAND_DISCOVERY_SERVICE,
 
   // ========================================
   // LLM Abstraction
@@ -279,6 +294,7 @@ export const TOKENS = {
   STORAGE_SERVICE,
   CONFIGURATION_PROVIDER,
   SESSION_MANAGER, // Restored for RPC session operations
+  INTERACTIVE_SESSION_MANAGER, // Interactive session management (TASK_2025_010)
   // DELETED: SESSION_PROXY, CLAUDE_DOMAIN_EVENT_PUBLISHER,
   // CHAT_ORCHESTRATION_SERVICE, PROVIDER_ORCHESTRATION_SERVICE,
   // ANALYTICS_ORCHESTRATION_SERVICE, CONFIG_ORCHESTRATION_SERVICE,

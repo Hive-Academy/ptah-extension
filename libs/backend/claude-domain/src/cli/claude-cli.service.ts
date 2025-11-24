@@ -14,20 +14,19 @@
  * - Dependency Inversion: Depends on abstractions via DI
  */
 
-import { injectable, inject } from 'tsyringe';
+import { PermissionDecision, SessionId } from '@ptah-extension/shared';
 import { Readable } from 'stream';
+import { inject, injectable } from 'tsyringe';
 import { workspace, type ExtensionContext } from 'vscode';
-import { SessionId, PermissionDecision } from '@ptah-extension/shared';
 import {
   ClaudeCliDetector,
   ClaudeInstallation,
 } from '../detector/claude-cli-detector';
 import { ClaudeCliLauncher, LauncherDependencies } from './claude-cli-launcher';
 // import { SessionManager } from '../session/session-manager'; // DELETED in Phase 0
+import { TOKENS, WebviewManager } from '@ptah-extension/vscode-core';
 import { PermissionService } from '../permissions/permission-service';
 import { ProcessManager } from './process-manager';
-import { ClaudeDomainEventPublisher } from '../events/claude-domain.events';
-import { TOKENS, WebviewManager } from '@ptah-extension/vscode-core';
 
 /**
  * ClaudeCliService - DI-friendly facade for Claude CLI operations
@@ -42,14 +41,10 @@ export class ClaudeCliService {
   constructor(
     @inject(TOKENS.CLAUDE_CLI_DETECTOR)
     private readonly detector: ClaudeCliDetector,
-    // @inject(TOKENS.SESSION_MANAGER) // TODO: Phase 2 RPC - Inject RpcHandler instead
-    // private readonly sessionManager: SessionManager,
     @inject(TOKENS.PERMISSION_SERVICE)
     private readonly permissionService: PermissionService,
     @inject(TOKENS.PROCESS_MANAGER)
     private readonly processManager: ProcessManager,
-    // @inject(TOKENS.CLAUDE_DOMAIN_EVENT_PUBLISHER) // TODO: Phase 2 RPC - EventBus deleted, use RpcHandler
-    // private readonly eventPublisher: ClaudeDomainEventPublisher,
     @inject(TOKENS.EXTENSION_CONTEXT)
     private readonly context: ExtensionContext,
     @inject(TOKENS.WEBVIEW_MANAGER)
@@ -80,9 +75,7 @@ export class ClaudeCliService {
   async sendMessage(
     message: string,
     sessionId: SessionId,
-    resumeSessionId?: string,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _sessionManager?: any // TODO: Phase 2 RPC - Remove SessionManager parameter
+    resumeSessionId?: string
   ): Promise<Readable> {
     const launcher = await this.ensureLauncher();
 

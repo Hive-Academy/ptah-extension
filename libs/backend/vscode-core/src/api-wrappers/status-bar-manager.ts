@@ -112,46 +112,41 @@ export class StatusBarManager {
       return this.statusBarItems.get(config.id)!;
     }
 
-    try {
-      // Create status bar item with alignment and priority
-      const item = vscode.window.createStatusBarItem(
-        config.id,
-        config.alignment || vscode.StatusBarAlignment.Right,
-        config.priority || 0
-      );
+    // Create status bar item with alignment and priority
+    const item = vscode.window.createStatusBarItem(
+      config.id,
+      config.alignment || vscode.StatusBarAlignment.Right,
+      config.priority || 0
+    );
 
-      // Configure initial properties
-      if (config.text) item.text = config.text;
-      if (config.tooltip) item.tooltip = config.tooltip;
-      if (config.color) item.color = config.color;
-      if (config.backgroundColor) item.backgroundColor = config.backgroundColor;
-      if (config.command) item.command = config.command;
-      if (config.accessibilityInformation) {
-        item.accessibilityInformation = config.accessibilityInformation;
-      }
-
-      // Store item reference
-      this.statusBarItems.set(config.id, item);
-
-      // Initialize metrics tracking
-      this.itemMetrics.set(config.id, {
-        createdAt: Date.now(),
-        updateCount: 0,
-        lastUpdate: 0,
-        clickCount: 0,
-        lastClick: 0,
-        isVisible: false, // Items start hidden by default
-        errorCount: 0,
-      });
-
-      // Add to extension subscriptions for proper cleanup
-      this.context.subscriptions.push(item);
-
-      return item;
-    } catch (error) {
-      // Re-throw to maintain VS Code error handling
-      throw error;
+    // Configure initial properties
+    if (config.text) item.text = config.text;
+    if (config.tooltip) item.tooltip = config.tooltip;
+    if (config.color) item.color = config.color;
+    if (config.backgroundColor) item.backgroundColor = config.backgroundColor;
+    if (config.command) item.command = config.command;
+    if (config.accessibilityInformation) {
+      item.accessibilityInformation = config.accessibilityInformation;
     }
+
+    // Store item reference
+    this.statusBarItems.set(config.id, item);
+
+    // Initialize metrics tracking
+    this.itemMetrics.set(config.id, {
+      createdAt: Date.now(),
+      updateCount: 0,
+      lastUpdate: 0,
+      clickCount: 0,
+      lastClick: 0,
+      isVisible: false, // Items start hidden by default
+      errorCount: 0,
+    });
+
+    // Add to extension subscriptions for proper cleanup
+    this.context.subscriptions.push(item);
+
+    return item;
   }
 
   /**

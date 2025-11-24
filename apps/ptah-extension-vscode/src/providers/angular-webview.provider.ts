@@ -2,6 +2,7 @@ import {
   TOKENS,
   WebviewManager,
   type Logger,
+  type RpcHandler,
 } from '@ptah-extension/vscode-core';
 import { inject, injectable } from 'tsyringe';
 import * as vscode from 'vscode';
@@ -50,7 +51,8 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: WebviewManager,
     @inject(TOKENS.WEBVIEW_EVENT_QUEUE)
-    private readonly eventQueue: WebviewEventQueue
+    private readonly eventQueue: WebviewEventQueue,
+    @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler
   ) {
     this.htmlGenerator = new WebviewHtmlGenerator(context);
     this.initializeDevelopmentWatcher();
@@ -84,6 +86,15 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.html = this.htmlGenerator.generateAngularWebviewContent(
       webviewView.webview,
       this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>
+    );
+
+    // TASK_2025_019 Phase 1: Setup RPC message listener
+    webviewView.webview.onDidReceiveMessage(
+      async (message: any) => {
+        await this.handleWebviewMessage(message);
+      },
+      undefined,
+      this._disposables
     );
   }
 
@@ -280,6 +291,43 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     vscode.commands.registerCommand('ptah.openFullPanel', () => {
       this.createPanel();
     });
+  }
+
+  /**
+   * Handle messages from webview (RPC requests)
+   * TASK_2025_019 Phase 1: Route RPC requests to handler and send responses back
+   */
+  private async handleWebviewMessage(message: any): Promise<void> {
+    // Handle RPC requests
+    if (message.type === 'rpc:request') {
+      const { requestId, method, params } = message;
+
+      try {
+        // Call RPC handler
+        const response = await this.rpcHandler.handleMessage({
+          method,
+          params,
+          correlationId: requestId,
+        });
+
+        // Send response back to webview
+        this.postMessageDirect({
+          type: 'rpc:response',
+          requestId,
+          result: response.data,
+          error: response.error ? { message: response.error } : undefined,
+        } as any);
+      } catch (error) {
+        // Send error response
+        this.postMessageDirect({
+          type: 'rpc:response',
+          requestId,
+          error: {
+            message: error instanceof Error ? error.message : 'Unknown error',
+          },
+        } as any);
+      }
+    }
   }
 
   /**

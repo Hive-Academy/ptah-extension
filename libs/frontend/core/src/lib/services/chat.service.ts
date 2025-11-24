@@ -3,6 +3,7 @@ import { ChatStateService, AgentMetadata } from './chat-state.service';
 import { VSCodeService } from './vscode.service';
 import { AppStateManager } from './app-state.service';
 import { LoggingService } from './logging.service';
+import { ClaudeRpcService } from './claude-rpc.service';
 import {
   StrictChatMessage,
   SessionId,
@@ -42,6 +43,7 @@ export class ChatService {
   private readonly vscode = inject(VSCodeService);
   private readonly appState = inject(AppStateManager);
   private readonly logger = inject(LoggingService);
+  private readonly rpcService = inject(ClaudeRpcService);
 
   // Temporary state signals (NO event subscriptions updating these!)
   private readonly _sessions = signal<SessionSummary[]>([]);
@@ -116,11 +118,15 @@ export class ChatService {
   }
 
   /**
-   * Send a message to Claude (command only - no response handling)
+   * Send a message to Claude
+   *
+   * This initiates a chat turn via RPC (chat:start).
+   * Streaming responses arrive asynchronously via webview postMessage ('jsonl-message' events).
    *
    * @param content - Message content to send
+   * @param files - Optional file paths to include
    */
-  async sendMessage(content: string): Promise<void> {
+  async sendMessage(content: string, files?: string[]): Promise<void> {
     const currentSession = this.currentSession();
     if (!currentSession) {
       throw new Error('No active session available');
@@ -130,13 +136,23 @@ export class ChatService {
       throw new Error('Message content cannot be empty');
     }
 
-    // Send to backend (RPC will handle response)
     try {
-      // TODO: Replace with RPC call when implemented
-      this.logger.info(
-        'Sending message (RPC not implemented yet)',
-        'ChatService'
+      // Start chat via RPC - streaming handled by ClaudeCliLauncher postMessage callbacks
+      const result = await this.rpcService.startChat(
+        currentSession.id,
+        content,
+        files
       );
+
+      if (!result.isSuccess()) {
+        throw new Error(result.error || 'Failed to start chat');
+      }
+
+      this.logger.info('Chat started successfully', 'ChatService', {
+        sessionId: currentSession.id,
+        contentLength: content.length,
+        fileCount: files?.length || 0,
+      });
     } catch (error) {
       this.logger.error(
         'Failed to send message to backend',
@@ -195,14 +211,91 @@ export class ChatService {
   }
 
   /**
-   * Stop current streaming (no-op - streaming removed)
+   * Pause current turn in interactive session (SIGTSTP)
+   * TASK_2025_010: Interactive session management
+   */
+  async pauseChat(): Promise<void> {
+    const currentSession = this.currentSession();
+    if (!currentSession) {
+      throw new Error('No active session available');
+    }
+
+    try {
+      const result = await this.rpcService.pauseChat(currentSession.id);
+
+      if (!result.isSuccess()) {
+        throw new Error(result.error || 'Failed to pause chat');
+      }
+
+      this.logger.info('Chat paused successfully', 'ChatService', {
+        sessionId: currentSession.id,
+      });
+    } catch (error) {
+      this.logger.error('Failed to pause chat', 'ChatService', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Resume paused turn in interactive session (SIGCONT)
+   * TASK_2025_010: Interactive session management
+   */
+  async resumeChat(): Promise<void> {
+    const currentSession = this.currentSession();
+    if (!currentSession) {
+      throw new Error('No active session available');
+    }
+
+    try {
+      const result = await this.rpcService.resumeChat(currentSession.id);
+
+      if (!result.isSuccess()) {
+        throw new Error(result.error || 'Failed to resume chat');
+      }
+
+      this.logger.info('Chat resumed successfully', 'ChatService', {
+        sessionId: currentSession.id,
+      });
+    } catch (error) {
+      this.logger.error('Failed to resume chat', 'ChatService', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Stop current turn and clear message queue (SIGTERM)
+   * TASK_2025_010: Interactive session management
+   */
+  async stopChat(): Promise<void> {
+    const currentSession = this.currentSession();
+    if (!currentSession) {
+      throw new Error('No active session available');
+    }
+
+    try {
+      const result = await this.rpcService.stopChat(currentSession.id);
+
+      if (!result.isSuccess()) {
+        throw new Error(result.error || 'Failed to stop chat');
+      }
+
+      this.logger.info('Chat stopped successfully', 'ChatService', {
+        sessionId: currentSession.id,
+      });
+    } catch (error) {
+      this.logger.error('Failed to stop chat', 'ChatService', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Stop current streaming (deprecated - use stopChat instead)
+   * @deprecated Use stopChat() for interactive session management
    */
   stopStreaming(): void {
-    // No-op - streaming state removed
-    this.logger.debug(
-      'stopStreaming called (no-op - streaming removed)',
-      'ChatService'
-    );
+    this.stopChat().catch((error) => {
+      this.logger.error('Failed to stop streaming', 'ChatService', error);
+    });
   }
 
   /**

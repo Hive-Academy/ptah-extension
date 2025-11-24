@@ -99,38 +99,33 @@ export class OutputManager {
       return this.outputChannels.get(config.name)!;
     }
 
-    try {
-      // Create output channel with language ID if provided
-      const channel = config.languageId
-        ? vscode.window.createOutputChannel(config.name, config.languageId)
-        : vscode.window.createOutputChannel(config.name);
+    // Create output channel with language ID if provided
+    const channel = config.languageId
+      ? vscode.window.createOutputChannel(config.name, config.languageId)
+      : vscode.window.createOutputChannel(config.name);
 
-      // Store channel reference
-      this.outputChannels.set(config.name, channel);
+    // Store channel reference
+    this.outputChannels.set(config.name, channel);
 
-      // Initialize metrics tracking
-      this.channelMetrics.set(config.name, {
-        messageCount: 0,
-        lastWrite: 0,
-        createdAt: Date.now(),
-        totalWrites: 0,
-        errorCount: 0,
-        levelCounts: {
-          debug: 0,
-          info: 0,
-          warn: 0,
-          error: 0,
-        },
-      });
+    // Initialize metrics tracking
+    this.channelMetrics.set(config.name, {
+      messageCount: 0,
+      lastWrite: 0,
+      createdAt: Date.now(),
+      totalWrites: 0,
+      errorCount: 0,
+      levelCounts: {
+        debug: 0,
+        info: 0,
+        warn: 0,
+        error: 0,
+      },
+    });
 
-      // Add to extension subscriptions for proper cleanup
-      this.context.subscriptions.push(channel);
+    // Add to extension subscriptions for proper cleanup
+    this.context.subscriptions.push(channel);
 
-      return channel;
-    } catch (error) {
-      // Re-throw to maintain VS Code error handling
-      throw error;
-    }
+    return channel;
   }
 
   /**

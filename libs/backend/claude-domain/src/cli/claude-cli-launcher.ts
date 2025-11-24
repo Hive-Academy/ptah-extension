@@ -3,21 +3,20 @@
  * SOLID: Dependency Inversion - Depends on abstractions (SessionManager, PermissionService)
  */
 
-import { spawn, ChildProcess } from 'child_process';
-import { Readable } from 'stream';
-import * as os from 'os';
-import type * as vscode from 'vscode';
 import {
-  SessionId,
   ClaudeCliLaunchOptions,
   ClaudePermissionRequest,
+  SessionId,
 } from '@ptah-extension/shared';
+import { ChildProcess, spawn } from 'child_process';
+import * as os from 'os';
+import { Readable } from 'stream';
+import type * as vscode from 'vscode';
 import { ClaudeInstallation } from '../detector/claude-cli-detector';
 // import { SessionManager } from '../session/session-manager'; // DELETED in Phase 0
 import { PermissionService } from '../permissions/permission-service';
+import { JSONLParserCallbacks, JSONLStreamParser } from './jsonl-stream-parser';
 import { ProcessManager } from './process-manager';
-import { JSONLStreamParser, JSONLParserCallbacks } from './jsonl-stream-parser';
-import { ClaudeDomainEventPublisher } from '../events/claude-domain.events';
 
 /**
  * Dependencies required by ClaudeCliLauncher
@@ -434,5 +433,96 @@ export class ClaudeCliLauncher {
    */
   killSession(sessionId: SessionId): boolean {
     return this.deps.processManager.killProcess(sessionId);
+  }
+
+  /**
+   * Spawn interactive CLI session (no -p flag)
+   * Used by InteractiveSessionManager for persistent sessions with message queueing
+   *
+   * @param sessionId - Session identifier for process registration
+   * @param workspaceRoot - Optional workspace root directory
+   * @returns ChildProcess for interactive stdin/stdout communication
+   */
+  spawnInteractiveSession(
+    sessionId: SessionId,
+    workspaceRoot?: string
+  ): ChildProcess {
+    // Build CLI arguments WITHOUT -p flag (interactive mode)
+    const args = this.buildInteractiveArgs(sessionId);
+
+    // Determine execution context
+    const cwd = workspaceRoot || process.cwd();
+
+    // Build spawn command
+    const { command, commandArgs, needsShell } = this.buildSpawnCommand(args);
+
+    console.log(
+      '[ClaudeCliLauncher] =========================================='
+    );
+    console.log('[ClaudeCliLauncher] SPAWN INTERACTIVE SESSION:');
+    console.log('[ClaudeCliLauncher] SessionID:', sessionId);
+    console.log('[ClaudeCliLauncher] Mode: INTERACTIVE (no -p flag)');
+    console.log('[ClaudeCliLauncher] Spawn Command:', command);
+    console.log('[ClaudeCliLauncher] Command Arguments:', commandArgs);
+    console.log('[ClaudeCliLauncher] Working Directory:', cwd);
+    console.log(
+      '[ClaudeCliLauncher] =========================================='
+    );
+
+    // Get MCP server port
+    const mcpPort = this.deps.context.workspaceState.get<number>(
+      'ptah.mcpServer.port'
+    );
+    const env = mcpPort
+      ? { ...process.env, MCP_SERVER_PORT: mcpPort.toString() }
+      : process.env;
+
+    // Spawn interactive process
+    const childProcess = spawn(command, commandArgs, {
+      cwd,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      shell: needsShell,
+      env,
+    });
+
+    // Register with process manager
+    this.deps.processManager.registerProcess(
+      sessionId,
+      childProcess,
+      command,
+      commandArgs
+    );
+
+    // Log spawn result
+    if (childProcess.pid) {
+      console.log(
+        '[ClaudeCliLauncher] Interactive session spawned:',
+        childProcess.pid
+      );
+    } else {
+      console.error(
+        '[ClaudeCliLauncher] WARNING: Interactive session spawned without PID'
+      );
+    }
+
+    return childProcess;
+  }
+
+  /**
+   * Build arguments for interactive mode (no -p flag)
+   * Messages are written to stdin line-by-line instead of as single input
+   */
+  private buildInteractiveArgs(resumeSessionId: string): string[] {
+    // NO -p flag for interactive mode!
+    const args = [
+      '--output-format',
+      'stream-json',
+      '--verbose',
+      '--include-partial-messages',
+      '--resume',
+      resumeSessionId,
+    ];
+
+    return args;
   }
 }

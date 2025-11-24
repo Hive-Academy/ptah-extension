@@ -9,3 +9,6 @@
 // RPC Handler (Phase 2 - TASK_2025_021)
 export { RpcHandler } from './rpc-handler';
 export type { RpcMessage, RpcResponse, RpcMethodHandler } from './rpc-types';
+
+// RPC Method Registration Service (Clean separation of concerns)
+export { RpcMethodRegistrationService } from './rpc-method-registration.service';

@@ -1,4 +1,5 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
+import { VSCodeService } from '@ptah-extension/core';
 
 /**
  * File information for inclusion in chat messages
@@ -55,6 +56,9 @@ export interface FileSuggestion {
   providedIn: 'root',
 })
 export class FilePickerService {
+  // === ANGULAR 20 PATTERN: Injected services ===
+  private readonly vscodeService = inject(VSCodeService);
+
   // === ANGULAR 20 PATTERN: Private signals for internal state ===
   private readonly _workspaceFiles = signal<FileSuggestion[]>([]);
   private readonly _includedFiles = signal<ChatFile[]>([]);
@@ -142,6 +146,84 @@ export class FilePickerService {
     '.sql',
     '.log',
   ]);
+
+  /**
+   * Fetch workspace files from backend via RPC
+   * TASK_2025_019 Phase 1: Populates _workspaceFiles signal for @ autocomplete
+   */
+  async fetchWorkspaceFiles(): Promise<void> {
+    if (this._isLoading()) return; // Prevent duplicate fetches
+
+    this._isLoading.set(true);
+
+    try {
+      // Call backend via RPC
+      const result = await this.vscodeService.sendRequest<{
+        success: boolean;
+        files?: Array<{
+          uri: string;
+          relativePath: string;
+          fileName: string;
+          fileType: string;
+          size: number;
+          lastModified: number;
+          isDirectory: boolean;
+        }>;
+        error?: { code: string; message: string };
+      }>({
+        type: 'context:getAllFiles',
+        data: {
+          requestId: crypto.randomUUID(),
+          includeImages: false,
+          limit: 500,
+        },
+      });
+
+      if (result.success && result.files) {
+        // Transform backend format to FileSuggestion format
+        const suggestions: FileSuggestion[] = result.files.map((file) => ({
+          path: file.uri,
+          name: file.fileName,
+          directory:
+            file.relativePath.substring(
+              0,
+              file.relativePath.lastIndexOf('/')
+            ) || '/',
+          type: file.isDirectory ? 'directory' : 'file',
+          extension: file.fileType || undefined,
+          size: file.size,
+          lastModified: file.lastModified,
+          isImage: this.imageExtensions.has(`.${file.fileType}`),
+          isText: this.textExtensions.has(`.${file.fileType}`),
+        }));
+
+        this._workspaceFiles.set(suggestions);
+        this._lastUpdate.set(Date.now());
+      }
+    } catch (error) {
+      console.error(
+        '[FilePickerService] Failed to fetch workspace files:',
+        error
+      );
+    } finally {
+      this._isLoading.set(false);
+    }
+  }
+
+  /**
+   * Ensure files are loaded before showing dropdown
+   * TASK_2025_019 Phase 1: Call this when @ is typed
+   */
+  async ensureFilesLoaded(): Promise<void> {
+    const files = this._workspaceFiles();
+    const lastUpdate = this._lastUpdate();
+    const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+
+    // Fetch if: no files OR last update > 5 minutes ago
+    if (files.length === 0 || lastUpdate < fiveMinutesAgo) {
+      await this.fetchWorkspaceFiles();
+    }
+  }
 
   /**
    * Search workspace files for @ syntax autocomplete

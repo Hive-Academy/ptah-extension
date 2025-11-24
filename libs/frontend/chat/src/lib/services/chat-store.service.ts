@@ -120,7 +120,7 @@ export class ChatStoreService {
 
   /**
    * Send a message in current session
-   * Backend spawns Claude CLI and writes response to .jsonl file
+   * Backend spawns Claude CLI - streaming happens via postMessage
    */
   async sendMessage(content: string, files?: string[]): Promise<void> {
     const currentSession = this._currentSession();
@@ -133,16 +133,19 @@ export class ChatStoreService {
     this._error.set(null);
 
     try {
-      // Send via RPC (backend will spawn Claude CLI and write to .jsonl)
-      const result = await this.rpcService.sendMessage(content, files);
+      // Start chat via RPC - streaming happens asynchronously via postMessage
+      const result = await this.rpcService.startChat(
+        currentSession.id,
+        content,
+        files
+      );
 
       if (!result.success) {
-        this._error.set(result.error || 'Failed to send message');
+        this._error.set(result.error || 'Failed to start chat');
       }
 
-      // Note: We do NOT update _messages here
-      // Backend writes to .jsonl, we'll re-read file to get response
-      // TODO: Implement streaming updates in Phase 3
+      // Note: Streaming updates arrive via VSCodeService.handleJSONLMessage()
+      // which updates ChatStateService signals, which this component subscribes to
     } catch (error) {
       this._error.set(error instanceof Error ? error.message : String(error));
     } finally {

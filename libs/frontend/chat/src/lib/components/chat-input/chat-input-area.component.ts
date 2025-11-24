@@ -507,7 +507,9 @@ export class ChatInputAreaComponent {
     textarea.style.height = Math.min(scrollHeight, maxHeight) + 'px';
   }
 
-  private handleAtSymbolInput(textarea: HTMLTextAreaElement): void {
+  private async handleAtSymbolInput(
+    textarea: HTMLTextAreaElement
+  ): Promise<void> {
     const cursorPos = textarea.selectionStart || 0;
     const text = textarea.value;
     const textBeforeCursor = text.substring(0, cursorPos);
@@ -534,6 +536,9 @@ export class ChatInputAreaComponent {
       this.hideFileSuggestions();
       return;
     }
+
+    // TASK_2025_019 Phase 1: Ensure files are loaded before showing dropdown
+    await this.filePickerService.ensureFilesLoaded();
 
     this._atSymbolPosition.set(lastAtIndex);
     this._fileSearchQuery.set(searchText);

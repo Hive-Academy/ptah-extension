@@ -31,6 +31,7 @@ import {
   StatusBarManager,
   FileSystemManager,
   RpcHandler,
+  RpcMethodRegistrationService,
 } from '@ptah-extension/vscode-core';
 
 // Import workspace-intelligence services
@@ -53,6 +54,9 @@ import {
   ContextOrchestrationService,
   TreeSitterParserService,
   AstAnalysisService,
+  AgentDiscoveryService,
+  MCPDiscoveryService,
+  CommandDiscoveryService,
 } from '@ptah-extension/workspace-intelligence';
 
 // Import VS Code Language Model Tools
@@ -71,12 +75,14 @@ import {
 // Import claude-domain services
 import {
   ClaudeCliDetector,
+  ClaudeCliLauncher,
   ProcessManager,
   PermissionService,
   ClaudeCliService,
   MCPRegistrationService,
   InMemoryPermissionRulesStore,
   SessionManager,
+  InteractiveSessionManager,
 } from '@ptah-extension/claude-domain';
 
 // Import webview support services
@@ -120,6 +126,12 @@ export class DIContainer {
 
     // RPC Handler (Phase 2 - TASK_2025_021)
     container.registerSingleton(TOKENS.RPC_HANDLER, RpcHandler);
+
+    // RPC Method Registration Service (Phase 2 - Clean separation)
+    container.registerSingleton(
+      TOKENS.RPC_METHOD_REGISTRATION_SERVICE,
+      RpcMethodRegistrationService
+    );
 
     // Extension Context (value registration)
     container.register(TOKENS.EXTENSION_CONTEXT, { useValue: context });
@@ -203,6 +215,20 @@ export class DIContainer {
       AstAnalysisService
     );
 
+    // Autocomplete discovery services (TASK_2025_019)
+    container.registerSingleton(
+      TOKENS.AGENT_DISCOVERY_SERVICE,
+      AgentDiscoveryService
+    );
+    container.registerSingleton(
+      TOKENS.MCP_DISCOVERY_SERVICE,
+      MCPDiscoveryService
+    );
+    container.registerSingleton(
+      TOKENS.COMMAND_DISCOVERY_SERVICE,
+      CommandDiscoveryService
+    );
+
     // ========================================
     // PHASE 2.5: VS Code Language Model Tools
     // ========================================
@@ -263,6 +289,7 @@ export class DIContainer {
     container.registerSingleton(TOKENS.CLAUDE_CLI_DETECTOR, ClaudeCliDetector);
     container.registerSingleton(TOKENS.PROCESS_MANAGER, ProcessManager);
     container.registerSingleton(TOKENS.PERMISSION_SERVICE, PermissionService);
+    container.registerSingleton(TOKENS.CLAUDE_CLI_LAUNCHER, ClaudeCliLauncher);
     container.registerSingleton(TOKENS.CLAUDE_CLI_SERVICE, ClaudeCliService);
     container.registerSingleton(
       TOKENS.MCP_REGISTRATION_SERVICE,
@@ -271,6 +298,12 @@ export class DIContainer {
 
     // Session management (restored for RPC - TASK_2025_021)
     container.registerSingleton(TOKENS.SESSION_MANAGER, SessionManager);
+
+    // Interactive session management (TASK_2025_010)
+    container.registerSingleton(
+      TOKENS.INTERACTIVE_SESSION_MANAGER,
+      InteractiveSessionManager
+    );
 
     // ========================================
     // PHASE 4: Main App Services

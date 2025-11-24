@@ -38,6 +38,17 @@ export { ProcessManager } from './cli/process-manager';
 export type { ProcessMetadata } from './cli/process-manager';
 export { MCPRegistrationService } from './cli/mcp-registration.service';
 
+// Interactive Session Management
+export { InteractiveSessionManager } from './cli/interactive-session-manager';
+export type { InteractiveSessionManagerOptions } from './cli/interactive-session-manager';
+export { SessionProcess } from './cli/session-process';
+export type {
+  SessionProcessState,
+  SessionProcessMetadata,
+} from './cli/session-process';
+export { MessageQueue } from './cli/message-queue';
+export type { QueuedMessage } from './cli/message-queue';
+
 // JSONL Parsing
 export { JSONLStreamParser } from './cli/jsonl-stream-parser';
 export type {
@@ -60,7 +71,6 @@ export {
 } from './permissions/permission-rules.store';
 
 // Events
-export { ClaudeDomainEventPublisher } from './events/claude-domain.events';
 export type {
   ClaudeContentChunkEvent,
   ClaudeThinkingEventPayload,
@@ -71,7 +81,6 @@ export type {
   ClaudeSessionEndEvent,
   ClaudeHealthUpdateEvent,
   ClaudeErrorEvent,
-  IEventBus as ClaudeIEventBus, // Export interface for external use
 } from './events/claude-domain.events';
 
 // NOTE: DI registration is now centralized in apps/ptah-extension-vscode/src/di/container.ts

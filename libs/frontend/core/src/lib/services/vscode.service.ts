@@ -197,6 +197,66 @@ export class VSCodeService {
   }
 
   /**
+   * Send RPC request to extension and wait for response
+   * TASK_2025_019 Phase 1: RPC integration for file autocomplete
+   *
+   * @param request - RPC request with type and data
+   * @returns Promise resolving to response data
+   */
+  async sendRequest<T>(request: { type: string; data: unknown }): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const requestId = crypto.randomUUID();
+      const timeoutMs = 10000; // 10 second timeout
+
+      // Set up timeout
+      const timeoutId = setTimeout(() => {
+        window.removeEventListener('message', handler);
+        reject(new Error(`RPC request timeout: ${request.type}`));
+      }, timeoutMs);
+
+      // Register response handler
+      const handler = (event: MessageEvent) => {
+        const message = event.data;
+
+        if (
+          message.type === 'rpc:response' &&
+          message.requestId === requestId
+        ) {
+          clearTimeout(timeoutId);
+          window.removeEventListener('message', handler);
+
+          if (message.error) {
+            reject(
+              new Error(
+                `RPC error: ${message.error.message || 'Unknown error'}`
+              )
+            );
+          } else {
+            resolve(message.result as T);
+          }
+        }
+      };
+
+      window.addEventListener('message', handler);
+
+      // Send request to backend
+      if (this.vscode) {
+        this.vscode.postMessage({
+          type: 'rpc:request',
+          requestId,
+          method: request.type,
+          params: request.data,
+        });
+      } else {
+        // Development mode - reject immediately
+        clearTimeout(timeoutId);
+        window.removeEventListener('message', handler);
+        reject(new Error('VS Code API not available (development mode)'));
+      }
+    });
+  }
+
+  /**
    * Get asset URI for webview resources (images, icons, etc.)
    */
   getImageUrl(imagePath: string): string {

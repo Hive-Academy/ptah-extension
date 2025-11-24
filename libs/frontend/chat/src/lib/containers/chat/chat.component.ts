@@ -148,8 +148,13 @@ import type { TokenUsage } from '../../components/chat-token-usage/chat-token-us
       <ptah-chat-streaming-status
         [isVisible]="isStreaming()"
         [streamingMessage]="'Claude is responding...'"
+        [isPaused]="false"
         [canStop]="true"
-        (stopStreaming)="stopStreaming()"
+        [canPause]="true"
+        [canResume]="true"
+        (pauseStreaming)="pauseChat()"
+        (resumeStreaming)="resumeChat()"
+        (stopStreaming)="stopChat()"
       />
 
       <!-- Input Area -->
@@ -561,8 +566,41 @@ export class ChatComponent implements OnInit {
     this.chatState.updateCurrentMessage(orchestrationMessage);
   }
 
+  /**
+   * Pause current turn in interactive session (TASK_2025_010)
+   */
+  public pauseChat(): void {
+    this.logger.debug('Pausing chat', 'ChatComponent');
+    void this.chat.pauseChat().catch((error) => {
+      this.logger.error('Failed to pause chat', 'ChatComponent', error);
+    });
+  }
+
+  /**
+   * Resume paused turn in interactive session (TASK_2025_010)
+   */
+  public resumeChat(): void {
+    this.logger.debug('Resuming chat', 'ChatComponent');
+    void this.chat.resumeChat().catch((error) => {
+      this.logger.error('Failed to resume chat', 'ChatComponent', error);
+    });
+  }
+
+  /**
+   * Stop current turn and clear queue (TASK_2025_010)
+   */
+  public stopChat(): void {
+    this.logger.debug('Stopping chat', 'ChatComponent');
+    void this.chat.stopChat().catch((error) => {
+      this.logger.error('Failed to stop chat', 'ChatComponent', error);
+    });
+  }
+
+  /**
+   * @deprecated Use stopChat() instead
+   */
   public stopStreaming(): void {
-    this.chat.stopStreaming();
+    this.stopChat();
   }
 
   public onCommandsClick(): void {

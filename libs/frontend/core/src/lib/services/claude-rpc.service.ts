@@ -175,11 +175,44 @@ export class ClaudeRpcService {
   }
 
   /**
-   * Send chat message
+   * Start chat session (initiates Claude CLI, streaming happens via postMessage)
+   * @param sessionId - Session ID to send message in
    * @param content - Message content
    * @param files - Optional file paths
+   * @returns Promise that resolves when CLI process starts (streaming handled separately)
    */
-  sendMessage(content: string, files?: string[]): Promise<RpcResult<void>> {
-    return this.call<void>('chat:sendMessage', { content, files });
+  startChat(
+    sessionId: SessionId,
+    content: string,
+    files?: string[]
+  ): Promise<RpcResult<void>> {
+    return this.call<void>('chat:start', { sessionId, content, files });
+  }
+
+  /**
+   * Pause current turn in interactive session (SIGTSTP)
+   * @param sessionId - Session ID to pause
+   * @returns Promise that resolves when pause signal is sent
+   */
+  pauseChat(sessionId: SessionId): Promise<RpcResult<void>> {
+    return this.call<void>('chat:pause', { sessionId });
+  }
+
+  /**
+   * Resume paused turn in interactive session (SIGCONT)
+   * @param sessionId - Session ID to resume
+   * @returns Promise that resolves when resume signal is sent
+   */
+  resumeChat(sessionId: SessionId): Promise<RpcResult<void>> {
+    return this.call<void>('chat:resume', { sessionId });
+  }
+
+  /**
+   * Stop current turn and clear message queue (SIGTERM)
+   * @param sessionId - Session ID to stop
+   * @returns Promise that resolves when stop signal is sent
+   */
+  stopChat(sessionId: SessionId): Promise<RpcResult<void>> {
+    return this.call<void>('chat:stop', { sessionId });
   }
 }

@@ -45,7 +45,9 @@
       <div
         class="timeline-marker start"
         [ngStyle]="{
-          'background-color': getAgentColor(agent.agent.subagentType ?? 'unknown')
+          'background-color': getAgentColor(
+            agent.agent.subagentType ?? 'unknown'
+          )
         }"
       ></div>
 
@@ -72,11 +74,15 @@
   <div
     class="timeline-popover"
     role="tooltip"
-    [attr.aria-label]="'Details for ' + (hovered.agent.subagentType ?? 'unknown') + ' agent'"
+    [attr.aria-label]="
+      'Details for ' + (hovered.agent.subagentType ?? 'unknown') + ' agent'
+    "
   >
     <!-- Popover Header -->
     <div class="popover-header">
-      <span class="popover-title">{{ hovered.agent.subagentType ?? 'unknown' }}</span>
+      <span class="popover-title">{{
+        hovered.agent.subagentType ?? 'unknown'
+      }}</span>
     </div>
 
     <!-- Divider -->

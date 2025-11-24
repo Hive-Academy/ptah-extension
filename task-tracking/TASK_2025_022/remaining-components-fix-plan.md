@@ -76,6 +76,7 @@ export interface ProcessedClaudeMessage extends StrictChatMessage {
 **Root Cause**: ProcessedClaudeMessage in chat-state.service.ts is the **new JSONL interface** (correct), but components still expect **legacy properties** from the old EventBus system.
 
 **Affected Files**:
+
 - `chat-message-content.component.ts`: Expects hasImages, tokenUsage, toolsUsed
 - `chat-messages-list.component.ts`: Expects isComplete
 
@@ -114,6 +115,7 @@ const maxDuration = Math.max(
 **Root Cause**: Component was written before AgentMetadata interface was finalized. Property is called `startTime`, not `timestamp`.
 
 **Affected Files**:
+
 - `agent-timeline.component.ts`: 4 occurrences of `.timestamp`, 2 type errors with string | undefined
 
 **Impact**: 6 compilation errors in 1 component
@@ -200,7 +202,8 @@ readonly toolBadges = computed(() => {
 
 ```typescript
 // CURRENT (BROKEN)
-return tools.map((tool) => ({ // ← 'tool' has implicit any
+return tools.map((tool) => ({
+  // ← 'tool' has implicit any
   name: tool,
   icon: this.getToolIcon(tool),
 }));
@@ -310,6 +313,7 @@ hasToolParameters(toolUse: ClaudeContent): boolean {
 **Estimated Effort**: 30 minutes
 
 **Testing**:
+
 - Verify message display works
 - Check tool badge rendering
 - Test image preview detection
@@ -418,6 +422,7 @@ private groupMessages(
 **Estimated Effort**: 10 minutes
 
 **Testing**:
+
 - Verify message grouping works correctly
 - Check streaming indicator doesn't appear incorrectly
 - Test group headers display properly
@@ -574,6 +579,7 @@ getEndMarkerColor(agent: TimelineAgent): string {
 **Estimated Effort**: 20 minutes
 
 **Testing**:
+
 - Verify timeline renders correctly
 - Check agent segments positioned properly
 - Test color gradients display
@@ -586,6 +592,7 @@ getEndMarkerColor(agent: TimelineAgent): string {
 ### Option 1: Add Computed Properties to ChatStateService (Recommended)
 
 **Benefits**:
+
 - Centralized logic
 - Reusable across components
 - Type-safe
@@ -601,19 +608,14 @@ export class ChatStateService {
    * Extract tool names from message content blocks
    */
   getMessageTools(message: ProcessedClaudeMessage): readonly string[] {
-    return message.content
-      .filter((block): block is ToolUseContentBlock => block.type === 'tool_use')
-      .map(block => block.name);
+    return message.content.filter((block): block is ToolUseContentBlock => block.type === 'tool_use').map((block) => block.name);
   }
 
   /**
    * Check if message contains image references
    */
   messageHasImages(message: ProcessedClaudeMessage): boolean {
-    return message.content.some(block =>
-      block.type === 'text' &&
-      block.text?.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i)
-    );
+    return message.content.some((block) => block.type === 'text' && block.text?.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i));
   }
 
   /**
@@ -628,6 +630,7 @@ export class ChatStateService {
 ### Option 2: Keep Logic in Components (Current Approach)
 
 **Benefits**:
+
 - Component-specific logic
 - No service changes needed
 - Faster to implement
@@ -711,6 +714,7 @@ export { ProcessedClaudeMessage, AgentMetadata, SessionMetrics } from './lib/ser
 **Scope**: Fix chat-message-content.component.ts (6 errors)
 
 **Tasks**:
+
 1. Update showImagePreviews computed (line 88)
 2. Update totalTokens computed (line 114)
 3. Update toolBadges computed (lines 120-121)
@@ -719,11 +723,13 @@ export { ProcessedClaudeMessage, AgentMetadata, SessionMetrics } from './lib/ser
 6. Add ToolUseContentBlock import from @ptah-extension/shared
 
 **Verification**:
+
 ```bash
 nx run chat:typecheck
 ```
 
 **Git Commit**:
+
 ```bash
 git add libs/frontend/chat/src/lib/components/chat-messages/components/chat-message-content/
 git commit -m "fix(webview): adapt chat-message-content to jsonl message format
@@ -744,16 +750,19 @@ fixes 6 typescript errors in batch 5"
 **Scope**: Fix chat-messages-list.component.ts (2 errors)
 
 **Tasks**:
+
 1. Remove isComplete checks in groupMessages() (lines 264, 274)
 2. Set isComplete to true (messages in list are always complete)
 3. Update JSDoc to clarify behavior
 
 **Verification**:
+
 ```bash
 nx run chat:typecheck
 ```
 
 **Git Commit**:
+
 ```bash
 git add libs/frontend/chat/src/lib/components/chat-messages-list/
 git commit -m "fix(webview): remove iscomplete property from message grouping
@@ -772,16 +781,19 @@ fixes 2 typescript errors in batch 6"
 **Scope**: Fix agent-timeline.component.ts (6 errors)
 
 **Tasks**:
+
 1. Change all `agent.timestamp` to `agent.startTime` (lines 85, 122, 130)
 2. Add default value for subagentType (lines 280, 302)
 3. Update JSDoc to clarify AgentMetadata properties
 
 **Verification**:
+
 ```bash
 nx run chat:typecheck
 ```
 
 **Git Commit**:
+
 ```bash
 git add libs/frontend/chat/src/lib/components/agent-timeline/
 git commit -m "fix(webview): use starttime property in agent timeline
@@ -800,18 +812,21 @@ fixes 6 typescript errors in batch 7"
 **Scope**: Delete stub file, update exports, add documentation
 
 **Tasks**:
+
 1. Delete `libs/frontend/core/src/lib/types/message-transformer.types.ts` (stub file)
 2. Verify ChatStateService exports in `libs/frontend/core/src/index.ts`
 3. Add JSDoc to ProcessedClaudeMessage
 4. Update component documentation with JSONL migration notes
 
 **Verification**:
+
 ```bash
 nx run-many -t typecheck
 npm run build:all
 ```
 
 **Git Commit**:
+
 ```bash
 git add libs/frontend/core/src/lib/types/
 git add libs/frontend/core/src/lib/services/chat-state.service.ts
@@ -849,6 +864,7 @@ npm run typecheck:all
 **Manual Testing Checklist**:
 
 1. **chat-message-content.component.ts**:
+
    - [ ] Messages display correctly
    - [ ] Tool badges render (if tools used)
    - [ ] Image preview detection works
@@ -856,6 +872,7 @@ npm run typecheck:all
    - [ ] No console errors
 
 2. **chat-messages-list.component.ts**:
+
    - [ ] Messages group correctly
    - [ ] Streaming indicator doesn't appear incorrectly
    - [ ] Group headers display properly
@@ -879,6 +896,7 @@ nx test chat --coverage
 **Coverage Target**: 80% minimum
 
 **Focus Areas**:
+
 - Message content rendering
 - Message grouping logic
 - Agent timeline calculations
@@ -891,6 +909,7 @@ nx test chat --coverage
 ### Low Risk (Routine Fixes)
 
 1. **Property Renames** (timestamp → startTime)
+
    - **Impact**: Low
    - **Mitigation**: Search & replace, type system catches errors
    - **Rollback**: Revert commit
@@ -903,6 +922,7 @@ nx test chat --coverage
 ### Medium Risk (Logic Changes)
 
 3. **Remove isComplete Property**
+
    - **Impact**: Medium (affects streaming UI)
    - **Mitigation**: isComplete was always true for messages in list
    - **Validation**: Verify streaming banner doesn't appear incorrectly
@@ -975,12 +995,12 @@ nx test chat --coverage
 
 ### By Batch
 
-| Batch | Component | Errors | Effort | Cumulative |
-|-------|-----------|--------|--------|------------|
-| 5 | chat-message-content | 6 | 1h | 1h |
-| 6 | chat-messages-list | 2 | 30m | 1.5h |
-| 7 | agent-timeline | 6 | 30m | 2h |
-| 8 | Cleanup & docs | 0 | 30m | 2.5h |
+| Batch | Component            | Errors | Effort | Cumulative |
+| ----- | -------------------- | ------ | ------ | ---------- |
+| 5     | chat-message-content | 6      | 1h     | 1h         |
+| 6     | chat-messages-list   | 2      | 30m    | 1.5h       |
+| 7     | agent-timeline       | 6      | 30m    | 2h         |
+| 8     | Cleanup & docs       | 0      | 30m    | 2.5h       |
 
 ### Total Effort: 2.5-3 hours
 
@@ -1020,11 +1040,7 @@ export interface ProcessedClaudeMessage {
 
 ```typescript
 // libs/shared/src/lib/types/content-block.types.ts
-export type ContentBlock =
-  | TextContentBlock
-  | ThinkingContentBlock
-  | ToolUseContentBlock
-  | ToolResultContentBlock;
+export type ContentBlock = TextContentBlock | ThinkingContentBlock | ToolUseContentBlock | ToolResultContentBlock;
 
 export interface TextContentBlock {
   type: 'text';
