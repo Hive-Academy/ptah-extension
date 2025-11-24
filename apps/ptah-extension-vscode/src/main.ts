@@ -48,7 +48,10 @@ export async function activate(
         // Return SessionUIData format for frontend
         return sessionManager.getSessionsUIData();
       } catch (error) {
-        logger.error('RPC: session:list failed', error);
+        logger.error(
+          'RPC: session:list failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
         throw new Error(
           `Failed to list sessions: ${
             error instanceof Error ? error.message : String(error)
@@ -64,7 +67,10 @@ export async function activate(
         const session = sessionManager.getSession(id as SessionId);
         return session ?? null;
       } catch (error) {
-        logger.error('RPC: session:get failed', error);
+        logger.error(
+          'RPC: session:get failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
         throw new Error(
           `Failed to get session: ${
             error instanceof Error ? error.message : String(error)
@@ -80,7 +86,10 @@ export async function activate(
         const session = await sessionManager.createSession({ name });
         return session.id;
       } catch (error) {
-        logger.error('RPC: session:create failed', error);
+        logger.error(
+          'RPC: session:create failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
         throw new Error(
           `Failed to create session: ${
             error instanceof Error ? error.message : String(error)
@@ -99,7 +108,10 @@ export async function activate(
         }
         return;
       } catch (error) {
-        logger.error('RPC: session:switch failed', error);
+        logger.error(
+          'RPC: session:switch failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
         throw new Error(
           `Failed to switch session: ${
             error instanceof Error ? error.message : String(error)
@@ -129,7 +141,10 @@ export async function activate(
         // TODO: Implement proper streaming response when RPC streaming is added
         return { success: true };
       } catch (error) {
-        logger.error('RPC: chat:sendMessage failed', error);
+        logger.error(
+          'RPC: chat:sendMessage failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
         throw new Error(
           `Failed to send message: ${
             error instanceof Error ? error.message : String(error)
@@ -146,7 +161,10 @@ export async function activate(
         logger.debug('RPC: file:read called', { sessionId });
         return null;
       } catch (error) {
-        logger.error('RPC: file:read failed', error);
+        logger.error(
+          'RPC: file:read failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
         throw new Error(
           `Failed to read file: ${
             error instanceof Error ? error.message : String(error)
@@ -230,10 +248,10 @@ export async function activate(
       });
       console.log('[Activate] Step 10: MCP server registered with Claude CLI');
     } catch (error) {
+      // Fix: Logger.error now takes 2 params: (message, errorOrContext)
       logger.error(
         'Failed to register MCP server (non-blocking)',
-        'Extension Activation',
-        error
+        error instanceof Error ? error : new Error(String(error))
       );
       console.warn(
         '[Activate] Step 10: MCP registration failed (non-blocking)',
@@ -259,7 +277,10 @@ export async function activate(
       error instanceof Error ? error.stack : 'No stack trace'
     );
     const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
-    logger.error('Failed to activate Ptah extension', error);
+    logger.error(
+      'Failed to activate Ptah extension',
+      error instanceof Error ? error : new Error(String(error))
+    );
     vscode.window.showErrorMessage(
       `Ptah activation failed: ${
         error instanceof Error ? error.message : 'Unknown error'

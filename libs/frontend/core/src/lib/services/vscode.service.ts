@@ -1,4 +1,4 @@
-import { Injectable, computed, signal } from '@angular/core';
+import { Injectable, computed, signal, inject } from '@angular/core';
 import {
   StrictMessage,
   MessagePayloadMap,
@@ -7,6 +7,7 @@ import {
   SessionId,
   createStrictMessage,
 } from '@ptah-extension/shared';
+import { ChatStateService, type JSONLMessage } from './chat-state.service';
 
 /**
  * Webview Configuration
@@ -80,6 +81,9 @@ export class VSCodeService {
   // VS Code API instance (null in development mode)
   private vscode: VsCodeApi | null = null;
 
+  // Inject ChatStateService for JSONL message routing
+  private readonly chatStateService = inject(ChatStateService);
+
   // Signal-based reactive state
   private readonly _config = signal<WebviewConfig>({
     isVSCode: false,
@@ -103,6 +107,7 @@ export class VSCodeService {
 
   constructor() {
     this.initializeFromGlobals();
+    this.setupMessageListener();
   }
 
   /**
@@ -200,6 +205,84 @@ export class VSCodeService {
       return `${config.extensionUri}/out/webview/browser/${imagePath}`;
     } else {
       return `/${imagePath}`;
+    }
+  }
+
+  /**
+   * Setup message listener for webview communication
+   * Handles both RPC responses and unified JSONL messages
+   */
+  private setupMessageListener(): void {
+    window.addEventListener('message', (event) => {
+      const message = event.data;
+
+      // Existing RPC message handling (if present)
+      if (message.type === 'rpc:response') {
+        // RPC handling will be restored in Phase 2
+        // For now, just log for debugging
+        console.debug('[VSCodeService] RPC response:', message);
+      }
+
+      // NEW: Unified JSONL message handler
+      if (message.type === 'jsonl-message') {
+        const { sessionId, message: jsonlMessage } = message.data;
+        this.handleJSONLMessage(sessionId, jsonlMessage);
+      }
+    });
+  }
+
+  /**
+   * Discriminate JSONL messages based on type field
+   * Routes to ChatStateService for state updates
+   *
+   * Core Principle: Receive typed object, discriminate on message.type, update signals
+   *
+   * @param sessionId - Session identifier from backend
+   * @param message - Complete JSONL object with type field
+   */
+  private handleJSONLMessage(
+    sessionId: SessionId,
+    message: JSONLMessage
+  ): void {
+    switch (message.type) {
+      case 'system':
+        // Session initialization
+        if (message.subtype === 'init' && message.session_id) {
+          this.chatStateService.handleSessionInit(
+            sessionId,
+            message.session_id,
+            message.model
+          );
+        }
+        break;
+
+      case 'assistant':
+        // Assistant messages (thinking vs content discrimination)
+        this.chatStateService.handleAssistantMessage(sessionId, message);
+        break;
+
+      case 'tool':
+        // Tool lifecycle + agent correlation
+        this.chatStateService.handleToolMessage(sessionId, message);
+        break;
+
+      case 'permission':
+        // Permission dialog
+        this.chatStateService.handlePermissionRequest(sessionId, message);
+        break;
+
+      case 'stream_event':
+        // Streaming control events
+        this.chatStateService.handleStreamEvent(sessionId, message);
+        break;
+
+      case 'result':
+        // Final metrics
+        this.chatStateService.handleResult(sessionId, message);
+        break;
+
+      default:
+        console.warn('[VSCodeService] Unknown JSONL message type:', message);
     }
   }
 }

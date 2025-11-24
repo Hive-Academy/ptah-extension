@@ -120,7 +120,7 @@ export class AgentStatusBadgeComponent {
       const type = node.agent.subagentType;
       const duration = node.duration
         ? formatDuration(node.duration)
-        : this.getRunningDuration(node.agent.timestamp);
+        : this.getRunningDuration(node.agent.startTime);
       const status = node.status === 'error' ? ' (error)' : '';
       return `• ${type} (${duration})${status}`;
     });

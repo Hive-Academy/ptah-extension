@@ -31,7 +31,7 @@
         <span class="tooltip-agent">{{ agent.agent.subagentType }}</span>
         <span class="tooltip-duration">
           @if (agent.duration) { ({{ formatDuration(agent.duration) }}) } @else
-          { ({{ getRunningDuration(agent.agent.timestamp) }}) } @if
+          { ({{ getRunningDuration(agent.agent.startTime) }}) } @if
           (agent.status === 'error') {
           <span class="tooltip-error"> (error)</span>
           }

@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
 import type { AgentTreeNode } from '@ptah-extension/core';
+import type { ClaudeToolEvent } from '@ptah-extension/shared';
 import { formatDuration } from '@ptah-extension/shared-ui';
 
 /**
@@ -82,7 +83,7 @@ export class AgentTimelineComponent {
 
     return Math.max(
       ...agents.map(
-        (agent) => (agent.agent.timestamp ?? 0) + (agent.duration ?? 0)
+        (agent) => (agent.agent.startTime ?? 0) + (agent.duration ?? 0)
       )
     );
   });
@@ -119,7 +120,7 @@ export class AgentTimelineComponent {
 
     // Sort by start time
     const sortedAgents = [...agents].sort(
-      (a, b) => (a.agent.timestamp ?? 0) - (b.agent.timestamp ?? 0)
+      (a, b) => (a.agent.startTime ?? 0) - (b.agent.startTime ?? 0)
     );
 
     // Track assignment: detect overlapping agents
@@ -127,7 +128,7 @@ export class AgentTimelineComponent {
     const timelineAgents: TimelineAgent[] = [];
 
     for (const agent of sortedAgents) {
-      const startTime = agent.agent.timestamp ?? 0;
+      const startTime = agent.agent.startTime ?? 0;
       const endTime = startTime + (agent.duration ?? 0);
 
       // Find earliest available track (no time overlap)
@@ -277,7 +278,7 @@ export class AgentTimelineComponent {
    */
   getSegmentStyleWithColor(agent: TimelineAgent): Record<string, string> {
     const basicStyle = this.getSegmentStyle(agent);
-    const color = this.getAgentColor(agent.agent.subagentType);
+    const color = this.getAgentColor(agent.agent.subagentType ?? 'unknown');
 
     return {
       left: basicStyle.left,
@@ -299,7 +300,7 @@ export class AgentTimelineComponent {
     } else if (agent.status === 'error') {
       return 'var(--vscode-testing-iconFailed)';
     }
-    return this.getAgentColor(agent.agent.subagentType);
+    return this.getAgentColor(agent.agent.subagentType ?? 'unknown');
   }
 
   /**
@@ -321,5 +322,36 @@ export class AgentTimelineComponent {
     const b = parseInt(hex.substring(4, 6), 16);
 
     return `${r}, ${g}, ${b}`;
+  }
+
+  /**
+   * Get tool name from ClaudeToolEvent (safe for all event types)
+   */
+  getToolName(activity: ClaudeToolEvent): string {
+    if (activity.type === 'start') {
+      return activity.tool;
+    }
+    return `[${activity.type}]`;
+  }
+
+  /**
+   * Check if ClaudeToolEvent has tool input
+   */
+  hasToolInput(activity: ClaudeToolEvent): boolean {
+    return activity.type === 'start' && Object.keys(activity.args).length > 0;
+  }
+
+  /**
+   * Get tool input from ClaudeToolEvent (safe for all event types)
+   */
+  getToolInput(activity: ClaudeToolEvent): string {
+    if (activity.type === 'start') {
+      try {
+        return JSON.stringify(activity.args, null, 2);
+      } catch {
+        return 'Invalid input';
+      }
+    }
+    return '';
   }
 }

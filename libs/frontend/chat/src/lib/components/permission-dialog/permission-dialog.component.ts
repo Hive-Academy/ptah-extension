@@ -1,12 +1,6 @@
 import { Component, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
-
-interface PendingPermission {
-  requestId: string;
-  type: string;
-  details: Record<string, unknown>;
-  timestamp: number;
-}
+import { ClaudePermissionRequest } from '@ptah-extension/shared';
 
 @Component({
   selector: 'ptah-permission-dialog',
@@ -21,15 +15,15 @@ interface PendingPermission {
       </div>
 
       <div class="dialog-content">
-        <div class="permission-type">{{ permissionData.type }}</div>
+        <div class="permission-type">{{ permissionData.tool }}</div>
 
-        @if (permissionData.details['path']) {
+        @if (permissionData.args['path']) {
         <div class="permission-detail">
-          <strong>Path:</strong> {{ permissionData.details['path'] }}
+          <strong>Path:</strong> {{ permissionData.args['path'] }}
         </div>
-        } @if (permissionData.details['command']) {
+        } @if (permissionData.args['command']) {
         <div class="permission-detail">
-          <strong>Command:</strong> {{ permissionData.details['command'] }}
+          <strong>Command:</strong> {{ permissionData.args['command'] }}
         </div>
         }
       </div>
@@ -129,7 +123,7 @@ interface PendingPermission {
   ],
 })
 export class PermissionDialogComponent {
-  permission = input<PendingPermission | null>();
+  permission = input<ClaudePermissionRequest | null>();
 
   approve = output<string>();
   deny = output<string>();
@@ -137,14 +131,14 @@ export class PermissionDialogComponent {
   onApprove(): void {
     const permission = this.permission();
     if (permission) {
-      this.approve.emit(permission.requestId);
+      this.approve.emit(permission.toolCallId);
     }
   }
 
   onDeny(): void {
     const permission = this.permission();
     if (permission) {
-      this.deny.emit(permission.requestId);
+      this.deny.emit(permission.toolCallId);
     }
   }
 }

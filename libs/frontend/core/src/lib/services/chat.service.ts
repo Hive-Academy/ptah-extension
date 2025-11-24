@@ -1,5 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { ChatStateService } from './chat-state.service';
+import { ChatStateService, AgentMetadata } from './chat-state.service';
 import { VSCodeService } from './vscode.service';
 import { AppStateManager } from './app-state.service';
 import { LoggingService } from './logging.service';
@@ -8,14 +8,15 @@ import {
   SessionId,
   MessageId,
   SessionSummary,
+  ClaudeToolEvent,
 } from '@ptah-extension/shared';
 
 /**
  * Agent Tree Node - Represents a subagent in the agent execution tree
  */
 export interface AgentTreeNode {
-  readonly agent: unknown;
-  readonly activities: readonly unknown[];
+  readonly agent: AgentMetadata;
+  readonly activities: readonly ClaudeToolEvent[];
   readonly status: 'running' | 'complete' | 'error';
   readonly duration?: number;
   readonly errorMessage?: string;
@@ -43,9 +44,6 @@ export class ChatService {
   private readonly logger = inject(LoggingService);
 
   // Temporary state signals (NO event subscriptions updating these!)
-  private readonly _agents = signal<readonly AgentTreeNode[]>([]);
-  readonly agents = this._agents.asReadonly();
-
   private readonly _sessions = signal<SessionSummary[]>([]);
   readonly sessions = this._sessions.asReadonly();
 
@@ -53,7 +51,47 @@ export class ChatService {
   readonly messages = this.chatState.messages;
   readonly claudeMessages = this.chatState.claudeMessages;
   readonly currentSession = this.chatState.currentSession;
-  readonly isStreaming = computed(() => false); // Static - no streaming state
+  readonly isStreaming = this.chatState.isStreaming; // Now has real streaming state (RPC Phase 3.5)
+
+  // JSONL streaming state (RPC Phase 3.5)
+  readonly toolTimeline = this.chatState.toolTimeline;
+  readonly toolExecutions = this.chatState.toolTimeline; // Alias for backward compatibility
+  readonly activeAgents = this.chatState.activeAgents;
+  readonly sessionMetrics = this.chatState.sessionMetrics;
+  readonly claudeSessionId = this.chatState.claudeSessionId;
+
+  /**
+   * Agent Tree Nodes - Converts activeAgents Map to AgentTreeNode[] for component consumption
+   *
+   * This computed signal adapts the Map<string, AgentMetadata> from ChatStateService
+   * into the AgentTreeNode[] format expected by UI components.
+   */
+  readonly activeAgentNodes = computed<readonly AgentTreeNode[]>(() => {
+    const agentsMap = this.chatState.activeAgents();
+    const agentActivities = this.chatState.agentActivities();
+    const nodes: AgentTreeNode[] = [];
+
+    for (const [toolCallId, metadata] of agentsMap.entries()) {
+      nodes.push({
+        agent: metadata,
+        activities: agentActivities.get(toolCallId) || [],
+        status: 'running', // Active agents are always running
+        duration: Date.now() - metadata.startTime,
+        errorMessage: undefined,
+      });
+    }
+
+    return nodes;
+  });
+
+  // Permission dialog state (converted to array format for backward compatibility)
+  readonly pendingPermissions = computed(() => {
+    const permission = this.chatState.permissionDialog();
+    return permission ? [permission] : [];
+  });
+
+  // Thinking state (not yet implemented - returns null for now)
+  readonly currentThinking = computed(() => null);
 
   // Computed properties
   readonly hasMessages = this.chatState.hasMessages;

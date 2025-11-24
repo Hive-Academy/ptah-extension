@@ -7,9 +7,7 @@ import { inject, injectable } from 'tsyringe';
 import * as vscode from 'vscode';
 // Import from libraries instead of local services
 import { SessionManager } from '@ptah-extension/claude-domain';
-import {
-  type WebviewMessage
-} from '@ptah-extension/shared';
+import { type WebviewMessage } from '@ptah-extension/shared';
 import { WebviewEventQueue } from '../services/webview-event-queue';
 import { WebviewHtmlGenerator } from '../services/webview-html-generator';
 
@@ -52,8 +50,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: WebviewManager,
     @inject(TOKENS.WEBVIEW_EVENT_QUEUE)
-    private readonly eventQueue: WebviewEventQueue,
-
+    private readonly eventQueue: WebviewEventQueue
   ) {
     this.htmlGenerator = new WebviewHtmlGenerator(context);
     this.initializeDevelopmentWatcher();
@@ -84,14 +81,10 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       ],
     };
 
-
-
-
     webviewView.webview.html = this.htmlGenerator.generateAngularWebviewContent(
       webviewView.webview,
       this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>
     );
-
   }
 
   /**
@@ -118,7 +111,6 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       }
     );
 
-
     this._panel.webview.html = this.htmlGenerator.generateAngularWebviewContent(
       this._panel.webview,
       this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>
@@ -132,7 +124,6 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       undefined,
       this._disposables
     );
-
   }
 
   /**
@@ -163,9 +154,6 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     this.eventQueue.markReady();
     this.eventQueue.flush((event) => this.postMessageDirect(event));
   }
-
-
-
 
   /**
    * Send message to Angular application - Type-safe messaging
@@ -262,7 +250,6 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     // Reset initialization guards on reload
     this._initialDataSent = false;
     this.eventQueue.reset(); // Webview instance changes on reload
-
 
     const newHtml = this.htmlGenerator.generateAngularWebviewContent(
       webview,

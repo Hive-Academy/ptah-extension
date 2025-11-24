@@ -67,33 +67,33 @@
           role="treeitem"
           [attr.aria-selected]="false"
           [attr.aria-level]="2"
-          [title]="stringify(activity.toolInput)"
+          [title]="getActivityTooltip(activity)"
         >
-          <span class="tool-activity-text">{{ formatActivity(activity) }}</span>
+          <span class="tool-activity-text">{{ getActivityText(activity) }}</span>
         </div>
         }
       </div>
       }
 
       <!-- Future Fields (Conditional Rendering) -->
-      @if (node.cost !== undefined) {
+      @if (node.agent.cost !== undefined) {
       <div class="agent-cost">
         <span class="cost-label">Cost:</span>
-        <span class="cost-value">${{ node.cost.toFixed(4) }}</span>
+        <span class="cost-value">${{ node.agent.cost.toFixed(4) }}</span>
       </div>
-      } @if (node.tokens !== undefined) {
+      } @if (node.agent.tokens !== undefined) {
       <div class="agent-tokens">
         <span class="tokens-label">Tokens:</span>
         <span class="tokens-value">
-          {{ node.tokens.input }} in / {{ node.tokens.output }} out
+          {{ node.agent.tokens.input }} in / {{ node.agent.tokens.output }} out
         </span>
       </div>
-      } @if (node.mcpTools !== undefined && node.mcpTools.length > 0) {
+      } @if (node.agent.mcpTools !== undefined && node.agent.mcpTools.length > 0) {
       <div class="agent-mcp-tools">
         <span class="mcp-tools-label">MCP Tools:</span>
-        <span class="mcp-tools-value">{{ node.mcpTools.join(', ') }}</span>
+        <span class="mcp-tools-value">{{ node.agent.mcpTools.join(', ') }}</span>
       </div>
-      } @if (node.isCustomAgent) {
+      } @if (node.agent.isCustomAgent) {
       <div class="agent-custom-badge">
         <span class="custom-badge-text">Custom Agent</span>
       </div>

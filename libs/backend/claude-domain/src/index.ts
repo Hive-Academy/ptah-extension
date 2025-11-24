@@ -47,7 +47,8 @@ export type {
   JSONLAssistantMessage,
   JSONLToolMessage,
   JSONLPermissionMessage,
-  ParsedEvent,
+  JSONLStreamEvent,
+  JSONLResultMessage,
 } from './cli/jsonl-stream-parser';
 
 // Permissions

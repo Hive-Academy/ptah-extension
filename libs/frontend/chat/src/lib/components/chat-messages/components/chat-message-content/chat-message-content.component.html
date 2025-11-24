@@ -1,10 +1,8 @@
 <div
   #contentContainer
   class="claude-message-content"
-  [class.user]="message().type === 'user'"
   [class.assistant]="message().type === 'assistant'"
-  [class.streaming]="message().isStreaming"
-  [class.complete]="message().isComplete"
+  [class.system]="message().type === 'system'"
 >
   <!-- Message Header -->
   @if (showHeader()) {
@@ -16,9 +14,6 @@
       <span class="message-timestamp">
         {{ formattedTimestamp() }}
       </span>
-      @if (message().tokenUsage) {
-      <span class="token-usage"> 🪙 {{ totalTokens() }} tokens </span>
-      }
     </div>
 
     <!-- Model Information -->
@@ -49,7 +44,7 @@
       @if (isTextContent(contentBlock)) {
       <div
         class="text-content"
-        [innerHTML]="processedContent().renderedContent | safeHtml"
+        [innerHTML]="contentBlock.text | safeHtml"
       ></div>
       }
 
@@ -79,37 +74,7 @@
     }
   </div>
 
-  <!-- File Attachments -->
-  @if (message().hasFiles && processedContent().extractedFiles.length > 0) {
-  <div class="file-attachments">
-    <div class="attachments-header">📎 Files:</div>
-    <div class="file-grid">
-      @for (file of processedContent().extractedFiles; track file.path) {
-      <div
-        class="file-item"
-        [class.clickable]="file.isClickable"
-        (click)="handleFileClick(file)"
-      >
-        <div class="file-icon">{{ getFileIcon(file) }}</div>
-        <div class="file-info">
-          <div class="file-name">{{ getFileName(file.path) }}</div>
-          <div class="file-path">{{ file.path }}</div>
-        </div>
-        @if (file.isImage) {
-        <div class="file-actions">
-          <button
-            class="preview-btn"
-            (click)="toggleImagePreview(file, $event)"
-          >
-            👁️ Preview
-          </button>
-        </div>
-        }
-      </div>
-      }
-    </div>
-  </div>
-  }
+  <!-- No file attachments section - files are detected from content blocks -->
 
   <!-- Image Previews -->
   @if (showImagePreviews() && imageFiles().length > 0) {

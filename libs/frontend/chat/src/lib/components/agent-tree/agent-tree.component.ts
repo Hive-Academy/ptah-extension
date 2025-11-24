@@ -12,6 +12,7 @@ import {
   AlertCircle,
 } from 'lucide-angular';
 import type { AgentTreeNode } from '@ptah-extension/core';
+import type { ClaudeToolEvent } from '@ptah-extension/shared';
 import { formatDuration } from '@ptah-extension/shared-ui';
 
 /**
@@ -98,18 +99,34 @@ export class AgentTreeComponent {
   }
 
   /**
-   * Format tool activity line for display
-   * @param activity - Agent activity event
-   * @returns Formatted activity string (e.g., "Bash: npm run build")
+   * Get activity text for display (safe for all ClaudeToolEvent types)
+   * @param activity - ClaudeToolEvent
+   * @returns Formatted activity string
    */
-  formatActivity(activity: {
-    toolName: string;
-    toolInput: Record<string, unknown>;
-  }): string {
-    const inputStr = JSON.stringify(activity.toolInput);
-    const truncated =
-      inputStr.length > 60 ? inputStr.slice(0, 60) + '...' : inputStr;
-    return `${activity.toolName}: ${truncated}`;
+  getActivityText(activity: ClaudeToolEvent): string {
+    // Only ClaudeToolEventStart has 'tool' and 'args' properties
+    if (activity.type === 'start') {
+      const args = activity.args as Record<string, unknown>;
+      const inputStr = JSON.stringify(args);
+      const truncated =
+        inputStr.length > 60 ? inputStr.slice(0, 60) + '...' : inputStr;
+      return `${activity.tool}: ${truncated}`;
+    }
+
+    // For other event types, show type and toolCallId
+    return `[${activity.type}] ${activity.toolCallId}`;
+  }
+
+  /**
+   * Get activity tooltip (safe for all ClaudeToolEvent types)
+   * @param activity - ClaudeToolEvent
+   * @returns Full JSON string for tooltip
+   */
+  getActivityTooltip(activity: ClaudeToolEvent): string {
+    if (activity.type === 'start') {
+      return this.stringify(activity.args);
+    }
+    return this.stringify(activity);
   }
 
   /**

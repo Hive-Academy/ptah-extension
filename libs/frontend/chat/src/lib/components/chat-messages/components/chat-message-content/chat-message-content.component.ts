@@ -27,18 +27,14 @@ import {
   AfterViewInit,
 } from '@angular/core';
 import { CommonModule, NgOptimizedImage } from '@angular/common';
+import { type ProcessedClaudeMessage } from '@ptah-extension/core';
 import {
-  type ProcessedClaudeMessage,
-  type ClaudeContent,
-  type ExtractedFileInfo,
-  ClaudeMessageTransformerService,
-  isTextContent,
-  isToolUseContent,
-  isToolResultContent,
-  isThinkingContent,
-  extractFilePathsFromText,
-  detectFileType,
-} from '@ptah-extension/core';
+  type ContentBlock,
+  type ToolUseContentBlock,
+  type ToolResultContentBlock,
+  type TextContentBlock,
+  type ThinkingContentBlock,
+} from '@ptah-extension/shared';
 import { SafeHtmlPipe } from '@ptah-extension/shared-ui';
 import { ThinkingBlockComponent } from '../../../thinking-block/thinking-block.component';
 import { ToolUseBlockComponent } from '../../../tool-use-block/tool-use-block.component';
@@ -71,27 +67,44 @@ export class ChatMessageContentComponent implements AfterViewInit {
     data?: unknown;
   }>();
 
-  // === Dependency injection ===
-  private readonly transformer = inject(ClaudeMessageTransformerService);
-
   // === View children ===
   readonly contentContainer =
     viewChild<ElementRef<HTMLElement>>('contentContainer');
 
-  // === ANGULAR 20 PATTERN: Computed signals for derived state ===
-  readonly processedContent = computed(() => {
-    const msg = this.message();
-    return this.transformer.extractContent(msg.content);
-  });
-
+  /**
+   * Check if message contains images by scanning content blocks for image file extensions
+   */
   readonly showImagePreviews = computed(() => {
-    return this.enableImagePreviews() && (this.message().hasImages || false);
+    if (!this.enableImagePreviews()) return false;
+
+    const msg = this.message();
+    // Check if any text content block references images
+    return msg.content.some((block) => {
+      if (block.type === 'text') {
+        // Check for image file extensions in text
+        const imageExtensions = /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i;
+        return imageExtensions.test(block.text);
+      }
+      return false;
+    });
   });
 
   readonly imageFiles = computed(() => {
-    return this.processedContent().extractedFiles.filter(
-      (file: ExtractedFileInfo) => file.isImage
-    );
+    // Extract image paths from text content blocks
+    const msg = this.message();
+    const imagePaths: string[] = [];
+
+    msg.content.forEach((block) => {
+      if (block.type === 'text') {
+        const imageRegex = /[^\s]+\.(jpg|jpeg|png|gif|webp|svg|bmp)/gi;
+        const matches = block.text.match(imageRegex);
+        if (matches) {
+          imagePaths.push(...matches);
+        }
+      }
+    });
+
+    return imagePaths.map((path) => ({ path, isImage: true }));
   });
 
   readonly roleIcon = computed(() => {
@@ -110,15 +123,29 @@ export class ChatMessageContentComponent implements AfterViewInit {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   });
 
+  /**
+   * Token usage is not available per-message in JSONL format
+   * Token usage belongs in SessionMetrics (from result messages), not per-message
+   * Returns 0 for display purposes
+   */
   readonly totalTokens = computed(() => {
-    const usage = this.message().tokenUsage;
-    if (!usage) return 0;
-    return (usage.input_tokens || 0) + (usage.output_tokens || 0);
+    // Token usage not available in ProcessedClaudeMessage
+    // Must be retrieved from SessionMetrics if needed
+    return 0;
   });
 
+  /**
+   * Extract tool names from tool_use content blocks
+   */
   readonly toolBadges = computed(() => {
-    const tools = this.message().toolsUsed || [];
-    return tools.map((tool) => ({
+    const msg = this.message();
+    const tools = msg.content
+      .filter(
+        (block): block is ToolUseContentBlock => block.type === 'tool_use'
+      )
+      .map((block) => block.name);
+
+    return tools.map((tool: string) => ({
       name: tool,
       icon: this.getToolIcon(tool),
     }));
@@ -129,19 +156,32 @@ export class ChatMessageContentComponent implements AfterViewInit {
     this.applySyntaxHighlighting();
   }
 
-  // === Type guards (exported from core for template use) ===
-  readonly isTextContent = isTextContent;
-  readonly isToolUseContent = isToolUseContent;
-  readonly isToolResultContent = isToolResultContent;
-  readonly isThinkingContent = isThinkingContent;
+  // === Type guards (local implementations) ===
+  isTextContent(content: ContentBlock): content is TextContentBlock {
+    return content.type === 'text';
+  }
+
+  isToolUseContent(content: ContentBlock): content is ToolUseContentBlock {
+    return content.type === 'tool_use';
+  }
+
+  isToolResultContent(
+    content: ContentBlock
+  ): content is ToolResultContentBlock {
+    return content.type === 'tool_result';
+  }
+
+  isThinkingContent(content: ContentBlock): content is ThinkingContentBlock {
+    return content.type === 'thinking';
+  }
 
   // === Track by function for content blocks ===
-  trackByContent(index: number, content: ClaudeContent): string {
-    if (isTextContent(content)) {
+  trackByContent(index: number, content: ContentBlock): string {
+    if (this.isTextContent(content)) {
       return `text-${index}-${content.text.substring(0, 50)}`;
-    } else if (isToolUseContent(content)) {
+    } else if (this.isToolUseContent(content)) {
       return `tool-use-${content.id}`;
-    } else if (isToolResultContent(content)) {
+    } else if (this.isToolResultContent(content)) {
       return `tool-result-${content.tool_use_id}`;
     }
     return `content-${index}`;
@@ -179,13 +219,17 @@ export class ChatMessageContentComponent implements AfterViewInit {
     return iconMap[toolName] || '🔧';
   }
 
-  hasToolParameters(toolUse: ClaudeContent): boolean {
-    if (!isToolUseContent(toolUse)) return false;
-    return toolUse.input !== undefined && Object.keys(toolUse.input).length > 0;
+  hasToolParameters(toolUse: ContentBlock): boolean {
+    if (!this.isToolUseContent(toolUse)) return false;
+    return (
+      toolUse.input !== undefined &&
+      toolUse.input !== null &&
+      Object.keys(toolUse.input).length > 0
+    );
   }
 
-  getToolParameters(toolUse: ClaudeContent): { key: string; value: unknown }[] {
-    if (!isToolUseContent(toolUse) || !toolUse.input) return [];
+  getToolParameters(toolUse: ContentBlock): { key: string; value: unknown }[] {
+    if (!this.isToolUseContent(toolUse) || !toolUse.input) return [];
     return Object.entries(toolUse.input).map(([key, value]) => ({
       key,
       value,
@@ -194,10 +238,10 @@ export class ChatMessageContentComponent implements AfterViewInit {
 
   formatParameterValue(value: unknown): string {
     if (typeof value === 'string') {
-      // Check if it's a file path
-      const filePaths = extractFilePathsFromText(value);
-      if (filePaths.length > 0) {
-        const fileType = detectFileType(value);
+      // Check if it's a file path (simple heuristic)
+      const isPath = value.includes('/') || value.includes('\\');
+      if (isPath) {
+        const fileType = this.detectFileType(value);
         const icon = this.getFileTypeIcon(fileType);
         return `${icon} <code>${value}</code>`;
       }
@@ -211,11 +255,34 @@ export class ChatMessageContentComponent implements AfterViewInit {
     return `<code>${String(value)}</code>`;
   }
 
+  // === Helper: Detect file type from path ===
+  private detectFileType(path: string): string {
+    const ext = path.split('.').pop()?.toLowerCase();
+    const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'];
+    const codeExts = [
+      'ts',
+      'js',
+      'tsx',
+      'jsx',
+      'py',
+      'java',
+      'cpp',
+      'c',
+      'rs',
+      'go',
+    ];
+
+    if (ext && imageExts.includes(ext)) return 'image';
+    if (ext && codeExts.includes(ext)) return 'code';
+    if (ext === 'txt' || ext === 'md') return 'text';
+    return 'unknown';
+  }
+
   // === File methods ===
-  getFileIcon(file: ExtractedFileInfo): string {
+  getFileIcon(file: { path: string; isImage: boolean }): string {
     if (file.isImage) return '🖼️';
 
-    const extension = file.extension?.toLowerCase();
+    const extension = '.' + file.path.split('.').pop()?.toLowerCase() || '';
     const iconMap: Record<string, string> = {
       '.ts': '📘',
       '.js': '📙',
@@ -235,7 +302,7 @@ export class ChatMessageContentComponent implements AfterViewInit {
       '.c': '⚡',
     };
 
-    return iconMap[extension || ''] || '📎';
+    return iconMap[extension] || '📎';
   }
 
   getFileTypeIcon(fileType: string): string {
@@ -282,17 +349,20 @@ export class ChatMessageContentComponent implements AfterViewInit {
   }
 
   // === Event handlers ===
-  handleFileClick(file: ExtractedFileInfo): void {
+  handleFileClick(file: { path: string; isImage: boolean }): void {
     this.fileClicked.emit(file.path);
   }
 
-  toggleImagePreview(file: ExtractedFileInfo, event: Event): void {
+  toggleImagePreview(
+    file: { path: string; isImage: boolean },
+    event: Event
+  ): void {
     event.stopPropagation();
     // Image preview toggle (no logging needed for UI interaction)
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  onImageError(event: Event, _file: ExtractedFileInfo): void {
+  onImageError(event: Event, _file: { path: string; isImage: boolean }): void {
     // Image failed to load - show fallback icon
     const img = event.target as HTMLImageElement;
     img.src =

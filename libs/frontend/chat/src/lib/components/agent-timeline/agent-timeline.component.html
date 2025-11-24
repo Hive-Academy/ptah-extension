@@ -31,7 +31,7 @@
       [ngStyle]="getSegmentStyleWithColor(agent)"
       role="listitem"
       [attr.aria-label]="
-        agent.agent.subagentType +
+        (agent.agent.subagentType ?? 'unknown') +
         ' agent, ' +
         formatDuration(agent.duration ?? 0) +
         ' duration, ' +
@@ -45,14 +45,14 @@
       <div
         class="timeline-marker start"
         [ngStyle]="{
-          'background-color': getAgentColor(agent.agent.subagentType)
+          'background-color': getAgentColor(agent.agent.subagentType ?? 'unknown')
         }"
       ></div>
 
       <!-- Segment Label (Icon + Agent Type + Duration) -->
       <div class="segment-label">
         <span class="segment-text">
-          {{ agent.agent.subagentType }} ({{
+          {{ agent.agent.subagentType ?? 'unknown' }} ({{
             formatDuration(agent.duration ?? 0)
           }})
         </span>
@@ -72,11 +72,11 @@
   <div
     class="timeline-popover"
     role="tooltip"
-    [attr.aria-label]="'Details for ' + hovered.agent.subagentType + ' agent'"
+    [attr.aria-label]="'Details for ' + (hovered.agent.subagentType ?? 'unknown') + ' agent'"
   >
     <!-- Popover Header -->
     <div class="popover-header">
-      <span class="popover-title">{{ hovered.agent.subagentType }}</span>
+      <span class="popover-title">{{ hovered.agent.subagentType ?? 'unknown' }}</span>
     </div>
 
     <!-- Divider -->
@@ -104,11 +104,11 @@
       <div class="popover-section">
         <div class="popover-label">Tools Used:</div>
         <ul class="popover-list">
-          @for (activity of hovered.activities; track activity.toolName) {
+          @for (activity of hovered.activities; track activity.toolCallId) {
           <li class="popover-list-item">
-            <span class="tool-name">{{ activity.toolName }}</span>
-            @if (activity.toolInput) {
-            <span class="tool-input">{{ activity.toolInput }}</span>
+            <span class="tool-name">{{ getToolName(activity) }}</span>
+            @if (hasToolInput(activity)) {
+            <span class="tool-input">{{ getToolInput(activity) }}</span>
             }
           </li>
           }

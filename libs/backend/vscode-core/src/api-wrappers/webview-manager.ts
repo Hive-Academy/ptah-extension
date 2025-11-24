@@ -252,6 +252,18 @@ export class WebviewManager {
   }
 
   /**
+   * Get a webview instance (either from panel or view)
+   *
+   * @param viewType - The view type to look up
+   * @returns Webview instance or undefined if not found
+   */
+  getWebview(viewType: string): vscode.Webview | undefined {
+    const panel = this.activeWebviews.get(viewType);
+    const view = this.activeWebviewViews.get(viewType);
+    return panel?.webview || view?.webview;
+  }
+
+  /**
    * Check if a webview exists and is active
    *
    * @param viewType - The view type to check

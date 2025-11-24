@@ -79,15 +79,9 @@ import {
   SessionManager,
 } from '@ptah-extension/claude-domain';
 
-// Import webview services from vscode-core
-import {
-  WebviewEventQueue,
-  WebviewHtmlGenerator,
-  AngularWebviewProvider,
-} from '@ptah-extension/vscode-core';
-
-// Import main app adapters
-import { ConfigurationProviderAdapter } from '../adapters/configuration-provider.adapter';
+// Import webview support services
+import { WebviewEventQueue } from '../services/webview-event-queue';
+import { AngularWebviewProvider } from '../providers/angular-webview.provider';
 
 /**
  * Centralized DI Container
@@ -114,13 +108,8 @@ export class DIContainer {
       MessageValidatorService
     );
 
-    // Configuration Provider Adapter (depends on ConfigManager)
-    container.register(TOKENS.CONFIGURATION_PROVIDER, {
-      useFactory: (c) => {
-        const configManager = c.resolve<ConfigManager>(TOKENS.CONFIG_MANAGER);
-        return new ConfigurationProviderAdapter(configManager);
-      },
-    });
+    // NOTE: CONFIGURATION_PROVIDER token removed - orchestration services deleted in RPC Phase 3.5
+    // Configuration now accessed directly via ConfigManager
 
     // API Wrappers
     container.registerSingleton(TOKENS.COMMAND_MANAGER, CommandManager);
@@ -257,7 +246,9 @@ export class DIContainer {
     // Storage adapter (from VS Code workspace state)
     const storageAdapter = {
       get: <T>(key: string, defaultValue?: T): T | undefined => {
-        return context.workspaceState.get<T>(key, defaultValue);
+        const value = context.workspaceState.get<T>(key);
+        // Fix: Handle undefined properly before passing to get()
+        return value !== undefined ? value : defaultValue;
       },
       set: async <T>(key: string, value: T): Promise<void> => {
         await context.workspaceState.update(key, value);
@@ -285,20 +276,15 @@ export class DIContainer {
     // PHASE 4: Main App Services
     // ========================================
 
-    // Webview support services
+    // Webview support services (restored - still needed for webview lifecycle)
     container.registerSingleton(TOKENS.WEBVIEW_EVENT_QUEUE, WebviewEventQueue);
-    container.registerSingleton(
-      TOKENS.WEBVIEW_HTML_GENERATOR,
-      WebviewHtmlGenerator
-    );
     container.registerSingleton(
       TOKENS.ANGULAR_WEBVIEW_PROVIDER,
       AngularWebviewProvider
     );
 
-    // Adapters (registered later in main.ts after PtahExtension initialization)
-    // These require the extension to be partially initialized first
-    // - CONFIGURATION_PROVIDER (uses ConfigManager)
+    // NOTE: WebviewHtmlGenerator is not registered in DI (instantiated directly in AngularWebviewProvider)
+    // NOTE: Orchestration services and CONFIGURATION_PROVIDER removed in RPC Phase 3.5
 
     return container;
   }

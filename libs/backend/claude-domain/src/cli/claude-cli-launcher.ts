@@ -19,11 +19,14 @@ import { ProcessManager } from './process-manager';
 import { JSONLStreamParser, JSONLParserCallbacks } from './jsonl-stream-parser';
 import { ClaudeDomainEventPublisher } from '../events/claude-domain.events';
 
+/**
+ * Dependencies required by ClaudeCliLauncher
+ * Uses direct webview.postMessage for streaming events (replaces EventBus)
+ */
 export interface LauncherDependencies {
-  readonly sessionManager?: any; // TODO: Phase 2 RPC - Remove SessionManager dependency (optional for now)
+  readonly webview: vscode.Webview; // Direct webview access for postMessage streaming
   readonly permissionService: PermissionService;
   readonly processManager: ProcessManager;
-  readonly eventPublisher?: any; // TODO: Phase 2 RPC - EventBus deleted, use RpcHandler (optional for now)
   readonly context: vscode.ExtensionContext;
 }
 
@@ -316,99 +319,30 @@ export class ClaudeCliLauncher {
     };
 
     // Create parser with event callbacks
+    // SIMPLIFIED: Single onMessage callback forwards all JSONL to webview
     const callbacks: JSONLParserCallbacks = {
-      onSessionInit: (claudeSessionId, model) => {
-        // TODO: Phase 2 RPC - Restore via RPC
-        this.deps.sessionManager?.setClaudeSessionId?.(
-          sessionId,
-          claudeSessionId
-        );
-        this.deps.eventPublisher?.emitSessionInit?.(
-          sessionId,
-          claudeSessionId,
-          model
-        );
-      },
-
-      onContent: (chunk) => {
-        // TODO: Phase 2 RPC - Restore via RPC
-        this.deps.sessionManager?.touchSession?.(sessionId);
-        this.deps.eventPublisher?.emitContentChunk?.(sessionId, chunk.blocks);
-        pushWithBackpressure({ type: 'content', data: chunk });
-      },
-
-      onThinking: (thinking) => {
-        // TODO: Phase 2 RPC - Restore via RPC
-        this.deps.eventPublisher?.emitThinking?.(sessionId, thinking);
-        pushWithBackpressure({ type: 'thinking', data: thinking });
-      },
-
-      onTool: (toolEvent) => {
-        // TODO: Phase 2 RPC - Restore via RPC
-        this.deps.eventPublisher?.emitToolEvent?.(sessionId, toolEvent);
-        pushWithBackpressure({ type: 'tool', data: toolEvent });
+      onMessage: (message) => {
+        // Single postMessage call - forward parsed JSONL directly
+        this.deps.webview.postMessage({
+          type: 'jsonl-message',
+          data: {
+            sessionId, // SessionId branded type
+            message, // Complete JSONL object with type field
+          },
+        });
       },
 
       onPermission: async (request) => {
+        // Keep existing permission handling (user interaction required)
         await this.handlePermissionRequest(sessionId, request, childProcess);
       },
 
       onError: (error, rawLine) => {
+        // Keep existing error handling (debugging/logging)
         console.error('[ClaudeCliLauncher] Parser error:', error.message);
-        // TODO: Phase 2 RPC - Restore via RPC
-        this.deps.eventPublisher?.emitError?.(error.message, sessionId, {
-          rawLine,
-        });
-      },
-
-      onAgentStart: (event) => {
-        // TODO: Phase 2 RPC - Restore via RPC
-        this.deps.eventPublisher?.emitAgentStarted?.(sessionId, event);
-      },
-
-      onAgentActivity: (event) => {
-        // TODO: Phase 2 RPC - Restore via RPC
-        this.deps.eventPublisher?.emitAgentActivity?.(sessionId, event);
-      },
-
-      onAgentComplete: (event) => {
-        // TODO: Phase 2 RPC - Restore via RPC
-        this.deps.eventPublisher?.emitAgentCompleted?.(sessionId, event);
-      },
-
-      onMessageStop: () => {
-        console.log(
-          '[ClaudeCliLauncher] Streaming complete (message_stop received)'
-        );
-        // NOTE: MESSAGE_COMPLETE event is emitted by message-handler.service.ts (line 262)
-        // when the stream 'end' event fires with the complete accumulated message.
-        // Emitting here would cause duplicate MESSAGE_COMPLETE events.
-        // The message-handler has better context (full message object vs just sessionId).
-      },
-
-      onResult: (result) => {
-        console.log('[ClaudeCliLauncher] Final result received:', {
-          cost: result.total_cost_usd,
-          duration: result.duration_ms,
-          tokens: result.usage,
-        });
-
-        // Emit token usage if available
-        // TODO: Phase 2 RPC - Restore via RPC
-        if (result.usage) {
-          this.deps.eventPublisher?.emitTokenUsage?.(sessionId, {
-            inputTokens: result.usage.input_tokens || 0,
-            outputTokens: result.usage.output_tokens || 0,
-            cacheReadTokens: result.usage.cache_read_input_tokens || 0,
-            cacheCreationTokens: result.usage.cache_creation_input_tokens || 0,
-            totalCost: result.total_cost_usd || 0,
-          });
+        if (rawLine) {
+          console.error('[ClaudeCliLauncher] Raw line:', rawLine);
         }
-
-        // Emit session end
-        // TODO: Phase 2 RPC - Restore via RPC
-        const reason = result.subtype === 'success' ? 'completed' : 'error';
-        this.deps.eventPublisher?.emitSessionEnd?.(sessionId, reason);
       },
     };
 
@@ -428,10 +362,7 @@ export class ClaudeCliLauncher {
       childProcess.stderr.on('data', (data) => {
         const stderr = data.toString();
         console.error('[ClaudeCliLauncher] STDERR:', stderr);
-        // TODO: Phase 2 RPC - Restore via RPC
-        if (stderr.trim()) {
-          this.deps.eventPublisher?.emitError?.(stderr, sessionId);
-        }
+        // Errors are logged to console (webview receives via jsonl-message)
       });
     }
 
@@ -460,8 +391,7 @@ export class ClaudeCliLauncher {
         installationPath: this.installation.path,
         platform: os.platform(),
       });
-      // TODO: Phase 2 RPC - Restore via RPC
-      this.deps.eventPublisher?.emitError?.(error.message, sessionId);
+      // Errors are logged to console (webview receives via jsonl-message)
       outputStream.destroy(error);
     });
 
@@ -479,13 +409,8 @@ export class ClaudeCliLauncher {
     // Get permission decision
     const response = await this.deps.permissionService.requestDecision(request);
 
-    // Emit permission request event (for UI to potentially override)
-    // TODO: Phase 2 RPC - Restore via RPC
-    this.deps.eventPublisher?.emitPermissionRequested?.(sessionId, request);
-
-    // Emit permission response
-    // TODO: Phase 2 RPC - Restore via RPC
-    this.deps.eventPublisher?.emitPermissionResponded?.(sessionId, response);
+    // Permission events are handled via onPermission callback (sent to webview)
+    // User interaction happens in frontend, response comes back via RPC
 
     // Send response to CLI stdin if still writable
     if (childProcess.stdin && !childProcess.stdin.destroyed) {

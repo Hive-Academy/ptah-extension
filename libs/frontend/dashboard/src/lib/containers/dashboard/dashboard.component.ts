@@ -11,7 +11,7 @@ import {
 import { CommonModule } from '@angular/common';
 
 // Core Services
-import { ChatService, StreamConsumptionState } from '@ptah-extension/core';
+import { ChatService } from '@ptah-extension/core';
 import { AnalyticsService } from '@ptah-extension/core';
 import { LoggingService } from '@ptah-extension/core';
 import {
@@ -20,6 +20,14 @@ import {
   DashboardMetricsGridComponent,
   DashboardPerformanceChartComponent,
 } from '../../components';
+
+/**
+ * Legacy type for dead code (trackPerformanceEvents method never called)
+ * TODO: Remove in Phase 2 when RPC-based performance monitoring is implemented
+ */
+interface StreamConsumptionState {
+  lastMessageTimestamp: number;
+}
 
 /**
  * Dashboard Container Component - Business Logic & State Orchestrator

@@ -27,7 +27,7 @@ import { ClaudeCliLauncher, LauncherDependencies } from './claude-cli-launcher';
 import { PermissionService } from '../permissions/permission-service';
 import { ProcessManager } from './process-manager';
 import { ClaudeDomainEventPublisher } from '../events/claude-domain.events';
-import { TOKENS } from '@ptah-extension/vscode-core';
+import { TOKENS, WebviewManager } from '@ptah-extension/vscode-core';
 
 /**
  * ClaudeCliService - DI-friendly facade for Claude CLI operations
@@ -51,7 +51,9 @@ export class ClaudeCliService {
     // @inject(TOKENS.CLAUDE_DOMAIN_EVENT_PUBLISHER) // TODO: Phase 2 RPC - EventBus deleted, use RpcHandler
     // private readonly eventPublisher: ClaudeDomainEventPublisher,
     @inject(TOKENS.EXTENSION_CONTEXT)
-    private readonly context: ExtensionContext
+    private readonly context: ExtensionContext,
+    @inject(TOKENS.WEBVIEW_MANAGER)
+    private readonly webviewManager: WebviewManager
   ) {}
 
   /**
@@ -185,11 +187,18 @@ export class ClaudeCliService {
 
     const installation = await this.ensureInstallation();
 
+    // Get webview instance (registered as 'ptah.main' by AngularWebviewProvider)
+    const webview = this.webviewManager.getWebview('ptah.main');
+    if (!webview) {
+      throw new Error(
+        'Webview not available. Please open the Ptah view first.'
+      );
+    }
+
     const deps: LauncherDependencies = {
-      // sessionManager: this.sessionManager, // TODO: Phase 2 RPC - Remove
+      webview, // Direct webview for postMessage streaming
       permissionService: this.permissionService,
       processManager: this.processManager,
-      // eventPublisher: this.eventPublisher, // TODO: Phase 2 RPC - Remove
       context: this.context,
     };
 

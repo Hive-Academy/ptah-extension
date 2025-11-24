@@ -1,5 +1,6 @@
 import { Component, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import type { ClaudeToolEvent } from '@ptah-extension/shared';
 
 interface ToolExecution {
   toolCallId: string;
@@ -23,21 +24,21 @@ interface ToolExecution {
     <div class="tool-timeline">
       <div class="timeline-header">Tool Executions</div>
       @for (exec of executions(); track exec.toolCallId) {
-      <div [class]="'tool-execution status-' + exec.status">
+      <div [class]="'tool-execution status-' + getStatus(exec)">
         <div class="tool-header">
-          <span class="tool-icon">{{ getToolIcon(exec.tool) }}</span>
-          <span class="tool-name">{{ exec.tool }}</span>
-          <span [class]="'tool-status badge-' + exec.status">
-            {{ exec.status }}
+          <span class="tool-icon">{{ getToolIcon(getToolName(exec)) }}</span>
+          <span class="tool-name">{{ getToolName(exec) }}</span>
+          <span [class]="'tool-status badge-' + getStatus(exec)">
+            {{ getStatus(exec) }}
           </span>
         </div>
 
-        @if (exec.progress) {
-        <div class="tool-progress">{{ exec.progress }}</div>
-        } @if (exec.error) {
-        <div class="tool-error">❌ {{ exec.error }}</div>
-        } @if (exec.duration) {
-        <div class="tool-duration">⏱️ {{ exec.duration }}ms</div>
+        @if (getProgress(exec)) {
+        <div class="tool-progress">{{ getProgress(exec) }}</div>
+        } @if (getError(exec)) {
+        <div class="tool-error">❌ {{ getError(exec) }}</div>
+        } @if (getDuration(exec)) {
+        <div class="tool-duration">⏱️ {{ getDuration(exec) }}ms</div>
         }
       </div>
       }
@@ -142,7 +143,62 @@ interface ToolExecution {
   ],
 })
 export class ToolTimelineComponent {
-  executions = input.required<ToolExecution[]>();
+  executions = input.required<readonly ClaudeToolEvent[]>();
+
+  /**
+   * Get tool name from ClaudeToolEvent (safe for all event types)
+   */
+  getToolName(event: ClaudeToolEvent): string {
+    if (event.type === 'start') {
+      return event.tool;
+    }
+    return 'Tool';
+  }
+
+  /**
+   * Get status from ClaudeToolEvent
+   */
+  getStatus(event: ClaudeToolEvent): 'running' | 'success' | 'error' {
+    switch (event.type) {
+      case 'start':
+      case 'progress':
+        return 'running';
+      case 'result':
+        return 'success';
+      case 'error':
+        return 'error';
+    }
+  }
+
+  /**
+   * Get progress message from ClaudeToolEvent
+   */
+  getProgress(event: ClaudeToolEvent): string | undefined {
+    if (event.type === 'progress') {
+      return event.message;
+    }
+    return undefined;
+  }
+
+  /**
+   * Get error message from ClaudeToolEvent
+   */
+  getError(event: ClaudeToolEvent): string | undefined {
+    if (event.type === 'error') {
+      return event.error;
+    }
+    return undefined;
+  }
+
+  /**
+   * Get duration from ClaudeToolEvent
+   */
+  getDuration(event: ClaudeToolEvent): number | undefined {
+    if (event.type === 'result') {
+      return event.duration;
+    }
+    return undefined;
+  }
 
   getToolIcon(tool: string): string {
     const icons: Record<string, string> = {

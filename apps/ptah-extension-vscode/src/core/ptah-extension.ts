@@ -12,7 +12,6 @@ import type { WorkspaceAnalyzerService } from '@ptah-extension/workspace-intelli
 import type { SessionManager } from '@ptah-extension/claude-domain';
 import { AngularWebviewProvider } from '../providers/angular-webview.provider';
 
-
 export interface ServiceDependencies {
   context: vscode.ExtensionContext;
   logger: Logger;
@@ -204,7 +203,6 @@ export class PtahExtension implements vscode.Disposable {
     console.log('[PtahExtension.registerAllComponents] COMPLETE');
   }
 
-
   /**
    * Register webview providers using WebviewManager
    */
@@ -234,7 +232,6 @@ export class PtahExtension implements vscode.Disposable {
 
     this.logger.info('Webview providers registered');
   }
-
 
   /**
    * Welcome message for first-time users

@@ -93,7 +93,7 @@ import type { TokenUsage } from '../../components/chat-token-usage/chat-token-us
           (providerSettings)="toggleProviderSettings()"
         />
         <ptah-agent-status-badge
-          [activeAgents]="chatService.activeAgents()"
+          [activeAgents]="chatService.activeAgentNodes()"
           (togglePanel)="onToggleAgentPanel()"
         />
       </div>
@@ -137,8 +137,8 @@ import type { TokenUsage } from '../../components/chat-token-usage/chat-token-us
             </button>
           </div>
           <div class="agent-panel-content">
-            <ptah-agent-tree [agents]="chatService.agents()" />
-            <ptah-agent-timeline [agents]="chatService.agents()" />
+            <ptah-agent-tree [agents]="chatService.activeAgentNodes()" />
+            <ptah-agent-timeline [agents]="chatService.activeAgentNodes()" />
           </div>
         </div>
         }
@@ -391,25 +391,23 @@ export class ChatComponent implements OnInit {
   });
 
   // Transform agent activities for display (TASK_2025_006 - Batch 4)
+  // TASK_2025_022 - Batch 3: Use activeAgentNodes from ChatService (created in Batch 1)
   readonly agentActivitiesForDisplay = computed(() => {
-    const agents = this.chatService.agents();
+    const agents = this.chatService.activeAgentNodes();
     return agents.map((node) => {
-      const agent = node.agent as {
-        agentId?: string;
-        subagentType?: string;
-        timestamp?: number;
-      };
+      // Now properly typed as AgentMetadata after Batch 1 type fix
+      const metadata = node.agent;
       return {
-        agentId: agent.agentId ?? 'unknown',
-        name: agent.subagentType ?? 'Unknown Agent',
+        agentId: metadata.agentId,
+        name: metadata.subagentType ?? 'Unknown Agent',
         status:
           node.status === 'complete'
             ? ('completed' as const)
             : ('running' as const),
-        startTime: agent.timestamp ?? Date.now(),
+        startTime: metadata.startTime,
         endTime:
           node.status === 'complete'
-            ? (agent.timestamp ?? Date.now()) + (node.duration ?? 0)
+            ? metadata.startTime + (node.duration ?? 0)
             : undefined,
         activity:
           node.activities.length > 0
@@ -621,14 +619,14 @@ export class ChatComponent implements OnInit {
     return `${successRate}%`;
   }
 
-  // Permission handlers (TASK_2025_006 - Batch 4)
-  public handlePermissionApproval(requestId: string): void {
-    this.logger.info('Permission approved', 'ChatComponent', { requestId });
-    // this.chatService.approvePermission(requestId); // TODO: Phase 2 RPC - restore permission handling
+  // Permission handlers (TASK_2025_022 - Batch 2)
+  public handlePermissionApproval(toolCallId: string): void {
+    this.logger.info('Permission approved', 'ChatComponent', { toolCallId });
+    // this.chatService.approvePermission(toolCallId); // TODO: Phase 2 RPC - restore permission handling
   }
 
-  public handlePermissionDenial(requestId: string): void {
-    this.logger.info('Permission denied', 'ChatComponent', { requestId });
-    // this.chatService.denyPermission(requestId); // TODO: Phase 2 RPC - restore permission handling
+  public handlePermissionDenial(toolCallId: string): void {
+    this.logger.info('Permission denied', 'ChatComponent', { toolCallId });
+    // this.chatService.denyPermission(toolCallId); // TODO: Phase 2 RPC - restore permission handling
   }
 }

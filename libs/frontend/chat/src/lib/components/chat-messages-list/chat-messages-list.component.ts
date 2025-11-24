@@ -261,7 +261,7 @@ export class ChatMessagesListComponent implements AfterViewInit {
           messages: [message],
           startTimestamp: message.timestamp,
           endTimestamp: message.timestamp,
-          isComplete: message.isComplete ?? true,
+          isComplete: this.isMessageComplete(message),
         };
         groups.push(currentGroup);
       } else if (currentGroup) {
@@ -271,7 +271,7 @@ export class ChatMessagesListComponent implements AfterViewInit {
           messages: [...currentGroup.messages, message],
           endTimestamp: message.timestamp,
           isComplete:
-            (currentGroup.isComplete ?? true) && (message.isComplete ?? true),
+            currentGroup.isComplete && this.isMessageComplete(message),
         };
         groups[groups.length - 1] = updatedGroup;
         currentGroup = updatedGroup;
@@ -404,6 +404,20 @@ export class ChatMessagesListComponent implements AfterViewInit {
   // Helper methods
   isSelected(messageId: MessageId): boolean {
     return this.selectedMessageId() === messageId;
+  }
+
+  /**
+   * Check if a message is complete (not streaming)
+   *
+   * All messages in the messages list are complete by definition.
+   * Streaming only happens for the current active message being generated,
+   * which is not part of the historical message list.
+   *
+   * @param _message - Message to check (unused - kept for API consistency)
+   * @returns Always true - messages in list are complete
+   */
+  private isMessageComplete(_message: ProcessedClaudeMessage): boolean {
+    return true;
   }
 
   getRoleIcon(role: string): string {
