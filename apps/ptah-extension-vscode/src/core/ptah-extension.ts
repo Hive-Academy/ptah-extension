@@ -10,7 +10,8 @@ import type {
 } from '@ptah-extension/vscode-core';
 import type { WorkspaceAnalyzerService } from '@ptah-extension/workspace-intelligence';
 import type { SessionManager } from '@ptah-extension/claude-domain';
-import { AngularWebviewProvider } from '@ptah-extension/vscode-core';
+import { AngularWebviewProvider } from '../providers/angular-webview.provider';
+
 
 export interface ServiceDependencies {
   context: vscode.ExtensionContext;
