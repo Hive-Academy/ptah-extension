@@ -209,17 +209,10 @@ export class PtahExtension implements vscode.Disposable {
     }
 
     // Initialize command handlers (uses DI-enabled services but services object still passed manually)
-    // CommandHandlers expects 3 parameters: logger, chatOrchestration, services
-    // We'll manually pass all dependencies since services is not a registered token
+    // CommandHandlers expects 2 parameters: logger, services
+    // ChatOrchestrationService removed - commands use frontend chat templates instead
     const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
-    const chatOrchestration = DIContainer.resolve<ChatOrchestrationService>(
-      TOKENS.CHAT_ORCHESTRATION_SERVICE
-    );
-    this.commandHandlers = new CommandHandlers(
-      logger,
-      chatOrchestration,
-      this.services
-    );
+    this.commandHandlers = new CommandHandlers(logger, this.services);
 
     // NOTE: Legacy registries removed (TASK_CORE_001)
     // Commands now registered via CommandManager from vscode-core

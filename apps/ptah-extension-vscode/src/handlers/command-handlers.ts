@@ -2,7 +2,6 @@ import 'reflect-metadata'; // CRITICAL: Required for TSyringe decorators
 import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
-import { ChatOrchestrationService } from '@ptah-extension/claude-domain';
 import { ServiceDependencies } from '../core/ptah-extension';
 import { WebviewDiagnostic } from '../services/webview-diagnostic';
 
@@ -13,8 +12,6 @@ import { WebviewDiagnostic } from '../services/webview-diagnostic';
 export class CommandHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.CHAT_ORCHESTRATION_SERVICE)
-    private readonly chatOrchestration: ChatOrchestrationService,
     private services: ServiceDependencies
   ) {}
 
@@ -30,85 +27,25 @@ export class CommandHandlers {
   }
 
   /**
-   * Review current file - Add file to context and send review request
+   * Review current file - TODO: Use frontend chat templates instead
    */
   async reviewCurrentFile(): Promise<void> {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-      vscode.window.showWarningMessage('No file is currently open to review.');
-      return;
-    }
-
-    this.logger.info(`Reviewing file: ${editor.document.fileName}`);
-
-    try {
-      // Add current file to context
-      const filePath = editor.document.uri.fsPath;
-      await this.services.contextManager.includeFile(vscode.Uri.file(filePath));
-
-      // Send review message using orchestration service
-      const reviewMessage = `Please review this code for bugs, security issues, and improvements:\n\n${editor.document.getText()}`;
-      const result = await this.chatOrchestration.sendMessage({
-        content: reviewMessage,
-        files: [filePath],
-      });
-
-      if (result.success) {
-        // Open chat to show the review
-        await this.quickChat();
-        vscode.window.showInformationMessage(
-          'Code review request sent to Claude'
-        );
-      } else {
-        throw new Error(result.error || 'Failed to send review request');
-      }
-    } catch (error) {
-      this.logger.error('Failed to review current file', error);
-      vscode.window.showErrorMessage('Failed to send review request');
-    }
+    vscode.window.showWarningMessage(
+      'Code review command deprecated - use chat templates in webview instead'
+    );
+    this.logger.info('reviewCurrentFile called - feature deprecated');
+    // TODO: Remove this command registration and use frontend chat templates
   }
 
   /**
-   * Generate tests - Add file to context and send test generation request
+   * Generate tests - TODO: Use frontend chat templates instead
    */
   async generateTests(): Promise<void> {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-      vscode.window.showWarningMessage(
-        'No file is currently open to generate tests for.'
-      );
-      return;
-    }
-
-    this.logger.info(`Generating tests for: ${editor.document.fileName}`);
-
-    try {
-      // Add current file to context
-      const filePath = editor.document.uri.fsPath;
-      await this.services.contextManager.includeFile(vscode.Uri.file(filePath));
-
-      // Send test generation message using orchestration service
-      const testMessage = `Generate comprehensive unit tests for this code:\n\n${editor.document.getText()}`;
-      const result = await this.chatOrchestration.sendMessage({
-        content: testMessage,
-        files: [filePath],
-      });
-
-      if (result.success) {
-        // Open chat to show the generated tests
-        await this.quickChat();
-        vscode.window.showInformationMessage(
-          'Test generation request sent to Claude'
-        );
-      } else {
-        throw new Error(
-          result.error || 'Failed to send test generation request'
-        );
-      }
-    } catch (error) {
-      this.logger.error('Failed to generate tests', error);
-      vscode.window.showErrorMessage('Failed to send test generation request');
-    }
+    vscode.window.showWarningMessage(
+      'Test generation command deprecated - use chat templates in webview instead'
+    );
+    this.logger.info('generateTests called - feature deprecated');
+    // TODO: Remove this command registration and use frontend chat templates
   }
 
   /**
@@ -123,84 +60,36 @@ export class CommandHandlers {
   }
 
   /**
-   * New session - Create a new chat session
+   * New session - TODO: Use RPC session:create instead
    */
   async newSession(): Promise<void> {
-    this.logger.info('Creating new session');
-
-    try {
-      const result = await this.chatOrchestration.createSession({
-        name: undefined, // Let the service generate a default name
-      });
-
-      if (result.success && result.session) {
-        vscode.window.showInformationMessage(
-          `New session created: ${result.session.name}`
-        );
-
-        // Open chat sidebar to show the new session
-        await this.quickChat();
-      } else {
-        throw new Error(result.error || 'Failed to create new session');
-      }
-    } catch (error) {
-      this.logger.error('Failed to create new session', error);
-      vscode.window.showErrorMessage('Failed to create new session');
-    }
+    vscode.window.showWarningMessage(
+      'New session command deprecated - use frontend session controls instead'
+    );
+    this.logger.info('newSession called - feature deprecated');
+    // TODO: Remove this command and use RPC session:create from frontend
   }
 
   /**
-   * Include file in context
+   * Include file in context - TODO: Use RPC context operations instead
    */
   async includeFile(uri?: vscode.Uri): Promise<void> {
-    try {
-      // If no URI provided, use current file
-      if (!uri) {
-        const editor = vscode.window.activeTextEditor;
-        if (!editor) {
-          vscode.window.showWarningMessage('No file selected or open');
-          return;
-        }
-        uri = editor.document.uri;
-      }
-
-      await this.services.contextManager.includeFile(uri);
-
-      const fileName = uri.fsPath.split(/[\\/]/).pop();
-      vscode.window.showInformationMessage(`Added ${fileName} to context`);
-
-      this.logger.info(`File included in context: ${uri.fsPath}`);
-    } catch (error) {
-      this.logger.error('Failed to include file', error);
-      vscode.window.showErrorMessage('Failed to include file in context');
-    }
+    vscode.window.showWarningMessage(
+      'Include file command deprecated - use frontend context controls instead'
+    );
+    this.logger.info('includeFile called - feature deprecated');
+    // TODO: Remove this command and use RPC context operations from frontend
   }
 
   /**
-   * Exclude file from context
+   * Exclude file from context - TODO: Use RPC context operations instead
    */
   async excludeFile(uri?: vscode.Uri): Promise<void> {
-    try {
-      // If no URI provided, use current file
-      if (!uri) {
-        const editor = vscode.window.activeTextEditor;
-        if (!editor) {
-          vscode.window.showWarningMessage('No file selected or open');
-          return;
-        }
-        uri = editor.document.uri;
-      }
-
-      await this.services.contextManager.excludeFile(uri);
-
-      const fileName = uri.fsPath.split(/[\\/]/).pop();
-      vscode.window.showInformationMessage(`Removed ${fileName} from context`);
-
-      this.logger.info(`File excluded from context: ${uri.fsPath}`);
-    } catch (error) {
-      this.logger.error('Failed to exclude file', error);
-      vscode.window.showErrorMessage('Failed to exclude file from context');
-    }
+    vscode.window.showWarningMessage(
+      'Exclude file command deprecated - use frontend context controls instead'
+    );
+    this.logger.info('excludeFile called - feature deprecated');
+    // TODO: Remove this command and use RPC context operations from frontend
   }
 
   /**
@@ -215,91 +104,25 @@ export class CommandHandlers {
   }
 
   /**
-   * Switch session - Show session picker
+   * Switch session - TODO: Use RPC session:switch instead
    */
   async switchSession(): Promise<void> {
-    this.logger.info('Opening session picker');
-
-    try {
-      // Get all sessions from orchestration service
-      const sessions = await this.chatOrchestration.getAllSessions();
-
-      if (sessions.length === 0) {
-        vscode.window.showInformationMessage(
-          'No sessions available. Create a new session first.'
-        );
-        return;
-      }
-
-      // Create VS Code quick pick items
-      const items = sessions.map((session) => ({
-        label: session.name,
-        description: `${session.messageCount} messages`,
-        detail: `Created: ${new Date(session.createdAt).toLocaleDateString()}`,
-        sessionId: session.id,
-      }));
-
-      const selected = await vscode.window.showQuickPick(items, {
-        title: 'Switch to Session',
-        placeHolder: 'Select a session to switch to',
-      });
-
-      if (selected) {
-        const result = await this.chatOrchestration.switchSession({
-          sessionId: selected.sessionId,
-        });
-
-        if (result.success) {
-          vscode.window.showInformationMessage(
-            `Switched to: ${selected.label}`
-          );
-          await this.quickChat(); // Open chat to show the switched session
-        } else {
-          throw new Error(result.error || 'Failed to switch session');
-        }
-      }
-    } catch (error) {
-      this.logger.error('Failed to show session picker', error);
-      vscode.window.showErrorMessage('Failed to show session picker');
-    }
+    vscode.window.showWarningMessage(
+      'Switch session command deprecated - use frontend session controls instead'
+    );
+    this.logger.info('switchSession called - feature deprecated');
+    // TODO: Remove this command and use RPC session:switch from frontend
   }
 
   /**
-   * Show context optimization suggestions
+   * Show context optimization suggestions - TODO: Use frontend controls instead
    */
   async optimizeContext(): Promise<void> {
-    this.logger.info('Showing context optimization suggestions');
-
-    try {
-      const suggestions =
-        await this.services.contextManager.getOptimizationSuggestions();
-
-      if (suggestions.length === 0) {
-        vscode.window.showInformationMessage('Context is already optimized!');
-        return;
-      }
-
-      const items = suggestions.map((suggestion) => ({
-        label: suggestion.type.replace(/_/g, ' ').toUpperCase(),
-        description: suggestion.description,
-        detail: `Potential savings: ${suggestion.estimatedSavings} tokens`,
-      }));
-
-      const selected = await vscode.window.showQuickPick(items, {
-        title: 'Context Optimization Suggestions',
-        placeHolder: 'Select an optimization to apply',
-      });
-
-      if (selected) {
-        // Apply the optimization (this would need to be implemented in ContextManager)
-        vscode.window.showInformationMessage(
-          `Applied optimization: ${selected.label}`
-        );
-      }
-    } catch (error) {
-      this.logger.error('Failed to show context optimization', error);
-      vscode.window.showErrorMessage('Failed to load optimization suggestions');
-    }
+    vscode.window.showWarningMessage(
+      'Context optimization command deprecated - use frontend context controls instead'
+    );
+    this.logger.info('optimizeContext called - feature deprecated');
+    // TODO: Remove this command and use frontend context optimization UI
   }
 
   /**

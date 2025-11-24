@@ -72,7 +72,6 @@ import {
 import {
   ClaudeCliDetector,
   ProcessManager,
-  ClaudeDomainEventPublisher,
   PermissionService,
   ClaudeCliService,
   MCPRegistrationService,
@@ -270,10 +269,6 @@ export class DIContainer {
     // Core domain services
     container.registerSingleton(TOKENS.CLAUDE_CLI_DETECTOR, ClaudeCliDetector);
     container.registerSingleton(TOKENS.PROCESS_MANAGER, ProcessManager);
-    container.registerSingleton(
-      TOKENS.CLAUDE_DOMAIN_EVENT_PUBLISHER,
-      ClaudeDomainEventPublisher
-    );
     container.registerSingleton(TOKENS.PERMISSION_SERVICE, PermissionService);
     container.registerSingleton(TOKENS.CLAUDE_CLI_SERVICE, ClaudeCliService);
     container.registerSingleton(

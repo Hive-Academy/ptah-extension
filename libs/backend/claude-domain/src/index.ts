@@ -21,17 +21,7 @@ export type {
   IStorageService,
 } from './session/session-manager';
 
-// Command Execution
-export { CommandService } from './commands/command.service';
-export type {
-  CommandExecutionResult,
-  CodeReviewRequest,
-  TestGenerationRequest,
-  FileContextOperation,
-  OptimizationSuggestion,
-  IContextService,
-  IClaudeCliLauncher,
-} from './commands/command.service';
+// Command Execution - DELETED (use frontend chat templates instead)
 
 // Orchestration Services - DELETED (event-based architecture removed)
 // Chat Orchestration - DELETED
