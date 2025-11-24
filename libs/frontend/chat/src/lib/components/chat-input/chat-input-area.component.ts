@@ -4,23 +4,31 @@
  * Multi-line message input with advanced features:
  * - Agent selection dropdown
  * - File inclusion with @ mentions
+ * - Agent autocomplete with @ mentions
+ * - MCP server autocomplete with @server: syntax
+ * - Command autocomplete with / trigger
  * - File optimization suggestions
  * - Auto-resizing textarea
  * - Keyboard shortcuts (Ctrl+Enter to send)
  *
  * ARCHITECTURE:
- * - Level 2 component (depends on FileTag, FileSuggestions - Level 0)
+ * - Level 2-3 component (Medium-High complexity)
  * - Modern Angular 20 patterns (input/output/computed/viewChild/inject)
  * - OnPush change detection for performance
+ * - Unified autocomplete system (TASK_2025_019)
  *
  * DEPENDENCIES:
  * - FileTagComponent (Level 0) ✅
- * - FileSuggestionsDropdownComponent (Level 0) ✅
- * - FilePickerService ⚠️ (needs migration from core)
- * - VSCodeDropdownComponent ⚠️ (needs migration from shared-ui)
- * - VSCodeActionButtonComponent ⚠️ (needs migration from shared-ui)
+ * - UnifiedSuggestionsDropdownComponent (Level 1) ✅
+ * - FilePickerService ✅
+ * - AgentDiscoveryFacade ✅ (TASK_2025_019)
+ * - MCPDiscoveryFacade ✅ (TASK_2025_019)
+ * - CommandDiscoveryFacade ✅ (TASK_2025_019)
  *
- * TODO: Update imports once all dependencies are migrated
+ * COMPLEXITY ASSESSMENT:
+ * - Level: 2-3 (Medium-High) - Multiple state signals, complex detection logic
+ * - Patterns: Dependency injection (3 facades), Composition (UnifiedDropdown)
+ * - Rejected: Further decomposition (would break existing behavior)
  */
 
 import {
@@ -33,6 +41,7 @@ import {
   ElementRef,
   HostListener,
   inject,
+  OnInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -41,6 +50,11 @@ import { type DropdownOption } from '@ptah-extension/shared';
 
 // Core services - Already migrated ✅
 import { FilePickerService, type FileSuggestion } from '../../services';
+import {
+  AgentDiscoveryFacade,
+  MCPDiscoveryFacade,
+  CommandDiscoveryFacade,
+} from '@ptah-extension/core';
 
 // Shared UI components - Already migrated ✅
 import {
@@ -49,11 +63,14 @@ import {
 } from '@ptah-extension/shared-ui';
 
 // Chat components - Already migrated ✅
-import { FileSuggestionsDropdownComponent } from '../file-suggestions-dropdown/file-suggestions-dropdown.component';
+import {
+  UnifiedSuggestionsDropdownComponent,
+  type SuggestionItem,
+} from '../unified-suggestions-dropdown/unified-suggestions-dropdown.component';
 import { FileTagComponent } from '../file-tag/file-tag.component';
 
 /**
- * Chat Input Area - Message input with file suggestions and agent selection
+ * Chat Input Area - Message input with unified autocomplete
  */
 @Component({
   selector: 'ptah-chat-input-area',
@@ -65,7 +82,7 @@ import { FileTagComponent } from '../file-tag/file-tag.component';
     LucideAngularModule,
     DropdownComponent,
     ActionButtonComponent,
-    FileSuggestionsDropdownComponent,
+    UnifiedSuggestionsDropdownComponent,
     FileTagComponent,
   ],
   template: `
@@ -147,16 +164,15 @@ import { FileTagComponent } from '../file-tag/file-tag.component';
             [attr.aria-describedby]="'input-help'"
           ></textarea>
 
-          <!-- File Suggestions Dropdown -->
-          @if (showFileSuggestions()) {
-          <ptah-file-suggestions-dropdown
-            [suggestions]="fileSuggestions()"
-            [searchQuery]="fileSearchQuery()"
-            [isLoading]="filePickerService.isLoading()"
+          <!-- Unified Suggestions Dropdown -->
+          @if (showUnifiedSuggestions()) {
+          <ptah-unified-suggestions-dropdown
+            [suggestions]="unifiedSuggestions()"
+            [isLoading]="isLoadingSuggestions()"
             [positionTop]="dropdownPosition().top"
             [positionLeft]="dropdownPosition().left"
-            (suggestionSelected)="selectFileSuggestion($event)"
-            (closed)="hideFileSuggestions()"
+            (suggestionSelected)="selectUnifiedSuggestion($event)"
+            (closed)="hideUnifiedSuggestions()"
           />
           }
         </div>
@@ -331,7 +347,7 @@ import { FileTagComponent } from '../file-tag/file-tag.component';
     `,
   ],
 })
-export class ChatInputAreaComponent {
+export class ChatInputAreaComponent implements OnInit {
   // === ANGULAR 20 PATTERN: Modern input/output signals ===
   readonly message = input('');
   readonly selectedAgent = input('');
@@ -353,20 +369,32 @@ export class ChatInputAreaComponent {
 
   // === Injected services ===
   readonly filePickerService = inject(FilePickerService);
+  readonly agentDiscovery = inject(AgentDiscoveryFacade);
+  readonly mcpDiscovery = inject(MCPDiscoveryFacade);
+  readonly commandDiscovery = inject(CommandDiscoveryFacade);
 
   // === Internal state signals ===
-  private readonly _showFileSuggestions = signal(false);
-  private readonly _fileSearchQuery = signal('');
-  private readonly _fileSuggestions = signal<FileSuggestion[]>([]);
+  private readonly _showUnifiedSuggestions = signal(false);
+  private readonly _suggestionType = signal<
+    'file' | 'agent' | 'mcp' | 'command' | null
+  >(null);
+  private readonly _unifiedSuggestions = signal<SuggestionItem[]>([]);
   private readonly _dropdownPosition = signal({ top: 0, left: 0 });
   private readonly _caretPosition = signal(0);
-  private readonly _atSymbolPosition = signal(-1);
+  private readonly _triggerPosition = signal(-1); // For @ or /
 
   // === Readonly signals for external access ===
-  readonly showFileSuggestions = this._showFileSuggestions.asReadonly();
-  readonly fileSearchQuery = this._fileSearchQuery.asReadonly();
-  readonly fileSuggestions = this._fileSuggestions.asReadonly();
+  readonly showUnifiedSuggestions = this._showUnifiedSuggestions.asReadonly();
+  readonly suggestionType = this._suggestionType.asReadonly();
+  readonly unifiedSuggestions = this._unifiedSuggestions.asReadonly();
   readonly dropdownPosition = this._dropdownPosition.asReadonly();
+  readonly isLoadingSuggestions = computed(
+    () =>
+      this.filePickerService.isLoading() ||
+      this.agentDiscovery.isLoading() ||
+      this.mcpDiscovery.isLoading() ||
+      this.commandDiscovery.isLoading()
+  );
 
   // === ANGULAR 20 PATTERN: Computed signals for derived state ===
   readonly includedFiles = computed(() =>
@@ -381,12 +409,25 @@ export class ChatInputAreaComponent {
   readonly SendIcon = Send;
   readonly CommandIcon = Command;
 
+  // === Lifecycle hooks ===
+  async ngOnInit(): Promise<void> {
+    // Fetch all suggestions on component initialization
+    await Promise.all([
+      this.agentDiscovery.fetchAgents(),
+      this.mcpDiscovery.fetchServers(),
+      this.commandDiscovery.fetchCommands(),
+    ]);
+  }
+
   // === Event handlers ===
   onInput(event: Event): void {
     const target = event.target as HTMLTextAreaElement;
     this.messageChange.emit(target.value);
     this.adjustTextareaHeight(target);
+
+    // Check for both @ and / triggers
     this.handleAtSymbolInput(target);
+    this.handleSlashTrigger(target);
   }
 
   onSelectionChange(event: Event): void {
@@ -395,12 +436,12 @@ export class ChatInputAreaComponent {
   }
 
   onKeyDown(event: KeyboardEvent): void {
-    // Handle file suggestion navigation
-    if (this.showFileSuggestions()) {
+    // Handle unified suggestion navigation
+    if (this.showUnifiedSuggestions()) {
       switch (event.key) {
         case 'Escape':
           event.preventDefault();
-          this.hideFileSuggestions();
+          this.hideUnifiedSuggestions();
           return;
         case 'ArrowDown':
         case 'ArrowUp':
@@ -441,42 +482,68 @@ export class ChatInputAreaComponent {
     return this.filePickerService.getFilePathsForMessage();
   }
 
-  // === File suggestion handling ===
-  selectFileSuggestion(suggestion: FileSuggestion): void {
+  // === Unified suggestion handling ===
+  selectUnifiedSuggestion(suggestion: SuggestionItem): void {
     const input = this.messageInput();
     if (!input) return;
 
     const textarea = input.nativeElement;
     const currentText = textarea.value;
-    const atPos = this._atSymbolPosition();
+    const triggerPos = this._triggerPosition();
     const cursorPos = textarea.selectionStart || 0;
 
-    if (atPos === -1) return;
+    if (triggerPos === -1) return;
 
-    // Replace @search with @filename
-    const beforeAt = currentText.substring(0, atPos);
+    const beforeTrigger = currentText.substring(0, triggerPos);
     const afterCursor = currentText.substring(cursorPos);
-    const newText = `${beforeAt}@${suggestion.name} ${afterCursor}`;
+
+    let insertText = '';
+    let newCursorPos = 0;
+
+    switch (suggestion.type) {
+      case 'file':
+        // Insert @filename
+        insertText = `${beforeTrigger}@${suggestion.name} ${afterCursor}`;
+        newCursorPos = triggerPos + suggestion.name.length + 2;
+        break;
+
+      case 'agent':
+        // Insert @agent-name
+        insertText = `${beforeTrigger}@${suggestion.name} ${afterCursor}`;
+        newCursorPos = triggerPos + suggestion.name.length + 2;
+        break;
+
+      case 'mcp':
+        // Insert @server:resource
+        insertText = `${beforeTrigger}@${suggestion.name} ${afterCursor}`;
+        newCursorPos = triggerPos + suggestion.name.length + 2;
+        break;
+
+      case 'command':
+        // Replace entire line with /command
+        const lineStart = currentText.lastIndexOf('\n', triggerPos) + 1;
+        const beforeLine = currentText.substring(0, lineStart);
+        insertText = `${beforeLine}/${suggestion.name} ${afterCursor}`;
+        newCursorPos = lineStart + suggestion.name.length + 2;
+        break;
+    }
 
     // Update textarea
-    textarea.value = newText;
-    const newCursorPos = atPos + suggestion.name.length + 2; // +2 for @ and space
+    textarea.value = insertText;
     textarea.setSelectionRange(newCursorPos, newCursorPos);
 
     // Emit changes
-    this.messageChange.emit(newText);
-    // TODO (Phase 4): Restore includeFile method or use RPC
-    // this.filePickerService.includeFile(suggestion.path);
-    this.hideFileSuggestions();
+    this.messageChange.emit(insertText);
+    this.hideUnifiedSuggestions();
     textarea.focus();
     this.filesChanged.emit(this.filePickerService.getFilePathsForMessage());
   }
 
-  hideFileSuggestions(): void {
-    this._showFileSuggestions.set(false);
-    this._fileSearchQuery.set('');
-    this._fileSuggestions.set([]);
-    this._atSymbolPosition.set(-1);
+  hideUnifiedSuggestions(): void {
+    this._showUnifiedSuggestions.set(false);
+    this._suggestionType.set(null);
+    this._unifiedSuggestions.set([]);
+    this._triggerPosition.set(-1);
   }
 
   removeFile(filePath: string): void {
@@ -487,15 +554,15 @@ export class ChatInputAreaComponent {
   // === Document click handler ===
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: Event): void {
-    if (!this.showFileSuggestions()) return;
+    if (!this.showUnifiedSuggestions()) return;
 
     const target = event.target as Element;
-    const dropdown = target.closest('ptah-file-suggestions-dropdown');
+    const dropdown = target.closest('ptah-unified-suggestions-dropdown');
     const input = this.messageInput();
     const textarea = input?.nativeElement;
 
     if (!dropdown && target !== textarea) {
-      this.hideFileSuggestions();
+      this.hideUnifiedSuggestions();
     }
   }
 
@@ -517,7 +584,14 @@ export class ChatInputAreaComponent {
     const lastAtIndex = textBeforeCursor.lastIndexOf('@');
 
     if (lastAtIndex === -1) {
-      this.hideFileSuggestions();
+      // No @ found, hide if currently showing @ suggestions
+      if (
+        this._suggestionType() === 'file' ||
+        this._suggestionType() === 'agent' ||
+        this._suggestionType() === 'mcp'
+      ) {
+        this.hideUnifiedSuggestions();
+      }
       return;
     }
 
@@ -526,28 +600,159 @@ export class ChatInputAreaComponent {
     const isValidAtPosition = /\s/.test(charBeforeAt) || lastAtIndex === 0;
 
     if (!isValidAtPosition) {
-      this.hideFileSuggestions();
+      this.hideUnifiedSuggestions();
       return;
     }
 
     const searchText = textBeforeCursor.substring(lastAtIndex + 1);
 
     if (searchText.includes(' ')) {
-      this.hideFileSuggestions();
+      this.hideUnifiedSuggestions();
       return;
     }
 
-    // TASK_2025_019 Phase 1: Ensure files are loaded before showing dropdown
+    // TASK_2025_019: Unified autocomplete logic
     await this.filePickerService.ensureFilesLoaded();
 
-    this._atSymbolPosition.set(lastAtIndex);
-    this._fileSearchQuery.set(searchText);
+    this._triggerPosition.set(lastAtIndex);
 
-    const suggestions = this.filePickerService.searchFiles(searchText);
-    this._fileSuggestions.set(suggestions);
+    // Determine suggestion type based on pattern
+    if (searchText.includes(':')) {
+      // MCP resource pattern: @server:resource
+      const serverName = searchText.split(':')[0];
+      const suggestions = this.mcpDiscovery.searchServers(serverName);
+      this._suggestionType.set('mcp');
+      this._unifiedSuggestions.set(
+        suggestions.map((s) => ({ type: 'mcp' as const, ...s }))
+      );
+    } else if (searchText.match(/^[a-z0-9-]+$/)) {
+      // Could be agent or file - check both
+      const agentSuggestions = this.agentDiscovery.searchAgents(searchText);
+      const fileSuggestions = this.filePickerService.searchFiles(searchText);
+
+      const unified: SuggestionItem[] = [];
+
+      // Add agents first (if any)
+      if (agentSuggestions.length > 0) {
+        unified.push(
+          ...agentSuggestions.map((s) => ({ type: 'agent' as const, ...s }))
+        );
+      }
+
+      // Add files (with icon generation)
+      if (fileSuggestions.length > 0) {
+        unified.push(
+          ...fileSuggestions.map((s) => ({
+            type: 'file' as const,
+            ...s,
+            icon: this.getFileIcon(s),
+            description: s.directory,
+          }))
+        );
+      }
+
+      this._suggestionType.set(agentSuggestions.length > 0 ? 'agent' : 'file');
+      this._unifiedSuggestions.set(unified);
+    } else {
+      // File path pattern (contains . or /)
+      const fileSuggestions = this.filePickerService.searchFiles(searchText);
+      this._suggestionType.set('file');
+      this._unifiedSuggestions.set(
+        fileSuggestions.map((s) => ({
+          type: 'file' as const,
+          ...s,
+          icon: this.getFileIcon(s),
+          description: s.directory,
+        }))
+      );
+    }
 
     this.updateDropdownPosition(textarea, lastAtIndex);
-    this._showFileSuggestions.set(true);
+    this._showUnifiedSuggestions.set(true);
+  }
+
+  private handleSlashTrigger(textarea: HTMLTextAreaElement): void {
+    const cursorPos = textarea.selectionStart || 0;
+    const text = textarea.value;
+    const textBeforeCursor = text.substring(0, cursorPos);
+
+    const lastSlashIndex = textBeforeCursor.lastIndexOf('/');
+
+    if (lastSlashIndex === -1) {
+      // No / found, hide if currently showing command suggestions
+      if (this._suggestionType() === 'command') {
+        this.hideUnifiedSuggestions();
+      }
+      return;
+    }
+
+    // Check if / is at line start
+    const textBeforeSlash = textBeforeCursor.substring(0, lastSlashIndex);
+    const lastNewlineIndex = textBeforeSlash.lastIndexOf('\n');
+    const textAfterNewline = textBeforeSlash.substring(lastNewlineIndex + 1);
+
+    if (textAfterNewline.trim() !== '') {
+      // Not at line start - hide if showing commands
+      if (this._suggestionType() === 'command') {
+        this.hideUnifiedSuggestions();
+      }
+      return;
+    }
+
+    const searchText = textBeforeCursor.substring(lastSlashIndex + 1);
+
+    if (searchText.includes(' ')) {
+      this.hideUnifiedSuggestions();
+      return;
+    }
+
+    // Search commands
+    this._triggerPosition.set(lastSlashIndex);
+    const commandSuggestions = this.commandDiscovery.searchCommands(searchText);
+    this._suggestionType.set('command');
+    this._unifiedSuggestions.set(
+      commandSuggestions.map((s) => ({ type: 'command' as const, ...s }))
+    );
+
+    this.updateDropdownPosition(textarea, lastSlashIndex);
+    this._showUnifiedSuggestions.set(true);
+  }
+
+  // Helper: Generate file icon (same as FileSuggestionsDropdown)
+  private getFileIcon(file: FileSuggestion): string {
+    if (file.isImage) return '🖼️';
+    if (file.isText) return '📄';
+
+    const ext = file.extension?.toLowerCase();
+    switch (ext) {
+      case '.ts':
+        return '🔵';
+      case '.js':
+        return '🟡';
+      case '.html':
+        return '🌐';
+      case '.css':
+      case '.scss':
+        return '🎨';
+      case '.json':
+        return '📋';
+      case '.md':
+        return '📝';
+      case '.py':
+        return '🐍';
+      case '.java':
+        return '☕';
+      case '.go':
+        return '🐹';
+      case '.rs':
+        return '🦀';
+      case '.php':
+        return '🐘';
+      case '.rb':
+        return '💎';
+      default:
+        return '📄';
+    }
   }
 
   private updateDropdownPosition(
