@@ -21,3 +21,4 @@
 | TASK_2025_017 | Template System & LLM Tools Integration - Fix dependencies and integrate llm-abstraction with vscode-lm-tools                 | 🔄 In Progress                           | orchestrator       | 2025-11-23 | -          |
 | TASK_2025_018 | Session Message Loading Bug Fix - Previous sessions show no messages when clicked despite TASK_2025_014 completion            | 🔄 In Progress                           | orchestrator       | 2025-11-23 | -          |
 | TASK_2025_019 | Complete Autocomplete System - Fix @ file loading bug + implement MCP/Agent/Command autocomplete (@ and / triggers)           | 📋 Planned                               | orchestrator       | 2025-11-23 | -          |
+| TASK_2025_022 | Streaming Architecture Documentation - Comprehensive guides for RPC Phase 3.5 (6 docs, 4,092 lines preserving real-time GUI) | ✅ Complete                              | orchestrator       | 2025-11-23 | 2025-11-24 |

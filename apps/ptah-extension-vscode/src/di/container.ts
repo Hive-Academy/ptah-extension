@@ -79,13 +79,15 @@ import {
   SessionManager,
 } from '@ptah-extension/claude-domain';
 
-// Import main app services
-import { CommandBuilderService } from '../services/command-builder.service';
-import { WebviewEventQueue } from '../services/webview-event-queue';
-import { WebviewInitialDataBuilder } from '../services/webview-initial-data-builder';
-import { AngularWebviewProvider } from '../providers/angular-webview.provider';
+// Import webview services from vscode-core
+import {
+  WebviewEventQueue,
+  WebviewHtmlGenerator,
+  AngularWebviewProvider,
+} from '@ptah-extension/vscode-core';
+
+// Import main app adapters
 import { ConfigurationProviderAdapter } from '../adapters/configuration-provider.adapter';
-import { ContextMessageBridgeService } from '../services/context-message-bridge.service';
 
 /**
  * Centralized DI Container
@@ -283,25 +285,16 @@ export class DIContainer {
     // PHASE 4: Main App Services
     // ========================================
 
-    // Webview support services (Priority 2 extraction)
+    // Webview support services
     container.registerSingleton(TOKENS.WEBVIEW_EVENT_QUEUE, WebviewEventQueue);
     container.registerSingleton(
-      TOKENS.WEBVIEW_INITIAL_DATA_BUILDER,
-      WebviewInitialDataBuilder
-    );
-
-    // Main app services
-    container.registerSingleton(
-      TOKENS.COMMAND_BUILDER_SERVICE,
-      CommandBuilderService
+      TOKENS.WEBVIEW_HTML_GENERATOR,
+      WebviewHtmlGenerator
     );
     container.registerSingleton(
       TOKENS.ANGULAR_WEBVIEW_PROVIDER,
       AngularWebviewProvider
     );
-
-    // Context Message Bridge (architectural bridge for file include/exclude)
-    container.registerSingleton(ContextMessageBridgeService);
 
     // Adapters (registered later in main.ts after PtahExtension initialization)
     // These require the extension to be partially initialized first

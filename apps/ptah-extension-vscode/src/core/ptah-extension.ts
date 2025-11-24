@@ -10,9 +10,7 @@ import type {
 } from '@ptah-extension/vscode-core';
 import type { WorkspaceAnalyzerService } from '@ptah-extension/workspace-intelligence';
 import type { SessionManager } from '@ptah-extension/claude-domain';
-import { CommandBuilderService } from '../services/command-builder.service';
-import { AngularWebviewProvider } from '../providers/angular-webview.provider';
-import { CommandHandlers } from '../handlers/command-handlers';
+import { AngularWebviewProvider } from '@ptah-extension/vscode-core';
 
 export interface ServiceDependencies {
   context: vscode.ExtensionContext;
@@ -24,7 +22,6 @@ export interface ServiceDependencies {
 
   sessionManager: SessionManager; // DI-resolved from claude-domain
   workspaceAnalyzer: WorkspaceAnalyzerService; // DI-resolved from workspace-intelligence
-  commandBuilderService: CommandBuilderService;
   angularWebviewProvider: AngularWebviewProvider;
 }
 
@@ -46,12 +43,8 @@ export class PtahExtension implements vscode.Disposable {
   private sessionManager?: SessionManager; // From claude-domain
   private workspaceAnalyzer?: WorkspaceAnalyzerService; // From workspace-intelligence
 
-  // Remaining legacy services
-  private commandBuilderService?: CommandBuilderService;
+  // Webview provider
   private angularWebviewProvider?: AngularWebviewProvider;
-
-  // Command handlers (uses library services instead of legacy registries)
-  private commandHandlers?: CommandHandlers;
 
   // Services reference for backward compatibility
   private services?: ServiceDependencies;
@@ -151,10 +144,7 @@ export class PtahExtension implements vscode.Disposable {
         TOKENS.WORKSPACE_ANALYZER_SERVICE
       );
 
-      // Resolve services from DI container
-      this.commandBuilderService = DIContainer.resolve<CommandBuilderService>(
-        TOKENS.COMMAND_BUILDER_SERVICE
-      );
+      // Resolve webview provider from DI container
       this.angularWebviewProvider = DIContainer.resolve<AngularWebviewProvider>(
         TOKENS.ANGULAR_WEBVIEW_PROVIDER
       );
@@ -173,12 +163,11 @@ export class PtahExtension implements vscode.Disposable {
         webviewManager: this.webviewManager,
         sessionManager: this.sessionManager,
         workspaceAnalyzer: this.workspaceAnalyzer,
-        commandBuilderService: this.commandBuilderService,
         angularWebviewProvider: this.angularWebviewProvider,
       };
 
       this.logger.info('Services initialized successfully (DI-based)');
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error('Failed to initialize services', error);
       throw error;
     }
@@ -192,16 +181,9 @@ export class PtahExtension implements vscode.Disposable {
       throw new Error('Services not initialized');
     }
 
-    // Initialize command handlers (uses DI-enabled services but services object still passed manually)
-    // CommandHandlers expects 2 parameters: logger, services
-    // ChatOrchestrationService removed - commands use frontend chat templates instead
-    const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
-    this.commandHandlers = new CommandHandlers(logger, this.services);
-
-    // NOTE: Legacy registries removed (TASK_CORE_001)
-    // Commands now registered via CommandManager from vscode-core
-    // Webviews now registered via WebviewManager from vscode-core
-    // Events now registered via EventBus from vscode-core
+    // NOTE: All command handlers deleted (commands were removed in purge)
+    // Webviews registered via AngularWebviewProvider
+    // EventBus removed in Phase 0 purge (TASK_2025_021)
   }
 
   /**
@@ -210,97 +192,17 @@ export class PtahExtension implements vscode.Disposable {
   private async registerAllComponents(): Promise<void> {
     console.log('[PtahExtension.registerAllComponents] START');
 
-    if (!this.commandHandlers) {
-      const error = 'Command handlers not initialized';
-      console.error('[PtahExtension.registerAllComponents] ERROR:', error);
-      throw new Error(error);
-    }
-
-    // Register commands using CommandManager from vscode-core
+    // Register webview providers
     console.log(
-      '[PtahExtension.registerAllComponents] Step 1: Registering commands...'
-    );
-    this.registerCommands();
-    console.log(
-      '[PtahExtension.registerAllComponents] Step 1: Commands registered'
-    );
-
-    // Register webview providers using WebviewManager from vscode-core
-    console.log(
-      '[PtahExtension.registerAllComponents] Step 2: Registering webviews...'
+      '[PtahExtension.registerAllComponents] Registering webviews...'
     );
     this.registerWebviews();
-    console.log(
-      '[PtahExtension.registerAllComponents] Step 2: Webviews registered'
-    );
-
-    // Set up event handlers using EventBus from vscode-core
-    console.log(
-      '[PtahExtension.registerAllComponents] Step 3: Registering events...'
-    );
-    this.registerEvents();
-    console.log(
-      '[PtahExtension.registerAllComponents] Step 3: Events registered'
-    );
+    console.log('[PtahExtension.registerAllComponents] Webviews registered');
 
     this.logger.info('All components registered successfully');
     console.log('[PtahExtension.registerAllComponents] COMPLETE');
   }
 
-  /**
-   * Register extension commands using CommandManager
-   */
-  private registerCommands(): void {
-    this.logger.info('Registering extension commands...');
-
-    const handlers = this.commandHandlers;
-    if (!handlers) {
-      throw new Error('Command handlers not initialized');
-    }
-
-    const commands = [
-      // Core commands
-      { id: 'ptah.quickChat', handler: () => handlers.quickChat() },
-      {
-        id: 'ptah.reviewCurrentFile',
-        handler: () => handlers.reviewCurrentFile(),
-      },
-      { id: 'ptah.generateTests', handler: () => handlers.generateTests() },
-      { id: 'ptah.buildCommand', handler: () => handlers.buildCommand() },
-
-      // Session management
-      { id: 'ptah.newSession', handler: () => handlers.newSession() },
-      { id: 'ptah.switchSession', handler: () => handlers.switchSession() },
-
-      // Context management
-      {
-        id: 'ptah.includeFile',
-        handler: (uri: vscode.Uri) => handlers.includeFile(uri),
-      },
-      {
-        id: 'ptah.excludeFile',
-        handler: (uri: vscode.Uri) => handlers.excludeFile(uri),
-      },
-      { id: 'ptah.optimizeContext', handler: () => handlers.optimizeContext() },
-
-      // Analytics and insights
-      { id: 'ptah.showAnalytics', handler: () => handlers.showAnalytics() },
-
-      // Diagnostic (debugging)
-      { id: 'ptah.runDiagnostic', handler: () => handlers.runDiagnostic() },
-    ];
-
-    // Register all commands with CommandManager
-    commands.forEach(({ id, handler }) => {
-      this.commandManager.registerCommand({
-        id,
-        title: id, // Use id as title for now
-        handler,
-      });
-    });
-
-    this.logger.info(`Registered ${commands.length} commands`);
-  }
 
   /**
    * Register webview providers using WebviewManager
@@ -332,17 +234,6 @@ export class PtahExtension implements vscode.Disposable {
     this.logger.info('Webview providers registered');
   }
 
-  /**
-   * Set up event handlers using EventBus
-   */
-  private registerEvents(): void {
-    this.logger.info('Setting up event handlers...');
-
-    // Subscribe to relevant events
-    // (Event subscriptions will be added as needed)
-
-    this.logger.info('Event handlers registered');
-  }
 
   /**
    * Welcome message for first-time users
@@ -404,7 +295,7 @@ export class PtahExtension implements vscode.Disposable {
 
       this.logger.info('Extension health check passed');
       return true;
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error('Health check failed', error);
       return false;
     }
@@ -431,16 +322,14 @@ export class PtahExtension implements vscode.Disposable {
       this.disposables.forEach((d) => d.dispose());
       this.disposables = [];
 
-      // Dispose legacy services
+      // Dispose webview provider
       this.angularWebviewProvider?.dispose?.();
-
-      this.commandBuilderService?.dispose();
 
       // DI-managed services are disposed by the container
       // (sessionManager, contextManager, workspaceAnalyzer, providerManager)
 
       this.logger.info('Ptah extension disposed successfully');
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error('Extension disposal failed', error);
     }
   }

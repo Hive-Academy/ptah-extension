@@ -3,11 +3,10 @@
 > nx run-many -t build
 
 
- NX   Running target build for 10 projects and 2 tasks they depend on:
+ NX   Running target build for 9 projects and 2 tasks they depend on:
 
 - @ptah-extension/workspace-intelligence
 - @ptah-extension/template-generation
-- @ptah-extension/ai-providers-core
 - @ptah-extension/llm-abstraction
 - vscode-lm-tools
 - ptah-extension-webview
@@ -18,7 +17,7 @@
 
 
 
-> nx run @ptah-extension/shared:build
+> nx run @ptah-extension/shared:build  [remote cache]
 
 
 [2m..\..\dist\libs\shared\package.json[22m
@@ -34,27 +33,57 @@
 
 > nx run @ptah-extension/workspace-intelligence:build
 
+Error: [readCachedProjectGraph] ERROR: No cached ProjectGraph is available.
 
-[2m..\..\..\dist\libs\backend\workspace-intelligence\CLAUDE.md[22m
+If you are leveraging \`readCachedProjectGraph()\` directly then you will need to refactor your usage to first ensure that
+the ProjectGraph is created by calling \`await createProjectGraphAsync()\` somewhere before attempting to read the data.
 
-[2m..\..\..\dist\libs\backend\workspace-intelligence\README.md[22m
-
-[2m..\..\..\dist\libs\backend\workspace-intelligence\package.json[22m
+If you encounter this error as part of running standard \`nx\` commands then please open an issue on https://github.com/nrwl/nx
+    at readCachedProjectGraph [90m(D:\projects\ptah-extension\[39mnode_modules\[4mnx[24m\src\project-graph\project-graph.js:44:15[90m)[39m
+    at run [90m(D:\projects\ptah-extension\[39mnode_modules\[4mnx[24m\src\command-line\run\run.js:173:69[90m)[39m
+    at process.<anonymous> [90m(D:\projects\ptah-extension\[39mnode_modules\[4mnx[24m\bin\run-executor.js:59:48[90m)[39m
+[90m    at process.emit (node:events:518:28)[39m
+    at process.emit [90m(D:\projects\ptah-extension\[39mnode_modules\[4mnx[24m\src\native\index.js:20:23[90m)[39m
+[90m    at emit (node:internal/child_process:949:14)[39m
+[90m    at process.processTicksAndRejections (node:internal/process/task_queues:91:21)[39m
 
 > nx run @ptah-extension/claude-domain:build
 
+Error: [readCachedProjectGraph] ERROR: No cached ProjectGraph is available.
 
-[2m..\..\..\dist\libs\backend\claude-domain\CLAUDE.md[22m
+If you are leveraging \`readCachedProjectGraph()\` directly then you will need to refactor your usage to first ensure that
+the ProjectGraph is created by calling \`await createProjectGraphAsync()\` somewhere before attempting to read the data.
 
-[2m..\..\..\dist\libs\backend\claude-domain\README.md[22m
+If you encounter this error as part of running standard \`nx\` commands then please open an issue on https://github.com/nrwl/nx
+    at readCachedProjectGraph [90m(D:\projects\ptah-extension\[39mnode_modules\[4mnx[24m\src\project-graph\project-graph.js:44:15[90m)[39m
+    at run [90m(D:\projects\ptah-extension\[39mnode_modules\[4mnx[24m\src\command-line\run\run.js:173:69[90m)[39m
+    at process.<anonymous> [90m(D:\projects\ptah-extension\[39mnode_modules\[4mnx[24m\bin\run-executor.js:59:48[90m)[39m
+[90m    at process.emit (node:events:518:28)[39m
+    at process.emit [90m(D:\projects\ptah-extension\[39mnode_modules\[4mnx[24m\src\native\index.js:20:23[90m)[39m
+[90m    at emit (node:internal/child_process:949:14)[39m
+[90m    at process.processTicksAndRejections (node:internal/process/task_queues:91:21)[39m
 
-[2m..\..\..\dist\libs\backend\claude-domain\package.json[22m
+> nx run @ptah-extension/llm-abstraction:build
+
+Error: [readCachedProjectGraph] ERROR: No cached ProjectGraph is available.
+
+If you are leveraging \`readCachedProjectGraph()\` directly then you will need to refactor your usage to first ensure that
+the ProjectGraph is created by calling \`await createProjectGraphAsync()\` somewhere before attempting to read the data.
+
+If you encounter this error as part of running standard \`nx\` commands then please open an issue on https://github.com/nrwl/nx
+    at readCachedProjectGraph [90m(D:\projects\ptah-extension\[39mnode_modules\[4mnx[24m\src\project-graph\project-graph.js:44:15[90m)[39m
+    at run [90m(D:\projects\ptah-extension\[39mnode_modules\[4mnx[24m\src\command-line\run\run.js:173:69[90m)[39m
+    at process.<anonymous> [90m(D:\projects\ptah-extension\[39mnode_modules\[4mnx[24m\bin\run-executor.js:59:48[90m)[39m
+[90m    at process.emit (node:events:518:28)[39m
+    at process.emit [90m(D:\projects\ptah-extension\[39mnode_modules\[4mnx[24m\src\native\index.js:20:23[90m)[39m
+[90m    at emit (node:internal/child_process:949:14)[39m
+[90m    at process.processTicksAndRejections (node:internal/process/task_queues:91:21)[39m
 
 > nx run ptah-extension-webview:build:production
 
 [33m❯[39m Building...
 [32m✔[39m Building...
-[37mApplication bundle generation failed. [8.775 seconds][39m
+[37mApplication bundle generation failed. [6.428 seconds][39m
 [37m[39m
 [1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2571: Object is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
 [1m[31m[39m[22m
@@ -916,225 +945,25 @@
 [1m[31m          ╵                                   [32m~~~~~~~~~~~~~~~~~~[0m[39m[22m
 [1m[31m[39m[22m
 [1m[31m[39m[22m
-[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS18046: 'node.agent' is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
-[1m[31m[39m[22m
-[1m[31m    libs/frontend/chat/src/lib/containers/chat/chat.component.ts:397:15:[39m[22m
-[1m[31m[37m      397 │       agentId: [32mnode.agent[37m.agentId,[39m[22m
-[1m[31m          ╵                [32m~~~~~~~~~~[0m[39m[22m
-[1m[31m[39m[22m
-[1m[31m[39m[22m
-[1m[31m[31[39m[22m[1m[31mmX [41;31m[[41;97mERROR[41;31m][0m [1mTS18046: 'node.agent' is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
-[1m[31m[39m[22m
-[1m[31m    libs/frontend/chat/src/lib/containers/chat/chat.component.ts:398:12:[39m[22m
-[1m[31m[37m      398 │       name: [32mnode.agent[37m.subagentType,[39m[22m
-[1m[31m          ╵             [32m~~~~~~~~~~[0m[39m[22m
-[1m[31m[39m[22m
-[1m[31m[39m[22m
-[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS18046: 'node.agent' is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
-[1m[31m[39m[22m
-[1m[31m    libs/frontend/chat/src/lib/containers/chat/chat.component.ts:403:17:[39m[22m
-[1m[31m[37m      403 │       startTime: [32mnode.agent[37m.timestamp ?? Date.now(),[39m[22m
-[1m[31m          ╵                  [32m~~~~~~~~~~[0m[39m[22m
-[1m[31m[39m[22m
-[1m[31m[39m[22m
-[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS18046: 'node.agent' is of type 'unknown'.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
-[1m[31m[39m[22m
-[1m[31m    libs/frontend/chat/src/lib/containers/chat/chat.component.ts:406:13:[39m[22m
-[1m[31m[37m      406 │           ? ([32mnode.agent[37m.timestamp ?? Date.now()) + (node.duration...[39m[22m
-[1m[31m          ╵              [32m~~~~~~~~~~[0m[39m[22m
-[1m[31m[39m[22m
-[1m[31m[39m[22m
-[1m[31m[31mX [41;31m[[41;97mERROR[41;31m][0m [1mTS2554: Expected 1 arguments, but got 2.[0m [1m[35m[plugin angular-compiler][0m[39m[22m
-[1m[31m[39m[22m
-[1m[31m    libs/frontend/chat/src/lib/containers/chat/chat.component.ts:464:35:[39m[22m
-[1m[31m[37m      464 │     this.chat.sendMessage(content, [32magent[37m);[39m[22m
-[1m[31m          ╵                                    [32m~~~~~[0m[39m[22m
-[1m[31m[39m[22m
-[1m[31m[39m[22m
-
-> nx run vscode-lm-tools:build
-
-
-[2m..\..\..\dist\libs\backend\claude-domain\README.md[22m
-
-[2m..\..\..\dist\libs\backend\claude-domain\package.json[22m
-
-> nx run @ptah-extension/ai-providers-core:build
-
-
-[2m..\..\..\dist\libs\backend\ai-providers-core\CLAUDE.md[22m
-
-[2m..\..\..\dist\libs\backend\ai-providers-core\README.md[22m
-
-[2m..\..\..\dist\libs\backend\ai-providers-core\package.json[22m
-
-> nx run @ptah-extension/llm-abstraction:build
-
-
-[2m..\..\..\dist\libs\backend\llm-abstraction\README.md[22m
-
-[2m..\..\..\dist\libs\backend\llm-abstraction\package.json[22m
-
-> nx run ptah-extension-vscode:build-webpack:production
-
-
-✓ Webpack build complete - reflect-metadata loaded first in entry array
-
-asset [1m[33mmain.js[39m[22m [1m[33m1.06 MiB[39m[22m [1m[32m[emitted][39m[22m [1m[33m[big][39m[22m (name: main) 1 related asset
-webpack 5.101.3 compiled [1m[32msuccessfully[39m[22m in 3098 ms
-
-> nx run @ptah-extension/template-generation:build
-
-
-[2m..\..\..\dist\libs\backend\template-generation\README.md[22m
-
-[2m..\..\..\dist\libs\backend\template-generation\package.json[22m
-[4m[34mlibs\backend\template-generation\src\index.ts:7:15[39m[24m - [31m[1merror[22m[39m [90mTS2307[39m: Cannot find module './interfaces' or its corresponding type declarations.
-
-[0m [90m  5 | [39m[0m
-[0m [90m  6 | [39m[90m// Interfaces[39m[0m
-[0m[31m[1m>[22m[39m[90m  7 | [39m[36mexport[39m [33m*[39m from [32m'./interfaces'[39m[33m;[39m[0m
-[0m [90m    | [39m              [31m[1m^[22m[39m[0m
-[0m [90m  8 | [39m[0m
-[0m [90m  9 | [39m[90m// Errors[39m[0m
-[0m [90m 10 | [39m[36mexport[39m [33m*[39m from [32m'./errors'[39m[33m;[39m[0m
-
-[4m[34mlibs\backend\template-generation\src\index.ts:10:15[39m[24m - [31m[1merror[22m[39m [90mTS2307[39m: Cannot find module './errors' or its corresponding type declarations.
-
-[0m [90m  8 | [39m[0m
-[0m [90m  9 | [39m[90m// Errors[39m[0m
-[0m[31m[1m>[22m[39m[90m 10 | [39m[36mexport[39m [33m*[39m from [32m'./errors'[39m[33m;[39m[0m
-[0m [90m    | [39m              [31m[1m^[22m[39m[0m
-[0m [90m 11 | [39m[0m
-[0m [90m 12 | [39m[90m// Services (only export main entry point and DI registration)[39m[0m
-[0m [90m 13 | [39m[36mexport[39m { [33mTemplateGeneratorService[39m } from [32m'./services/template-generator.service'[39m[33m;[39m[0m
-
-[4m[34mlibs\backend\template-generation\src\index.ts:13:42[39m[24m - [31m[1merror[22m[39m [90mTS2307[39m: Cannot find module './services/template-generator.service' or its corresponding type declarations.
-
-[0m [90m 11 | [39m[0m
-[0m [90m 12 | [39m[90m// Services (only export main entry point and DI registration)[39m[0m
-[0m[31m[1m>[22m[39m[90m 13 | [39m[36mexport[39m { [33mTemplateGeneratorService[39m } from [32m'./services/template-generator.service'[39m[33m;[39m[0m
-[0m [90m    | [39m                                         [31m[1m^[22m[39m[0m
-[0m [90m 14 | [39m[0m
-[0m [90m 15 | [39m[90m// DI Registration[39m[0m
-[0m [90m 16 | [39m[36mexport[39m { registerTemplateGeneration } from [32m'./di/registration'[39m[33m;[39m[0m
-
-[4m[34mlibs\backend\template-generation\src\index.ts:16:44[39m[24m - [31m[1merror[22m[39m [90mTS2307[39m: Cannot find module './di/registration' or its corresponding type declarations.
-
-[0m [90m 14 | [39m[0m
-[0m [90m 15 | [39m[90m// DI Registration[39m[0m
-[0m[31m[1m>[22m[39m[90m 16 | [39m[36mexport[39m { registerTemplateGeneration } from [32m'./di/registration'[39m[33m;[39m[0m
-[0m [90m    | [39m                                           [31m[1m^[22m[39m[0m
-[0m [90m 17 | [39m[0m
-
-[4m[34mlibs\backend\template-generation\src\lib\services\template-file-manager.service.ts:4:18[39m[24m - [31m[1merror[22m[39m [90mTS2305[39m: Module '"@ptah-extension/vscode-core"' has no exported member 'FileSystemService'.
-
-[0m [90m 2 | [39m[36mimport[39m { injectable[33m,[39m inject } from [32m'tsyringe'[39m[33m;[39m[0m
-[0m [90m 3 | [39m[36mimport[39m { [33mResult[39m } from [32m'@ptah-extension/shared'[39m[33m;[39m[0m
-[0m[31m[1m>[22m[39m[90m 4 | [39m[36mimport[39m { [33mLogger[39m[33m,[39m [33mFileSystemService[39m[33m,[39m [33mTOKENS[39m } from [32m'@ptah-extension/vscode-core'[39m[33m;[39m[0m
-[0m [90m   | [39m                 [31m[1m^[22m[39m[0m
-[0m [90m 5 | [39m[36mimport[39m { [33mITemplateFileManager[39m } from [32m'../interfaces'[39m[33m;[39m[0m
-[0m [90m 6 | [39m[36mimport[39m { [33mTemplateFileError[39m } from [32m'../errors'[39m[33m;[39m[0m
-[0m [90m 7 | [39m[0m
-
-[4m[34mlibs\backend\template-generation\src\lib\services\template-file-manager.service.ts:16:20[39m[24m - [31m[1merror[22m[39m [90mTS2339[39m: Property 'FILE_SYSTEM' does not exist on type '{ readonly EXTENSION_CONTEXT: unique symbol; readonly WEBVIEW_PROVIDER: unique symbol; readonly COMMAND_REGISTRY: unique symbol; readonly COMMAND_MANAGER: unique symbol; readonly WEBVIEW_MANAGER: unique symbol; ... 67 more ...; readonly WORKSPACE_ANALYZER: unique symbol; }'.
-
-[0m [90m 14 | [39m[36mexport[39m [36mclass[39m [33mTemplateFileManagerService[39m implements [33mITemplateFileManager[39m {[0m
-[0m [90m 15 | [39m  constructor([0m
-[0m[31m[1m>[22m[39m[90m 16 | [39m    [33m@[39minject([33mTOKENS[39m[33m.[39m[33mFILE_SYSTEM[39m) private readonly fileSystem[33m:[39m [33mFileSystemService[39m[33m,[39m[0m
-[0m [90m    | [39m                   [31m[1m^[22m[39m[0m
-[0m [90m 17 | [39m    [33m@[39minject([33mTOKENS[39m[33m.[39m[33mLOGGER[39m) private readonly logger[33m:[39m [33mLogger[39m[0m
-[0m [90m 18 | [39m  ) {}[0m
-[0m [90m 19 | [39m[0m
-
-[4m[34mlibs\backend\template-generation\src\lib\services\template-generator.service.ts:38:38[39m[24m - [31m[1merror[22m[39m [90mTS2339[39m: Property 'getWorkspaceRoot' does not exist on type 'WorkspaceAnalyzerService'.
-
-[0m [90m 36 | [39m      [90m// Get workspace root from VS Code API[39m[0m
-[0m [90m 37 | [39m      [36mconst[39m workspaceRootResult [33m=[39m[0m
-[0m[31m[1m>[22m[39m[90m 38 | [39m        await [36mthis[39m[33m.[39mworkspaceAnalyzer[33m.[39mgetWorkspaceRoot()[33m;[39m[0m
-[0m [90m    | [39m                                     [31m[1m^[22m[39m[0m
-[0m [90m 39 | [39m      [36mif[39m (workspaceRootResult[33m.[39misErr()) {[0m
-[0m [90m 40 | [39m        [36mconst[39m error [33m=[39m [36mnew[39m [33mTemplateGenerationError[39m([0m
-[0m [90m 41 | [39m          [32m'Failed to get workspace root'[39m[33m,[39m[0m
-
-[4m[34mlibs\backend\template-generation\src\lib\services\template-generator.service.ts:64:58[39m[24m - [31m[1merror[22m[39m [90mTS2339[39m: Property 'analyzeWorkspace' does not exist on type 'WorkspaceAnalyzerService'.
-
-[0m [90m 62 | [39m[0m
-[0m [90m 63 | [39m      [90m// Get project context from workspace analyzer[39m[0m
-[0m[31m[1m>[22m[39m[90m 64 | [39m      [36mconst[39m contextResult [33m=[39m await [36mthis[39m[33m.[39mworkspaceAnalyzer[33m.[39manalyzeWorkspace()[33m;[39m[0m
-[0m [90m    | [39m                                                         [31m[1m^[22m[39m[0m
-[0m [90m 65 | [39m      [36mif[39m (contextResult[33m.[39misErr()) {[0m
-[0m [90m 66 | [39m        [36mconst[39m error [33m=[39m [36mnew[39m [33mTemplateGenerationError[39m([0m
-[0m [90m 67 | [39m          [32m'Failed to analyze workspace'[39m[33m,[39m[0m
-
-[4m[34mlibs\backend\template-generation\src\lib\services\template-manager.service.ts:4:18[39m[24m - [31m[1merror[22m[39m [90mTS2305[39m: Module '"@ptah-extension/vscode-core"' has no exported member 'FileSystemService'.
-
-[0m [90m 2 | [39m[36mimport[39m { injectable[33m,[39m inject } from [32m'tsyringe'[39m[33m;[39m[0m
-[0m [90m 3 | [39m[36mimport[39m { [33mResult[39m } from [32m'@ptah-extension/shared'[39m[33m;[39m[0m
-[0m[31m[1m>[22m[39m[90m 4 | [39m[36mimport[39m { [33mLogger[39m[33m,[39m [33mFileSystemService[39m[33m,[39m [33mTOKENS[39m } from [32m'@ptah-extension/vscode-core'[39m[33m;[39m[0m
-[0m [90m   | [39m                 [31m[1m^[22m[39m[0m
-[0m [90m 5 | [39m[36mimport[39m { [33mIPtahTemplateManager[39m } from [32m'../interfaces/template-manager.interface'[39m[33m;[39m[0m
-[0m [90m 6 | [39m[36mimport[39m { [33mTemplateProcessingError[39m } from [32m'../errors'[39m[33m;[39m[0m
-[0m [90m 7 | [39m[0m
-
-[4m[34mlibs\backend\template-generation\src\lib\services\template-manager.service.ts:19:20[39m[24m - [31m[1merror[22m[39m [90mTS2339[39m: Property 'FILE_SYSTEM' does not exist on type '{ readonly EXTENSION_CONTEXT: unique symbol; readonly WEBVIEW_PROVIDER: unique symbol; readonly COMMAND_REGISTRY: unique symbol; readonly COMMAND_MANAGER: unique symbol; readonly WEBVIEW_MANAGER: unique symbol; ... 67 more ...; readonly WORKSPACE_ANALYZER: unique symbol; }'.
-
-[0m [90m 17 | [39m[0m
-[0m [90m 18 | [39m  constructor([0m
-[0m[31m[1m>[22m[39m[90m 19 | [39m    [33m@[39minject([33mTOKENS[39m[33m.[39m[33mFILE_SYSTEM[39m) private readonly fileSystem[33m:[39m [33mFileSystemService[39m[33m,[39m[0m
-[0m [90m    | [39m                   [31m[1m^[22m[39m[0m
-[0m [90m 20 | [39m    [33m@[39minject([33mTOKENS[39m[33m.[39m[33mLOGGER[39m) private readonly logger[33m:[39m [33mLogger[39m[33m,[39m[0m
-[0m [90m 21 | [39m    config[33m?[39m[33m:[39m { templateDir[33m?[39m[33m:[39m string[33m;[39m templateExt[33m?[39m[33m:[39m string }[0m
-[0m [90m 22 | [39m  ) {[0m
-
-[4m[34mlibs\backend\template-generation\src\lib\services\template-manager.service.ts:106:27[39m[24m - [31m[1merror[22m[39m [90mTS2345[39m: Argument of type 'Error | undefined' is not assignable to parameter of type 'Error'.
-  Type 'undefined' is not assignable to type 'Error'.
-
-[0m [90m 104 | [39m      [36mconst[39m loadResult [33m=[39m await [36mthis[39m[33m.[39mloadTemplate(name)[33m;[39m[0m
-[0m [90m 105 | [39m      [36mif[39m (loadResult[33m.[39misErr()) {[0m
-[0m[31m[1m>[22m[39m[90m 106 | [39m        [36mreturn[39m [33mResult[39m[33m.[39merr(loadResult[33m.[39merror)[33m;[39m[0m
-[0m [90m     | [39m                          [31m[1m^[22m[39m[0m
-[0m [90m 107 | [39m      }[0m
-[0m [90m 108 | [39m[0m
-[0m [90m 109 | [39m      let templateContent [33m=[39m loadResult[33m.[39mvalue[33m;[39m[0m
-
-[4m[34mlibs\backend\template-generation\src\lib\services\template-manager.service.ts:115:27[39m[24m - [31m[1merror[22m[39m [90mTS18048[39m: 'templateContent' is possibly 'undefined'.
-
-[0m [90m 113 | [39m        [36mconst[39m placeholder [33m=[39m [32m`{{${key}}}`[39m[33m;[39m[0m
-[0m [90m 114 | [39m        [36mconst[39m replacementValue [33m=[39m [33mString[39m(value)[33m;[39m[0m
-[0m[31m[1m>[22m[39m[90m 115 | [39m        templateContent [33m=[39m templateContent[33m.[39mreplace([0m
-[0m [90m     | [39m                          [31m[1m^[22m[39m[0m
-[0m [90m 116 | [39m          [36mnew[39m [33mRegExp[39m(placeholder[33m,[39m [32m'g'[39m)[33m,[39m[0m
-[0m [90m 117 | [39m          replacementValue[0m
-[0m [90m 118 | [39m        )[33m;[39m[0m
-
-[4m[34mlibs\backend\template-generation\src\lib\services\template-manager.service.ts:122:7[39m[24m - [31m[1merror[22m[39m [90mTS2322[39m: Type 'Result<string | undefined, never>' is not assignable to type 'Result<string, Error>'.
-  Type 'string | undefined' is not assignable to type 'string'.
-    Type 'undefined' is not assignable to type 'string'.
-
-[0m [90m 120 | [39m[0m
-[0m [90m 121 | [39m      [36mthis[39m[33m.[39mlogger[33m.[39mdebug([32m`Successfully processed template: ${name}`[39m)[33m;[39m[0m
-[0m[31m[1m>[22m[39m[90m 122 | [39m      [36mreturn[39m [33mResult[39m[33m.[39mok(templateContent)[33m;[39m[0m
-[0m [90m     | [39m      [31m[1m^[22m[39m[0m
-[0m [90m 123 | [39m    } [36mcatch[39m (error) {[0m
-[0m [90m 124 | [39m      [36mconst[39m wrappedError [33m=[39m [36mnew[39m [33mTemplateProcessingError[39m([0m
-[0m [90m 125 | [39m        [32m`Unexpected error processing template: ${name}`[39m[33m,[39m[0m
-
-Found 13 errors.
 
 
 
- NX   Running target build for 10 projects and 2 tasks they depend on failed
+ NX   Running target build for 9 projects and 2 tasks they depend on failed
 
 Tasks not run because their dependencies failed or --nx-bail=true:
 
+- @ptah-extension/template-generation:build
+- vscode-lm-tools:build
 - ptah-extension-vscode:build
+- ptah-extension-vscode:build-webpack:production
 - ptah-extension-vscode:post-build-copy
 
 Failed tasks:
 
+- @ptah-extension/workspace-intelligence:build
+- @ptah-extension/claude-domain:build
+- @ptah-extension/llm-abstraction:build
 - ptah-extension-webview:build:production
-- @ptah-extension/template-generation:build
 
-View structured, searchable error logs at https://nx.app/runs/Dz1lM5eI02
+View structured, searchable error logs at https://nx.app/runs/k0cpdv2Bqi
 

@@ -11,7 +11,6 @@ import type { SessionId } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
 import { PtahExtension } from './core/ptah-extension';
 import { DIContainer } from './di/container';
-import { ContextMessageBridgeService } from './services/context-message-bridge.service';
 
 let ptahExtension: PtahExtension | undefined;
 
@@ -30,18 +29,6 @@ export async function activate(
     const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
     logger.info('Activating Ptah extension...');
     console.log('[Activate] Step 2: Logger resolved');
-
-    // Initialize ContextMessageBridgeService (architectural bridge for file include/exclude)
-    console.log(
-      '[Activate] Step 3.5: Initializing ContextMessageBridgeService...'
-    );
-    const contextBridge = DIContainer.getContainer().resolve(
-      ContextMessageBridgeService
-    );
-    contextBridge.initialize();
-    context.subscriptions.push({ dispose: () => contextBridge.dispose() });
-    logger.info('ContextMessageBridgeService initialized');
-    console.log('[Activate] Step 3.5: ContextMessageBridgeService initialized');
 
     // Register RPC Methods (Phase 2 - TASK_2025_021)
     console.log('[Activate] Step 3.6: Registering RPC methods...');
