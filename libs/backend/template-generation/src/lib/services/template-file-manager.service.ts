@@ -1,9 +1,10 @@
 import path from 'path';
 import { injectable, inject } from 'tsyringe';
 import { Result } from '@ptah-extension/shared';
-import { Logger, FileSystemService, TOKENS } from '@ptah-extension/vscode-core';
+import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { ITemplateFileManager } from '../interfaces';
 import { TemplateFileError } from '../errors';
+import { FileSystemService } from '@ptah-extension/workspace-intelligence';
 
 /**
  * Template File Manager Service
@@ -13,7 +14,8 @@ import { TemplateFileError } from '../errors';
 @injectable()
 export class TemplateFileManagerService implements ITemplateFileManager {
   constructor(
-    @inject(TOKENS.FILE_SYSTEM) private readonly fileSystem: FileSystemService,
+    @inject(TOKENS.FILE_SYSTEM_SERVICE)
+    private readonly fileSystem: FileSystemService,
     @inject(TOKENS.LOGGER) private readonly logger: Logger
   ) {}
 
