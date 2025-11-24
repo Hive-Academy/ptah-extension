@@ -50,3 +50,14 @@ export {
 
 // File Services (Phase 2 - TASK_2025_021)
 export { ClaudeFileService, type SessionFileInfo } from './claude-file.service';
+
+// Discovery Facades (Phase 2 - TASK_2025_019)
+export {
+  AgentDiscoveryFacade,
+  type AgentSuggestion,
+} from './agent-discovery.facade';
+export { MCPDiscoveryFacade, type MCPSuggestion } from './mcp-discovery.facade';
+export {
+  CommandDiscoveryFacade,
+  type CommandSuggestion,
+} from './command-discovery.facade';
