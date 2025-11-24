@@ -20,8 +20,6 @@ export interface CommandDefinition<T = unknown> {
   readonly when?: string; // VS Code when clause for conditional availability
 }
 
-// TODO: Phase 2 - Restore analytics payload types when RPC is implemented
-
 /**
  * VS Code Command Manager with event integration
  * Provides centralized command registration and execution tracking
@@ -61,8 +59,6 @@ export class CommandManager {
         const startTime = Date.now();
 
         try {
-          // TODO: Phase 2 - Restore analytics via RPC (command execution started)
-
           // Execute the command handler
           await definition.handler(...args);
 
@@ -70,15 +66,11 @@ export class CommandManager {
 
           // Update metrics
           this.updateCommandMetrics(definition.id, duration, false);
-
-          // TODO: Phase 2 - Restore analytics via RPC (command executed successfully)
         } catch (error) {
           const duration = Date.now() - startTime;
 
           // Update error metrics
           this.updateCommandMetrics(definition.id, duration, true);
-
-          // TODO: Phase 2 - Restore analytics via RPC (command execution error)
 
           // Re-throw to maintain VS Code error handling
           throw error;

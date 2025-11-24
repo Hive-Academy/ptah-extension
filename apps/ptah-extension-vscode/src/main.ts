@@ -9,7 +9,6 @@ import type {
 } from '@ptah-extension/claude-domain';
 import type { SessionId } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
-import { AnalyticsDataCollectorAdapter } from './adapters/analytics-data-collector.adapter';
 import { PtahExtension } from './core/ptah-extension';
 import { DIContainer } from './di/container';
 import { ContextMessageBridgeService } from './services/context-message-bridge.service';
@@ -188,27 +187,9 @@ export async function activate(
 
     // Register late-binding adapters (require PtahExtension initialization)
     console.log('[Activate] Step 6: Registering late-binding adapters...');
-    const container = DIContainer.getContainer();
-
     // NOTE: CONFIGURATION_PROVIDER is now registered in DIContainer.setup()
     // It was moved there to fix dependency injection order (ConfigOrchestrationService depends on it)
-
-    // AnalyticsDataCollector adapter
-    const analyticsDataCollector = ptahExtension.getAnalyticsDataCollector();
-    if (!analyticsDataCollector) {
-      const error = 'AnalyticsDataCollector not initialized in PtahExtension';
-      console.error('[Activate] ERROR:', error);
-      throw new Error(error);
-    }
-    const analyticsCollectorAdapter = new AnalyticsDataCollectorAdapter(
-      analyticsDataCollector
-    );
-    container.register(TOKENS.ANALYTICS_DATA_COLLECTOR, {
-      useValue: analyticsCollectorAdapter,
-    });
-    logger.info('AnalyticsDataCollector adapter registered');
-    console.log('[Activate] AnalyticsDataCollector adapter registered');
-    console.log('[Activate] Step 6: Late-binding adapters registered');
+    console.log('[Activate] Step 6: Late-binding adapters registered (analytics removed)');
 
     // Register all providers, commands, and services
     console.log('[Activate] Step 7: Calling ptahExtension.registerAll()...');

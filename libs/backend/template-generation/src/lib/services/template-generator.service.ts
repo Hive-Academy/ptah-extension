@@ -8,6 +8,8 @@ import {
   ProjectContext,
 } from '../interfaces';
 import { TemplateGenerationError } from '../errors';
+import * as vscode from 'vscode';
+import path from 'path';
 
 /**
  * Template Generator Service

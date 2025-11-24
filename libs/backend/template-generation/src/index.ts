@@ -4,13 +4,13 @@
  */
 
 // Interfaces
-export * from './interfaces';
+export * from './lib/interfaces';
 
 // Errors
-export * from './errors';
+export * from './lib/errors';
 
 // Services (only export main entry point and DI registration)
-export { TemplateGeneratorService } from './services/template-generator.service';
+export { TemplateGeneratorService } from './lib/services/template-generator.service';
 
 // DI Registration
-export { registerTemplateGeneration } from './di/registration';
+export { registerTemplateGeneration } from './lib/di/registration';

@@ -19,7 +19,6 @@ import {
 
 // UPDATED: Import components from libraries
 import { ChatComponent } from '@ptah-extension/chat';
-import { AnalyticsComponent } from '@ptah-extension/analytics';
 // import { SettingsViewComponent } from '@ptah-extension/providers'; // DELETED - provider library removed
 import { LoadingSpinnerComponent } from '@ptah-extension/shared-ui';
 // import { VIEW_MESSAGE_TYPES } from '@ptah-extension/shared'; // DELETED - message types purged
@@ -29,7 +28,6 @@ import { LoadingSpinnerComponent } from '@ptah-extension/shared-ui';
   imports: [
     LoadingSpinnerComponent,
     ChatComponent,
-    AnalyticsComponent,
     // SettingsViewComponent, // DELETED - provider library removed
   ],
   templateUrl: './app.html',
@@ -77,12 +75,11 @@ export class App implements OnInit, OnDestroy {
       console.log('Step 1: COMPLETE - Initial data requested');
 
       console.log('Step 2: Notifying VS Code that webview is ready...');
-      // TODO (Phase 4): Restore notifyReady or use RPC call
       // this.vscodeService.notifyReady();
       console.log('Step 2: COMPLETE - VS Code notified (stub)');
 
       // console.log('Step 3: Initializing ProviderService...'); // DELETED - provider library removed in Phase 0
-      // this.providerService.initialize(); // TODO: Phase 2 RPC - remove provider UI dependencies
+      // this.providerService.initialize();
       // console.log('Step 3: COMPLETE - ProviderService initialized');
 
       console.log('Step 4: Handling initial view setup...');

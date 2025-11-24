@@ -129,8 +129,6 @@ export class FileSystemManager {
       // Update metrics
       this.updateOperationMetrics('read', true, content.byteLength, duration);
 
-      // TODO: Phase 2 - Restore analytics via RPC (file read operation completed)
-
       return content;
     } catch (error) {
       const duration = Date.now() - startTime;
@@ -170,8 +168,6 @@ export class FileSystemManager {
 
       // Update metrics
       this.updateOperationMetrics('write', true, content.byteLength, duration);
-
-      // TODO: Phase 2 - Restore analytics via RPC (file write operation completed)
     } catch (error) {
       const duration = Date.now() - startTime;
       this.handleFileSystemError('write', uri, undefined, error, duration);
@@ -210,8 +206,6 @@ export class FileSystemManager {
 
       // Update metrics
       this.updateOperationMetrics('delete', true, stat.size, duration);
-
-      // TODO: Phase 2 - Restore analytics via RPC (file delete operation completed)
     } catch (error) {
       const duration = Date.now() - startTime;
       this.handleFileSystemError('delete', uri, undefined, error, duration);
@@ -251,8 +245,6 @@ export class FileSystemManager {
 
       // Update metrics
       this.updateOperationMetrics('copy', true, sourceStat.size, duration);
-
-      // TODO: Phase 2 - Restore analytics via RPC (file copy operation completed)
     } catch (error) {
       const duration = Date.now() - startTime;
       this.handleFileSystemError('copy', source, target, error, duration);
@@ -292,8 +284,6 @@ export class FileSystemManager {
 
       // Update metrics
       this.updateOperationMetrics('move', true, sourceStat.size, duration);
-
-      // TODO: Phase 2 - Restore analytics via RPC (file move/rename operation completed)
     } catch (error) {
       const duration = Date.now() - startTime;
       this.handleFileSystemError('move', source, target, error, duration);
@@ -319,8 +309,6 @@ export class FileSystemManager {
 
       // Update metrics
       this.updateOperationMetrics('stat', true, 0, duration);
-
-      // TODO: Phase 2 - Restore analytics via RPC (file stat operation completed)
 
       return stat;
     } catch (error) {
@@ -360,8 +348,6 @@ export class FileSystemManager {
         filteredEntries.length,
         duration
       );
-
-      // TODO: Phase 2 - Restore analytics via RPC (directory read operation completed)
 
       return filteredEntries;
     } catch (error) {
@@ -414,12 +400,8 @@ export class FileSystemManager {
       // Add to extension subscriptions for proper cleanup
       this.context.subscriptions.push(watcher);
 
-      // TODO: Phase 2 - Restore analytics via RPC (file watcher created)
-
       return watcher;
     } catch (error) {
-      // TODO: Phase 2 - Restore error reporting via RPC
-
       throw error;
     }
   }
@@ -442,12 +424,8 @@ export class FileSystemManager {
       watcher.dispose();
       this.activeWatchers.delete(watcherId);
 
-      // TODO: Phase 2 - Restore analytics via RPC (file watcher disposed)
-
       return true;
     } catch (error) {
-      // TODO: Phase 2 - Restore error reporting via RPC
-
       return false;
     }
   }
@@ -484,10 +462,8 @@ export class FileSystemManager {
       this.activeWatchers.forEach((watcher) => watcher.dispose());
       this.activeWatchers.clear();
       this.operationMetrics.clear();
-
-      // TODO: Phase 2 - Restore analytics via RPC (file system manager disposed)
     } catch (error) {
-      // TODO: Phase 2 - Restore error reporting via RPC
+      // Silently handle disposal errors
     }
   }
 
@@ -580,7 +556,7 @@ export class FileSystemManager {
     eventType: 'created' | 'changed' | 'deleted',
     uri: vscode.Uri
   ): void {
-    // TODO: Phase 2 - Restore analytics via RPC (file watcher event)
+    // Handle file watcher events
   }
 
   /**
@@ -598,8 +574,6 @@ export class FileSystemManager {
 
     // Update metrics
     this.updateOperationMetrics(operation, false, 0, duration);
-
-    // TODO: Phase 2 - Restore error reporting via RPC
   }
 
   /**

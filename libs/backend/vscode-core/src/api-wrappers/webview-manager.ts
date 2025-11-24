@@ -155,8 +155,6 @@ export class WebviewManager {
       });
     }
 
-    // TODO: Phase 2 - Restore analytics via RPC (webview created)
-
     return panel;
   }
 
@@ -188,11 +186,7 @@ export class WebviewManager {
       console.log(`[WebviewManager] WebviewView disposed: ${viewType}`);
       this.activeWebviewViews.delete(viewType);
       this.webviewMetrics.delete(viewType);
-
-      // TODO: Phase 2 - Restore analytics via RPC (webview disposed)
     });
-
-    // TODO: Phase 2 - Restore analytics via RPC (webview created)
 
     console.log(
       `[WebviewManager] WebviewView registered successfully: ${viewType}`
@@ -229,7 +223,6 @@ export class WebviewManager {
         `[WebviewManager] Active views:`,
         Array.from(this.activeWebviewViews.keys())
       );
-      // TODO: Phase 2 - Restore error reporting via RPC
       return false;
     }
 
@@ -244,7 +237,6 @@ export class WebviewManager {
       return true;
     } catch (error) {
       console.error(`[WebviewManager] postMessage() threw error:`, error);
-      // TODO: Phase 2 - Restore error reporting via RPC
       return false;
     }
   }
@@ -347,7 +339,6 @@ export class WebviewManager {
         message.type
       );
     } else {
-      // TODO: Phase 2 - Restore error reporting via RPC
       console.error(
         `[WebviewManager] Invalid message type:`,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -364,7 +355,7 @@ export class WebviewManager {
   private handleSystemMessage(webviewId: string, message: any): void {
     switch (message.type) {
       case 'webview-ready':
-        // TODO: Phase 2 - Restore analytics via RPC (webview ready)
+        // Webview ready event
         break;
 
       case 'requestInitialData':
@@ -385,8 +376,6 @@ export class WebviewManager {
   private handleWebviewDisposal(viewType: string): void {
     this.activeWebviews.delete(viewType);
     this.webviewMetrics.delete(viewType);
-
-    // TODO: Phase 2 - Restore analytics via RPC (webview disposed)
   }
 
   /**
@@ -398,7 +387,5 @@ export class WebviewManager {
       metrics.isVisible = visible;
       metrics.lastActivity = Date.now();
     }
-
-    // TODO: Phase 2 - Restore analytics via RPC (webview visibility changed)
   }
 }

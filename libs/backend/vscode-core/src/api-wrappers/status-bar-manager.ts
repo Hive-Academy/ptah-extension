@@ -147,14 +147,8 @@ export class StatusBarManager {
       // Add to extension subscriptions for proper cleanup
       this.context.subscriptions.push(item);
 
-      // Publish item created event
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
-
       return item;
     } catch (error) {
-      // Publish error event
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
-
       // Re-throw to maintain VS Code error handling
       throw error;
     }
@@ -172,7 +166,6 @@ export class StatusBarManager {
     const item = this.statusBarItems.get(itemId);
 
     if (!item) {
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
       return false;
     }
 
@@ -208,16 +201,10 @@ export class StatusBarManager {
       // Update metrics
       this.updateItemMetrics(itemId, 'update', false);
 
-      // Publish update event
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
-
       return true;
     } catch (error) {
       // Update error metrics
       this.updateItemMetrics(itemId, 'update', true);
-
-      // Publish error event
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
 
       return false;
     }
@@ -246,13 +233,8 @@ export class StatusBarManager {
         metrics.isVisible = true;
       }
 
-      // Publish show event
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
-
       return true;
     } catch (error) {
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
-
       return false;
     }
   }
@@ -280,13 +262,8 @@ export class StatusBarManager {
         metrics.isVisible = false;
       }
 
-      // Publish hide event
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
-
       return true;
     } catch (error) {
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
-
       return false;
     }
   }
@@ -305,9 +282,6 @@ export class StatusBarManager {
 
     // Update click metrics
     this.updateItemMetrics(itemId, 'click', false);
-
-    // Publish click event
-    // TODO: Phase 2 - Restore analytics/error reporting via RPC
   }
 
   /**
@@ -373,13 +347,8 @@ export class StatusBarManager {
       this.statusBarItems.delete(itemId);
       this.itemMetrics.delete(itemId);
 
-      // Publish disposal event
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
-
       return true;
     } catch (error) {
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
-
       return false;
     }
   }
@@ -393,11 +362,8 @@ export class StatusBarManager {
       this.statusBarItems.forEach((item) => item.dispose());
       this.statusBarItems.clear();
       this.itemMetrics.clear();
-
-      // Publish disposal event
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
     } catch (error) {
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
+      // Silently handle disposal errors
     }
   }
 

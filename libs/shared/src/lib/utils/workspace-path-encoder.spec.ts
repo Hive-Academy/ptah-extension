@@ -148,7 +148,9 @@ describe('WorkspacePathEncoder', () => {
       const longPath = 'D:\\' + 'a'.repeat(520);
 
       // Act & Assert
-      expect(() => WorkspacePathEncoder.encode(longPath)).toThrow('Path too long');
+      expect(() => WorkspacePathEncoder.encode(longPath)).toThrow(
+        'Path too long'
+      );
     });
   });
 

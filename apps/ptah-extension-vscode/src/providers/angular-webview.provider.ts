@@ -13,7 +13,6 @@ import {
   ProviderManager,
 } from '@ptah-extension/ai-providers-core';
 import { CommandBuilderService } from '../services/command-builder.service';
-import { AnalyticsDataCollector } from '../services/analytics-data-collector';
 import { WebviewHtmlGenerator } from '../services/webview-html-generator';
 import { WebviewEventQueue } from '../services/webview-event-queue';
 import { WebviewInitialDataBuilder } from '../services/webview-initial-data-builder';
@@ -70,8 +69,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     @inject(TOKENS.WEBVIEW_INITIAL_DATA_BUILDER)
     private readonly initialDataBuilder: WebviewInitialDataBuilder,
     // TODO: Convert these to DI once they are available
-    private commandBuilderService: CommandBuilderService,
-    private analyticsDataCollector: AnalyticsDataCollector
+    private commandBuilderService: CommandBuilderService
   ) {
     this.htmlGenerator = new WebviewHtmlGenerator(context);
     this.initializeDevelopmentWatcher();

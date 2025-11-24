@@ -17,10 +17,6 @@ import { injectable, inject } from 'tsyringe';
 import * as vscode from 'vscode';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { SessionManager } from '@ptah-extension/claude-domain';
-import {
-  ContextManager,
-  ProviderManager,
-} from '@ptah-extension/ai-providers-core';
 import type {
   InitialDataPayload,
   InitialDataProviderInfo,
@@ -52,10 +48,6 @@ export class WebviewInitialDataBuilder {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.SESSION_MANAGER)
     private readonly sessionManager: SessionManager,
-    @inject(TOKENS.CONTEXT_MANAGER)
-    private readonly contextManager: ContextManager,
-    @inject(TOKENS.PROVIDER_MANAGER)
-    private readonly providerManager: ProviderManager,
     @inject(TOKENS.EXTENSION_CONTEXT)
     private readonly extensionContext: vscode.ExtensionContext
   ) {
@@ -70,12 +62,13 @@ export class WebviewInitialDataBuilder {
     this.logger.debug('Building initial data payload');
 
     try {
-      const [sessions, currentSession, context, providers] = await Promise.all([
+      const [sessions, currentSession] = await Promise.all([
         this.buildSessionData(),
         this.buildCurrentSession(),
-        this.buildContextInfo(),
-        this.buildProviderData(),
       ]);
+
+      const context = this.buildContextInfo();
+      const providers = this.buildProviderData();
 
       const workspaceInfo = this.buildWorkspaceInfo();
 
@@ -136,112 +129,25 @@ export class WebviewInitialDataBuilder {
   }
 
   /**
-   * Build context information
+   * Build context information (STUB - provider infrastructure removed)
    */
-  private async buildContextInfo(): Promise<InitialDataContextInfo> {
-    try {
-      const context = await this.contextManager.getCurrentContext();
-
-      return {
-        includedFiles: context.includedFiles || [],
-        excludedFiles: context.excludedFiles || [],
-        tokenEstimate: context.tokenEstimate || 0,
-        optimizations: context.optimizations?.map((opt) => ({
-          type: opt.type,
-          description: opt.description,
-          estimatedSavings: opt.estimatedSavings,
-          autoApplicable: opt.autoApplicable,
-          files: opt.files,
-        })),
-      };
-    } catch (error) {
-      this.logger.error('Failed to get context info', { error });
-
-      return {
-        includedFiles: [],
-        excludedFiles: [],
-        tokenEstimate: 0,
-      };
-    }
+  private buildContextInfo(): InitialDataContextInfo {
+    return {
+      includedFiles: [],
+      excludedFiles: [],
+      tokenEstimate: 0,
+    };
   }
 
   /**
-   * Build provider data with health information
+   * Build provider data (STUB - provider infrastructure removed)
    */
-  private async buildProviderData(): Promise<
-    InitialDataPayload['data']['providers']
-  > {
-    try {
-      const currentProvider = this.providerManager.getCurrentProvider();
-      const availableProviders = this.providerManager.getAvailableProviders();
-      const providerHealth = this.providerManager.getAllProviderHealth();
-
-      this.logger.info('[InitialDataBuilder] Building provider data', {
-        currentProviderId: currentProvider?.providerId,
-        availableCount: availableProviders.length,
-        providerIds: availableProviders.map((p) => p.providerId),
-      });
-
-      // Map providers to InitialDataProviderInfo
-      const available: readonly InitialDataProviderInfo[] =
-        availableProviders.map((p) => ({
-          id: p.providerId,
-          name: p.info.name,
-          status: p.getHealth().status,
-          capabilities: p.info.capabilities,
-        }));
-
-      // Map current provider
-      const current: InitialDataProviderInfo | null = currentProvider
-        ? {
-            id: currentProvider.providerId,
-            name: currentProvider.info.name,
-            status: currentProvider.getHealth().status,
-            capabilities: currentProvider.info.capabilities,
-          }
-        : null;
-
-      // Map health data
-      const health: Readonly<Record<string, InitialDataProviderHealth>> =
-        Object.fromEntries(
-          Object.entries(providerHealth).map(([id, h]) => [
-            id,
-            {
-              status: h.status,
-              lastCheck: h.lastCheck,
-              errorMessage: h.errorMessage,
-              responseTime: h.responseTime,
-              uptime: h.uptime,
-            },
-          ])
-        );
-
-      const result = {
-        current,
-        available,
-        health,
-      };
-
-      this.logger.info(
-        '[InitialDataBuilder] Provider data built successfully',
-        {
-          currentProviderId: result.current?.id,
-          availableCount: result.available.length,
-          availableIds: result.available.map((p) => p.id),
-          healthCount: Object.keys(result.health).length,
-        }
-      );
-
-      return result;
-    } catch (error) {
-      this.logger.error('Failed to get provider data', { error });
-
-      return {
-        current: null,
-        available: [],
-        health: {},
-      };
-    }
+  private buildProviderData(): InitialDataPayload['data']['providers'] {
+    return {
+      current: null,
+      available: [],
+      health: {},
+    };
   }
 
   /**

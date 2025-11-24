@@ -68,15 +68,6 @@ import {
   CodeExecutionMCP,
 } from '@ptah-extension/vscode-lm-tools';
 
-// Import ai-providers-core services
-import {
-  IntelligentProviderStrategy,
-  ProviderManager,
-  ContextManager,
-  ClaudeCliAdapter,
-  VsCodeLmAdapter,
-} from '@ptah-extension/ai-providers-core';
-
 // Import claude-domain services
 import {
   ClaudeCliDetector,
@@ -90,7 +81,6 @@ import {
 } from '@ptah-extension/claude-domain';
 
 // Import main app services
-import { AnalyticsDataCollector } from '../services/analytics-data-collector';
 import { CommandBuilderService } from '../services/command-builder.service';
 import { WebviewEventQueue } from '../services/webview-event-queue';
 import { WebviewInitialDataBuilder } from '../services/webview-initial-data-builder';
@@ -256,29 +246,7 @@ export class DIContainer {
     container.registerSingleton(TOKENS.CODE_EXECUTION_MCP, CodeExecutionMCP);
 
     // ========================================
-    // PHASE 3: AI Providers Core Services
-    // ========================================
-
-    // Strategy (no dependencies)
-    container.registerSingleton(
-      TOKENS.INTELLIGENT_PROVIDER_STRATEGY,
-      IntelligentProviderStrategy
-    );
-
-    // Context Manager (no dependencies)
-    container.registerSingleton(TOKENS.CONTEXT_MANAGER, ContextManager);
-
-    // Provider Manager (depends on EventBus and Strategy)
-    // CRITICAL: Must be singleton to ensure all code uses the SAME instance
-    // Otherwise providers registered in one instance won't be visible to other instances!
-    container.registerSingleton(TOKENS.PROVIDER_MANAGER, ProviderManager);
-
-    // Provider adapters
-    container.registerSingleton(TOKENS.CLAUDE_CLI_ADAPTER, ClaudeCliAdapter);
-    container.registerSingleton(TOKENS.VSCODE_LM_ADAPTER, VsCodeLmAdapter);
-
-    // ========================================
-    // PHASE 4: Claude Domain Services
+    // PHASE 3: Claude Domain Services
     // ========================================
 
     // Permission store (special string token for interface)
@@ -317,7 +285,7 @@ export class DIContainer {
     container.registerSingleton(TOKENS.SESSION_MANAGER, SessionManager);
 
     // ========================================
-    // PHASE 5: Main App Services
+    // PHASE 4: Main App Services
     // ========================================
 
     // Webview support services (Priority 2 extraction)
@@ -333,10 +301,6 @@ export class DIContainer {
       CommandBuilderService
     );
     container.registerSingleton(
-      TOKENS.ANALYTICS_DATA_COLLECTOR,
-      AnalyticsDataCollector
-    );
-    container.registerSingleton(
       TOKENS.ANGULAR_WEBVIEW_PROVIDER,
       AngularWebviewProvider
     );
@@ -347,7 +311,6 @@ export class DIContainer {
     // Adapters (registered later in main.ts after PtahExtension initialization)
     // These require the extension to be partially initialized first
     // - CONFIGURATION_PROVIDER (uses ConfigManager)
-    // - ANALYTICS_DATA_COLLECTOR (uses AnalyticsDataCollector from PtahExtension)
 
     return container;
   }

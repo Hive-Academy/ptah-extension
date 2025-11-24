@@ -126,14 +126,8 @@ export class OutputManager {
       // Add to extension subscriptions for proper cleanup
       this.context.subscriptions.push(channel);
 
-      // Publish channel created event
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
-
       return channel;
     } catch (error) {
-      // Publish error event
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
-
       // Re-throw to maintain VS Code error handling
       throw error;
     }
@@ -155,7 +149,6 @@ export class OutputManager {
     const channel = this.outputChannels.get(channelName);
 
     if (!channel) {
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
       return;
     }
 
@@ -172,15 +165,9 @@ export class OutputManager {
 
       // Update metrics
       this.updateChannelMetrics(channelName, level, false);
-
-      // Publish message written event (using analytics since we don't have specific output event)
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
     } catch (error) {
       // Update error metrics
       this.updateChannelMetrics(channelName, options.level || 'info', true);
-
-      // Publish error event
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
 
       // Re-throw to maintain error handling
       throw error;
@@ -220,13 +207,8 @@ export class OutputManager {
     try {
       channel.clear();
 
-      // Publish clear event
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
-
       return true;
     } catch (error) {
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
-
       return false;
     }
   }
@@ -249,13 +231,8 @@ export class OutputManager {
     try {
       channel.show(preserveFocus);
 
-      // Publish show event
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
-
       return true;
     } catch (error) {
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
-
       return false;
     }
   }
@@ -277,13 +254,8 @@ export class OutputManager {
     try {
       channel.hide();
 
-      // Publish hide event
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
-
       return true;
     } catch (error) {
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
-
       return false;
     }
   }
@@ -351,13 +323,8 @@ export class OutputManager {
       this.outputChannels.delete(channelName);
       this.channelMetrics.delete(channelName);
 
-      // Publish disposal event
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
-
       return true;
     } catch (error) {
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
-
       return false;
     }
   }
@@ -371,11 +338,8 @@ export class OutputManager {
       this.outputChannels.forEach((channel) => channel.dispose());
       this.outputChannels.clear();
       this.channelMetrics.clear();
-
-      // Publish disposal event
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
     } catch (error) {
-      // TODO: Phase 2 - Restore analytics/error reporting via RPC
+      // Silently handle disposal errors
     }
   }
 
