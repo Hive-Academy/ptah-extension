@@ -86,6 +86,7 @@ import {
   ClaudeCliService,
   MCPRegistrationService,
   InMemoryPermissionRulesStore,
+  SessionManager,
 } from '@ptah-extension/claude-domain';
 
 // Import main app services
@@ -311,6 +312,9 @@ export class DIContainer {
       TOKENS.MCP_REGISTRATION_SERVICE,
       MCPRegistrationService
     );
+
+    // Session management (restored for RPC - TASK_2025_021)
+    container.registerSingleton(TOKENS.SESSION_MANAGER, SessionManager);
 
     // ========================================
     // PHASE 5: Main App Services

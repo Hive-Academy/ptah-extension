@@ -3,7 +3,11 @@ import 'reflect-metadata';
 
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
-import type { ClaudeCliService } from '@ptah-extension/claude-domain';
+import type {
+  ClaudeCliService,
+  SessionManager,
+} from '@ptah-extension/claude-domain';
+import type { SessionId } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
 import { AnalyticsDataCollectorAdapter } from './adapters/analytics-data-collector.adapter';
 import { PtahExtension } from './core/ptah-extension';
@@ -46,13 +50,17 @@ export async function activate(
     const claudeCliService = DIContainer.resolve<ClaudeCliService>(
       TOKENS.CLAUDE_CLI_SERVICE
     );
+    const sessionManager = DIContainer.resolve<SessionManager>(
+      TOKENS.SESSION_MANAGER
+    );
 
-    // Session operations (placeholder - will be implemented when SessionManager is restored)
+    // Session operations (restored - TASK_2025_021)
     rpcHandler.registerMethod('session:list', async () => {
       try {
-        // TODO: Implement session listing when SessionManager is restored
-        logger.debug('RPC: session:list called (not yet implemented)');
-        return [];
+        logger.debug('RPC: session:list called');
+        const sessions = sessionManager.getAllSessions();
+        // Return SessionUIData format for frontend
+        return sessionManager.getSessionsUIData();
       } catch (error) {
         logger.error('RPC: session:list failed', error);
         throw new Error(
@@ -66,9 +74,9 @@ export async function activate(
     rpcHandler.registerMethod('session:get', async (params: any) => {
       try {
         const { id } = params;
-        // TODO: Implement session retrieval when SessionManager is restored
         logger.debug('RPC: session:get called', { id });
-        return null;
+        const session = sessionManager.getSession(id as SessionId);
+        return session ?? null;
       } catch (error) {
         logger.error('RPC: session:get failed', error);
         throw new Error(
@@ -82,9 +90,9 @@ export async function activate(
     rpcHandler.registerMethod('session:create', async (params: any) => {
       try {
         const { name } = params;
-        // TODO: Implement session creation when SessionManager is restored
         logger.debug('RPC: session:create called', { name });
-        return null;
+        const session = await sessionManager.createSession({ name });
+        return session.id;
       } catch (error) {
         logger.error('RPC: session:create failed', error);
         throw new Error(
@@ -98,8 +106,11 @@ export async function activate(
     rpcHandler.registerMethod('session:switch', async (params: any) => {
       try {
         const { id } = params;
-        // TODO: Implement session switching when SessionManager is restored
         logger.debug('RPC: session:switch called', { id });
+        const success = await sessionManager.switchSession(id as SessionId);
+        if (!success) {
+          throw new Error(`Session not found: ${id}`);
+        }
         return;
       } catch (error) {
         logger.error('RPC: session:switch failed', error);

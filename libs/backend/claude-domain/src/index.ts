@@ -9,7 +9,17 @@ export type { ClaudeInstallation } from './detector/claude-cli-detector';
 export { ClaudeCliPathResolver } from './detector/claude-cli-path-resolver';
 export type { ResolvedClaudeCliPath } from './detector/claude-cli-path-resolver';
 
-// Session Management - DELETED (orchestration services removed)
+// Session Management (restored for RPC)
+export { SessionManager } from './session/session-manager';
+export type {
+  SessionUIData,
+  ClaudeSessionInfo,
+  CreateSessionOptions,
+  AddMessageOptions,
+  SessionStatistics,
+  BulkDeleteResult,
+  IStorageService,
+} from './session/session-manager';
 
 // Command Execution
 export { CommandService } from './commands/command.service';
