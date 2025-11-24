@@ -8,10 +8,6 @@ import {
 } from '@ptah-extension/vscode-core';
 // Import from libraries instead of local services
 import { SessionManager } from '@ptah-extension/claude-domain';
-import {
-  ContextManager,
-  ProviderManager,
-} from '@ptah-extension/ai-providers-core';
 import { CommandBuilderService } from '../services/command-builder.service';
 import { WebviewHtmlGenerator } from '../services/webview-html-generator';
 import { WebviewEventQueue } from '../services/webview-event-queue';
@@ -57,11 +53,6 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.SESSION_MANAGER)
     private readonly sessionManager: SessionManager,
-    @inject(TOKENS.CONTEXT_MANAGER)
-    private readonly contextManager: ContextManager,
-    @inject(TOKENS.EVENT_BUS) private readonly eventBus: EventBus,
-    @inject(TOKENS.PROVIDER_MANAGER)
-    private readonly providerManager: ProviderManager,
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: WebviewManager,
     @inject(TOKENS.WEBVIEW_EVENT_QUEUE)

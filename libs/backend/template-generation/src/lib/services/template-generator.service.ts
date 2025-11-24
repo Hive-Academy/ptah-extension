@@ -36,19 +36,15 @@ export class TemplateGeneratorService {
   ): Promise<Result<string, Error>> {
     try {
       // Get workspace root from VS Code API
-      const workspaceRootResult =
-        await this.workspaceAnalyzer.getWorkspaceRoot();
-      if (workspaceRootResult.isErr()) {
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!workspaceRoot) {
         const error = new TemplateGenerationError(
-          'Failed to get workspace root',
-          { operation: 'getWorkspaceRoot' },
-          workspaceRootResult.error
+          'No workspace folder open',
+          { operation: 'getWorkspaceRoot' }
         );
         this.logger.error(error.message, error);
         return Result.err(error);
       }
-
-      const workspaceRoot = workspaceRootResult.value;
 
       // Build project configuration
       const projectConfig: ProjectConfig = config ?? {
@@ -62,23 +58,19 @@ export class TemplateGeneratorService {
 
       this.logger.info('Starting template generation from project context...');
 
-      // Get project context from workspace analyzer
-      const contextResult = await this.workspaceAnalyzer.analyzeWorkspace();
-      if (contextResult.isErr()) {
-        const error = new TemplateGenerationError(
-          'Failed to analyze workspace',
-          { operation: 'analyzeWorkspace' },
-          contextResult.error
-        );
-        this.logger.error(error.message, error);
-        return Result.err(error);
-      }
+      // Get project information from workspace analyzer
+      const projectInfo = await this.workspaceAnalyzer.getProjectInfo();
 
-      // Build ProjectContext from workspace analysis
+      // Build ProjectContext from project info
       const projectContext: ProjectContext = {
-        projectName: projectConfig.name,
-        projectDescription: projectConfig.description,
-        ...contextResult.value,
+        projectName: projectInfo.name,
+        projectDescription: projectInfo.description || projectConfig.description,
+        techStack: [...projectInfo.dependencies, ...projectInfo.devDependencies],
+        fileStructure: projectInfo.fileStatistics,
+        projectType: projectInfo.type,
+        totalFiles: projectInfo.totalFiles,
+        hasGitRepository: projectInfo.gitRepository,
+        version: projectInfo.version,
       };
 
       // Orchestrate template generation
@@ -112,6 +104,3 @@ export class TemplateGeneratorService {
     }
   }
 }
-
-// Add path import
-import path from 'path';
