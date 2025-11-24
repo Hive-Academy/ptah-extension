@@ -14,7 +14,7 @@
         "tsConfig": "libs/backend/template-generation/tsconfig.lib.json",
         "assets": ["libs/backend/template-generation/*.md"],
         "format": ["cjs"],
-        "external": ["tsyringe", "@langchain/core", "zod"]
+        "external": ["tsyringe", "@langchain/core", "zod", "vscode"]
       }
     },
     "test": {
