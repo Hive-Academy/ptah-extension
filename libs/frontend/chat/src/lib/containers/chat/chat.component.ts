@@ -393,24 +393,31 @@ export class ChatComponent implements OnInit {
   // Transform agent activities for display (TASK_2025_006 - Batch 4)
   readonly agentActivitiesForDisplay = computed(() => {
     const agents = this.chatService.agents();
-    return agents.map((node) => ({
-      agentId: node.agent.agentId,
-      name: node.agent.subagentType,
-      status:
-        node.status === 'complete'
-          ? ('completed' as const)
-          : ('running' as const),
-      startTime: node.agent.timestamp ?? Date.now(),
-      endTime:
-        node.status === 'complete'
-          ? (node.agent.timestamp ?? Date.now()) + (node.duration ?? 0)
-          : undefined,
-      activity:
-        node.activities.length > 0
-          ? `Used ${node.activities.length} tools`
-          : undefined,
-      result: node.status === 'complete' ? 'Task completed' : undefined,
-    }));
+    return agents.map((node) => {
+      const agent = node.agent as {
+        agentId?: string;
+        subagentType?: string;
+        timestamp?: number;
+      };
+      return {
+        agentId: agent.agentId ?? 'unknown',
+        name: agent.subagentType ?? 'Unknown Agent',
+        status:
+          node.status === 'complete'
+            ? ('completed' as const)
+            : ('running' as const),
+        startTime: agent.timestamp ?? Date.now(),
+        endTime:
+          node.status === 'complete'
+            ? (agent.timestamp ?? Date.now()) + (node.duration ?? 0)
+            : undefined,
+        activity:
+          node.activities.length > 0
+            ? `Used ${node.activities.length} tools`
+            : undefined,
+        result: node.status === 'complete' ? 'Task completed' : undefined,
+      };
+    });
   });
 
   public ngOnInit(): void {
@@ -461,7 +468,7 @@ export class ChatComponent implements OnInit {
       agent,
       contentLength: content.length,
     });
-    this.chat.sendMessage(content, agent);
+    this.chat.sendMessage(content);
   }
 
   // Event Handlers
