@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import * as matter from 'gray-matter';
+import matter from 'gray-matter';
 
 /**
  * Agent information parsed from .md file
@@ -53,7 +53,7 @@ export class AgentDiscoveryService {
   private watchers: vscode.FileSystemWatcher[] = [];
 
   constructor(
-    @inject(TOKENS.CONTEXT) private context: vscode.ExtensionContext
+    @inject(TOKENS.EXTENSION_CONTEXT) private context: vscode.ExtensionContext
   ) {}
 
   /**
@@ -77,8 +77,8 @@ export class AgentDiscoveryService {
       );
 
       const allAgents = [
-        ...projectAgents.map(a => ({ ...a, scope: 'project' as const })),
-        ...userAgents.map(a => ({ ...a, scope: 'user' as const }))
+        ...projectAgents.map((a) => ({ ...a, scope: 'project' as const })),
+        ...userAgents.map((a) => ({ ...a, scope: 'user' as const })),
       ];
 
       // Update cache
@@ -87,9 +87,11 @@ export class AgentDiscoveryService {
 
       return { success: true, agents: allAgents };
     } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       return {
         success: false,
-        error: `Failed to discover agents: ${error.message}`
+        error: `Failed to discover agents: ${errorMessage}`,
       };
     }
   }
@@ -97,7 +99,9 @@ export class AgentDiscoveryService {
   /**
    * Search agents by query
    */
-  async searchAgents(request: AgentSearchRequest): Promise<AgentDiscoveryResult> {
+  async searchAgents(
+    request: AgentSearchRequest
+  ): Promise<AgentDiscoveryResult> {
     try {
       // Ensure cache is populated
       if (this.cache.length === 0) {
@@ -111,16 +115,19 @@ export class AgentDiscoveryService {
       }
 
       const lowerQuery = query.toLowerCase();
-      const filtered = this.cache.filter(agent =>
-        agent.name.toLowerCase().includes(lowerQuery) ||
-        agent.description.toLowerCase().includes(lowerQuery)
+      const filtered = this.cache.filter(
+        (agent) =>
+          agent.name.toLowerCase().includes(lowerQuery) ||
+          agent.description.toLowerCase().includes(lowerQuery)
       );
 
       return { success: true, agents: filtered.slice(0, maxResults) };
     } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       return {
         success: false,
-        error: `Failed to search agents: ${error.message}`
+        error: `Failed to search agents: ${errorMessage}`,
       };
     }
   }
@@ -138,7 +145,7 @@ export class AgentDiscoveryService {
     );
 
     const refreshCache = () => {
-      this.discoverAgents().catch(error => {
+      this.discoverAgents().catch((error) => {
         console.error('[AgentDiscovery] Failed to refresh cache:', error);
       });
     };
@@ -157,16 +164,21 @@ export class AgentDiscoveryService {
   private async scanAgentDirectory(dir: string): Promise<AgentInfo[]> {
     try {
       const files = await fs.readdir(dir);
-      const agentFiles = files.filter(f => f.endsWith('.md'));
+      const agentFiles = files.filter((f) => f.endsWith('.md'));
 
       const agents = await Promise.all(
-        agentFiles.map(file => this.parseAgentFile(path.join(dir, file)))
+        agentFiles.map((file) => this.parseAgentFile(path.join(dir, file)))
       );
 
       return agents.filter(Boolean) as AgentInfo[];
     } catch (error) {
       // Directory doesn't exist or not accessible
-      console.debug(`[AgentDiscovery] Directory ${dir} not accessible:`, error.message);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      console.debug(
+        `[AgentDiscovery] Directory ${dir} not accessible:`,
+        errorMessage
+      );
       return [];
     }
   }
@@ -180,29 +192,38 @@ export class AgentDiscoveryService {
       const { data: frontmatter, content: prompt } = matter(content);
 
       // Validate required fields
-      if (!frontmatter.name || !frontmatter.description) {
-        console.warn(`[AgentDiscovery] Invalid agent file (missing name/description): ${filePath}`);
+      if (!frontmatter['name'] || !frontmatter['description']) {
+        console.warn(
+          `[AgentDiscovery] Invalid agent file (missing name/description): ${filePath}`
+        );
         return null;
       }
 
       // Validate name format
-      if (!/^[a-z0-9-]+$/.test(frontmatter.name)) {
-        console.warn(`[AgentDiscovery] Invalid agent name format: ${frontmatter.name}`);
+      if (!/^[a-z0-9-]+$/.test(frontmatter['name'])) {
+        console.warn(
+          `[AgentDiscovery] Invalid agent name format: ${frontmatter['name']}`
+        );
         return null;
       }
 
       return {
-        name: frontmatter.name,
-        description: frontmatter.description,
-        tools: frontmatter.tools?.split(',').map((t: string) => t.trim()),
-        model: frontmatter.model,
-        permissionMode: frontmatter.permissionMode,
+        name: frontmatter['name'],
+        description: frontmatter['description'],
+        tools: frontmatter['tools']?.split(',').map((t: string) => t.trim()),
+        model: frontmatter['model'],
+        permissionMode: frontmatter['permissionMode'],
         scope: 'project', // Will be overridden by caller
         filePath,
-        prompt: prompt.trim()
+        prompt: prompt.trim(),
       };
     } catch (error) {
-      console.error(`[AgentDiscovery] Failed to parse agent file ${filePath}:`, error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      console.error(
+        `[AgentDiscovery] Failed to parse agent file ${filePath}:`,
+        errorMessage
+      );
       return null;
     }
   }
@@ -211,7 +232,7 @@ export class AgentDiscoveryService {
    * Cleanup watchers on disposal
    */
   dispose(): void {
-    this.watchers.forEach(w => w.dispose());
+    this.watchers.forEach((w) => w.dispose());
     this.watchers = [];
   }
 }

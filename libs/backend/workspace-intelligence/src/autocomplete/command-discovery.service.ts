@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import * as matter from 'gray-matter';
+import matter from 'gray-matter';
 
 /**
  * Command information
@@ -53,7 +53,7 @@ export class CommandDiscoveryService {
   private watchers: vscode.FileSystemWatcher[] = [];
 
   constructor(
-    @inject(TOKENS.CONTEXT) private context: vscode.ExtensionContext
+    @inject(TOKENS.EXTENSION_CONTEXT) private context: vscode.ExtensionContext
   ) {}
 
   /**
@@ -81,8 +81,8 @@ export class CommandDiscoveryService {
 
       const allCommands = [
         ...builtins,
-        ...projectCommands.map(c => ({ ...c, scope: 'project' as const })),
-        ...userCommands.map(c => ({ ...c, scope: 'user' as const }))
+        ...projectCommands.map((c) => ({ ...c, scope: 'project' as const })),
+        ...userCommands.map((c) => ({ ...c, scope: 'user' as const })),
       ];
 
       // Update cache
@@ -90,9 +90,11 @@ export class CommandDiscoveryService {
 
       return { success: true, commands: allCommands };
     } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       return {
         success: false,
-        error: `Failed to discover commands: ${error.message}`
+        error: `Failed to discover commands: ${errorMessage}`,
       };
     }
   }
@@ -100,7 +102,9 @@ export class CommandDiscoveryService {
   /**
    * Search commands by query
    */
-  async searchCommands(request: CommandSearchRequest): Promise<CommandDiscoveryResult> {
+  async searchCommands(
+    request: CommandSearchRequest
+  ): Promise<CommandDiscoveryResult> {
     try {
       // Ensure cache is populated
       if (this.cache.length === 0) {
@@ -114,16 +118,19 @@ export class CommandDiscoveryService {
       }
 
       const lowerQuery = query.toLowerCase();
-      const filtered = this.cache.filter(cmd =>
-        cmd.name.toLowerCase().includes(lowerQuery) ||
-        cmd.description.toLowerCase().includes(lowerQuery)
+      const filtered = this.cache.filter(
+        (cmd) =>
+          cmd.name.toLowerCase().includes(lowerQuery) ||
+          cmd.description.toLowerCase().includes(lowerQuery)
       );
 
       return { success: true, commands: filtered.slice(0, maxResults) };
     } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       return {
         success: false,
-        error: `Failed to search commands: ${error.message}`
+        error: `Failed to search commands: ${errorMessage}`,
       };
     }
   }
@@ -141,7 +148,7 @@ export class CommandDiscoveryService {
     );
 
     const refreshCache = () => {
-      this.discoverCommands().catch(error => {
+      this.discoverCommands().catch((error) => {
         console.error('[CommandDiscovery] Failed to refresh cache:', error);
       });
     };
@@ -159,14 +166,38 @@ export class CommandDiscoveryService {
    */
   private getBuiltinCommands(): CommandInfo[] {
     return [
-      { name: 'help', description: 'List all available commands', scope: 'builtin' },
-      { name: 'clear', description: 'Clear conversation history', scope: 'builtin' },
-      { name: 'compact', description: 'Compact conversation', scope: 'builtin' },
+      {
+        name: 'help',
+        description: 'List all available commands',
+        scope: 'builtin',
+      },
+      {
+        name: 'clear',
+        description: 'Clear conversation history',
+        scope: 'builtin',
+      },
+      {
+        name: 'compact',
+        description: 'Compact conversation',
+        scope: 'builtin',
+      },
       { name: 'context', description: 'Monitor token usage', scope: 'builtin' },
-      { name: 'cost', description: 'Show API cost estimates', scope: 'builtin' },
+      {
+        name: 'cost',
+        description: 'Show API cost estimates',
+        scope: 'builtin',
+      },
       { name: 'model', description: 'Switch model', scope: 'builtin' },
-      { name: 'permissions', description: 'Manage tool permissions', scope: 'builtin' },
-      { name: 'memory', description: 'Manage long-term memory', scope: 'builtin' },
+      {
+        name: 'permissions',
+        description: 'Manage tool permissions',
+        scope: 'builtin',
+      },
+      {
+        name: 'memory',
+        description: 'Manage long-term memory',
+        scope: 'builtin',
+      },
       { name: 'sandbox', description: 'Toggle sandbox mode', scope: 'builtin' },
       { name: 'vim', description: 'Enable vim mode', scope: 'builtin' },
       { name: 'export', description: 'Export conversation', scope: 'builtin' },
@@ -174,7 +205,11 @@ export class CommandDiscoveryService {
       { name: 'status', description: 'Show session status', scope: 'builtin' },
       { name: 'mcp', description: 'Manage MCP servers', scope: 'builtin' },
       { name: 'review', description: 'Code review workflow', scope: 'builtin' },
-      { name: 'init', description: 'Initialize project config', scope: 'builtin' }
+      {
+        name: 'init',
+        description: 'Initialize project config',
+        scope: 'builtin',
+      },
       // TODO: Add remaining 17 built-in commands
     ];
   }
@@ -187,12 +222,17 @@ export class CommandDiscoveryService {
       const files = await this.getAllMarkdownFiles(dir);
 
       const commands = await Promise.all(
-        files.map(file => this.parseCommandFile(file))
+        files.map((file) => this.parseCommandFile(file))
       );
 
       return commands.filter(Boolean) as CommandInfo[];
     } catch (error) {
-      console.debug(`[CommandDiscovery] Directory ${dir} not accessible:`, error.message);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      console.debug(
+        `[CommandDiscovery] Directory ${dir} not accessible:`,
+        errorMessage
+      );
       return [];
     }
   }
@@ -218,7 +258,12 @@ export class CommandDiscoveryService {
         }
       } catch (error) {
         // Directory not accessible
-        console.debug(`[CommandDiscovery] Cannot scan ${currentDir}:`, error.message);
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        console.debug(
+          `[CommandDiscovery] Cannot scan ${currentDir}:`,
+          errorMessage
+        );
       }
     }
 
@@ -229,23 +274,32 @@ export class CommandDiscoveryService {
   /**
    * Parse command .md file with YAML frontmatter
    */
-  private async parseCommandFile(filePath: string): Promise<CommandInfo | null> {
+  private async parseCommandFile(
+    filePath: string
+  ): Promise<CommandInfo | null> {
     try {
       const content = await fs.readFile(filePath, 'utf-8');
       const { data: frontmatter, content: template } = matter(content);
 
       return {
         name: path.basename(filePath, '.md'),
-        description: frontmatter.description || 'No description',
+        description: frontmatter['description'] || 'No description',
         argumentHint: frontmatter['argument-hint'],
         scope: 'project', // Will be overridden by caller
         filePath,
         template,
-        allowedTools: frontmatter['allowed-tools']?.split(',').map((t: string) => t.trim()),
-        model: frontmatter.model
+        allowedTools: frontmatter['allowed-tools']
+          ?.split(',')
+          .map((t: string) => t.trim()),
+        model: frontmatter['model'],
       };
     } catch (error) {
-      console.error(`[CommandDiscovery] Failed to parse command file ${filePath}:`, error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      console.error(
+        `[CommandDiscovery] Failed to parse command file ${filePath}:`,
+        errorMessage
+      );
       return null;
     }
   }
@@ -254,7 +308,7 @@ export class CommandDiscoveryService {
    * Cleanup on disposal
    */
   dispose(): void {
-    this.watchers.forEach(w => w.dispose());
+    this.watchers.forEach((w) => w.dispose());
     this.watchers = [];
   }
 }

@@ -69,7 +69,7 @@ export class MCPDiscoveryService {
   private watchers: vscode.FileSystemWatcher[] = [];
 
   constructor(
-    @inject(TOKENS.CONTEXT) private context: vscode.ExtensionContext
+    @inject(TOKENS.EXTENSION_CONTEXT) private context: vscode.ExtensionContext
   ) {}
 
   /**
@@ -89,7 +89,9 @@ export class MCPDiscoveryService {
       const merged = this.mergeConfigs(configs);
 
       // Parse server definitions
-      const servers: MCPServerInfo[] = Object.entries(merged.mcpServers || {}).map(([name, config]: [string, any]) => ({
+      const servers: MCPServerInfo[] = Object.entries(
+        merged.mcpServers || {}
+      ).map(([name, config]: [string, any]) => ({
         name,
         command: config.command,
         args: config.args || [],
@@ -97,7 +99,7 @@ export class MCPDiscoveryService {
         type: config.type || 'stdio',
         url: config.url,
         status: 'unknown' as const,
-        error: undefined
+        error: undefined,
       }));
 
       // Update cache
@@ -108,9 +110,11 @@ export class MCPDiscoveryService {
 
       return { success: true, servers };
     } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       return {
         success: false,
-        error: `Failed to discover MCP servers: ${error.message}`
+        error: `Failed to discover MCP servers: ${errorMessage}`,
       };
     }
   }
@@ -118,7 +122,9 @@ export class MCPDiscoveryService {
   /**
    * Search MCP servers by query
    */
-  async searchMCPServers(request: MCPSearchRequest): Promise<MCPDiscoveryResult> {
+  async searchMCPServers(
+    request: MCPSearchRequest
+  ): Promise<MCPDiscoveryResult> {
     try {
       // Ensure cache is populated
       if (this.cache.length === 0) {
@@ -130,21 +136,23 @@ export class MCPDiscoveryService {
       // Filter by online status
       let filtered = includeOffline
         ? this.cache
-        : this.cache.filter(s => s.status === 'running');
+        : this.cache.filter((s) => s.status === 'running');
 
       // Filter by query
       if (query && query.trim() !== '') {
         const lowerQuery = query.toLowerCase();
-        filtered = filtered.filter(server =>
+        filtered = filtered.filter((server) =>
           server.name.toLowerCase().includes(lowerQuery)
         );
       }
 
       return { success: true, servers: filtered.slice(0, maxResults) };
     } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       return {
         success: false,
-        error: `Failed to search MCP servers: ${error.message}`
+        error: `Failed to search MCP servers: ${errorMessage}`,
       };
     }
   }
@@ -162,7 +170,7 @@ export class MCPDiscoveryService {
     );
 
     const refreshCache = () => {
-      this.discoverMCPServers().catch(error => {
+      this.discoverMCPServers().catch((error) => {
         console.error('[MCPDiscovery] Failed to refresh cache:', error);
       });
     };
@@ -190,7 +198,7 @@ export class MCPDiscoveryService {
     const configPaths = [
       path.join(workspaceRoot, '.mcp.json'),
       path.join(workspaceRoot, '.claude/settings.local.json'),
-      path.join(os.homedir(), '.claude/settings.local.json')
+      path.join(os.homedir(), '.claude/settings.local.json'),
     ];
 
     const configs = await Promise.all(
@@ -211,15 +219,18 @@ export class MCPDiscoveryService {
    * Merge multiple configs (later configs override earlier)
    */
   private mergeConfigs(configs: any[]): any {
-    return configs.reduce((merged, config) => {
-      return {
-        ...merged,
-        mcpServers: {
-          ...merged.mcpServers,
-          ...config.mcpServers
-        }
-      };
-    }, { mcpServers: {} });
+    return configs.reduce(
+      (merged, config) => {
+        return {
+          ...merged,
+          mcpServers: {
+            ...merged.mcpServers,
+            ...config.mcpServers,
+          },
+        };
+      },
+      { mcpServers: {} }
+    );
   }
 
   /**
@@ -229,9 +240,12 @@ export class MCPDiscoveryService {
     const expanded: Record<string, string> = {};
 
     for (const [key, value] of Object.entries(env)) {
-      expanded[key] = value.replace(/\$\{([^}:]+)(?::- ([^}]+))?\}/g, (_, varName, defaultValue) => {
-        return process.env[varName] || defaultValue || '';
-      });
+      expanded[key] = value.replace(
+        /\$\{([^}:]+)(?::- ([^}]+))?\}/g,
+        (_, varName, defaultValue) => {
+          return process.env[varName] || defaultValue || '';
+        }
+      );
     }
 
     return expanded;
@@ -243,7 +257,7 @@ export class MCPDiscoveryService {
   private async checkServerHealth(): Promise<void> {
     try {
       const result = await execAsync('claude mcp list --output-format json', {
-        timeout: 5000
+        timeout: 5000,
       });
 
       const status = JSON.parse(result.stdout);
@@ -257,7 +271,12 @@ export class MCPDiscoveryService {
         }
       }
     } catch (error) {
-      console.warn('[MCPDiscovery] Failed to check server health:', error.message);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      console.warn(
+        '[MCPDiscovery] Failed to check server health:',
+        errorMessage
+      );
       // Don't update status if health check fails
     }
   }
@@ -266,7 +285,7 @@ export class MCPDiscoveryService {
    * Cleanup on disposal
    */
   dispose(): void {
-    this.watchers.forEach(w => w.dispose());
+    this.watchers.forEach((w) => w.dispose());
     this.watchers = [];
 
     if (this.healthCheckInterval) {
