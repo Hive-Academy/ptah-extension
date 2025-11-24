@@ -1,5 +1,9 @@
 import { Injectable } from '@angular/core';
-import { SessionId, StrictChatMessage } from '@ptah-extension/shared';
+import {
+  SessionId,
+  StrictChatMessage,
+  WorkspacePathEncoder,
+} from '@ptah-extension/shared';
 
 /**
  * Session file metadata
@@ -171,22 +175,31 @@ export class ClaudeFileService {
   }
 
   /**
-   * Encode workspace path for file system (simple implementation)
+   * Encode workspace path securely using WorkspacePathEncoder
    * @param path - Workspace path to encode
-   * @returns Encoded path (safe for filesystem)
+   * @returns Encoded path (validated and safe for filesystem)
    *
-   * TODO: Use WorkspacePathEncoder from @ptah-extension/shared if available
-   * For now, simple encoding: replace special chars with underscores
+   * Security:
+   * - Prevents path traversal attacks (rejects "..")
+   * - Rejects absolute paths outside workspace
+   * - Enforces length limits
+   * - Only allows safe characters
    *
    * Examples:
-   * - "D:\projects\my-app" → "d_projects_my_app"
-   * - "/home/user/my app" → "_home_user_my_app"
+   * - "D:\projects\my-app" → "d--projects-my-app"
+   * - "/home/user/workspace" → "-home-user-workspace"
    */
   private encodeWorkspacePath(path: string): string {
-    // Simple encoding - replace special chars
-    return path
-      .replace(/[\\/:*?"<>|]/g, '_')
-      .replace(/\s+/g, '_')
-      .toLowerCase();
+    try {
+      return WorkspacePathEncoder.encode(path);
+    } catch (error) {
+      // Log security validation failure and fallback to safe default
+      console.error('Failed to encode workspace path:', error);
+      throw new Error(
+        `Invalid workspace path: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
+      );
+    }
   }
 }

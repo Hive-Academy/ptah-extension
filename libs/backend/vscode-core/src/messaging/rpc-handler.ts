@@ -27,8 +27,25 @@ import type { Logger } from '../logging/logger';
 import type { RpcMessage, RpcResponse, RpcMethodHandler } from './rpc-types';
 
 /**
+ * Allowed RPC method prefixes for security validation
+ * Only methods starting with these prefixes can be registered
+ *
+ * Security: Prevents unauthorized method registration and injection attacks
+ */
+const ALLOWED_METHOD_PREFIXES = [
+  'session:',
+  'chat:',
+  'file:',
+  'workspace:',
+  'analytics:',
+  'provider:',
+  'config:',
+  'context:',
+] as const;
+
+/**
  * RPC Handler service for routing RPC method calls
- * Manages registration and execution of RPC methods
+ * Manages registration and execution of RPC methods with security validation
  */
 @injectable()
 export class RpcHandler {
@@ -39,22 +56,40 @@ export class RpcHandler {
   }
 
   /**
-   * Register an RPC method handler
+   * Register an RPC method handler with security validation
+   * Validates method name against whitelist before registration
    * Overwrites existing handler if method name already registered
    *
    * @param name - Method name (e.g., 'session:list', 'chat:sendMessage')
    * @param handler - Async function to handle the method
+   * @throws Error if method name doesn't match allowed prefixes
    *
    * @example
+   * // Valid - starts with allowed prefix
    * rpcHandler.registerMethod('session:list', async (params) => {
    *   const sessions = await sessionManager.listSessions();
    *   return sessions;
    * });
+   *
+   * // Invalid - throws Error
+   * rpcHandler.registerMethod('malicious:hack', async () => { ... });
+   * // Error: Invalid method name "malicious:hack" - must start with allowed prefix
    */
   registerMethod(name: string, handler: RpcMethodHandler): void {
+    // Security validation: Check method name against whitelist
+    if (!this.isValidMethodName(name)) {
+      const error = `Invalid method name "${name}" - must start with allowed prefix: ${ALLOWED_METHOD_PREFIXES.join(
+        ', '
+      )}`;
+      this.logger.error(`RpcHandler: ${error}`);
+      throw new Error(error);
+    }
+
+    // Warn if overwriting existing method
     if (this.handlers.has(name)) {
       this.logger.warn(`RpcHandler: Overwriting method "${name}"`);
     }
+
     this.handlers.set(name, handler);
     this.logger.debug(`RpcHandler: Registered method "${name}"`);
   }
@@ -141,5 +176,22 @@ export class RpcHandler {
    */
   getRegisteredMethods(): string[] {
     return Array.from(this.handlers.keys());
+  }
+
+  /**
+   * Validate method name against whitelist
+   * Security check to prevent unauthorized method registration
+   *
+   * @param name - Method name to validate
+   * @returns True if method name starts with allowed prefix
+   *
+   * @example
+   * isValidMethodName('session:list')      // true
+   * isValidMethodName('chat:sendMessage')  // true
+   * isValidMethodName('malicious:hack')    // false
+   * isValidMethodName('invalid')           // false
+   */
+  private isValidMethodName(name: string): boolean {
+    return ALLOWED_METHOD_PREFIXES.some((prefix) => name.startsWith(prefix));
   }
 }
