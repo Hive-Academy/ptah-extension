@@ -75,7 +75,6 @@ import {
 // Import claude-domain services
 import {
   ClaudeCliDetector,
-  ClaudeCliLauncher,
   ProcessManager,
   PermissionService,
   ClaudeCliService,
@@ -100,6 +99,12 @@ export class DIContainer {
    * @returns Configured DependencyContainer
    */
   static setup(context: vscode.ExtensionContext): DependencyContainer {
+    // ========================================
+    // PHASE 0: Extension Context (MUST BE FIRST)
+    // ========================================
+    // Extension Context must be registered BEFORE any services that depend on it
+    container.register(TOKENS.EXTENSION_CONTEXT, { useValue: context });
+
     // ========================================
     // PHASE 1: Infrastructure Services (vscode-core)
     // ========================================
@@ -132,9 +137,6 @@ export class DIContainer {
       TOKENS.RPC_METHOD_REGISTRATION_SERVICE,
       RpcMethodRegistrationService
     );
-
-    // Extension Context (value registration)
-    container.register(TOKENS.EXTENSION_CONTEXT, { useValue: context });
 
     // ========================================
     // PHASE 2: Workspace Intelligence Services
@@ -289,7 +291,6 @@ export class DIContainer {
     container.registerSingleton(TOKENS.CLAUDE_CLI_DETECTOR, ClaudeCliDetector);
     container.registerSingleton(TOKENS.PROCESS_MANAGER, ProcessManager);
     container.registerSingleton(TOKENS.PERMISSION_SERVICE, PermissionService);
-    container.registerSingleton(TOKENS.CLAUDE_CLI_LAUNCHER, ClaudeCliLauncher);
     container.registerSingleton(TOKENS.CLAUDE_CLI_SERVICE, ClaudeCliService);
     container.registerSingleton(
       TOKENS.MCP_REGISTRATION_SERVICE,

@@ -53,13 +53,6 @@ export type {
   FileOperationOptions,
   FileWatcherConfig,
 } from './api-wrappers';
-// TODO: Phase 2 - Restore event payload types when RPC is implemented
-// CommandExecutedPayload, CommandErrorPayload,
-// WebviewMessagePayload, WebviewCreatedPayload, WebviewDisposedPayload,
-// OutputMessagePayload, OutputChannelCreatedPayload, OutputChannelErrorPayload,
-// StatusBarItemCreatedPayload, StatusBarItemUpdatedPayload, StatusBarItemClickedPayload, StatusBarItemErrorPayload,
-// FileOperationPayload, FileWatcherEventPayload, FileSystemErrorPayload
 
-// RPC System (Phase 2 - TASK_2025_021)
-export { RpcHandler } from './messaging';
+export { RpcHandler, RpcMethodRegistrationService } from './messaging';
 export type { RpcMessage, RpcResponse, RpcMethodHandler } from './messaging';

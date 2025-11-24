@@ -137,7 +137,6 @@ export const MCP_REGISTRATION_SERVICE = Symbol.for('MCPRegistrationService');
 // Core domain services (KEPT)
 export const CLAUDE_CLI_DETECTOR = Symbol.for('ClaudeCliDetector');
 export const CLAUDE_CLI_SERVICE = Symbol.for('ClaudeCliService');
-export const CLAUDE_CLI_LAUNCHER = Symbol.for('ClaudeCliLauncher');
 export const PERMISSION_SERVICE = Symbol.for('PermissionService');
 export const PROCESS_MANAGER = Symbol.for('ProcessManager');
 
@@ -288,7 +287,6 @@ export const TOKENS = {
   // ========================================
   CLAUDE_CLI_DETECTOR,
   CLAUDE_CLI_SERVICE,
-  CLAUDE_CLI_LAUNCHER,
   PERMISSION_SERVICE,
   PROCESS_MANAGER,
   STORAGE_SERVICE,

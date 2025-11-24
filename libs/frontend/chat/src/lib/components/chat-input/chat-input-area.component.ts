@@ -623,7 +623,14 @@ export class ChatInputAreaComponent implements OnInit {
       const suggestions = this.mcpDiscovery.searchServers(serverName);
       this._suggestionType.set('mcp');
       this._unifiedSuggestions.set(
-        suggestions.map((s) => ({ type: 'mcp' as const, ...s }))
+        suggestions.map((s) => {
+          const { type: _, ...rest } = s;
+          return {
+            type: 'mcp' as const,
+            ...rest,
+            description: `MCP ${s.type} server - ${s.status}`,
+          };
+        })
       );
     } else if (searchText.match(/^[a-z0-9-]+$/)) {
       // Could be agent or file - check both
@@ -642,12 +649,15 @@ export class ChatInputAreaComponent implements OnInit {
       // Add files (with icon generation)
       if (fileSuggestions.length > 0) {
         unified.push(
-          ...fileSuggestions.map((s) => ({
-            type: 'file' as const,
-            ...s,
-            icon: this.getFileIcon(s),
-            description: s.directory,
-          }))
+          ...fileSuggestions.map((s) => {
+            const { type: _, ...rest } = s;
+            return {
+              type: 'file' as const,
+              ...rest,
+              icon: this.getFileIcon(s),
+              description: s.directory,
+            };
+          })
         );
       }
 
@@ -658,12 +668,15 @@ export class ChatInputAreaComponent implements OnInit {
       const fileSuggestions = this.filePickerService.searchFiles(searchText);
       this._suggestionType.set('file');
       this._unifiedSuggestions.set(
-        fileSuggestions.map((s) => ({
-          type: 'file' as const,
-          ...s,
-          icon: this.getFileIcon(s),
-          description: s.directory,
-        }))
+        fileSuggestions.map((s) => {
+          const { type: _, ...rest } = s;
+          return {
+            type: 'file' as const,
+            ...rest,
+            icon: this.getFileIcon(s),
+            description: s.directory,
+          };
+        })
       );
     }
 

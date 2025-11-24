@@ -151,6 +151,21 @@ export class ClaudeCliService {
   }
 
   /**
+   * Spawn interactive CLI session (for InteractiveSessionManager)
+   *
+   * @param sessionId - Session ID for the interactive process
+   * @param workspaceRoot - Optional workspace root directory
+   * @returns ChildProcess for interactive communication
+   */
+  async spawnInteractiveSession(
+    sessionId: SessionId,
+    workspaceRoot?: string
+  ): Promise<import('child_process').ChildProcess> {
+    const launcher = await this.ensureLauncher();
+    return launcher.spawnInteractiveSession(sessionId, workspaceRoot);
+  }
+
+  /**
    * Ensure CLI installation is detected and cached
    */
   private async ensureInstallation(): Promise<ClaudeInstallation> {

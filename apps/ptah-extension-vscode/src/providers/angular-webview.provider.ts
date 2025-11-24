@@ -7,7 +7,10 @@ import {
 import { inject, injectable } from 'tsyringe';
 import * as vscode from 'vscode';
 // Import from libraries instead of local services
-import { SessionManager } from '@ptah-extension/claude-domain';
+import {
+  SessionManager,
+  InteractiveSessionManager,
+} from '@ptah-extension/claude-domain';
 import { type WebviewMessage } from '@ptah-extension/shared';
 import { WebviewEventQueue } from '../services/webview-event-queue';
 import { WebviewHtmlGenerator } from '../services/webview-html-generator';
@@ -52,7 +55,9 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     private readonly webviewManager: WebviewManager,
     @inject(TOKENS.WEBVIEW_EVENT_QUEUE)
     private readonly eventQueue: WebviewEventQueue,
-    @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler
+    @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
+    @inject(TOKENS.INTERACTIVE_SESSION_MANAGER)
+    private readonly interactiveSessionManager: InteractiveSessionManager
   ) {
     this.htmlGenerator = new WebviewHtmlGenerator(context);
     this.initializeDevelopmentWatcher();
@@ -71,6 +76,10 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     // CRITICAL: Register webview with WebviewManager for message routing
     this.webviewManager.registerWebviewView('ptah.main', webviewView);
     this.logger.info('Webview registered with WebviewManager as "ptah.main"');
+
+    // TASK_2025_010: Set webview for InteractiveSessionManager
+    this.interactiveSessionManager.setWebview(webviewView.webview);
+    this.logger.info('Webview set for InteractiveSessionManager');
 
     // Configure webview for Angular app
     // NOTE: context.extensionUri already points to dist/apps/ptah-extension-vscode

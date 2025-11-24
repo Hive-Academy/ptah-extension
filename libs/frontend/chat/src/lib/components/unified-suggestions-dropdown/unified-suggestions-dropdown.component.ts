@@ -1,18 +1,11 @@
-import {
-  Component,
-  input,
-  output,
-  computed,
-  signal,
-  HostListener,
-} from '@angular/core';
+import { Component, input, output, signal, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import type {
-  FileSuggestion,
   AgentSuggestion,
   MCPSuggestion,
   CommandSuggestion,
 } from '@ptah-extension/core';
+import type { FileSuggestion } from '../../services/file-picker.service';
 
 /**
  * Unified Suggestions Dropdown - Autocomplete UI for @agent, @mcp, @file, /command
@@ -34,10 +27,14 @@ import type {
  */
 
 // Type discriminated union for all suggestion types
+// Note: FileSuggestion extended with icon/description, MCP suggestion has type property renamed
 export type SuggestionItem =
-  | ({ type: 'file' } & FileSuggestion)
+  | ({ type: 'file'; icon: string; description: string } & Omit<
+      FileSuggestion,
+      'type'
+    >)
   | ({ type: 'agent' } & AgentSuggestion)
-  | ({ type: 'mcp' } & MCPSuggestion)
+  | ({ type: 'mcp' } & Omit<MCPSuggestion, 'type'> & { description: string })
   | ({ type: 'command' } & CommandSuggestion);
 
 @Component({
@@ -315,9 +312,6 @@ export class UnifiedSuggestionsDropdownComponent {
   }
 
   getDescription(item: SuggestionItem): string {
-    if (item.type === 'file') {
-      return item.directory || '';
-    }
     return item.description || '';
   }
 

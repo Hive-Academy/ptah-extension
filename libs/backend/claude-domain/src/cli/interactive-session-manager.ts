@@ -11,9 +11,11 @@
 
 import { ChildProcess } from 'child_process';
 import type * as vscode from 'vscode';
+import { injectable, inject } from 'tsyringe';
 import { SessionId } from '@ptah-extension/shared';
+import { TOKENS } from '@ptah-extension/vscode-core';
 import { SessionProcess, SessionProcessMetadata } from './session-process';
-import { ClaudeCliLauncher } from './claude-cli-launcher';
+import { ClaudeCliService } from './claude-cli.service';
 
 export interface InteractiveSessionManagerOptions {
   readonly maxQueueSize?: number;
@@ -24,14 +26,16 @@ export interface InteractiveSessionManagerOptions {
 /**
  * Manages interactive CLI sessions with message queueing and pause/resume support
  */
+@injectable()
 export class InteractiveSessionManager {
   private readonly sessions = new Map<SessionId, SessionProcess>();
   private readonly maxIdleMs: number;
   private cleanupInterval?: NodeJS.Timeout;
+  private webview: vscode.Webview | null = null;
 
   constructor(
-    private readonly cliLauncher: ClaudeCliLauncher,
-    private readonly webview: vscode.Webview,
+    @inject(TOKENS.CLAUDE_CLI_SERVICE)
+    private readonly cliService: ClaudeCliService,
     private readonly options: InteractiveSessionManagerOptions = {}
   ) {
     this.maxIdleMs = options.maxIdleMs ?? 5 * 60 * 1000; // 5 minutes default
@@ -43,6 +47,14 @@ export class InteractiveSessionManager {
   }
 
   /**
+   * Set the webview instance
+   * Must be called before sendMessage is used
+   */
+  setWebview(webview: vscode.Webview): void {
+    this.webview = webview;
+  }
+
+  /**
    * Send message to session
    * Creates session if it doesn't exist, queues if busy
    */
@@ -51,6 +63,12 @@ export class InteractiveSessionManager {
     content: string,
     files?: readonly string[]
   ): Promise<void> {
+    if (!this.webview) {
+      throw new Error(
+        'Webview not set. Call setWebview() before using InteractiveSessionManager.'
+      );
+    }
+
     let sessionProcess = this.sessions.get(sessionId);
 
     // Create session if it doesn't exist
@@ -209,6 +227,12 @@ export class InteractiveSessionManager {
    * Create new interactive session process
    */
   private async createSession(sessionId: SessionId): Promise<SessionProcess> {
+    if (!this.webview) {
+      throw new Error(
+        'Webview not set. Call setWebview() before creating sessions.'
+      );
+    }
+
     // Spawn interactive CLI process (no -p flag)
     const process = await this.spawnInteractiveProcess(sessionId);
 
@@ -233,14 +257,12 @@ export class InteractiveSessionManager {
 
   /**
    * Spawn interactive CLI process
-   * Uses ClaudeCliLauncher but without -p flag
+   * Uses ClaudeCliService to spawn interactive session
    */
   private async spawnInteractiveProcess(
     sessionId: SessionId
   ): Promise<ChildProcess> {
-    // TODO: Update ClaudeCliLauncher to support interactive mode
-    // For now, this is a placeholder that will be implemented in Phase 2
-    return this.cliLauncher.spawnInteractiveSession(sessionId);
+    return this.cliService.spawnInteractiveSession(sessionId);
   }
 
   /**
