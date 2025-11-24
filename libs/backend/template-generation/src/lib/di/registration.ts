@@ -7,6 +7,7 @@ import { TemplateProcessorService } from '../services/template-processor.service
 import { TemplateFileManagerService } from '../services/template-file-manager.service';
 import { TemplateOrchestratorService } from '../services/template-orchestrator.service';
 import { TemplateGeneratorService } from '../services/template-generator.service';
+import { FileSystemAdapter } from '../adapters/file-system.adapter';
 
 /**
  * Registers template generation services in the DI container
@@ -14,6 +15,7 @@ import { TemplateGeneratorService } from '../services/template-generator.service
  */
 export function registerTemplateGeneration(): void {
   // Register all template generation services as singletons
+  container.registerSingleton(TOKENS.FILE_SYSTEM_SERVICE, FileSystemAdapter);
   container.registerSingleton(TOKENS.TEMPLATE_MANAGER, TemplateManagerService);
   container.registerSingleton(
     TOKENS.CONTENT_PROCESSOR,

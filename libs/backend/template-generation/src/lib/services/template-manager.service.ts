@@ -1,7 +1,8 @@
 import path from 'path';
 import { injectable, inject } from 'tsyringe';
 import { Result } from '@ptah-extension/shared';
-import { Logger, FileSystemService, TOKENS } from '@ptah-extension/vscode-core';
+import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import { FileSystemAdapter } from '../adapters/file-system.adapter';
 import { IPtahTemplateManager } from '../interfaces/template-manager.interface';
 import { TemplateProcessingError } from '../errors';
 
@@ -16,7 +17,7 @@ export class TemplateManagerService implements IPtahTemplateManager {
   protected readonly templateExt: string;
 
   constructor(
-    @inject(TOKENS.FILE_SYSTEM) private readonly fileSystem: FileSystemService,
+    @inject(TOKENS.FILE_SYSTEM_SERVICE) private readonly fileSystem: FileSystemAdapter,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     config?: { templateDir?: string; templateExt?: string }
   ) {

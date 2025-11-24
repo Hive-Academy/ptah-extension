@@ -4,7 +4,7 @@ import { Result } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { ITemplateFileManager } from '../interfaces';
 import { TemplateFileError } from '../errors';
-import { FileSystemService } from '@ptah-extension/workspace-intelligence';
+import { FileSystemAdapter } from '../adapters/file-system.adapter';
 
 /**
  * Template File Manager Service
@@ -15,7 +15,7 @@ import { FileSystemService } from '@ptah-extension/workspace-intelligence';
 export class TemplateFileManagerService implements ITemplateFileManager {
   constructor(
     @inject(TOKENS.FILE_SYSTEM_SERVICE)
-    private readonly fileSystem: FileSystemService,
+    private readonly fileSystem: FileSystemAdapter,
     @inject(TOKENS.LOGGER) private readonly logger: Logger
   ) {}
 
