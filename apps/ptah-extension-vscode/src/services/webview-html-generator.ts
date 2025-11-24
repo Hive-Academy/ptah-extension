@@ -431,8 +431,8 @@ export class WebviewHtmlGenerator {
       window.ptahConfig = {
         isVSCode: true,
         theme: '${this.getThemeString(theme)}',
-        workspaceRoot: '${workspaceInfo?.path || ''}',
-        workspaceName: '${workspaceInfo?.name || ''}',
+        workspaceRoot: '${workspaceInfo?.['path'] || ''}',
+        workspaceName: '${workspaceInfo?.['name'] || ''}',
         extensionUri: '${this.context.extensionUri.toString()}',
         baseUri: '${baseUri}',
         iconUri: '${iconUri}'
@@ -517,5 +517,23 @@ export class WebviewHtmlGenerator {
       text += possible.charAt(Math.floor(Math.random() * possible.length));
     }
     return text;
+  }
+
+  public buildWorkspaceInfo(): Record<string, unknown> | null {
+    try {
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (!workspaceFolders || workspaceFolders.length === 0) {
+        return null;
+      }
+
+      const workspaceFolder = workspaceFolders[0];
+
+      return {
+        name: workspaceFolder.name,
+        path: workspaceFolder.uri.fsPath,
+      };
+    } catch (error) {
+      return null;
+    }
   }
 }

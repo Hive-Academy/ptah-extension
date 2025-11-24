@@ -1,21 +1,17 @@
-import * as vscode from 'vscode';
-import { injectable, inject } from 'tsyringe';
 import {
   TOKENS,
-  type Logger,
-  EventBus,
   WebviewManager,
+  type Logger,
 } from '@ptah-extension/vscode-core';
+import { inject, injectable } from 'tsyringe';
+import * as vscode from 'vscode';
 // Import from libraries instead of local services
 import { SessionManager } from '@ptah-extension/claude-domain';
-import { CommandBuilderService } from '../services/command-builder.service';
-import { WebviewHtmlGenerator } from '../services/webview-html-generator';
-import { WebviewEventQueue } from '../services/webview-event-queue';
-import { WebviewInitialDataBuilder } from '../services/webview-initial-data-builder';
 import {
-  type MessagePayloadMap,
-  type WebviewMessage,
+  type WebviewMessage
 } from '@ptah-extension/shared';
+import { WebviewEventQueue } from '../services/webview-event-queue';
+import { WebviewHtmlGenerator } from '../services/webview-html-generator';
 
 /**
  * Workspace information interface
@@ -57,10 +53,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     private readonly webviewManager: WebviewManager,
     @inject(TOKENS.WEBVIEW_EVENT_QUEUE)
     private readonly eventQueue: WebviewEventQueue,
-    @inject(TOKENS.WEBVIEW_INITIAL_DATA_BUILDER)
-    private readonly initialDataBuilder: WebviewInitialDataBuilder,
-    // TODO: Convert these to DI once they are available
-    private commandBuilderService: CommandBuilderService
+
   ) {
     this.htmlGenerator = new WebviewHtmlGenerator(context);
     this.initializeDevelopmentWatcher();
@@ -91,35 +84,14 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       ],
     };
 
-    // Set Angular HTML content using dedicated generator
-    // Get workspace info from initial data builder
-    const initialData = await this.initialDataBuilder.build();
-    const workspaceInfo = initialData.config.workspaceInfo;
+
+
 
     webviewView.webview.html = this.htmlGenerator.generateAngularWebviewContent(
       webviewView.webview,
-      workspaceInfo
+      this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>
     );
 
-    // Handle messages using the router
-    webviewView.webview.onDidReceiveMessage(
-      this.handleWebviewMessage.bind(this),
-      undefined,
-      this._disposables
-    );
-
-    // Handle visibility changes
-    webviewView.onDidChangeVisibility(() => {
-      if (webviewView.visible) {
-        this.sendInitialData();
-      }
-    });
-
-    // Send initial data when webview loads
-    this.sendInitialData();
-
-    // Register command to open full panel
-    this.registerPanelCommand();
   }
 
   /**
@@ -146,20 +118,10 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       }
     );
 
-    // Get workspace info from initial data builder
-    const initialData = await this.initialDataBuilder.build();
-    const workspaceInfo = initialData.config.workspaceInfo;
 
     this._panel.webview.html = this.htmlGenerator.generateAngularWebviewContent(
       this._panel.webview,
-      workspaceInfo
-    );
-
-    // Handle messages from Angular app
-    this._panel.webview.onDidReceiveMessage(
-      this.handleWebviewMessage.bind(this),
-      undefined,
-      this._disposables
+      this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>
     );
 
     // Handle panel disposal
@@ -171,8 +133,6 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       this._disposables
     );
 
-    // Send initial data
-    this.sendInitialData(this._panel.webview);
   }
 
   /**
@@ -204,110 +164,8 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     this.eventQueue.flush((event) => this.postMessageDirect(event));
   }
 
-  /**
-   * Handle messages from Angular application using EventBus
-   * Single Responsibility: Receive webview messages and publish to EventBus
-   * MessageHandlerService subscribes to EventBus and routes to orchestration services
-   *
-   * ARCHITECTURE: Webview → this.eventBus.publish() → MessageHandlerService → Orchestration Services
-   */
-  private async handleWebviewMessage(message: WebviewMessage): Promise<void> {
-    try {
-      this.logger.info(`Received webview message: ${message.type}`, {
-        hasPayload: !!message.payload,
-      });
 
-      // Handle special system messages locally (don't publish to EventBus)
-      if (message.type === 'ready' || message.type === 'webview-ready') {
-        this.logger.info('Webview ready signal received');
-        this.markWebviewReady(); // Mark as ready and flush queue
-        await this.sendInitialData();
-        return;
-      }
 
-      if (message.type === 'requestInitialData') {
-        this.logger.info('Angular requested initial data');
-        await this.sendInitialData();
-        return;
-      }
-
-      // Publish all routable messages to EventBus (exclude system messages)
-      // MessageHandlerService will handle routing to appropriate orchestration services
-      // System messages: initialData, ready, webview-ready, requestInitialData, themeChanged, navigate, error, refresh
-      const systemMessageTypes = [
-        'initialData',
-        'ready',
-        'webview-ready',
-        'requestInitialData',
-        'themeChanged',
-        'navigate',
-        'error',
-        'refresh',
-      ];
-      const isSystemMessage = systemMessageTypes.includes(message.type);
-
-      if (!isSystemMessage) {
-        this.logger.info(`Publishing message to EventBus: ${message.type}`);
-
-        // Publish to EventBus with webview as source
-        this.eventBus.publish(
-          message.type as keyof MessagePayloadMap,
-          message.payload,
-          'webview'
-        );
-
-        this.logger.info(`Message ${message.type} published to EventBus`);
-      } else {
-        // System message not handled above
-        this.logger.warn(`Unrecognized system message type: ${message.type}`);
-      }
-    } catch (error) {
-      this.logger.error('Error handling webview message:', error);
-      this.postMessage({
-        type: 'error',
-        payload: {
-          message: error instanceof Error ? error.message : 'Unknown error',
-          source: message.type,
-        },
-      });
-    }
-  }
-
-  /**
-   * Send initial data to Angular application (with guard to prevent redundant calls)
-   * Now uses WebviewInitialDataBuilder for type-safe construction
-   */
-  private async sendInitialData(webview?: vscode.Webview): Promise<void> {
-    const target = webview || this._view?.webview || this._panel?.webview;
-    if (!target) return;
-
-    // Guard: Prevent redundant initializations
-    if (this._initialDataSent) {
-      this.logger.info('Initial data already sent, skipping redundant call');
-      return;
-    }
-
-    try {
-      // Build type-safe initial data using service
-      const payload = await this.initialDataBuilder.build();
-
-      // Send to webview
-      target.postMessage({
-        type: 'initialData',
-        payload,
-      });
-
-      this._initialDataSent = true;
-      this.logger.info('Initial data sent to webview', {
-        sessionCount: payload.data.sessions.length,
-        providerCount: payload.data.providers.available.length,
-      });
-    } catch (error) {
-      // Reset flag on error to allow retry
-      this._initialDataSent = false;
-      this.logger.error('Error sending initial data:', error);
-    }
-  }
 
   /**
    * Send message to Angular application - Type-safe messaging
@@ -386,7 +244,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         `Webview file changed: ${uri.fsPath} - Reloading webview`
       );
       this.reloadWebview();
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error('Error during hot reload:', error);
     }
   }
@@ -405,13 +263,10 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     this._initialDataSent = false;
     this.eventQueue.reset(); // Webview instance changes on reload
 
-    // Get workspace info from builder
-    const payload = await this.initialDataBuilder.build();
-    const workspaceInfo = payload.config.workspaceInfo;
 
     const newHtml = this.htmlGenerator.generateAngularWebviewContent(
       webview,
-      workspaceInfo
+      this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>
     );
 
     if (this._panel?.webview) {
