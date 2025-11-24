@@ -104,23 +104,33 @@ export class TemplateManagerService implements IPtahTemplateManager {
       // Load the template
       const loadResult = await this.loadTemplate(name);
       if (loadResult.isErr()) {
-        return Result.err(loadResult.error);
+        return loadResult as Result<never, Error>;
       }
 
-      let templateContent = loadResult.value;
+      const templateContent = loadResult.value;
+      if (!templateContent) {
+        const error = new TemplateProcessingError(
+          `Template content is empty: ${name}`,
+          name,
+          { operation: 'processTemplate' }
+        );
+        this.logger.error(error.message, error);
+        return Result.err(error);
+      }
 
       // Simple variable replacement: {{variableName}}
+      let processedContent = templateContent;
       for (const [key, value] of Object.entries(context)) {
         const placeholder = `{{${key}}}`;
         const replacementValue = String(value);
-        templateContent = templateContent.replace(
+        processedContent = processedContent.replace(
           new RegExp(placeholder, 'g'),
           replacementValue
         );
       }
 
       this.logger.debug(`Successfully processed template: ${name}`);
-      return Result.ok(templateContent);
+      return Result.ok(processedContent);
     } catch (error) {
       const wrappedError = new TemplateProcessingError(
         `Unexpected error processing template: ${name}`,
