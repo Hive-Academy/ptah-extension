@@ -322,21 +322,38 @@ export class RpcMethodRegistrationService {
         // Read directory
         try {
           const files = await fs.readdir(sessionsDir);
-          const sessionFiles = files.filter((f) => f.endsWith('.jsonl'));
 
-          // Return session summaries
+          // Filter to only main sessions (UUID format), exclude agent-* files
+          // Main sessions: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.jsonl
+          // Agent sessions: agent-xxxxxxxx.jsonl (these are sub-processes, not user sessions)
+          const uuidPattern =
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$/i;
+          const mainSessionFiles = files.filter((f) => uuidPattern.test(f));
+
+          this.logger.debug('Session files filtered', {
+            total: files.filter((f) => f.endsWith('.jsonl')).length,
+            mainSessions: mainSessionFiles.length,
+            agentSessions: files.filter((f) => f.startsWith('agent-')).length,
+          });
+
+          // Return session summaries with extracted metadata
           const sessions = await Promise.all(
-            sessionFiles.map(async (file) => {
+            mainSessionFiles.map(async (file) => {
               const sessionId = path.basename(file, '.jsonl');
               const filePath = path.join(sessionsDir, file);
               const stats = await fs.stat(filePath);
 
+              // Try to extract session title from first user message
+              const sessionMeta = await this.extractSessionMetadata(filePath);
+
               return {
                 id: sessionId,
-                name: `Session ${sessionId.substring(0, 8)}`,
+                name:
+                  sessionMeta.title || `Session ${sessionId.substring(0, 8)}`,
                 lastActivityAt: stats.mtime.getTime(),
                 createdAt: stats.birthtime.getTime(),
-                messageCount: 0, // Will be populated by frontend
+                messageCount: sessionMeta.messageCount,
+                branch: sessionMeta.branch,
               };
             })
           );
@@ -473,6 +490,84 @@ export class RpcMethodRegistrationService {
     });
 
     return null;
+  }
+
+  /**
+   * Extract metadata from a session JSONL file
+   *
+   * Parses the first few lines to extract:
+   * - title: First user message content (truncated)
+   * - messageCount: Number of user/assistant message pairs
+   * - branch: Git branch from the session context
+   *
+   * @param filePath - Full path to the .jsonl session file
+   */
+  private async extractSessionMetadata(filePath: string): Promise<{
+    title: string | null;
+    messageCount: number;
+    branch: string | null;
+  }> {
+    try {
+      const content = await fs.readFile(filePath, 'utf-8');
+      const lines = content.split('\n').filter((line) => line.trim());
+
+      let title: string | null = null;
+      let branch: string | null = null;
+      let messageCount = 0;
+
+      for (const line of lines) {
+        try {
+          const msg = JSON.parse(line);
+
+          // Count user and assistant messages (not system, tool, etc.)
+          if (msg.type === 'user' || msg.type === 'assistant') {
+            messageCount++;
+          }
+
+          // Extract title from first user message
+          if (!title && msg.type === 'user' && msg.message?.content) {
+            const content = msg.message.content;
+            // Handle both string content and array content blocks
+            const textContent =
+              typeof content === 'string'
+                ? content
+                : Array.isArray(content)
+                ? content
+                    .filter((b: any) => b.type === 'text')
+                    .map((b: any) => b.text)
+                    .join(' ')
+                : '';
+
+            // Truncate to first line or 100 chars
+            title = textContent.split('\n')[0].substring(0, 100);
+            if (textContent.length > 100) {
+              title += '...';
+            }
+          }
+
+          // Extract branch from gitStatus in system message
+          if (!branch && msg.type === 'system' && msg.gitStatus) {
+            // gitStatus format includes branch info
+            const branchMatch = msg.gitStatus.match(
+              /(?:On branch|branch[:\s]+)([^\s\n]+)/i
+            );
+            if (branchMatch) {
+              branch = branchMatch[1];
+            }
+          }
+        } catch {
+          // Skip malformed JSON lines
+        }
+      }
+
+      return { title, messageCount, branch };
+    } catch (error) {
+      this.logger.debug('Failed to extract session metadata', {
+        filePath,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { title: null, messageCount: 0, branch: null };
+    }
   }
 
   /**
