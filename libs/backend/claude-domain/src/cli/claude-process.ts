@@ -165,7 +165,17 @@ export class ClaudeProcess extends EventEmitter {
   }
 
   /**
-   * Determine if shell execution is needed (Windows .cmd/.bat files)
+   * Determine if shell execution is needed
+   *
+   * CRITICAL: On Windows, npm-installed global commands (like `claude`) are
+   * .cmd wrapper scripts. Node.js spawn() with shell:false CANNOT execute
+   * .cmd files - it only works for native .exe executables.
+   *
+   * Infrastructure tests confirmed:
+   * - shell: false + "claude" → ENOENT (fails)
+   * - shell: true + "claude" → Works (uses cmd.exe to run claude.cmd)
+   *
+   * Therefore: ALWAYS use shell:true on Windows unless it's an .exe with full path.
    */
   private needsShellExecution(): boolean {
     // On non-Windows, never need shell
@@ -173,16 +183,18 @@ export class ClaudeProcess extends EventEmitter {
       return false;
     }
 
-    const path = this.cliPath.toLowerCase();
+    const pathLower = this.cliPath.toLowerCase();
 
-    // .cmd and .bat files REQUIRE shell on Windows
-    if (path.endsWith('.cmd') || path.endsWith('.bat')) {
-      return true;
+    // If it's an explicit .exe with full path, we can spawn directly
+    if (pathLower.endsWith('.exe') && pathLower.includes('\\')) {
+      return false;
     }
 
-    // Everything else (including PATH commands and .exe) can be spawned directly
-    // Node.js can resolve PATH commands without shell
-    return false;
+    // Everything else on Windows needs shell:
+    // - PATH commands like "claude" resolve to .cmd wrappers
+    // - .cmd and .bat files require shell execution
+    // - Relative paths may resolve to .cmd files
+    return true;
   }
 
   /**

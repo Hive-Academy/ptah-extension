@@ -12,6 +12,24 @@
         "${workspaceFolder}/dist/apps/ptah-extension-vscode/**/*.js"
       ],
       "preLaunchTask": "npm: build"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug infra-test with Nx",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["nx", "serve", "infra-test"],
+      "env": {
+        "NODE_OPTIONS": "--inspect=9229"
+      },
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "skipFiles": ["<node_internals>/**"],
+      "sourceMaps": true,
+      "outFiles": [
+        "${workspaceFolder}/apps/infra-test/dist/**/*.(m|c|)js",
+        "!**/node_modules/**"
+      ]
     }
   ]
 }
