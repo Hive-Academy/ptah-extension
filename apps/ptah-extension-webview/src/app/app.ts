@@ -70,45 +70,15 @@ export class App implements OnInit, OnDestroy {
     console.log('=================================================');
     console.log('PTAH APP NGONINIT STARTING');
     console.log('=================================================');
-    console.warn('🚨 APP COMPONENT: ngOnInit called!');
-    alert('PTAH App: ngOnInit starting');
+
     this.initializationStatus.set('initializing');
 
     try {
-      console.log('Step 1: Requesting initial data from extension...');
-      // Request initial data - AppStateManager handles the response
-      // this.vscodeService.postStrictMessage(VIEW_MESSAGE_TYPES.CHANGED, { // DELETED - message types purged
-      //   view: 'chat',
-      // });
       this.appState.setConnected(true);
-      console.log('Step 1: COMPLETE - Initial data requested');
 
-      console.log('Step 2: Notifying VS Code that webview is ready...');
-      // this.vscodeService.notifyReady();
-      console.log('Step 2: COMPLETE - VS Code notified (stub)');
-
-      // console.log('Step 3: Initializing ProviderService...'); // DELETED - provider library removed in Phase 0
-      // this.providerService.initialize();
-      // console.log('Step 3: COMPLETE - ProviderService initialized');
-
-      console.log('Step 4: Handling initial view setup...');
       await this.handleInitialView();
-      console.log('Step 4: COMPLETE - Initial view set up');
 
-      console.log('=================================================');
-      console.log('SETTING initializationStatus TO READY');
-      console.log(
-        'isReady() will now return:',
-        this.initializationStatus() === 'ready'
-      );
-      console.log('=================================================');
       this.initializationStatus.set('ready');
-      console.log(
-        'After set - initializationStatus():',
-        this.initializationStatus()
-      );
-      console.log('After set - isReady():', this.isReady());
-      console.log('Zone.js will automatically trigger change detection');
     } catch (error) {
       console.error('=================================================');
       console.error('PTAH APP INITIALIZATION FAILED');
