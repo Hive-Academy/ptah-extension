@@ -7,20 +7,10 @@
   </div>
   }
 
-  <!-- Main Content - View Switching -->
-  <!-- DEBUG: Render condition check -->
-  <!-- isReady: {{ isReady() }}, isLoading: {{ appState.isLoading() }} -->
-  @if (isReady() && !appState.isLoading()) { @switch (appState.currentView()) {
-  @case ('chat') {
-  <ptah-chat class="vscode-view-container" />
+  <!-- Main Content - AppShell includes sidebar and chat view -->
+  @if (isReady() && !appState.isLoading()) {
+  <ptah-app-shell class="vscode-view-container" />
   }
-  <!-- @case ('settings') { -->
-  <!-- <ptah-settings-view class="vscode-view-container" /> -->
-  <!-- DELETED - provider library removed -->
-  <!-- } -->
-  @default {
-  <ptah-chat class="vscode-view-container" />
-  } } }
 
   <!-- Error State -->
   @if (hasError()) {

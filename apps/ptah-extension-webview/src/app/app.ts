@@ -18,7 +18,7 @@ import {
 } from '@ptah-extension/core';
 
 // UPDATED: Import components from libraries
-import { ChatComponent } from '@ptah-extension/chat';
+import { AppShellComponent } from '@ptah-extension/chat';
 // import { SettingsViewComponent } from '@ptah-extension/providers'; // DELETED - provider library removed
 import { LoadingSpinnerComponent } from '@ptah-extension/shared-ui';
 // import { VIEW_MESSAGE_TYPES } from '@ptah-extension/shared'; // DELETED - message types purged
@@ -27,7 +27,7 @@ import { LoadingSpinnerComponent } from '@ptah-extension/shared-ui';
   selector: 'ptah-root',
   imports: [
     LoadingSpinnerComponent,
-    ChatComponent,
+    AppShellComponent,
     // SettingsViewComponent, // DELETED - provider library removed
   ],
   templateUrl: './app.html',
