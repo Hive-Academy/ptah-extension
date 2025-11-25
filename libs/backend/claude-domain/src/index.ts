@@ -13,10 +13,8 @@ export type { ResolvedClaudeCliPath } from './detector/claude-cli-path-resolver'
 // Session Parser - KEEP (parses .jsonl files)
 export { JsonlSessionParser } from './session/jsonl-session-parser';
 
-// CLI Services - KEEP (will simplify)
+// CLI Services - KEEP
 export { ClaudeCliService } from './cli/claude-cli.service';
-export { ClaudeCliLauncher } from './cli/claude-cli-launcher';
-export type { LauncherDependencies } from './cli/claude-cli-launcher';
 export { ProcessManager } from './cli/process-manager';
 export type { ProcessMetadata } from './cli/process-manager';
 export { MCPRegistrationService } from './cli/mcp-registration.service';

@@ -81,8 +81,7 @@ import {
   MCPRegistrationService,
   InMemoryPermissionRulesStore,
   ClaudeProcess,
-  // SessionManager - DELETED in TASK_2025_023 purge
-  // InteractiveSessionManager - DELETED in TASK_2025_023 purge
+  // DELETED in TASK_2025_023 purge: SessionManager, InteractiveSessionManager, ClaudeCliLauncher
 } from '@ptah-extension/claude-domain';
 
 // Import webview support services
@@ -304,9 +303,10 @@ export class DIContainer {
       MCPRegistrationService
     );
 
-    // Session management - DELETED in TASK_2025_023 purge
-    // SessionManager and InteractiveSessionManager removed
+    // Session management - DELETED in TASK_2025_023 purge + cleanup
+    // SessionManager, InteractiveSessionManager, ClaudeCliLauncher removed
     // New pattern: ClaudeProcess handles sessions directly via CLI --session-id flag
+    // Process lifecycle: ProcessManager tracks active processes by SessionId
 
     // ========================================
     // PHASE 4: Main App Services

@@ -6,47 +6,39 @@
  * Chat operations will be handled by new ClaudeProcess class.
  */
 
-import { SessionId } from '@ptah-extension/shared';
 import { inject, injectable } from 'tsyringe';
-import type { ExtensionContext } from 'vscode';
 import {
   ClaudeCliDetector,
   ClaudeInstallation,
 } from '../detector/claude-cli-detector';
-import { ClaudeCliLauncher } from './claude-cli-launcher';
-import { TOKENS, WebviewManager } from '@ptah-extension/vscode-core';
-import { PermissionService } from '../permissions/permission-service';
-import { ProcessManager } from './process-manager';
+import { TOKENS } from '@ptah-extension/vscode-core';
 
 /**
  * ClaudeCliService - Simplified DI facade for Claude CLI operations
  *
- * TASK_2025_023: Removed broken methods:
+ * TASK_2025_023 CLEANUP: Fully simplified to essential operations only.
+ *
+ * Removed:
  * - sendMessage() - was using print mode, killed sessions
  * - spawnInteractiveSession() - complex state machine didn't work
  * - respondToPermission() - will rebuild with new architecture
+ * - killProcess() - was broken (used uninitialized this.launcher)
  *
  * Keeping:
  * - verifyInstallation() - checks CLI is available
- * - killProcess() - cleanup utility
+ * - getInstallation() - retrieves CLI installation details
  * - clearCache() - cache management
+ *
+ * Process management now handled by ProcessManager directly
+ * (accessed via DI container, not through this service).
  */
 @injectable()
 export class ClaudeCliService {
   private cachedInstallation: ClaudeInstallation | null = null;
-  private launcher: ClaudeCliLauncher | null = null;
 
   constructor(
     @inject(TOKENS.CLAUDE_CLI_DETECTOR)
-    private readonly detector: ClaudeCliDetector,
-    @inject(TOKENS.PERMISSION_SERVICE)
-    private readonly permissionService: PermissionService,
-    @inject(TOKENS.PROCESS_MANAGER)
-    private readonly processManager: ProcessManager,
-    @inject(TOKENS.EXTENSION_CONTEXT)
-    private readonly context: ExtensionContext,
-    @inject(TOKENS.WEBVIEW_MANAGER)
-    private readonly webviewManager: WebviewManager
+    private readonly detector: ClaudeCliDetector
   ) {}
 
   /**
@@ -73,16 +65,6 @@ export class ClaudeCliService {
   }
 
   /**
-   * Kill active CLI process for a session
-   */
-  async killProcess(sessionId: SessionId): Promise<boolean> {
-    if (!sessionId || !this.launcher) {
-      return false;
-    }
-    return this.launcher.killSession(sessionId);
-  }
-
-  /**
    * Ensure CLI installation is detected and cached
    */
   private async ensureInstallation(): Promise<ClaudeInstallation> {
@@ -103,11 +85,10 @@ export class ClaudeCliService {
   }
 
   /**
-   * Clear cached installation and launcher
+   * Clear cached installation
    */
   clearCache(): void {
     this.cachedInstallation = null;
-    this.launcher = null;
     this.detector.clearCache();
   }
 }

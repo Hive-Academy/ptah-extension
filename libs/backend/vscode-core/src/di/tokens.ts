@@ -140,16 +140,10 @@ export const CLAUDE_CLI_SERVICE = Symbol.for('ClaudeCliService');
 export const PERMISSION_SERVICE = Symbol.for('PermissionService');
 export const PROCESS_MANAGER = Symbol.for('ProcessManager');
 
-// Session management (restored for RPC)
-export const SESSION_MANAGER = Symbol.for('SessionManager');
-
-// Interactive session management (TASK_2025_010)
-export const INTERACTIVE_SESSION_MANAGER = Symbol.for(
-  'InteractiveSessionManager'
-);
-
-// DELETED tokens (event-based orchestration removed)
-// SESSION_PROXY - DELETED
+// DELETED tokens (TASK_2025_023 purge)
+// SESSION_MANAGER - DELETED (in-memory session duplication)
+// INTERACTIVE_SESSION_MANAGER - DELETED (complex state machine)
+// SESSION_PROXY - DELETED (event-based orchestration removed)
 // CLAUDE_DOMAIN_EVENT_PUBLISHER - DELETED
 // CHAT_ORCHESTRATION_SERVICE - DELETED
 // PROVIDER_ORCHESTRATION_SERVICE - DELETED
@@ -291,12 +285,10 @@ export const TOKENS = {
   PROCESS_MANAGER,
   STORAGE_SERVICE,
   CONFIGURATION_PROVIDER,
-  SESSION_MANAGER, // Restored for RPC session operations
-  INTERACTIVE_SESSION_MANAGER, // Interactive session management (TASK_2025_010)
-  // DELETED: SESSION_PROXY, CLAUDE_DOMAIN_EVENT_PUBLISHER,
-  // CHAT_ORCHESTRATION_SERVICE, PROVIDER_ORCHESTRATION_SERVICE,
-  // ANALYTICS_ORCHESTRATION_SERVICE, CONFIG_ORCHESTRATION_SERVICE,
-  // MESSAGE_HANDLER_SERVICE
+  // DELETED (TASK_2025_023 cleanup): SESSION_MANAGER, INTERACTIVE_SESSION_MANAGER,
+  // SESSION_PROXY, CLAUDE_DOMAIN_EVENT_PUBLISHER, CHAT_ORCHESTRATION_SERVICE,
+  // PROVIDER_ORCHESTRATION_SERVICE, ANALYTICS_ORCHESTRATION_SERVICE,
+  // CONFIG_ORCHESTRATION_SERVICE, MESSAGE_HANDLER_SERVICE
 
   // ========================================
   // Main App Services (PARTIALLY DELETED)
