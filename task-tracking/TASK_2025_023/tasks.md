@@ -118,7 +118,75 @@ Last Updated: 2025-11-25
 
 ---
 
-## TASK COMPLETE
+## BATCH 7: Critical Bug Fixes (Post-Integration)
+
+**Discovery Date**: 2025-11-25
+**Issue**: Despite successful build, runtime testing reveals 5 critical issues preventing message sending and proper UI display.
+
+| Task | Description                                                                                     | Assignee           | Status |
+| ---- | ----------------------------------------------------------------------------------------------- | ------------------ | ------ |
+| 7.1  | Fix ChatStore async service initialization (lazy import returns null on first call)             | frontend-developer | ✅     |
+| 7.2  | Fix UI full-height layout (drawer pattern not inheriting height from parent)                    | frontend-developer | ✅     |
+| 7.3  | Remove duplicate getThemeStyles() from webview-html-generator (conflicts with Tailwind/DaisyUI) | backend-developer  | ✅     |
+| 7.4  | Fix sidebar background styling (bg-base-200 not resolving to VS Code variable)                  | frontend-developer | ✅     |
+| 7.5  | Enhance UI to match design specifications (tab-based sessions, welcome screen, bottom bar)      | frontend-developer | ✅     |
+| 7.6  | Fix ClaudeProcess spawn ENOENT error on Windows (needsShellExecution logic)                     | backend-developer  | ✅     |
+
+**Task 7.1 Git Commit**: 5fec56c
+**Task 7.2 Git Commit**: 78cad6e
+**Task 7.3 Git Commit**: f5d7320
+**Task 7.4 Git Commit**: 25857a7
+**Task 7.5 Git Commit**: 1105aad
+**Task 7.6 Git Commit**: 61e9303
+
+### Bug Analysis
+
+**7.1 - Services Not Initialized**
+
+- Location: `chat.store.ts:140-141, 218-220`
+- Root Cause: Lazy import with `import('@ptah-extension/core').then(...)` returns immediately while async import is pending
+- Error: "Services not initialized" on every sendMessage/loadSessions call
+- Fix: Use async initialization with "ready" signal or synchronous DI
+
+**7.2 - UI Not Taking Full Height**
+
+- Location: `app-shell.component.html`, `chat-view.component.html`
+- Root Cause: DaisyUI drawer `h-full` requires explicit height on parent chain
+- Fix: Add `h-screen` or explicit height to drawer container
+
+**7.3 - Duplicate Theme CSS**
+
+- Location: `webview-html-generator.ts:321-403`
+- Root Cause: `getThemeStyles()` defines redundant CSS variables that conflict with Tailwind/DaisyUI
+- Fix: Remove redundant method, rely on styles.css + tailwind.config.js
+
+**7.4 - Sidebar Background**
+
+- Location: `app-shell.component.html:66`
+- Root Cause: DaisyUI `bg-base-200` maps to `--color-base-200`, not `--vscode-sideBar-background` directly
+- Fix: Ensure CSS variable chain is correct in tailwind.config.js
+
+**7.5 - Design Mismatch**
+
+- Reference: `task-tracking/TASK_2025_023/designs/*.png`
+- Missing: Tab-based session management, mode selector, "Let's build" welcome screen, bottom bar with model selector
+
+**7.6 - ClaudeProcess Spawn Error**
+
+- Location: `claude-process.ts:170-186`
+- Root Cause: `needsShellExecution()` returned `true` for PATH commands, causing spawn to try using cmd.exe which is not accessible in VS Code extension host sandbox
+- Error: `spawn C:\WINDOWS\system32\cmd.exe ENOENT`
+- Fix: Node.js can resolve PATH commands without shell. Only .cmd and .bat files require shell execution on Windows
+
+---
+
+## BATCH 7 COMPLETION TARGET
+
+All 6 critical bugs fixed, UI matches design specifications, message sending works end-to-end.
+
+---
+
+## TASK COMPLETE (Batches 1-6)
 
 All 32 tasks across 6 batches have been completed:
 
