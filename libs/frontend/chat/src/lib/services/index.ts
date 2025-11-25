@@ -9,5 +9,8 @@ export {
   type FileSuggestion,
 } from './file-picker.service';
 
-// Chat Store (Phase 2 - TASK_2025_021)
+// LEGACY: ChatStoreService (will be removed in integration phase)
 export { ChatStoreService } from './chat-store.service';
+
+// NEW: ChatStore - Signal-based reactive store (TASK_2025_023)
+export { ChatStore } from './chat.store';

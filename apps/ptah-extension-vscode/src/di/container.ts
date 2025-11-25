@@ -82,6 +82,7 @@ import {
   InMemoryPermissionRulesStore,
   SessionManager,
   InteractiveSessionManager,
+  ClaudeProcess,
 } from '@ptah-extension/claude-domain';
 
 // Import webview support services
@@ -137,6 +138,12 @@ export class DIContainer {
       TOKENS.RPC_METHOD_REGISTRATION_SERVICE,
       RpcMethodRegistrationService
     );
+
+    // ClaudeProcess factory (Batch 4 - TASK_2025_023)
+    container.register('ClaudeProcessFactory', {
+      useValue: (cliPath: string, workspacePath: string) =>
+        new ClaudeProcess(cliPath, workspacePath),
+    });
 
     // ========================================
     // PHASE 2: Workspace Intelligence Services

@@ -1,0 +1,38 @@
+<div class="flex flex-col h-full">
+  <!-- Message List -->
+  <div class="flex-1 overflow-y-auto p-4 space-y-3" #messageContainer>
+    @for (message of chatStore.messages(); track message.id) {
+      <ptah-message-bubble [message]="message" />
+    }
+
+    <!-- Streaming indicator -->
+    @if (chatStore.isStreaming()) {
+      <div class="flex items-center gap-2 text-sm text-base-content/60 ml-4">
+        <span class="loading loading-dots loading-sm"></span>
+        Claude is responding...
+      </div>
+    }
+
+    <!-- Empty state -->
+    @if (chatStore.messages().length === 0) {
+      <div class="flex flex-col items-center justify-center h-full text-center">
+        <div class="w-16 h-16 rounded-full bg-accent/20 flex items-center justify-center mb-4">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+        </div>
+        <h3 class="text-lg font-semibold mb-2">Start a conversation</h3>
+        <p class="text-sm text-base-content/70 max-w-md">
+          Ask Claude to help with code, explain concepts, or work on tasks together.
+        </p>
+      </div>
+    }
+  </div>
+
+  <!-- Input Area (placeholder for now) -->
+  <div class="border-t border-base-300 p-4">
+    <div class="text-center text-sm text-base-content/50">
+      Input area will be added in integration phase
+    </div>
+  </div>
+</div>

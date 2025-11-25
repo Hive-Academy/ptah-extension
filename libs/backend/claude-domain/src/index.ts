@@ -1,36 +1,19 @@
 /**
  * Claude Domain - Claude CLI integration library
- * Exports all public APIs for use by extension and ai-providers-core
+ * TASK_2025_023: Purged broken CLI management systems
+ * Keeping only essential components for rebuild
  */
 
-// Detector
+// Detector - KEEP
 export { ClaudeCliDetector } from './detector/claude-cli-detector';
 export type { ClaudeInstallation } from './detector/claude-cli-detector';
 export { ClaudeCliPathResolver } from './detector/claude-cli-path-resolver';
 export type { ResolvedClaudeCliPath } from './detector/claude-cli-path-resolver';
 
-// Session Management (restored for RPC)
-export { SessionManager } from './session/session-manager';
-export type {
-  SessionUIData,
-  ClaudeSessionInfo,
-  CreateSessionOptions,
-  AddMessageOptions,
-  SessionStatistics,
-  BulkDeleteResult,
-  IStorageService,
-} from './session/session-manager';
+// Session Parser - KEEP (parses .jsonl files)
+export { JsonlSessionParser } from './session/jsonl-session-parser';
 
-// Command Execution - DELETED (use frontend chat templates instead)
-
-// Orchestration Services - DELETED (event-based architecture removed)
-// Chat Orchestration - DELETED
-// Provider Orchestration - DELETED
-// Analytics Orchestration - DELETED
-// Config Orchestration - DELETED
-// Message Handler Service (Router) - DELETED
-
-// CLI Launcher & Process Management
+// CLI Services - KEEP (will simplify)
 export { ClaudeCliService } from './cli/claude-cli.service';
 export { ClaudeCliLauncher } from './cli/claude-cli-launcher';
 export type { LauncherDependencies } from './cli/claude-cli-launcher';
@@ -38,31 +21,11 @@ export { ProcessManager } from './cli/process-manager';
 export type { ProcessMetadata } from './cli/process-manager';
 export { MCPRegistrationService } from './cli/mcp-registration.service';
 
-// Interactive Session Management
-export { InteractiveSessionManager } from './cli/interactive-session-manager';
-export type { InteractiveSessionManagerOptions } from './cli/interactive-session-manager';
-export { SessionProcess } from './cli/session-process';
-export type {
-  SessionProcessState,
-  SessionProcessMetadata,
-} from './cli/session-process';
-export { MessageQueue } from './cli/message-queue';
-export type { QueuedMessage } from './cli/message-queue';
+// ClaudeProcess - NEW (Batch 4 - TASK_2025_023)
+export { ClaudeProcess } from './cli/claude-process';
+export type { ClaudeProcessOptions } from './cli/claude-process';
 
-// JSONL Parsing
-export { JSONLStreamParser } from './cli/jsonl-stream-parser';
-export type {
-  JSONLParserCallbacks,
-  JSONLMessage,
-  JSONLSystemMessage,
-  JSONLAssistantMessage,
-  JSONLToolMessage,
-  JSONLPermissionMessage,
-  JSONLStreamEvent,
-  JSONLResultMessage,
-} from './cli/jsonl-stream-parser';
-
-// Permissions
+// Permissions - KEEP
 export { PermissionService } from './permissions/permission-service';
 export type { PermissionServiceConfig } from './permissions/permission-service';
 export {
@@ -70,7 +33,7 @@ export {
   type IPermissionRulesStore,
 } from './permissions/permission-rules.store';
 
-// Events
+// Events - KEEP
 export type {
   ClaudeContentChunkEvent,
   ClaudeThinkingEventPayload,
@@ -83,5 +46,11 @@ export type {
   ClaudeErrorEvent,
 } from './events/claude-domain.events';
 
-// NOTE: DI registration is now centralized in apps/ptah-extension-vscode/src/di/container.ts
-// No longer exporting register functions from libraries
+// ============================================================
+// PURGED (TASK_2025_023):
+// - SessionManager (in-memory duplication)
+// - InteractiveSessionManager (complex state machine)
+// - SessionProcess (message queue, backpressure)
+// - MessageQueue (unnecessary complexity)
+// - JSONLStreamParser (will simplify inline)
+// ============================================================
