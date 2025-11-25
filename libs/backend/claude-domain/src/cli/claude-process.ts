@@ -168,21 +168,21 @@ export class ClaudeProcess extends EventEmitter {
    * Determine if shell execution is needed (Windows .cmd/.bat files)
    */
   private needsShellExecution(): boolean {
+    // On non-Windows, never need shell
     if (os.platform() !== 'win32') {
       return false;
     }
 
     const path = this.cliPath.toLowerCase();
+
+    // .cmd and .bat files REQUIRE shell on Windows
     if (path.endsWith('.cmd') || path.endsWith('.bat')) {
       return true;
     }
-    if (!path.includes('\\') && !path.includes('/')) {
-      return true; // Command in PATH
-    }
-    if (path.endsWith('.exe')) {
-      return false;
-    }
-    return true;
+
+    // Everything else (including PATH commands and .exe) can be spawned directly
+    // Node.js can resolve PATH commands without shell
+    return false;
   }
 
   /**

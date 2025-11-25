@@ -309,9 +309,13 @@ export class VSCodeService {
 
       // Route chat:chunk messages to ChatStore (TASK_2025_023)
       if (message.type === 'chat:chunk') {
-        const { message: jsonlMessage } = message.data;
-        if (this.chatStore) {
+        if (message.payload && this.chatStore) {
+          const { message: jsonlMessage } = message.payload;
           this.chatStore.processJsonlChunk(jsonlMessage);
+        } else if (!message.payload) {
+          console.warn(
+            '[VSCodeService] chat:chunk received but payload is undefined!'
+          );
         } else {
           console.warn(
             '[VSCodeService] chat:chunk received but ChatStore not registered!'
@@ -321,18 +325,33 @@ export class VSCodeService {
 
       // Handle chat completion
       if (message.type === 'chat:complete') {
-        const { sessionId, code } = message.data;
-        console.log('[VSCodeService] Chat complete:', { sessionId, code });
-        // ChatStore will finalize the message when it receives result JSONL
+        if (message.payload) {
+          const { sessionId, code } = message.payload;
+          console.log('[VSCodeService] Chat complete:', { sessionId, code });
+          // ChatStore will finalize the message when it receives result JSONL
+        } else {
+          console.warn(
+            '[VSCodeService] chat:complete received but payload is undefined!'
+          );
+        }
       }
 
       // Handle chat errors
       if (message.type === 'chat:error') {
-        const { sessionId, error } = message.data;
-        console.error('[VSCodeService] Chat error:', { sessionId, error });
-        if (this.chatStore) {
-          // Set error state in ChatStore
-          this.chatStore._isStreaming?.set(false);
+        if (message.payload) {
+          const { sessionId, error } = message.payload;
+          console.error('[VSCodeService] Chat error:', { sessionId, error });
+          if (this.chatStore) {
+            // Set error state in ChatStore
+            this.chatStore._isStreaming?.set(false);
+          }
+        } else {
+          console.warn(
+            '[VSCodeService] chat:error received but payload is undefined!'
+          );
+          if (this.chatStore) {
+            this.chatStore._isStreaming?.set(false);
+          }
         }
       }
     });
