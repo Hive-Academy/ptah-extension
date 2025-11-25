@@ -8,61 +8,152 @@ import {
 import { ChatStore } from '../../services/chat.store';
 
 /**
- * ChatInputComponent - Message input with send button
+ * ChatInputComponent - Enhanced message input with bottom bar controls
  *
- * Complexity Level: 1 (Simple input component)
+ * Complexity Level: 2 (Input with model selector and autopilot toggle)
  * Patterns: Signal-based state, Composition
  *
  * Features:
  * - DaisyUI textarea with send button
+ * - Model selector dropdown
+ * - Autopilot toggle switch
  * - Shift+Enter for newlines, Enter to send
  * - Clear input after send
  * - Disable during streaming
  * - Auto-resize textarea
  *
  * SOLID Principles:
- * - Single Responsibility: Only handles message input
+ * - Single Responsibility: Message input and bottom bar controls
  * - Dependency Inversion: Injects ChatStore abstraction
  */
 @Component({
   selector: 'ptah-chat-input',
   standalone: true,
   template: `
-    <div class="flex items-end gap-2 p-4 bg-base-100">
-      <!-- Textarea -->
-      <textarea
-        #inputElement
-        class="textarea textarea-bordered flex-1 min-h-[2.5rem] max-h-[10rem] resize-none"
-        placeholder="Type your message... (Shift+Enter for new line)"
-        [value]="currentMessage()"
-        (input)="handleInput($event)"
-        (keydown)="handleKeyDown($event)"
-        [disabled]="isDisabled()"
-        rows="1"
-      ></textarea>
+    <div class="flex flex-col gap-2 p-4 bg-base-100">
+      <!-- Input Row with Textarea and Send Button -->
+      <div class="flex items-end gap-2">
+        <!-- Textarea -->
+        <textarea
+          #inputElement
+          class="textarea textarea-bordered flex-1 min-h-[2.5rem] max-h-[10rem] resize-none"
+          placeholder="Ask a question or describe a task..."
+          [value]="currentMessage()"
+          (input)="handleInput($event)"
+          (keydown)="handleKeyDown($event)"
+          [disabled]="isDisabled()"
+          rows="1"
+        ></textarea>
 
-      <!-- Send Button -->
-      <button
-        class="btn btn-primary"
-        [disabled]="!canSend()"
-        (click)="handleSend()"
-        type="button"
-      >
-        @if (chatStore.isStreaming()) {
-        <span class="loading loading-spinner loading-sm"></span>
-        } @else {
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          class="w-5 h-5"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
+        <!-- Send Button -->
+        <button
+          class="btn btn-primary"
+          [disabled]="!canSend()"
+          (click)="handleSend()"
+          type="button"
         >
-          <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
-        </svg>
-        }
-      </button>
+          @if (chatStore.isStreaming()) {
+          <span class="loading loading-spinner loading-sm"></span>
+          } @else {
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="w-5 h-5"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+          </svg>
+          }
+        </button>
+      </div>
+
+      <!-- Bottom Controls Row -->
+      <div class="flex items-center justify-between text-sm">
+        <!-- Left: Action Icons -->
+        <div class="flex items-center gap-2 text-base-content/60">
+          <button
+            class="btn btn-ghost btn-xs btn-circle"
+            title="Attach file"
+            type="button"
+          >
+            📎
+          </button>
+          <button
+            class="btn btn-ghost btn-xs btn-circle"
+            title="Mention context"
+            type="button"
+          >
+            @
+          </button>
+          <button
+            class="btn btn-ghost btn-xs btn-circle"
+            title="Add screenshot"
+            type="button"
+          >
+            📷
+          </button>
+        </div>
+
+        <!-- Right: Model Selector and Autopilot Toggle -->
+        <div class="flex items-center gap-3">
+          <!-- Model Selector -->
+          <div class="dropdown dropdown-top dropdown-end">
+            <button
+              tabindex="0"
+              class="btn btn-ghost btn-sm gap-1"
+              type="button"
+            >
+              <span class="text-xs">{{ selectedModel() }}</span>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="w-3 h-3"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+            <ul
+              tabindex="0"
+              class="dropdown-content menu p-2 shadow bg-base-200 rounded-box w-52 mb-1"
+            >
+              <li>
+                <button
+                  type="button"
+                  (click)="selectModel('Claude Sonnet 4.0')"
+                >
+                  Claude Sonnet 4.0
+                </button>
+              </li>
+              <li>
+                <button type="button" (click)="selectModel('Claude Opus 4.0')">
+                  Claude Opus 4.0
+                </button>
+              </li>
+              <li>
+                <button type="button" (click)="selectModel('Claude Haiku 3.5')">
+                  Claude Haiku 3.5
+                </button>
+              </li>
+            </ul>
+          </div>
+
+          <!-- Autopilot Toggle -->
+          <label class="flex items-center gap-2 cursor-pointer">
+            <span class="text-xs text-base-content/70">Auto</span>
+            <input
+              type="checkbox"
+              class="toggle toggle-sm toggle-primary"
+              [checked]="autopilotEnabled()"
+              (change)="toggleAutopilot()"
+            />
+          </label>
+        </div>
+      </div>
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -72,9 +163,13 @@ export class ChatInputComponent {
 
   // Local state
   private readonly _currentMessage = signal('');
+  private readonly _selectedModel = signal('Claude Sonnet 4.0');
+  private readonly _autopilotEnabled = signal(false);
 
   // Public signals
   readonly currentMessage = this._currentMessage.asReadonly();
+  readonly selectedModel = this._selectedModel.asReadonly();
+  readonly autopilotEnabled = this._autopilotEnabled.asReadonly();
 
   // Computed
   readonly isDisabled = computed(() => this.chatStore.isStreaming());
@@ -127,5 +222,21 @@ export class ChatInputComponent {
     } catch (error) {
       console.error('[ChatInputComponent] Failed to send message:', error);
     }
+  }
+
+  /**
+   * Select AI model
+   */
+  selectModel(model: string): void {
+    this._selectedModel.set(model);
+    // TODO: Integrate with backend model selection when implemented
+  }
+
+  /**
+   * Toggle autopilot mode
+   */
+  toggleAutopilot(): void {
+    this._autopilotEnabled.update((enabled) => !enabled);
+    // TODO: Integrate with backend autopilot feature when implemented
   }
 }

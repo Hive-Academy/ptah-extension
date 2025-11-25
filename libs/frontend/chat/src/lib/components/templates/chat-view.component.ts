@@ -1,6 +1,7 @@
 import {
   Component,
   inject,
+  signal,
   ViewChild,
   ElementRef,
   AfterViewChecked,
@@ -11,15 +12,19 @@ import { ChatInputComponent } from '../molecules/chat-input.component';
 import { ChatStore } from '../../services/chat.store';
 
 /**
- * ChatViewComponent - Main chat view with message list
+ * ChatViewComponent - Main chat view with message list and welcome screen
  *
- * Complexity Level: 2 (Template with auto-scroll)
- * Patterns: Signal-based state, Auto-scroll behavior
+ * Complexity Level: 2 (Template with auto-scroll and mode selection)
+ * Patterns: Signal-based state, Auto-scroll behavior, Composition
  *
- * Displays scrollable message list with empty state.
- * Auto-scrolls to bottom when new messages arrive.
+ * Features:
+ * - Scrollable message list with auto-scroll
+ * - "Let's build" welcome screen with Vibe/Spec mode selection
+ * - Mode selection state management
  *
- * Note: Input area not included yet (will be added in integration phase).
+ * SOLID Principles:
+ * - Single Responsibility: Chat view display and mode selection
+ * - Composition: Uses MessageBubble and ChatInput components
  */
 @Component({
   selector: 'ptah-chat-view',
@@ -36,10 +41,18 @@ export class ChatViewComponent implements AfterViewChecked {
 
   private shouldAutoScroll = true;
 
+  // Welcome screen mode selection (Vibe/Spec)
+  private readonly _selectedMode = signal<'vibe' | 'spec'>('vibe');
+  readonly selectedMode = this._selectedMode.asReadonly();
+
   ngAfterViewChecked(): void {
     if (this.shouldAutoScroll) {
       this.scrollToBottom();
     }
+  }
+
+  selectMode(mode: 'vibe' | 'spec'): void {
+    this._selectedMode.set(mode);
   }
 
   private scrollToBottom(): void {

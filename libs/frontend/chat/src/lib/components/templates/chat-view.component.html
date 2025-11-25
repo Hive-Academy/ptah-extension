@@ -13,30 +13,76 @@
     </div>
     }
 
-    <!-- Empty state -->
+    <!-- Empty state - "Let's build" welcome screen -->
     @if (chatStore.messages().length === 0) {
-    <div class="flex flex-col items-center justify-center h-full text-center">
-      <div
-        class="w-16 h-16 rounded-full bg-accent/20 flex items-center justify-center mb-4"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          class="w-8 h-8 text-accent"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-        >
-          <path
-            d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
-          />
-        </svg>
-      </div>
-      <h3 class="text-lg font-semibold mb-2">Start a conversation</h3>
-      <p class="text-sm text-base-content/70 max-w-md">
-        Ask Claude to help with code, explain concepts, or work on tasks
-        together.
+    <div class="flex flex-col items-center justify-center h-full text-center px-6 py-8">
+      <!-- Icon -->
+      <div class="text-6xl mb-4">✨</div>
+
+      <!-- Header -->
+      <h2 class="text-3xl font-bold mb-2">Let's build</h2>
+      <p class="text-base text-base-content/70 mb-8">
+        Plan, search, or build anything
       </p>
+
+      <!-- Mode Selection Cards -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-2xl mb-6">
+        <!-- Vibe Mode Card -->
+        <button
+          class="card bg-base-200 hover:bg-base-300 transition-colors cursor-pointer text-left"
+          [class.ring-2]="selectedMode() === 'vibe'"
+          [class.ring-primary]="selectedMode() === 'vibe'"
+          (click)="selectMode('vibe')"
+          type="button"
+        >
+          <div class="card-body p-6">
+            <div class="flex items-center gap-3 mb-2">
+              <span class="text-3xl">💬</span>
+              <h3 class="card-title text-xl">Vibe</h3>
+            </div>
+            <p class="text-sm text-base-content/70">Chat first</p>
+          </div>
+        </button>
+
+        <!-- Spec Mode Card -->
+        <button
+          class="card bg-base-200 hover:bg-base-300 transition-colors cursor-pointer text-left"
+          [class.ring-2]="selectedMode() === 'spec'"
+          [class.ring-primary]="selectedMode() === 'spec'"
+          (click)="selectMode('spec')"
+          type="button"
+        >
+          <div class="card-body p-6">
+            <div class="flex items-center gap-3 mb-2">
+              <span class="text-3xl">📋</span>
+              <h3 class="card-title text-xl">Spec</h3>
+            </div>
+            <p class="text-sm text-base-content/70">Plan first</p>
+          </div>
+        </button>
+      </div>
+
+      <!-- Selected Mode Details -->
+      @if (selectedMode() === 'vibe') {
+      <div class="text-left max-w-2xl w-full">
+        <h4 class="font-semibold mb-2">Great for:</h4>
+        <ul class="text-sm text-base-content/70 space-y-1">
+          <li>• Quick iterations and rapid prototyping</li>
+          <li>• Exploratory conversations about features</li>
+          <li>• Learning and experimentation</li>
+        </ul>
+      </div>
+      }
+      @if (selectedMode() === 'spec') {
+      <div class="text-left max-w-2xl w-full">
+        <h4 class="font-semibold mb-2">Great for:</h4>
+        <ul class="text-sm text-base-content/70 space-y-1">
+          <li>• Thinking through features before implementation</li>
+          <li>• Projects needing upfront planning</li>
+          <li>• Building features in a structured way</li>
+        </ul>
+      </div>
+      }
     </div>
     }
   </div>
