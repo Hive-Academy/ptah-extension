@@ -82,6 +82,11 @@ export class ChatStore {
       // Mark services as ready
       this._servicesReady.set(true);
       console.log('[ChatStore] Services initialized and ready');
+
+      // Auto-load sessions after services are ready
+      this.loadSessions().catch((err) => {
+        console.error('[ChatStore] Failed to auto-load sessions:', err);
+      });
     } catch (error) {
       console.error('[ChatStore] Failed to initialize services:', error);
       // Services remain null, servicesReady stays false
