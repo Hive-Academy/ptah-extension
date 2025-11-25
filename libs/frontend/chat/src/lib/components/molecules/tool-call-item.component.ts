@@ -119,13 +119,14 @@ export class ToolCallItemComponent {
         return (input?.['file_path'] as string) || 'Reading file...';
       case 'Write':
         return (input?.['file_path'] as string) || 'Writing file...';
-      case 'Bash':
+      case 'Bash': {
         const cmd = input?.['command'] as string;
         return cmd
           ? cmd.length > 50
             ? cmd.substring(0, 50) + '...'
             : cmd
           : 'Running command...';
+      }
       case 'Grep':
         return `Pattern: ${input?.['pattern'] || '...'}`;
       case 'Edit':

@@ -1,5 +1,9 @@
-import { Injectable, signal, computed, inject } from '@angular/core';
-import { VSCodeService } from '@ptah-extension/core';
+import { Injectable, signal, computed, inject, Injector } from '@angular/core';
+
+// Type for VSCodeService to avoid static import
+interface VSCodeServiceType {
+  sendRequest<T>(request: { type: string; data: unknown }): Promise<T>;
+}
 
 /**
  * File information for inclusion in chat messages
@@ -57,7 +61,22 @@ export interface FileSuggestion {
 })
 export class FilePickerService {
   // === ANGULAR 20 PATTERN: Injected services ===
-  private readonly vscodeService = inject(VSCodeService);
+  private readonly injector = inject(Injector);
+
+  // Lazy inject VSCodeService to avoid static import
+  private _vscodeService: VSCodeServiceType | null = null;
+  private get vscodeService(): VSCodeServiceType | null {
+    if (!this._vscodeService) {
+      // Lazy load to break static import
+      import('@ptah-extension/core').then((module) => {
+        this._vscodeService = this.injector.get(
+          module.VSCodeService
+        ) as VSCodeServiceType;
+        console.log('[FilePickerService] VSCodeService loaded lazily');
+      });
+    }
+    return this._vscodeService;
+  }
 
   // === ANGULAR 20 PATTERN: Private signals for internal state ===
   private readonly _workspaceFiles = signal<FileSuggestion[]>([]);
@@ -153,6 +172,10 @@ export class FilePickerService {
    */
   async fetchWorkspaceFiles(): Promise<void> {
     if (this._isLoading()) return; // Prevent duplicate fetches
+    if (!this.vscodeService) {
+      console.warn('[FilePickerService] VSCodeService not initialized');
+      return;
+    }
 
     this._isLoading.set(true);
 

@@ -417,8 +417,8 @@ export class ChatStore {
     }
   }
 
-  private handleResultMessage(chunk: JSONLMessage): void {
-    // Finalize current message
+  private handleResultMessage(_chunk: JSONLMessage): void {
+    // Finalize current message (chunk contains final metrics, stored in message if needed)
     this.finalizeCurrentMessage();
   }
 
