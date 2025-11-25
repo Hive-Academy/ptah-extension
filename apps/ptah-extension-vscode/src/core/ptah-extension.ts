@@ -9,7 +9,7 @@ import type {
   WebviewManager,
 } from '@ptah-extension/vscode-core';
 import type { WorkspaceAnalyzerService } from '@ptah-extension/workspace-intelligence';
-import type { SessionManager } from '@ptah-extension/claude-domain';
+// SessionManager DELETED in TASK_2025_023 purge - sessions now managed by ClaudeProcess
 import { AngularWebviewProvider } from '../providers/angular-webview.provider';
 
 export interface ServiceDependencies {
@@ -20,7 +20,7 @@ export interface ServiceDependencies {
   commandManager: CommandManager;
   webviewManager: WebviewManager;
 
-  sessionManager: SessionManager; // DI-resolved from claude-domain
+  // sessionManager DELETED in TASK_2025_023 - ClaudeProcess handles sessions via CLI --session-id
   workspaceAnalyzer: WorkspaceAnalyzerService; // DI-resolved from workspace-intelligence
   angularWebviewProvider: AngularWebviewProvider;
 }
@@ -40,7 +40,7 @@ export class PtahExtension implements vscode.Disposable {
   private webviewManager: WebviewManager;
 
   // DI-resolved domain services (TASK_CORE_001 - Phase 3)
-  private sessionManager?: SessionManager; // From claude-domain
+  // sessionManager DELETED in TASK_2025_023 - ClaudeProcess handles sessions
   private workspaceAnalyzer?: WorkspaceAnalyzerService; // From workspace-intelligence
 
   // Webview provider
@@ -137,9 +137,7 @@ export class PtahExtension implements vscode.Disposable {
 
     try {
       // Resolve domain services from DI (TASK_CORE_001 - Phase 3)
-      this.sessionManager = DIContainer.resolve<SessionManager>(
-        TOKENS.SESSION_MANAGER
-      );
+      // SessionManager DELETED in TASK_2025_023 - ClaudeProcess handles sessions via CLI --session-id
       this.workspaceAnalyzer = DIContainer.resolve<WorkspaceAnalyzerService>(
         TOKENS.WORKSPACE_ANALYZER_SERVICE
       );
@@ -161,7 +159,7 @@ export class PtahExtension implements vscode.Disposable {
         configManager: this.configManager,
         commandManager: this.commandManager,
         webviewManager: this.webviewManager,
-        sessionManager: this.sessionManager,
+        // sessionManager DELETED - sessions now via ClaudeProcess + CLI
         workspaceAnalyzer: this.workspaceAnalyzer,
         angularWebviewProvider: this.angularWebviewProvider,
       };
