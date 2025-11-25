@@ -309,16 +309,15 @@ export class RpcMethodRegistrationService {
         const { workspacePath } = params;
         this.logger.debug('RPC: session:list called', { workspacePath });
 
-        // Build Claude sessions directory path
-        // Format: ~/.claude/projects/<workspace-path-escaped>/
-        const homeDir = os.homedir();
-        const workspaceKey = this.escapeWorkspacePath(workspacePath);
-        const sessionsDir = path.join(
-          homeDir,
-          '.claude',
-          'projects',
-          workspaceKey
-        );
+        // Find the sessions directory for this workspace
+        const sessionsDir = await this.findSessionsDirectory(workspacePath);
+
+        if (!sessionsDir) {
+          this.logger.debug('No sessions directory found for workspace', {
+            workspacePath,
+          });
+          return [];
+        }
 
         // Read directory
         try {
@@ -370,16 +369,14 @@ export class RpcMethodRegistrationService {
           workspacePath,
         });
 
-        // Build session file path
-        const homeDir = os.homedir();
-        const workspaceKey = this.escapeWorkspacePath(workspacePath);
-        const sessionFile = path.join(
-          homeDir,
-          '.claude',
-          'projects',
-          workspaceKey,
-          `${sessionId}.jsonl`
-        );
+        // Find the sessions directory for this workspace
+        const sessionsDir = await this.findSessionsDirectory(workspacePath);
+
+        if (!sessionsDir) {
+          throw new Error('Sessions directory not found for workspace');
+        }
+
+        const sessionFile = path.join(sessionsDir, `${sessionId}.jsonl`);
 
         // Read and parse JSONL file
         const content = await fs.readFile(sessionFile, 'utf-8');
@@ -405,20 +402,77 @@ export class RpcMethodRegistrationService {
   }
 
   /**
-   * Escape workspace path for Claude sessions directory
+   * Find the Claude CLI sessions directory for a workspace
    *
-   * Claude CLI escapes workspace paths by:
-   * 1. Lowercasing the entire path
-   * 2. Replacing colons (:) and slashes (/\) with hyphens (-)
-   * 3. NOT removing leading/trailing hyphens
+   * Claude CLI stores sessions in ~/.claude/projects/<escaped-path>/
+   * The path escaping algorithm has varied between versions and may have
+   * inconsistent casing. This method uses a robust matching strategy:
    *
-   * Examples:
-   * - "D:\projects\ptah-extension" -> "d--projects-ptah-extension"
-   * - "D:/projects/ptah-extension" -> "d--projects-ptah-extension"
-   * - "/home/user/project" -> "-home-user-project"
+   * 1. Generate candidate escaped paths (lowercase, original case, uppercase)
+   * 2. List all directories in ~/.claude/projects/
+   * 3. Find a case-insensitive match
+   *
+   * This approach handles:
+   * - Different OS path formats (Windows backslash, Unix forward slash)
+   * - Claude CLI version differences in path escaping
+   * - Case sensitivity variations across operating systems
+   *
+   * @param workspacePath - The workspace path from VS Code (e.g., "D:\projects\ptah")
+   * @returns The full path to the sessions directory, or null if not found
    */
-  private escapeWorkspacePath(workspacePath: string): string {
-    return workspacePath.toLowerCase().replace(/[:\\/]/g, '-');
+  private async findSessionsDirectory(
+    workspacePath: string
+  ): Promise<string | null> {
+    const homeDir = os.homedir();
+    const projectsDir = path.join(homeDir, '.claude', 'projects');
+
+    // Check if projects directory exists
+    try {
+      await fs.access(projectsDir);
+    } catch {
+      this.logger.debug('Claude projects directory does not exist', {
+        projectsDir,
+      });
+      return null;
+    }
+
+    // Generate the escaped path pattern (replace : and /\ with -)
+    const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
+
+    // List all project directories
+    const dirs = await fs.readdir(projectsDir);
+
+    // Try exact match first (case-sensitive)
+    if (dirs.includes(escapedPath)) {
+      return path.join(projectsDir, escapedPath);
+    }
+
+    // Try lowercase match
+    const lowerEscaped = escapedPath.toLowerCase();
+    const lowerMatch = dirs.find((d) => d.toLowerCase() === lowerEscaped);
+    if (lowerMatch) {
+      return path.join(projectsDir, lowerMatch);
+    }
+
+    // Try without leading hyphen (some paths may start differently)
+    const withoutLeading = escapedPath.replace(/^-+/, '');
+    const withoutLeadingLower = withoutLeading.toLowerCase();
+    const partialMatch = dirs.find(
+      (d) =>
+        d.toLowerCase() === withoutLeadingLower ||
+        d.toLowerCase().endsWith(withoutLeadingLower)
+    );
+    if (partialMatch) {
+      return path.join(projectsDir, partialMatch);
+    }
+
+    this.logger.debug('No matching sessions directory found', {
+      workspacePath,
+      escapedPath,
+      availableDirs: dirs.slice(0, 10), // Log first 10 for debugging
+    });
+
+    return null;
   }
 
   /**
