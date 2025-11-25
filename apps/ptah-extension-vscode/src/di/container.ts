@@ -80,9 +80,9 @@ import {
   ClaudeCliService,
   MCPRegistrationService,
   InMemoryPermissionRulesStore,
-  SessionManager,
-  InteractiveSessionManager,
   ClaudeProcess,
+  // SessionManager - DELETED in TASK_2025_023 purge
+  // InteractiveSessionManager - DELETED in TASK_2025_023 purge
 } from '@ptah-extension/claude-domain';
 
 // Import webview support services
@@ -304,14 +304,9 @@ export class DIContainer {
       MCPRegistrationService
     );
 
-    // Session management (restored for RPC - TASK_2025_021)
-    container.registerSingleton(TOKENS.SESSION_MANAGER, SessionManager);
-
-    // Interactive session management (TASK_2025_010)
-    container.registerSingleton(
-      TOKENS.INTERACTIVE_SESSION_MANAGER,
-      InteractiveSessionManager
-    );
+    // Session management - DELETED in TASK_2025_023 purge
+    // SessionManager and InteractiveSessionManager removed
+    // New pattern: ClaudeProcess handles sessions directly via CLI --session-id flag
 
     // ========================================
     // PHASE 4: Main App Services

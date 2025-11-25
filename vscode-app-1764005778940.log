@@ -1,263 +1,160 @@
-localProcessExtensionHost.ts:350 [Extension Host] STOPPED on first line for debugging on port 53079
-F @ localProcessExtensionHost.ts:350
-log.ts:440  INFO Loading development extension at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode
-languagesAssociations.ts:73 Overwriting extension <<copilot-instructions.md>> to now point to mime <<text/x-instructions>>
-(anonymous) @ languagesAssociations.ts:73
-languagesAssociations.ts:73 Overwriting extension <<.editorconfig>> to now point to mime <<text/x-editorconfig>>
-(anonymous) @ languagesAssociations.ts:73
-languagesAssociations.ts:73 Overwriting extension <<.hbs>> to now point to mime <<text/x-handlebars>>
-(anonymous) @ languagesAssociations.ts:73
-languagesAssociations.ts:73 Overwriting extension <<.handlebars>> to now point to mime <<text/x-handlebars>>
-(anonymous) @ languagesAssociations.ts:73
-languagesAssociations.ts:77 Overwriting filename <<.gitignore>> to now point to mime <<text/x-ignore>>
-(anonymous) @ languagesAssociations.ts:77
-languagesAssociations.ts:73 Overwriting extension <<.env>> to now point to mime <<text/x-env>>
-(anonymous) @ languagesAssociations.ts:73
-webviewElement.ts:489 An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing.
-mountTo @ webviewElement.ts:489
-log.ts:450  WARN No search provider registered for scheme: file, waiting
-warn @ log.ts:450
-log.ts:440  INFO MCP Registry configured: https://api.mcp.github.com
+workbench.desktop.main.js:sourcemap:3880 [Extension Host] STOPPED on first line for debugging on port 53378
+F @ workbench.desktop.main.js:sourcemap:3880
+workbench.desktop.main.js:sourcemap:36  INFO Loading development extension at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode
+workbench.desktop.main.js:sourcemap:577 Overwriting extension <<copilot-instructions.md>> to now point to mime <<text/x-instructions>>
+(anonymous) @ workbench.desktop.main.js:sourcemap:577
+workbench.desktop.main.js:sourcemap:577 Overwriting extension <<.editorconfig>> to now point to mime <<text/x-editorconfig>>
+(anonymous) @ workbench.desktop.main.js:sourcemap:577
+workbench.desktop.main.js:sourcemap:577 Overwriting extension <<.hbs>> to now point to mime <<text/x-handlebars>>
+(anonymous) @ workbench.desktop.main.js:sourcemap:577
+workbench.desktop.main.js:sourcemap:577 Overwriting extension <<.handlebars>> to now point to mime <<text/x-handlebars>>
+(anonymous) @ workbench.desktop.main.js:sourcemap:577
+workbench.desktop.main.js:sourcemap:577 Overwriting filename <<.gitignore>> to now point to mime <<text/x-ignore>>
+(anonymous) @ workbench.desktop.main.js:sourcemap:577
+workbench.desktop.main.js:sourcemap:577 Overwriting extension <<.env>> to now point to mime <<text/x-env>>
+(anonymous) @ workbench.desktop.main.js:sourcemap:577
+workbench.desktop.main.js:sourcemap:4124 An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing.
+mountTo @ workbench.desktop.main.js:sourcemap:4124
+workbench.desktop.main.js:sourcemap:36  WARN No search provider registered for scheme: file, waiting
+warn @ workbench.desktop.main.js:sourcemap:36
+workbench.desktop.main.js:sourcemap:36  INFO MCP Registry configured: https://api.mcp.github.com
+workbench.desktop.main.js:sourcemap:36  INFO Started local extension host with pid 16300.
 marketplace.visualstudio.com/_apis/public/gallery/vscode/ptah-extensions/ptah-extension-vscode/latest:1  Failed to load resource: the server responded with a status of 404 ()
-log.ts:440  INFO Started local extension host with pid 13620.
-log.ts:440  INFO [perf] Render performance baseline is 19ms
-localProcessExtensionHost.ts:280 Extension Host
-localProcessExtensionHost.ts:281 Debugger attached.
-log.ts:460   ERR [Extension Host] (node:13620) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+workbench.desktop.main.js:sourcemap:36  INFO [perf] Render performance baseline is 18ms
+workbench.desktop.main.js:sourcemap:3880 Extension Host
+workbench.desktop.main.js:sourcemap:3880 Debugger attached.
+workbench.desktop.main.js:sourcemap:36   ERR [Extension Host] (node:16300) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
 (Use `Code --trace-deprecation ...` to show where the warning was created)
-error @ log.ts:460
-console.ts:139 [Extension Host] (node:13620) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+error @ workbench.desktop.main.js:sourcemap:36
+workbench.desktop.main.js:sourcemap:528 [Extension Host] (node:16300) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
 (Use `Code --trace-deprecation ...` to show where the warning was created) (at file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517)
-gCs @ console.ts:139
-log.ts:460   ERR [Extension Host] (node:13620) ExperimentalWarning: SQLite is an experimental feature and might change at any time
-error @ log.ts:460
-console.ts:139 [Extension Host] (node:13620) ExperimentalWarning: SQLite is an experimental feature and might change at any time (at file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517)
-gCs @ console.ts:139
-console.ts:139 [Extension Host] Created lock file at C:\Users\abdal\.claude\ide\64107.lock (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] Set CLAUDE_CODE_SSE_PORT=64107 in terminal environment (in-memory) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] Set ENABLE_IDE_INTEGRATION=true in terminal environment (in-memory) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-log.ts:440  INFO Settings Sync: Account status changed from uninitialized to available
-console.ts:139 [Extension Host] ===== PTAH ACTIVATION START ===== (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 1: Setting up DI Container... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 1: DI Container setup complete (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 2: Resolving Logger... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Activating Ptah extension... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 2: Logger resolved (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 3.6: Registering RPC methods... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Loaded context state: 6 included, 0 excluded (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] RPC methods registered Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 3.6: RPC methods registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 3.7: Initializing autocomplete watchers... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Autocomplete discovery watchers initialized (3 services) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 3.7: Autocomplete watchers initialized (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 4: Creating PtahExtension instance... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 4: PtahExtension instance created (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 5: Calling ptahExtension.initialize()... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Initializing Ptah extension... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Initializing services... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Loaded context state: 6 included, 0 excluded (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] TreeSitterParserService created. Initialization required. (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] WebviewEventQueue initialized (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Development file watcher initialized for hot reload (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] AngularWebviewProvider initialized - message forwarding handled by WebviewMessageBridge (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Services initialized successfully (DI-based) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Ptah extension initialized successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 5: ptahExtension.initialize() complete (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 6: Registering late-binding adapters... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 6: Late-binding adapters registered (analytics removed) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 7: Calling ptahExtension.registerAll()... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [PtahExtension.registerAll] START (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Registering extension components... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [PtahExtension.registerAll] Calling registerAllComponents()... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [PtahExtension.registerAllComponents] START (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [PtahExtension.registerAllComponents] Registering webviews... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Registering webview providers... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Webview providers registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [PtahExtension.registerAllComponents] Webviews registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] All components registered successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [PtahExtension.registerAllComponents] COMPLETE (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [PtahExtension.registerAll] registerAllComponents() complete (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Extension components registered successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [PtahExtension.registerAll] COMPLETE (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 7: ptahExtension.registerAll() complete (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 8: Registering Language Model Tools... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Ptah LM Tools] Registered 6 Language Model Tools (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Language Model Tools registered (6 tools) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 8: Language Model Tools registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 9: Starting Code Execution MCP Server... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] CodeExecutionMCP server started on http://localhost:58064 Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Code Execution MCP Server started on port 58064 (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 9: Code Execution MCP Server started (port 58064) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 10: Registering MCP server with Claude CLI... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] Activating prisma-language-server (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] Watching C:\Users\abdal\AppData\Local\prisma-nodejs\Cache\last-generate for changes (new watcher). (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] Using published Language Server (npm) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] serverModule: c:\Users\abdal\.vscode\extensions\prisma.prisma-7.0.0\node_modules\@prisma\language-server\dist\bin.js (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] Telemetry is enabled for Prisma extension (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] Activating prisma-local-ai-tools (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] Activating Prisma Postgres (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] Activating Studio (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+gCs @ workbench.desktop.main.js:sourcemap:528
+workbench.desktop.main.js:sourcemap:36   ERR [Extension Host] (node:16300) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+error @ workbench.desktop.main.js:sourcemap:36
+workbench.desktop.main.js:sourcemap:528 [Extension Host] (node:16300) ExperimentalWarning: SQLite is an experimental feature and might change at any time (at file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517)
+gCs @ workbench.desktop.main.js:sourcemap:528
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Created lock file at C:\Users\abdal\.claude\ide\34520.lock (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Set CLAUDE_CODE_SSE_PORT=34520 in terminal environment (in-memory) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Set ENABLE_IDE_INTEGRATION=true in terminal environment (in-memory) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:36  INFO Settings Sync: Account status changed from uninitialized to available
+workbench.desktop.main.js:sourcemap:528 [Extension Host] ===== PTAH ACTIVATION START ===== (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 1: Setting up DI Container... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:36   ERR [Extension Host] ===== PTAH ACTIVATION FAILED =====
+error @ workbench.desktop.main.js:sourcemap:36
+workbench.desktop.main.js:sourcemap:528 [Extension Host] ===== PTAH ACTIVATION FAILED ===== (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+gCs @ workbench.desktop.main.js:sourcemap:528
+workbench.desktop.main.js:sourcemap:36   ERR [Extension Host] [Activate] Error details: Error: Cannot register a type name as a singleton without a "to" token
+	at __webpack_modules__../node_modules/tsyringe/dist/esm5/dependency-container.js.InternalDependencyContainer.registerSingleton (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:19320:19)
+	at DIContainer.setup (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:409:30)
+	at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:477:37
+	at Generator.next (<anonymous>)
+	at d:\projects\ptah-extension\node_modules\tslib\tslib.js:170:75
+	at new Promise (<anonymous>)
+	at Object.__awaiter (d:\projects\ptah-extension\node_modules\tslib\tslib.js:166:16)
+	at activate (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:472:20)
+	at xA.kb (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:118:15356)
+	at xA.jb (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:118:15101)
+	at file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:118:13259
+	at async Uy.n (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:114:13382)
+	at async Uy.m (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:114:13345)
+	at async Uy.l (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:114:12801)
+error @ workbench.desktop.main.js:sourcemap:36
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Error details: Error: Cannot register a type name as a singleton without a "to" token
+	at __webpack_modules__../node_modules/tsyringe/dist/esm5/dependency-container.js.InternalDependencyContainer.registerSingleton (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:19320:19)
+	at DIContainer.setup (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:409:30)
+	at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:477:37
+	at Generator.next (<anonymous>)
+	at d:\projects\ptah-extension\node_modules\tslib\tslib.js:170:75
+	at new Promise (<anonymous>)
+	at Object.__awaiter (d:\projects\ptah-extension\node_modules\tslib\tslib.js:166:16)
+	at activate (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:472:20)
+	at xA.kb (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:118:15356)
+	at xA.jb (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:118:15101)
+	at file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:118:13259
+	at async Uy.n (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:114:13382)
+	at async Uy.m (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:114:13345)
+	at async Uy.l (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:114:12801) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+gCs @ workbench.desktop.main.js:sourcemap:528
+workbench.desktop.main.js:sourcemap:36   ERR [Extension Host] [Activate] Error stack: Error: Cannot register a type name as a singleton without a "to" token
+	at __webpack_modules__../node_modules/tsyringe/dist/esm5/dependency-container.js.InternalDependencyContainer.registerSingleton (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:19320:19)
+	at DIContainer.setup (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:409:30)
+	at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:477:37
+	at Generator.next (<anonymous>)
+	at d:\projects\ptah-extension\node_modules\tslib\tslib.js:170:75
+	at new Promise (<anonymous>)
+	at Object.__awaiter (d:\projects\ptah-extension\node_modules\tslib\tslib.js:166:16)
+	at activate (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:472:20)
+	at xA.kb (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:118:15356)
+	at xA.jb (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:118:15101)
+	at file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:118:13259
+	at async Uy.n (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:114:13382)
+	at async Uy.m (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:114:13345)
+	at async Uy.l (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:114:12801)
+error @ workbench.desktop.main.js:sourcemap:36
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Error stack: Error: Cannot register a type name as a singleton without a "to" token
+	at __webpack_modules__../node_modules/tsyringe/dist/esm5/dependency-container.js.InternalDependencyContainer.registerSingleton (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:19320:19)
+	at DIContainer.setup (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:409:30)
+	at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:477:37
+	at Generator.next (<anonymous>)
+	at d:\projects\ptah-extension\node_modules\tslib\tslib.js:170:75
+	at new Promise (<anonymous>)
+	at Object.__awaiter (d:\projects\ptah-extension\node_modules\tslib\tslib.js:166:16)
+	at activate (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:472:20)
+	at xA.kb (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:118:15356)
+	at xA.jb (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:118:15101)
+	at file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:118:13259
+	at async Uy.n (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:114:13382)
+	at async Uy.m (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:114:13345)
+	at async Uy.l (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:114:12801) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+gCs @ workbench.desktop.main.js:sourcemap:528
+workbench.desktop.main.js:sourcemap:36   ERR [Extension Host] [ERROR] Failed to activate Ptah extension Error: Cannot register a type name as a singleton without a "to" token
+	at __webpack_modules__../node_modules/tsyringe/dist/esm5/dependency-container.js.InternalDependencyContainer.registerSingleton (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:19320:19)
+	at DIContainer.setup (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:409:30)
+	at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:477:37
+	at Generator.next (<anonymous>)
+	at d:\projects\ptah-extension\node_modules\tslib\tslib.js:170:75
+	at new Promise (<anonymous>)
+	at Object.__awaiter (d:\projects\ptah-extension\node_modules\tslib\tslib.js:166:16)
+	at activate (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:472:20)
+	at xA.kb (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:118:15356)
+	at xA.jb (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:118:15101)
+	at file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:118:13259
+	at async Uy.n (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:114:13382)
+	at async Uy.m (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:114:13345)
+	at async Uy.l (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:114:12801)
+error @ workbench.desktop.main.js:sourcemap:36
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [ERROR] Failed to activate Ptah extension Error: Cannot register a type name as a singleton without a "to" token
+	at __webpack_modules__../node_modules/tsyringe/dist/esm5/dependency-container.js.InternalDependencyContainer.registerSingleton (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:19320:19)
+	at DIContainer.setup (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:409:30)
+	at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:477:37
+	at Generator.next (<anonymous>)
+	at d:\projects\ptah-extension\node_modules\tslib\tslib.js:170:75
+	at new Promise (<anonymous>)
+	at Object.__awaiter (d:\projects\ptah-extension\node_modules\tslib\tslib.js:166:16)
+	at activate (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:472:20)
+	at xA.kb (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:118:15356)
+	at xA.jb (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:118:15101)
+	at file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:118:13259
+	at async Uy.n (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:114:13382)
+	at async Uy.m (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:114:13345)
+	at async Uy.l (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:114:12801) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+gCs @ workbench.desktop.main.js:sourcemap:528
+workbench.desktop.main.js:sourcemap:3825 Ptah activation failed: Cannot register a type name as a singleton without a "to" token
+c @ workbench.desktop.main.js:sourcemap:3825
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Activating prisma-language-server (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Watching C:\Users\abdal\AppData\Local\prisma-nodejs\Cache\last-generate for changes (new watcher). (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Using published Language Server (npm) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] serverModule: c:\Users\abdal\.vscode\extensions\prisma.prisma-7.0.0\node_modules\@prisma\language-server\dist\bin.js (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Telemetry is enabled for Prisma extension (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Activating prisma-local-ai-tools (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Activating Prisma Postgres (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Activating Studio (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 api.github.com/copilot/mcp_registry:1  Failed to load resource: the server responded with a status of 404 ()
-log.ts:460   ERR Failed to fetch MCP registry providers Server returned 404
-error @ log.ts:460
-console.ts:139 [Extension Host] [INFO] Ptah MCP server already registered Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] MCP server registered with Claude CLI Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 10: MCP server registered with Claude CLI (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Ptah extension activated successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] ===== PTAH ACTIVATION COMPLETE ===== (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Registering WebviewView: ptah.main (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] WebviewView registered successfully: ptah.main (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Webview registered with WebviewManager as "ptah.main" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Webview set for InteractiveSessionManager (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming href="favicon.ico" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/favicon.ico" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming href="styles.css" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/styles.css" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming href="chunk-PULQJNNA.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-PULQJNNA.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming href="chunk-JKOY2XUY.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-JKOY2XUY.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming src="polyfills.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/polyfills.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming src="main.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/main.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] Base URI set to: https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] All assets transformed to webview URIs (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-VM7:40 Ptah WebView: VS Code API initialized Object
-index.html?id=e4ff49d1-a9d3-4f73-872f-34ec7b51910d&parentId=7&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:4 ===================================================
-index.html?id=e4ff49d1-a9d3-4f73-872f-34ec7b51910d&parentId=7&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:5 PTAH STARTUP SCRIPT EXECUTING
-index.html?id=e4ff49d1-a9d3-4f73-872f-34ec7b51910d&parentId=7&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:6 window.vscode exists: true
-index.html?id=e4ff49d1-a9d3-4f73-872f-34ec7b51910d&parentId=7&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:7 window.ptahConfig exists: true
-index.html?id=e4ff49d1-a9d3-4f73-872f-34ec7b51910d&parentId=7&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:8 ===================================================
-console.ts:139 [Extension Host] projectPath: file:///d%3A/projects/Anubis-MCP/prisma/schema.prisma (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:38 === PTAH WEBVIEW BOOTSTRAP STARTING ===
-main.js:38 Window globals: Object
-main.js:38 🚨 CRITICAL TEST: If you see this, console.log is working!
-(anonymous) @ main.js:38
-polyfills.js:1 Ignored call to 'alert()'. The document is sandboxed, and the 'allow-modals' keyword is not set.
-invoke @ polyfills.js:1
-main.js:27 🔍 [AppStateManager] Initialized with isLoading: false
-main.js:38 =================================================
-main.js:38 PTAH APP NGONINIT STARTING
-main.js:38 =================================================
-main.js:38 🚨 APP COMPONENT: ngOnInit called!
-(anonymous) @ main.js:38
-polyfills.js:1 Ignored call to 'alert()'. The document is sandboxed, and the 'allow-modals' keyword is not set.
-invoke @ polyfills.js:1
-main.js:38 Step 1: Requesting initial data from extension...
-main.js:27 🔍 [AppStateManager] setLoading(false)
-main.js:38 Step 1: COMPLETE - Initial data requested
-main.js:38 Step 2: Notifying VS Code that webview is ready...
-main.js:38 Step 2: COMPLETE - VS Code notified (stub)
-main.js:38 Step 4: Handling initial view setup...
-main.js:38 Setting up initial view with pure signal navigation
-main.js:38 🔍 [App] isReady computed: Object
-main.js:38 Step 4: COMPLETE - Initial view set up
-main.js:38 =================================================
-main.js:38 SETTING initializationStatus TO READY
-main.js:38 isReady() will now return: false
-main.js:38 =================================================
-main.js:38 After set - initializationStatus(): ready
-main.js:38 🔍 [App] isReady computed: Object
-main.js:38 After set - isReady(): true
-main.js:38 Zone.js will automatically trigger change detection
-main.js:5 [LoggingService] Debug logging enabled via window.PTAH_DEBUG_LOGGING
-main.js:27 [VSCodeService] RPC service registered for response routing
-main.js:27 [ClaudeRpcService] Registered with VSCodeService for RPC routing
-main.js:38 🔵 [ChatComponent] ngAfterViewInit - About to call chatStore.loadSessions()
-main.js:28 🔵 [ChatStoreService] loadSessions() called - Starting...
-main.js:28 🔵 [ChatStoreService] Calling rpcService.listSessions()...
-main.js:27 🔵 [ClaudeRpcService] listSessions() called - Sending RPC request...
-main.js:38 🔵 [ChatComponent] ngAfterViewInit - About to call chatService.refreshSessions()
-main.js:5 [2025-11-25T09:21:57.976Z] [INFO] Refreshing sessions (RPC not implemented yet): ChatService 
-main.js:28 📊 [ChatHeaderComponent] recentSessions computed - Total sessions: 0
-main.js:28 📊 [ChatHeaderComponent] Returning 0 recent sessions (filtered out empty): Array(0)
-main.js:38 === PTAH WEBVIEW BOOTSTRAP COMPLETE ===
-main.js:38 🚨 CRITICAL: Bootstrap complete!
-(anonymous) @ main.js:38
-polyfills.js:1 Ignored call to 'alert()'. The document is sandboxed, and the 'allow-modals' keyword is not set.
-invoke @ polyfills.js:1
-index.html?id=e4ff49d1-a9d3-4f73-872f-34ec7b51910d&parentId=7&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:13 Sending webview-ready message to extension...
-console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] 🔵 RPC: session:list called - Loading sessions... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] ✅ RPC: session:list success - Returning 6 sessions Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:27 [VSCodeService] Received RPC response: Object
-main.js:27 ✅ [ClaudeRpcService] listSessions() response: Object
-main.js:28 📦 [ChatStoreService] RPC result received: Ms
-main.js:28 ✅ [ChatStoreService] Setting 6 sessions to signal
-main.js:28 ✅ [ChatStoreService] Sessions set successfully
-main.js:28 🔵 [ChatStoreService] loadSessions() complete. isLoading=false
-main.js:38 ✅ [ChatComponent] chatStore.loadSessions() completed
-main.js:38 📊 [ChatComponent] Current sessions count: 6
-main.js:28 📊 [ChatHeaderComponent] recentSessions computed - Total sessions: 6
-main.js:28 📊 [ChatHeaderComponent] Returning 5 recent sessions (filtered out empty): Array(5)
-console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:request (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:request (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:request (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: webview-ready (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] Webview ready signal received! (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Webview ready signal received - flushing event queue (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] WebviewEventQueue: Marked as ready (0 events queued) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] markWebviewReady() completed (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:27 [VSCodeService] Received RPC response: Object
-main.js:27 [VSCodeService] Received RPC response: Object
-main.js:27 [VSCodeService] Received RPC response: Object
-log.ts:460   ERR chatParticipant must be declared in package.json: claude-code
-error @ log.ts:460
-console.ts:139 [Extension Host] Telemetry is enabled for Prisma extension (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] Workspace analyzed: Anubis-MCP (node - express) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] Workspace analyzed: Anubis-MCP (node - express) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] Dracula Theme (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:28 🔵 [ChatStoreService] switchSession() called Object
-main.js:28 🔵 [ChatStoreService] Calling rpcService.getSession()...
-console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] 🔵 RPC: session:get called Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] ✅ RPC: session:get found session Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:27 [VSCodeService] Received RPC response: Object
-main.js:28 ✅ [ChatStoreService] Session loaded successfully Object
-main.js:28 🔄 [ChatStoreService] Synced session with ChatStateService Object
-console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:27 [VSCodeService] Received RPC response: Object
-console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:request (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Cached 229 workspace files (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:27 [VSCodeService] Received RPC response: Object
-webviewCommands.ts:33 Using standard dev tools to debug iframe based webview
-console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: {method: 'chat:start', params: {…}, correlationId: '740bc501-e609-4616-9949-f55c92438437'} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [InteractiveSessionManager] Creating new session: 1db88ae4-e1b3-4abf-a3dd-a38a1750ef92 (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [ClaudeCliLauncher] ========================================== (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [ClaudeCliLauncher] SPAWN INTERACTIVE SESSION: (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [ClaudeCliLauncher] SessionID: 1db88ae4-e1b3-4abf-a3dd-a38a1750ef92 (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [ClaudeCliLauncher] Mode: INTERACTIVE (no -p flag) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [ClaudeCliLauncher] Spawn Command: node (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [ClaudeCliLauncher] Command Arguments: (7) ['C:\\Users\\abdal\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--resume', '1db88ae4-e1b3-4abf-a3dd-a38a1750ef92'] (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [ClaudeCliLauncher] Working Directory: C:\Users\abdal\AppData\Local\Programs\Microsoft VS Code (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [ClaudeCliLauncher] ========================================== (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [ClaudeCliLauncher] Interactive session spawned: 31184 (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [InteractiveSessionManager] Session created: {sessionId: '1db88ae4-e1b3-4abf-a3dd-a38a1750ef92', processId: 31184} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [SessionProcess] Message queued: {sessionId: '1db88ae4-e1b3-4abf-a3dd-a38a1750ef92', queueSize: 1, state: 'idle'} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [SessionProcess] Processing message: {sessionId: '1db88ae4-e1b3-4abf-a3dd-a38a1750ef92', contentLength: 61, remainingQueue: 0} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:27 [VSCodeService] Received RPC response: {type: 'rpc:response', requestId: '740bc501-e609-4616-9949-f55c92438437', correlationId: '740bc501-e609-4616-9949-f55c92438437', success: true, data: {…}, …}
-main.js:5 [2025-11-25T09:23:44.155Z] [INFO] Chat started successfully: ChatService {sessionId: '1db88ae4-e1b3-4abf-a3dd-a38a1750ef92', contentLength: 61, fileCount: 0}contentLength: 61fileCount: 0sessionId: "1db88ae4-e1b3-4abf-a3dd-a38a1750ef92"[[Prototype]]: Object
-main.js:29 === ActionButtonComponent clicked ===
-main.js:29 Disabled: false
-main.js:29 Aria label: Send message
-main.js:29 Emitting buttonClick event...
-main.js:29 buttonClick emitted!
-console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: {method: 'chat:start', params: {…}, correlationId: 'ee9954e8-c31e-46ca-8532-31df46be5ea5'} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [SessionProcess] Message queued: {sessionId: '1db88ae4-e1b3-4abf-a3dd-a38a1750ef92', queueSize: 1, state: 'processing'} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:27 [VSCodeService] Received RPC response: {type: 'rpc:response', requestId: 'ee9954e8-c31e-46ca-8532-31df46be5ea5', correlationId: 'ee9954e8-c31e-46ca-8532-31df46be5ea5', success: true, data: {…}, …}correlationId: "ee9954e8-c31e-46ca-8532-31df46be5ea5"data: {success: true}requestId: "ee9954e8-c31e-46ca-8532-31df46be5ea5"result: {success: true}success: truetype: "rpc:response"[[Prototype]]: Object
-main.js:5 [2025-11-25T09:24:45.940Z] [INFO] Chat started successfully: ChatService {sessionId: '1db88ae4-e1b3-4abf-a3dd-a38a1750ef92', contentLength: 61, fileCount: 0}contentLength: 61fileCount: 0sessionId: "1db88ae4-e1b3-4abf-a3dd-a38a1750ef92"[[Prototype]]: Object
+workbench.desktop.main.js:sourcemap:36   ERR Failed to fetch MCP registry providers Server returned 404
+error @ workbench.desktop.main.js:sourcemap:36
+workbench.desktop.main.js:sourcemap:528 [Extension Host] projectPath: file:///d%3A/projects/Anubis-MCP/prisma/schema.prisma (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:36   ERR chatParticipant must be declared in package.json: claude-code
+error @ workbench.desktop.main.js:sourcemap:36
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Telemetry is enabled for Prisma extension (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Dracula Theme (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:4124 Using standard dev tools to debug iframe based webview
