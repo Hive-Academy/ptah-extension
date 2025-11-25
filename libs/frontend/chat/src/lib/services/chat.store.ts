@@ -235,33 +235,48 @@ export class ChatStore {
 
       this._currentSessionId.set(sessionId);
 
-      // Load messages for this session via RPC
-      const result = await this.claudeRpcService.call<{
-        sessionId: string;
-        messages: JSONLMessage[];
-      }>('session:load', { sessionId, workspacePath });
-
-      if (result.success && result.data) {
-        // Process all JSONL messages to rebuild chat history
-        // For now, just clear messages (full replay implementation in Batch 7)
-        this._messages.set([]);
-        console.log(
-          '[ChatStore] Loaded session messages:',
-          result.data.messages.length
-        );
-      } else {
-        console.error('[ChatStore] Failed to load session:', result.error);
-        this._messages.set([]);
-      }
-
-      // Clear streaming state
+      // Clear streaming state before loading
       this._isStreaming.set(false);
       this._currentExecutionTree.set(null);
       this.currentMessageId = null;
       this.toolNodeMap.clear();
       this.agentNodeMap.clear();
+
+      // Load messages for this session via RPC
+      const result = await this.claudeRpcService.call<{
+        sessionId: string;
+        messages: JSONLMessage[];
+        agentSessions?: Array<{ agentId: string; messages: JSONLMessage[] }>;
+      }>('session:load', { sessionId, workspacePath });
+
+      if (result.success && result.data) {
+        console.log(
+          '[ChatStore] Loaded session:',
+          result.data.messages.length,
+          'messages,',
+          result.data.agentSessions?.length ?? 0,
+          'agent sessions'
+        );
+
+        // Process JSONL messages to rebuild chat history
+        const processedMessages = this.replaySessionMessages(
+          result.data.messages,
+          result.data.agentSessions ?? []
+        );
+
+        this._messages.set(processedMessages);
+        console.log(
+          '[ChatStore] Processed into',
+          processedMessages.length,
+          'chat messages'
+        );
+      } else {
+        console.error('[ChatStore] Failed to load session:', result.error);
+        this._messages.set([]);
+      }
     } catch (error) {
       console.error('[ChatStore] Failed to switch session:', error);
+      this._messages.set([]);
     }
   }
 
@@ -766,6 +781,236 @@ export class ChatStore {
     this.currentMessageId = null;
     this.toolNodeMap.clear();
     this.agentNodeMap.clear();
+  }
+
+  // ============================================================================
+  // SESSION REPLAY (Reconstruct chat from JSONL history)
+  // ============================================================================
+
+  /**
+   * Replay session messages from JSONL format to ExecutionChatMessage format
+   *
+   * This processes the raw JSONL messages from Claude CLI sessions and
+   * reconstructs them as displayable chat messages with execution trees.
+   *
+   * @param mainMessages - Messages from the main session file
+   * @param agentSessions - Linked agent sessions with their messages
+   * @returns Array of ExecutionChatMessage for display
+   */
+  private replaySessionMessages(
+    mainMessages: JSONLMessage[],
+    agentSessions: Array<{ agentId: string; messages: JSONLMessage[] }>
+  ): readonly ExecutionChatMessage[] {
+    const chatMessages: ExecutionChatMessage[] = [];
+
+    // Build agent lookup map for linking
+    const agentMap = new Map<
+      string,
+      { agentId: string; messages: JSONLMessage[] }
+    >();
+    for (const agent of agentSessions) {
+      agentMap.set(agent.agentId, agent);
+    }
+
+    // Track current assistant message being built
+    let currentAssistantTree: ExecutionNode | null = null;
+    let currentAssistantId: string | null = null;
+
+    for (const msg of mainMessages) {
+      // Cast to any for flexible access to raw JSONL fields
+      // JSONL from Claude CLI has more fields than our typed interface
+      const rawMsg = msg as any;
+
+      // Skip non-message types (queue-operation, file-history-snapshot, summary)
+      if (!msg.type || !['user', 'assistant'].includes(msg.type)) {
+        continue;
+      }
+
+      if (msg.type === 'user' && msg.message?.content) {
+        // Finalize any pending assistant message
+        if (currentAssistantTree && currentAssistantId) {
+          chatMessages.push(
+            this.createAssistantMessageFromTree(
+              currentAssistantTree,
+              currentAssistantId
+            )
+          );
+          currentAssistantTree = null;
+          currentAssistantId = null;
+        }
+
+        // Create user message
+        const content = this.extractTextContent(msg.message.content);
+        if (content) {
+          const userMessage = createExecutionChatMessage({
+            id: rawMsg.uuid || this.generateId(),
+            role: 'user',
+            rawContent: content,
+            sessionId: rawMsg.sessionId || msg.session_id,
+            timestamp: rawMsg.timestamp
+              ? new Date(rawMsg.timestamp).getTime()
+              : undefined,
+          });
+          chatMessages.push(userMessage);
+        }
+      } else if (msg.type === 'assistant' && msg.message?.content) {
+        // Start or continue assistant message
+        if (!currentAssistantTree) {
+          currentAssistantId = rawMsg.uuid || this.generateId();
+          currentAssistantTree = createExecutionNode({
+            id: currentAssistantId!, // Non-null assertion safe here
+            type: 'message',
+            status: 'complete',
+          });
+        }
+
+        // Process content blocks
+        for (const block of msg.message.content) {
+          if (block.type === 'text' && block.text) {
+            currentAssistantTree = {
+              ...currentAssistantTree,
+              children: [
+                ...currentAssistantTree.children,
+                createExecutionNode({
+                  id: this.generateId(),
+                  type: 'text',
+                  status: 'complete',
+                  content: block.text,
+                }),
+              ],
+            };
+          } else if (block.type === 'tool_use') {
+            // Check if this is a Task tool (agent spawn)
+            if (block.name === 'Task' && block.input) {
+              const agentId = block.id;
+              const agentData = agentId
+                ? agentMap.get(agentId.replace('toolu_', ''))
+                : null;
+
+              const agentNode = createExecutionNode({
+                id: block.id || this.generateId(),
+                type: 'agent',
+                status: 'complete',
+                agentType: block.input?.['subagent_type'] as string,
+                agentDescription: block.input?.['description'] as string,
+                toolCallId: block.id,
+                isCollapsed: true,
+                // Add agent's execution as children if available
+                children: agentData
+                  ? this.processAgentMessages(agentData.messages)
+                  : [],
+              });
+
+              currentAssistantTree = {
+                ...currentAssistantTree,
+                children: [...currentAssistantTree.children, agentNode],
+              };
+            } else {
+              // Regular tool use
+              const toolNode = createExecutionNode({
+                id: block.id || this.generateId(),
+                type: 'tool',
+                status: 'complete',
+                toolName: block.name,
+                toolInput: block.input,
+                toolCallId: block.id,
+                isCollapsed: true,
+              });
+
+              currentAssistantTree = {
+                ...currentAssistantTree,
+                children: [...currentAssistantTree.children, toolNode],
+              };
+            }
+          }
+        }
+      }
+    }
+
+    // Finalize any remaining assistant message
+    if (currentAssistantTree && currentAssistantId) {
+      chatMessages.push(
+        this.createAssistantMessageFromTree(
+          currentAssistantTree,
+          currentAssistantId
+        )
+      );
+    }
+
+    return chatMessages;
+  }
+
+  /**
+   * Process agent session messages into ExecutionNode children
+   */
+  private processAgentMessages(
+    messages: JSONLMessage[]
+  ): readonly ExecutionNode[] {
+    const nodes: ExecutionNode[] = [];
+
+    for (const msg of messages) {
+      if (msg.type === 'assistant' && msg.message?.content) {
+        for (const block of msg.message.content) {
+          if (block.type === 'text' && block.text) {
+            nodes.push(
+              createExecutionNode({
+                id: this.generateId(),
+                type: 'text',
+                status: 'complete',
+                content:
+                  block.text.substring(0, 500) +
+                  (block.text.length > 500 ? '...' : ''),
+              })
+            );
+          } else if (block.type === 'tool_use') {
+            nodes.push(
+              createExecutionNode({
+                id: block.id || this.generateId(),
+                type: 'tool',
+                status: 'complete',
+                toolName: block.name,
+                toolInput: block.input,
+                toolCallId: block.id,
+                isCollapsed: true,
+              })
+            );
+          }
+        }
+      }
+    }
+
+    return nodes;
+  }
+
+  /**
+   * Extract text content from message content (handles both string and array formats)
+   */
+  private extractTextContent(content: unknown): string {
+    if (typeof content === 'string') {
+      return content;
+    }
+    if (Array.isArray(content)) {
+      return content
+        .filter((b: any) => b.type === 'text')
+        .map((b: any) => b.text || '')
+        .join('\n');
+    }
+    return '';
+  }
+
+  /**
+   * Create an ExecutionChatMessage from an execution tree
+   */
+  private createAssistantMessageFromTree(
+    tree: ExecutionNode,
+    messageId: string
+  ): ExecutionChatMessage {
+    return createExecutionChatMessage({
+      id: messageId,
+      role: 'assistant',
+      executionTree: tree,
+      sessionId: this._currentSessionId() ?? undefined,
+    });
   }
 
   // ============================================================================
