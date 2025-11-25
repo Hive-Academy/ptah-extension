@@ -377,7 +377,7 @@ export class RpcMethodRegistrationService {
       }
     });
 
-    // session:load - Load session messages from .jsonl file
+    // session:load - Load session messages from .jsonl file with linked agent sessions
     this.rpcHandler.registerMethod('session:load', async (params: any) => {
       try {
         const { sessionId, workspacePath } = params;
@@ -395,14 +395,36 @@ export class RpcMethodRegistrationService {
 
         const sessionFile = path.join(sessionsDir, `${sessionId}.jsonl`);
 
-        // Read and parse JSONL file
+        // Read and parse main session JSONL file
         const content = await fs.readFile(sessionFile, 'utf-8');
         const lines = content.split('\n').filter((line) => line.trim());
-        const messages = lines.map((line) => JSON.parse(line) as JSONLMessage);
+        const mainMessages = lines
+          .map((line) => {
+            try {
+              return JSON.parse(line);
+            } catch {
+              return null;
+            }
+          })
+          .filter(Boolean);
+
+        // Find all agent sessions that belong to this main session
+        // Agent files: agent-{agentId}.jsonl where sessionId inside matches our main session
+        const agentSessions = await this.findLinkedAgentSessions(
+          sessionsDir,
+          sessionId
+        );
+
+        this.logger.debug('Session loaded with agent sessions', {
+          sessionId,
+          mainMessageCount: mainMessages.length,
+          linkedAgentCount: agentSessions.length,
+        });
 
         return {
           sessionId,
-          messages,
+          messages: mainMessages,
+          agentSessions, // Array of { agentId, messages[] }
         };
       } catch (error) {
         this.logger.error(
@@ -416,6 +438,76 @@ export class RpcMethodRegistrationService {
         );
       }
     });
+  }
+
+  /**
+   * Find all agent sessions linked to a main session
+   *
+   * Agent sessions are stored as agent-{agentId}.jsonl files.
+   * Inside, they have sessionId pointing to the parent main session.
+   *
+   * @param sessionsDir - Directory containing session files
+   * @param mainSessionId - The main session UUID to find agents for
+   * @returns Array of agent sessions with their messages
+   */
+  private async findLinkedAgentSessions(
+    sessionsDir: string,
+    mainSessionId: string
+  ): Promise<Array<{ agentId: string; messages: any[] }>> {
+    try {
+      const files = await fs.readdir(sessionsDir);
+      const agentFiles = files.filter((f) => f.startsWith('agent-'));
+
+      const linkedAgents: Array<{ agentId: string; messages: any[] }> = [];
+
+      for (const agentFile of agentFiles) {
+        try {
+          const agentPath = path.join(sessionsDir, agentFile);
+          const content = await fs.readFile(agentPath, 'utf-8');
+          const lines = content.split('\n').filter((line) => line.trim());
+
+          if (lines.length === 0) continue;
+
+          // Parse first message to check if this agent belongs to our session
+          const firstMsg = JSON.parse(lines[0]);
+
+          // Agent sessions have sessionId pointing to parent main session
+          if (firstMsg.sessionId === mainSessionId) {
+            const agentId =
+              firstMsg.agentId ||
+              agentFile.replace('agent-', '').replace('.jsonl', '');
+
+            const messages = lines
+              .map((line) => {
+                try {
+                  return JSON.parse(line);
+                } catch {
+                  return null;
+                }
+              })
+              .filter(Boolean);
+
+            linkedAgents.push({ agentId, messages });
+
+            this.logger.debug('Found linked agent session', {
+              agentId,
+              mainSessionId,
+              messageCount: messages.length,
+            });
+          }
+        } catch {
+          // Skip files that can't be parsed
+        }
+      }
+
+      return linkedAgents;
+    } catch (error) {
+      this.logger.debug('Error finding linked agent sessions', {
+        mainSessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
   }
 
   /**
