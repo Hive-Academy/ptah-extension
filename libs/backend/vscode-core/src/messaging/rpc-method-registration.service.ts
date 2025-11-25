@@ -406,14 +406,19 @@ export class RpcMethodRegistrationService {
 
   /**
    * Escape workspace path for Claude sessions directory
+   *
+   * Claude CLI escapes workspace paths by:
+   * 1. Lowercasing the entire path
+   * 2. Replacing colons (:) and slashes (/\) with hyphens (-)
+   * 3. NOT removing leading/trailing hyphens
+   *
+   * Examples:
+   * - "D:\projects\ptah-extension" -> "d--projects-ptah-extension"
+   * - "D:/projects/ptah-extension" -> "d--projects-ptah-extension"
+   * - "/home/user/project" -> "-home-user-project"
    */
   private escapeWorkspacePath(workspacePath: string): string {
-    // Claude CLI escapes workspace paths by replacing special chars
-    // Example: "D:\projects\ptah" -> "d--projects-ptah"
-    return workspacePath
-      .toLowerCase()
-      .replace(/[:\\/]/g, '-')
-      .replace(/^-+|-+$/g, '');
+    return workspacePath.toLowerCase().replace(/[:\\/]/g, '-');
   }
 
   /**

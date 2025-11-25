@@ -362,8 +362,12 @@ export class WebviewHtmlGenerator {
       window.ptahConfig = {
         isVSCode: true,
         theme: '${this.getThemeString(theme)}',
-        workspaceRoot: '${workspaceInfo?.['path'] || ''}',
-        workspaceName: '${workspaceInfo?.['name'] || ''}',
+        workspaceRoot: '${this.escapeJsString(
+          String(workspaceInfo?.['path'] || '')
+        )}',
+        workspaceName: '${this.escapeJsString(
+          String(workspaceInfo?.['name'] || '')
+        )}',
         extensionUri: '${this.context.extensionUri.toString()}',
         baseUri: '${baseUri}',
         iconUri: '${iconUri}'
@@ -448,6 +452,19 @@ export class WebviewHtmlGenerator {
       text += possible.charAt(Math.floor(Math.random() * possible.length));
     }
     return text;
+  }
+
+  /**
+   * Escape a string for safe inclusion in JavaScript template literal
+   * Handles backslashes (Windows paths), quotes, and special characters
+   */
+  private escapeJsString(str: string): string {
+    return str
+      .replace(/\\/g, '\\\\') // Escape backslashes first
+      .replace(/'/g, "\\'") // Escape single quotes
+      .replace(/"/g, '\\"') // Escape double quotes
+      .replace(/\n/g, '\\n') // Escape newlines
+      .replace(/\r/g, '\\r'); // Escape carriage returns
   }
 
   public buildWorkspaceInfo(): Record<string, unknown> | null {
