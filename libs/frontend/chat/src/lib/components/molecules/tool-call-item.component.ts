@@ -143,7 +143,8 @@ export class ToolCallItemComponent {
     return JSON.stringify(output, null, 2);
   }
 
-  protected formatJson(obj: Record<string, unknown>): string {
+  protected formatJson(obj: Record<string, unknown> | undefined): string {
+    if (!obj) return '{}';
     return JSON.stringify(obj, null, 2);
   }
 }

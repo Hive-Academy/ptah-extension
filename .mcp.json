@@ -9,23 +9,9 @@
         "@modelcontextprotocol/server-sequential-thinking"
       ]
     },
-    "nx-mcp": {
-      "command": "cmd.exe",
-      "args": [
-        "/c",
-        "npx",
-        "-y",
-        "nx-mcp@latest",
-        "D://projects/ptah-extension"
-      ]
-    },
     "angular-cli": {
       "command": "cmd.exe",
       "args": ["/c", "npx", "-y", "@angular/cli", "mcp"]
-    },
-    "chrome-devtools": {
-      "command": "cmd.exe",
-      "args": ["/c", "npx", "-y", "chrome-devtools-mcp@latest"]
     }
   }
 }

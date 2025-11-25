@@ -48,7 +48,21 @@ export class CommandDiscoveryFacade {
             icon: this.getCommandIcon(c.scope),
           }))
         );
+      } else if (result.error) {
+        console.warn(
+          '[CommandDiscoveryFacade] Discovery failed:',
+          result.error
+        );
+        // Still show empty list even if discovery fails (e.g., missing .claude folder)
+        this._commands.set([]);
       }
+    } catch (error) {
+      console.error(
+        '[CommandDiscoveryFacade] Failed to fetch commands:',
+        error
+      );
+      // Don't throw - let UI show empty state instead of crashing
+      this._commands.set([]);
     } finally {
       this._isLoading.set(false);
     }

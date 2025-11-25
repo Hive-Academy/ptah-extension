@@ -89,13 +89,17 @@ export type SuggestionItem =
       .vscode-unified-dropdown {
         position: absolute;
         z-index: 1000;
-        background-color: var(--vscode-dropdown-listBackground);
-        border: 1px solid var(--vscode-widget-border);
-        border-radius: 2px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        min-width: 300px;
-        max-width: 500px;
-        max-height: 300px;
+        background-color: var(
+          --vscode-dropdown-listBackground,
+          var(--vscode-editor-background, #1e1e1e)
+        );
+        border: 1px solid
+          var(--vscode-widget-border, var(--vscode-panel-border, #454545));
+        border-radius: 4px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+        min-width: 320px;
+        max-width: 600px;
+        max-height: 400px;
         overflow: hidden;
         font-family: var(--vscode-font-family);
         font-size: var(--vscode-font-size, 13px);
@@ -115,11 +119,16 @@ export type SuggestionItem =
 
       .vscode-unified-loading,
       .vscode-unified-empty {
-        padding: 12px 16px;
-        color: var(--vscode-descriptionForeground);
+        padding: 16px;
+        color: var(
+          --vscode-descriptionForeground,
+          var(--vscode-foreground, #cccccc)
+        );
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 12px;
+        justify-content: center;
+        min-height: 80px;
       }
 
       .vscode-unified-spinner {
@@ -149,11 +158,13 @@ export type SuggestionItem =
       .vscode-unified-item {
         display: flex;
         align-items: center;
-        gap: 8px;
-        padding: 8px 16px;
+        gap: 12px;
+        padding: 10px 16px;
         cursor: pointer;
-        border-bottom: 1px solid var(--vscode-panel-border);
+        border-bottom: 1px solid
+          var(--vscode-panel-border, var(--vscode-widget-border, #454545));
         transition: background-color 0.1s ease;
+        min-height: 44px;
       }
 
       .vscode-unified-item:last-child {
@@ -162,19 +173,26 @@ export type SuggestionItem =
 
       .vscode-unified-item:hover,
       .vscode-unified-item.vscode-unified-focused {
-        background-color: var(--vscode-list-hoverBackground);
+        background-color: var(
+          --vscode-list-hoverBackground,
+          var(--vscode-list-activeSelectionBackground, rgba(51, 153, 255, 0.2))
+        );
       }
 
       .vscode-unified-item.vscode-unified-focused {
-        outline: 1px solid var(--vscode-focusBorder);
-        outline-offset: -1px;
+        outline: 2px solid var(--vscode-focusBorder, #007acc);
+        outline-offset: -2px;
       }
 
       .vscode-unified-icon {
         flex-shrink: 0;
-        font-size: 18px;
-        width: 24px;
+        font-size: 20px;
+        width: 28px;
+        height: 28px;
         text-align: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
       }
 
       .vscode-unified-content {
@@ -197,6 +215,19 @@ export type SuggestionItem =
         overflow: hidden;
         text-overflow: ellipsis;
         margin-top: 2px;
+      }
+
+      /* Backdrop for visual separation */
+      .vscode-unified-dropdown::before {
+        content: '';
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: transparent;
+        z-index: -1;
+        pointer-events: none;
       }
 
       /* High contrast mode */

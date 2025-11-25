@@ -102,18 +102,37 @@ export interface JSONLSystemMessage {
   readonly cwd?: string;
 }
 
+/**
+ * User messages contain tool results from Claude CLI
+ * These are the results of tools Claude called (Read, Write, Bash, etc.)
+ */
+export interface JSONLUserMessage {
+  readonly type: 'user';
+  readonly parent_tool_use_id?: string;
+  readonly message?: {
+    readonly content?: Array<{
+      readonly type: 'tool_result';
+      readonly tool_use_id?: string;
+      readonly content?: string;
+      readonly is_error?: boolean;
+    }>;
+  };
+}
+
 export type JSONLMessage =
   | JSONLSystemMessage
   | JSONLAssistantMessage
   | JSONLToolMessage
   | JSONLPermissionMessage
   | JSONLStreamEvent
-  | JSONLResultMessage;
+  | JSONLResultMessage
+  | JSONLUserMessage;
 
 // ProcessedClaudeMessage: Content blocks from JSONL messages
+// Bug #2 Fix: Added 'user' type to support displaying user messages in the chat UI
 export interface ProcessedClaudeMessage {
   id: MessageId;
-  type: 'assistant' | 'system';
+  type: 'assistant' | 'system' | 'user';
   content: ContentBlock[];
   timestamp: number;
   sessionId?: string;
@@ -297,6 +316,23 @@ export class ChatStateService {
     this.updateTimestamp();
   }
 
+  /**
+   * Add a user message to the chat UI (Bug #2 fix)
+   * Creates a ProcessedClaudeMessage with type 'user' for immediate display
+   */
+  addUserMessage(content: string, sessionId?: string): MessageId {
+    const messageId = MessageId.create();
+    const userMessage: ProcessedClaudeMessage = {
+      id: messageId,
+      type: 'user',
+      content: [{ type: 'text', text: content }],
+      timestamp: Date.now(),
+      sessionId,
+    };
+    this.addClaudeMessage(userMessage);
+    return messageId;
+  }
+
   updateClaudeMessage(
     messageId: MessageId,
     updates: Partial<ProcessedClaudeMessage>
@@ -451,6 +487,10 @@ export class ChatStateService {
   private readonly _sessionMetrics = signal<SessionMetrics | null>(null);
   private readonly _claudeSessionId = signal<string | null>(null);
   private readonly _isStreaming = signal<boolean>(false);
+
+  // Streaming message accumulation state (Bug #3 fix)
+  private readonly _currentStreamingMessageId = signal<MessageId | null>(null);
+  private readonly _currentStreamingText = signal<string>('');
 
   // Public readonly signals for JSONL state
   readonly toolTimeline = this._toolTimeline.asReadonly();
@@ -636,6 +676,10 @@ export class ChatStateService {
 
   /**
    * Handle stream control events
+   *
+   * Bug #3 Fix: Properly accumulates text chunks into a single message instead of
+   * creating separate messages per chunk. Uses _currentStreamingMessageId to track
+   * the active streaming message and _currentStreamingText to accumulate content.
    */
   handleStreamEvent(sessionId: SessionId, message: JSONLStreamEvent): void {
     switch (message.event.type) {
@@ -644,6 +688,9 @@ export class ChatStateService {
         if (message.session_id) {
           this._claudeSessionId.set(message.session_id);
         }
+        // Initialize new streaming message with fresh ID
+        this._currentStreamingMessageId.set(MessageId.create());
+        this._currentStreamingText.set('');
         break;
 
       case 'content_block_delta':
@@ -651,17 +698,28 @@ export class ChatStateService {
           message.event.delta?.type === 'text_delta' &&
           message.event.delta.text
         ) {
-          // Append text delta to current message
+          // Get or create message ID for this streaming session
+          let messageId = this._currentStreamingMessageId();
+          if (!messageId) {
+            // Fallback if message_start wasn't received
+            messageId = MessageId.create();
+            this._currentStreamingMessageId.set(messageId);
+          }
+
+          // Accumulate text chunks
+          const newText =
+            this._currentStreamingText() + message.event.delta.text;
+          this._currentStreamingText.set(newText);
+
+          // Create/update streaming message with accumulated text
           const contentBlock: ContentBlock = {
             type: 'text',
-            text: message.event.delta.text,
+            text: newText, // Use accumulated text, not just the delta
             index: message.event.index,
           };
 
-          // Create or update streaming message
-          const messageId = MessageId.create();
           const assistantMessage: ProcessedClaudeMessage = {
-            id: messageId,
+            id: messageId, // Reuse same ID for all chunks
             type: 'assistant',
             content: [contentBlock],
             timestamp: Date.now(),
@@ -673,6 +731,9 @@ export class ChatStateService {
 
       case 'message_stop':
         this._isStreaming.set(false);
+        // Clear streaming state
+        this._currentStreamingMessageId.set(null);
+        this._currentStreamingText.set('');
         break;
     }
   }

@@ -81,8 +81,14 @@ export class VSCodeService {
   // VS Code API instance (null in development mode)
   private vscode: VsCodeApi | null = null;
 
-  // Inject ChatStateService for JSONL message routing
+  // Inject ChatStateService for JSONL message routing (OLD - will be removed)
   private readonly chatStateService = inject(ChatStateService);
+
+  // RPC service will be injected lazily to avoid circular dependency
+  private claudeRpcService: any = null;
+
+  // ChatStore will be injected lazily to avoid circular dependency
+  private chatStore: any = null;
 
   // Signal-based reactive state
   private readonly _config = signal<WebviewConfig>({
@@ -206,7 +212,7 @@ export class VSCodeService {
   async sendRequest<T>(request: { type: string; data: unknown }): Promise<T> {
     return new Promise((resolve, reject) => {
       const requestId = crypto.randomUUID();
-      const timeoutMs = 10000; // 10 second timeout
+      const timeoutMs = 15000; // 15 second timeout (increased for discovery operations)
 
       // Set up timeout
       const timeoutId = setTimeout(() => {
@@ -272,18 +278,70 @@ export class VSCodeService {
    * Setup message listener for webview communication
    * Handles both RPC responses and unified JSONL messages
    */
+  /**
+   * Set RPC service for response routing
+   * Called by ClaudeRpcService constructor to avoid circular dependency
+   */
+  setRpcService(rpcService: any): void {
+    this.claudeRpcService = rpcService;
+    console.log('[VSCodeService] RPC service registered for response routing');
+  }
+
+  /**
+   * Set ChatStore for message routing
+   * Called by ChatStore constructor to avoid circular dependency
+   */
+  setChatStore(chatStore: any): void {
+    this.chatStore = chatStore;
+    console.log('[VSCodeService] ChatStore registered for message routing');
+  }
+
   private setupMessageListener(): void {
     window.addEventListener('message', (event) => {
       const message = event.data;
 
-      // Existing RPC message handling (if present)
+      // Route RPC responses to ClaudeRpcService
       if (message.type === 'rpc:response') {
-        // RPC handling will be restored in Phase 2
-        // For now, just log for debugging
-        console.debug('[VSCodeService] RPC response:', message);
+        console.log('[VSCodeService] Received RPC response:', message);
+        if (this.claudeRpcService) {
+          this.claudeRpcService.handleResponse(message);
+        } else {
+          console.warn(
+            '[VSCodeService] RPC response received but no RPC service registered!'
+          );
+        }
       }
 
-      // NEW: Unified JSONL message handler
+      // NEW: Route chat:chunk messages to ChatStore (TASK_2025_023 Batch 6)
+      if (message.type === 'chat:chunk') {
+        const { sessionId, message: jsonlMessage } = message.data;
+        if (this.chatStore) {
+          this.chatStore.processJsonlChunk(jsonlMessage);
+        } else {
+          console.warn(
+            '[VSCodeService] chat:chunk received but ChatStore not registered!'
+          );
+        }
+      }
+
+      // NEW: Handle chat completion
+      if (message.type === 'chat:complete') {
+        const { sessionId, code } = message.data;
+        console.log('[VSCodeService] Chat complete:', { sessionId, code });
+        // ChatStore will finalize the message when it receives result JSONL
+      }
+
+      // NEW: Handle chat errors
+      if (message.type === 'chat:error') {
+        const { sessionId, error } = message.data;
+        console.error('[VSCodeService] Chat error:', { sessionId, error });
+        if (this.chatStore) {
+          // Set error state in ChatStore
+          this.chatStore._isStreaming?.set(false);
+        }
+      }
+
+      // OLD: Unified JSONL message handler (will be deprecated)
       if (message.type === 'jsonl-message') {
         const { sessionId, message: jsonlMessage } = message.data;
         this.handleJSONLMessage(sessionId, jsonlMessage);
@@ -339,6 +397,18 @@ export class VSCodeService {
       case 'result':
         // Final metrics
         this.chatStateService.handleResult(sessionId, message);
+        break;
+
+      case 'user':
+        // Tool results come as 'user' messages with tool_result content
+        // These are the results of tools Claude called (Read, Write, Bash, etc.)
+        // The tool timeline already tracks tool lifecycle via 'tool' messages
+        // Log for debugging but don't display in chat (would be noise)
+        console.debug('[VSCodeService] Tool result received (user type):', {
+          sessionId,
+          hasContent: !!(message as any).message?.content,
+          parentToolUseId: (message as any).parent_tool_use_id,
+        });
         break;
 
       default:

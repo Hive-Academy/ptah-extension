@@ -1,6 +1,8 @@
 /**
- * Claude CLI Launcher - Orchestrates CLI process spawning with permissions and session management
- * SOLID: Dependency Inversion - Depends on abstractions (SessionManager, PermissionService)
+ * Claude CLI Launcher - TEMPORARY during TASK_2025_023 purge
+ *
+ * This file will be DELETED and replaced by ClaudeProcess in Batch 4.
+ * For now, keeping minimal functionality with inline JSONL parsing.
  */
 
 import {
@@ -13,24 +15,82 @@ import * as os from 'os';
 import { Readable } from 'stream';
 import type * as vscode from 'vscode';
 import { ClaudeInstallation } from '../detector/claude-cli-detector';
-// import { SessionManager } from '../session/session-manager'; // DELETED in Phase 0
 import { PermissionService } from '../permissions/permission-service';
-import { JSONLParserCallbacks, JSONLStreamParser } from './jsonl-stream-parser';
 import { ProcessManager } from './process-manager';
 
 /**
  * Dependencies required by ClaudeCliLauncher
- * Uses direct webview.postMessage for streaming events (replaces EventBus)
  */
 export interface LauncherDependencies {
-  readonly webview: vscode.Webview; // Direct webview access for postMessage streaming
+  readonly webview: vscode.Webview;
   readonly permissionService: PermissionService;
   readonly processManager: ProcessManager;
   readonly context: vscode.ExtensionContext;
 }
 
 /**
- * Launches Claude CLI processes with integrated session/permission/event handling
+ * TEMPORARY: Inline JSONL parser callbacks
+ * Will be replaced by ClaudeProcess in Batch 4
+ */
+interface JSONLParserCallbacks {
+  onMessage: (message: unknown) => void;
+  onPermission: (request: ClaudePermissionRequest) => Promise<void>;
+  onError: (error: Error, rawLine?: string) => void;
+}
+
+/**
+ * TEMPORARY: Inline JSONL parser
+ * Will be replaced by ClaudeProcess in Batch 4
+ */
+class InlineJSONLParser {
+  private buffer = '';
+
+  constructor(private readonly callbacks: JSONLParserCallbacks) {}
+
+  processChunk(chunk: Buffer): void {
+    this.buffer += chunk.toString('utf8');
+    const lines = this.buffer.split('\n');
+    this.buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const parsed = JSON.parse(line);
+
+        // Check for permission request
+        if (parsed.type === 'permission' && parsed.subtype === 'request') {
+          void this.callbacks.onPermission(parsed as ClaudePermissionRequest);
+        } else {
+          this.callbacks.onMessage(parsed);
+        }
+      } catch (error) {
+        this.callbacks.onError(
+          error instanceof Error ? error : new Error(String(error)),
+          line
+        );
+      }
+    }
+  }
+
+  processEnd(): void {
+    if (this.buffer.trim()) {
+      try {
+        const parsed = JSON.parse(this.buffer);
+        this.callbacks.onMessage(parsed);
+      } catch (error) {
+        this.callbacks.onError(
+          error instanceof Error ? error : new Error(String(error)),
+          this.buffer
+        );
+      }
+    }
+    this.buffer = '';
+  }
+}
+
+/**
+ * TEMPORARY: ClaudeCliLauncher during purge
+ * Will be replaced by ClaudeProcess in Batch 4
  */
 export class ClaudeCliLauncher {
   constructor(
@@ -39,124 +99,49 @@ export class ClaudeCliLauncher {
   ) {}
 
   /**
-   * Spawn a new Claude CLI turn
+   * @deprecated Will be replaced by ClaudeProcess in Batch 4
    */
   async spawnTurn(
     message: string,
     options: ClaudeCliLaunchOptions
   ): Promise<Readable> {
     const { sessionId, model, resumeSessionId, workspaceRoot } = options;
-
-    // Build CLI arguments (message will be sent via stdin)
     const args = this.buildArgs(model, resumeSessionId);
-
-    // Determine execution context
     const cwd = workspaceRoot || process.cwd();
-
-    // CRITICAL FIX: Use direct Node.js execution if available (bypasses Windows cmd.exe buffering)
     const { command, commandArgs, needsShell } = this.buildSpawnCommand(args);
 
-    // PHASE 3: Debug logging for spawn diagnostics
-    console.log(
-      '[ClaudeCliLauncher] =========================================='
-    );
-    console.log('[ClaudeCliLauncher] SPAWN CONFIGURATION:');
-    console.log('[ClaudeCliLauncher] SessionID:', sessionId);
-    console.log('[ClaudeCliLauncher] Platform:', os.platform());
-    console.log(
-      '[ClaudeCliLauncher] Installation Path:',
-      this.installation.path
-    );
-    console.log(
-      '[ClaudeCliLauncher] Installation Source:',
-      this.installation.source
-    );
-    console.log(
-      '[ClaudeCliLauncher] Use Direct Execution:',
-      this.installation.useDirectExecution || false
-    );
-    console.log(
-      '[ClaudeCliLauncher] CLI.js Path:',
-      this.installation.cliJsPath || 'NONE'
-    );
-    console.log('[ClaudeCliLauncher] Spawn Command:', command);
-    console.log('[ClaudeCliLauncher] Command Arguments:', commandArgs);
-    console.log(
-      '[ClaudeCliLauncher] Full Command:',
-      `${command} ${commandArgs.join(' ')}`
-    );
-    console.log('[ClaudeCliLauncher] Needs Shell:', needsShell);
-    console.log('[ClaudeCliLauncher] Working Directory:', cwd);
-    console.log(
-      '[ClaudeCliLauncher] Resume Session ID:',
-      resumeSessionId || 'none'
-    );
-    console.log('[ClaudeCliLauncher] Model:', model || 'default');
-    console.log(
-      '[ClaudeCliLauncher] =========================================='
-    );
+    console.log('[ClaudeCliLauncher] SPAWN (TEMP):', {
+      sessionId,
+      command,
+      commandArgs,
+    });
 
-    // Get MCP server port from workspace state
     const mcpPort =
       this.deps.context?.workspaceState.get<number>('ptah.mcp.port');
-    console.log('[ClaudeCliLauncher] MCP Port from workspace state:', mcpPort);
 
-    // Spawn child process with PTAH_MCP_PORT environment variable
-    // This expands ${PTAH_MCP_PORT} in the registered MCP server URL
     const childProcess = spawn(command, commandArgs, {
       cwd,
-      stdio: ['pipe', 'pipe', 'pipe'], // Explicit stdio: stdin, stdout, stderr
+      stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...process.env,
         FORCE_COLOR: '0',
         NO_COLOR: '1',
-        // CRITICAL: Disable output buffering on Windows
         PYTHONUNBUFFERED: '1',
         NODE_NO_READLINE: '1',
-        // MCP server dynamic port (expands ${PTAH_MCP_PORT} in config)
-        ...(mcpPort && {
-          PTAH_MCP_PORT: mcpPort.toString(),
-        }),
+        ...(mcpPort && { PTAH_MCP_PORT: mcpPort.toString() }),
       },
       shell: needsShell,
-      // CRITICAL: Set windowsVerbatimArguments to prevent command-line escaping issues
       windowsVerbatimArguments: false,
     });
 
-    // PHASE 3: Log successful spawn
-    console.log(
-      '[ClaudeCliLauncher] Process spawned successfully, PID:',
-      childProcess.pid
-    );
+    if (childProcess.stdout) childProcess.stdout.setEncoding('utf8');
+    if (childProcess.stderr) childProcess.stderr.setEncoding('utf8');
 
-    // CRITICAL: Set encoding on stdout to force line-buffered mode
-    if (childProcess.stdout) {
-      childProcess.stdout.setEncoding('utf8');
-    }
-    if (childProcess.stderr) {
-      childProcess.stderr.setEncoding('utf8');
-    }
-
-    // CRITICAL: Write message to stdin (required for -p flag)
-    // The -p flag tells Claude CLI to read the message from stdin
-    // CRITICAL: Must call stdin.end() to signal EOF, otherwise CLI hangs forever!
     if (childProcess.stdin && !childProcess.stdin.destroyed) {
-      console.log('[ClaudeCliLauncher] Writing message to stdin:', {
-        messageLength: message.length,
-        messagePreview: message.substring(0, 50),
-      });
       childProcess.stdin.write(message + '\n');
-      console.log('[ClaudeCliLauncher] Message written to stdin');
-
-      // CRITICAL FIX: End stdin to signal EOF (like echo pipe does)
-      // Without this, Claude CLI waits forever for more stdin input!
       childProcess.stdin.end();
-      console.log('[ClaudeCliLauncher] stdin ended (EOF signaled)');
-    } else {
-      console.error('[ClaudeCliLauncher] ERROR: stdin is not writable!');
     }
 
-    // Register process
     this.deps.processManager.registerProcess(
       sessionId,
       childProcess,
@@ -164,7 +149,6 @@ export class ClaudeCliLauncher {
       args
     );
 
-    // Create streaming output with event handling
     return this.createStreamingPipeline(
       childProcess,
       sessionId,
@@ -173,14 +157,7 @@ export class ClaudeCliLauncher {
     );
   }
 
-  /**
-   * Build CLI arguments array
-   * NOTE: Message is NOT passed as argument - it's written to stdin after spawn
-   */
   private buildArgs(model?: string, resumeSessionId?: string): string[] {
-    // CRITICAL: -p flag tells CLI to read message from stdin (NOT argument)
-    // CRITICAL: --verbose is REQUIRED when using --output-format=stream-json
-    // CRITICAL: --include-partial-messages enables token-by-token streaming
     const args = [
       '-p',
       '--output-format',
@@ -188,341 +165,146 @@ export class ClaudeCliLauncher {
       '--verbose',
       '--include-partial-messages',
     ];
-
-    if (model && model !== 'default') {
-      args.push('--model', model);
-    }
-
-    if (resumeSessionId) {
-      args.push('--resume', resumeSessionId);
-    }
-
+    if (model && model !== 'default') args.push('--model', model);
+    if (resumeSessionId) args.push('--resume', resumeSessionId);
     return args;
   }
 
-  /**
-   * Build spawn command with direct Node.js execution support
-   * Returns: { command, commandArgs, needsShell }
-   *
-   * If useDirectExecution is true (Windows with resolved cli.js):
-   *   command: "node" (resolved from PATH, NOT process.execPath which is Code.exe)
-   *   commandArgs: ["C:\...\cli.js", ...cliArgs]
-   *   needsShell: false
-   *
-   * Otherwise (fallback to wrapper):
-   *   command: "claude.cmd" or "/usr/local/bin/claude"
-   *   commandArgs: [...cliArgs]
-   *   needsShell: true on Windows for .cmd/.bat
-   */
   private buildSpawnCommand(cliArgs: string[]): {
     command: string;
     commandArgs: string[];
     needsShell: boolean;
   } {
-    // Strategy 1: Direct Node.js execution (bypasses Windows cmd.exe buffering)
     if (this.installation.useDirectExecution && this.installation.cliJsPath) {
-      // CRITICAL FIX: In VS Code extensions, process.execPath = Code.exe (Electron)
-      // We need the actual node.exe path. Use 'node' and let system PATH resolve it.
-      // This works because node.exe is in PATH when npm install works.
       return {
-        command: 'node', // System will resolve to node.exe via PATH
+        command: 'node',
         commandArgs: [this.installation.cliJsPath, ...cliArgs],
-        needsShell: false, // No shell needed for direct node execution!
+        needsShell: false,
       };
     }
-
-    // Strategy 2: Fallback to wrapper (shell spawning, potential buffering on Windows)
-    const needsShell = this.needsShellExecution();
     return {
       command: this.installation.path,
       commandArgs: cliArgs,
-      needsShell,
+      needsShell: this.needsShellExecution(),
     };
   }
 
-  /**
-   * Determine if shell execution is needed for wrapper (Windows CMD/BAT files)
-   *
-   * FIX: Always use shell on Windows for .cmd/.bat files OR bare commands OR non-.exe files
-   * This fixes ENOENT errors when spawning NPM global installs (claude.cmd wrapper)
-   *
-   * Cross-platform behavior:
-   * - Windows: shell=true for .cmd/.bat/bare commands/non-.exe (fixes NPM installs)
-   * - Windows: shell=false for .exe files (direct execution, better performance)
-   * - macOS/Linux: shell=false (symlinks work directly)
-   */
   private needsShellExecution(): boolean {
-    if (os.platform() !== 'win32') {
-      return false;
-    }
-
+    if (os.platform() !== 'win32') return false;
     const path = this.installation.path.toLowerCase();
-
-    // Case 1: Explicit wrapper extensions MUST use shell
-    if (path.endsWith('.cmd') || path.endsWith('.bat')) {
-      return true;
-    }
-
-    // Case 2: Bare command without path (e.g., 'claude') needs shell to resolve from PATH
-    if (!path.includes('\\') && !path.includes('/')) {
-      return true;
-    }
-
-    // Case 3: Native .exe doesn't need shell (direct execution, better performance)
-    if (path.endsWith('.exe')) {
-      return false;
-    }
-
-    // Case 4: Default to shell for unknown extensions on Windows (safe fallback)
-    // This handles edge cases like custom wrappers or unusual installation methods
+    if (path.endsWith('.cmd') || path.endsWith('.bat')) return true;
+    if (!path.includes('\\') && !path.includes('/')) return true;
+    if (path.endsWith('.exe')) return false;
     return true;
   }
 
-  /**
-   * Create streaming pipeline with JSONL parsing and event emission
-   */
   private createStreamingPipeline(
     childProcess: ChildProcess,
     sessionId: SessionId,
     spawnCommand: string,
     spawnShell: boolean
   ): Readable {
-    if (!childProcess.stdout) {
-      throw new Error('Child process stdout is null');
-    }
+    if (!childProcess.stdout) throw new Error('Child process stdout is null');
 
     const outputStream = new Readable({
       objectMode: true,
       read() {
-        // Resume child process stdout when consumer is ready for more data
-        if (childProcess.stdout?.isPaused()) {
-          childProcess.stdout.resume();
-        }
+        if (childProcess.stdout?.isPaused()) childProcess.stdout.resume();
       },
     });
 
-    /**
-     * Helper to push data with backpressure handling
-     * Pauses child process stdout if internal buffer is full
-     */
-    const pushWithBackpressure = (data: unknown): void => {
-      const canContinue = outputStream.push(data);
-      if (
-        !canContinue &&
-        childProcess.stdout &&
-        !childProcess.stdout.isPaused()
-      ) {
-        // Buffer is full - pause source stream to prevent memory issues
-        childProcess.stdout.pause();
-      }
-    };
-
-    // Create parser with event callbacks
-    // SIMPLIFIED: Single onMessage callback forwards all JSONL to webview
     const callbacks: JSONLParserCallbacks = {
       onMessage: (message) => {
-        // Single postMessage call - forward parsed JSONL directly
         this.deps.webview.postMessage({
           type: 'jsonl-message',
-          data: {
-            sessionId, // SessionId branded type
-            message, // Complete JSONL object with type field
-          },
+          data: { sessionId, message },
         });
       },
-
       onPermission: async (request) => {
-        // Keep existing permission handling (user interaction required)
         await this.handlePermissionRequest(sessionId, request, childProcess);
       },
-
       onError: (error, rawLine) => {
-        // Keep existing error handling (debugging/logging)
-        console.error('[ClaudeCliLauncher] Parser error:', error.message);
-        if (rawLine) {
-          console.error('[ClaudeCliLauncher] Raw line:', rawLine);
-        }
+        console.error(
+          '[ClaudeCliLauncher] Parser error:',
+          error.message,
+          rawLine
+        );
       },
     };
 
-    const parser = new JSONLStreamParser(callbacks);
+    const parser = new InlineJSONLParser(callbacks);
 
-    // Pipe stdout through parser
-    childProcess.stdout.on('data', (chunk: Buffer) => {
-      console.log('[ClaudeCliLauncher] Received stdout data:', {
-        chunkLength: chunk.length,
-        chunkPreview: chunk.toString('utf8').substring(0, 200),
-      });
-      parser.processChunk(chunk);
-    });
-
-    // Handle stderr
-    if (childProcess.stderr) {
-      childProcess.stderr.on('data', (data) => {
-        const stderr = data.toString();
-        console.error('[ClaudeCliLauncher] STDERR:', stderr);
-        // Errors are logged to console (webview receives via jsonl-message)
-      });
-    }
-
-    // Handle process close
+    childProcess.stdout.on('data', (chunk: Buffer) =>
+      parser.processChunk(chunk)
+    );
+    childProcess.stderr?.on('data', (data) =>
+      console.error('[ClaudeCliLauncher] STDERR:', data.toString())
+    );
     childProcess.on('close', (code) => {
       parser.processEnd();
-      outputStream.push(null); // End stream
-
-      // NOTE: sessionEnd event already emitted in onResult callback above (line 383)
-      // Emitting here would be duplicate - onResult has better context (success vs error)
-      // Only log the process exit for debugging
-      console.log(
-        `[ClaudeCliLauncher] Process closed for session ${sessionId} with exit code ${code}`
-      );
+      outputStream.push(null);
+      console.log(`[ClaudeCliLauncher] Process closed: ${code}`);
     });
-
-    // Handle process error (ENOENT, EACCES, etc.)
     childProcess.on('error', (error) => {
-      // PHASE 3: Enhanced error logging with diagnostic details
-      console.error('[ClaudeCliLauncher] Process spawn/execution error:', {
-        errorMessage: error.message,
-        errorCode: (error as NodeJS.ErrnoException).code,
-        sessionId,
-        command: spawnCommand,
-        needsShell: spawnShell,
-        installationPath: this.installation.path,
-        platform: os.platform(),
-      });
-      // Errors are logged to console (webview receives via jsonl-message)
+      console.error('[ClaudeCliLauncher] Process error:', error);
       outputStream.destroy(error);
     });
 
     return outputStream;
   }
 
-  /**
-   * Handle permission request from CLI
-   */
   private async handlePermissionRequest(
     sessionId: SessionId,
     request: ClaudePermissionRequest,
     childProcess: ChildProcess
   ): Promise<void> {
-    // Get permission decision
     const response = await this.deps.permissionService.requestDecision(request);
-
-    // Permission events are handled via onPermission callback (sent to webview)
-    // User interaction happens in frontend, response comes back via RPC
-
-    // Send response to CLI stdin if still writable
     if (childProcess.stdin && !childProcess.stdin.destroyed) {
-      const permissionResponse = {
-        type: 'permission',
-        subtype: 'response',
-        tool_call_id: request.toolCallId,
-        decision: response.decision,
-      };
-
-      childProcess.stdin.write(JSON.stringify(permissionResponse) + '\n');
-    } else {
-      console.error(
-        '[ClaudeCliLauncher] ERROR: Cannot send permission response - stdin is not writable!'
+      childProcess.stdin.write(
+        JSON.stringify({
+          type: 'permission',
+          subtype: 'response',
+          tool_call_id: request.toolCallId,
+          decision: response.decision,
+        }) + '\n'
       );
     }
   }
 
-  /**
-   * Kill active process for a session
-   */
   killSession(sessionId: SessionId): boolean {
     return this.deps.processManager.killProcess(sessionId);
   }
 
   /**
-   * Spawn interactive CLI session (no -p flag)
-   * Used by InteractiveSessionManager for persistent sessions with message queueing
-   *
-   * @param sessionId - Session identifier for process registration
-   * @param workspaceRoot - Optional workspace root directory
-   * @returns ChildProcess for interactive stdin/stdout communication
+   * @deprecated Will be replaced by ClaudeProcess in Batch 4
    */
   spawnInteractiveSession(
     sessionId: SessionId,
     workspaceRoot?: string
   ): ChildProcess {
-    // Build CLI arguments WITHOUT -p flag (interactive mode)
-    const args = this.buildInteractiveArgs(sessionId);
-
-    // Determine execution context
-    const cwd = workspaceRoot || process.cwd();
-
-    // Build spawn command
-    const { command, commandArgs, needsShell } = this.buildSpawnCommand(args);
-
-    console.log(
-      '[ClaudeCliLauncher] =========================================='
-    );
-    console.log('[ClaudeCliLauncher] SPAWN INTERACTIVE SESSION:');
-    console.log('[ClaudeCliLauncher] SessionID:', sessionId);
-    console.log('[ClaudeCliLauncher] Mode: INTERACTIVE (no -p flag)');
-    console.log('[ClaudeCliLauncher] Spawn Command:', command);
-    console.log('[ClaudeCliLauncher] Command Arguments:', commandArgs);
-    console.log('[ClaudeCliLauncher] Working Directory:', cwd);
-    console.log(
-      '[ClaudeCliLauncher] =========================================='
-    );
-
-    // Get MCP server port
-    const mcpPort = this.deps.context.workspaceState.get<number>(
-      'ptah.mcpServer.port'
-    );
-    const env = mcpPort
-      ? { ...process.env, MCP_SERVER_PORT: mcpPort.toString() }
-      : process.env;
-
-    // Spawn interactive process
-    const childProcess = spawn(command, commandArgs, {
-      cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      shell: needsShell,
-      env,
-    });
-
-    // Register with process manager
-    this.deps.processManager.registerProcess(
-      sessionId,
-      childProcess,
-      command,
-      commandArgs
-    );
-
-    // Log spawn result
-    if (childProcess.pid) {
-      console.log(
-        '[ClaudeCliLauncher] Interactive session spawned:',
-        childProcess.pid
-      );
-    } else {
-      console.error(
-        '[ClaudeCliLauncher] WARNING: Interactive session spawned without PID'
-      );
-    }
-
-    return childProcess;
-  }
-
-  /**
-   * Build arguments for interactive mode (no -p flag)
-   * Messages are written to stdin line-by-line instead of as single input
-   */
-  private buildInteractiveArgs(resumeSessionId: string): string[] {
-    // NO -p flag for interactive mode!
     const args = [
       '--output-format',
       'stream-json',
       '--verbose',
       '--include-partial-messages',
       '--resume',
-      resumeSessionId,
+      sessionId,
     ];
+    const cwd = workspaceRoot || process.cwd();
+    const { command, commandArgs, needsShell } = this.buildSpawnCommand(args);
 
-    return args;
+    const childProcess = spawn(command, commandArgs, {
+      cwd,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      shell: needsShell,
+    });
+
+    this.deps.processManager.registerProcess(
+      sessionId,
+      childProcess,
+      command,
+      commandArgs
+    );
+    return childProcess;
   }
 }

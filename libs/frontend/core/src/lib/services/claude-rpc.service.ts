@@ -8,6 +8,11 @@ import {
   StrictChatMessage,
 } from '@ptah-extension/shared';
 
+// Import ChatStore type (lazy to avoid circular dependency)
+interface ChatStoreInterface {
+  setRpcService(rpcService: any): void;
+}
+
 /**
  * Options for RPC calls
  */
@@ -69,6 +74,14 @@ export class ClaudeRpcService {
     string,
     (response: RpcResponse<any>) => void
   >();
+
+  constructor() {
+    // Register this service with VSCodeService for RPC response routing
+    this.vscode.setRpcService(this);
+    console.log(
+      '[ClaudeRpcService] Registered with VSCodeService for RPC routing'
+    );
+  }
 
   /**
    * Call an RPC method on the backend
@@ -145,7 +158,18 @@ export class ClaudeRpcService {
    * @returns Array of session summaries
    */
   listSessions(): Promise<RpcResult<SessionSummary[]>> {
-    return this.call<SessionSummary[]>('session:list', {});
+    console.log(
+      '🔵 [ClaudeRpcService] listSessions() called - Sending RPC request...'
+    );
+    return this.call<SessionSummary[]>('session:list', {}).then((result) => {
+      console.log('✅ [ClaudeRpcService] listSessions() response:', {
+        success: result.success,
+        sessionCount: result.data?.length ?? 0,
+        sessions: result.data,
+        error: result.error,
+      });
+      return result;
+    });
   }
 
   /**

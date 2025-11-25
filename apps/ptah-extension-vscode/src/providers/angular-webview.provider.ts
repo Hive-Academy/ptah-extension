@@ -303,39 +303,95 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Handle messages from webview (RPC requests)
+   * Handle messages from webview (RPC requests + webview-ready)
    * TASK_2025_019 Phase 1: Route RPC requests to handler and send responses back
+   * TASK_2025_010 FIX: Handle webview-ready message to flush event queue
    */
   private async handleWebviewMessage(message: any): Promise<void> {
-    // Handle RPC requests
-    if (message.type === 'rpc:request') {
-      const { requestId, method, params } = message;
+    console.log(
+      '[AngularWebviewProvider] Received message from webview:',
+      message.type
+    );
+    this.logger.info('[AngularWebviewProvider] Processing message', {
+      type: message.type,
+    });
 
-      try {
-        // Call RPC handler
-        const response = await this.rpcHandler.handleMessage({
+    try {
+      // CRITICAL FIX: Handle webview-ready message
+      if (message.type === 'webview-ready') {
+        console.log('[AngularWebviewProvider] Webview ready signal received!');
+        this.logger.info(
+          'Webview ready signal received - flushing event queue'
+        );
+        this.markWebviewReady();
+        console.log('[AngularWebviewProvider] markWebviewReady() completed');
+        return;
+      }
+
+      // Handle RPC requests (support both 'rpc:request' and 'rpc:call' for compatibility)
+      if (message.type === 'rpc:request' || message.type === 'rpc:call') {
+        // Frontend wraps RPC data in 'payload' object, so unwrap it
+        const rpcData = message.payload || message;
+        const { requestId, method, params, correlationId } = rpcData;
+        const reqId = requestId || correlationId; // Support both field names
+
+        console.log('[AngularWebviewProvider] RPC call:', {
           method,
           params,
-          correlationId: requestId,
+          correlationId: reqId,
         });
 
-        // Send response back to webview
-        this.postMessageDirect({
-          type: 'rpc:response',
-          requestId,
-          result: response.data,
-          error: response.error ? { message: response.error } : undefined,
-        } as any);
-      } catch (error) {
-        // Send error response
-        this.postMessageDirect({
-          type: 'rpc:response',
-          requestId,
-          error: {
-            message: error instanceof Error ? error.message : 'Unknown error',
-          },
-        } as any);
+        try {
+          // Call RPC handler
+          const response = await this.rpcHandler.handleMessage({
+            method,
+            params,
+            correlationId: reqId,
+          });
+
+          // Send response back to webview
+          // CRITICAL: Send BOTH requestId AND correlationId for compatibility
+          // - VSCodeService.sendRequest() expects requestId
+          // - ClaudeRpcService expects correlationId
+          this.postMessageDirect({
+            type: 'rpc:response',
+            requestId: reqId,
+            correlationId: reqId, // ClaudeRpcService expects this field
+            success: response.success,
+            data: response.data, // ClaudeRpcService expects 'data'
+            result: response.data, // VSCodeService.sendRequest() expects 'result'
+            error: response.error ? { message: response.error } : undefined,
+          } as any);
+        } catch (error) {
+          // Send error response with both field formats for compatibility
+          this.postMessageDirect({
+            type: 'rpc:response',
+            requestId: reqId,
+            correlationId: reqId,
+            success: false,
+            data: undefined,
+            result: undefined,
+            error: {
+              message: error instanceof Error ? error.message : 'Unknown error',
+            },
+          } as any);
+        }
+        return;
       }
+
+      // Log unhandled message types
+      this.logger.warn('Unhandled webview message type', {
+        type: message.type,
+      });
+    } catch (error) {
+      console.error(
+        '[AngularWebviewProvider] Error in handleWebviewMessage:',
+        error
+      );
+      this.logger.error(
+        'Failed to handle webview message',
+        error instanceof Error ? error : new Error(String(error))
+      );
     }
   }
 

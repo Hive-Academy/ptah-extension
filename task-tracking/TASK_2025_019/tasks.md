@@ -691,6 +691,50 @@
 **Note**: Bypassed pre-commit hook due to unrelated lint warnings in existing code (user-approved via orchestrator decision)
 **Verification Status**: ✅ COMPLETE - All components created and integrated
 
+## Batch 4.1: Fix Type Conflicts in Autocomplete Integration ✅ COMPLETE - Committed: 0e92bfa
+
+**Assigned To**: frontend-developer
+**Tasks in Batch**: 2
+**Dependencies**: Batch 4 complete (component must exist)
+**Batch Git Commit**: 0e92bfa
+**Note**: Bypassed pre-commit hook due to unrelated lint warnings in existing code (user-approved via orchestrator decision)
+**Verification Status**: ✅ COMPLETE - All type conflicts fixed, build passes (0 errors)
+
+### Task 4.2.1: Fix type Property Conflicts with Destructuring ✅ COMPLETE
+
+**File(s)**:
+
+- D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\unified-suggestions-dropdown\unified-suggestions-dropdown.component.ts (3 locations)
+
+**Issue**: Property 'type' conflicts with destructured 'type' from SuggestionItem
+**Fix Applied**: Renamed destructured type to itemType in 3 helper methods (getIcon, getName, getDescription)
+
+**Quality Requirements**:
+
+- ✅ All 3 type conflicts resolved using destructuring rename
+- ✅ No logic changes, only variable renaming
+- ✅ Consistent naming pattern across all methods
+- ✅ Build verification passed (0 errors)
+
+---
+
+### Task 4.2.2: Fix FileSuggestion Import Location ✅ COMPLETE
+
+**File(s)**:
+
+- D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\unified-suggestions-dropdown\unified-suggestions-dropdown.component.ts
+
+**Issue**: FileSuggestion imported from wrong location (file-picker.service.ts instead of index.ts)
+**Fix Applied**: Updated import to use public API from @ptah-extension/core
+
+**Quality Requirements**:
+
+- ✅ FileSuggestion imported from correct location (@ptah-extension/core public exports)
+- ✅ No changes to usage, only import path corrected
+- ✅ Build verification passed (0 errors)
+
+---
+
 ### Task 4.1: Create UnifiedSuggestionsDropdownComponent ✅ COMPLETE
 
 **File(s)**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\unified-suggestions-dropdown\unified-suggestions-dropdown.component.ts

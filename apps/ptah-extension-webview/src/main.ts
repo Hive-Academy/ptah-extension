@@ -73,11 +73,18 @@ initializeMockEnvironment().then(() => {
       : 'Development',
   });
 
+  // CRITICAL TEST: Verify console.log works
+  console.warn('🚨 CRITICAL TEST: If you see this, console.log is working!');
+  alert('PTAH: Bootstrap starting - check console for logs');
+
   bootstrapApplication(App, appConfig)
     .then(() => {
       console.log('=== PTAH WEBVIEW BOOTSTRAP COMPLETE ===');
+      console.warn('🚨 CRITICAL: Bootstrap complete!');
+      alert('PTAH: Bootstrap complete!');
     })
     .catch((err) => {
       console.error('=== PTAH WEBVIEW BOOTSTRAP FAILED ===', err);
+      alert('PTAH: Bootstrap FAILED - ' + err.message);
     });
 });

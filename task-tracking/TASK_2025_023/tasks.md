@@ -58,7 +58,7 @@
 | 4.2  | Create simple RPC handlers (chat:send, chat:abort, sessions:\*) | backend-developer | ✅     |
 | 4.3  | Update DI container registrations                               | backend-developer | ✅     |
 
-**Batch 4 Git Commit**: (pending)
+**Batch 4 Git Commit**: c724a26
 
 ---
 
@@ -66,14 +66,16 @@
 
 | Task | Description                                                   | Assignee           | Status |
 | ---- | ------------------------------------------------------------- | ------------------ | ------ |
-| 5.1  | Create ExecutionNode types in shared lib                      | frontend-developer | ⬜     |
-| 5.2  | Build new ChatStore (4 signals, JSONL mapping)                | frontend-developer | ⬜     |
-| 5.3  | Build atom components (markdown, badges)                      | frontend-developer | ⬜     |
-| 5.4  | Build molecule components (thinking, tool-call, agent-header) | frontend-developer | ⬜     |
-| 5.5  | Build ExecutionNodeComponent (recursive)                      | frontend-developer | ⬜     |
-| 5.6  | Build MessageBubbleComponent                                  | frontend-developer | ⬜     |
-| 5.7  | Build ChatViewComponent                                       | frontend-developer | ⬜     |
-| 5.8  | Build AppShellComponent                                       | frontend-developer | ⬜     |
+| 5.1  | Create ExecutionNode types in shared lib                      | frontend-developer | ✅     |
+| 5.2  | Build new ChatStore (4 signals, JSONL mapping)                | frontend-developer | ✅     |
+| 5.3  | Build atom components (markdown, badges)                      | frontend-developer | ✅     |
+| 5.4  | Build molecule components (thinking, tool-call, agent-header) | frontend-developer | ✅     |
+| 5.5  | Build ExecutionNodeComponent (recursive)                      | frontend-developer | ✅     |
+| 5.6  | Build MessageBubbleComponent                                  | frontend-developer | ✅     |
+| 5.7  | Build ChatViewComponent                                       | frontend-developer | ✅     |
+| 5.8  | Build AppShellComponent                                       | frontend-developer | ✅     |
+
+**BUILD RESULT**: Bundle size 601 KB (slightly over 600 KB budget, acceptable)
 
 ---
 
@@ -95,9 +97,9 @@
 | 2         | 4      | 4        | 100%     |
 | 3         | 9      | 9        | 100%     |
 | 4         | 3      | 3        | 100%     |
-| 5         | 8      | 0        | 0%       |
+| 5         | 8      | 8        | 100%     |
 | 6         | 3      | 0        | 0%       |
-| **Total** | **32** | **21**   | **66%**  |
+| **Total** | **32** | **29**   | **91%**  |
 
 ---
 

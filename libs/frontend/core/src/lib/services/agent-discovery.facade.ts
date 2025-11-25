@@ -4,7 +4,7 @@ import { VSCodeService } from './vscode.service';
 export interface AgentSuggestion {
   readonly name: string;
   readonly description: string;
-  readonly scope: 'project' | 'user';
+  readonly scope: 'project' | 'user' | 'builtin';
   readonly icon: string;
 }
 
@@ -31,7 +31,7 @@ export class AgentDiscoveryFacade {
         agents?: Array<{
           name: string;
           description: string;
-          scope: 'project' | 'user';
+          scope: 'project' | 'user' | 'builtin';
         }>;
         error?: string;
       }>({
@@ -43,10 +43,23 @@ export class AgentDiscoveryFacade {
         this._agents.set(
           result.agents.map((a) => ({
             ...a,
-            icon: a.scope === 'project' ? '🤖' : '👤',
+            icon:
+              a.scope === 'builtin'
+                ? '🤖'
+                : a.scope === 'project'
+                ? '📁'
+                : '👤',
           }))
         );
+      } else if (result.error) {
+        console.warn('[AgentDiscoveryFacade] Discovery failed:', result.error);
+        // Still show empty list even if discovery fails (e.g., missing .claude folder)
+        this._agents.set([]);
       }
+    } catch (error) {
+      console.error('[AgentDiscoveryFacade] Failed to fetch agents:', error);
+      // Don't throw - let UI show empty state instead of crashing
+      this._agents.set([]);
     } finally {
       this._isLoading.set(false);
     }

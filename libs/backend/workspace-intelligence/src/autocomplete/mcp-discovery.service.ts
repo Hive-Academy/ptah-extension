@@ -19,7 +19,7 @@ export interface MCPServerInfo {
   readonly env: Record<string, string>;
   readonly type: 'stdio' | 'http' | 'sse';
   readonly url?: string;
-  status: 'running' | 'stopped' | 'error' | 'unknown';
+  status: 'unknown' | 'connected' | 'error';
   error?: string;
 }
 
@@ -136,7 +136,7 @@ export class MCPDiscoveryService {
       // Filter by online status
       let filtered = includeOffline
         ? this.cache
-        : this.cache.filter((s) => s.status === 'running');
+        : this.cache.filter((s) => s.status === 'connected');
 
       // Filter by query
       if (query && query.trim() !== '') {
@@ -256,28 +256,39 @@ export class MCPDiscoveryService {
    */
   private async checkServerHealth(): Promise<void> {
     try {
-      const result = await execAsync('claude mcp list --output-format json', {
-        timeout: 5000,
-      });
+      const result = await execAsync('claude mcp list', { timeout: 5000 });
 
-      const status = JSON.parse(result.stdout);
+      // Parse plain text output (--output-format json doesn't work)
+      // Format: "server-name: command - ✓ Connected" or "server-name: command - ✗ Error message"
+      const lines = result.stdout.split('\n');
 
-      for (const server of this.cache) {
-        if (status[server.name]) {
-          server.status = status[server.name].status || 'unknown';
-          server.error = status[server.name].error;
-        } else {
-          server.status = 'unknown';
+      for (const line of lines) {
+        // Skip header and empty lines
+        if (line.includes('Checking MCP') || line.trim() === '') continue;
+
+        // Parse: "server-name: command - ✓ Connected"
+        const match = line.match(/^([^:]+):\s+(.+?)\s+-\s+(✓|✗)\s+(.+)$/);
+        if (!match) continue;
+
+        const [, serverName, , statusIcon, statusText] = match;
+        const server = this.cache.find((s) => s.name === serverName.trim());
+
+        if (server) {
+          if (statusIcon === '✓') {
+            server.status = 'connected';
+          } else if (statusIcon === '✗') {
+            server.status = 'error';
+            server.error = statusText.trim();
+          }
         }
       }
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       console.warn(
-        '[MCPDiscovery] Failed to check server health:',
-        errorMessage
+        `[MCPDiscovery] Failed to check server health: ${errorMessage}`
       );
-      // Don't update status if health check fails
+      // Don't throw - keep servers with 'unknown' status
     }
   }
 

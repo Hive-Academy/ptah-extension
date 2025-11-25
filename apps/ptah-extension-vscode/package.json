@@ -34,7 +34,7 @@
     "anthropic.claude-code"
   ],
   "activationEvents": [
-    "onView:ptah.main"
+    "*"
   ],
   "main": "./main.js",
   "icon": "assets/images/ptah-icon.png",

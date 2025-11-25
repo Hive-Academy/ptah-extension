@@ -102,10 +102,12 @@ export async function activate(
     console.log(
       '[Activate] Step 10: Registering MCP server with Claude CLI...'
     );
+
     try {
       const mcpRegistration = DIContainer.resolve(
         TOKENS.MCP_REGISTRATION_SERVICE
       );
+
       await (
         mcpRegistration as { registerPtahMCPServer: () => Promise<void> }
       ).registerPtahMCPServer();

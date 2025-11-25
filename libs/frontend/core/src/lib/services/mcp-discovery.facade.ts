@@ -46,7 +46,15 @@ export class MCPDiscoveryFacade {
             icon: s.status === 'running' ? '🔌' : '⚠️',
           }))
         );
+      } else if (result.error) {
+        console.warn('[MCPDiscoveryFacade] Discovery failed:', result.error);
+        // Still show empty list even if discovery fails (e.g., missing .claude folder)
+        this._servers.set([]);
       }
+    } catch (error) {
+      console.error('[MCPDiscoveryFacade] Failed to fetch MCP servers:', error);
+      // Don't throw - let UI show empty state instead of crashing
+      this._servers.set([]);
     } finally {
       this._isLoading.set(false);
     }

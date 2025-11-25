@@ -42,7 +42,8 @@ import { promises as fs } from 'fs';
 import { createReadStream } from 'fs';
 import { createInterface } from 'readline';
 import {
-  SessionSummary,
+  SessionSummary, // @deprecated - Use SessionUIData
+  SessionUIData,
   StrictChatMessage,
   SessionId,
   MessageId,
@@ -96,7 +97,7 @@ export class JsonlSessionParser {
    */
   static async parseSessionFile(
     filePath: string
-  ): Promise<Omit<SessionSummary, 'id'>> {
+  ): Promise<Omit<SessionUIData, 'id'>> {
     try {
       // Read first line for session summary
       const firstLine = await this.readFirstLine(filePath);
@@ -121,6 +122,12 @@ export class JsonlSessionParser {
         messageCount,
         lastActiveAt,
         createdAt,
+        tokenUsage: {
+          input: 0,
+          output: 0,
+          total: 0,
+        },
+        isActive: false,
       };
     } catch (error) {
       throw new Error(

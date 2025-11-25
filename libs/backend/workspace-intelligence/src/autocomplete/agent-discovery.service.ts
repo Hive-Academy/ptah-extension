@@ -15,7 +15,7 @@ export interface AgentInfo {
   readonly tools?: string[];
   readonly model?: string;
   readonly permissionMode?: string;
-  readonly scope: 'project' | 'user';
+  readonly scope: 'project' | 'user' | 'builtin';
   readonly filePath: string;
   readonly prompt: string;
 }
@@ -57,13 +57,68 @@ export class AgentDiscoveryService {
   ) {}
 
   /**
+   * Get built-in Claude Code agents
+   */
+  private getBuiltinAgents(): AgentInfo[] {
+    return [
+      {
+        name: 'general-purpose',
+        description:
+          'General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks',
+        tools: ['*'],
+        scope: 'builtin',
+        filePath: '',
+        prompt: '',
+      },
+      {
+        name: 'statusline-setup',
+        description: 'Configure Claude Code status line setting',
+        tools: ['Read', 'Edit'],
+        scope: 'builtin',
+        filePath: '',
+        prompt: '',
+      },
+      {
+        name: 'Explore',
+        description:
+          'Fast agent specialized for exploring codebases, finding files by patterns, searching code',
+        tools: ['All tools'],
+        scope: 'builtin',
+        filePath: '',
+        prompt: '',
+      },
+      {
+        name: 'Plan',
+        description: 'Fast agent for codebase exploration and planning',
+        tools: ['All tools'],
+        scope: 'builtin',
+        filePath: '',
+        prompt: '',
+      },
+      {
+        name: 'claude-code-guide',
+        description:
+          'Agent for Claude Code documentation and SDK architecture questions',
+        tools: ['Glob', 'Grep', 'Read', 'WebFetch', 'WebSearch'],
+        scope: 'builtin',
+        filePath: '',
+        prompt: '',
+      },
+    ];
+  }
+
+  /**
    * Discover all agents (project + user)
    */
   async discoverAgents(): Promise<AgentDiscoveryResult> {
     try {
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+      // Get built-in agents (always available)
+      const builtinAgents = this.getBuiltinAgents();
+
       if (!workspaceRoot) {
-        return { success: false, error: 'No workspace folder open' };
+        return { success: true, agents: builtinAgents };
       }
 
       // Scan project agents
@@ -77,6 +132,7 @@ export class AgentDiscoveryService {
       );
 
       const allAgents = [
+        ...builtinAgents, // Add built-in agents first - show at top
         ...projectAgents.map((a) => ({ ...a, scope: 'project' as const })),
         ...userAgents.map((a) => ({ ...a, scope: 'user' as const })),
       ];

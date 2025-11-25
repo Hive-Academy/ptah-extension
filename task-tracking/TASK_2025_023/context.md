@@ -1,51 +1,106 @@
-# Task Context for TASK_2025_023
+# TASK_2025_023: Complete Purge & Revolutionary Nested UI Rebuild
 
 ## User Intent
 
-Fix template-generation build errors by resolving FileSystemService API mismatch with workspace-intelligence
+After 5 months of building Ptah, the user discovered that the core architecture has multiple parallel systems that don't work together. Rather than patching, they want a **complete purge and rebuild** with a revolutionary vision:
 
-## Problem Analysis
+**Build the FIRST VS Code extension that can display nested agent orchestration visually** - something NO other Claude Code extension can do.
 
-The `@ptah-extension/template-generation` library (migrated from RooCode in TASK_2025_015) has 20 build errors due to incompatible FileSystemService usage:
+## The Problem
 
-**Root Causes**:
+### Backend Issues
 
-1. **Missing DI Token**: Code references `TOKENS.FILE_SYSTEM` but actual token is `TOKENS.FILE_SYSTEM_SERVICE`
-2. **API Mismatch**: workspace-intelligence's FileSystemService expects VS Code Uri objects, not string paths
-3. **Missing Methods**: workspace-intelligence's FileSystemService lacks:
-   - `createDirectory(path: string)` - needed for template directory creation
-   - `writeFile(path: string, content: string)` - needed for template writing
-   - `copyDirectoryRecursive(src: string, dest: string)` - needed for template copying
-4. **Error Handling Pattern**: workspace-intelligence throws errors, but template-generation expects `Result<T, Error>` returns
+- Multiple parallel CLI management systems (Print mode vs Interactive mode)
+- In-memory SessionManager duplicating .jsonl files
+- Complex SessionProcess with state machine that blocks RPC
+- InteractiveSessionManager that's half-wired
+- 5 months of accumulated complexity that doesn't work
 
-**Current State**:
+### Frontend Issues
 
-- workspace-intelligence FileSystemService has: `readFile(uri)`, `readDirectory(uri)`, `stat(uri)`, `exists(uri)`
-- template-generation needs: String-based paths + write operations + Result-based error handling
+- UI wired to two unfinished backend systems
+- Complex signal hierarchies across multiple services
+- No component looks or behaves as intended
+- Standard flat chat interface like every other extension
 
-**Error Count**: 20 TypeScript errors blocking build
+## The Vision
 
-## Technical Context
+### What Every Other Extension Does (Wrong)
 
-- Branch: feature/TASK_2025_010 (current active branch)
-- Created: 2025-11-24
-- Task Type: BUGFIX
-- Complexity: Medium
-- Estimated Duration: 2-3 hours
+- Flat, linear chat interfaces
+- When agent spawns sub-agent → all streams into ONE window
+- No nesting, no hierarchy, no visual organization
+- Claude's native VS Code extension has this limitation
 
-## Execution Strategy
+### What Ptah Will Do (Revolutionary)
 
-**Strategy 2: BUGFIX (Streamlined)** - Skip PM/Architect, requirements clear from error analysis
+**Recursive, nested UI components** that display agent orchestration visually:
 
-1. Phase 1: team-leader MODE 1 (DECOMPOSITION) - Break down fix into atomic tasks
-2. Phase 2a-c: team-leader MODE 2/3 (ITERATIVE ASSIGNMENT + COMPLETION) - Implement fixes
-3. Phase 3: USER CHOICE - QA (tester/reviewer/both/skip)
-4. Phase 4: Git operations
-5. Phase 5: modernization-detector
+```
+┌─ Message Bubble ────────────────────────────┐
+│ 🤖 Claude                                   │
+│ "I'll help implement this..."               │
+│                                             │
+│ ┌─ Agent Card (collapsible) ──────────────┐ │
+│ │ 🔧 software-architect                   │ │
+│ │ Done • 5m • 80.6k tokens                │ │
+│ │ ┌─ Nested Agent Card ─────────────────┐ │ │
+│ │ │ 🔧 frontend-developer              │ │ │
+│ │ │ +32 tool uses                      │ │ │
+│ │ └─────────────────────────────────────┘ │ │
+│ └─────────────────────────────────────────┘ │
+└─────────────────────────────────────────────┘
+```
 
-**Implementation Approach Options**:
-A. Extend workspace-intelligence FileSystemService with missing methods
-B. Create FileSystemAdapter wrapper in template-generation that bridges the APIs
-C. Refactor template-generation to use Uri-based APIs directly
+Like Claude CLI's terminal output, but with RICH Angular components.
 
-**Recommended**: Option B (Adapter pattern) - Least invasive, maintains separation of concerns
+## Technical Approach
+
+### Backend: Simple ClaudeProcess (~100 lines)
+
+```typescript
+// Spawn per message with --output-format stream-json --verbose
+// stdin.write(message + '\n'); stdin.end();
+// Parse stdout JSONL directly
+// No complex state machines, no in-memory duplication
+```
+
+### Frontend: Recursive Component Architecture
+
+- **Tailwind CSS** - Utility-first styling
+- **DaisyUI** - Pre-built components (collapse, card, badge, accordion)
+- **ngx-markdown** - Rich markdown rendering
+- **Angular Signals** - Real-time nested updates
+
+### Key Data Structure
+
+```typescript
+interface ExecutionNode {
+  id: string;
+  type: 'message' | 'agent' | 'tool' | 'thinking';
+  status: 'streaming' | 'done' | 'error';
+  content: string | null;
+  stats?: { tokens: number; duration: number; toolUses: number };
+  children: ExecutionNode[]; // RECURSIVE!
+  isCollapsed: boolean;
+}
+```
+
+## Success Criteria
+
+1. Send message → see response stream in nested UI
+2. Agent spawns sub-agent → displays as nested card
+3. Tool calls → display as collapsible badges
+4. Sequential thinking → collapsible thought blocks
+5. Switch sessions → see history with nested structure preserved
+6. Resume session → continue conversation
+
+## User Quote
+
+> "i'm playing and counting very hard on the ui/ux part most of the extensions can't have a complex ui/ux... there are no current extension for claude code... that will show an agent execution inside a main chat execution... we need to completely start off from ground up"
+
+---
+
+Created: 2025-11-25
+Status: In Progress
+Owner: orchestrator

@@ -348,34 +348,61 @@ export const ClaudeAgentEventSchema = z.discriminatedUnion('type', [
 ]);
 
 /**
- * Session Summary - Lightweight session metadata from .claude_sessions/
- * Used by SessionProxy to list available Claude CLI sessions
- * Pattern: Follows ClaudePermissionRule interface (lines 24-38)
- *
- * Source: .claude_sessions/*.json files
- * Purpose: Display session list in ChatEmptyStateComponent without loading full session data
+ * Session UI Data - Complete session metadata for UI display
+ * Source: SessionManager.getSessionsUIData()
+ * Purpose: Display session list with full metadata (token usage, active state, workspace)
+ * Pattern: Single source of truth for session metadata across frontend and backend
  */
-export interface SessionSummary {
-  /** Unique session identifier (matches .claude_sessions/ filename) */
+export interface SessionUIData {
+  /** Unique session identifier */
   readonly id: string;
   /** Session name (user-provided or auto-generated) */
   readonly name: string;
+  /** Workspace identifier (if applicable) */
+  readonly workspaceId?: string;
   /** Total messages in session */
   readonly messageCount: number;
-  /** Last activity timestamp (Unix epoch milliseconds) */
-  readonly lastActiveAt: number;
+  /** Token usage statistics */
+  readonly tokenUsage: {
+    readonly input: number;
+    readonly output: number;
+    readonly total: number;
+  };
   /** Session creation timestamp (Unix epoch milliseconds) */
   readonly createdAt: number;
+  /** Last activity timestamp (Unix epoch milliseconds) */
+  readonly lastActiveAt: number;
+  /** Whether this session is currently active */
+  readonly isActive: boolean;
 }
 
 /**
- * SessionSummary Zod Schema - Runtime validation
- * Used by SessionProxy.listSessions() to validate parsed session data
+ * SessionUIData Zod Schema - Runtime validation
+ * Used by RPC methods to validate session data from backend
  */
-export const SessionSummarySchema = z.object({
+export const SessionUIDataSchema = z.object({
   id: z.string(),
   name: z.string(),
+  workspaceId: z.string().optional(),
   messageCount: z.number().int().nonnegative(),
-  lastActiveAt: z.number().int().positive(),
+  tokenUsage: z.object({
+    input: z.number().int().nonnegative(),
+    output: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+  }),
   createdAt: z.number().int().positive(),
+  lastActiveAt: z.number().int().positive(),
+  isActive: z.boolean(),
 });
+
+/**
+ * @deprecated Use SessionUIData instead
+ * Legacy alias for backward compatibility - will be removed in future release
+ */
+export type SessionSummary = SessionUIData;
+
+/**
+ * @deprecated Use SessionUIDataSchema instead
+ * Legacy alias for backward compatibility - will be removed in future release
+ */
+export const SessionSummarySchema = SessionUIDataSchema;

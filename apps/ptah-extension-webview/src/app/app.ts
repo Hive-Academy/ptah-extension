@@ -49,9 +49,16 @@ export class App implements OnInit, OnDestroy {
   >('idle');
 
   // ANGULAR 20 PATTERN: Computed signals for derived state
-  public readonly isReady = computed(
-    () => this.initializationStatus() === 'ready'
-  );
+  public readonly isReady = computed(() => {
+    const status = this.initializationStatus();
+    const ready = status === 'ready';
+    console.log('🔍 [App] isReady computed:', {
+      initializationStatus: status,
+      isReady: ready,
+    });
+    return ready;
+  });
+
   public readonly hasError = computed(
     () => this.initializationStatus() === 'error'
   );
@@ -63,6 +70,8 @@ export class App implements OnInit, OnDestroy {
     console.log('=================================================');
     console.log('PTAH APP NGONINIT STARTING');
     console.log('=================================================');
+    console.warn('🚨 APP COMPONENT: ngOnInit called!');
+    alert('PTAH App: ngOnInit starting');
     this.initializationStatus.set('initializing');
 
     try {

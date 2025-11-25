@@ -8,6 +8,8 @@
   }
 
   <!-- Main Content - View Switching -->
+  <!-- DEBUG: Render condition check -->
+  <!-- isReady: {{ isReady() }}, isLoading: {{ appState.isLoading() }} -->
   @if (isReady() && !appState.isLoading()) { @switch (appState.currentView()) {
   @case ('chat') {
   <ptah-chat class="vscode-view-container" />

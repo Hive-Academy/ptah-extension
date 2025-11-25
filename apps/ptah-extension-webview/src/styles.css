@@ -1,55 +1,154 @@
-/* You can add global styles to this file, and also import other style files */
-/* VS Code Design System - Pure CSS Variables */
+/* ============================================================================
+PTAH VS Code Extension - Tailwind CSS v3.4.x + DaisyUI v4 Configuration
+============================================================================ */
 
-/* Import Google Fonts for VS Code integration */
+/* Google Fonts */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-/* VS Code integration utility classes */
+/* Tailwind CSS v3.4.x directives */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================================
+VS CODE THEME OVERRIDES - Apply VS Code CSS Variables
+============================================================================ */
+
+/* DaisyUI-compatible custom properties with VS Code theming */
+:root {
+  /* Primary colors mapped to VS Code button */
+  --color-primary: var(--vscode-button-background, #0e639c);
+  --color-primary-content: var(--vscode-button-foreground, #ffffff);
+
+  /* Secondary colors (less prominent actions) */
+  --color-secondary: var(--vscode-descriptionForeground, #717171);
+  --color-secondary-content: #ffffff;
+
+  /* Accent mapped to VS Code focus border */
+  --color-accent: var(--vscode-focusBorder, #007fd4);
+  --color-accent-content: #ffffff;
+
+  /* Neutral (card backgrounds) */
+  --color-neutral: var(--vscode-panel-background, #2a2a3c);
+  --color-neutral-content: #cccccc;
+
+  /* Base colors mapped to VS Code backgrounds */
+  --color-base-100: var(--vscode-editor-background, #1e1e1e);
+  --color-base-200: var(--vscode-sideBar-background, #252526);
+  --color-base-300: var(--vscode-input-background, #3c3c3c);
+  --color-base-content: var(--vscode-editor-foreground, #cccccc);
+
+  /* Semantic colors */
+  --color-info: #75beff; /* Blue */
+  --color-info-content: #000000;
+
+  --color-success: #89d185; /* Green */
+  --color-success-content: #000000;
+
+  --color-warning: #d7ba7d; /* Yellow */
+  --color-warning-content: #000000;
+
+  --color-error: var(--vscode-errorForeground, #f48771); /* Red */
+  --color-error-content: #000000;
+
+  /* Border radius (DaisyUI-compatible) */
+  --rounded-box: 0.5rem; /* 8px for cards */
+  --rounded-btn: 0.375rem; /* 6px for buttons */
+  --rounded-badge: 0.25rem; /* 4px for badges */
+
+  /* Animation speeds (DaisyUI-compatible) */
+  --animation-btn: 0.15s;
+  --animation-input: 0.2s;
+}
+
+/* ============================================================================
+VS CODE INTEGRATION UTILITY CLASSES
+============================================================================ */
+
+/* Background utilities */
 .vscode-bg {
   background-color: var(--vscode-editor-background);
 }
+
+.vscode-sidebar-bg {
+  background-color: var(--vscode-sideBar-background);
+}
+
+.vscode-panel-bg {
+  background-color: var(--vscode-panel-background);
+}
+
+/* Foreground utilities */
 .vscode-fg {
   color: var(--vscode-editor-foreground);
 }
-.vscode-border {
-  border-color: var(--vscode-widget-border);
-}
-.vscode-input-bg {
-  background-color: var(--vscode-input-background);
-}
-.vscode-input-fg {
-  color: var(--vscode-input-foreground);
-}
-.vscode-input-border {
-  border-color: var(--vscode-input-border);
-}
-.vscode-button-bg {
-  background-color: var(--vscode-button-background);
-}
-.vscode-button-fg {
-  color: var(--vscode-button-foreground);
-}
-.vscode-button-hover {
-  background-color: var(--vscode-button-hoverBackground);
-}
-.vscode-focus {
-  border-color: var(--vscode-focusBorder);
-  box-shadow: 0 0 0 1px var(--vscode-focusBorder);
-}
-.vscode-hover-bg {
-  background-color: var(--vscode-list-hoverBackground);
-}
-.vscode-selection-bg {
-  background-color: var(--vscode-list-activeSelectionBackground);
-}
-.vscode-error {
-  color: var(--vscode-errorForeground);
-}
+
 .vscode-description {
   color: var(--vscode-descriptionForeground);
 }
 
-/* Global reset and base styles */
+.vscode-error {
+  color: var(--vscode-errorForeground);
+}
+
+/* Border utilities */
+.vscode-border {
+  border-color: var(--vscode-widget-border);
+}
+
+.vscode-focus-border {
+  border-color: var(--vscode-focusBorder);
+}
+
+/* Input utilities */
+.vscode-input-bg {
+  background-color: var(--vscode-input-background);
+}
+
+.vscode-input-fg {
+  color: var(--vscode-input-foreground);
+}
+
+.vscode-input-border {
+  border-color: var(--vscode-input-border);
+}
+
+/* Button utilities */
+.vscode-button-bg {
+  background-color: var(--vscode-button-background);
+}
+
+.vscode-button-fg {
+  color: var(--vscode-button-foreground);
+}
+
+.vscode-button-hover {
+  background-color: var(--vscode-button-hoverBackground);
+}
+
+/* Focus utilities */
+.vscode-focus {
+  border-color: var(--vscode-focusBorder);
+  box-shadow: 0 0 0 1px var(--vscode-focusBorder);
+}
+
+/* List utilities */
+.vscode-hover-bg {
+  background-color: var(--vscode-list-hoverBackground);
+}
+
+.vscode-selection-bg {
+  background-color: var(--vscode-list-activeSelectionBackground);
+}
+
+.vscode-selection-fg {
+  color: var(--vscode-list-activeSelectionForeground);
+}
+
+/* ============================================================================
+GLOBAL RESET AND BASE STYLES
+============================================================================ */
+
 * {
   margin: 0;
   padding: 0;
@@ -57,32 +156,56 @@
 }
 
 body {
-  font-family: var(--vscode-font-family);
-  font-size: var(--vscode-font-size);
+  font-family: var(
+    --vscode-font-family,
+    'Inter',
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif
+  );
+  font-size: var(--vscode-font-size, 13px);
   line-height: 1.6;
-  background-color: var(--vscode-editor-background);
-  color: var(--vscode-editor-foreground);
+  background-color: var(--vscode-editor-background, #1e1e1e);
+  color: var(--vscode-editor-foreground, #cccccc);
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
+/* ============================================================================
+SCROLLBAR STYLING - VS Code Integration
+============================================================================ */
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--vscode-scrollbar-shadow);
+  background: var(--vscode-scrollbar-shadow, rgba(0, 0, 0, 0.6));
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--vscode-scrollbarSlider-background);
+  background: var(
+    --vscode-scrollbarSlider-background,
+    rgba(121, 121, 121, 0.4)
+  );
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--vscode-scrollbarSlider-hoverBackground);
+  background: var(
+    --vscode-scrollbarSlider-hoverBackground,
+    rgba(100, 100, 100, 0.7)
+  );
 }
 
-/* Accessibility: Respect user's motion preferences */
+/* ============================================================================
+ACCESSIBILITY STYLES
+============================================================================ */
+
+/* Respect user's motion preferences */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -93,16 +216,26 @@ body {
   }
 }
 
-/* Focus and accessibility styles */
-button:focus,
-input:focus,
-select:focus,
-textarea:focus {
-  outline: 1px solid var(--vscode-focusBorder);
+/* Focus styles for keyboard navigation */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--vscode-focusBorder, #007fd4);
   outline-offset: 2px;
 }
 
-/* Utility classes for accessibility */
+/* Remove default focus outline (replaced by focus-visible) */
+button:focus:not(:focus-visible),
+input:focus:not(:focus-visible),
+select:focus:not(:focus-visible),
+textarea:focus:not(:focus-visible),
+a:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Screen reader only utility class */
 .sr-only {
   position: absolute;
   width: 1px;
@@ -114,3 +247,247 @@ textarea:focus {
   white-space: nowrap;
   border: 0;
 }
+
+/* ============================================================================
+CUSTOM ANIMATIONS FOR PTAH
+============================================================================ */
+
+/* Fade in animation for messages */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.message-enter {
+  animation: fadeIn 200ms ease-out;
+}
+
+/* Pulse animation for streaming cursor */
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.cursor-pulse {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* Slide in from right (for drawers/modals) */
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.drawer-enter {
+  animation: slideInRight 300ms ease-out;
+}
+
+/* ============================================================================
+AGENT COLOR BADGES - Roo Code Inspired
+============================================================================ */
+
+/* Agent type badge colors */
+.badge-agent-architect {
+  background-color: #f97316 !important; /* Orange */
+}
+
+.badge-agent-frontend {
+  background-color: #3b82f6 !important; /* Blue */
+}
+
+.badge-agent-backend {
+  background-color: #10b981 !important; /* Green */
+}
+
+.badge-agent-tester {
+  background-color: #8b5cf6 !important; /* Purple */
+}
+
+.badge-agent-reviewer {
+  background-color: #ec4899 !important; /* Pink */
+}
+
+.badge-agent-leader {
+  background-color: #6366f1 !important; /* Indigo */
+}
+
+.badge-agent-pm {
+  background-color: #d97706 !important; /* Amber */
+}
+
+.badge-agent-researcher {
+  background-color: #06b6d4 !important; /* Cyan */
+}
+
+/* ============================================================================
+COMPONENT-SPECIFIC OVERRIDES
+============================================================================ */
+
+/* Card shadows - enhanced for depth perception */
+.card {
+  box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.3);
+  transition: box-shadow 0.2s ease-in-out;
+}
+
+.card:hover {
+  box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.4);
+}
+
+/* Collapse animation timing */
+.collapse {
+  transition: max-height 200ms ease-in-out;
+}
+
+/* Chat bubble max-width responsive */
+.chat-bubble {
+  max-width: 85%;
+}
+
+@media (max-width: 1024px) {
+  .chat-bubble {
+    max-width: 90%;
+  }
+}
+
+@media (max-width: 768px) {
+  .chat-bubble {
+    max-width: 95%;
+  }
+}
+
+/* Input textarea auto-resize helper */
+textarea.auto-resize {
+  min-height: 44px;
+  max-height: 200px;
+  resize: none;
+  overflow-y: auto;
+}
+
+/* ============================================================================
+MARKDOWN CONTENT STYLING (for ngx-markdown)
+============================================================================ */
+
+/* Prose styling for markdown content */
+.prose {
+  max-width: none;
+}
+
+.prose code {
+  background-color: var(--vscode-input-background, #3c3c3c);
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-family: var(
+    --vscode-editor-font-family,
+    'SF Mono',
+    Monaco,
+    'Cascadia Code',
+    Consolas,
+    monospace
+  );
+  font-size: 0.875em;
+}
+
+.prose pre {
+  background-color: var(--vscode-input-background, #3c3c3c);
+  border: 1px solid var(--vscode-widget-border, #303031);
+  border-radius: 0.375rem;
+  padding: 1rem;
+  overflow-x: auto;
+}
+
+.prose pre code {
+  background-color: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+
+.prose a {
+  color: var(--vscode-button-background, #0e639c);
+  text-decoration: underline;
+}
+
+.prose a:hover {
+  color: var(--vscode-button-hoverBackground, #1177bb);
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+  color: var(--vscode-editor-foreground, #cccccc);
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  line-height: 1.3;
+}
+
+.prose blockquote {
+  border-left: 4px solid var(--vscode-widget-border, #303031);
+  padding-left: 1rem;
+  font-style: italic;
+  color: var(--vscode-descriptionForeground, #999999);
+}
+
+/* ============================================================================
+UTILITY CLASSES
+============================================================================ */
+
+/* Truncate text with ellipsis */
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Smooth transitions */
+.transition-colors {
+  transition-property: color, background-color, border-color;
+  transition-duration: 200ms;
+  transition-timing-function: ease-in-out;
+}
+
+.transition-shadow {
+  transition-property: box-shadow;
+  transition-duration: 200ms;
+  transition-timing-function: ease-in-out;
+}
+
+.transition-opacity {
+  transition-property: opacity;
+  transition-duration: 200ms;
+  transition-timing-function: ease-in-out;
+}
+
+/* Flexbox helpers */
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ============================================================================
+END OF CONFIGURATION
+============================================================================ */

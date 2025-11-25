@@ -1,4 +1,4 @@
-import { Injectable, signal, computed, inject } from '@angular/core';
+import { Injectable, signal, computed, inject, Injector } from '@angular/core';
 import {
   ExecutionChatMessage,
   ChatSessionSummary,
@@ -7,7 +7,21 @@ import {
   createExecutionChatMessage,
   createExecutionNode,
 } from '@ptah-extension/shared';
-import { VSCodeService } from '@ptah-extension/core';
+
+// Type for VSCodeService to avoid static import
+interface VSCodeServiceType {
+  config(): { workspaceRoot: string };
+  setChatStore(chatStore: any): void;
+}
+
+// Type for ClaudeRpcService to avoid circular dependency
+interface ClaudeRpcServiceType {
+  call<T>(
+    method: string,
+    params: unknown,
+    options?: any
+  ): Promise<{ success: boolean; data?: T; error?: string }>;
+}
 
 /**
  * ChatStore - Signal-based reactive store for chat state
@@ -18,16 +32,55 @@ import { VSCodeService } from '@ptah-extension/core';
  * - Manage message list for current session
  * - Process JSONL chunks into ExecutionNode tree
  * - Handle streaming state
+ * - Wire to RPC for backend communication
  *
  * Architecture:
  * - Core signals (_sessions, _currentSessionId, _messages, _isStreaming)
  * - Derived computed signals (currentSession, messageCount)
  * - Async actions (loadSessions, switchSession, sendMessage)
  * - JSONL processor (maps raw JSONL to ExecutionNode tree)
+ * - RPC integration (calls backend via ClaudeRpcService)
  */
 @Injectable({ providedIn: 'root' })
 export class ChatStore {
-  private readonly vscodeService = inject(VSCodeService);
+  private readonly injector = inject(Injector);
+
+  // Lazy inject VSCodeService to avoid static import
+  private _vscodeService: VSCodeServiceType | null = null;
+  private get vscodeService(): VSCodeServiceType | null {
+    if (!this._vscodeService) {
+      // Lazy load to break static import
+      import('@ptah-extension/core').then((module) => {
+        this._vscodeService = this.injector.get(
+          module.VSCodeService
+        ) as VSCodeServiceType;
+        // Register with VSCodeService after loading
+        this._vscodeService?.setChatStore(this);
+        console.log('[ChatStore] VSCodeService loaded and registered');
+      });
+    }
+    return this._vscodeService;
+  }
+
+  // Lazy inject ClaudeRpcService to avoid circular dependency during initialization
+  private _claudeRpcService: ClaudeRpcServiceType | null = null;
+  private get claudeRpcService(): ClaudeRpcServiceType | null {
+    if (!this._claudeRpcService) {
+      // Lazy load to break circular dependency
+      import('@ptah-extension/core').then((module) => {
+        this._claudeRpcService = this.injector.get(
+          module.ClaudeRpcService
+        ) as ClaudeRpcServiceType;
+        console.log('[ChatStore] ClaudeRpcService loaded lazily');
+      });
+    }
+    return this._claudeRpcService;
+  }
+
+  constructor() {
+    // Services will be lazily loaded and registered on first access
+    console.log('[ChatStore] Initialized');
+  }
 
   // ============================================================================
   // CORE SIGNALS
@@ -80,27 +133,73 @@ export class ChatStore {
   // ============================================================================
 
   /**
-   * Load all sessions from backend
+   * Load all sessions from backend via RPC
    */
   async loadSessions(): Promise<void> {
     try {
-      // TODO: Call RPC to get session list
-      // For now, stub with empty array
-      this._sessions.set([]);
+      if (!this.claudeRpcService || !this.vscodeService) {
+        console.warn('[ChatStore] Services not initialized');
+        return;
+      }
+
+      const workspacePath = this.vscodeService.config().workspaceRoot;
+      if (!workspacePath) {
+        console.warn('[ChatStore] No workspace path available');
+        return;
+      }
+
+      const result = await this.claudeRpcService.call<ChatSessionSummary[]>(
+        'session:list',
+        { workspacePath }
+      );
+
+      if (result.success && result.data) {
+        this._sessions.set(result.data);
+        console.log('[ChatStore] Loaded sessions:', result.data.length);
+      } else {
+        console.error('[ChatStore] Failed to load sessions:', result.error);
+      }
     } catch (error) {
       console.error('[ChatStore] Failed to load sessions:', error);
     }
   }
 
   /**
-   * Switch to a different session
+   * Switch to a different session and load its messages via RPC
    */
   async switchSession(sessionId: string): Promise<void> {
     try {
+      if (!this.claudeRpcService || !this.vscodeService) {
+        console.warn('[ChatStore] Services not initialized');
+        return;
+      }
+
+      const workspacePath = this.vscodeService.config().workspaceRoot;
+      if (!workspacePath) {
+        console.warn('[ChatStore] No workspace path available');
+        return;
+      }
+
       this._currentSessionId.set(sessionId);
 
-      // TODO: Load messages for this session via RPC
-      this._messages.set([]);
+      // Load messages for this session via RPC
+      const result = await this.claudeRpcService.call<{
+        sessionId: string;
+        messages: JSONLMessage[];
+      }>('session:load', { sessionId, workspacePath });
+
+      if (result.success && result.data) {
+        // Process all JSONL messages to rebuild chat history
+        // For now, just clear messages (full replay implementation in Batch 7)
+        this._messages.set([]);
+        console.log(
+          '[ChatStore] Loaded session messages:',
+          result.data.messages.length
+        );
+      } else {
+        console.error('[ChatStore] Failed to load session:', result.error);
+        this._messages.set([]);
+      }
 
       // Clear streaming state
       this._isStreaming.set(false);
@@ -114,17 +213,35 @@ export class ChatStore {
   }
 
   /**
-   * Send a new message to Claude
+   * Send a new message to Claude via RPC (starts streaming)
    */
   async sendMessage(content: string, files?: string[]): Promise<void> {
     try {
+      if (!this.claudeRpcService || !this.vscodeService) {
+        console.warn('[ChatStore] Services not initialized');
+        return;
+      }
+
+      const workspacePath = this.vscodeService.config().workspaceRoot;
+      if (!workspacePath) {
+        console.warn('[ChatStore] No workspace path available');
+        return;
+      }
+
+      // Generate or use existing session ID
+      let sessionId = this._currentSessionId();
+      if (!sessionId) {
+        sessionId = this.generateId();
+        this._currentSessionId.set(sessionId);
+      }
+
       // Add user message immediately
       const userMessage = createExecutionChatMessage({
         id: this.generateId(),
         role: 'user',
         rawContent: content,
         files,
-        sessionId: this._currentSessionId() ?? undefined,
+        sessionId,
       });
 
       this._messages.update((msgs) => [...msgs, userMessage]);
@@ -132,8 +249,23 @@ export class ChatStore {
       // Start streaming
       this._isStreaming.set(true);
 
-      // TODO: Call RPC to send message
-      // Backend will stream JSONL chunks back via processJsonlChunk()
+      // Call RPC to start chat (backend will stream JSONL chunks via chat:chunk messages)
+      const result = await this.claudeRpcService.call<{ sessionId: string }>(
+        'chat:start',
+        {
+          prompt: content,
+          sessionId,
+          workspacePath,
+          options: files ? { files } : undefined,
+        }
+      );
+
+      if (!result.success) {
+        console.error('[ChatStore] Failed to start chat:', result.error);
+        this._isStreaming.set(false);
+      } else {
+        console.log('[ChatStore] Chat started:', result.data);
+      }
     } catch (error) {
       console.error('[ChatStore] Failed to send message:', error);
       this._isStreaming.set(false);
@@ -141,15 +273,38 @@ export class ChatStore {
   }
 
   /**
-   * Abort current streaming message
+   * Abort current streaming message via RPC
    */
   async abortCurrentMessage(): Promise<void> {
     try {
-      // TODO: Call RPC to abort
+      if (!this.claudeRpcService) {
+        console.warn('[ChatStore] RPC service not initialized');
+        return;
+      }
+
+      const sessionId = this._currentSessionId();
+      if (!sessionId) {
+        console.warn('[ChatStore] No active session to abort');
+        return;
+      }
+
+      // Call RPC to abort
+      const result = await this.claudeRpcService.call<void>('chat:abort', {
+        sessionId,
+      });
+
+      if (result.success) {
+        console.log('[ChatStore] Chat aborted successfully');
+      } else {
+        console.error('[ChatStore] Failed to abort chat:', result.error);
+      }
+
+      // Finalize current message regardless of RPC result
       this._isStreaming.set(false);
       this.finalizeCurrentMessage();
     } catch (error) {
       console.error('[ChatStore] Failed to abort message:', error);
+      this._isStreaming.set(false);
     }
   }
 
@@ -210,36 +365,36 @@ export class ChatStore {
       this.startNewAssistantMessage();
     }
 
-    const tree = this._currentExecutionTree();
+    let tree = this._currentExecutionTree();
     if (!tree) return;
 
     // Handle thinking block
     if (chunk.thinking) {
-      this.appendThinkingNode(tree, chunk.thinking);
+      tree = this.appendThinkingNode(tree, chunk.thinking);
     }
 
     // Handle text delta (streaming)
     if (chunk.delta) {
-      this.appendTextDelta(tree, chunk.delta);
+      tree = this.appendTextDelta(tree, chunk.delta);
     }
 
     // Handle content blocks (tool_use, text)
     if (chunk.message?.content) {
-      chunk.message.content.forEach((block) => {
+      for (const block of chunk.message.content) {
         if (block.type === 'text' && block.text) {
-          this.appendTextNode(tree, block.text);
+          tree = this.appendTextNode(tree, block.text);
         } else if (block.type === 'tool_use' && block.name) {
-          this.appendToolUseNode(tree, block);
+          tree = this.appendToolUseNode(tree, block);
         }
-      });
+      }
     }
 
-    // Update tree signal
-    this._currentExecutionTree.set({ ...tree });
+    // Update tree signal with new immutable tree
+    this._currentExecutionTree.set(tree);
   }
 
   private handleToolMessage(chunk: JSONLMessage): void {
-    const tree = this._currentExecutionTree();
+    let tree = this._currentExecutionTree();
     if (!tree) return;
 
     const toolUseId = chunk.tool_use_id;
@@ -247,19 +402,19 @@ export class ChatStore {
 
     // Check if this is a Task tool (agent spawn)
     if (chunk.tool === 'Task' && toolUseId) {
-      this.handleAgentSpawn(tree, chunk, toolUseId);
+      tree = this.handleAgentSpawn(tree, chunk, toolUseId);
+      this._currentExecutionTree.set(tree);
     }
     // Check if this is nested under an agent
     else if (parentToolUseId) {
+      // handleNestedTool updates the tree signal internally
       this.handleNestedTool(chunk, parentToolUseId);
     }
     // Regular tool execution
     else if (toolUseId) {
+      // handleToolExecution updates the tree signal internally
       this.handleToolExecution(chunk, toolUseId);
     }
-
-    // Update tree signal
-    this._currentExecutionTree.set({ ...tree });
   }
 
   private handleResultMessage(chunk: JSONLMessage): void {
@@ -287,7 +442,10 @@ export class ChatStore {
     this.agentNodeMap.clear();
   }
 
-  private appendThinkingNode(tree: ExecutionNode, content: string): void {
+  private appendThinkingNode(
+    tree: ExecutionNode,
+    content: string
+  ): ExecutionNode {
     const thinkingNode = createExecutionNode({
       id: this.generateId(),
       type: 'thinking',
@@ -296,10 +454,14 @@ export class ChatStore {
       isCollapsed: true, // Collapsed by default
     });
 
-    tree.children = [...tree.children, thinkingNode];
+    // Return new tree with appended child (immutable)
+    return {
+      ...tree,
+      children: [...tree.children, thinkingNode],
+    };
   }
 
-  private appendTextNode(tree: ExecutionNode, content: string): void {
+  private appendTextNode(tree: ExecutionNode, content: string): ExecutionNode {
     const textNode = createExecutionNode({
       id: this.generateId(),
       type: 'text',
@@ -307,10 +469,14 @@ export class ChatStore {
       content,
     });
 
-    tree.children = [...tree.children, textNode];
+    // Return new tree with appended child (immutable)
+    return {
+      ...tree,
+      children: [...tree.children, textNode],
+    };
   }
 
-  private appendTextDelta(tree: ExecutionNode, delta: string): void {
+  private appendTextDelta(tree: ExecutionNode, delta: string): ExecutionNode {
     // Find or create streaming text node
     const lastChild = tree.children[tree.children.length - 1];
 
@@ -325,7 +491,11 @@ export class ChatStore {
         content: (lastChild.content ?? '') + delta,
       };
 
-      tree.children = [...tree.children.slice(0, -1), updatedChild];
+      // Return new tree with updated last child (immutable)
+      return {
+        ...tree,
+        children: [...tree.children.slice(0, -1), updatedChild],
+      };
     } else {
       // Create new streaming text node
       const textNode = createExecutionNode({
@@ -335,11 +505,15 @@ export class ChatStore {
         content: delta,
       });
 
-      tree.children = [...tree.children, textNode];
+      // Return new tree with appended child (immutable)
+      return {
+        ...tree,
+        children: [...tree.children, textNode],
+      };
     }
   }
 
-  private appendToolUseNode(tree: ExecutionNode, block: any): void {
+  private appendToolUseNode(tree: ExecutionNode, block: any): ExecutionNode {
     const toolNode = createExecutionNode({
       id: block.id || this.generateId(),
       type: 'tool',
@@ -350,19 +524,23 @@ export class ChatStore {
       isCollapsed: true, // Collapsed by default
     });
 
-    tree.children = [...tree.children, toolNode];
-
     // Store in map for later result linking
     if (block.id) {
       this.toolNodeMap.set(block.id, toolNode);
     }
+
+    // Return new tree with appended child (immutable)
+    return {
+      ...tree,
+      children: [...tree.children, toolNode],
+    };
   }
 
   private handleAgentSpawn(
     tree: ExecutionNode,
     chunk: JSONLMessage,
     toolUseId: string
-  ): void {
+  ): ExecutionNode {
     const agentNode = createExecutionNode({
       id: toolUseId,
       type: 'agent',
@@ -376,10 +554,14 @@ export class ChatStore {
       isCollapsed: false, // Expanded by default (show nested execution)
     });
 
-    tree.children = [...tree.children, agentNode];
-
     // Store in agent map for nested tool routing
     this.agentNodeMap.set(toolUseId, agentNode);
+
+    // Return new tree with appended child (immutable)
+    return {
+      ...tree,
+      children: [...tree.children, agentNode],
+    };
   }
 
   private handleNestedTool(chunk: JSONLMessage, parentToolUseId: string): void {
@@ -404,11 +586,29 @@ export class ChatStore {
       isCollapsed: true,
     });
 
-    parentAgent.children = [...parentAgent.children, toolNode];
+    // Create updated agent with new child (immutable)
+    const updatedAgent: ExecutionNode = {
+      ...parentAgent,
+      children: [...parentAgent.children, toolNode],
+    };
+
+    // Update the agent map with the new reference
+    this.agentNodeMap.set(parentToolUseId, updatedAgent);
 
     // Store for potential nested agents within this tool
     if (chunk.tool_use_id) {
       this.toolNodeMap.set(chunk.tool_use_id, toolNode);
+    }
+
+    // Update the execution tree with the updated agent
+    const tree = this._currentExecutionTree();
+    if (tree) {
+      const updatedTree = this.replaceNodeInTree(
+        tree,
+        parentToolUseId,
+        updatedAgent
+      );
+      this._currentExecutionTree.set(updatedTree);
     }
   }
 
@@ -431,10 +631,11 @@ export class ChatStore {
         : undefined,
     };
 
-    // Replace in parent's children array
+    // Replace in parent's children array (immutable update)
     const tree = this._currentExecutionTree();
     if (tree) {
-      this.replaceNodeInTree(tree, toolUseId, updatedNode);
+      const updatedTree = this.replaceNodeInTree(tree, toolUseId, updatedNode);
+      this._currentExecutionTree.set(updatedTree);
     }
   }
 
@@ -442,8 +643,8 @@ export class ChatStore {
     tree: ExecutionNode,
     nodeId: string,
     updatedNode: ExecutionNode
-  ): void {
-    // Recursively search and replace
+  ): ExecutionNode {
+    // Recursively search and replace, returning a new tree
     const replaceInChildren = (
       children: readonly ExecutionNode[]
     ): readonly ExecutionNode[] => {
@@ -461,7 +662,11 @@ export class ChatStore {
       });
     };
 
-    tree.children = replaceInChildren(tree.children);
+    // Return a new tree with updated children (immutable)
+    return {
+      ...tree,
+      children: replaceInChildren(tree.children),
+    };
   }
 
   private finalizeCurrentMessage(): void {
