@@ -1,13 +1,11 @@
-import { Injectable, computed, signal, inject } from '@angular/core';
+import { Injectable, computed, signal } from '@angular/core';
 import {
   StrictMessage,
   MessagePayloadMap,
   CommandTemplate,
   CorrelationId,
-  SessionId,
   createStrictMessage,
 } from '@ptah-extension/shared';
-import { ChatStateService, type JSONLMessage } from './chat-state.service';
 
 /**
  * Webview Configuration
@@ -80,9 +78,6 @@ function getPtahWindow(): PtahWindow {
 export class VSCodeService {
   // VS Code API instance (null in development mode)
   private vscode: VsCodeApi | null = null;
-
-  // Inject ChatStateService for JSONL message routing (OLD - will be removed)
-  private readonly chatStateService = inject(ChatStateService);
 
   // RPC service will be injected lazily to avoid circular dependency
   private claudeRpcService: any = null;
@@ -312,9 +307,9 @@ export class VSCodeService {
         }
       }
 
-      // NEW: Route chat:chunk messages to ChatStore (TASK_2025_023 Batch 6)
+      // Route chat:chunk messages to ChatStore (TASK_2025_023)
       if (message.type === 'chat:chunk') {
-        const { sessionId, message: jsonlMessage } = message.data;
+        const { message: jsonlMessage } = message.data;
         if (this.chatStore) {
           this.chatStore.processJsonlChunk(jsonlMessage);
         } else {
@@ -324,14 +319,14 @@ export class VSCodeService {
         }
       }
 
-      // NEW: Handle chat completion
+      // Handle chat completion
       if (message.type === 'chat:complete') {
         const { sessionId, code } = message.data;
         console.log('[VSCodeService] Chat complete:', { sessionId, code });
         // ChatStore will finalize the message when it receives result JSONL
       }
 
-      // NEW: Handle chat errors
+      // Handle chat errors
       if (message.type === 'chat:error') {
         const { sessionId, error } = message.data;
         console.error('[VSCodeService] Chat error:', { sessionId, error });
@@ -340,80 +335,7 @@ export class VSCodeService {
           this.chatStore._isStreaming?.set(false);
         }
       }
-
-      // OLD: Unified JSONL message handler (will be deprecated)
-      if (message.type === 'jsonl-message') {
-        const { sessionId, message: jsonlMessage } = message.data;
-        this.handleJSONLMessage(sessionId, jsonlMessage);
-      }
     });
-  }
-
-  /**
-   * Discriminate JSONL messages based on type field
-   * Routes to ChatStateService for state updates
-   *
-   * Core Principle: Receive typed object, discriminate on message.type, update signals
-   *
-   * @param sessionId - Session identifier from backend
-   * @param message - Complete JSONL object with type field
-   */
-  private handleJSONLMessage(
-    sessionId: SessionId,
-    message: JSONLMessage
-  ): void {
-    switch (message.type) {
-      case 'system':
-        // Session initialization
-        if (message.subtype === 'init' && message.session_id) {
-          this.chatStateService.handleSessionInit(
-            sessionId,
-            message.session_id,
-            message.model
-          );
-        }
-        break;
-
-      case 'assistant':
-        // Assistant messages (thinking vs content discrimination)
-        this.chatStateService.handleAssistantMessage(sessionId, message);
-        break;
-
-      case 'tool':
-        // Tool lifecycle + agent correlation
-        this.chatStateService.handleToolMessage(sessionId, message);
-        break;
-
-      case 'permission':
-        // Permission dialog
-        this.chatStateService.handlePermissionRequest(sessionId, message);
-        break;
-
-      case 'stream_event':
-        // Streaming control events
-        this.chatStateService.handleStreamEvent(sessionId, message);
-        break;
-
-      case 'result':
-        // Final metrics
-        this.chatStateService.handleResult(sessionId, message);
-        break;
-
-      case 'user':
-        // Tool results come as 'user' messages with tool_result content
-        // These are the results of tools Claude called (Read, Write, Bash, etc.)
-        // The tool timeline already tracks tool lifecycle via 'tool' messages
-        // Log for debugging but don't display in chat (would be noise)
-        console.debug('[VSCodeService] Tool result received (user type):', {
-          sessionId,
-          hasContent: !!(message as any).message?.content,
-          parentToolUseId: (message as any).parent_tool_use_id,
-        });
-        break;
-
-      default:
-        console.warn('[VSCodeService] Unknown JSONL message type:', message);
-    }
   }
 }
 

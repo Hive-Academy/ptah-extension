@@ -16,13 +16,9 @@ export * from './webview-navigation.service';
 // File Management Layer (workspace file operations)
 // MOVED: FilePickerService → @ptah-extension/chat (chat-specific UI)
 
-// Chat Layer (pure chat logic, state management, validation, transformations)
-export { ChatStateService } from './chat-state.service';
-// export { ChatValidationService } from './chat-validation.service'; // DELETED - Phase 0 purge
-// export { ClaudeMessageTransformerService } from './claude-message-transformer.service'; // DELETED - RPC Phase 3.5
-// export { MessageProcessingService } from './message-processing.service'; // DELETED - Phase 0 purge
-// MOVED: ChatStateManagerService → @ptah-extension/chat (chat-specific UI)
-export * from './chat.service';
+// Chat Layer - REMOVED (TASK_2025_023)
+// ChatStateService - DELETED (functionality moved to ChatStore)
+// ChatService - DELETED (use ChatStore from @ptah-extension/chat)
 
 // Provider Layer (AI provider management and health monitoring)
 // export { // DELETED - Phase 0 purge

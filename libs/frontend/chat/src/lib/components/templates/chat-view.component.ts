@@ -7,6 +7,7 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
+import { ChatInputComponent } from '../molecules/chat-input.component';
 import { ChatStore } from '../../services/chat.store';
 
 /**
@@ -23,7 +24,7 @@ import { ChatStore } from '../../services/chat.store';
 @Component({
   selector: 'ptah-chat-view',
   standalone: true,
-  imports: [MessageBubbleComponent],
+  imports: [MessageBubbleComponent, ChatInputComponent],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
