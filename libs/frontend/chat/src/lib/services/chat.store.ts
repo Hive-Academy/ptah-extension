@@ -45,41 +45,61 @@ interface ClaudeRpcServiceType {
 export class ChatStore {
   private readonly injector = inject(Injector);
 
-  // Lazy inject VSCodeService to avoid static import
+  // Service references (eagerly initialized in constructor)
   private _vscodeService: VSCodeServiceType | null = null;
-  private get vscodeService(): VSCodeServiceType | null {
-    if (!this._vscodeService) {
-      // Lazy load to break static import
-      import('@ptah-extension/core').then((module) => {
-        this._vscodeService = this.injector.get(
-          module.VSCodeService
-        ) as VSCodeServiceType;
-        // Register with VSCodeService after loading
-        this._vscodeService?.setChatStore(this);
-        console.log('[ChatStore] VSCodeService loaded and registered');
-      });
+  private _claudeRpcService: ClaudeRpcServiceType | null = null;
+
+  // Signal to track service initialization state
+  private readonly _servicesReady = signal(false);
+  readonly servicesReady = this._servicesReady.asReadonly();
+
+  constructor() {
+    console.log('[ChatStore] Initializing...');
+    // Eagerly initialize services to avoid race conditions
+    this.initializeServices();
+  }
+
+  /**
+   * Eagerly initialize services via dynamic import
+   * This runs async but updates servicesReady signal when complete
+   */
+  private async initializeServices(): Promise<void> {
+    try {
+      // Import the core module (breaks circular dependency via dynamic import)
+      const coreModule = await import('@ptah-extension/core');
+
+      // Get service instances from injector
+      this._vscodeService = this.injector.get(
+        coreModule.VSCodeService
+      ) as VSCodeServiceType;
+      this._claudeRpcService = this.injector.get(
+        coreModule.ClaudeRpcService
+      ) as ClaudeRpcServiceType;
+
+      // Register ChatStore with VSCodeService for message routing
+      this._vscodeService?.setChatStore(this);
+
+      // Mark services as ready
+      this._servicesReady.set(true);
+      console.log('[ChatStore] Services initialized and ready');
+    } catch (error) {
+      console.error('[ChatStore] Failed to initialize services:', error);
+      // Services remain null, servicesReady stays false
     }
+  }
+
+  /**
+   * Helper to get VSCodeService (with null check)
+   */
+  private get vscodeService(): VSCodeServiceType | null {
     return this._vscodeService;
   }
 
-  // Lazy inject ClaudeRpcService to avoid circular dependency during initialization
-  private _claudeRpcService: ClaudeRpcServiceType | null = null;
+  /**
+   * Helper to get ClaudeRpcService (with null check)
+   */
   private get claudeRpcService(): ClaudeRpcServiceType | null {
-    if (!this._claudeRpcService) {
-      // Lazy load to break circular dependency
-      import('@ptah-extension/core').then((module) => {
-        this._claudeRpcService = this.injector.get(
-          module.ClaudeRpcService
-        ) as ClaudeRpcServiceType;
-        console.log('[ChatStore] ClaudeRpcService loaded lazily');
-      });
-    }
     return this._claudeRpcService;
-  }
-
-  constructor() {
-    // Services will be lazily loaded and registered on first access
-    console.log('[ChatStore] Initialized');
   }
 
   // ============================================================================
@@ -137,8 +157,22 @@ export class ChatStore {
    */
   async loadSessions(): Promise<void> {
     try {
+      // Wait for services to be ready (with timeout)
+      if (!this._servicesReady()) {
+        console.log('[ChatStore] Waiting for services to initialize...');
+        const ready = await this.waitForServices(5000);
+        if (!ready) {
+          console.error(
+            '[ChatStore] loadSessions: Services initialization timeout'
+          );
+          return;
+        }
+      }
+
       if (!this.claudeRpcService || !this.vscodeService) {
-        console.warn('[ChatStore] Services not initialized');
+        console.error(
+          '[ChatStore] Services not available after initialization'
+        );
         return;
       }
 
@@ -169,8 +203,22 @@ export class ChatStore {
    */
   async switchSession(sessionId: string): Promise<void> {
     try {
+      // Wait for services to be ready (with timeout)
+      if (!this._servicesReady()) {
+        console.log('[ChatStore] Waiting for services to initialize...');
+        const ready = await this.waitForServices(5000);
+        if (!ready) {
+          console.error(
+            '[ChatStore] switchSession: Services initialization timeout'
+          );
+          return;
+        }
+      }
+
       if (!this.claudeRpcService || !this.vscodeService) {
-        console.warn('[ChatStore] Services not initialized');
+        console.error(
+          '[ChatStore] Services not available after initialization'
+        );
         return;
       }
 
@@ -217,8 +265,22 @@ export class ChatStore {
    */
   async sendMessage(content: string, files?: string[]): Promise<void> {
     try {
+      // Wait for services to be ready (with timeout)
+      if (!this._servicesReady()) {
+        console.log('[ChatStore] Waiting for services to initialize...');
+        const ready = await this.waitForServices(5000);
+        if (!ready) {
+          console.error(
+            '[ChatStore] sendMessage: Services initialization timeout'
+          );
+          return;
+        }
+      }
+
       if (!this.claudeRpcService || !this.vscodeService) {
-        console.warn('[ChatStore] Services not initialized');
+        console.error(
+          '[ChatStore] Services not available after initialization'
+        );
         return;
       }
 
@@ -707,5 +769,27 @@ export class ChatStore {
 
   private generateId(): string {
     return `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  }
+
+  /**
+   * Wait for services to be ready with timeout
+   * @param timeoutMs - Timeout in milliseconds (default: 5000)
+   * @returns Promise resolving to true if ready, false if timeout
+   */
+  private async waitForServices(timeoutMs = 5000): Promise<boolean> {
+    const startTime = Date.now();
+
+    // Poll servicesReady signal with short intervals
+    while (!this._servicesReady()) {
+      // Check timeout
+      if (Date.now() - startTime > timeoutMs) {
+        return false;
+      }
+
+      // Wait 50ms before next check
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    return true;
   }
 }

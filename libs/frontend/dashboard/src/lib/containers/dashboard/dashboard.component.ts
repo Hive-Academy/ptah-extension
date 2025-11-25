@@ -11,7 +11,7 @@ import {
 import { CommonModule } from '@angular/common';
 
 // Core Services
-import { ChatService } from '@ptah-extension/core';
+// ChatService removed (use ChatStore from @ptah-extension/chat)
 import { AnalyticsService } from '@ptah-extension/core';
 import { LoggingService } from '@ptah-extension/core';
 import {
@@ -136,7 +136,8 @@ interface StreamConsumptionState {
   ],
 })
 export class DashboardComponent implements OnInit {
-  private readonly enhancedChat = inject(ChatService);
+  // TODO: Replace with ChatStore from @ptah-extension/chat when RPC-based monitoring is implemented
+  // private readonly enhancedChat = inject(ChatService); // DELETED - Phase 0
   readonly analyticsService = inject(AnalyticsService);
   private readonly logger = inject(LoggingService);
   private readonly destroyRef = inject(DestroyRef);
@@ -242,18 +243,11 @@ export class DashboardComponent implements OnInit {
   }
 
   private setupPerformanceMonitoring(): void {
-    if (!this.enhancedChat) {
-      this.logger.warn(
-        'ChatService not available for performance monitoring',
-        'DashboardComponent'
-      );
-      return;
-    }
-
     // TODO: Phase 2 - Replace with RPC-based performance monitoring
     // The previous implementation used event-based observables that were removed.
+    // ChatService was deleted in Phase 0 (replaced with ChatStore).
     // For now, performance tracking is handled through:
-    // 1. Signal-based reads from ChatService
+    // 1. Signal-based reads from ChatStore (when integrated)
     // 2. Direct method calls to AnalyticsService
     // 3. Manual refresh via refreshDashboard()
     //
@@ -261,6 +255,10 @@ export class DashboardComponent implements OnInit {
     // - RPC-based event subscriptions for real-time updates
     // - Proper request/response patterns for performance metrics
     // - Structured event delivery instead of fire-and-forget
+    this.logger.info(
+      'Performance monitoring deferred to Phase 2',
+      'DashboardComponent'
+    );
   }
 
   private trackPerformanceEvents(
