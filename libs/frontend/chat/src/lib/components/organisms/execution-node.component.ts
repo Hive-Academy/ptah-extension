@@ -1,5 +1,6 @@
 import { Component, input, ChangeDetectionStrategy } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
+import { LucideAngularModule, Info } from 'lucide-angular';
 import { AgentCardComponent } from '../molecules/agent-card.component';
 import { ThinkingBlockComponent } from '../molecules/thinking-block.component';
 import { ToolCallItemComponent } from '../molecules/tool-call-item.component';
@@ -28,6 +29,7 @@ import type { ExecutionNode } from '@ptah-extension/shared';
   standalone: true,
   imports: [
     MarkdownModule,
+    LucideAngularModule,
     AgentCardComponent,
     ThinkingBlockComponent,
     ToolCallItemComponent,
@@ -60,18 +62,7 @@ import type { ExecutionNode } from '@ptah-extension/shared';
     } } @case ('system') {
     <!-- System messages (session init, etc.) -->
     <div class="alert alert-info my-2 text-xs">
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="w-4 h-4"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-      >
-        <circle cx="12" cy="12" r="10" />
-        <path d="M12 16v-4" />
-        <path d="M12 8h.01" />
-      </svg>
+      <lucide-angular [img]="InfoIcon" class="w-4 h-4" />
       <span>{{ node().content }}</span>
     </div>
     } }
@@ -80,4 +71,7 @@ import type { ExecutionNode } from '@ptah-extension/shared';
 })
 export class ExecutionNodeComponent {
   readonly node = input.required<ExecutionNode>();
+
+  // Lucide icons
+  readonly InfoIcon = Info;
 }

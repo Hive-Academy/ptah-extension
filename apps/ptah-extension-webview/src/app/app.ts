@@ -19,17 +19,10 @@ import {
 
 // UPDATED: Import components from libraries
 import { AppShellComponent } from '@ptah-extension/chat';
-// import { SettingsViewComponent } from '@ptah-extension/providers'; // DELETED - provider library removed
-import { LoadingSpinnerComponent } from '@ptah-extension/shared-ui';
-// import { VIEW_MESSAGE_TYPES } from '@ptah-extension/shared'; // DELETED - message types purged
 
 @Component({
   selector: 'ptah-root',
-  imports: [
-    LoadingSpinnerComponent,
-    AppShellComponent,
-    // SettingsViewComponent, // DELETED - provider library removed
-  ],
+  imports: [AppShellComponent],
   templateUrl: './app.html',
   styleUrls: ['./app.css'],
 })

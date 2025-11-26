@@ -5,6 +5,7 @@ import {
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { LucideAngularModule, Send, ChevronDown } from 'lucide-angular';
 import { ChatStore } from '../../services/chat.store';
 
 /**
@@ -29,6 +30,7 @@ import { ChatStore } from '../../services/chat.store';
 @Component({
   selector: 'ptah-chat-input',
   standalone: true,
+  imports: [LucideAngularModule],
   template: `
     <div class="flex flex-col gap-2 p-4 bg-base-100">
       <!-- Input Row with Textarea and Send Button -->
@@ -55,16 +57,7 @@ import { ChatStore } from '../../services/chat.store';
           @if (chatStore.isStreaming()) {
           <span class="loading loading-spinner loading-sm"></span>
           } @else {
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="w-5 h-5"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
-          </svg>
+          <lucide-angular [img]="SendIcon" class="w-5 h-5" />
           }
         </button>
       </div>
@@ -106,16 +99,7 @@ import { ChatStore } from '../../services/chat.store';
               type="button"
             >
               <span class="text-xs">{{ selectedModel() }}</span>
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="w-3 h-3"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path d="m6 9 6 6 6-6" />
-              </svg>
+              <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3" />
             </button>
             <ul
               tabindex="0"
@@ -160,6 +144,10 @@ import { ChatStore } from '../../services/chat.store';
 })
 export class ChatInputComponent {
   readonly chatStore = inject(ChatStore);
+
+  // Lucide icons
+  readonly SendIcon = Send;
+  readonly ChevronDownIcon = ChevronDown;
 
   // Local state
   private readonly _currentMessage = signal('');

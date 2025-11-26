@@ -1,5 +1,11 @@
 import { Component, input, ChangeDetectionStrategy } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
+import {
+  LucideAngularModule,
+  Copy,
+  ThumbsUp,
+  ThumbsDown,
+} from 'lucide-angular';
 import { ExecutionNodeComponent } from './execution-node.component';
 import type { ExecutionChatMessage } from '@ptah-extension/shared';
 
@@ -17,13 +23,18 @@ import type { ExecutionChatMessage } from '@ptah-extension/shared';
 @Component({
   selector: 'ptah-message-bubble',
   standalone: true,
-  imports: [MarkdownModule, ExecutionNodeComponent],
+  imports: [MarkdownModule, ExecutionNodeComponent, LucideAngularModule],
   templateUrl: './message-bubble.component.html',
   styleUrl: './message-bubble.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MessageBubbleComponent {
   readonly message = input.required<ExecutionChatMessage>();
+
+  // Lucide icons
+  readonly CopyIcon = Copy;
+  readonly ThumbsUpIcon = ThumbsUp;
+  readonly ThumbsDownIcon = ThumbsDown;
 
   protected formatTime(timestamp: number): string {
     const date = new Date(timestamp);

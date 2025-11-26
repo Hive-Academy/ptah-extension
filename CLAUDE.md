@@ -442,7 +442,6 @@ The Ptah workspace is organized as an Nx monorepo with **14 projects** (2 apps +
 ├─────────────────────────────────────────────────────┤
 │  Frontend Core Services                              │
 │  - core (state, services, VS Code integration)      │
-│  - shared-ui (reusable components)                   │
 ├─────────────────────────────────────────────────────┤
 │  Backend Domain Libraries                            │
 │  - claude-domain (business logic)                    │
@@ -474,14 +473,13 @@ Each library has a dedicated `CLAUDE.md` file with architecture details, usage p
 - **[ai-providers-core](libs/backend/ai-providers-core/CLAUDE.md)** - Multi-provider abstraction: Intelligent provider selection, context management, Claude CLI & VS Code LM adapters
 - **[workspace-intelligence](libs/backend/workspace-intelligence/CLAUDE.md)** - Workspace analysis: Project detection (13+ types), file indexing, token optimization
 
-#### **Frontend Libraries** (6)
+#### **Frontend Libraries** (5)
 
 - **[core](libs/frontend/core/CLAUDE.md)** - Service layer: AppStateManager, VSCodeService, ChatService, signal-based state management
 - **[chat](libs/frontend/chat/CLAUDE.md)** - Chat UI: 11 components for message display, input, streaming, session management (via ChatEmptyStateComponent)
 - **[providers](libs/frontend/providers/CLAUDE.md)** - Provider UI: Provider selection, health monitoring, capabilities display
 - **[analytics](libs/frontend/analytics/CLAUDE.md)** - Analytics dashboard: Usage statistics, performance metrics visualization
 - **[dashboard](libs/frontend/dashboard/CLAUDE.md)** - Performance dashboard: Real-time metrics, historical trends, activity feed
-- **[shared-ui](libs/frontend/shared-ui/CLAUDE.md)** - Component library: 12 reusable components with VS Code theming and accessibility
 
 ### Dependency Rules
 
@@ -521,7 +519,6 @@ Apps → Feature Libs → Core Services → Domain Libs → Infrastructure → S
 '@ptah-extension/providers'; // Provider UI
 '@ptah-extension/analytics'; // Analytics UI
 '@ptah-extension/dashboard'; // Dashboard UI
-'@ptah-extension/shared-ui'; // Reusable components
 ```
 
 ### Testing Strategy
@@ -567,7 +564,7 @@ For detailed information about any library:
 
 ### Workspace Stats
 
-- **Total Projects**: 13 (2 apps + 11 libraries)
+- **Total Projects**: 12 (2 apps + 10 libraries)
 - **Total Components**: 48+ Angular components
 - **Total Services**: 40+ backend/frontend services
 - **TypeScript Files**: 280+ source files

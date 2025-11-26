@@ -28,7 +28,6 @@
       ],
       "@ptah-extension/providers": ["libs/frontend/providers/src/index.ts"],
       "@ptah-extension/shared": ["libs/shared/src/index.ts"],
-      "@ptah-extension/shared-ui": ["libs/frontend/shared-ui/src/index.ts"],
       "@ptah-extension/template-generation": [
         "libs/backend/template-generation/src/index.ts"
       ],

@@ -1,5 +1,6 @@
 import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
 import { DatePipe } from '@angular/common';
+import { LucideAngularModule, Menu, Settings, Plus } from 'lucide-angular';
 import { ChatViewComponent } from './chat-view.component';
 import { ChatStore } from '../../services/chat.store';
 
@@ -17,10 +18,15 @@ import { ChatStore } from '../../services/chat.store';
 @Component({
   selector: 'ptah-app-shell',
   standalone: true,
-  imports: [ChatViewComponent, DatePipe],
+  imports: [ChatViewComponent, DatePipe, LucideAngularModule],
   templateUrl: './app-shell.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AppShellComponent {
   readonly chatStore = inject(ChatStore);
+
+  // Lucide icons
+  readonly MenuIcon = Menu;
+  readonly SettingsIcon = Settings;
+  readonly PlusIcon = Plus;
 }
