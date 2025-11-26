@@ -1,9 +1,6 @@
 import { Injectable, signal, computed, inject, Injector } from '@angular/core';
+import { ClaudeRpcService } from '@ptah-extension/core';
 
-// Type for VSCodeService to avoid static import
-interface VSCodeServiceType {
-  sendRequest<T>(request: { type: string; data: unknown }): Promise<T>;
-}
 
 /**
  * File information for inclusion in chat messages
@@ -62,21 +59,7 @@ export interface FileSuggestion {
 export class FilePickerService {
   // === ANGULAR 20 PATTERN: Injected services ===
   private readonly injector = inject(Injector);
-
-  // Lazy inject VSCodeService to avoid static import
-  private _vscodeService: VSCodeServiceType | null = null;
-  private get vscodeService(): VSCodeServiceType | null {
-    if (!this._vscodeService) {
-      // Lazy load to break static import
-      import('@ptah-extension/core').then((module) => {
-        this._vscodeService = this.injector.get(
-          module.VSCodeService
-        ) as VSCodeServiceType;
-        console.log('[FilePickerService] VSCodeService loaded lazily');
-      });
-    }
-    return this._vscodeService;
-  }
+private readonly rpcService = inject(ClaudeRpcService)
 
   // === ANGULAR 20 PATTERN: Private signals for internal state ===
   private readonly _workspaceFiles = signal<FileSuggestion[]>([]);
@@ -172,8 +155,8 @@ export class FilePickerService {
    */
   async fetchWorkspaceFiles(): Promise<void> {
     if (this._isLoading()) return; // Prevent duplicate fetches
-    if (!this.vscodeService) {
-      console.warn('[FilePickerService] VSCodeService not initialized');
+    if (!this.rpcService) {
+      console.warn('[FilePickerService] ClaudeRpcService not initialized');
       return;
     }
 
@@ -181,8 +164,7 @@ export class FilePickerService {
 
     try {
       // Call backend via RPC
-      const result = await this.vscodeService.sendRequest<{
-        success: boolean;
+      const result = await this.rpcService.call<{
         files?: Array<{
           uri: string;
           relativePath: string;
@@ -192,19 +174,14 @@ export class FilePickerService {
           lastModified: number;
           isDirectory: boolean;
         }>;
-        error?: { code: string; message: string };
-      }>({
-        type: 'context:getAllFiles',
-        data: {
-          requestId: crypto.randomUUID(),
-          includeImages: false,
-          limit: 500,
-        },
+      }>('context:getAllFiles', {
+        includeImages: false,
+        limit: 500,
       });
 
-      if (result.success && result.files) {
+      if (result.success && result.data?.files) {
         // Transform backend format to FileSuggestion format
-        const suggestions: FileSuggestion[] = result.files.map((file) => ({
+        const suggestions: FileSuggestion[] = result.data.files.map((file) => ({
           path: file.uri,
           name: file.fileName,
           directory:
@@ -224,10 +201,7 @@ export class FilePickerService {
         this._lastUpdate.set(Date.now());
       }
     } catch (error) {
-      console.error(
-        '[FilePickerService] Failed to fetch workspace files:',
-        error
-      );
+      console.error('[FilePickerService] Failed to fetch workspace files:', error);
     } finally {
       this._isLoading.set(false);
     }

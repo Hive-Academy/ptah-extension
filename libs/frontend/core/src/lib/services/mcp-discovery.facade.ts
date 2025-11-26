@@ -1,5 +1,5 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
-import { VSCodeService } from './vscode.service';
+import { ClaudeRpcService } from './claude-rpc.service';
 
 export interface MCPSuggestion {
   readonly name: string;
@@ -12,7 +12,7 @@ export interface MCPSuggestion {
   providedIn: 'root',
 })
 export class MCPDiscoveryFacade {
-  private readonly vscode = inject(VSCodeService);
+  private readonly rpc = inject(ClaudeRpcService);
   private readonly _isLoading = signal(false);
   private readonly _servers = signal<MCPSuggestion[]>([]);
 
@@ -26,34 +26,27 @@ export class MCPDiscoveryFacade {
     this._isLoading.set(true);
 
     try {
-      const result = await this.vscode.sendRequest<{
-        success: boolean;
+      const result = await this.rpc.call<{
         servers?: Array<{
           name: string;
           status: 'running' | 'stopped' | 'error' | 'unknown';
           type: 'stdio' | 'http' | 'sse';
         }>;
-        error?: string;
-      }>({
-        type: 'autocomplete:mcps',
-        data: { query: '', maxResults: 50, includeOffline: false },
-      });
+      }>('autocomplete:mcps', { query: '', maxResults: 50, includeOffline: false });
 
-      if (result.success && result.servers) {
+      if (result.success && result.data?.servers) {
         this._servers.set(
-          result.servers.map((s) => ({
+          result.data.servers.map((s) => ({
             ...s,
             icon: s.status === 'running' ? '🔌' : '⚠️',
           }))
         );
       } else if (result.error) {
         console.warn('[MCPDiscoveryFacade] Discovery failed:', result.error);
-        // Still show empty list even if discovery fails (e.g., missing .claude folder)
         this._servers.set([]);
       }
     } catch (error) {
       console.error('[MCPDiscoveryFacade] Failed to fetch MCP servers:', error);
-      // Don't throw - let UI show empty state instead of crashing
       this._servers.set([]);
     } finally {
       this._isLoading.set(false);

@@ -1,77 +1,11 @@
 /**
  * Claude Domain Types - Shared types for Claude CLI integration
- * Used across extension and webview for permissions, tool events, and streaming
+ * Used across extension and webview for tool events and streaming
  */
 
 import { z } from 'zod';
 import { SessionId } from './branded.types';
 import { ContentBlock } from './message.types';
-
-/**
- * Permission Decision Types
- */
-export type PermissionDecision = 'allow' | 'deny' | 'always_allow';
-
-export const PermissionDecisionSchema = z.enum([
-  'allow',
-  'deny',
-  'always_allow',
-]);
-
-/**
- * Permission Rule - Defines an "always allow" pattern for commands
- */
-export interface ClaudePermissionRule {
-  readonly id: string;
-  readonly pattern: string; // Glob pattern for command matching
-  readonly scope: 'workspace' | 'user' | 'session';
-  readonly createdAt: number;
-  readonly expiresAt?: number; // Optional expiration timestamp
-}
-
-export const ClaudePermissionRuleSchema = z.object({
-  id: z.string(),
-  pattern: z.string(),
-  scope: z.enum(['workspace', 'user', 'session']),
-  createdAt: z.number(),
-  expiresAt: z.number().optional(),
-});
-
-/**
- * Permission Request - From Claude CLI requesting tool execution permission
- */
-export interface ClaudePermissionRequest {
-  readonly toolCallId: string;
-  readonly tool: string;
-  readonly args: Record<string, unknown>;
-  readonly description?: string;
-  readonly timestamp: number;
-}
-
-export const ClaudePermissionRequestSchema = z.object({
-  toolCallId: z.string(),
-  tool: z.string(),
-  args: z.record(z.string(), z.unknown()),
-  description: z.string().optional(),
-  timestamp: z.number(),
-});
-
-/**
- * Permission Response - Response to permission request
- */
-export interface ClaudePermissionResponse {
-  readonly toolCallId: string;
-  readonly decision: PermissionDecision;
-  readonly provenance: 'user' | 'rule' | 'yolo';
-  readonly timestamp: number;
-}
-
-export const ClaudePermissionResponseSchema = z.object({
-  toolCallId: z.string(),
-  decision: PermissionDecisionSchema,
-  provenance: z.enum(['user', 'rule', 'yolo']),
-  timestamp: z.number(),
-});
 
 /**
  * Tool Event Types - For event bus communication

@@ -53,16 +53,24 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
 
   /* Divine Gradients (Ancient Egyptian Magic) */
   --gradient-divine: linear-gradient(135deg, #1e3a8a, #d4af37);
-  --gradient-shadow: linear-gradient(180deg, rgba(212, 175, 55, 0.2), transparent);
-  --gradient-panel: linear-gradient(135deg, rgba(30, 58, 138, 0.1), rgba(212, 175, 55, 0.05));
+  --gradient-shadow: linear-gradient(
+    180deg,
+    rgba(212, 175, 55, 0.2),
+    transparent
+  );
+  --gradient-panel: linear-gradient(
+    135deg,
+    rgba(30, 58, 138, 0.1),
+    rgba(212, 175, 55, 0.05)
+  );
 
   /* Agent Color Variables (God Pantheon) */
-  --agent-color-anubis: #d4af37;    /* Supervisor - Gold */
-  --agent-color-thoth: #1e3a8a;     /* Architect - Blue */
-  --agent-color-ptah: #228b22;      /* Developer - Green */
-  --agent-color-seshat: #f5f5dc;    /* QA - White */
-  --agent-color-maat: #d4af37;      /* Reviewer - Gold */
-  --agent-color-khnum: #b22222;     /* PM - Red */
+  --agent-color-anubis: #d4af37; /* Supervisor - Gold */
+  --agent-color-thoth: #1e3a8a; /* Architect - Blue */
+  --agent-color-ptah: #228b22; /* Developer - Green */
+  --agent-color-seshat: #f5f5dc; /* QA - White */
+  --agent-color-maat: #d4af37; /* Reviewer - Gold */
+  --agent-color-khnum: #b22222; /* PM - Red */
 
   /* Sacred Geometry */
   --golden-ratio: 1.618;
@@ -77,8 +85,7 @@ GLASS MORPHISM UTILITY CLASSES
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
-  box-shadow:
-    0 0 20px rgba(212, 175, 55, 0.1),
+  box-shadow: 0 0 20px rgba(212, 175, 55, 0.1),
     inset 0 1px 0 rgba(212, 175, 55, 0.2);
 }
 
@@ -106,7 +113,8 @@ ANUBIS ANIMATIONS - Egyptian Mystical Effects
 
 /* Divine Pulse - For active agents */
 @keyframes divine-pulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 0.8;
     transform: scaleY(1);
   }
@@ -118,8 +126,12 @@ ANUBIS ANIMATIONS - Egyptian Mystical Effects
 
 /* Hieroglyph Scan - For working agents */
 @keyframes hieroglyph-scan {
-  0% { left: -100%; }
-  100% { left: 100%; }
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 100%;
+  }
 }
 
 /* Divine Awakening - Agent activation */
@@ -157,13 +169,18 @@ ANUBIS ANIMATIONS - Egyptian Mystical Effects
 
 /* Cosmic Spin - Loading states */
 @keyframes cosmic-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Divine Aura - Active workflow node */
 @keyframes divine-aura {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow: 0 0 20px rgba(212, 175, 55, 0.5);
   }
   50% {
@@ -195,7 +212,8 @@ ANUBIS ANIMATIONS - Egyptian Mystical Effects
 
 /* Pulse animation for streaming cursor */
 @keyframes pulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
   }
   50% {
@@ -223,7 +241,8 @@ AGENT STATUS ANIMATION CLASSES
   left: -100%;
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg,
+  background: linear-gradient(
+    90deg,
     transparent,
     rgba(212, 175, 55, 0.3),
     transparent
@@ -277,7 +296,8 @@ GLOBAL RESET AND BASE STYLES
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    sans-serif;
   font-size: 13px;
   line-height: 1.6;
   background-color: oklch(var(--b1));
@@ -461,7 +481,8 @@ MARKDOWN CONTENT STYLING (for ngx-markdown) - Anubis Theme
   background-color: #2a2a2a;
   padding: 0.125rem 0.375rem;
   border-radius: 0.25rem;
-  font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Monaco, Consolas, monospace;
+  font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Monaco, Consolas,
+    monospace;
   font-size: 0.875em;
   color: #fbbf24;
 }

@@ -18,7 +18,6 @@
  */
 
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { VSCodeService } from './vscode.service';
 import { LoggingService } from './logging.service';
 
 export interface AnalyticsData {
@@ -68,7 +67,6 @@ export interface ActivityItem {
 })
 export class AnalyticsService {
   // ANGULAR 20 PATTERN: inject() for dependencies
-  private readonly vsCodeService = inject(VSCodeService);
   private readonly logger = inject(LoggingService);
 
   // Feature flag: Disable analytics during development

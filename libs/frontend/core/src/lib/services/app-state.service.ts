@@ -5,9 +5,8 @@
  * This service is already well-designed with signals.
  */
 
-import { Injectable, signal, computed, inject } from '@angular/core';
+import { Injectable, signal, computed } from '@angular/core';
 import { WorkspaceInfo } from '@ptah-extension/shared';
-import { VSCodeService } from './vscode.service';
 
 export type ViewType =
   | 'chat'
@@ -30,8 +29,6 @@ export interface AppState {
  */
 @Injectable({ providedIn: 'root' })
 export class AppStateManager {
-  private readonly vscodeService = inject(VSCodeService);
-
   // Core state signals
   private readonly _currentView = signal<ViewType>('chat');
   private readonly _isLoading = signal(false);

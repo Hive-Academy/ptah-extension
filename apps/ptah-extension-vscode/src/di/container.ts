@@ -32,6 +32,7 @@ import {
   FileSystemManager,
   RpcHandler,
   RpcMethodRegistrationService,
+  SessionDiscoveryService,
 } from '@ptah-extension/vscode-core';
 
 // Import workspace-intelligence services
@@ -76,12 +77,11 @@ import {
 import {
   ClaudeCliDetector,
   ProcessManager,
-  PermissionService,
   ClaudeCliService,
   MCPRegistrationService,
-  InMemoryPermissionRulesStore,
   ClaudeProcess,
   // DELETED in TASK_2025_023 purge: SessionManager, InteractiveSessionManager, ClaudeCliLauncher
+  // DELETED: PermissionService, InMemoryPermissionRulesStore (over-engineered, unused)
 } from '@ptah-extension/claude-domain';
 
 // Import webview support services
@@ -136,6 +136,12 @@ export class DIContainer {
     container.registerSingleton(
       TOKENS.RPC_METHOD_REGISTRATION_SERVICE,
       RpcMethodRegistrationService
+    );
+
+    // Session Discovery Service (extracted from RpcMethodRegistrationService)
+    container.registerSingleton(
+      TOKENS.SESSION_DISCOVERY_SERVICE,
+      SessionDiscoveryService
     );
 
     // ClaudeProcess factory (Batch 4 - TASK_2025_023)
@@ -273,10 +279,6 @@ export class DIContainer {
     // PHASE 3: Claude Domain Services
     // ========================================
 
-    // Permission store (special string token for interface)
-    const permissionStore = new InMemoryPermissionRulesStore();
-    container.register('IPermissionRulesStore', { useValue: permissionStore });
-
     // Storage adapter (from VS Code workspace state)
     const storageAdapter = {
       get: <T>(key: string, defaultValue?: T): T | undefined => {
@@ -296,7 +298,6 @@ export class DIContainer {
     // Core domain services
     container.registerSingleton(TOKENS.CLAUDE_CLI_DETECTOR, ClaudeCliDetector);
     container.registerSingleton(TOKENS.PROCESS_MANAGER, ProcessManager);
-    container.registerSingleton(TOKENS.PERMISSION_SERVICE, PermissionService);
     container.registerSingleton(TOKENS.CLAUDE_CLI_SERVICE, ClaudeCliService);
     container.registerSingleton(
       TOKENS.MCP_REGISTRATION_SERVICE,

@@ -2,43 +2,67 @@ import {
   Component,
   input,
   signal,
+  inject,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
+import {
+  LucideAngularModule,
+  File,
+  Terminal,
+  Search,
+  FileEdit,
+  FolderSearch,
+  CheckCircle,
+  XCircle,
+  Loader2,
+  ExternalLink,
+  ChevronDown,
+} from 'lucide-angular';
 import { DurationBadgeComponent } from '../atoms/duration-badge.component';
+import { ClaudeRpcService } from '@ptah-extension/core';
 import type { ExecutionNode } from '@ptah-extension/shared';
 
 /**
- * ToolCallItemComponent - Collapsible tool execution with input/output
+ * ToolCallItemComponent - Compact tool execution display
  *
  * Complexity Level: 2 (Molecule with internal state)
- * Patterns: Composition, Tool-specific formatting
+ * Patterns: Tool-specific formatting, Smart syntax highlighting
  *
- * Displays tool name badge, brief description, and collapsible input/output.
- * Supports nested children (for recursive tool results).
+ * Features:
+ * - Icon + Tool name badge with status coloring
+ * - Clickable file paths to open in VS Code editor
+ * - Smart syntax-highlighted output (code, markdown, bash)
+ * - Collapsible details with ngx-markdown rendering
  */
 @Component({
   selector: 'ptah-tool-call-item',
   standalone: true,
-  imports: [MarkdownModule, DurationBadgeComponent],
+  imports: [MarkdownModule, LucideAngularModule, DurationBadgeComponent],
   template: `
-    <div
-      class="collapse collapse-arrow bg-base-200/50 rounded-md my-1 border border-base-300"
-    >
-      <input
-        type="checkbox"
-        [checked]="!isCollapsed()"
-        (change)="toggleCollapse()"
+    <div class="bg-base-200/30 rounded my-0.5 border border-base-300/50">
+      <!-- Header (clickable to toggle) -->
+      <button
+        type="button"
+        class="w-full py-1.5 px-2 text-[11px] flex items-center gap-1.5 hover:bg-base-300/30 transition-colors cursor-pointer"
+        (click)="toggleCollapse()"
         [attr.aria-expanded]="!isCollapsed()"
         [attr.aria-controls]="'tool-' + node().id"
-      />
-
-      <div
-        class="collapse-title min-h-0 py-2 px-2.5 text-xs flex items-center gap-2"
       >
+        <!-- Expand/Collapse icon -->
+        <lucide-angular
+          [img]="ChevronIcon"
+          class="w-3 h-3 flex-shrink-0 text-base-content/50 transition-transform"
+          [class.rotate-0]="!isCollapsed()"
+          [class.-rotate-90]="isCollapsed()"
+        />
+
+        <!-- Tool icon -->
+        <lucide-angular [img]="getToolIcon()" class="w-3.5 h-3.5 flex-shrink-0" [class]="getToolIconClass()" />
+
         <!-- Tool name badge -->
         <span
-          class="badge badge-sm font-mono"
+          class="badge badge-xs font-mono px-1.5"
           [class.badge-success]="node().status === 'complete'"
           [class.badge-info]="node().status === 'streaming'"
           [class.badge-error]="node().status === 'error'"
@@ -47,105 +71,343 @@ import type { ExecutionNode } from '@ptah-extension/shared';
           {{ node().toolName }}
         </span>
 
-        <!-- Brief description -->
-        <span class="text-base-content/60 truncate flex-1 text-xs">
-          {{ getToolDescription() }}
-        </span>
+        <!-- Smart description (clickable file path) -->
+        @if (hasClickableFilePath()) {
+          <span
+            class="text-info/80 truncate flex-1 font-mono text-[10px] hover:text-info hover:underline cursor-pointer flex items-center gap-1"
+            [title]="getFullDescription()"
+            (click)="openFile($event)"
+          >
+            {{ getToolDescription() }}
+            <lucide-angular [img]="ExternalLinkIcon" class="w-2.5 h-2.5 opacity-60" />
+          </span>
+        } @else {
+          <span class="text-base-content/60 truncate flex-1 font-mono text-[10px]" [title]="getFullDescription()">
+            {{ getToolDescription() }}
+          </span>
+        }
+
+        <!-- Status indicator -->
+        @if (node().status === 'complete' && node().toolOutput) {
+          <lucide-angular [img]="CheckIcon" class="w-3 h-3 text-success flex-shrink-0" />
+        } @else if (node().status === 'error') {
+          <lucide-angular [img]="XIcon" class="w-3 h-3 text-error flex-shrink-0" />
+        } @else if (node().status === 'streaming') {
+          <lucide-angular [img]="LoaderIcon" class="w-3 h-3 text-info animate-spin flex-shrink-0" />
+        }
 
         <!-- Duration -->
         @if (node().duration) {
-        <ptah-duration-badge [durationMs]="node().duration!" />
+          <ptah-duration-badge [durationMs]="node().duration!" />
         }
-      </div>
+      </button>
 
-      <div class="collapse-content px-2.5 pb-2" [attr.id]="'tool-' + node().id">
-        <!-- Tool input -->
-        @if (node().toolInput) {
-        <div class="mb-2">
-          <div class="text-xs font-semibold text-base-content/70 mb-1">
-            Input:
-          </div>
-          <pre
-            class="bg-base-300 rounded p-2 text-xs overflow-x-auto font-mono"
-            >{{ formatJson(node().toolInput) }}</pre
-          >
+      <!-- Collapsible content -->
+      @if (!isCollapsed()) {
+        <div class="px-2 pb-2 pt-0 border-t border-base-300/30" [attr.id]="'tool-' + node().id">
+          <!-- Compact input display -->
+          @if (hasNonTrivialInput()) {
+            <div class="mb-1.5 mt-1.5">
+              <div class="text-[10px] font-semibold text-base-content/50 mb-0.5">Input</div>
+              <div class="bg-base-300/50 rounded px-2 py-1 text-[10px] font-mono overflow-x-auto max-h-24 overflow-y-auto">
+                @for (param of getInputParams(); track param.key) {
+                  <div class="flex gap-2">
+                    <span class="text-primary/70">{{ param.key }}:</span>
+                    <span class="text-base-content/80 break-all">{{ param.value }}</span>
+                  </div>
+                }
+              </div>
+            </div>
+          }
+
+          <!-- Smart output display with syntax highlighting -->
+          @if (node().toolOutput) {
+            <div class="mt-1.5">
+              <div class="text-[10px] font-semibold text-base-content/50 mb-0.5">Output</div>
+              <div class="bg-base-300/50 rounded max-h-48 overflow-y-auto overflow-x-auto">
+                <markdown
+                  [data]="getFormattedOutput()"
+                  class="tool-output-markdown prose prose-xs prose-invert max-w-none [&_pre]:my-0 [&_pre]:rounded-none [&_code]:text-[10px] [&_pre]:bg-transparent [&_p]:my-1 [&_p]:text-[10px]"
+                />
+              </div>
+            </div>
+          }
+
+          <!-- Error -->
+          @if (node().error) {
+            <div class="alert alert-error text-[10px] py-1 px-2 mt-1">
+              <span>{{ node().error }}</span>
+            </div>
+          }
+
+          <!-- Nested children (rendered by parent ExecutionNode) -->
+          <ng-content />
         </div>
-        }
-
-        <!-- Tool output -->
-        @if (node().toolOutput) {
-        <div>
-          <div class="text-xs font-semibold text-base-content/70 mb-1">
-            Output:
-          </div>
-          <div class="bg-base-300 rounded p-2 text-xs">
-            <markdown
-              [data]="formatToolOutput()"
-              class="prose prose-xs prose-invert max-w-none"
-            />
-          </div>
-        </div>
-        }
-
-        <!-- Error -->
-        @if (node().error) {
-        <div class="alert alert-error text-xs mt-2">
-          <span>{{ node().error }}</span>
-        </div>
-        }
-
-        <!-- Nested children (rendered by parent ExecutionNode) -->
-        <ng-content />
-      </div>
+      }
     </div>
   `,
+  styles: [`
+    :host ::ng-deep .tool-output-markdown {
+      pre {
+        margin: 0;
+        padding: 0.5rem;
+        background: transparent !important;
+      }
+      code {
+        font-size: 10px;
+        line-height: 1.4;
+      }
+      p {
+        margin: 0.25rem 0;
+        font-size: 10px;
+      }
+    }
+  `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ToolCallItemComponent {
+  private readonly rpcService = inject(ClaudeRpcService);
+
   readonly node = input.required<ExecutionNode>();
   readonly isCollapsed = signal(true); // Collapsed by default
+
+  // Icons
+  readonly FileIcon = File;
+  readonly TerminalIcon = Terminal;
+  readonly SearchIcon = Search;
+  readonly FileEditIcon = FileEdit;
+  readonly FolderSearchIcon = FolderSearch;
+  readonly CheckIcon = CheckCircle;
+  readonly XIcon = XCircle;
+  readonly LoaderIcon = Loader2;
+  readonly ExternalLinkIcon = ExternalLink;
+  readonly ChevronIcon = ChevronDown;
+
+  // Language extension mapping for syntax highlighting
+  private readonly languageMap: Record<string, string> = {
+    '.ts': 'typescript',
+    '.tsx': 'tsx',
+    '.js': 'javascript',
+    '.jsx': 'jsx',
+    '.json': 'json',
+    '.html': 'html',
+    '.css': 'css',
+    '.scss': 'scss',
+    '.py': 'python',
+    '.java': 'java',
+    '.go': 'go',
+    '.rs': 'rust',
+    '.md': 'markdown',
+    '.yaml': 'yaml',
+    '.yml': 'yaml',
+    '.xml': 'xml',
+    '.sql': 'sql',
+    '.sh': 'bash',
+    '.bash': 'bash',
+    '.zsh': 'bash',
+  };
 
   protected toggleCollapse(): void {
     this.isCollapsed.update((val) => !val);
   }
 
-  protected getToolDescription(): string {
-    const node = this.node();
-    const toolName = node.toolName!;
-    const input = node.toolInput;
-
+  protected getToolIcon(): typeof File {
+    const toolName = this.node().toolName;
     switch (toolName) {
       case 'Read':
-        return (input?.['file_path'] as string) || 'Reading file...';
       case 'Write':
-        return (input?.['file_path'] as string) || 'Writing file...';
-      case 'Bash': {
-        const cmd = input?.['command'] as string;
-        return cmd
-          ? cmd.length > 50
-            ? cmd.substring(0, 50) + '...'
-            : cmd
-          : 'Running command...';
-      }
+        return this.FileIcon;
+      case 'Bash':
+        return this.TerminalIcon;
       case 'Grep':
-        return `Pattern: ${input?.['pattern'] || '...'}`;
+        return this.SearchIcon;
       case 'Edit':
-        return (input?.['file_path'] as string) || 'Editing file...';
+        return this.FileEditIcon;
       case 'Glob':
-        return `Pattern: ${input?.['pattern'] || '...'}`;
+        return this.FolderSearchIcon;
       default:
-        return `${toolName} execution`;
+        return this.TerminalIcon;
     }
   }
 
-  protected formatToolOutput(): string {
-    const output = this.node().toolOutput;
-    if (typeof output === 'string') return output;
-    return JSON.stringify(output, null, 2);
+  protected getToolIconClass(): string {
+    const toolName = this.node().toolName;
+    switch (toolName) {
+      case 'Read':
+        return 'text-blue-400';
+      case 'Write':
+        return 'text-green-400';
+      case 'Bash':
+        return 'text-yellow-400';
+      case 'Grep':
+        return 'text-purple-400';
+      case 'Edit':
+        return 'text-orange-400';
+      case 'Glob':
+        return 'text-cyan-400';
+      default:
+        return 'text-base-content/60';
+    }
   }
 
-  protected formatJson(obj: Record<string, unknown> | undefined): string {
-    if (!obj) return '{}';
-    return JSON.stringify(obj, null, 2);
+  protected hasClickableFilePath(): boolean {
+    const toolName = this.node().toolName;
+    const toolInput = this.node().toolInput;
+    return ['Read', 'Write', 'Edit'].includes(toolName || '') &&
+           typeof toolInput?.['file_path'] === 'string';
+  }
+
+  protected openFile(event: Event): void {
+    event.stopPropagation(); // Prevent collapse toggle
+    const filePath = this.node().toolInput?.['file_path'] as string;
+    if (filePath) {
+      // Use RPC to open file in VS Code
+      this.rpcService.call('file:open', { path: filePath });
+    }
+  }
+
+  protected getToolDescription(): string {
+    const node = this.node();
+    const toolName = node.toolName!;
+    const toolInput = node.toolInput;
+
+    switch (toolName) {
+      case 'Read':
+      case 'Write':
+      case 'Edit':
+        return this.shortenPath(toolInput?.['file_path'] as string) || '...';
+      case 'Bash': {
+        const cmd = toolInput?.['command'] as string;
+        const desc = toolInput?.['description'] as string;
+        if (desc) return desc;
+        return cmd ? this.truncate(cmd, 40) : '...';
+      }
+      case 'Grep':
+        return this.truncate(toolInput?.['pattern'] as string, 30) || '...';
+      case 'Glob':
+        return this.truncate(toolInput?.['pattern'] as string, 30) || '...';
+      default:
+        return toolName;
+    }
+  }
+
+  protected getFullDescription(): string {
+    const node = this.node();
+    const toolInput = node.toolInput;
+    const toolName = node.toolName!;
+
+    switch (toolName) {
+      case 'Read':
+      case 'Write':
+      case 'Edit':
+        return toolInput?.['file_path'] as string || '';
+      case 'Bash':
+        return toolInput?.['command'] as string || '';
+      case 'Grep':
+      case 'Glob':
+        return toolInput?.['pattern'] as string || '';
+      default:
+        return '';
+    }
+  }
+
+  protected hasNonTrivialInput(): boolean {
+    const toolInput = this.node().toolInput;
+    if (!toolInput) return false;
+    // Hide input for simple tools where description shows the key info
+    const toolName = this.node().toolName;
+    if (['Read'].includes(toolName || '')) {
+      // Only show if there are extra params besides file_path
+      const keys = Object.keys(toolInput).filter(k => k !== 'file_path');
+      return keys.length > 0;
+    }
+    return Object.keys(toolInput).length > 0;
+  }
+
+  protected getInputParams(): Array<{ key: string; value: string }> {
+    const toolInput = this.node().toolInput;
+    if (!toolInput) return [];
+
+    return Object.entries(toolInput).map(([key, value]) => ({
+      key,
+      value: this.formatValue(value),
+    }));
+  }
+
+  /**
+   * Get formatted output with syntax highlighting
+   * Wraps output in appropriate markdown code block based on:
+   * - File extension for Read/Edit/Write tools
+   * - Shell for Bash tool
+   * - Auto-detect for other outputs
+   */
+  protected getFormattedOutput(): string {
+    const output = this.node().toolOutput;
+    if (!output) return '';
+
+    const str = typeof output === 'string' ? output : JSON.stringify(output, null, 2);
+    const toolName = this.node().toolName;
+    const toolInput = this.node().toolInput;
+
+    // Detect language based on tool type
+    let language = 'text';
+
+    if (['Read', 'Write', 'Edit'].includes(toolName || '')) {
+      const filePath = toolInput?.['file_path'] as string;
+      if (filePath) {
+        language = this.getLanguageFromPath(filePath);
+        // For markdown files, render as markdown (no code block)
+        if (language === 'markdown') {
+          return str;
+        }
+      }
+    } else if (toolName === 'Bash') {
+      language = 'bash';
+    } else if (toolName === 'Grep' || toolName === 'Glob') {
+      // Grep/Glob outputs are typically file lists or search results
+      language = 'text';
+    }
+
+    // Check if output is JSON
+    if (str.trim().startsWith('{') || str.trim().startsWith('[')) {
+      try {
+        JSON.parse(str);
+        language = 'json';
+      } catch {
+        // Not valid JSON, keep detected language
+      }
+    }
+
+    // Wrap in code block with language
+    return '```' + language + '\n' + str + '\n```';
+  }
+
+  private getLanguageFromPath(filePath: string): string {
+    const normalized = filePath.replace(/\\/g, '/');
+    const ext = '.' + normalized.split('.').pop()?.toLowerCase();
+    return this.languageMap[ext] || 'text';
+  }
+
+  private formatValue(value: unknown): string {
+    if (typeof value === 'string') {
+      return this.truncate(value, 60);
+    }
+    if (typeof value === 'boolean' || typeof value === 'number') {
+      return String(value);
+    }
+    return JSON.stringify(value);
+  }
+
+  private truncate(str: string | undefined, maxLen: number): string {
+    if (!str) return '';
+    return str.length > maxLen ? str.substring(0, maxLen) + '...' : str;
+  }
+
+  private shortenPath(path: string | undefined): string {
+    if (!path) return '';
+    // Show just the filename or last 2 path segments
+    const parts = path.replace(/\\/g, '/').split('/');
+    if (parts.length <= 2) return path;
+    return '.../' + parts.slice(-2).join('/');
   }
 }

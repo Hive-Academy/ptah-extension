@@ -239,4 +239,14 @@ export class ClaudeRpcService {
   stopChat(sessionId: SessionId): Promise<RpcResult<void>> {
     return this.call<void>('chat:stop', { sessionId });
   }
+
+  /**
+   * Open a file in VS Code editor
+   * @param path - Absolute file path to open
+   * @param line - Optional line number to navigate to
+   * @returns Promise that resolves when file is opened
+   */
+  openFile(path: string, line?: number): Promise<RpcResult<void>> {
+    return this.call<void>('file:open', { path, line });
+  }
 }

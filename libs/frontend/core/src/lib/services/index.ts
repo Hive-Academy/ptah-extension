@@ -13,21 +13,6 @@ export {
 export * from './app-state.service';
 export * from './webview-navigation.service';
 
-// File Management Layer (workspace file operations)
-// MOVED: FilePickerService → @ptah-extension/chat (chat-specific UI)
-
-// Chat Layer - REMOVED (TASK_2025_023)
-// ChatStateService - DELETED (functionality moved to ChatStore)
-// ChatService - DELETED (use ChatStore from @ptah-extension/chat)
-
-// Provider Layer (AI provider management and health monitoring)
-// export { // DELETED - Phase 0 purge
-//   ProviderService,
-//   type ProviderInfo,
-//   type ProviderHealth,
-//   type ProviderError,
-//   type ProviderSwitchEvent,
-// } from './provider.service';
 
 // Analytics Layer (system analytics and metrics)
 export {

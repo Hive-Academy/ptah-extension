@@ -1,5 +1,5 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
-import { VSCodeService } from './vscode.service';
+import { ClaudeRpcService } from './claude-rpc.service';
 
 export interface AgentSuggestion {
   readonly name: string;
@@ -12,7 +12,7 @@ export interface AgentSuggestion {
   providedIn: 'root',
 })
 export class AgentDiscoveryFacade {
-  private readonly vscode = inject(VSCodeService);
+  private readonly rpc = inject(ClaudeRpcService);
   private readonly _isLoading = signal(false);
   private readonly _agents = signal<AgentSuggestion[]>([]);
 
@@ -26,22 +26,17 @@ export class AgentDiscoveryFacade {
     this._isLoading.set(true);
 
     try {
-      const result = await this.vscode.sendRequest<{
-        success: boolean;
+      const result = await this.rpc.call<{
         agents?: Array<{
           name: string;
           description: string;
           scope: 'project' | 'user' | 'builtin';
         }>;
-        error?: string;
-      }>({
-        type: 'autocomplete:agents',
-        data: { query: '', maxResults: 100 },
-      });
+      }>('autocomplete:agents', { query: '', maxResults: 100 });
 
-      if (result.success && result.agents) {
+      if (result.success && result.data?.agents) {
         this._agents.set(
-          result.agents.map((a) => ({
+          result.data.agents.map((a) => ({
             ...a,
             icon:
               a.scope === 'builtin'
@@ -53,12 +48,10 @@ export class AgentDiscoveryFacade {
         );
       } else if (result.error) {
         console.warn('[AgentDiscoveryFacade] Discovery failed:', result.error);
-        // Still show empty list even if discovery fails (e.g., missing .claude folder)
         this._agents.set([]);
       }
     } catch (error) {
       console.error('[AgentDiscoveryFacade] Failed to fetch agents:', error);
-      // Don't throw - let UI show empty state instead of crashing
       this._agents.set([]);
     } finally {
       this._isLoading.set(false);

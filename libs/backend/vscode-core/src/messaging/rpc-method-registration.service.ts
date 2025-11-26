@@ -13,10 +13,8 @@
 import { injectable, inject } from 'tsyringe';
 import type { Logger } from '../logging/logger';
 import type { RpcHandler } from './rpc-handler';
+import type { SessionDiscoveryService } from '../services/session-discovery.service';
 import { TOKENS } from '../di/tokens';
-import * as path from 'path';
-import * as os from 'os';
-import * as fs from 'fs/promises';
 
 // Import domain service types
 interface ContextOrchestrationService {
@@ -94,7 +92,9 @@ export class RpcMethodRegistrationService {
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: WebviewManager,
     @inject('ClaudeProcessFactory')
-    private readonly createClaudeProcess: ClaudeProcessFactory
+    private readonly createClaudeProcess: ClaudeProcessFactory,
+    @inject(TOKENS.SESSION_DISCOVERY_SERVICE)
+    private readonly sessionDiscovery: SessionDiscoveryService
   ) {}
 
   /**
@@ -106,6 +106,7 @@ export class RpcMethodRegistrationService {
     this.registerSessionMethods();
     this.registerContextMethods();
     this.registerAutocompleteMethods();
+    this.registerFileMethods();
 
     this.logger.info(
       'RPC methods registered (TASK_2025_023 Batch 4 complete)',
@@ -301,6 +302,7 @@ export class RpcMethodRegistrationService {
 
   /**
    * Session RPC methods (NEW - Batch 4)
+   * Delegated to SessionDiscoveryService for better separation of concerns
    */
   private registerSessionMethods(): void {
     // session:list - List all sessions for workspace
@@ -309,61 +311,7 @@ export class RpcMethodRegistrationService {
         const { workspacePath } = params;
         this.logger.debug('RPC: session:list called', { workspacePath });
 
-        // Find the sessions directory for this workspace
-        const sessionsDir = await this.findSessionsDirectory(workspacePath);
-
-        if (!sessionsDir) {
-          this.logger.debug('No sessions directory found for workspace', {
-            workspacePath,
-          });
-          return [];
-        }
-
-        // Read directory
-        try {
-          const files = await fs.readdir(sessionsDir);
-
-          // Filter to only main sessions (UUID format), exclude agent-* files
-          // Main sessions: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.jsonl
-          // Agent sessions: agent-xxxxxxxx.jsonl (these are sub-processes, not user sessions)
-          const uuidPattern =
-            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$/i;
-          const mainSessionFiles = files.filter((f) => uuidPattern.test(f));
-
-          this.logger.debug('Session files filtered', {
-            total: files.filter((f) => f.endsWith('.jsonl')).length,
-            mainSessions: mainSessionFiles.length,
-            agentSessions: files.filter((f) => f.startsWith('agent-')).length,
-          });
-
-          // Return session summaries with extracted metadata
-          const sessions = await Promise.all(
-            mainSessionFiles.map(async (file) => {
-              const sessionId = path.basename(file, '.jsonl');
-              const filePath = path.join(sessionsDir, file);
-              const stats = await fs.stat(filePath);
-
-              // Try to extract session title from first user message
-              const sessionMeta = await this.extractSessionMetadata(filePath);
-
-              return {
-                id: sessionId,
-                name:
-                  sessionMeta.title || `Session ${sessionId.substring(0, 8)}`,
-                lastActivityAt: stats.mtime.getTime(),
-                createdAt: stats.birthtime.getTime(),
-                messageCount: sessionMeta.messageCount,
-                branch: sessionMeta.branch,
-              };
-            })
-          );
-
-          return sessions.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
-        } catch (error) {
-          // Directory doesn't exist or no sessions yet
-          this.logger.debug('No sessions directory found', { sessionsDir });
-          return [];
-        }
+        return await this.sessionDiscovery.listSessions(workspacePath);
       } catch (error) {
         this.logger.error(
           'RPC: session:list failed',
@@ -386,46 +334,7 @@ export class RpcMethodRegistrationService {
           workspacePath,
         });
 
-        // Find the sessions directory for this workspace
-        const sessionsDir = await this.findSessionsDirectory(workspacePath);
-
-        if (!sessionsDir) {
-          throw new Error('Sessions directory not found for workspace');
-        }
-
-        const sessionFile = path.join(sessionsDir, `${sessionId}.jsonl`);
-
-        // Read and parse main session JSONL file
-        const content = await fs.readFile(sessionFile, 'utf-8');
-        const lines = content.split('\n').filter((line) => line.trim());
-        const mainMessages = lines
-          .map((line) => {
-            try {
-              return JSON.parse(line);
-            } catch {
-              return null;
-            }
-          })
-          .filter(Boolean);
-
-        // Find all agent sessions that belong to this main session
-        // Agent files: agent-{agentId}.jsonl where sessionId inside matches our main session
-        const agentSessions = await this.findLinkedAgentSessions(
-          sessionsDir,
-          sessionId
-        );
-
-        this.logger.debug('Session loaded with agent sessions', {
-          sessionId,
-          mainMessageCount: mainMessages.length,
-          linkedAgentCount: agentSessions.length,
-        });
-
-        return {
-          sessionId,
-          messages: mainMessages,
-          agentSessions, // Array of { agentId, messages[] }
-        };
+        return await this.sessionDiscovery.loadSession(sessionId, workspacePath);
       } catch (error) {
         this.logger.error(
           'RPC: session:load failed',
@@ -438,228 +347,6 @@ export class RpcMethodRegistrationService {
         );
       }
     });
-  }
-
-  /**
-   * Find all agent sessions linked to a main session
-   *
-   * Agent sessions are stored as agent-{agentId}.jsonl files.
-   * Inside, they have sessionId pointing to the parent main session.
-   *
-   * @param sessionsDir - Directory containing session files
-   * @param mainSessionId - The main session UUID to find agents for
-   * @returns Array of agent sessions with their messages
-   */
-  private async findLinkedAgentSessions(
-    sessionsDir: string,
-    mainSessionId: string
-  ): Promise<Array<{ agentId: string; messages: any[] }>> {
-    try {
-      const files = await fs.readdir(sessionsDir);
-      const agentFiles = files.filter((f) => f.startsWith('agent-'));
-
-      const linkedAgents: Array<{ agentId: string; messages: any[] }> = [];
-
-      for (const agentFile of agentFiles) {
-        try {
-          const agentPath = path.join(sessionsDir, agentFile);
-          const content = await fs.readFile(agentPath, 'utf-8');
-          const lines = content.split('\n').filter((line) => line.trim());
-
-          if (lines.length === 0) continue;
-
-          // Parse first message to check if this agent belongs to our session
-          const firstMsg = JSON.parse(lines[0]);
-
-          // Agent sessions have sessionId pointing to parent main session
-          if (firstMsg.sessionId === mainSessionId) {
-            const agentId =
-              firstMsg.agentId ||
-              agentFile.replace('agent-', '').replace('.jsonl', '');
-
-            const messages = lines
-              .map((line) => {
-                try {
-                  return JSON.parse(line);
-                } catch {
-                  return null;
-                }
-              })
-              .filter(Boolean);
-
-            linkedAgents.push({ agentId, messages });
-
-            this.logger.debug('Found linked agent session', {
-              agentId,
-              mainSessionId,
-              messageCount: messages.length,
-            });
-          }
-        } catch {
-          // Skip files that can't be parsed
-        }
-      }
-
-      return linkedAgents;
-    } catch (error) {
-      this.logger.debug('Error finding linked agent sessions', {
-        mainSessionId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return [];
-    }
-  }
-
-  /**
-   * Find the Claude CLI sessions directory for a workspace
-   *
-   * Claude CLI stores sessions in ~/.claude/projects/<escaped-path>/
-   * The path escaping algorithm has varied between versions and may have
-   * inconsistent casing. This method uses a robust matching strategy:
-   *
-   * 1. Generate candidate escaped paths (lowercase, original case, uppercase)
-   * 2. List all directories in ~/.claude/projects/
-   * 3. Find a case-insensitive match
-   *
-   * This approach handles:
-   * - Different OS path formats (Windows backslash, Unix forward slash)
-   * - Claude CLI version differences in path escaping
-   * - Case sensitivity variations across operating systems
-   *
-   * @param workspacePath - The workspace path from VS Code (e.g., "D:\projects\ptah")
-   * @returns The full path to the sessions directory, or null if not found
-   */
-  private async findSessionsDirectory(
-    workspacePath: string
-  ): Promise<string | null> {
-    const homeDir = os.homedir();
-    const projectsDir = path.join(homeDir, '.claude', 'projects');
-
-    // Check if projects directory exists
-    try {
-      await fs.access(projectsDir);
-    } catch {
-      this.logger.debug('Claude projects directory does not exist', {
-        projectsDir,
-      });
-      return null;
-    }
-
-    // Generate the escaped path pattern (replace : and /\ with -)
-    const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
-
-    // List all project directories
-    const dirs = await fs.readdir(projectsDir);
-
-    // Try exact match first (case-sensitive)
-    if (dirs.includes(escapedPath)) {
-      return path.join(projectsDir, escapedPath);
-    }
-
-    // Try lowercase match
-    const lowerEscaped = escapedPath.toLowerCase();
-    const lowerMatch = dirs.find((d) => d.toLowerCase() === lowerEscaped);
-    if (lowerMatch) {
-      return path.join(projectsDir, lowerMatch);
-    }
-
-    // Try without leading hyphen (some paths may start differently)
-    const withoutLeading = escapedPath.replace(/^-+/, '');
-    const withoutLeadingLower = withoutLeading.toLowerCase();
-    const partialMatch = dirs.find(
-      (d) =>
-        d.toLowerCase() === withoutLeadingLower ||
-        d.toLowerCase().endsWith(withoutLeadingLower)
-    );
-    if (partialMatch) {
-      return path.join(projectsDir, partialMatch);
-    }
-
-    this.logger.debug('No matching sessions directory found', {
-      workspacePath,
-      escapedPath,
-      availableDirs: dirs.slice(0, 10), // Log first 10 for debugging
-    });
-
-    return null;
-  }
-
-  /**
-   * Extract metadata from a session JSONL file
-   *
-   * Parses the first few lines to extract:
-   * - title: First user message content (truncated)
-   * - messageCount: Number of user/assistant message pairs
-   * - branch: Git branch from the session context
-   *
-   * @param filePath - Full path to the .jsonl session file
-   */
-  private async extractSessionMetadata(filePath: string): Promise<{
-    title: string | null;
-    messageCount: number;
-    branch: string | null;
-  }> {
-    try {
-      const content = await fs.readFile(filePath, 'utf-8');
-      const lines = content.split('\n').filter((line) => line.trim());
-
-      let title: string | null = null;
-      let branch: string | null = null;
-      let messageCount = 0;
-
-      for (const line of lines) {
-        try {
-          const msg = JSON.parse(line);
-
-          // Count user and assistant messages (not system, tool, etc.)
-          if (msg.type === 'user' || msg.type === 'assistant') {
-            messageCount++;
-          }
-
-          // Extract title from first user message
-          if (!title && msg.type === 'user' && msg.message?.content) {
-            const content = msg.message.content;
-            // Handle both string content and array content blocks
-            const textContent =
-              typeof content === 'string'
-                ? content
-                : Array.isArray(content)
-                ? content
-                    .filter((b: any) => b.type === 'text')
-                    .map((b: any) => b.text)
-                    .join(' ')
-                : '';
-
-            // Truncate to first line or 100 chars
-            title = textContent.split('\n')[0].substring(0, 100);
-            if (textContent.length > 100) {
-              title += '...';
-            }
-          }
-
-          // Extract branch from gitStatus in system message
-          if (!branch && msg.type === 'system' && msg.gitStatus) {
-            // gitStatus format includes branch info
-            const branchMatch = msg.gitStatus.match(
-              /(?:On branch|branch[:\s]+)([^\s\n]+)/i
-            );
-            if (branchMatch) {
-              branch = branchMatch[1];
-            }
-          }
-        } catch {
-          // Skip malformed JSON lines
-        }
-      }
-
-      return { title, messageCount, branch };
-    } catch (error) {
-      this.logger.debug('Failed to extract session metadata', {
-        filePath,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return { title: null, messageCount: 0, branch: null };
-    }
   }
 
   /**
@@ -810,5 +497,63 @@ export class RpcMethodRegistrationService {
         }
       }
     );
+  }
+
+  /**
+   * File operations RPC methods
+   */
+  private registerFileMethods(): void {
+    // file:open - Open file in VS Code editor
+    this.rpcHandler.registerMethod('file:open', async (params: any) => {
+      try {
+        const { path, line } = params;
+        this.logger.debug('RPC: file:open called', { path, line });
+
+        // Check if path is a directory (Claude sometimes reads directories by mistake)
+        const fs = await import('fs');
+        const stats = await fs.promises.stat(path).catch(() => null);
+
+        if (!stats) {
+          return { success: false, error: `Path not found: ${path}` };
+        }
+
+        if (stats.isDirectory()) {
+          // For directories, reveal in explorer instead of opening as file
+          const vscode = await import('vscode');
+          const uri = vscode.Uri.file(path);
+          await vscode.commands.executeCommand('revealInExplorer', uri);
+          return { success: true, isDirectory: true };
+        }
+
+        // Dynamic import of vscode to avoid bundling issues
+        const vscode = await import('vscode');
+        const uri = vscode.Uri.file(path);
+
+        // Open the document and show it in editor
+        const document = await vscode.workspace.openTextDocument(uri);
+        const editor = await vscode.window.showTextDocument(document);
+
+        // If line number specified, navigate to it
+        if (typeof line === 'number' && line > 0) {
+          const position = new vscode.Position(line - 1, 0);
+          editor.selection = new vscode.Selection(position, position);
+          editor.revealRange(
+            new vscode.Range(position, position),
+            vscode.TextEditorRevealType.InCenter
+          );
+        }
+
+        return { success: true };
+      } catch (error) {
+        this.logger.error(
+          'RPC: file:open failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
   }
 }

@@ -163,6 +163,49 @@ export interface ExecutionNode {
 // ============================================================================
 
 /**
+ * AgentInfo - Metadata for agent-specific chat bubbles
+ *
+ * When a message is an agent bubble (extracted from parent assistant message),
+ * this contains the agent's identifying information for custom styling.
+ *
+ * Agent bubbles have two sections:
+ * 1. Summary Section - Real-time progress updates (XML-like format)
+ * 2. Execution Section - Actual tool calls and detailed results
+ *
+ * During streaming, either section may be missing. The UI should gracefully
+ * handle partial data and show appropriate loading states.
+ */
+export interface AgentInfo {
+  /** Agent subtype (e.g., 'Explore', 'Plan', 'software-architect') */
+  readonly agentType: string;
+
+  /** Short description of the agent task */
+  readonly agentDescription?: string;
+
+  /** Model used by agent (opus, sonnet, haiku) */
+  readonly agentModel?: string;
+
+  /**
+   * Summary content - The XML-like progress updates from the summary session.
+   * Contains <function_calls>, <thinking>, etc. tags that show real-time progress.
+   * May be undefined during streaming or if no summary session exists.
+   */
+  readonly summaryContent?: string;
+
+  /**
+   * Indicates if we expect a summary section (for streaming state).
+   * When true but summaryContent is undefined, show a loading placeholder.
+   */
+  readonly hasSummary?: boolean;
+
+  /**
+   * Indicates if we have execution data (tool calls, results).
+   * When true but executionTree is empty, show a loading placeholder.
+   */
+  readonly hasExecution?: boolean;
+}
+
+/**
  * ExecutionChatMessage - Top-level message wrapper for the ExecutionNode-based chat UI
  *
  * Each ExecutionChatMessage contains either:
@@ -195,6 +238,12 @@ export interface ExecutionChatMessage {
 
   /** Session ID this message belongs to */
   readonly sessionId?: string;
+
+  /**
+   * Agent information (for extracted agent bubbles)
+   * When present, this message is an agent execution extracted as a separate bubble.
+   */
+  readonly agentInfo?: AgentInfo;
 }
 
 // ============================================================================
@@ -366,6 +415,15 @@ export const ExecutionNodeSchema: z.ZodType<ExecutionNode> = z.lazy(() =>
   })
 );
 
+export const AgentInfoSchema = z.object({
+  agentType: z.string(),
+  agentDescription: z.string().optional(),
+  agentModel: z.string().optional(),
+  summaryContent: z.string().optional(),
+  hasSummary: z.boolean().optional(),
+  hasExecution: z.boolean().optional(),
+});
+
 export const ExecutionChatMessageSchema = z.object({
   id: z.string(),
   role: MessageRoleSchema,
@@ -374,6 +432,7 @@ export const ExecutionChatMessageSchema = z.object({
   rawContent: z.string().optional(),
   files: z.array(z.string()).readonly().optional(),
   sessionId: z.string().optional(),
+  agentInfo: AgentInfoSchema.optional(),
 });
 
 export const ChatSessionSummarySchema = z.object({

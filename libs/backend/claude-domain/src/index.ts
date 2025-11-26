@@ -23,21 +23,11 @@ export { MCPRegistrationService } from './cli/mcp-registration.service';
 export { ClaudeProcess } from './cli/claude-process';
 export type { ClaudeProcessOptions } from './cli/claude-process';
 
-// Permissions - KEEP
-export { PermissionService } from './permissions/permission-service';
-export type { PermissionServiceConfig } from './permissions/permission-service';
-export {
-  InMemoryPermissionRulesStore,
-  type IPermissionRulesStore,
-} from './permissions/permission-rules.store';
-
 // Events - KEEP
 export type {
   ClaudeContentChunkEvent,
   ClaudeThinkingEventPayload,
   ClaudeToolEventPayload,
-  ClaudePermissionRequestEvent,
-  ClaudePermissionResponseEvent,
   ClaudeSessionInitEvent,
   ClaudeSessionEndEvent,
   ClaudeHealthUpdateEvent,

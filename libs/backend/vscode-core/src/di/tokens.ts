@@ -44,6 +44,7 @@ export const RPC_HANDLER = Symbol.for('RpcHandler');
 export const RPC_METHOD_REGISTRATION_SERVICE = Symbol.for(
   'RpcMethodRegistrationService'
 );
+export const SESSION_DISCOVERY_SERVICE = Symbol.for('SessionDiscoveryService');
 
 // ========================================
 // Workspace Intelligence Service Tokens
@@ -137,8 +138,8 @@ export const MCP_REGISTRATION_SERVICE = Symbol.for('MCPRegistrationService');
 // Core domain services (KEPT)
 export const CLAUDE_CLI_DETECTOR = Symbol.for('ClaudeCliDetector');
 export const CLAUDE_CLI_SERVICE = Symbol.for('ClaudeCliService');
-export const PERMISSION_SERVICE = Symbol.for('PermissionService');
 export const PROCESS_MANAGER = Symbol.for('ProcessManager');
+// PERMISSION_SERVICE - DELETED (over-engineered, unused)
 
 // DELETED tokens (TASK_2025_023 purge)
 // SESSION_MANAGER - DELETED (in-memory session duplication)
@@ -209,6 +210,7 @@ export const TOKENS = {
   CONTEXT_MANAGER,
   RPC_HANDLER,
   RPC_METHOD_REGISTRATION_SERVICE,
+  SESSION_DISCOVERY_SERVICE,
 
   // ========================================
   // Workspace Intelligence
@@ -281,10 +283,10 @@ export const TOKENS = {
   // ========================================
   CLAUDE_CLI_DETECTOR,
   CLAUDE_CLI_SERVICE,
-  PERMISSION_SERVICE,
   PROCESS_MANAGER,
   STORAGE_SERVICE,
   CONFIGURATION_PROVIDER,
+  // PERMISSION_SERVICE - DELETED (over-engineered, unused)
   // DELETED (TASK_2025_023 cleanup): SESSION_MANAGER, INTERACTIVE_SESSION_MANAGER,
   // SESSION_PROXY, CLAUDE_DOMAIN_EVENT_PUBLISHER, CHAT_ORCHESTRATION_SERVICE,
   // PROVIDER_ORCHESTRATION_SERVICE, ANALYTICS_ORCHESTRATION_SERVICE,

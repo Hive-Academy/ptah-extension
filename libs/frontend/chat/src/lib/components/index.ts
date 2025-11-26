@@ -29,12 +29,14 @@ export * from './atoms/duration-badge.component';
 export * from './molecules/thinking-block.component';
 export * from './molecules/tool-call-item.component';
 export * from './molecules/agent-card.component';
+export * from './molecules/agent-summary.component';
 export * from './molecules/chat-input.component';
 
 // ============================================================================
 // ORGANISMS - Complex sections
 // ============================================================================
 export * from './organisms/execution-node.component';
+export * from './organisms/agent-execution.component';
 export * from './organisms/message-bubble.component';
 
 // ============================================================================

@@ -73,8 +73,6 @@ export type StrictMessageType =
   | 'chat:sessionsUpdated'
   | 'chat:stopStream'
   | 'chat:streamStopped'
-  | 'chat:permissionRequest'
-  | 'chat:permissionResponse'
   | 'chat:agentStarted'
   | 'chat:agentActivity'
   | 'chat:agentCompleted'
@@ -384,21 +382,6 @@ export interface ChatGetSessionStatsPayload {
 export interface ChatStopStreamPayload {
   readonly sessionId: SessionId | null;
   readonly messageId: MessageId | null;
-  readonly timestamp: number;
-}
-
-export interface ChatPermissionRequestPayload {
-  readonly id: string;
-  readonly tool: string;
-  readonly action: string;
-  readonly description: string;
-  readonly timestamp: number;
-  readonly sessionId: string;
-}
-
-export interface ChatPermissionResponsePayload {
-  readonly requestId: string;
-  readonly response: 'allow' | 'always_allow' | 'deny';
   readonly timestamp: number;
 }
 
@@ -734,8 +717,6 @@ export interface MessagePayloadMap {
   'chat:sessionsUpdated': ChatSessionsUpdatedPayload;
   'chat:stopStream': ChatStopStreamPayload;
   'chat:streamStopped': ChatStreamStoppedPayload;
-  'chat:permissionRequest': ChatPermissionRequestPayload;
-  'chat:permissionResponse': ChatPermissionResponsePayload;
   'chat:agentStarted': ChatAgentStartedPayload;
   'chat:agentActivity': ChatAgentActivityPayload;
   'chat:agentCompleted': ChatAgentCompletedPayload;

@@ -321,12 +321,12 @@ export class WebviewHtmlGenerator {
   private getThemeStyles(): string {
     return `
       body {
-        font-family: var(--vscode-font-family);
         margin: 0;
         padding: 0;
         overflow: hidden;
       }
 
+      /* Color scheme for native browser controls (scrollbars, inputs) */
       body.vscode-dark { color-scheme: dark; }
       body.vscode-light { color-scheme: light; }
       body.vscode-high-contrast { color-scheme: dark; }

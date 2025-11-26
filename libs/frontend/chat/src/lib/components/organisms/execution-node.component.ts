@@ -1,7 +1,8 @@
-import { Component, input, ChangeDetectionStrategy } from '@angular/core';
+import { Component, input, computed, ChangeDetectionStrategy } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
 import { LucideAngularModule, Info } from 'lucide-angular';
 import { AgentCardComponent } from '../molecules/agent-card.component';
+import { AgentSummaryComponent } from '../molecules/agent-summary.component';
 import { ThinkingBlockComponent } from '../molecules/thinking-block.component';
 import { ToolCallItemComponent } from '../molecules/tool-call-item.component';
 import type { ExecutionNode } from '@ptah-extension/shared';
@@ -31,14 +32,20 @@ import type { ExecutionNode } from '@ptah-extension/shared';
     MarkdownModule,
     LucideAngularModule,
     AgentCardComponent,
+    AgentSummaryComponent,
     ThinkingBlockComponent,
     ToolCallItemComponent,
   ],
   template: `
     @switch (node().type) { @case ('text') {
-    <div class="prose prose-sm prose-invert max-w-none my-2">
-      <markdown [data]="node().content || ''" />
-    </div>
+      @if (isAgentSummaryContent()) {
+        <!-- Agent summary with XML-like format (function_calls, thinking, etc.) -->
+        <ptah-agent-summary [content]="node().content || ''" />
+      } @else {
+        <div class="prose prose-sm prose-invert max-w-none my-2">
+          <markdown [data]="node().content || ''" />
+        </div>
+      }
     } @case ('thinking') {
     <ptah-thinking-block [node]="node()" />
     } @case ('tool') {
@@ -74,4 +81,20 @@ export class ExecutionNodeComponent {
 
   // Lucide icons
   readonly InfoIcon = Info;
+
+  /**
+   * Detect if text content contains Claude's XML-like agent summary format.
+   * This format includes <function_calls>, <invoke>, <thinking>, <parameter> tags.
+   */
+  protected isAgentSummaryContent = computed(() => {
+    const content = this.node().content;
+    if (!content || this.node().type !== 'text') return false;
+
+    // Check for XML-like tags that indicate agent summary format
+    return (
+      content.includes('<function_calls>') ||
+      content.includes('<thinking>') ||
+      content.includes('<invoke name=')
+    );
+  });
 }

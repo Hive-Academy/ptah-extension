@@ -9,8 +9,6 @@ import {
   ClaudeAgentStartEvent,
   ClaudeCliHealth,
   ClaudeContentChunk,
-  ClaudePermissionRequest,
-  ClaudePermissionResponse,
   ClaudeThinkingEvent,
   ClaudeToolEvent,
   SessionId,
@@ -32,16 +30,6 @@ export interface ClaudeThinkingEventPayload {
 export interface ClaudeToolEventPayload {
   readonly sessionId: SessionId;
   readonly event: ClaudeToolEvent;
-}
-
-export interface ClaudePermissionRequestEvent {
-  readonly sessionId: SessionId;
-  readonly request: ClaudePermissionRequest;
-}
-
-export interface ClaudePermissionResponseEvent {
-  readonly sessionId: SessionId;
-  readonly response: ClaudePermissionResponse;
 }
 
 export interface ClaudeSessionInitEvent {

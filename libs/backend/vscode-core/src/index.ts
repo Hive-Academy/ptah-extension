@@ -56,3 +56,12 @@ export type {
 
 export { RpcHandler, RpcMethodRegistrationService } from './messaging';
 export type { RpcMessage, RpcResponse, RpcMethodHandler } from './messaging';
+
+// Session Discovery
+export { SessionDiscoveryService } from './services/session-discovery.service';
+export type {
+  SessionMetadata,
+  SessionSummary,
+  LinkedAgentSession,
+  SessionData,
+} from './services/session-discovery.service';

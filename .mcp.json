@@ -12,6 +12,10 @@
     "angular-cli": {
       "command": "cmd.exe",
       "args": ["/c", "npx", "-y", "@angular/cli", "mcp"]
+    },
+    "daisyui": {
+      "type": "http",
+      "url": "https://gitmcp.io/saadeghi/daisyui"
     }
   }
 }

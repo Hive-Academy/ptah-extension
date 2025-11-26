@@ -1,5 +1,5 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
-import { VSCodeService } from './vscode.service';
+import { ClaudeRpcService } from './claude-rpc.service';
 
 export interface CommandSuggestion {
   readonly name: string;
@@ -13,7 +13,7 @@ export interface CommandSuggestion {
   providedIn: 'root',
 })
 export class CommandDiscoveryFacade {
-  private readonly vscode = inject(VSCodeService);
+  private readonly rpc = inject(ClaudeRpcService);
   private readonly _isLoading = signal(false);
   private readonly _commands = signal<CommandSuggestion[]>([]);
 
@@ -27,41 +27,28 @@ export class CommandDiscoveryFacade {
     this._isLoading.set(true);
 
     try {
-      const result = await this.vscode.sendRequest<{
-        success: boolean;
+      const result = await this.rpc.call<{
         commands?: Array<{
           name: string;
           description: string;
           scope: 'builtin' | 'project' | 'user' | 'mcp';
           argumentHint?: string;
         }>;
-        error?: string;
-      }>({
-        type: 'autocomplete:commands',
-        data: { query: '', maxResults: 100 },
-      });
+      }>('autocomplete:commands', { query: '', maxResults: 100 });
 
-      if (result.success && result.commands) {
+      if (result.success && result.data?.commands) {
         this._commands.set(
-          result.commands.map((c) => ({
+          result.data.commands.map((c) => ({
             ...c,
             icon: this.getCommandIcon(c.scope),
           }))
         );
       } else if (result.error) {
-        console.warn(
-          '[CommandDiscoveryFacade] Discovery failed:',
-          result.error
-        );
-        // Still show empty list even if discovery fails (e.g., missing .claude folder)
+        console.warn('[CommandDiscoveryFacade] Discovery failed:', result.error);
         this._commands.set([]);
       }
     } catch (error) {
-      console.error(
-        '[CommandDiscoveryFacade] Failed to fetch commands:',
-        error
-      );
-      // Don't throw - let UI show empty state instead of crashing
+      console.error('[CommandDiscoveryFacade] Failed to fetch commands:', error);
       this._commands.set([]);
     } finally {
       this._isLoading.set(false);

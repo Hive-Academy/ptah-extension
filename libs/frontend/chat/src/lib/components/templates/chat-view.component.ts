@@ -4,7 +4,7 @@ import {
   signal,
   ViewChild,
   ElementRef,
-  AfterViewChecked,
+  effect,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
@@ -18,9 +18,15 @@ import { ChatStore } from '../../services/chat.store';
  * Patterns: Signal-based state, Auto-scroll behavior, Composition
  *
  * Features:
- * - Scrollable message list with auto-scroll
+ * - Scrollable message list with smart auto-scroll
  * - "Let's build" welcome screen with Vibe/Spec mode selection
  * - Mode selection state management
+ *
+ * Auto-scroll behavior:
+ * - Scrolls to bottom when new messages arrive
+ * - Scrolls to bottom when streaming starts
+ * - Disables auto-scroll when user scrolls up manually
+ * - Re-enables when user scrolls back to bottom
  *
  * SOLID Principles:
  * - Single Responsibility: Chat view display and mode selection
@@ -34,21 +40,49 @@ import { ChatStore } from '../../services/chat.store';
   styleUrl: './chat-view.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ChatViewComponent implements AfterViewChecked {
+export class ChatViewComponent {
   readonly chatStore = inject(ChatStore);
 
-  @ViewChild('messageContainer') messageContainer?: ElementRef;
+  @ViewChild('messageContainer') messageContainer?: ElementRef<HTMLElement>;
 
-  private shouldAutoScroll = true;
+  // Auto-scroll is enabled by default, disabled when user scrolls up
+  private userScrolledUp = false;
 
   // Welcome screen mode selection (Vibe/Spec)
   private readonly _selectedMode = signal<'vibe' | 'spec'>('vibe');
   readonly selectedMode = this._selectedMode.asReadonly();
 
-  ngAfterViewChecked(): void {
-    if (this.shouldAutoScroll) {
-      this.scrollToBottom();
-    }
+  constructor() {
+    // Effect: Auto-scroll when messages change or streaming state changes
+    effect(() => {
+      // Track these signals to trigger effect
+      const messages = this.chatStore.messages();
+      const isStreaming = this.chatStore.isStreaming();
+
+      // Only auto-scroll if user hasn't manually scrolled up
+      if (!this.userScrolledUp && (messages.length > 0 || isStreaming)) {
+        // Use setTimeout to ensure DOM has updated
+        setTimeout(() => this.scrollToBottom(), 0);
+      }
+    });
+  }
+
+  /**
+   * Handle scroll events on message container
+   * Detects if user has scrolled up to disable auto-scroll
+   */
+  onScroll(event: Event): void {
+    const container = event.target as HTMLElement;
+    if (!container) return;
+
+    // Check if user is near the bottom (within 100px threshold)
+    const isNearBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight <
+      100;
+
+    // If user scrolled up, disable auto-scroll
+    // If user scrolled back to bottom, re-enable auto-scroll
+    this.userScrolledUp = !isNearBottom;
   }
 
   selectMode(mode: 'vibe' | 'spec'): void {

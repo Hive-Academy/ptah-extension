@@ -16,7 +16,9 @@
       "Bash(npm run lint:all:*)",
       "Bash(npx nx:*)",
       "Bash(npx eslint:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(node:*)",
+      "mcp__daisyui__fetch_daisyui_documentation"
     ],
     "deny": [],
     "ask": [],
