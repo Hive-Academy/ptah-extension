@@ -27,3 +27,4 @@
 | TASK_2025_025 | MCP Registration Refactoring & Cleanup - Fix .mcp.json registration, hardcode port, remove unused languageModelTools          | ✅ Complete                              | orchestrator       | 2025-11-27 | 2025-11-27 |
 | TASK_2025_027 | Proper Session Lifecycle (Phase 1 Multi-Session) - Fix session continuation, extract real Claude UUID, draft→active lifecycle | ✅ Complete                              | orchestrator       | 2025-11-27 | 2025-11-28 |
 | TASK_2025_028 | Tool Output Rendering Fix - PrismJS syntax highlighting, strip CLI line numbers and system-reminder tags                      | ✅ Complete                              | orchestrator       | 2025-11-28 | 2025-11-28 |
+| TASK_2025_029 | Tab-Based Multi-Session Support (Phases 2-4) - TabManager service, Tab UI components, keyboard shortcuts, persistence         | 📋 Planned                               | orchestrator       | 2025-11-28 | -          |
