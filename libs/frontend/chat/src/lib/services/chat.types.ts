@@ -1,4 +1,8 @@
-import { ExecutionChatMessage, ExecutionNode, JSONLMessage } from '@ptah-extension/shared';
+import {
+  ExecutionChatMessage,
+  ExecutionNode,
+  JSONLMessage,
+} from '@ptah-extension/shared';
 
 /**
  * Maps for tracking execution nodes during session operations.
@@ -15,7 +19,12 @@ export interface NodeMaps {
  * Session lifecycle status values.
  * Tracks the current state of session operations.
  */
-export type SessionStatus = 'fresh' | 'loaded' | 'streaming' | 'resuming' | 'switching';
+export type SessionStatus =
+  | 'fresh'
+  | 'loaded'
+  | 'streaming'
+  | 'resuming'
+  | 'switching';
 
 /**
  * Session state information.

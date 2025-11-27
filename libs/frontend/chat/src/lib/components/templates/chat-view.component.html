@@ -9,8 +9,13 @@
     <ptah-message-bubble [message]="message" />
     }
 
-    <!-- Streaming indicator -->
-    @if (chatStore.isStreaming()) {
+    <!-- Streaming assistant message (live execution tree) -->
+    @if (chatStore.isStreaming() && streamingMessage(); as msg) {
+    <ptah-message-bubble [message]="msg" />
+    }
+
+    <!-- Streaming indicator (only when tree not yet started) -->
+    @if (chatStore.isStreaming() && !chatStore.currentExecutionTree()) {
     <div class="flex items-center gap-2 text-sm text-base-content/60 ml-4">
       <span class="loading loading-dots loading-sm"></span>
       Claude is responding...

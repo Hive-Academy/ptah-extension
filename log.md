@@ -1,7 +1,7 @@
 "I'll start by exploring the codebase to understand its structure and get familiar with the project.
-<function_calls>
+<function*calls>
 <invoke name="Glob">
-<parameter name="pattern">**/*.{ts,js,json,md}</parameter>
+<parameter name="pattern">\**/\_.{ts,js,json,md}</parameter>
 <parameter name="limit">50</parameter>
 </invoke>
 </function_calls>
@@ -29,7 +29,7 @@ Let me continue exploring to understand the project structure better.
 
 <function_calls>
 <invoke name="Bash">
-<parameter name="command">cd "d:\projects\Anubis-MCP" && find . -type f -name "*.ts" | head -30</parameter>
+<parameter name="command">cd "d:\projects\Anubis-MCP" && find . -type f -name "\*.ts" | head -30</parameter>
 </invoke>
 </function_calls>
 <thinking>
@@ -45,9 +45,9 @@ Let me explore the src directory structure to better understand this NestJS proj
 Let me explore more of the source structure.
 </thinking>
 
-<function_calls>
+<function*calls>
 <invoke name="Glob">
-<parameter name="pattern">src/**/*.ts</parameter>
+<parameter name="pattern">src/\**/\_.ts</parameter>
 <parameter name="limit">100</parameter>
 </invoke>
 </function_calls>
@@ -136,6 +136,7 @@ Excellent! Now I have a comprehensive understanding of the project:
 
 1. **MCP (Model Context Protocol)** - Server implementation for AI tool delegation
 2. **Task Workflow** - Manages AI agent tasks through a lifecycle with domains like:
+
    - Research
    - Solution Architecture
    - Implementation Preparation
@@ -174,12 +175,12 @@ I've explored the **Anubis-MCP** codebase. Here's what I found:
 
 ### Core Architecture
 
-| Module | Purpose |
-|--------|---------|
-| `src/mcp/` | MCP server with 29 tools for task management |
-| `src/task-workflow/` | Domain-driven task lifecycle management |
-| `src/dashboard-api/` | REST API for monitoring executions |
-| `src/common/` | Shared services (Prisma, config, utilities) |
+| Module               | Purpose                                      |
+| -------------------- | -------------------------------------------- |
+| `src/mcp/`           | MCP server with 29 tools for task management |
+| `src/task-workflow/` | Domain-driven task lifecycle management      |
+| `src/dashboard-api/` | REST API for monitoring executions           |
+| `src/common/`        | Shared services (Prisma, config, utilities)  |
 
 ### Key Technologies
 

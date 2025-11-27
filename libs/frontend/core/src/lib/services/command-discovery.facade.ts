@@ -44,11 +44,17 @@ export class CommandDiscoveryFacade {
           }))
         );
       } else if (result.error) {
-        console.warn('[CommandDiscoveryFacade] Discovery failed:', result.error);
+        console.warn(
+          '[CommandDiscoveryFacade] Discovery failed:',
+          result.error
+        );
         this._commands.set([]);
       }
     } catch (error) {
-      console.error('[CommandDiscoveryFacade] Failed to fetch commands:', error);
+      console.error(
+        '[CommandDiscoveryFacade] Failed to fetch commands:',
+        error
+      );
       this._commands.set([]);
     } finally {
       this._isLoading.set(false);

@@ -350,7 +350,12 @@ export class SessionDiscoveryService {
         filePath,
         error: error instanceof Error ? error.message : String(error),
       });
-      return { title: null, messageCount: 0, branch: null, isUserSession: false };
+      return {
+        title: null,
+        messageCount: 0,
+        branch: null,
+        isUserSession: false,
+      };
     }
   }
 

@@ -1,4 +1,9 @@
-import { Component, input, ChangeDetectionStrategy, inject } from '@angular/core';
+import {
+  Component,
+  input,
+  ChangeDetectionStrategy,
+  inject,
+} from '@angular/core';
 import { NgOptimizedImage, NgStyle } from '@angular/common';
 import { MarkdownModule } from 'ngx-markdown';
 import {
@@ -27,13 +32,20 @@ import { VSCodeService } from '@ptah-extension/core';
 @Component({
   selector: 'ptah-message-bubble',
   standalone: true,
-  imports: [MarkdownModule, ExecutionNodeComponent, AgentExecutionComponent, LucideAngularModule, NgStyle, NgOptimizedImage],
+  imports: [
+    MarkdownModule,
+    ExecutionNodeComponent,
+    AgentExecutionComponent,
+    LucideAngularModule,
+    NgStyle,
+    NgOptimizedImage,
+  ],
   templateUrl: './message-bubble.component.html',
   styleUrl: './message-bubble.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MessageBubbleComponent {
-    /**
+  /**
    * VS Code service for webview utilities
    */
   private readonly vscode = inject(VSCodeService);

@@ -19,6 +19,7 @@ The `ChatStore` violates Single Responsibility Principle with these mixed concer
 7. **Service Initialization** - Dependency injection, service readiness
 
 This makes:
+
 - Testing difficult (too many dependencies)
 - Bugs hard to trace (interleaved responsibilities)
 - Features hard to add (need to understand entire file)
@@ -70,12 +71,14 @@ This makes:
 **Purpose**: State management and service coordination only
 
 **Responsibilities**:
-- Hold all state signals (_sessions, _messages, _isStreaming, etc.)
+
+- Hold all state signals (\_sessions, \_messages, \_isStreaming, etc.)
 - Expose public readonly signals
 - Expose public async actions that delegate to services
 - Coordinate between services (pass data, handle results)
 
 **Public API**:
+
 ```typescript
 // State (readonly signals)
 sessions: Signal<ChatSessionSummary[]>
@@ -95,6 +98,7 @@ processJsonlChunk(chunk: JSONLMessage): void
 ```
 
 **Does NOT contain**:
+
 - JSONL parsing logic
 - Tree building logic
 - Session replay logic
@@ -107,6 +111,7 @@ processJsonlChunk(chunk: JSONLMessage): void
 **Purpose**: Session lifecycle and state bridging
 
 **Responsibilities**:
+
 - Load session list from backend
 - Switch between sessions
 - Track session state (fresh, loaded, streaming, resuming)
@@ -114,6 +119,7 @@ processJsonlChunk(chunk: JSONLMessage): void
 - Determine if session should start new or continue
 
 **Public API**:
+
 ```typescript
 interface SessionState {
   status: 'fresh' | 'loaded' | 'streaming' | 'resuming';
@@ -141,6 +147,7 @@ getTool(toolCallId: string): ExecutionNode | undefined
 **Purpose**: Process incoming JSONL chunks and route to appropriate handlers
 
 **Responsibilities**:
+
 - Validate incoming JSONL chunks
 - Route messages by type (system, assistant, tool, result)
 - Route by context (main thread vs agent)
@@ -148,6 +155,7 @@ getTool(toolCallId: string): ExecutionNode | undefined
 - Emit processed results
 
 **Public API**:
+
 ```typescript
 interface ProcessedChunk {
   type: 'system-init' | 'text' | 'thinking' | 'tool-start' | 'tool-result' |
@@ -164,6 +172,7 @@ validateChunk(chunk: JSONLMessage): boolean
 ```
 
 **Does NOT contain**:
+
 - Tree building (just routing)
 - State management (stateless processor)
 
@@ -174,6 +183,7 @@ validateChunk(chunk: JSONLMessage): boolean
 **Purpose**: Build and manipulate ExecutionNode trees
 
 **Responsibilities**:
+
 - Create new message trees
 - Append nodes (text, thinking, tool, agent)
 - Update nodes (text delta, tool result)
@@ -181,6 +191,7 @@ validateChunk(chunk: JSONLMessage): boolean
 - Finalize trees when streaming completes
 
 **Public API**:
+
 ```typescript
 createMessageTree(messageId: string): ExecutionNode
 appendText(tree: ExecutionNode, content: string): ExecutionNode
@@ -200,6 +211,7 @@ finalizeTree(tree: ExecutionNode): ExecutionNode
 **Purpose**: Reconstruct chat history from JSONL session files
 
 **Responsibilities**:
+
 - Parse raw JSONL messages into ExecutionChatMessage format
 - Group and classify agent sessions
 - Link tool_use to tool_result
@@ -207,6 +219,7 @@ finalizeTree(tree: ExecutionNode): ExecutionNode
 - Build execution trees from historical data
 
 **Public API**:
+
 ```typescript
 replaySession(
   mainMessages: JSONLMessage[],
@@ -254,35 +267,41 @@ interface ClassifiedMessages {
 ## Migration Strategy
 
 ### Phase 1: Extract Types (No behavior change)
+
 1. Create `chat.types.ts` with shared interfaces
 2. Import types in ChatStore
 3. **Test**: Verify build passes, no behavior change
 
 ### Phase 2: Extract TreeBuilder (Low risk)
+
 1. Create `tree-builder.service.ts`
 2. Move tree manipulation methods
 3. Update ChatStore to use TreeBuilder
 4. **Test**: Verify streaming still works
 
 ### Phase 3: Extract SessionReplayService (Medium risk)
+
 1. Create `session-replay.service.ts`
 2. Move replay methods (biggest chunk - 400+ lines)
 3. Update ChatStore to use SessionReplayService
 4. **Test**: Verify session loading still works
 
 ### Phase 4: Extract SessionManager (Medium risk)
+
 1. Create `session-manager.service.ts`
 2. Move session operations and node map management
 3. Update ChatStore to use SessionManager
 4. **Test**: Verify session switching and resume works
 
 ### Phase 5: Extract JsonlProcessor (Higher risk)
+
 1. Create `jsonl-processor.service.ts`
 2. Move chunk processing and routing
 3. Update ChatStore to use JsonlProcessor
 4. **Test**: Verify streaming routing works
 
 ### Phase 6: Cleanup ChatStore
+
 1. Remove all extracted code
 2. ChatStore becomes pure coordinator
 3. **Test**: Full integration test

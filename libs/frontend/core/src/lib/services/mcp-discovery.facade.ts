@@ -32,7 +32,11 @@ export class MCPDiscoveryFacade {
           status: 'running' | 'stopped' | 'error' | 'unknown';
           type: 'stdio' | 'http' | 'sse';
         }>;
-      }>('autocomplete:mcps', { query: '', maxResults: 50, includeOffline: false });
+      }>('autocomplete:mcps', {
+        query: '',
+        maxResults: 50,
+        includeOffline: false,
+      });
 
       if (result.success && result.data?.servers) {
         this._servers.set(

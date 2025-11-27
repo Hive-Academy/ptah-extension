@@ -15,19 +15,19 @@ const path = require('path');
 const schemas = {
   // Main session message types
   mainSession: {
-    byType: new Map(),        // type -> Set of field combinations
-    bySubtype: new Map(),     // type:subtype -> Set of field combinations
+    byType: new Map(), // type -> Set of field combinations
+    bySubtype: new Map(), // type:subtype -> Set of field combinations
   },
   // Agent session patterns
   agentSession: {
     bySlugPresence: {
-      withSlug: [],           // Agents that have slug field
-      withoutSlug: [],        // Agents without slug field
+      withSlug: [], // Agents that have slug field
+      withoutSlug: [], // Agents without slug field
     },
     byContentType: new Map(), // content[0].type -> examples
   },
   // Field value examples
-  fieldExamples: new Map(),   // fieldPath -> Set of example values
+  fieldExamples: new Map(), // fieldPath -> Set of example values
 };
 
 // Extract all keys from an object recursively
@@ -39,7 +39,11 @@ function extractKeys(obj, prefix = '') {
       keys.push(fullKey);
 
       // Don't recurse into large arrays or deep objects
-      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      if (
+        typeof value === 'object' &&
+        value !== null &&
+        !Array.isArray(value)
+      ) {
         // Limit depth
         if (fullKey.split('.').length < 4) {
           keys.push(...extractKeys(value, fullKey));
@@ -59,8 +63,16 @@ function getSchemaSignature(msg) {
 // Extract important field values for analysis
 function extractFieldValues(msg, fieldExamples) {
   const importantFields = [
-    'type', 'subtype', 'isSidechain', 'isMeta', 'userType',
-    'slug', 'agentId', 'tool', 'tool_use_id', 'parent_tool_use_id'
+    'type',
+    'subtype',
+    'isSidechain',
+    'isMeta',
+    'userType',
+    'slug',
+    'agentId',
+    'tool',
+    'tool_use_id',
+    'parent_tool_use_id',
   ];
 
   for (const field of importantFields) {
@@ -69,7 +81,8 @@ function extractFieldValues(msg, fieldExamples) {
         fieldExamples.set(field, new Set());
       }
       const examples = fieldExamples.get(field);
-      if (examples.size < 10) { // Limit examples
+      if (examples.size < 10) {
+        // Limit examples
         examples.add(JSON.stringify(msg[field]));
       }
     }
@@ -77,7 +90,7 @@ function extractFieldValues(msg, fieldExamples) {
 
   // Check message.content types
   if (msg.message?.content && Array.isArray(msg.message.content)) {
-    const contentTypes = msg.message.content.map(c => c.type).join(',');
+    const contentTypes = msg.message.content.map((c) => c.type).join(',');
     if (!fieldExamples.has('message.content[].type')) {
       fieldExamples.set('message.content[].type', new Set());
     }
@@ -88,7 +101,7 @@ function extractFieldValues(msg, fieldExamples) {
 // Analyze a single JSONL file
 function analyzeFile(filePath, isAgentFile) {
   const content = fs.readFileSync(filePath, 'utf-8');
-  const lines = content.split('\n').filter(line => line.trim());
+  const lines = content.split('\n').filter((line) => line.trim());
 
   const fileAnalysis = {
     path: filePath,
@@ -174,10 +187,11 @@ function analyzeFile(filePath, isAgentFile) {
           if (!schemas.mainSession.bySubtype.has(subtypeKey)) {
             schemas.mainSession.bySubtype.set(subtypeKey, new Set());
           }
-          schemas.mainSession.bySubtype.get(subtypeKey).add(getSchemaSignature(msg));
+          schemas.mainSession.bySubtype
+            .get(subtypeKey)
+            .add(getSchemaSignature(msg));
         }
       }
-
     } catch (e) {
       console.error(`Error parsing line ${i + 1} in ${filePath}: ${e.message}`);
     }
@@ -246,7 +260,9 @@ function generateReport(analysis) {
         }
       }
       if (contentPatterns.size > 0) {
-        console.log(`       Content patterns: ${[...contentPatterns].join(' | ')}`);
+        console.log(
+          `       Content patterns: ${[...contentPatterns].join(' | ')}`
+        );
       }
 
       // Show tool names for assistant messages
@@ -265,14 +281,22 @@ function generateReport(analysis) {
   console.log('\n## AGENT SESSIONS\n');
 
   // Classification summary
-  const withSlug = agentSessions.filter(a => a.hasSlug);
-  const withoutSlugWithToolUse = agentSessions.filter(a => !a.hasSlug && a.hasToolUse);
-  const withoutSlugNoToolUse = agentSessions.filter(a => !a.hasSlug && !a.hasToolUse);
+  const withSlug = agentSessions.filter((a) => a.hasSlug);
+  const withoutSlugWithToolUse = agentSessions.filter(
+    (a) => !a.hasSlug && a.hasToolUse
+  );
+  const withoutSlugNoToolUse = agentSessions.filter(
+    (a) => !a.hasSlug && !a.hasToolUse
+  );
 
   console.log('### Classification Summary:');
   console.log(`   - With slug (SUMMARY agents): ${withSlug.length}`);
-  console.log(`   - Without slug + has tool_use (EXECUTION agents): ${withoutSlugWithToolUse.length}`);
-  console.log(`   - Without slug + no tool_use (WARMUP agents): ${withoutSlugNoToolUse.length}`);
+  console.log(
+    `   - Without slug + has tool_use (EXECUTION agents): ${withoutSlugWithToolUse.length}`
+  );
+  console.log(
+    `   - Without slug + no tool_use (WARMUP agents): ${withoutSlugNoToolUse.length}`
+  );
   console.log('');
 
   // Detailed agent info
@@ -280,7 +304,9 @@ function generateReport(analysis) {
   for (const agent of agentSessions) {
     const classification = agent.hasSlug
       ? 'SUMMARY'
-      : (agent.hasToolUse ? 'EXECUTION' : 'WARMUP');
+      : agent.hasToolUse
+      ? 'EXECUTION'
+      : 'WARMUP';
 
     console.log(`#### ${agent.fileName} [${classification}]`);
     console.log(`   AgentId: ${agent.agentId}`);
@@ -288,7 +314,11 @@ function generateReport(analysis) {
     console.log(`   Model: ${agent.model}`);
     console.log(`   isSidechain: ${agent.isSidechain}`);
     console.log(`   Lines: ${agent.lineCount}`);
-    console.log(`   Has slug: ${agent.hasSlug}${agent.slugValue ? ` (${agent.slugValue})` : ''}`);
+    console.log(
+      `   Has slug: ${agent.hasSlug}${
+        agent.slugValue ? ` (${agent.slugValue})` : ''
+      }`
+    );
     console.log(`   Has tool_use: ${agent.hasToolUse}`);
 
     // Show message breakdown
@@ -302,12 +332,16 @@ function generateReport(analysis) {
     console.log('   Messages:');
     for (const [type, msgs] of Object.entries(byType)) {
       const contentInfo = msgs
-        .filter(m => m.contentTypes.length > 0)
-        .map(m => m.contentTypes.join(','))
+        .filter((m) => m.contentTypes.length > 0)
+        .map((m) => m.contentTypes.join(','))
         .filter((v, i, a) => a.indexOf(v) === i)
         .slice(0, 3);
 
-      console.log(`     - ${type}: ${msgs.length}${contentInfo.length > 0 ? ` [${contentInfo.join(' | ')}]` : ''}`);
+      console.log(
+        `     - ${type}: ${msgs.length}${
+          contentInfo.length > 0 ? ` [${contentInfo.join(' | ')}]` : ''
+        }`
+      );
     }
     console.log('');
   }
@@ -328,7 +362,11 @@ function generateReport(analysis) {
     const firstSchema = [...signatures][0];
     if (firstSchema) {
       const fields = firstSchema.split('|').slice(0, 15);
-      console.log(`   Sample fields: ${fields.join(', ')}${fields.length < firstSchema.split('|').length ? '...' : ''}`);
+      console.log(
+        `   Sample fields: ${fields.join(', ')}${
+          fields.length < firstSchema.split('|').length ? '...' : ''
+        }`
+      );
     }
   }
 }

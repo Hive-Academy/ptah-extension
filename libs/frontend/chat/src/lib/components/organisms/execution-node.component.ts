@@ -1,4 +1,9 @@
-import { Component, input, computed, ChangeDetectionStrategy } from '@angular/core';
+import {
+  Component,
+  input,
+  computed,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
 import { LucideAngularModule, Info } from 'lucide-angular';
 import { AgentCardComponent } from '../molecules/agent-card.component';
@@ -37,16 +42,14 @@ import type { ExecutionNode } from '@ptah-extension/shared';
     ToolCallItemComponent,
   ],
   template: `
-    @switch (node().type) { @case ('text') {
-      @if (isAgentSummaryContent()) {
-        <!-- Agent summary with XML-like format (function_calls, thinking, etc.) -->
-        <ptah-agent-summary [content]="node().content || ''" />
-      } @else {
-        <div class="prose prose-sm prose-invert max-w-none my-2">
-          <markdown [data]="node().content || ''" />
-        </div>
-      }
-    } @case ('thinking') {
+    @switch (node().type) { @case ('text') { @if (isAgentSummaryContent()) {
+    <!-- Agent summary with XML-like format (function_calls, thinking, etc.) -->
+    <ptah-agent-summary [content]="node().content || ''" />
+    } @else {
+    <div class="prose prose-sm prose-invert max-w-none my-2">
+      <markdown [data]="node().content || ''" />
+    </div>
+    } } @case ('thinking') {
     <ptah-thinking-block [node]="node()" />
     } @case ('tool') {
     <ptah-tool-call-item [node]="node()">

@@ -18,10 +18,12 @@ import {
   Loader2,
   ExternalLink,
   ChevronDown,
+  ShieldAlert,
 } from 'lucide-angular';
 import { DurationBadgeComponent } from '../atoms/duration-badge.component';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type { ExecutionNode } from '@ptah-extension/shared';
+import { NgClass } from '@angular/common';
 
 /**
  * ToolCallItemComponent - Compact tool execution display
@@ -38,7 +40,12 @@ import type { ExecutionNode } from '@ptah-extension/shared';
 @Component({
   selector: 'ptah-tool-call-item',
   standalone: true,
-  imports: [MarkdownModule, LucideAngularModule, DurationBadgeComponent],
+  imports: [
+    MarkdownModule,
+    LucideAngularModule,
+    DurationBadgeComponent,
+    NgClass,
+  ],
   template: `
     <div class="bg-base-200/30 rounded my-0.5 border border-base-300/50">
       <!-- Header (clickable to toggle) -->
@@ -58,7 +65,10 @@ import type { ExecutionNode } from '@ptah-extension/shared';
         />
 
         <!-- Tool icon -->
-        <lucide-angular [img]="getToolIcon()" class="w-3.5 h-3.5 flex-shrink-0" [class]="getToolIconClass()" />
+        <lucide-angular
+          [img]="getToolIcon()"
+          [ngClass]="['w-3.5 h-3.5 flex-shrink-0', getToolIconClass()]"
+        />
 
         <!-- Tool name badge -->
         <span
@@ -73,96 +83,144 @@ import type { ExecutionNode } from '@ptah-extension/shared';
 
         <!-- Smart description (clickable file path) -->
         @if (hasClickableFilePath()) {
-          <span
-            class="text-info/80 truncate flex-1 font-mono text-[10px] hover:text-info hover:underline cursor-pointer flex items-center gap-1"
-            [title]="getFullDescription()"
-            (click)="openFile($event)"
-          >
-            {{ getToolDescription() }}
-            <lucide-angular [img]="ExternalLinkIcon" class="w-2.5 h-2.5 opacity-60" />
-          </span>
+        <span
+          class="text-info/80 truncate flex-1 font-mono text-[10px] hover:text-info hover:underline cursor-pointer flex items-center gap-1"
+          [title]="getFullDescription()"
+          (click)="openFile($event)"
+        >
+          {{ getToolDescription() }}
+          <lucide-angular
+            [img]="ExternalLinkIcon"
+            class="w-2.5 h-2.5 opacity-60"
+          />
+        </span>
         } @else {
-          <span class="text-base-content/60 truncate flex-1 font-mono text-[10px]" [title]="getFullDescription()">
-            {{ getToolDescription() }}
-          </span>
+        <span
+          class="text-base-content/60 truncate flex-1 font-mono text-[10px]"
+          [title]="getFullDescription()"
+        >
+          {{ getToolDescription() }}
+        </span>
         }
 
         <!-- Status indicator -->
-        @if (node().status === 'complete' && node().toolOutput) {
-          <lucide-angular [img]="CheckIcon" class="w-3 h-3 text-success flex-shrink-0" />
+        @if (node().isPermissionRequest) {
+        <lucide-angular
+          [img]="ShieldAlertIcon"
+          class="w-3 h-3 text-warning flex-shrink-0"
+        />
+        } @else if (node().status === 'complete' && node().toolOutput) {
+        <lucide-angular
+          [img]="CheckIcon"
+          class="w-3 h-3 text-success flex-shrink-0"
+        />
         } @else if (node().status === 'error') {
-          <lucide-angular [img]="XIcon" class="w-3 h-3 text-error flex-shrink-0" />
+        <lucide-angular
+          [img]="XIcon"
+          class="w-3 h-3 text-error flex-shrink-0"
+        />
         } @else if (node().status === 'streaming') {
-          <lucide-angular [img]="LoaderIcon" class="w-3 h-3 text-info animate-spin flex-shrink-0" />
+        <lucide-angular
+          [img]="LoaderIcon"
+          class="w-3 h-3 text-info animate-spin flex-shrink-0"
+        />
         }
 
         <!-- Duration -->
         @if (node().duration) {
-          <ptah-duration-badge [durationMs]="node().duration!" />
+        <ptah-duration-badge [durationMs]="node().duration!" />
         }
       </button>
 
       <!-- Collapsible content -->
       @if (!isCollapsed()) {
-        <div class="px-2 pb-2 pt-0 border-t border-base-300/30" [attr.id]="'tool-' + node().id">
-          <!-- Compact input display -->
-          @if (hasNonTrivialInput()) {
-            <div class="mb-1.5 mt-1.5">
-              <div class="text-[10px] font-semibold text-base-content/50 mb-0.5">Input</div>
-              <div class="bg-base-300/50 rounded px-2 py-1 text-[10px] font-mono overflow-x-auto max-h-24 overflow-y-auto">
-                @for (param of getInputParams(); track param.key) {
-                  <div class="flex gap-2">
-                    <span class="text-primary/70">{{ param.key }}:</span>
-                    <span class="text-base-content/80 break-all">{{ param.value }}</span>
-                  </div>
-                }
-              </div>
+      <div
+        class="px-2 pb-2 pt-0 border-t border-base-300/30"
+        [attr.id]="'tool-' + node().id"
+      >
+        <!-- Compact input display -->
+        @if (hasNonTrivialInput()) {
+        <div class="mb-1.5 mt-1.5">
+          <div class="text-[10px] font-semibold text-base-content/50 mb-0.5">
+            Input
+          </div>
+          <div
+            class="bg-base-300/50 rounded px-2 py-1 text-[10px] font-mono overflow-x-auto max-h-24 overflow-y-auto"
+          >
+            @for (param of getInputParams(); track param.key) {
+            <div class="flex gap-2">
+              <span class="text-primary/70">{{ param.key }}:</span>
+              <span class="text-base-content/80 break-all">{{
+                param.value
+              }}</span>
             </div>
-          }
-
-          <!-- Smart output display with syntax highlighting -->
-          @if (node().toolOutput) {
-            <div class="mt-1.5">
-              <div class="text-[10px] font-semibold text-base-content/50 mb-0.5">Output</div>
-              <div class="bg-base-300/50 rounded max-h-48 overflow-y-auto overflow-x-auto">
-                <markdown
-                  [data]="getFormattedOutput()"
-                  class="tool-output-markdown prose prose-xs prose-invert max-w-none [&_pre]:my-0 [&_pre]:rounded-none [&_code]:text-[10px] [&_pre]:bg-transparent [&_p]:my-1 [&_p]:text-[10px]"
-                />
-              </div>
-            </div>
-          }
-
-          <!-- Error -->
-          @if (node().error) {
-            <div class="alert alert-error text-[10px] py-1 px-2 mt-1">
-              <span>{{ node().error }}</span>
-            </div>
-          }
-
-          <!-- Nested children (rendered by parent ExecutionNode) -->
-          <ng-content />
+            }
+          </div>
         </div>
+        }
+
+        <!-- Smart output display with syntax highlighting -->
+        @if (node().toolOutput) {
+        <div class="mt-1.5">
+          <div class="text-[10px] font-semibold text-base-content/50 mb-0.5">
+            Output
+          </div>
+          <div
+            class="bg-base-300/50 rounded max-h-48 overflow-y-auto overflow-x-auto"
+          >
+            <markdown
+              [data]="getFormattedOutput()"
+              class="tool-output-markdown prose prose-xs prose-invert max-w-none [&_pre]:my-0 [&_pre]:rounded-none [&_code]:text-[10px] [&_pre]:bg-transparent [&_p]:my-1 [&_p]:text-[10px]"
+            />
+          </div>
+        </div>
+        }
+
+        <!-- Permission Request -->
+        @if (node().isPermissionRequest) {
+        <div
+          class="alert alert-warning text-[10px] py-1 px-2 mt-1 flex items-center gap-2"
+        >
+          <lucide-angular
+            [img]="ShieldAlertIcon"
+            class="w-4 h-4 flex-shrink-0"
+          />
+          <span>Permission required - grant access in the terminal</span>
+        </div>
+        }
+
+        <!-- Error (non-permission) -->
+        @if (node().error && !node().isPermissionRequest) {
+        <div class="alert alert-error text-[10px] py-1 px-2 mt-1">
+          <span>{{ node().error }}</span>
+        </div>
+        }
+
+        <!-- Nested children (rendered by parent ExecutionNode) -->
+        <ng-content />
+      </div>
       }
     </div>
   `,
-  styles: [`
-    :host ::ng-deep .tool-output-markdown {
-      pre {
-        margin: 0;
-        padding: 0.5rem;
-        background: transparent !important;
+  styles: [
+    `
+      :host ::ng-deep .tool-output-markdown {
+        pre {
+          margin: 0;
+          padding: 0.5rem;
+          background: transparent !important;
+        }
+        code {
+          font-size: 10px;
+          line-height: 1.4;
+        }
+        p {
+          margin: 0.25rem 0;
+          font-size: 10px;
+        }
       }
-      code {
-        font-size: 10px;
-        line-height: 1.4;
-      }
-      p {
-        margin: 0.25rem 0;
-        font-size: 10px;
-      }
-    }
-  `],
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ToolCallItemComponent {
@@ -182,6 +240,7 @@ export class ToolCallItemComponent {
   readonly LoaderIcon = Loader2;
   readonly ExternalLinkIcon = ExternalLink;
   readonly ChevronIcon = ChevronDown;
+  readonly ShieldAlertIcon = ShieldAlert;
 
   // Language extension mapping for syntax highlighting
   private readonly languageMap: Record<string, string> = {
@@ -253,8 +312,10 @@ export class ToolCallItemComponent {
   protected hasClickableFilePath(): boolean {
     const toolName = this.node().toolName;
     const toolInput = this.node().toolInput;
-    return ['Read', 'Write', 'Edit'].includes(toolName || '') &&
-           typeof toolInput?.['file_path'] === 'string';
+    return (
+      ['Read', 'Write', 'Edit'].includes(toolName || '') &&
+      typeof toolInput?.['file_path'] === 'string'
+    );
   }
 
   protected openFile(event: Event): void {
@@ -300,12 +361,12 @@ export class ToolCallItemComponent {
       case 'Read':
       case 'Write':
       case 'Edit':
-        return toolInput?.['file_path'] as string || '';
+        return (toolInput?.['file_path'] as string) || '';
       case 'Bash':
-        return toolInput?.['command'] as string || '';
+        return (toolInput?.['command'] as string) || '';
       case 'Grep':
       case 'Glob':
-        return toolInput?.['pattern'] as string || '';
+        return (toolInput?.['pattern'] as string) || '';
       default:
         return '';
     }
@@ -318,7 +379,7 @@ export class ToolCallItemComponent {
     const toolName = this.node().toolName;
     if (['Read'].includes(toolName || '')) {
       // Only show if there are extra params besides file_path
-      const keys = Object.keys(toolInput).filter(k => k !== 'file_path');
+      const keys = Object.keys(toolInput).filter((k) => k !== 'file_path');
       return keys.length > 0;
     }
     return Object.keys(toolInput).length > 0;
@@ -345,7 +406,8 @@ export class ToolCallItemComponent {
     const output = this.node().toolOutput;
     if (!output) return '';
 
-    const str = typeof output === 'string' ? output : JSON.stringify(output, null, 2);
+    const str =
+      typeof output === 'string' ? output : JSON.stringify(output, null, 2);
     const toolName = this.node().toolName;
     const toolInput = this.node().toolInput;
 

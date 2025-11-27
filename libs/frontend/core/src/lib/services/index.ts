@@ -13,7 +13,6 @@ export {
 export * from './app-state.service';
 export * from './webview-navigation.service';
 
-
 // Analytics Layer (system analytics and metrics)
 export {
   AnalyticsService,

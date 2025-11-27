@@ -104,6 +104,13 @@ export interface ExecutionNode {
   /** Tool call ID (for linking tool_use to tool_result) */
   readonly toolCallId?: string;
 
+  /**
+   * Whether this tool execution is awaiting permission.
+   * Set when tool_result has is_error: true AND error message contains "permission".
+   * Used to show special permission request UI instead of generic error.
+   */
+  readonly isPermissionRequest?: boolean;
+
   // ---- Agent-specific fields (type: 'agent') ----
 
   /** Agent subtype from Task tool args.subagent_type */
@@ -203,6 +210,13 @@ export interface AgentInfo {
    * When true but executionTree is empty, show a loading placeholder.
    */
   readonly hasExecution?: boolean;
+
+  /**
+   * Indicates if this agent was interrupted (session closed mid-execution).
+   * When true, show "interrupted" state instead of "in progress" loading spinner.
+   * This happens when loading historical sessions that were not completed.
+   */
+  readonly isInterrupted?: boolean;
 }
 
 /**
@@ -395,6 +409,7 @@ export const ExecutionNodeSchema: z.ZodType<ExecutionNode> = z.lazy(() =>
     toolInput: z.record(z.string(), z.unknown()).optional(),
     toolOutput: z.unknown().optional(),
     toolCallId: z.string().optional(),
+    isPermissionRequest: z.boolean().optional(),
     agentType: z.string().optional(),
     agentModel: z.string().optional(),
     agentDescription: z.string().optional(),
@@ -422,6 +437,7 @@ export const AgentInfoSchema = z.object({
   summaryContent: z.string().optional(),
   hasSummary: z.boolean().optional(),
   hasExecution: z.boolean().optional(),
+  isInterrupted: z.boolean().optional(),
 });
 
 export const ExecutionChatMessageSchema = z.object({

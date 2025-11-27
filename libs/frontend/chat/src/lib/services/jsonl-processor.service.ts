@@ -111,13 +111,12 @@ export class JsonlMessageProcessor {
           return this.handleAssistantMessage(chunk, currentTree);
 
         case 'user':
-          // User messages are echoed back by Claude CLI during streaming.
-          // The CLI outputs the complete conversation turn including the
-          // user's input for logging/replay purposes. We already added the
-          // user message to UI before starting the stream (in sendMessage),
-          // so these chunks are safely ignored during live streaming.
-          // Note: In replaySessionMessages, user messages ARE processed for history.
-          return { tree: currentTree, streamComplete: false, newMessageStarted: false };
+          // User messages may contain tool_result blocks that we need to process.
+          // During streaming, the CLI sends tool results as user messages with
+          // content[].type === 'tool_result'. These contain the output from tools
+          // like Read, Bash, Glob, etc. We need to extract these and update
+          // the corresponding tool nodes.
+          return this.handleUserMessage(chunk, currentTree);
 
         case 'tool':
           return this.handleToolMessage(chunk, currentTree);
@@ -126,12 +125,27 @@ export class JsonlMessageProcessor {
           return this.handleResultMessage(chunk, currentTree);
 
         default:
-          console.warn('[JsonlMessageProcessor] Unknown JSONL type:', chunk.type);
-          return { tree: currentTree, streamComplete: false, newMessageStarted: false };
+          console.warn(
+            '[JsonlMessageProcessor] Unknown JSONL type:',
+            chunk.type
+          );
+          return {
+            tree: currentTree,
+            streamComplete: false,
+            newMessageStarted: false,
+          };
       }
     } catch (error) {
-      console.error('[JsonlMessageProcessor] Error processing JSONL chunk:', error, chunk);
-      return { tree: currentTree, streamComplete: false, newMessageStarted: false };
+      console.error(
+        '[JsonlMessageProcessor] Error processing JSONL chunk:',
+        error,
+        chunk
+      );
+      return {
+        tree: currentTree,
+        streamComplete: false,
+        newMessageStarted: false,
+      };
     }
   }
 
@@ -156,7 +170,11 @@ export class JsonlMessageProcessor {
       };
     }
 
-    return { tree: currentTree, streamComplete: false, newMessageStarted: false };
+    return {
+      tree: currentTree,
+      streamComplete: false,
+      newMessageStarted: false,
+    };
   }
 
   private handleAssistantMessage(
@@ -167,7 +185,11 @@ export class JsonlMessageProcessor {
     const parentToolUseId = (chunk as any).parent_tool_use_id;
     if (parentToolUseId) {
       // Route to agent's context
-      return this.handleNestedAssistantMessage(chunk, currentTree, parentToolUseId);
+      return this.handleNestedAssistantMessage(
+        chunk,
+        currentTree,
+        parentToolUseId
+      );
     }
 
     // Ensure we have a message tree
@@ -200,7 +222,11 @@ export class JsonlMessageProcessor {
           // Check if this is a Task tool (agent spawn)
           // Task tools have input.subagent_type which identifies the agent type
           const inputObj = block.input as Record<string, unknown> | undefined;
-          if (block.name === 'Task' && inputObj?.['subagent_type'] && block.id) {
+          if (
+            block.name === 'Task' &&
+            inputObj?.['subagent_type'] &&
+            block.id
+          ) {
             // Register as agent immediately so nested messages can find it
             const agentInfo: AgentSpawnInfo = {
               toolUseId: block.id,
@@ -217,7 +243,11 @@ export class JsonlMessageProcessor {
               const agentNode = this.findAgentNodeInTree(tree, block.id);
               if (agentNode) {
                 this.sessionManager.registerAgent(block.id, agentNode);
-                console.log('[JsonlMessageProcessor] Registered agent from tool_use block:', block.id, agentInfo.subagentType);
+                console.log(
+                  '[JsonlMessageProcessor] Registered agent from tool_use block:',
+                  block.id,
+                  agentInfo.subagentType
+                );
               }
             }
           } else {
@@ -264,7 +294,11 @@ export class JsonlMessageProcessor {
         parentToolUseId,
         '- Message may be dropped. This can happen if resuming a session that was interrupted mid-agent.'
       );
-      return { tree: currentTree, streamComplete: false, newMessageStarted: false };
+      return {
+        tree: currentTree,
+        streamComplete: false,
+        newMessageStarted: false,
+      };
     }
 
     // If we don't have a tree yet (can happen when continuing a session mid-agent),
@@ -284,7 +318,10 @@ export class JsonlMessageProcessor {
         children: [...tree.children, parentAgent],
       };
 
-      console.log('[JsonlMessageProcessor] Created message tree for continued session, attached agent:', parentToolUseId);
+      console.log(
+        '[JsonlMessageProcessor] Created message tree for continued session, attached agent:',
+        parentToolUseId
+      );
     }
 
     // Add text content to the agent's children
@@ -307,7 +344,11 @@ export class JsonlMessageProcessor {
 
           // Update tree
           if (tree) {
-            tree = this.treeBuilder.replaceNode(tree, parentToolUseId, updatedAgent);
+            tree = this.treeBuilder.replaceNode(
+              tree,
+              parentToolUseId,
+              updatedAgent
+            );
           }
 
           // Update reference for next iteration
@@ -335,7 +376,11 @@ export class JsonlMessageProcessor {
           this.sessionManager.registerAgent(parentToolUseId, updatedAgent);
 
           if (tree) {
-            tree = this.treeBuilder.replaceNode(tree, parentToolUseId, updatedAgent);
+            tree = this.treeBuilder.replaceNode(
+              tree,
+              parentToolUseId,
+              updatedAgent
+            );
           }
 
           parentAgent = updatedAgent;
@@ -347,7 +392,11 @@ export class JsonlMessageProcessor {
     if (chunk.delta) {
       const lastChild = parentAgent.children[parentAgent.children.length - 1];
 
-      if (lastChild && lastChild.type === 'text' && lastChild.status === 'streaming') {
+      if (
+        lastChild &&
+        lastChild.type === 'text' &&
+        lastChild.status === 'streaming'
+      ) {
         const updatedChild: ExecutionNode = {
           ...lastChild,
           content: (lastChild.content ?? '') + chunk.delta,
@@ -361,7 +410,11 @@ export class JsonlMessageProcessor {
         this.sessionManager.registerAgent(parentToolUseId, updatedAgent);
 
         if (tree) {
-          tree = this.treeBuilder.replaceNode(tree, parentToolUseId, updatedAgent);
+          tree = this.treeBuilder.replaceNode(
+            tree,
+            parentToolUseId,
+            updatedAgent
+          );
         }
       } else {
         // Create new streaming text node
@@ -380,7 +433,11 @@ export class JsonlMessageProcessor {
         this.sessionManager.registerAgent(parentToolUseId, updatedAgent);
 
         if (tree) {
-          tree = this.treeBuilder.replaceNode(tree, parentToolUseId, updatedAgent);
+          tree = this.treeBuilder.replaceNode(
+            tree,
+            parentToolUseId,
+            updatedAgent
+          );
         }
       }
     }
@@ -413,7 +470,10 @@ export class JsonlMessageProcessor {
           children: [...tree.children, parentAgent],
         };
 
-        console.log('[JsonlMessageProcessor] Created message tree for nested tool, attached agent:', parentToolUseId);
+        console.log(
+          '[JsonlMessageProcessor] Created message tree for nested tool, attached agent:',
+          parentToolUseId
+        );
       }
     }
 
@@ -439,6 +499,105 @@ export class JsonlMessageProcessor {
     }
 
     return { tree, streamComplete: false, newMessageStarted, messageId };
+  }
+
+  /**
+   * Handle user messages which may contain tool_result blocks.
+   *
+   * During streaming, tool results come as user messages with:
+   * - type: 'user'
+   * - message.content[].type === 'tool_result'
+   * - message.content[].tool_use_id linking to the original tool call
+   * - message.content[].content containing the tool output
+   *
+   * These need to be extracted and used to update the corresponding tool nodes.
+   */
+  private handleUserMessage(
+    chunk: JSONLMessage,
+    currentTree: ExecutionNode | null
+  ): ProcessingResult {
+    // If no content, nothing to process
+    if (!chunk.message?.content || !currentTree) {
+      return {
+        tree: currentTree,
+        streamComplete: false,
+        newMessageStarted: false,
+      };
+    }
+
+    const parentToolUseId = (chunk as any).parent_tool_use_id;
+    let tree = currentTree;
+
+    for (const block of chunk.message.content) {
+      if (block.type === 'tool_result' && block.tool_use_id) {
+        // Extract tool output from the tool_result block
+        const toolOutput = block.content;
+        const isError = block.is_error === true;
+
+        // Detect permission requests (error message contains "permission")
+        const outputStr = typeof toolOutput === 'string' ? toolOutput : '';
+        const isPermissionRequest =
+          isError && outputStr.toLowerCase().includes('permission');
+
+        // Find and update the tool node
+        const toolNode = this.sessionManager.getTool(block.tool_use_id);
+
+        if (toolNode) {
+          const updatedTool: ExecutionNode = {
+            ...toolNode,
+            status: isError ? 'error' : 'complete',
+            toolOutput: toolOutput,
+            error: isError ? String(toolOutput) : undefined,
+            isPermissionRequest,
+            endTime: Date.now(),
+            duration: toolNode.startTime
+              ? Date.now() - toolNode.startTime
+              : undefined,
+          };
+
+          // Update in session manager
+          this.sessionManager.registerTool(block.tool_use_id, updatedTool);
+
+          // Update tree
+          tree = this.treeBuilder.replaceNode(
+            tree,
+            block.tool_use_id,
+            updatedTool
+          );
+
+          // If this is nested under an agent, update the agent's children too
+          if (parentToolUseId) {
+            const parentAgent = this.sessionManager.getAgent(parentToolUseId);
+            if (parentAgent) {
+              // Find and update the tool in the agent's children
+              const updatedChildren = parentAgent.children.map((child) =>
+                child.id === block.tool_use_id ? updatedTool : child
+              );
+
+              const updatedAgent: ExecutionNode = {
+                ...parentAgent,
+                children: updatedChildren,
+              };
+
+              this.sessionManager.registerAgent(parentToolUseId, updatedAgent);
+              tree = this.treeBuilder.replaceNode(
+                tree,
+                parentToolUseId,
+                updatedAgent
+              );
+            }
+          }
+        } else {
+          // Tool not found - this can happen for nested tools that weren't registered yet
+          console.warn(
+            '[JsonlMessageProcessor] Tool not found for result:',
+            block.tool_use_id
+          );
+        }
+      }
+    }
+
+    return { tree, streamComplete: false, newMessageStarted: false };
   }
 
   private handleResultMessage(
@@ -548,7 +707,9 @@ export class JsonlMessageProcessor {
       toolOutput: chunk.output,
       error: chunk.error,
       endTime: Date.now(),
-      duration: toolNode.startTime ? Date.now() - toolNode.startTime : undefined,
+      duration: toolNode.startTime
+        ? Date.now() - toolNode.startTime
+        : undefined,
     };
 
     // Replace in parent's children array (immutable update)
@@ -569,8 +730,10 @@ export class JsonlMessageProcessor {
     // Add agent-related fields if present
     if (rawChunk.agentId) logInfo['agentId'] = rawChunk.agentId;
     if (rawChunk.slug) logInfo['slug'] = rawChunk.slug;
-    if (rawChunk.isSidechain !== undefined) logInfo['isSidechain'] = rawChunk.isSidechain;
-    if (rawChunk.parent_tool_use_id) logInfo['parent_tool_use_id'] = rawChunk.parent_tool_use_id;
+    if (rawChunk.isSidechain !== undefined)
+      logInfo['isSidechain'] = rawChunk.isSidechain;
+    if (rawChunk.parent_tool_use_id)
+      logInfo['parent_tool_use_id'] = rawChunk.parent_tool_use_id;
     if (rawChunk.tool_use_id) logInfo['tool_use_id'] = rawChunk.tool_use_id;
     if (rawChunk.tool) logInfo['tool'] = rawChunk.tool;
 
@@ -602,7 +765,10 @@ export class JsonlMessageProcessor {
    * Find a tool node in the tree by its ID
    * (Used after adding a tool to register it in SessionManager)
    */
-  private findToolNodeInTree(tree: ExecutionNode, toolId: string): ExecutionNode | undefined {
+  private findToolNodeInTree(
+    tree: ExecutionNode,
+    toolId: string
+  ): ExecutionNode | undefined {
     if (tree.id === toolId && tree.type === 'tool') {
       return tree;
     }
@@ -619,7 +785,10 @@ export class JsonlMessageProcessor {
    * Find an agent node in the tree by its ID
    * (Used after spawning an agent to register it in SessionManager)
    */
-  private findAgentNodeInTree(tree: ExecutionNode, agentId: string): ExecutionNode | undefined {
+  private findAgentNodeInTree(
+    tree: ExecutionNode,
+    agentId: string
+  ): ExecutionNode | undefined {
     if (tree.id === agentId && tree.type === 'agent') {
       return tree;
     }

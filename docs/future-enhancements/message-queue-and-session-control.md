@@ -3,6 +3,7 @@
 ## Overview
 
 This document outlines the implementation plan for two related features:
+
 1. **Message Queue** - Allow users to queue messages while Claude is working
 2. **Session Control** - Stop/interrupt Claude mid-response
 
@@ -10,13 +11,13 @@ This document outlines the implementation plan for two related features:
 
 ### Experiment Results (Validated)
 
-| Test | Result | Finding |
-|------|--------|---------|
-| Interactive mode (no -p) | Works | Claude processes after stdin.end() |
-| stdin.end vs newline | stdin.end required | Newline alone doesn't trigger processing |
-| SIGINT interrupt | Works | Clean interruption with SIGINT |
-| Multiple messages per process | Failed | Session closes after result |
-| --resume pattern | Works | Context preserved across processes |
+| Test                          | Result             | Finding                                  |
+| ----------------------------- | ------------------ | ---------------------------------------- |
+| Interactive mode (no -p)      | Works              | Claude processes after stdin.end()       |
+| stdin.end vs newline          | stdin.end required | Newline alone doesn't trigger processing |
+| SIGINT interrupt              | Works              | Clean interruption with SIGINT           |
+| Multiple messages per process | Failed             | Session closes after result              |
+| --resume pattern              | Works              | Context preserved across processes       |
 
 ### Key Insights
 
@@ -196,14 +197,12 @@ private processQueue(): void {
         <markdown [data]="message().content" class="prose prose-sm" />
 
         <!-- Action buttons (hover) -->
-        <div class="absolute -left-8 top-1/2 -translate-y-1/2
+        <div
+          class="absolute -left-8 top-1/2 -translate-y-1/2
                     opacity-0 group-hover:opacity-100 transition-opacity
-                    flex flex-col gap-1">
-          <button
-            class="btn btn-xs btn-circle btn-ghost"
-            (click)="onCancel.emit()"
-            title="Cancel"
-          >
+                    flex flex-col gap-1"
+        >
+          <button class="btn btn-xs btn-circle btn-ghost" (click)="onCancel.emit()" title="Cancel">
             <lucide-angular [img]="XIcon" class="w-3 h-3" />
           </button>
         </div>
@@ -214,7 +213,7 @@ private processQueue(): void {
         {{ position() > 1 ? '#' + position() + ' in queue' : 'Next up' }}
       </div>
     </div>
-  `
+  `,
 })
 export class QueuedMessageComponent {
   readonly message = input.required<QueuedMessage>();
@@ -234,38 +233,29 @@ export class QueuedMessageComponent {
   <!-- Message List -->
   <div class="flex-1 overflow-y-auto p-4 space-y-3" #messageContainer>
     @for (message of chatStore.messages(); track message.id) {
-      <ptah-message-bubble [message]="message" />
+    <ptah-message-bubble [message]="message" />
     }
 
     <!-- Streaming indicator with Stop button -->
     @if (chatStore.isStreaming()) {
-      <div class="flex items-center gap-2 text-sm text-base-content/60 ml-4">
-        <span class="loading loading-dots loading-sm"></span>
-        Claude is responding...
-        <button
-          class="btn btn-xs btn-ghost text-error"
-          (click)="stopResponse()"
-        >
-          <lucide-angular [img]="StopCircleIcon" class="w-4 h-4" />
-          Stop
-        </button>
-      </div>
+    <div class="flex items-center gap-2 text-sm text-base-content/60 ml-4">
+      <span class="loading loading-dots loading-sm"></span>
+      Claude is responding...
+      <button class="btn btn-xs btn-ghost text-error" (click)="stopResponse()">
+        <lucide-angular [img]="StopCircleIcon" class="w-4 h-4" />
+        Stop
+      </button>
+    </div>
     }
 
     <!-- Queued messages (NEW) -->
     @if (chatStore.queuedMessages().length > 0) {
-      <div class="border-t border-dashed border-base-300 pt-3 mt-3">
-        <div class="text-xs text-base-content/50 mb-2 ml-4">
-          Queued messages (will send when Claude finishes)
-        </div>
-        @for (queued of chatStore.queuedMessages(); track queued.id; let i = $index) {
-          <ptah-queued-message
-            [message]="queued"
-            [position]="i + 1"
-            (onCancel)="cancelQueued(queued.id)"
-          />
-        }
-      </div>
+    <div class="border-t border-dashed border-base-300 pt-3 mt-3">
+      <div class="text-xs text-base-content/50 mb-2 ml-4">Queued messages (will send when Claude finishes)</div>
+      @for (queued of chatStore.queuedMessages(); track queued.id; let i = $index) {
+      <ptah-queued-message [message]="queued" [position]="i + 1" (onCancel)="cancelQueued(queued.id)" />
+      }
+    </div>
     }
   </div>
 
@@ -423,11 +413,11 @@ handleChatComplete(data: { sessionId: string; code: number; shouldProcessQueue: 
 
 ### States
 
-| State | Input | Send Button | Indicator |
-|-------|-------|-------------|-----------|
-| Idle | Enabled | "Send" | None |
-| Streaming | Enabled | "Queue" or "Send" | Streaming + Stop |
-| Has Queue | Enabled | "Send"/"Queue" | Queue count badge |
+| State     | Input   | Send Button       | Indicator         |
+| --------- | ------- | ----------------- | ----------------- |
+| Idle      | Enabled | "Send"            | None              |
+| Streaming | Enabled | "Queue" or "Send" | Streaming + Stop  |
+| Has Queue | Enabled | "Send"/"Queue"    | Queue count badge |
 
 ## Future Enhancements
 
@@ -454,9 +444,7 @@ class SessionProcessManager {
 
   // Multiple sessions can stream concurrently
   getActiveSessions(): SessionId[] {
-    return [...this.sessions.entries()]
-      .filter(([_, p]) => p.isRunning())
-      .map(([id]) => id);
+    return [...this.sessions.entries()].filter(([_, p]) => p.isRunning()).map(([id]) => id);
   }
 }
 ```
@@ -466,6 +454,7 @@ class SessionProcessManager {
 **Status: DEFERRED** - Native dependency complexity outweighs benefits.
 
 While `node-pty` would enable true interactive control (send messages while Claude works, Esc key interrupt), it has significant drawbacks:
+
 - Native compilation required (node-gyp)
 - Windows complexity (conpty vs winpty)
 - Build failures common on different environments
@@ -480,6 +469,7 @@ The queue + --resume pattern works reliably and covers 95% of use cases. The onl
 ### Unit Tests
 
 1. **ChatStore queue operations**
+
    - queueMessage adds to queue
    - cancelQueuedMessage removes from queue
    - processQueue pops and sends
@@ -493,6 +483,7 @@ The queue + --resume pattern works reliably and covers 95% of use cases. The onl
 ### Integration Tests
 
 1. **End-to-end queue flow**
+
    - Send message → streams
    - Send second message → queued
    - First completes → second auto-sends
@@ -512,6 +503,7 @@ The queue + --resume pattern works reliably and covers 95% of use cases. The onl
 ## Implementation Order
 
 1. **Week 1: Frontend Queue**
+
    - QueuedMessage type in shared
    - ChatStore queue signals/methods
    - QueuedMessageComponent UI
@@ -519,6 +511,7 @@ The queue + --resume pattern works reliably and covers 95% of use cases. The onl
    - ChatInput always-enabled
 
 2. **Week 2: Stop Functionality**
+
    - chat:stop RPC method
    - Backend SIGINT handling
    - Frontend stop button
@@ -532,12 +525,12 @@ The queue + --resume pattern works reliably and covers 95% of use cases. The onl
 
 ## Risk Assessment
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|------------|--------|------------|
-| Queue grows too large | Low | Medium | Max queue size (5-10) |
-| Stop doesn't cleanup properly | Medium | High | Thorough testing |
-| Race conditions in queue | Medium | Medium | Proper state management |
-| User confusion about queue | Low | Low | Clear visual design |
+| Risk                          | Likelihood | Impact | Mitigation              |
+| ----------------------------- | ---------- | ------ | ----------------------- |
+| Queue grows too large         | Low        | Medium | Max queue size (5-10)   |
+| Stop doesn't cleanup properly | Medium     | High   | Thorough testing        |
+| Race conditions in queue      | Medium     | Medium | Proper state management |
+| User confusion about queue    | Low        | Low    | Clear visual design     |
 
 ## Success Criteria
 

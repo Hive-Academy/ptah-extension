@@ -2,6 +2,7 @@ import {
   Component,
   inject,
   signal,
+  computed,
   ViewChild,
   ElementRef,
   effect,
@@ -10,6 +11,7 @@ import {
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { ChatInputComponent } from '../molecules/chat-input.component';
 import { ChatStore } from '../../services/chat.store';
+import { createExecutionChatMessage } from '@ptah-extension/shared';
 
 /**
  * ChatViewComponent - Main chat view with message list and welcome screen
@@ -52,15 +54,38 @@ export class ChatViewComponent {
   private readonly _selectedMode = signal<'vibe' | 'spec'>('vibe');
   readonly selectedMode = this._selectedMode.asReadonly();
 
+  /**
+   * Computed signal that creates a temporary ExecutionChatMessage
+   * from the currentExecutionTree for live streaming display.
+   *
+   * This allows the message-bubble component to render the in-progress
+   * execution tree without waiting for finalization.
+   */
+  readonly streamingMessage = computed(() => {
+    const tree = this.chatStore.currentExecutionTree();
+    if (!tree) return null;
+
+    return createExecutionChatMessage({
+      id: tree.id,
+      role: 'assistant',
+      executionTree: tree,
+      sessionId: this.chatStore.currentSessionId() ?? undefined,
+    });
+  });
+
   constructor() {
     // Effect: Auto-scroll when messages change or streaming state changes
     effect(() => {
       // Track these signals to trigger effect
       const messages = this.chatStore.messages();
       const isStreaming = this.chatStore.isStreaming();
+      const currentTree = this.chatStore.currentExecutionTree();
 
       // Only auto-scroll if user hasn't manually scrolled up
-      if (!this.userScrolledUp && (messages.length > 0 || isStreaming)) {
+      if (
+        !this.userScrolledUp &&
+        (messages.length > 0 || isStreaming || currentTree)
+      ) {
         // Use setTimeout to ensure DOM has updated
         setTimeout(() => this.scrollToBottom(), 0);
       }

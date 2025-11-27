@@ -44,14 +44,14 @@ import type { ExecutionNode } from '@ptah-extension/shared';
 
       <!-- Collapsible content -->
       @if (!isCollapsed()) {
-        <div
-          class="px-3 pb-3 border-t border-base-200/50"
-          [attr.id]="'thinking-' + node().id"
-        >
-          <div class="prose prose-sm prose-invert max-w-none pt-2">
-            <markdown [data]="node().content || ''" />
-          </div>
+      <div
+        class="px-3 pb-3 border-t border-base-200/50"
+        [attr.id]="'thinking-' + node().id"
+      >
+        <div class="prose prose-sm prose-invert max-w-none pt-2">
+          <markdown [data]="node().content || ''" />
         </div>
+      </div>
       }
     </div>
   `,

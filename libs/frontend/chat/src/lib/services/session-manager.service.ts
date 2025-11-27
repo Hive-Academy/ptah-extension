@@ -32,7 +32,8 @@ export class SessionManager {
   readonly state = computed<SessionState>(() => ({
     status: this._status(),
     sessionId: this._sessionId(),
-    isExistingSession: this._sessionId() !== null && this._status() === 'loaded',
+    isExistingSession:
+      this._sessionId() !== null && this._status() === 'loaded',
   }));
 
   // ============== Session Operations ==============

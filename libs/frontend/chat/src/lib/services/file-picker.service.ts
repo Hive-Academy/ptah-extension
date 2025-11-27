@@ -1,7 +1,6 @@
 import { Injectable, signal, computed, inject, Injector } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
 
-
 /**
  * File information for inclusion in chat messages
  */
@@ -59,7 +58,7 @@ export interface FileSuggestion {
 export class FilePickerService {
   // === ANGULAR 20 PATTERN: Injected services ===
   private readonly injector = inject(Injector);
-private readonly rpcService = inject(ClaudeRpcService)
+  private readonly rpcService = inject(ClaudeRpcService);
 
   // === ANGULAR 20 PATTERN: Private signals for internal state ===
   private readonly _workspaceFiles = signal<FileSuggestion[]>([]);
@@ -201,7 +200,10 @@ private readonly rpcService = inject(ClaudeRpcService)
         this._lastUpdate.set(Date.now());
       }
     } catch (error) {
-      console.error('[FilePickerService] Failed to fetch workspace files:', error);
+      console.error(
+        '[FilePickerService] Failed to fetch workspace files:',
+        error
+      );
     } finally {
       this._isLoading.set(false);
     }

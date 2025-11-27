@@ -677,9 +677,15 @@ async function testAgentStreaming(): Promise<{
     };
 
     // Similar prompt to the Anubis session - invoke researcher/explore agent
-    const prompt = 'Use the Task tool to spawn an Explore agent with description "Research codebase structure" to analyze the project structure. The agent should look at the main directories and key files. Just invoke the Explore agent once.';
+    const prompt =
+      'Use the Task tool to spawn an Explore agent with description "Research codebase structure" to analyze the project structure. The agent should look at the main directories and key files. Just invoke the Explore agent once.';
 
-    log(`  Spawning: claude -p "${prompt.substring(0, 60)}..." --output-format stream-json --verbose`);
+    log(
+      `  Spawning: claude -p "${prompt.substring(
+        0,
+        60
+      )}..." --output-format stream-json --verbose`
+    );
 
     const proc = spawn(
       'claude',
@@ -711,10 +717,18 @@ async function testAgentStreaming(): Promise<{
           info.push(`type=${parsed.type}`);
           if (parsed.subtype) info.push(`subtype=${parsed.subtype}`);
           if (parsed.agentId) info.push(`agentId=${parsed.agentId}`);
-          if (parsed.isSidechain !== undefined) info.push(`isSidechain=${parsed.isSidechain}`);
+          if (parsed.isSidechain !== undefined)
+            info.push(`isSidechain=${parsed.isSidechain}`);
           if (parsed.tool) info.push(`tool=${parsed.tool}`);
-          if (parsed.tool_use_id) info.push(`tool_use_id=${parsed.tool_use_id?.substring(0, 15)}...`);
-          if (parsed.parent_tool_use_id) info.push(`parent_tool_use_id=${parsed.parent_tool_use_id?.substring(0, 15)}...`);
+          if (parsed.tool_use_id)
+            info.push(`tool_use_id=${parsed.tool_use_id?.substring(0, 15)}...`);
+          if (parsed.parent_tool_use_id)
+            info.push(
+              `parent_tool_use_id=${parsed.parent_tool_use_id?.substring(
+                0,
+                15
+              )}...`
+            );
           if (parsed.message?.model) info.push(`model=${parsed.message.model}`);
           if (parsed.slug) info.push(`slug=${parsed.slug}`);
 
@@ -743,12 +757,24 @@ async function testAgentStreaming(): Promise<{
       log(`\n  Raw JSONL saved to: ${outputPath}`);
 
       // Analyze the session structure
-      const agentIds = [...new Set(jsonLines.filter(j => j.agentId).map(j => j.agentId))];
-      const sidechainMsgs = jsonLines.filter(j => j.isSidechain === true);
-      const mainMsgs = jsonLines.filter(j => j.isSidechain === false);
-      const taskTools = jsonLines.filter(j => j.type === 'assistant' && j.message?.content?.some((c: any) => c.type === 'tool_use' && c.name === 'Task'));
-      const messagesWithParent = jsonLines.filter(j => j.parent_tool_use_id);
-      const models = [...new Set(jsonLines.filter(j => j.message?.model).map(j => j.message.model))];
+      const agentIds = [
+        ...new Set(jsonLines.filter((j) => j.agentId).map((j) => j.agentId)),
+      ];
+      const sidechainMsgs = jsonLines.filter((j) => j.isSidechain === true);
+      const mainMsgs = jsonLines.filter((j) => j.isSidechain === false);
+      const taskTools = jsonLines.filter(
+        (j) =>
+          j.type === 'assistant' &&
+          j.message?.content?.some(
+            (c: any) => c.type === 'tool_use' && c.name === 'Task'
+          )
+      );
+      const messagesWithParent = jsonLines.filter((j) => j.parent_tool_use_id);
+      const models = [
+        ...new Set(
+          jsonLines.filter((j) => j.message?.model).map((j) => j.message.model)
+        ),
+      ];
 
       const analysis = {
         totalMessages: jsonLines.length,
@@ -758,7 +784,7 @@ async function testAgentStreaming(): Promise<{
         taskToolInvocations: taskTools.length,
         messagesWithParentToolUseId: messagesWithParent.length,
         modelsUsed: models,
-        messageTypes: [...new Set(jsonLines.map(j => j.type))],
+        messageTypes: [...new Set(jsonLines.map((j) => j.type))],
       };
 
       log(`\n  === ANALYSIS ===`);
@@ -768,26 +794,36 @@ async function testAgentStreaming(): Promise<{
       if (agentIds.length > 0) {
         log(`\n  === AGENT BREAKDOWN ===`);
         for (const agentId of agentIds) {
-          const agentMsgs = jsonLines.filter(j => j.agentId === agentId);
+          const agentMsgs = jsonLines.filter((j) => j.agentId === agentId);
           const firstMsg = agentMsgs[0];
           log(`\n  Agent: ${agentId}`);
           log(`    Messages: ${agentMsgs.length}`);
           log(`    isSidechain: ${firstMsg?.isSidechain}`);
           log(`    Model: ${firstMsg?.message?.model || 'unknown'}`);
           log(`    Slug: ${firstMsg?.slug || 'none'}`);
-          log(`    First content preview: ${JSON.stringify(firstMsg?.message?.content?.[0])?.substring(0, 100)}...`);
+          log(
+            `    First content preview: ${JSON.stringify(
+              firstMsg?.message?.content?.[0]
+            )?.substring(0, 100)}...`
+          );
         }
       }
 
       // Check for parent_tool_use_id linkage
       if (messagesWithParent.length > 0) {
         log(`\n  === PARENT_TOOL_USE_ID LINKAGE ===`);
-        const parentIds = [...new Set(messagesWithParent.map(m => m.parent_tool_use_id))];
+        const parentIds = [
+          ...new Set(messagesWithParent.map((m) => m.parent_tool_use_id)),
+        ];
         for (const parentId of parentIds) {
-          const linked = messagesWithParent.filter(m => m.parent_tool_use_id === parentId);
+          const linked = messagesWithParent.filter(
+            (m) => m.parent_tool_use_id === parentId
+          );
           log(`  parent_tool_use_id: ${parentId}`);
           log(`    Linked messages: ${linked.length}`);
-          log(`    Types: ${[...new Set(linked.map(l => l.type))].join(', ')}`);
+          log(
+            `    Types: ${[...new Set(linked.map((l) => l.type))].join(', ')}`
+          );
         }
       }
 
@@ -844,7 +880,9 @@ async function testInteractiveModeNoPFlag(): Promise<{
     };
 
     // Note: --output-format stream-json requires --verbose
-    log('  Spawning: claude --output-format stream-json --verbose (NO -p flag)');
+    log(
+      '  Spawning: claude --output-format stream-json --verbose (NO -p flag)'
+    );
     log('  Will send prompt via stdin WITHOUT closing it...');
 
     const proc = spawn(
@@ -861,7 +899,11 @@ async function testInteractiveModeNoPFlag(): Promise<{
     proc.stdout?.on('data', (data) => {
       const chunk = data.toString();
       stdout += chunk;
-      log(`  [stdout] ${chunk.substring(0, 100)}${chunk.length > 100 ? '...' : ''}`);
+      log(
+        `  [stdout] ${chunk.substring(0, 100)}${
+          chunk.length > 100 ? '...' : ''
+        }`
+      );
 
       // Parse JSONL
       const lines = chunk.split('\n').filter((l: string) => l.trim());
@@ -894,7 +936,9 @@ async function testInteractiveModeNoPFlag(): Promise<{
       resolve({
         success: gotResponse,
         output: `Exit code: ${code}, Got response: ${gotResponse}, Messages: ${jsonLines.length}`,
-        error: gotResponse ? undefined : `No response. stderr: ${stderr.substring(0, 200)}`,
+        error: gotResponse
+          ? undefined
+          : `No response. stderr: ${stderr.substring(0, 200)}`,
       });
     });
 
@@ -922,7 +966,9 @@ async function testInteractiveModeNoPFlag(): Promise<{
       resolve({
         success: gotResponse,
         output: `Timeout. Got response: ${gotResponse}, Messages: ${jsonLines.length}`,
-        error: gotResponse ? undefined : 'Timeout - prompt may not have been processed without stdin.end()',
+        error: gotResponse
+          ? undefined
+          : 'Timeout - prompt may not have been processed without stdin.end()',
       });
     }, 30000);
   });
@@ -978,7 +1024,11 @@ async function testStdinEndVsNewline(): Promise<{
               log(`  ✅ Got response BEFORE stdin.end()!`);
             } else {
               gotResponseAfterEnd = true;
-              log(`  Got response ${Date.now() - stdinEndedAt}ms after stdin.end()`);
+              log(
+                `  Got response ${
+                  Date.now() - stdinEndedAt
+                }ms after stdin.end()`
+              );
             }
           }
         } catch {
@@ -1093,7 +1143,9 @@ async function testEscKeyInterrupt(): Promise<{
     // Start a task that takes a while
     setTimeout(() => {
       log('  Writing long task prompt...');
-      proc.stdin?.write('List all prime numbers from 1 to 1000, one per line\n');
+      proc.stdin?.write(
+        'List all prime numbers from 1 to 1000, one per line\n'
+      );
       proc.stdin?.end();
     }, 500);
 
@@ -1144,7 +1196,9 @@ async function testMultipleMessagesOnStdin(): Promise<{
       cwd: process.cwd(),
     };
 
-    log('  Spawning: claude --output-format stream-json --verbose (interactive mode)');
+    log(
+      '  Spawning: claude --output-format stream-json --verbose (interactive mode)'
+    );
     log('  Will try to send TWO messages sequentially');
 
     const proc = spawn(
@@ -1190,8 +1244,11 @@ async function testMultipleMessagesOnStdin(): Promise<{
       resolve({
         success: message1Response && message2Response,
         output: `Exit: ${code}, Msg1: ${message1Response}, Msg2: ${message2Response}, Total results: ${resultCount}`,
-        error: !message1Response ? 'First message never completed' :
-               !message2Response ? 'Second message never completed' : undefined,
+        error: !message1Response
+          ? 'First message never completed'
+          : !message2Response
+          ? 'Second message never completed'
+          : undefined,
       });
     });
 
@@ -1248,18 +1305,29 @@ async function testResumePattern(): Promise<{
 
     // Message 1: Start new session
     log('  Starting message 1 (new session)...');
-    const result1 = await new Promise<{ success: boolean; sessionId?: string; error?: string }>((res) => {
-      const proc = spawn('claude', ['-p', '--output-format', 'stream-json', '--verbose'], {
-        shell: true,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        cwd: process.cwd(),
-      });
+    const result1 = await new Promise<{
+      success: boolean;
+      sessionId?: string;
+      error?: string;
+    }>((res) => {
+      const proc = spawn(
+        'claude',
+        ['-p', '--output-format', 'stream-json', '--verbose'],
+        {
+          shell: true,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          cwd: process.cwd(),
+        }
+      );
 
       let gotResult = false;
       const jsonLines: any[] = [];
 
       proc.stdout?.on('data', (data) => {
-        const lines = data.toString().split('\n').filter((l: string) => l.trim());
+        const lines = data
+          .toString()
+          .split('\n')
+          .filter((l: string) => l.trim());
         for (const line of lines) {
           try {
             const parsed = JSON.parse(line);
@@ -1271,7 +1339,9 @@ async function testResumePattern(): Promise<{
             if (parsed.type === 'result') {
               gotResult = true;
             }
-          } catch { /* skip */ }
+          } catch {
+            /* skip */
+          }
         }
       });
 
@@ -1279,18 +1349,28 @@ async function testResumePattern(): Promise<{
         res({
           success: gotResult && !!capturedSessionId,
           sessionId: capturedSessionId,
-          error: !gotResult ? 'No result' : !capturedSessionId ? 'No session_id captured' : undefined
+          error: !gotResult
+            ? 'No result'
+            : !capturedSessionId
+            ? 'No session_id captured'
+            : undefined,
         });
       });
 
-      proc.stdin?.write('Remember: my favorite color is blue. Respond with just "OK"\n');
+      proc.stdin?.write(
+        'Remember: my favorite color is blue. Respond with just "OK"\n'
+      );
       proc.stdin?.end();
 
       setTimeout(() => proc.kill(), 30000);
     });
 
     message1Success = result1.success;
-    log(`  Message 1 result: ${message1Success ? '✅' : '❌'} (session: ${capturedSessionId})`);
+    log(
+      `  Message 1 result: ${
+        message1Success ? '✅' : '❌'
+      } (session: ${capturedSessionId})`
+    );
 
     if (!message1Success || !capturedSessionId) {
       resolve({
@@ -1302,48 +1382,69 @@ async function testResumePattern(): Promise<{
 
     // Message 2: Resume session
     log('  Starting message 2 (--resume)...');
-    const result2 = await new Promise<{ success: boolean; output?: string }>((res) => {
-      const proc = spawn('claude', ['-p', '--resume', capturedSessionId, '--output-format', 'stream-json', '--verbose'], {
-        shell: true,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        cwd: process.cwd(),
-      });
+    const result2 = await new Promise<{ success: boolean; output?: string }>(
+      (res) => {
+        const proc = spawn(
+          'claude',
+          [
+            '-p',
+            '--resume',
+            capturedSessionId,
+            '--output-format',
+            'stream-json',
+            '--verbose',
+          ],
+          {
+            shell: true,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            cwd: process.cwd(),
+          }
+        );
 
-      let gotResult = false;
-      let assistantContent = '';
+        let gotResult = false;
+        let assistantContent = '';
 
-      proc.stdout?.on('data', (data) => {
-        const lines = data.toString().split('\n').filter((l: string) => l.trim());
-        for (const line of lines) {
-          try {
-            const parsed = JSON.parse(line);
-            if (parsed.type === 'assistant' && parsed.message?.content) {
-              for (const block of parsed.message.content) {
-                if (block.type === 'text') {
-                  assistantContent += block.text;
+        proc.stdout?.on('data', (data) => {
+          const lines = data
+            .toString()
+            .split('\n')
+            .filter((l: string) => l.trim());
+          for (const line of lines) {
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.type === 'assistant' && parsed.message?.content) {
+                for (const block of parsed.message.content) {
+                  if (block.type === 'text') {
+                    assistantContent += block.text;
+                  }
                 }
               }
+              if (parsed.type === 'result') {
+                gotResult = true;
+              }
+            } catch {
+              /* skip */
             }
-            if (parsed.type === 'result') {
-              gotResult = true;
-            }
-          } catch { /* skip */ }
-        }
-      });
-
-      proc.on('close', () => {
-        const mentionsBlue = assistantContent.toLowerCase().includes('blue');
-        res({
-          success: gotResult && mentionsBlue,
-          output: `Got result: ${gotResult}, Mentions blue: ${mentionsBlue}, Content: ${assistantContent.substring(0, 100)}`
+          }
         });
-      });
 
-      proc.stdin?.write('What is my favorite color?\n');
-      proc.stdin?.end();
+        proc.on('close', () => {
+          const mentionsBlue = assistantContent.toLowerCase().includes('blue');
+          res({
+            success: gotResult && mentionsBlue,
+            output: `Got result: ${gotResult}, Mentions blue: ${mentionsBlue}, Content: ${assistantContent.substring(
+              0,
+              100
+            )}`,
+          });
+        });
 
-      setTimeout(() => proc.kill(), 30000);
-    });
+        proc.stdin?.write('What is my favorite color?\n');
+        proc.stdin?.end();
+
+        setTimeout(() => proc.kill(), 30000);
+      }
+    );
 
     message2Success = result2.success;
     log(`  Message 2 result: ${message2Success ? '✅' : '❌'}`);
@@ -1377,10 +1478,16 @@ async function main(): Promise<void> {
     log('5. Resume pattern - Fallback: new process per message with --resume');
     log('');
 
-    await runTest('EXPERIMENT 1: Interactive mode (no -p flag)', testInteractiveModeNoPFlag);
+    await runTest(
+      'EXPERIMENT 1: Interactive mode (no -p flag)',
+      testInteractiveModeNoPFlag
+    );
     await runTest('EXPERIMENT 2: stdin.end vs newline', testStdinEndVsNewline);
     await runTest('EXPERIMENT 3: Esc key interrupt', testEscKeyInterrupt);
-    await runTest('EXPERIMENT 4: Multiple messages on stdin', testMultipleMessagesOnStdin);
+    await runTest(
+      'EXPERIMENT 4: Multiple messages on stdin',
+      testMultipleMessagesOnStdin
+    );
     await runTest('EXPERIMENT 5: Resume pattern (fallback)', testResumePattern);
   } else if (runAgentTest) {
     logSection('Agent Streaming Test (--agent-test mode)');
@@ -1409,7 +1516,10 @@ async function main(): Promise<void> {
     await runTest('Interactive Spawn Test', testInteractiveSpawn);
 
     logSection('Cross-Platform Logic Verification');
-    await runTest('Cross-Platform Shell Execution Logic', testCrossPlatformLogic);
+    await runTest(
+      'Cross-Platform Shell Execution Logic',
+      testCrossPlatformLogic
+    );
   }
 
   // Summary

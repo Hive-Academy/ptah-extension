@@ -8,7 +8,11 @@ import {
   createExecutionChatMessage,
 } from '@ptah-extension/shared';
 import { ExecutionTreeBuilder } from './tree-builder.service';
-import { AgentSessionData, ClassifiedAgentMessages, NodeMaps } from './chat.types';
+import {
+  AgentSessionData,
+  ClassifiedAgentMessages,
+  NodeMaps,
+} from './chat.types';
 
 /**
  * SessionReplayService - Reconstructs chat history from JSONL session files
@@ -126,7 +130,10 @@ export class SessionReplayService {
       if (!slug && hasToolUse) {
         // Orphan execution (no slug but has tool_use) - shouldn't happen normally
         // but handle it by creating a placeholder slug
-        console.warn('[SessionReplayService] Found execution agent without slug:', agent.agentId);
+        console.warn(
+          '[SessionReplayService] Found execution agent without slug:',
+          agent.agentId
+        );
         slug = `__orphan_${agent.agentId}__`;
       }
 
@@ -139,7 +146,9 @@ export class SessionReplayService {
       if (hasToolUse) {
         // EXECUTION agent: Extract tool calls
         executionAgentsFound++;
-        const { executionMessages } = this.classifyAgentMessages(agent.messages);
+        const { executionMessages } = this.classifyAgentMessages(
+          agent.messages
+        );
         existing.executionMessages.push(...executionMessages);
       } else {
         // SUMMARY agent: Extract summary text
@@ -158,21 +167,26 @@ export class SessionReplayService {
     // Track whether we've already attached agents to a Task tool
     let agentsAttached = false;
 
-    console.log('[SessionReplayService] Replay session - agent classification', {
-      mainMessagesCount: mainMessages.length,
-      totalAgentSessions: agentSessions.length,
-      warmupAgentsFiltered,
-      summaryAgentsFound,
-      executionAgentsFound,
-      uniqueSlugs: slugToAgentData.size,
-      slugs: Array.from(slugToAgentData.keys()),
-      slugDetails: Array.from(slugToAgentData.entries()).map(([slug, data]) => ({
-        slug,
-        hasSummary: !!data.summaryContent,
-        summaryLength: data.summaryContent?.length ?? 0,
-        executionMsgCount: data.executionMessages.length,
-      })),
-    });
+    console.log(
+      '[SessionReplayService] Replay session - agent classification',
+      {
+        mainMessagesCount: mainMessages.length,
+        totalAgentSessions: agentSessions.length,
+        warmupAgentsFiltered,
+        summaryAgentsFound,
+        executionAgentsFound,
+        uniqueSlugs: slugToAgentData.size,
+        slugs: Array.from(slugToAgentData.keys()),
+        slugDetails: Array.from(slugToAgentData.entries()).map(
+          ([slug, data]) => ({
+            slug,
+            hasSummary: !!data.summaryContent,
+            summaryLength: data.summaryContent?.length ?? 0,
+            executionMsgCount: data.executionMessages.length,
+          })
+        ),
+      }
+    );
 
     // Track current assistant message being built
     let currentAssistantTree: ExecutionNode | null = null;
@@ -295,7 +309,9 @@ export class SessionReplayService {
               agentBlocks.push({
                 block,
                 summaryContent: hasAgentData ? combinedSummary : null,
-                executionMessages: hasAgentData ? combinedExecutionMessages : [],
+                executionMessages: hasAgentData
+                  ? combinedExecutionMessages
+                  : [],
               });
 
               // Mark agents as attached so subsequent Task tools don't duplicate
@@ -348,7 +364,11 @@ export class SessionReplayService {
         }
 
         // Create separate chat bubbles for each agent execution
-        for (const { block, summaryContent, executionMessages } of agentBlocks) {
+        for (const {
+          block,
+          summaryContent,
+          executionMessages,
+        } of agentBlocks) {
           const agentType = block.input?.['subagent_type'] as string;
           const agentDescription = block.input?.['description'] as string;
           const agentModel = block.input?.['model'] as string | undefined;
@@ -383,6 +403,8 @@ export class SessionReplayService {
           }
 
           // Create agent info for styling with summary and execution flags
+          // Mark as interrupted if loaded from history but has no data
+          const hasNoData = !summaryContent && executionNodes.length === 0;
           const agentInfo: AgentInfo = {
             agentType,
             agentDescription,
@@ -390,6 +412,7 @@ export class SessionReplayService {
             summaryContent: summaryContent || undefined,
             hasSummary: !!summaryContent,
             hasExecution: executionNodes.length > 0,
+            isInterrupted: hasNoData, // Historical agent with no data = interrupted
           };
 
           // Create separate agent chat message
@@ -447,7 +470,9 @@ export class SessionReplayService {
    *   replayService.classifyAgentMessages(agentMessages);
    * ```
    */
-  private classifyAgentMessages(messages: JSONLMessage[]): ClassifiedAgentMessages {
+  private classifyAgentMessages(
+    messages: JSONLMessage[]
+  ): ClassifiedAgentMessages {
     const summaryTexts: string[] = [];
     const executionMessages: JSONLMessage[] = [];
 
@@ -489,7 +514,8 @@ export class SessionReplayService {
     }
 
     return {
-      summaryContent: summaryTexts.length > 0 ? summaryTexts.join('\n\n') : null,
+      summaryContent:
+        summaryTexts.length > 0 ? summaryTexts.join('\n\n') : null,
       executionMessages,
     };
   }

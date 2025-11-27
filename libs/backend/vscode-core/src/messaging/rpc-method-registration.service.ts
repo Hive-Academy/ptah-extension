@@ -334,7 +334,10 @@ export class RpcMethodRegistrationService {
           workspacePath,
         });
 
-        return await this.sessionDiscovery.loadSession(sessionId, workspacePath);
+        return await this.sessionDiscovery.loadSession(
+          sessionId,
+          workspacePath
+        );
       } catch (error) {
         this.logger.error(
           'RPC: session:load failed',

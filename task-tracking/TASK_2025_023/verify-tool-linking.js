@@ -12,7 +12,7 @@ const path = require('path');
 
 function analyzeToolLinking(filePath) {
   const content = fs.readFileSync(filePath, 'utf-8');
-  const lines = content.split('\n').filter(line => line.trim());
+  const lines = content.split('\n').filter((line) => line.trim());
 
   // Collect tool_use blocks
   const toolUses = new Map(); // id -> { name, input, lineNumber }
@@ -44,8 +44,8 @@ function analyzeToolLinking(filePath) {
             contentPreview = resultContent.substring(0, 100);
           } else if (Array.isArray(resultContent)) {
             contentPreview = resultContent
-              .filter(c => c.type === 'text')
-              .map(c => c.text || '')
+              .filter((c) => c.type === 'text')
+              .map((c) => c.text || '')
               .join('\n')
               .substring(0, 100);
           }
@@ -79,10 +79,17 @@ function analyzeToolLinking(filePath) {
       linked++;
       console.log(`✅ ${toolUse.name} (line ${toolUse.lineNumber})`);
       console.log(`   ID: ${id}`);
-      console.log(`   Result (line ${result.lineNumber}): ${result.content.substring(0, 60)}...`);
+      console.log(
+        `   Result (line ${result.lineNumber}): ${result.content.substring(
+          0,
+          60
+        )}...`
+      );
     } else {
       unlinked++;
-      console.log(`❌ ${toolUse.name} (line ${toolUse.lineNumber}) - NO RESULT FOUND`);
+      console.log(
+        `❌ ${toolUse.name} (line ${toolUse.lineNumber}) - NO RESULT FOUND`
+      );
       console.log(`   ID: ${id}`);
     }
     console.log('');
@@ -114,7 +121,9 @@ function analyzeToolLinking(filePath) {
 const filePath = process.argv[2];
 if (!filePath) {
   console.log('Usage: node verify-tool-linking.js <agent-file.jsonl>');
-  console.log('Example: node verify-tool-linking.js ./test-sessions/agent-0df145bd.jsonl');
+  console.log(
+    'Example: node verify-tool-linking.js ./test-sessions/agent-0df145bd.jsonl'
+  );
   process.exit(1);
 }
 

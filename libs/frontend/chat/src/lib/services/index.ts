@@ -9,7 +9,10 @@ export {
 export { ChatStore } from './chat.store';
 
 // ExecutionTreeBuilder - Immutable tree construction (TASK_2025_023 Phase 2)
-export { ExecutionTreeBuilder, type AgentSpawnInfo } from './tree-builder.service';
+export {
+  ExecutionTreeBuilder,
+  type AgentSpawnInfo,
+} from './tree-builder.service';
 
 // SessionReplayService - Session reconstruction from JSONL (TASK_2025_023 Phase 3)
 export { SessionReplayService } from './session-replay.service';
@@ -18,7 +21,10 @@ export { SessionReplayService } from './session-replay.service';
 export { SessionManager } from './session-manager.service';
 
 // JsonlMessageProcessor - JSONL chunk processing and routing (TASK_2025_023 Phase 5)
-export { JsonlMessageProcessor, type ProcessingResult } from './jsonl-processor.service';
+export {
+  JsonlMessageProcessor,
+  type ProcessingResult,
+} from './jsonl-processor.service';
 
 // Chat types - Shared interfaces for ChatStore refactoring
 export type {

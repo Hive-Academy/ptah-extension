@@ -12,7 +12,7 @@ const path = require('path');
 // Analyze a single JSONL file
 function analyzeFile(filePath) {
   const content = fs.readFileSync(filePath, 'utf-8');
-  const lines = content.split('\n').filter(line => line.trim());
+  const lines = content.split('\n').filter((line) => line.trim());
 
   const fileAnalysis = {
     path: filePath,
@@ -195,7 +195,9 @@ function generateReport(analysis) {
         if (agent.toolNames.length > 0) {
           console.log(`         Tools: ${agent.toolNames.join(', ')}`);
         }
-        console.log(`         Message breakdown: ${JSON.stringify(agent.messageTypes)}`);
+        console.log(
+          `         Message breakdown: ${JSON.stringify(agent.messageTypes)}`
+        );
       }
     }
 
@@ -232,19 +234,37 @@ function generateReport(analysis) {
     classifications[type]++;
   }
 
-  console.log(`   WARMUP agents (no slug, no tool_use): ${classifications.WARMUP}`);
-  console.log(`   SUMMARY agents (has slug, no tool_use): ${classifications.SUMMARY}`);
-  console.log(`   EXECUTION agents (has slug, has tool_use): ${classifications.EXECUTION}`);
-  console.log(`   ORPHAN_EXECUTION (no slug, has tool_use): ${classifications.ORPHAN_EXECUTION}`);
+  console.log(
+    `   WARMUP agents (no slug, no tool_use): ${classifications.WARMUP}`
+  );
+  console.log(
+    `   SUMMARY agents (has slug, no tool_use): ${classifications.SUMMARY}`
+  );
+  console.log(
+    `   EXECUTION agents (has slug, has tool_use): ${classifications.EXECUTION}`
+  );
+  console.log(
+    `   ORPHAN_EXECUTION (no slug, has tool_use): ${classifications.ORPHAN_EXECUTION}`
+  );
   console.log(`   UNKNOWN: ${classifications.UNKNOWN}`);
 
   // Key insight
   console.log('\n## KEY INSIGHTS\n');
-  console.log('   1. Agents with the SAME SLUG belong to the SAME logical agent invocation');
-  console.log('   2. SUMMARY agents: Have slug, mostly text content (XML-like <function_calls>)');
-  console.log('   3. EXECUTION agents: Have slug, contain actual tool_use blocks');
-  console.log('   4. WARMUP agents: No slug, just initial response text - FILTER OUT');
-  console.log('   5. The slug may appear on ANY message (not always the first line!)');
+  console.log(
+    '   1. Agents with the SAME SLUG belong to the SAME logical agent invocation'
+  );
+  console.log(
+    '   2. SUMMARY agents: Have slug, mostly text content (XML-like <function_calls>)'
+  );
+  console.log(
+    '   3. EXECUTION agents: Have slug, contain actual tool_use blocks'
+  );
+  console.log(
+    '   4. WARMUP agents: No slug, just initial response text - FILTER OUT'
+  );
+  console.log(
+    '   5. The slug may appear on ANY message (not always the first line!)'
+  );
 }
 
 // Run

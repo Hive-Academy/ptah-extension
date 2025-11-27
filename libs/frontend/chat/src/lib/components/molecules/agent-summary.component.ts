@@ -6,7 +6,13 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
-import { LucideAngularModule, Brain, Wrench, ChevronDown, ChevronRight } from 'lucide-angular';
+import {
+  LucideAngularModule,
+  Brain,
+  Wrench,
+  ChevronDown,
+  ChevronRight,
+} from 'lucide-angular';
 
 /**
  * Represents a parsed block from Claude's XML-like agent summary format.
@@ -37,56 +43,61 @@ export type ParsedBlock =
   imports: [MarkdownModule, LucideAngularModule],
   template: `
     <div class="space-y-1.5">
-      @for (block of parsedBlocks(); track $index) {
-        @switch (block.type) {
-          @case ('thinking') {
-            <div class="bg-base-300/30 rounded border border-base-300/50">
-              <!-- Header (clickable to toggle) -->
-              <button
-                type="button"
-                class="w-full py-1.5 px-2 text-[11px] flex items-center gap-1.5 text-base-content/60 hover:bg-base-300/50 transition-colors cursor-pointer rounded-t"
-                (click)="toggleThinking($index)"
-              >
-                <!-- Expand/Collapse icon -->
-                <lucide-angular
-                  [img]="ChevronDownIcon"
-                  class="w-3 h-3 flex-shrink-0 text-base-content/50 transition-transform"
-                  [class.rotate-0]="!collapsedThinking()[$index]"
-                  [class.-rotate-90]="collapsedThinking()[$index]"
-                />
-                <lucide-angular [img]="BrainIcon" class="w-3.5 h-3.5 text-purple-400" />
-                <span class="font-medium">Thinking...</span>
-              </button>
-              <!-- Collapsible content -->
-              @if (!collapsedThinking()[$index]) {
-                <div class="px-2 pb-2 border-t border-base-300/30">
-                  <div class="prose prose-xs prose-invert max-w-none text-[11px] text-base-content/70 pt-1.5">
-                    <markdown [data]="block.content" />
-                  </div>
-                </div>
-              }
-            </div>
-          }
-          @case ('function_call') {
-            <div class="flex items-start gap-1.5 py-0.5 text-[11px]">
-              <lucide-angular [img]="WrenchIcon" class="w-3.5 h-3.5 text-blue-400 mt-0.5 flex-shrink-0" />
-              <div class="flex-1 min-w-0">
-                <span class="badge badge-xs badge-ghost font-mono">{{ block.name }}</span>
-                @if (getMainParam(block)) {
-                  <span class="text-base-content/50 ml-1 truncate">{{ getMainParam(block) }}</span>
-                }
-              </div>
-            </div>
-          }
-          @case ('text') {
-            @if (block.content.trim()) {
-              <div class="prose prose-xs prose-invert max-w-none text-[12px]">
-                <markdown [data]="block.content" />
-              </div>
-            }
-          }
+      @for (block of parsedBlocks(); track $index) { @switch (block.type) {
+      @case ('thinking') {
+      <div class="bg-base-300/30 rounded border border-base-300/50">
+        <!-- Header (clickable to toggle) -->
+        <button
+          type="button"
+          class="w-full py-1.5 px-2 text-[11px] flex items-center gap-1.5 text-base-content/60 hover:bg-base-300/50 transition-colors cursor-pointer rounded-t"
+          (click)="toggleThinking($index)"
+        >
+          <!-- Expand/Collapse icon -->
+          <lucide-angular
+            [img]="ChevronDownIcon"
+            class="w-3 h-3 flex-shrink-0 text-base-content/50 transition-transform"
+            [class.rotate-0]="!collapsedThinking()[$index]"
+            [class.-rotate-90]="collapsedThinking()[$index]"
+          />
+          <lucide-angular
+            [img]="BrainIcon"
+            class="w-3.5 h-3.5 text-purple-400"
+          />
+          <span class="font-medium">Thinking...</span>
+        </button>
+        <!-- Collapsible content -->
+        @if (!collapsedThinking()[$index]) {
+        <div class="px-2 pb-2 border-t border-base-300/30">
+          <div
+            class="prose prose-xs prose-invert max-w-none text-[11px] text-base-content/70 pt-1.5"
+          >
+            <markdown [data]="block.content" />
+          </div>
+        </div>
         }
-      }
+      </div>
+      } @case ('function_call') {
+      <div class="flex items-start gap-1.5 py-0.5 text-[11px]">
+        <lucide-angular
+          [img]="WrenchIcon"
+          class="w-3.5 h-3.5 text-blue-400 mt-0.5 flex-shrink-0"
+        />
+        <div class="flex-1 min-w-0">
+          <span class="badge badge-xs badge-ghost font-mono">{{
+            block.name
+          }}</span>
+          @if (getMainParam(block)) {
+          <span class="text-base-content/50 ml-1 truncate">{{
+            getMainParam(block)
+          }}</span>
+          }
+        </div>
+      </div>
+      } @case ('text') { @if (block.content.trim()) {
+      <div class="prose prose-xs prose-invert max-w-none text-[12px]">
+        <markdown [data]="block.content" />
+      </div>
+      } } } }
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -136,7 +147,9 @@ export class AgentSummaryComponent {
     // Return first non-empty parameter value
     const firstValue = Object.values(params).find((v) => v && v.trim());
     if (firstValue) {
-      return firstValue.length > 60 ? firstValue.substring(0, 60) + '...' : firstValue;
+      return firstValue.length > 60
+        ? firstValue.substring(0, 60) + '...'
+        : firstValue;
     }
 
     return '';
@@ -160,8 +173,12 @@ export class AgentSummaryComponent {
       );
 
       // Determine which comes first
-      const thinkingIndex = thinkingMatch ? remaining.indexOf(thinkingMatch[0]) : -1;
-      const functionIndex = functionMatch ? remaining.indexOf(functionMatch[0]) : -1;
+      const thinkingIndex = thinkingMatch
+        ? remaining.indexOf(thinkingMatch[0])
+        : -1;
+      const functionIndex = functionMatch
+        ? remaining.indexOf(functionMatch[0])
+        : -1;
 
       // No more special tags, treat rest as text
       if (thinkingIndex === -1 && functionIndex === -1) {
