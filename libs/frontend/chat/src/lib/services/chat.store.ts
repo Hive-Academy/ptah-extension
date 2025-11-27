@@ -586,6 +586,19 @@ export class ChatStore {
 
     const { realSessionId } = data;
 
+    // Edge case protection: Only apply if still in draft state
+    // Prevents race condition when user switches sessions during resolution
+    const currentStatus = this.sessionManager.status();
+    if (currentStatus !== 'draft') {
+      console.warn(
+        '[ChatStore] Ignoring session ID resolution for switched/completed session. Status:',
+        currentStatus,
+        'Session ID:',
+        realSessionId
+      );
+      return;
+    }
+
     // Update session manager with real Claude ID
     this.sessionManager.setClaudeSessionId(realSessionId);
     this._currentSessionId.set(realSessionId);
