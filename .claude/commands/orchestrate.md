@@ -324,27 +324,33 @@ Phase 4: software-architect → Creates implementation-plan.md
          ↓
          USER VALIDATION ✋ (Ask: "APPROVED ✅ or provide feedback")
          ↓
-Phase 5a: team-leader MODE 1 (DECOMPOSITION) → Creates tasks.md with atomic tasks
+Phase 5a: team-leader MODE 1 (DECOMPOSITION) → Creates tasks.md with batched tasks
          ↓
-Phase 5b: team-leader MODE 2 (ITERATIVE LOOP) → For each task:
-         - Assigns task to developer (backend-developer OR frontend-developer)
-         - You invoke developer with task details
-         - Developer implements, commits git, updates tasks.md
-         - team-leader MODE 2 verifies (git commit + file + tasks.md)
-         - Repeat for next task
-         (This is N iterations where N = number of tasks)
+Phase 5b: team-leader MODE 2 (ITERATIVE LOOP) → For each batch:
+         - Assigns batch to developer (backend-developer OR frontend-developer)
+         - You invoke developer with batch details
+         - Developer implements ALL tasks in batch (NO git operations!)
+         - Developer returns implementation report with file paths
+         - team-leader verifies files exist
+         - 🚨 team-leader invokes BUSINESS-ANALYST to check for stubs/placeholders
+         - If BA approves: team-leader creates git commit
+         - If BA rejects: batch returns to developer for fixes
+         - Repeat for next batch
+         (This is B iterations where B = number of batches)
          ↓
-Phase 5c: team-leader MODE 3 (COMPLETION) → Final verification of all tasks
+Phase 5c: team-leader MODE 3 (COMPLETION) → Final verification of all batches
          ↓
          USER CHOICE ✋ (Ask: "tester, reviewer, both, or skip?")
          ↓
 Phase 6: [USER CHOICE] senior-tester and/or code-reviewer
          (Can run in PARALLEL if user chose "both")
          ↓
-Phase 7: USER handles git (branch, commit, push, PR)
+Phase 7: USER handles git (branch, push, PR) - commits already created by team-leader
          ↓
 Phase 8: modernization-detector → Creates future-enhancements.md, updates registry
 ```
+
+**Key Change**: Developers focus 100% on code quality. Team-leader handles git operations and invokes business-analyst before each commit to catch stubs/placeholders.
 
 **When to use**: New features, enhancements, capabilities, user-facing functionality
 
@@ -359,11 +365,15 @@ Phase 1: [CONDITIONAL] researcher-expert → If complex bug requiring investigat
          ↓
 Phase 2a: team-leader MODE 1 (DECOMPOSITION) → Creates tasks.md for bug fix steps
          ↓
-Phase 2b: team-leader MODE 2 (ITERATIVE LOOP) → For each fix task:
-         - Assigns task to developer
-         - Developer implements fix, commits git
-         - team-leader MODE 2 verifies
-         - Repeat for next fix task
+Phase 2b: team-leader MODE 2 (ITERATIVE LOOP) → For each fix batch:
+         - Assigns batch to developer
+         - Developer implements fix (NO git operations!)
+         - Developer returns implementation report
+         - team-leader verifies files exist
+         - 🚨 team-leader invokes BUSINESS-ANALYST to check for stubs
+         - If BA approves: team-leader creates git commit
+         - If BA rejects: batch returns to developer for real fix
+         - Repeat for next fix batch
          ↓
 Phase 2c: team-leader MODE 3 (COMPLETION) → Final verification
          ↓
@@ -371,7 +381,7 @@ Phase 2c: team-leader MODE 3 (COMPLETION) → Final verification
          ↓
 Phase 3: [USER CHOICE] senior-tester and/or code-reviewer
          ↓
-Phase 4: USER handles git (branch, commit, push, PR)
+Phase 4: USER handles git (branch, push, PR) - commits already created by team-leader
          ↓
 Phase 5: modernization-detector → Creates future-enhancements.md, updates registry
 ```
@@ -391,11 +401,15 @@ Phase 1: software-architect → Creates implementation-plan.md
          ↓
 Phase 2a: team-leader MODE 1 (DECOMPOSITION) → Creates tasks.md for refactoring steps
          ↓
-Phase 2b: team-leader MODE 2 (ITERATIVE LOOP) → For each refactoring task:
-         - Assigns task to developer
-         - Developer refactors, commits git
-         - team-leader MODE 2 verifies
-         - Repeat for next refactoring task
+Phase 2b: team-leader MODE 2 (ITERATIVE LOOP) → For each refactoring batch:
+         - Assigns batch to developer
+         - Developer refactors (NO git operations!)
+         - Developer returns implementation report
+         - team-leader verifies files exist
+         - 🚨 team-leader invokes BUSINESS-ANALYST to check for stubs
+         - If BA approves: team-leader creates git commit
+         - If BA rejects: batch returns to developer for real refactoring
+         - Repeat for next refactoring batch
          ↓
 Phase 2c: team-leader MODE 3 (COMPLETION) → Final verification
          ↓
@@ -403,7 +417,7 @@ Phase 2c: team-leader MODE 3 (COMPLETION) → Final verification
          ↓
 Phase 3: [USER CHOICE] senior-tester (regression) and/or code-reviewer
          ↓
-Phase 4: USER handles git (branch, commit, push, PR)
+Phase 4: USER handles git (branch, push, PR) - commits already created by team-leader
          ↓
 Phase 5: modernization-detector → Creates future-enhancements.md, updates registry
 ```
@@ -503,47 +517,66 @@ CRITICAL: This is MODE 1 (DECOMPOSITION). You will be invoked again in MODE 2 af
 
 ---
 
-### MODE 2: ITERATIVE ASSIGNMENT + VERIFICATION (Invoked N Times)
+### MODE 2: ITERATIVE ASSIGNMENT + BA REVIEW + GIT COMMIT (Invoked N Times)
 
 **When to invoke**:
 
-- First time: After MODE 1 completes (to assign first task)
-- Subsequent times: After each developer completion (to verify + assign next)
+- First time: After MODE 1 completes (to assign first batch)
+- Subsequent times: After each developer returns implementation report (to verify + BA review + commit + assign next)
+
+**🚨 CRITICAL: New Workflow with Business-Analyst Quality Gate**
+
+**Developers do NOT commit**. The team-leader:
+1. Verifies implementation files exist
+2. Invokes business-analyst to check for stubs/placeholders
+3. Creates git commits (only after BA approval)
+4. Updates tasks.md with commit SHA
+
+**Why?** When developers worry about commits, they create stubs to "get to the commit part". This separation ensures 100% focus on implementation quality.
 
 **What it does**:
 
-- **ASSIGNMENT phase**: Assigns next ⏸️ PENDING task, marks as 🔄 IN PROGRESS, returns developer assignment
+- **ASSIGNMENT phase**: Assigns next ⏸️ PENDING batch, marks as 🔄 IN PROGRESS, returns developer assignment
 - **VERIFICATION phase** (on subsequent invocations):
-  1. Verifies git commit exists (`git log --oneline -1`)
-  2. Verifies file implementation correct (`Read(file-path)`)
-  3. Verifies tasks.md status updated
-  4. Marks task as ✅ COMPLETE or ❌ FAILED
-- **ITERATION**: Repeats until all tasks ✅ COMPLETE
+  1. Verifies implementation files exist (`Read(file-path)`)
+  2. **Invokes business-analyst** to review for stubs/placeholders
+  3. If BA approves: Creates git commit (`git add` + `git commit`)
+  4. Updates tasks.md to ✅ COMPLETE with commit SHA
+  5. If BA rejects: Returns batch to developer for fixes
+- **ITERATION**: Repeats until all batches ✅ COMPLETE
 
 **Your workflow for MODE 2 loop**:
 
 ```javascript
 // After MODE 1 or after developer completion
-while (tasks remain) {
+while (batches remain) {
   // 1. Invoke team-leader MODE 2
   invoke_team_leader_mode_2(previous_developer_results);
 
-  // 2. team-leader returns: "Task N assigned to [developer-type]" OR "Task N verified ✅, Task N+1 assigned to [developer-type]"
+  // 2. Team-leader verifies files exist
+  // 3. Team-leader invokes business-analyst for quality review
 
-  // 3. If verification failed, team-leader escalates to user
-  if (verification_failed) {
-    // team-leader marks task ❌ FAILED and reports issue
-    ask_user_for_decision();
-    break;
+  // 4. If BA rejected (stubs found), team-leader returns batch to developer
+  if (ba_rejected) {
+    // team-leader provides specific issues to fix
+    // developer re-implements
+    continue;
   }
 
-  // 4. Invoke assigned developer with task details
-  invoke_developer(task_details);
+  // 5. Team-leader creates git commit (developers don't commit!)
+  // 6. Team-leader updates tasks.md with commit SHA
 
-  // 5. Developer implements, commits git, updates tasks.md
-  developer_completes();
+  // 7. If all batches complete → MODE 3
+  // 8. If more batches → Assign next batch to developer
 
-  // 6. Loop back to step 1 for verification + next assignment
+  // 9. Invoke assigned developer with batch details
+  invoke_developer(batch_details);
+
+  // 10. Developer implements (NO git operations!)
+  // 11. Developer returns implementation report with file paths
+  developer_returns_implementation_report();
+
+  // 12. Loop back to step 1 for verification + BA review + commit + next assignment
 }
 ```
 
@@ -553,8 +586,8 @@ while (tasks remain) {
 You are team-leader for TASK_2025_XXX in ASSIGNMENT mode (MODE 2 - First Assignment).
 
 ## CONTEXT
-- tasks.md has been created with [N] tasks
-- All tasks are currently ⏸️ PENDING
+- tasks.md has been created with [N] batches
+- All batches are currently ⏸️ PENDING
 - This is your first assignment invocation
 
 ## YOUR RESPONSIBILITIES
@@ -562,58 +595,90 @@ You are team-leader for TASK_2025_XXX in ASSIGNMENT mode (MODE 2 - First Assignm
 **Phase 1: Read tasks.md**
 Read(task-tracking/TASK_2025_XXX/tasks.md)
 
-**Phase 2: Assign First Task**
-1. Find first task with status ⏸️ PENDING
+**Phase 2: Assign First Batch**
+1. Find first batch with status ⏸️ PENDING
 2. Update its status to 🔄 IN PROGRESS
 3. Note its assigned developer type (backend-developer OR frontend-developer)
 4. Update tasks.md with new status
 
 **Phase 3: Return Assignment**
 Return assignment guidance:
-- Task number and title
+- Batch number and name
+- All tasks in the batch
 - Developer type to invoke (backend-developer OR frontend-developer)
 - Full task details for developer
 
-CRITICAL: This is MODE 2 ASSIGNMENT (first iteration). You will be invoked again after developer completes for VERIFICATION+ASSIGNMENT of next task.
+**CRITICAL DEVELOPER INSTRUCTIONS**:
+- Developers do NOT handle git operations
+- They implement code and return implementation report
+- YOU will create the git commit after BA approval
+
+CRITICAL: This is MODE 2 ASSIGNMENT (first iteration). You will be invoked again after developer returns implementation report for VERIFICATION + BA REVIEW + COMMIT + ASSIGNMENT.
 ```
 
-**Your prompt to team-leader MODE 2 (subsequent verification + assignment)**:
+**Your prompt to team-leader MODE 2 (subsequent verification + BA + commit + assignment)**:
 
 ```
-You are team-leader for TASK_2025_XXX in VERIFICATION+ASSIGNMENT mode (MODE 2).
+You are team-leader for TASK_2025_XXX in VERIFICATION+BA+COMMIT+ASSIGNMENT mode (MODE 2).
 
-## DEVELOPER COMPLETION REPORT
+## DEVELOPER IMPLEMENTATION REPORT
 [Copy the complete response from developer, including:]
-- Task completed: Task [N]
+- Batch completed: Batch [N]
 - Files created/modified: [list]
-- Git commit: [SHA]
-- tasks.md updated: [confirmation]
+- tasks.md updated to: 🔄 IMPLEMENTED
+- NOTE: Developer did NOT commit (that's your job)
 
 ## YOUR RESPONSIBILITIES
 
-**VERIFICATION PHASE**:
-1. Verify git commit exists: Bash("git log --oneline -1")
-2. Verify file exists and implementation correct: Read([file-path-from-tasks.md])
-3. Verify tasks.md status updated: Read(task-tracking/TASK_2025_XXX/tasks.md)
+**PHASE 1: VERIFY FILES EXIST**
+Read([file-path-1])
+Read([file-path-2])
+Read([file-path-3])
+- All files must exist with REAL implementations
 
-**ASSIGNMENT PHASE** (if verification passes):
-4. Mark completed task as ✅ COMPLETE in tasks.md
-5. Check if more tasks remain (any ⏸️ PENDING tasks):
-   - If yes: Assign next ⏸️ PENDING task, mark as 🔄 IN PROGRESS
-   - If no: Signal "All tasks complete, ready for MODE 3"
+**PHASE 2: INVOKE BUSINESS-ANALYST FOR QUALITY REVIEW**
+Invoke business-analyst to check for stubs/placeholders:
+- No "// TODO" comments
+- No "// Implementation" placeholders
+- No fake business logic
+- No mock data without real service calls
 
-**ESCALATION** (if verification fails):
-- Mark task as ❌ FAILED in tasks.md
-- Document specific verification failures
-- Escalate to user with evidence
+**PHASE 3: HANDLE BA RESULT**
+If BA APPROVED:
+- Proceed to Phase 4 (Git Operations)
 
-CRITICAL: Follow your MODE 2 VERIFICATION+ASSIGNMENT protocol exactly. Never accept self-reported completion without verification. This is an iterative cycle - you will be invoked once per developer return until all tasks complete.
+If BA REJECTED:
+- Return batch to developer with specific issues
+- DO NOT commit
+- DO NOT proceed to next batch
+
+**PHASE 4: GIT OPERATIONS (only if BA approved)**
+git add [file-1] [file-2] [file-3]
+git commit -m "feat(scope): batch [N] - [description]
+
+- Task [N].1: [description]
+- Task [N].2: [description]
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+
+**PHASE 5: UPDATE TASKS.MD**
+- Change all tasks in batch from "🔄 IMPLEMENTED" to "✅ COMPLETE"
+- Add commit SHA to batch header
+
+**PHASE 6: ASSIGN NEXT BATCH OR COMPLETE**
+- If more batches: Assign next ⏸️ PENDING batch
+- If no more batches: Signal "All batches complete, ready for MODE 3"
+
+CRITICAL: Never skip the business-analyst review. Stubs and placeholders WILL be caught.
 ```
 
 **After each MODE 2 invocation**:
 
-- If team-leader says "All tasks complete, ready for MODE 3" → Invoke MODE 3
-- If team-leader assigns next task → Invoke assigned developer
+- If team-leader says "All batches complete, ready for MODE 3" → Invoke MODE 3
+- If team-leader assigns next batch → Invoke assigned developer
+- If team-leader reports BA rejection → Developer re-implements, then back to MODE 2
 - If team-leader reports verification failure → Ask user for decision
 
 ---

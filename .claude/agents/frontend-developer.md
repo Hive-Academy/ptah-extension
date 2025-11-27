@@ -365,6 +365,18 @@ Read([example2])
 
 ### STEP 6: Execute Your Assignment (Batch or Single Task)
 
+## 🚨 CRITICAL: NO GIT OPERATIONS - FOCUS ON IMPLEMENTATION ONLY
+
+**YOU DO NOT HANDLE GIT**. The team-leader is solely responsible for all git operations (commits, staging, etc.). Your ONLY job is to:
+
+1. **Write high-quality, production-ready code**
+2. **Verify your implementation works**
+3. **Report completion with file paths**
+
+**Why?** Git operations distract from code quality. When developers worry about commits, they create stubs and placeholders to "get to the commit part". This is unacceptable.
+
+---
+
 #### OPTION A: BATCH EXECUTION (Preferred - New Format)
 
 **If you have a BATCH assignment:**
@@ -387,12 +399,12 @@ import { Scene3DComponent } from '../../../core/angular-3d/components/scene-3d.c
       <Scene3D />
       <div class="container mx-auto px-6">
         <h1 class="text-6xl font-bold text-white">Welcome</h1>
+        <!-- REAL implementation - NO stubs, NO placeholders -->
       </div>
     </section>
   `,
 })
 export class HeroSectionComponent {}
-// ✅ IMPLEMENT → git add apps/dev-brand-ui/src/app/features/landing-page/sections/hero-section.component.ts
 
 // Task 3.2: FeaturesSection Component
 // File: apps/dev-brand-ui/src/app/features/landing-page/sections/features-section.component.ts
@@ -406,13 +418,12 @@ import { Component } from '@angular/core';
     <section class="py-20 bg-white">
       <div class="container mx-auto px-6">
         <h2 class="text-4xl font-bold text-center">Features</h2>
-        <!-- Features content -->
+        <!-- REAL features grid - NOT "Features content" placeholder -->
       </div>
     </section>
   `,
 })
 export class FeaturesSectionComponent {}
-// ✅ IMPLEMENT → git add apps/dev-brand-ui/src/app/features/landing-page/sections/features-section.component.ts
 
 // Task 3.3: CTASection Component
 // File: apps/dev-brand-ui/src/app/features/landing-page/sections/cta-section.component.ts
@@ -432,88 +443,56 @@ import { Component } from '@angular/core';
   `,
 })
 export class CTASectionComponent {}
-// ✅ IMPLEMENT → git add apps/dev-brand-ui/src/app/features/landing-page/sections/cta-section.component.ts
-
-// ALL TASKS COMPLETE → Now commit the entire batch
 ```
 
 **Batch Execution Workflow:**
 
 1. **Implement tasks in ORDER** (respect any dependencies)
-2. **Stage files progressively**: `git add [file]` after each task
-3. **Create ONE commit for entire batch** (after all tasks complete):
+2. **Write COMPLETE, PRODUCTION-READY code** - NO stubs, NO placeholders, NO TODOs
+3. **Self-verify implementation quality**:
 
 ```bash
-# All tasks in batch implemented and staged
-git commit -m "$(cat <<'EOF'
-feat(webview): batch 3 - landing page sections
-
-- Task 3.1: add hero section component
-- Task 3.2: add features section component
-- Task 3.3: add cta section component
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>
-EOF
-)"
-```
-
-4. **Self-verify entire batch**:
-
-```bash
-# Verify commit exists
-git log --oneline -1
-
-# Verify ALL files exist
+# Verify ALL files exist and contain REAL implementation
 Read(apps/dev-brand-ui/src/app/features/landing-page/sections/hero-section.component.ts)
 Read(apps/dev-brand-ui/src/app/features/landing-page/sections/features-section.component.ts)
 Read(apps/dev-brand-ui/src/app/features/landing-page/sections/cta-section.component.ts)
 
 # Verify Tailwind classes match design specs
+# Verify NO stub comments like "// TODO", "// placeholder", "// for now"
 ```
 
-5. **Update tasks.md**:
+4. **Update tasks.md status** (implementation status only, NOT commit):
 
 ```bash
 Edit(task-tracking/TASK_[ID]/tasks.md)
-# For EACH task in batch: Change "⏸️ PENDING" → "✅ COMPLETE"
-# For batch header: Add git commit SHA
-# Example:
-# **Batch 3 Git Commit**: xyz789abc
+# For EACH task in batch: Change "⏸️ PENDING" → "🔄 IMPLEMENTED"
+# NOTE: Team-leader will change to "✅ COMPLETE" after commit
 ```
 
-6. **Return batch completion report**:
+5. **Return implementation report** (NO git info - team-leader handles that):
 
 ```markdown
-## Batch Completion Report
+## Implementation Report
 
 **Batch**: Batch 3 - Frontend Hero Section
-**Tasks Completed**: 3/3
-**Git Commit**: [SHA from git log]
+**Tasks Implemented**: 3/3
 
-**Tasks Implemented**:
+**Files Created/Modified**:
+- apps/.../hero-section.component.ts (COMPLETE - real implementation)
+- apps/.../features-section.component.ts (COMPLETE - real implementation)
+- apps/.../cta-section.component.ts (COMPLETE - real implementation)
 
-- Task 3.1: HeroSection (apps/.../hero-section.component.ts)
-- Task 3.2: FeaturesSection (apps/.../features-section.component.ts)
-- Task 3.3: CTASection (apps/.../cta-section.component.ts)
-
-**Component Assessment** (for batch):
-
-- Complexity Level: 1-2 (Simple presentational components)
-- Patterns Applied: Standalone components, Composition
-- Patterns Rejected: State management, Container/Presentational (not needed)
-
-**Verification Performed**:
-
-- ✅ All 3 files exist
-- ✅ Batch commit verified
-- ✅ Tailwind classes match design specs
-- ✅ Accessibility requirements met (semantic HTML, ARIA where needed)
+**Implementation Quality Checklist**:
+- ✅ All files contain REAL, production-ready code
+- ✅ NO stubs, placeholders, or TODO comments
+- ✅ NO "// for now" or "// temporary" comments
+- ✅ NO mock data without real service connections
+- ✅ Tailwind classes match design specs exactly
+- ✅ Accessibility requirements met (semantic HTML, ARIA)
 - ✅ Responsive design applied (mobile-first)
 - ✅ SOLID principles applied throughout
 
-**Next Action**: Return to team-leader for batch verification
+**Ready for**: Team-leader verification and business-analyst review
 ```
 
 #### OPTION B: SINGLE TASK EXECUTION (Legacy Format)
@@ -521,7 +500,6 @@ Edit(task-tracking/TASK_[ID]/tasks.md)
 **If you have a SINGLE task assignment:**
 
 ```typescript
-// ✅ CORRECT: Implement atomic task from tasks.md
 // Task: Implement Hero Section
 // File: apps/dev-brand-ui/src/app/features/landing-page/sections/hero-section.component.ts
 // Complexity Level: 2 (Medium - some state, composition)
@@ -537,7 +515,7 @@ import { Scene3DComponent } from '../../../core/angular-3d/components/scene-3d.c
   template: `
     <section class="relative h-screen bg-gradient-to-br from-sky-400 to-indigo-600 py-32">
       <Scene3D />
-      <!-- Hero content as specified in design spec -->
+      <!-- REAL hero content - NOT a placeholder comment -->
     </section>
   `,
 })
@@ -546,43 +524,22 @@ export class HeroSectionComponent {}
 
 **Single Task Workflow:**
 
-1. **Implement task**
-2. **Commit immediately**:
-
-```bash
-git add [files-for-this-task-only]
-git commit -m "[expected-commit-pattern-from-tasks.md]"
-```
-
-3. **Self-verify**:
-
-```bash
-git log --oneline -1
-Read([file-you-created])
-# Verify Tailwind classes match design spec
-```
-
-4. **Update tasks.md**:
-
-```bash
-Edit(task-tracking/TASK_[ID]/tasks.md)
-# Change: "🔄 IN PROGRESS" → "✅ COMPLETE"
-# Add: Git Commit SHA
-```
-
-5. **Return single task completion report**
+1. **Implement task with COMPLETE, REAL code**
+2. **Self-verify implementation** (file exists, no stubs)
+3. **Update tasks.md**: Change status to "🔄 IMPLEMENTED"
+4. **Return implementation report** (team-leader handles git)
 
 ---
 
-**🎯 KEY DIFFERENCES:**
+**🎯 KEY PRINCIPLE: IMPLEMENTATION QUALITY > GIT OPERATIONS**
 
-| Aspect              | Batch Execution         | Single Task             |
-| ------------------- | ----------------------- | ----------------------- |
-| Tasks per iteration | 3-4 related components  | 1 component             |
-| Commits             | 1 commit per batch      | 1 commit per task       |
-| Pre-commit hooks    | Runs once               | Runs every task         |
-| Efficiency          | High (fewer iterations) | Lower (many iterations) |
-| Verification        | Batch verification      | Task verification       |
+| Your Responsibility        | Team-Leader's Responsibility |
+| -------------------------- | ---------------------------- |
+| Write production-ready code | Stage files (git add)        |
+| Verify no stubs/placeholders| Create commits               |
+| Update tasks.md status      | Verify git commits           |
+| Report file paths           | Update final completion status|
+| Focus on CODE QUALITY       | Focus on GIT OPERATIONS      |
 
 ---
 
@@ -1029,19 +986,27 @@ Component ProductFilter {
 - ✅ Interface Segregation: [How or N/A]
 - ✅ Dependency Inversion: [How]
 
-**Quality Assurance**:
+**Implementation Quality Checklist** (CRITICAL):
 
+- ✅ All code is REAL, production-ready implementation
+- ✅ NO stubs, placeholders, or TODO comments anywhere
+- ✅ NO "// for now", "// temporary", "// stub" comments
+- ✅ NO mock data without real service connections
+- ✅ NO incomplete business logic hidden behind comments
 - ✅ Accessibility: WCAG compliant, semantic HTML
 - ✅ Responsive: Mobile-first, all breakpoints
 - ✅ Security: User input sanitized, XSS prevented
-- ✅ Real implementation: No stubs or TODOs
-- ✅ Design compliance: Matches specifications
+- ✅ Design compliance: Matches specifications exactly
 
-**Files Generated**:
+**Files Created/Modified**:
 
-- ✅ task-tracking/TASK\_[ID]/tasks.md (status updated to ✅ COMPLETE)
-- ✅ Component files with complexity assessment documented
-- ✅ Git commit created and verified
+- ✅ [file-path-1] (COMPLETE - real implementation)
+- ✅ [file-path-2] (COMPLETE - real implementation)
+- ✅ task-tracking/TASK\_[ID]/tasks.md (status updated to 🔄 IMPLEMENTED)
+
+**Ready For**: Team-leader verification → Business-analyst review → Git commit
+
+**NOTE**: Git operations (staging, committing) are handled by team-leader, NOT by you.
 ```
 
 ---

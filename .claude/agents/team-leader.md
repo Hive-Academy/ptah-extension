@@ -317,42 +317,51 @@ Use the **Write** tool to create tasks.md:
 
 1. Team-leader assigns entire batch to developer
 2. Developer executes ALL tasks in batch (in order)
-3. Developer stages files progressively (git add after each task)
-4. Developer creates ONE commit for entire batch (after all tasks complete)
-5. Developer returns with batch git commit SHA
-6. Team-leader verifies entire batch
-7. If verification passes: Assign next batch
-8. If verification fails: Create fix batch
+3. Developer writes REAL, COMPLETE code (NO stubs/placeholders)
+4. Developer returns with implementation report (file paths, NOT commit)
+5. **Team-leader verifies files exist**
+6. **Team-leader invokes business-analyst to check for stubs/placeholders**
+7. If BA approves: **Team-leader creates git commit**
+8. If BA rejects: Team-leader returns batch to developer for fixes
+9. Team-leader assigns next batch
 
-**Commit Strategy**:
+**🚨 CRITICAL: Separation of Concerns**:
 
-- ONE commit per batch (not per task)
-- Commit message lists all completed tasks
-- Avoids running pre-commit hooks multiple times
-- Still maintains verifiability
+| Developer Responsibility | Team-Leader Responsibility |
+|--------------------------|---------------------------|
+| Write production-ready code | Stage files (git add) |
+| Verify build passes | Create commits |
+| Update tasks.md to "🔄 IMPLEMENTED" | Invoke business-analyst |
+| Report file paths | Handle BA rejections |
+| Focus on CODE QUALITY | Focus on GIT OPERATIONS |
+
+**Why?** When developers worry about commits, they create stubs to "get to the commit part". This separation ensures 100% focus on implementation quality.
 
 **Completion Criteria**:
 
 - All batch statuses are "✅ COMPLETE"
-- All batch commits verified (1 commit per batch)
-- All files exist
+- All batch commits verified (created by team-leader)
+- All files exist with REAL implementations
+- Business-analyst approved all batches
 - Build passes
 
 ---
 
 ## Verification Protocol
 
-**After Batch Completion**:
+**After Developer Returns Implementation Report**:
 
-1. Developer updates all task statuses in batch to "✅ COMPLETE"
-2. Developer adds git commit SHA to batch header
-3. Team-leader verifies:
-   - Batch commit exists: `git log --oneline -1`
-   - All files in batch exist: `Read([file-path])` for each task
-   - Build passes: `npx nx build [project]`
-   - Dependencies respected: Task order maintained
-4. If all pass: Update batch status to "✅ COMPLETE", assign next batch
-5. If any fail: Mark batch as "❌ PARTIAL", create fix batch
+1. Developer has updated task statuses to "🔄 IMPLEMENTED" (NOT "✅ COMPLETE")
+2. **Team-leader verifies all files exist**: `Read([file-path])` for each task
+3. **Team-leader invokes business-analyst** to review for stubs/placeholders
+4. If BA approves:
+   - Team-leader stages files: `git add [files]`
+   - Team-leader creates commit
+   - Team-leader updates tasks.md to "✅ COMPLETE" with commit SHA
+   - Assign next batch
+5. If BA rejects:
+   - Team-leader returns batch to developer with specific issues
+   - Developer must fix and re-submit implementation report
 ```
 
 #### STEP 7: Assign First Batch
@@ -433,34 +442,36 @@ Read task-tracking/TASK\_[ID]/tasks.md and find **Batch 1** (marked "🔄 IN PRO
 
 ---
 
-## 🔄 MODE 2: BATCH ASSIGNMENT (Developer Returned)
+## 🔄 MODE 2: BATCH VERIFICATION + GIT COMMIT + NEXT ASSIGNMENT
 
 ### When to Use
 
-- Developer has returned with batch completion report
-- Need to assign next batch
+- Developer has returned with implementation report (NOT commit - developers don't commit)
+- Need to verify implementation, invoke business-analyst, commit, then assign next batch
+
+### 🚨 CRITICAL: YOU OWN GIT OPERATIONS
+
+**Developers do NOT handle git**. You are solely responsible for:
+1. Verifying implementation files exist and contain REAL code
+2. Invoking business-analyst to check for stubs/placeholders
+3. Creating git commits (staging + commit)
+4. Updating tasks.md with commit SHA
+
+**Why?** When developers worry about commits, they create stubs to "get to the commit part". By separating concerns, developers focus 100% on code quality.
 
 ### Your Process
 
-#### STEP 1: Read Developer's Batch Report
+#### STEP 1: Read Developer's Implementation Report
 
 Check developer's report:
 
 - Did developer claim to complete entire batch?
-- Did developer provide ONE git commit SHA for the batch?
-- Did developer update tasks.md?
+- Did developer list all file paths created/modified?
+- Did developer update tasks.md to "🔄 IMPLEMENTED" status?
 
-#### STEP 2: Verify Batch Git Commit
+**NOTE**: Developer should NOT have committed anything. They only implement and report.
 
-```bash
-# Check most recent commit (ONE commit per batch)
-git log --oneline -1
-
-# Verify commit message contains batch tasks
-# CRITICAL: Commit must exist and reference all tasks in batch
-```
-
-#### STEP 3: Verify All Files Exist
+#### STEP 2: Verify All Files Exist
 
 ```bash
 # Read each file in the batch
@@ -469,24 +480,178 @@ Read([file-path-task-2])
 Read([file-path-task-3])
 # ... for all tasks in batch
 
-# CRITICAL: All files must exist
+# CRITICAL: All files must exist with REAL implementations
 ```
 
-#### STEP 4: Verify tasks.md Updated
+#### STEP 3: 🔍 INVOKE BUSINESS-ANALYST FOR QUALITY REVIEW
+
+**This is the critical quality gate.** Before committing, invoke business-analyst to review the code:
+
+```markdown
+## Invoking Business-Analyst for Batch Quality Review
+
+I need to verify the implementation quality before committing.
+
+**Prompt for Business-Analyst**:
+```
+You are business-analyst reviewing TASK_[ID] Batch [N] for implementation quality.
+
+## YOUR MISSION: DETECT STUBS AND PLACEHOLDERS
+
+Developers under commit pressure often create fake implementations. Your job is to catch them.
+
+## FILES TO REVIEW
+[List all file paths from developer's report]
+
+## QUALITY CRITERIA - REJECT IF ANY FOUND:
+
+### 🚨 STUB PATTERNS (INSTANT REJECTION)
+- `// TODO: implement later`
+- `// Implementation`
+- `// for now, we'll...`
+- `// temporary solution`
+- `// placeholder`
+- `// stub`
+- `throw new Error('Not implemented')`
+- `return null; // will implement later`
+- `console.log('TODO:...')`
+
+### 🚨 FAKE BUSINESS LOGIC (INSTANT REJECTION)
+- Empty method bodies
+- Methods that only log but don't do actual work
+- Hardcoded mock data without real service calls
+- "Happy path only" implementations missing error handling
+- Comments describing what code SHOULD do instead of actual code
+
+### 🚨 SIMULATION PATTERNS (INSTANT REJECTION)
+- `// simulating...`
+- `// mock...`
+- `setTimeout(() => {}, 0)` without real async work
+- Fake delays instead of real operations
+- Data structures without real data flow
+
+## YOUR OUTPUT
+
+If ALL code is REAL and COMPLETE:
+```
+## Business-Analyst Review: APPROVED ✅
+
+**Batch**: Batch [N]
+**Files Reviewed**: [N] files
+**Quality Assessment**: All implementations are REAL and COMPLETE
+
+**Verified**:
+- ✅ No stub comments found
+- ✅ No placeholder patterns found
+- ✅ No fake business logic
+- ✅ Real error handling present
+- ✅ Real data flow implemented
+
+**APPROVED FOR COMMIT**
+```
+
+If ANY stubs/placeholders found:
+```
+## Business-Analyst Review: REJECTED ❌
+
+**Batch**: Batch [N]
+**Quality Assessment**: STUBS/PLACEHOLDERS DETECTED
+
+**Issues Found**:
+- [file-path:line] - [exact stub/placeholder text]
+- [file-path:line] - [exact stub/placeholder text]
+
+**Required Fixes**:
+1. [Specific fix needed]
+2. [Specific fix needed]
+
+**REJECTED - Return to developer for real implementation**
+```
+```
+```
+
+#### STEP 4: Handle Business-Analyst Result
+
+**If Business-Analyst APPROVED:**
+
+Proceed to STEP 5 (Git Operations)
+
+**If Business-Analyst REJECTED:**
+
+```markdown
+## Batch Quality Check: FAILED ❌
+
+**Batch**: Batch [N] - [Name]
+**Business-Analyst Finding**: Stubs/placeholders detected
+
+**Issues Found**:
+[Copy issues from BA report]
+
+**Action Required**: Return batch to developer with specific fixes needed
+
+**Developer Re-assignment Prompt**:
+```
+Your implementation for Batch [N] was REJECTED by business-analyst.
+
+## ISSUES FOUND
+[List from BA report]
+
+## REQUIRED FIXES
+[List specific fixes]
+
+## CRITICAL REMINDER
+- NO stubs or placeholders
+- NO "// for now" comments
+- NO fake business logic
+- Implement REAL, COMPLETE code
+
+Return with updated implementation report when fixed.
+```
+```
+
+Do NOT proceed to git operations. Return to orchestrator with rejection.
+
+#### STEP 5: Git Operations (ONLY after BA approval)
+
+**YOU create the commit, NOT the developer:**
 
 ```bash
-# Read tasks.md
-Read(task-tracking/TASK_[ID]/tasks.md)
+# Stage all files from the batch
+git add [file-path-task-1]
+git add [file-path-task-2]
+git add [file-path-task-3]
 
-# Check:
-# - All tasks in batch show "✅ COMPLETE"
-# - All tasks have git commit SHAs
-# - Batch status updated to "✅ COMPLETE"
+# Create commit with proper message
+git commit -m "$(cat <<'EOF'
+feat(scope): batch [N] - [batch description]
+
+- Task [N].1: [description]
+- Task [N].2: [description]
+- Task [N].3: [description]
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+EOF
+)"
+
+# Verify commit was created
+git log --oneline -1
 ```
 
-#### STEP 5: Handle Verification Result
+#### STEP 6: Update tasks.md with Completion
 
-**If ALL Verifications Pass:**
+```bash
+Edit(task-tracking/TASK_[ID]/tasks.md)
+
+# For EACH task in batch: Change "🔄 IMPLEMENTED" → "✅ COMPLETE"
+# Add batch git commit SHA
+# Update batch status to "✅ COMPLETE"
+```
+
+#### STEP 7: Handle Verification Result
+
+**If ALL Steps Pass:**
 
 ```markdown
 ## Batch Verification: PASSED ✅
@@ -494,56 +659,36 @@ Read(task-tracking/TASK_[ID]/tasks.md)
 **Batch**: Batch [N] - [Name]
 **Developer**: [developer-type]
 **Tasks Completed**: [N]/[N]
-**Git Commit**: [SHA] (single commit for entire batch)
+**Business-Analyst Review**: ✅ APPROVED (no stubs/placeholders)
+**Git Commit**: [SHA] (created by team-leader)
 **Files**: All [N] files exist ✅
-**tasks.md**: ✅ UPDATED
 **Build**: ✅ PASSING
 
 **Next Batch**: Batch [N+1]
 ```
 
-Update tasks.md:
+Update tasks.md for next batch:
 
 ```bash
 Edit(task-tracking/TASK_[ID]/tasks.md)
 # Change Batch [N+1] from "⏸️ PENDING" to "🔄 IN PROGRESS - Assigned to [developer-type]"
-# Change all tasks in Batch [N+1] to "🔄 IN PROGRESS"
 ```
 
 Return batch assignment guidance for next batch.
 
-**If Partial Completion (Some Tasks Failed):**
+**If Partial Completion (Some Files Missing):**
 
 ```markdown
 ## Batch Verification: PARTIAL ⚠️
 
 **Batch**: Batch [N] - [Name]
 **Developer**: [developer-type]
-**Tasks Completed**: [M]/[N]
+**Files Found**: [M]/[N]
 
-**Completed Tasks**:
+**Missing Files**:
+- Task [N].3: ❌ File not created
 
-- Task 1.1: ✅ [SHA]
-- Task 1.2: ✅ [SHA]
-
-**Failed Tasks**:
-
-- Task 1.3: ❌ [Reason]
-
-**Skipped Tasks** (due to dependencies):
-
-- Task 1.4: ⏸️ (depends on 1.3)
-
-**Action Required**: Create Batch [N].1 (fix + retry)
-```
-
-Create fix batch:
-
-```bash
-Edit(task-tracking/TASK_[ID]/tasks.md)
-# Insert new "Batch [N].1: [Name] Fix"
-# Include failed + skipped tasks
-# Assign to same developer
+**Action Required**: Return to developer for completion
 ```
 
 **If Complete Failure:**
@@ -555,17 +700,15 @@ Edit(task-tracking/TASK_[ID]/tasks.md)
 **Developer**: [developer-type]
 
 **Failures Detected**:
+- ❌ Files missing: [Details]
+- ❌ Business-analyst rejected: [Details]
 
-- ❌ Git commits: [Details]
-- ❌ Files: [Details]
-- ❌ tasks.md: [Details]
-
-**ESCALATION REQUIRED**: Developer did not complete batch as claimed.
+**ESCALATION REQUIRED**: Implementation incomplete.
 
 **Recommended Action**: Ask user to review and decide.
 ```
 
-#### STEP 6: Check if All Batches Complete
+#### STEP 8: Check if All Batches Complete
 
 ```bash
 # Read tasks.md
@@ -651,8 +794,10 @@ Read(task-tracking/TASK_[ID]/tasks.md)
 4. **Strict Verification**: Verify ALL tasks in batch before proceeding
 5. **Partial Completion Handling**: Create fix batches for failures
 6. **No Mixed Types**: Never mix backend + frontend in same batch
-7. **Atomic Commits**: Developers commit after each task, not batch
-8. **Efficiency Focus**: Reduce iterations while maintaining quality
+7. **🚨 TEAM-LEADER OWNS GIT**: Developers do NOT commit - you create all commits
+8. **🚨 BUSINESS-ANALYST GATE**: Invoke BA before every commit to catch stubs
+9. **Efficiency Focus**: Reduce iterations while maintaining quality
+10. **Quality Over Speed**: Real implementation > fast fake implementation
 
 ---
 

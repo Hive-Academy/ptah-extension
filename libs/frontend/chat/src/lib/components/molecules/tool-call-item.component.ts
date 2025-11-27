@@ -19,6 +19,10 @@ import {
   ExternalLink,
   ChevronDown,
   ShieldAlert,
+  Check,
+  CheckCheck,
+  X,
+  ChevronRight,
 } from 'lucide-angular';
 import { DurationBadgeComponent } from '../atoms/duration-badge.component';
 import { ClaudeRpcService } from '@ptah-extension/core';
@@ -145,14 +149,50 @@ import { NgClass } from '@angular/common';
             Input
           </div>
           <div
-            class="bg-base-300/50 rounded px-2 py-1 text-[10px] font-mono overflow-x-auto max-h-24 overflow-y-auto"
+            class="bg-base-300/50 rounded text-[10px] font-mono overflow-x-auto"
           >
             @for (param of getInputParams(); track param.key) {
-            <div class="flex gap-2">
-              <span class="text-primary/70">{{ param.key }}:</span>
-              <span class="text-base-content/80 break-all">{{
-                param.value
-              }}</span>
+            <div>
+              @if (shouldExpandParam(param)) {
+                <!-- Large content with expand/collapse -->
+                <div class="px-2 py-1">
+                  <div class="flex gap-2 items-center mb-1">
+                    <span class="text-primary/70">{{ param.key }}:</span>
+                    <button
+                      type="button"
+                      class="btn btn-xs btn-ghost gap-1 h-4 min-h-4 px-1"
+                      (click)="toggleContentExpanded($event)"
+                    >
+                      <lucide-angular
+                        [img]="ChevronRightIcon"
+                        class="w-3 h-3 transition-transform"
+                        [class.rotate-90]="isContentExpanded()"
+                      />
+                      {{ isContentExpanded() ? 'Hide' : 'Show' }} content ({{ getContentSize(param.fullValue) }})
+                    </button>
+                  </div>
+                  @if (isContentExpanded()) {
+                    <div class="bg-base-300/50 rounded max-h-96 overflow-y-auto overflow-x-auto">
+                      <markdown
+                        [data]="getFormattedParamContent(param)"
+                        class="tool-output-markdown prose prose-xs prose-invert max-w-none [&_pre]:my-0 [&_pre]:rounded-none [&_code]:text-[10px] [&_pre]:bg-transparent [&_p]:my-1 [&_p]:text-[10px]"
+                      />
+                    </div>
+                  } @else {
+                    <div class="text-base-content/60 italic">
+                      {{ param.value }}
+                    </div>
+                  }
+                </div>
+              } @else {
+                <!-- Normal param display -->
+                <div class="flex gap-2 px-2 py-1">
+                  <span class="text-primary/70">{{ param.key }}:</span>
+                  <span class="text-base-content/80 break-all">{{
+                    param.value
+                  }}</span>
+                </div>
+              }
             </div>
             }
           </div>
@@ -179,13 +219,49 @@ import { NgClass } from '@angular/common';
         <!-- Permission Request -->
         @if (node().isPermissionRequest) {
         <div
-          class="alert alert-warning text-[10px] py-1 px-2 mt-1 flex items-center gap-2"
+          class="alert alert-warning text-[10px] py-2 px-3 mt-1.5"
         >
-          <lucide-angular
-            [img]="ShieldAlertIcon"
-            class="w-4 h-4 flex-shrink-0"
-          />
-          <span>Permission required - grant access in the terminal</span>
+          <div class="flex items-start gap-2 mb-2">
+            <lucide-angular
+              [img]="ShieldAlertIcon"
+              class="w-4 h-4 flex-shrink-0 text-warning mt-0.5"
+            />
+            <div class="flex-1">
+              <div class="font-semibold mb-1">Permission Required</div>
+              <div class="text-base-content/80">
+                {{ getPermissionQuestion() }}
+              </div>
+            </div>
+          </div>
+          <div class="flex gap-2 mt-2">
+            <button
+              type="button"
+              class="btn btn-xs btn-success gap-1"
+              (click)="handlePermission('allow')"
+              title="Grant permission for this operation"
+            >
+              <lucide-angular [img]="CheckIconSmall" class="w-3 h-3" />
+              Allow
+            </button>
+            <button
+              type="button"
+              class="btn btn-xs btn-info gap-1"
+              (click)="handlePermission('always')"
+              title="Grant permission for entire session"
+            >
+              <lucide-angular [img]="CheckCheckIcon" class="w-3 h-3" />
+              Allow Always
+            </button>
+            <button
+              type="button"
+              class="btn btn-xs btn-error gap-1"
+              (click)="handlePermission('deny')"
+              title="Deny this permission request"
+            >
+              <lucide-angular [img]="XIconSmall" class="w-3 h-3" />
+              Deny
+            </button>
+          </div>
         </div>
         }
 
@@ -228,6 +304,7 @@ export class ToolCallItemComponent {
 
   readonly node = input.required<ExecutionNode>();
   readonly isCollapsed = signal(true); // Collapsed by default
+  readonly isContentExpanded = signal(false); // For large Write content
 
   // Icons
   readonly FileIcon = File;
@@ -241,6 +318,10 @@ export class ToolCallItemComponent {
   readonly ExternalLinkIcon = ExternalLink;
   readonly ChevronIcon = ChevronDown;
   readonly ShieldAlertIcon = ShieldAlert;
+  readonly CheckIconSmall = Check;
+  readonly CheckCheckIcon = CheckCheck;
+  readonly XIconSmall = X;
+  readonly ChevronRightIcon = ChevronRight;
 
   // Language extension mapping for syntax highlighting
   private readonly languageMap: Record<string, string> = {
@@ -385,14 +466,113 @@ export class ToolCallItemComponent {
     return Object.keys(toolInput).length > 0;
   }
 
-  protected getInputParams(): Array<{ key: string; value: string }> {
+  protected getInputParams(): Array<{ key: string; value: string; fullValue: unknown }> {
     const toolInput = this.node().toolInput;
     if (!toolInput) return [];
 
     return Object.entries(toolInput).map(([key, value]) => ({
       key,
       value: this.formatValue(value),
+      fullValue: value,
     }));
+  }
+
+  /**
+   * Check if a parameter should have expand/collapse functionality
+   * Currently applies to Write tool's content parameter
+   */
+  protected shouldExpandParam(param: { key: string; value: string; fullValue: unknown }): boolean {
+    const toolName = this.node().toolName;
+    const isWriteTool = toolName === 'Write';
+    const isContentParam = param.key === 'content';
+    const isLargeContent = typeof param.fullValue === 'string' && param.fullValue.length > 200;
+
+    return isWriteTool && isContentParam && isLargeContent;
+  }
+
+  /**
+   * Toggle content expanded state
+   */
+  protected toggleContentExpanded(event: Event): void {
+    event.stopPropagation(); // Prevent collapse toggle
+    this.isContentExpanded.update((val) => !val);
+  }
+
+  /**
+   * Get human-readable content size
+   */
+  protected getContentSize(value: unknown): string {
+    if (typeof value !== 'string') return '';
+    const lines = value.split('\n').length;
+    const chars = value.length;
+    return `${lines} lines, ${chars} chars`;
+  }
+
+  /**
+   * Format parameter content for markdown rendering
+   * Detects language from file_path if available (for Write tool)
+   */
+  protected getFormattedParamContent(param: { key: string; fullValue: unknown }): string {
+    const content = typeof param.fullValue === 'string' ? param.fullValue : JSON.stringify(param.fullValue, null, 2);
+
+    // For Write tool, detect language from file_path
+    if (this.node().toolName === 'Write' && param.key === 'content') {
+      const filePath = this.node().toolInput?.['file_path'] as string;
+      if (filePath) {
+        const language = this.getLanguageFromPath(filePath);
+        // For markdown files, render as markdown (no code block)
+        if (language === 'markdown') {
+          return content;
+        }
+        // Wrap in code block with detected language
+        return '```' + language + '\n' + content + '\n```';
+      }
+    }
+
+    // Default: wrap in generic code block
+    return '```\n' + content + '\n```';
+  }
+
+  /**
+   * Extract permission question from error message
+   */
+  protected getPermissionQuestion(): string {
+    const error = this.node().error;
+    if (!error) return 'This tool requires permission to proceed.';
+
+    // Try to extract the actual question from the error message
+    // Permission errors typically contain descriptive text about what's being requested
+    const lines = error.split('\n');
+    const questionLine = lines.find(line =>
+      line.includes('?') ||
+      line.toLowerCase().includes('permission') ||
+      line.toLowerCase().includes('allow')
+    );
+
+    return questionLine || error.split('\n')[0] || 'This tool requires permission to proceed.';
+  }
+
+  /**
+   * Handle permission response (allow/always/deny)
+   */
+  protected handlePermission(response: 'allow' | 'always' | 'deny'): void {
+    const toolCallId = this.node().toolCallId;
+    if (!toolCallId) {
+      console.error('[ToolCallItem] Cannot handle permission: missing toolCallId');
+      return;
+    }
+
+    console.log(`[ToolCallItem] Permission ${response} for tool ${toolCallId}`);
+
+    // Call RPC service (stub for now - backend will implement)
+    this.rpcService.call('permission:respond', {
+      toolUseId: toolCallId,
+      response
+    }).then(result => {
+      if (result.isError()) {
+        console.error('[ToolCallItem] Permission response failed:', result.error);
+      }
+    });
   }
 
   /**

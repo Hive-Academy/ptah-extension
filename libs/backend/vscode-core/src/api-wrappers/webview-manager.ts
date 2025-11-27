@@ -4,15 +4,14 @@
  * Provides enhanced webview management with event bus integration
  */
 
-import * as vscode from 'vscode';
-import { injectable, inject } from 'tsyringe';
-import { TOKENS } from '../di/tokens';
 import type {
-  WebviewMessage,
   StrictMessageType,
-  MessagePayloadMap,
+  WebviewMessage
 } from '@ptah-extension/shared';
-import { isSystemMessage, isRoutableMessage } from '@ptah-extension/shared';
+import { isRoutableMessage, isSystemMessage } from '@ptah-extension/shared';
+import { inject, injectable } from 'tsyringe';
+import * as vscode from 'vscode';
+import { TOKENS } from '../di/tokens';
 
 /**
  * Webview panel configuration options

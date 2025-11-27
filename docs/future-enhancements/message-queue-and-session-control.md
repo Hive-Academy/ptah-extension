@@ -13,7 +13,7 @@ This document outlines the implementation plan for two related features:
 
 | Test                          | Result             | Finding                                  |
 | ----------------------------- | ------------------ | ---------------------------------------- |
-| Interactive mode (no -p)      | Works              | Claude processes after stdin.end()       |
+| Interactive mode (no -p)      | failed -p is required for stream-json format              | Claude processes after stdin.end()       |
 | stdin.end vs newline          | stdin.end required | Newline alone doesn't trigger processing |
 | SIGINT interrupt              | Works              | Clean interruption with SIGINT           |
 | Multiple messages per process | Failed             | Session closes after result              |
