@@ -512,6 +512,32 @@ export class JsonlMessageProcessor {
   }
 
   /**
+   * Strip Claude CLI line number prefixes from Read tool output.
+   * Claude CLI formats Read output as "     N→content" where N is the line number.
+   * We strip these for cleaner display in the UI.
+   */
+  private stripLineNumbers(content: string): string {
+    return content
+      .split('\n')
+      .map((line) => {
+        // Pattern: optional whitespace, one or more digits, arrow character (→)
+        const match = line.match(/^\s*\d+→(.*)$/);
+        return match ? match[1] : line;
+      })
+      .join('\n');
+  }
+
+  /**
+   * Clean tool output by removing CLI-specific formatting.
+   */
+  private cleanToolOutput(output: unknown): unknown {
+    if (typeof output !== 'string') return output;
+    let cleaned = this.stripSystemReminders(output);
+    cleaned = this.stripLineNumbers(cleaned);
+    return cleaned;
+  }
+
+  /**
    * Handle user messages which may contain tool_result blocks.
    *
    * During streaming, tool results come as user messages with:
@@ -541,11 +567,8 @@ export class JsonlMessageProcessor {
     for (const block of chunk.message.content) {
       if (block.type === 'tool_result' && block.tool_use_id) {
         // Extract tool output from the tool_result block
-        // Strip system-reminder tags that Claude CLI adds to tool results
-        let toolOutput = block.content;
-        if (typeof toolOutput === 'string') {
-          toolOutput = this.stripSystemReminders(toolOutput);
-        }
+        // Clean CLI-specific formatting (system-reminder tags, line numbers)
+        const toolOutput = this.cleanToolOutput(block.content);
         const isError = block.is_error === true;
 
         // Detect permission requests (error message contains "permission")
@@ -673,11 +696,8 @@ export class JsonlMessageProcessor {
       return tree;
     }
 
-    // Strip system-reminder tags from tool output
-    let toolOutput = chunk.output;
-    if (typeof toolOutput === 'string') {
-      toolOutput = this.stripSystemReminders(toolOutput);
-    }
+    // Clean CLI-specific formatting from tool output
+    const toolOutput = this.cleanToolOutput(chunk.output);
 
     const toolNode = createExecutionNode({
       id: chunk.tool_use_id || this.treeBuilder.generateId(),
@@ -720,11 +740,8 @@ export class JsonlMessageProcessor {
       return tree;
     }
 
-    // Strip system-reminder tags from tool output
-    let toolOutput = chunk.output;
-    if (typeof toolOutput === 'string') {
-      toolOutput = this.stripSystemReminders(toolOutput);
-    }
+    // Clean CLI-specific formatting from tool output
+    const toolOutput = this.cleanToolOutput(chunk.output);
 
     // Update tool node with result
     const updatedNode: ExecutionNode = {

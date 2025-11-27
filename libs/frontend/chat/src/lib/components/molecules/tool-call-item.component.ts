@@ -619,6 +619,24 @@ export class ToolCallItemComponent {
   }
 
   /**
+   * Strip Claude CLI line number prefixes from Read tool output
+   * Claude CLI formats Read output as "     N→content" where N is the line number
+   * We strip these for cleaner display in the UI
+   */
+  private stripLineNumbers(content: string): string {
+    // Match pattern: optional spaces, digits, arrow (→), then content
+    // Example: "     1→import { Module }" becomes "import { Module }"
+    return content
+      .split('\n')
+      .map((line) => {
+        // Pattern: optional whitespace, one or more digits, arrow character
+        const match = line.match(/^\s*\d+→(.*)$/);
+        return match ? match[1] : line;
+      })
+      .join('\n');
+  }
+
+  /**
    * Get formatted output with syntax highlighting
    * Wraps output in appropriate markdown code block based on:
    * - File extension for Read/Edit/Write tools
@@ -634,6 +652,9 @@ export class ToolCallItemComponent {
 
     // Strip system-reminder tags from tool output
     str = this.stripSystemReminders(str);
+
+    // Strip Claude CLI line number prefixes (e.g., "    1→content")
+    str = this.stripLineNumbers(str);
 
     const toolName = this.node().toolName;
     const toolInput = this.node().toolInput;
