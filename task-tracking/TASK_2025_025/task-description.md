@@ -193,8 +193,8 @@ Step 10: Write .mcp.json with actual port        ✅ WORKING
 
 ```typescript
 // Port conflict error
-`Failed to start MCP server on port ${port}. Port is already in use. Please change 'ptah.mcpPort' setting to use a different port.`// File write error
-`Failed to write .mcp.json to ${filePath}. Please check file permissions and try again.`// Success message
+`Failed to start MCP server on port ${port}. Port is already in use. Please change 'ptah.mcpPort' setting to use a different port.` // File write error
+`Failed to write .mcp.json to ${filePath}. Please check file permissions and try again.` // Success message
 `MCP server started at http://localhost:${port}. Claude CLI can now discover Ptah tools.`;
 ```
 

@@ -21,6 +21,7 @@ export interface NodeMaps {
  */
 export type SessionStatus =
   | 'fresh'
+  | 'draft'
   | 'loaded'
   | 'streaming'
   | 'resuming'

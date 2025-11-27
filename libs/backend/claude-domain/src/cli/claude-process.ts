@@ -34,6 +34,7 @@ export interface ClaudeProcessOptions {
  *
  * Events:
  * - 'message': (msg: JSONLMessage) => void - JSONL message received
+ * - 'session-id': (sessionId: string) => void - Session UUID extracted from JSONL
  * - 'error': (error: Error) => void - Process or parse error
  * - 'close': (code: number | null) => void - Process closed
  */
@@ -266,6 +267,12 @@ export class ClaudeProcess extends EventEmitter {
   private parseLine(line: string): void {
     try {
       const parsed = JSON.parse(line) as JSONLMessage;
+
+      // Extract session UUID from system messages (emit BEFORE message event)
+      if (parsed.type === 'system' && parsed.session_id) {
+        this.emit('session-id', parsed.session_id);
+      }
+
       this.emit('message', parsed);
     } catch (error) {
       this.emit(

@@ -216,6 +216,21 @@ export class VSCodeService {
           }
         }
       }
+
+      // Handle session ID resolution (TASK_2025_027 Batch 2)
+      if (message.type === 'session:id-resolved') {
+        if (message.payload && this.chatStore) {
+          this.chatStore.handleSessionIdResolved(message.payload);
+        } else if (!message.payload) {
+          console.warn(
+            '[VSCodeService] session:id-resolved received but payload is undefined!'
+          );
+        } else {
+          console.warn(
+            '[VSCodeService] session:id-resolved received but ChatStore not registered!'
+          );
+        }
+      }
     });
   }
 }

@@ -1,4 +1,4 @@
- [Extension Host] STOPPED on first line for debugging on port 53979
+ [Extension Host] STOPPED on first line for debugging on port 53674
 F @ workbench.desktop.main.js:3880
   INFO Loading development extension at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode
  Overwriting extension <<copilot-instructions.md>> to now point to mime <<text/x-instructions>>
@@ -15,24 +15,24 @@ F @ workbench.desktop.main.js:3880
 (anonymous) @ workbench.desktop.main.js:577
  An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing.
 mountTo @ workbench.desktop.main.js:4124
-log.ts:440  INFO Started local extension host with pid 6992.
+  INFO MCP Registry configured: https://api.mcp.github.com
+  INFO Started local extension host with pid 32516.
 marketplace.visualstudio.com/_apis/public/gallery/vscode/ptah-extensions/ptah-extension-vscode/latest:1  Failed to load resource: the server responded with a status of 404 ()
-log.ts:440  INFO MCP Registry configured: https://api.mcp.github.com
-log.ts:440  INFO [perf] Render performance baseline is 28ms
-localProcessExtensionHost.ts:280 Extension Host
-localProcessExtensionHost.ts:281 Debugger attached.
-log.ts:460   ERR [Extension Host] (node:6992) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+ Extension Host
+ Debugger attached.
+  INFO [perf] Render performance baseline is 23ms
+   ERR [Extension Host] (node:32516) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
 (Use `Code --trace-deprecation ...` to show where the warning was created)
-error @ log.ts:460
-console.ts:139 [Extension Host] (node:6992) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+error @ workbench.desktop.main.js:36
+ [Extension Host] (node:32516) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
 (Use `Code --trace-deprecation ...` to show where the warning was created) (at file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517)
+gCs @ workbench.desktop.main.js:528
+   ERR [Extension Host] (node:32516) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+error @ workbench.desktop.main.js:36
+console.ts:139 [Extension Host] (node:32516) ExperimentalWarning: SQLite is an experimental feature and might change at any time (at file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517)
 gCs @ console.ts:139
-log.ts:460   ERR [Extension Host] (node:6992) ExperimentalWarning: SQLite is an experimental feature and might change at any time
-error @ log.ts:460
-console.ts:139 [Extension Host] (node:6992) ExperimentalWarning: SQLite is an experimental feature and might change at any time (at file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517)
-gCs @ console.ts:139
-console.ts:139 [Extension Host] Created lock file at C:\Users\abdal\.claude\ide\36605.lock (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] Set CLAUDE_CODE_SSE_PORT=36605 in terminal environment (in-memory) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] Created lock file at C:\Users\abdal\.claude\ide\48845.lock (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] Set CLAUDE_CODE_SSE_PORT=48845 in terminal environment (in-memory) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] Set ENABLE_IDE_INTEGRATION=true in terminal environment (in-memory) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 log.ts:440  INFO Settings Sync: Account status changed from uninitialized to available
 console.ts:139 [Extension Host] ===== PTAH ACTIVATION START ===== (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
@@ -64,20 +64,13 @@ console.ts:139 [Extension Host] [Activate] Step 6: Late-binding adapters registe
 console.ts:139 [Extension Host] [Activate] Step 7: Calling ptahExtension.registerAll()... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] Extension components registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [Activate] Step 7: ptahExtension.registerAll() complete (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 8: Registering Language Model Tools... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [Activate] Step 9: Starting Code Execution MCP Server... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] Loaded context state: 6 included, 0 excluded (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] TreeSitterParserService created. Initialization required. (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Ptah LM Tools] Registered 6 Language Model Tools (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Language Model Tools registered (6 tools) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 8: Language Model Tools registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 9: Starting Code Execution MCP Server... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] CodeExecutionMCP server started on http://localhost:56869 Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Code Execution MCP Server started on port 56869 (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 9: Code Execution MCP Server started (port 56869) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 10: Registering MCP server with Claude CLI... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-api.github.com/copilot/mcp_registry:1  Failed to load resource: the server responded with a status of 404 ()
-log.ts:460   ERR Failed to fetch MCP registry providers Server returned 404
-error @ log.ts:460
+console.ts:139 [Extension Host] [INFO] CodeExecutionMCP server started on http://localhost:51820 Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Code Execution MCP Server started on port 51820 (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [Activate] Step 9: Code Execution MCP Server started (port 51820) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [Activate] Step 10: Writing MCP config to .mcp.json... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] Activating prisma-language-server (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] Watching C:\Users\abdal\AppData\Local\prisma-nodejs\Cache\last-generate for changes (new watcher). (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] Using published Language Server (npm) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
@@ -86,11 +79,15 @@ console.ts:139 [Extension Host] Telemetry is enabled for Prisma extension (at co
 console.ts:139 [Extension Host] Activating prisma-local-ai-tools (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] Activating Prisma Postgres (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] Activating Studio (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Ptah MCP server already registered Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] MCP server registered with Claude CLI Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 10: MCP server registered with Claude CLI (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+api.github.com/copilot/mcp_registry:1  Failed to load resource: the server responded with a status of 404 ()
+log.ts:460   ERR Failed to fetch MCP registry providers Server returned 404
+error @ log.ts:460
+console.ts:139 [Extension Host] [INFO] Ptah MCP server registered in .mcp.json (port 51820) Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] MCP server registered in .mcp.json Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [Activate] Step 10: MCP server registered in .mcp.json (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] Ptah extension activated successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] ===== PTAH ACTIVATION COMPLETE ===== (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] projectPath: file:///d%3A/projects/Anubis-MCP/prisma/schema.prisma (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewManager] Registering WebviewView: ptah.main (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewManager] WebviewView registered successfully: ptah.main (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewManager] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
@@ -103,42 +100,41 @@ console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming src="polyfil
 console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming src="main.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/main.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewHtmlGenerator] Base URI set to: https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewHtmlGenerator] All assets transformed to webview URIs (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-VM11:40 Ptah WebView: VS Code API initialized Object
+VM10:40 Ptah WebView: VS Code API initialized Object
  ===================================================
  PTAH STARTUP SCRIPT EXECUTING
  window.vscode exists: true
  window.ptahConfig exists: true
  ===================================================
-console.ts:139 [Extension Host] projectPath: file:///d%3A/projects/Anubis-MCP/prisma/schema.prisma (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 === PTAH WEBVIEW BOOTSTRAP STARTING ===
-main.js:103 Window globals: Object
-main.js:103 =================================================
-main.js:103 PTAH APP NGONINIT STARTING
-main.js:103 =================================================
-main.js:103 Setting up initial view with pure signal navigation
-main.js:103 🔍 [App] isReady computed: Object
-main.js:103 🔍 [App] isReady computed: Object
+main.js:99 === PTAH WEBVIEW BOOTSTRAP STARTING ===
+main.js:99 Window globals: Object
+main.js:99 =================================================
+main.js:99 PTAH APP NGONINIT STARTING
+main.js:99 =================================================
+main.js:99 Setting up initial view with pure signal navigation
+main.js:99 🔍 [App] isReady computed: Object
+main.js:99 🔍 [App] isReady computed: Object
 main.js:67 [VSCodeService] RPC service registered for response routing
 main.js:89 [ClaudeRpcService] Registered with VSCodeService for RPC routing
-main.js:103 [ChatStore] Initializing...
+main.js:99 [ChatStore] Initializing...
 main.js:67 [VSCodeService] ChatStore registered for message routing
-main.js:103 [ChatStore] Services initialized and ready
-main.js:103 === PTAH WEBVIEW BOOTSTRAP COMPLETE ===
+main.js:99 [ChatStore] Services initialized and ready
+main.js:99 === PTAH WEBVIEW BOOTSTRAP COMPLETE ===
+ Sending webview-ready message to extension...
+log.ts:460   ERR chatParticipant must be declared in package.json: claude-code
+error @ log.ts:460
+console.ts:139 [Extension Host] Telemetry is enabled for Prisma extension (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
- Sending webview-ready message to extension...
 console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: webview-ready (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [AngularWebviewProvider] Webview ready signal received! (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] Webview ready signal received - flushing event queue (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] WebviewEventQueue: Marked as ready (0 events queued) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [AngularWebviewProvider] markWebviewReady() completed (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-log.ts:460   ERR chatParticipant must be declared in package.json: claude-code
-error @ log.ts:460
-console.ts:139 [Extension Host] Telemetry is enabled for Prisma extension (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 main.js:67 [VSCodeService] Received RPC response: Object
-main.js:103 [ChatStore] Loaded sessions: 32
+main.js:99 [ChatStore] Loaded sessions: 10 of 35
 console.ts:139 [Extension Host] Workspace analyzed: Anubis-MCP (node - express) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] Workspace analyzed: Anubis-MCP (node - express) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] Dracula Theme (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
@@ -146,411 +142,140 @@ console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from w
 console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 main.js:67 [VSCodeService] Received RPC response: Object
-main.js:103 [ChatStore] Loaded session: 32 messages, 14 agent sessions
-main.js:97 [SessionReplayService] Replay session - agent classification Object
-main.js:99 [SessionReplayService] Processing Task tool Object
-main.js:102 [SessionReplayService] processAgentExecutionMessages Object
-main.js:102 [SessionReplayService] Agent execution messages processed Object
-main.js:99 [SessionReplayService] Processing Task tool Object
-main.js:99 [SessionReplayService] Processing Task tool Object
-main.js:99 [SessionReplayService] Processing Task tool Object
-main.js:99 [SessionReplayService] Replay complete Object
-main.js:103 [ChatStore] Processed into 15 chat messages, 4 agents registered, 96 tools registered
+main.js:99 [ChatStore] Loaded session: 9 messages, 4 agent sessions
+main.js:95 [SessionReplayService] Replay session - agent processing Object
+main.js:98 [SessionReplayService] processAgentExecutionMessages Object
+main.js:98 [SessionReplayService] Agent execution messages processed Object
+main.js:98 [SessionReplayService] processAgentExecutionMessages Object
+main.js:98 [SessionReplayService] Agent execution messages processed Object
+main.js:95 [SessionReplayService] Replay complete Object
+main.js:99 [ChatStore] Processed into 5 chat messages, 2 agents registered, 2 tools registered
 console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 main.js:67 [VSCodeService] Received RPC response: Object
-main.js:103 [ChatStore] Loaded session: 9 messages, 6 agent sessions
-main.js:97 [SessionReplayService] Replay session - agent classification Object
-main.js:99 [SessionReplayService] Processing Task tool Object
-main.js:102 [SessionReplayService] processAgentExecutionMessages Object
-main.js:102 [SessionReplayService] Agent execution messages processed Object
-main.js:99 [SessionReplayService] Processing Task tool Object
-main.js:99 [SessionReplayService] Replay complete Object
-main.js:103 [ChatStore] Processed into 6 chat messages, 2 agents registered, 44 tools registered
 console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 main.js:67 [VSCodeService] Received RPC response: Object
-main.js:103 [ChatStore] Loaded session: 4 messages, 1 agent sessions
-main.js:97 [SessionReplayService] Replay session - agent classification Object
-main.js:99 [SessionReplayService] Replay complete Object
-main.js:103 [ChatStore] Processed into 2 chat messages, 0 agents registered, 0 tools registered
+main.js:99 [ChatStore] Loaded session: 6 messages, 3 agent sessions
+main.js:95 [SessionReplayService] Replay session - agent processing Object
+main.js:98 [SessionReplayService] processAgentExecutionMessages Object
+main.js:98 [SessionReplayService] Agent execution messages processed Object
+main.js:95 [SessionReplayService] Replay complete Object
+main.js:99 [ChatStore] Processed into 3 chat messages, 1 agents registered, 5 tools registered
+main.js:99 [ChatStore] Clearing current session for new conversation
+main.js:99 [ChatStore] Starting NEW conversation: Object
 console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 main.js:67 [VSCodeService] Received RPC response: Object
-main.js:103 [ChatStore] Loaded session: 9 messages, 6 agent sessions
-main.js:97 [SessionReplayService] Replay session - agent classification Object
-main.js:99 [SessionReplayService] Processing Task tool Object
-main.js:102 [SessionReplayService] processAgentExecutionMessages Object
-main.js:102 [SessionReplayService] Agent execution messages processed Object
-main.js:99 [SessionReplayService] Processing Task tool Object
-main.js:99 [SessionReplayService] Replay complete Object
-main.js:103 [ChatStore] Processed into 6 chat messages, 2 agents registered, 44 tools registered
-main.js:103 [ChatStore] Clearing current session for new conversation
-log.ts:460   ERR Unknown (FileSystemError): Failed to move 'nul' to the recycle bin (Failed to parse path)
-    at D7.create (file:///C:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/main.js:38:29705)
-    at Xi (file:///C:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/main.js:38:26959)
-    at P4.y (file:///C:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/main.js:62:26497)
-error @ log.ts:460
-log.ts:460   ERR Failed to move 'nul' to the recycle bin (Failed to parse path): Unknown (FileSystemError): Failed to move 'nul' to the recycle bin (Failed to parse path)
-    at D7.create (file:///C:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/main.js:38:29705)
-    at Xi (file:///C:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/main.js:38:26959)
-    at P4.y (file:///C:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/main.js:62:26497)
-error @ log.ts:460
-main.js:103 [ChatStore] Starting NEW conversation: Object
+main.js:99 [ChatStore] New conversation started: Object
 console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 main.js:67 [VSCodeService] Received RPC response: Object
-main.js:103 [ChatStore] New conversation started: Object
-console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:67 [VSCodeService] Received RPC response: Object
-main.js:103 [ChatStore] Loaded sessions: 32
+main.js:99 [ChatStore] Loaded sessions: 10 of 35
 console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: Object
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: Object
+main.js:99 [JsonlMessageProcessor] 📥 JSONL chunk: Object
 console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 webviewCommands.ts:33 Using standard dev tools to debug iframe based webview
 console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, contentTypes: Array(1), Task: {…}}
+main.js:99 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, contentTypes: Array(1)}
 console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] Registered agent from tool_use block: toolu_01VfEp1Ebu4b4PLw6jgD9rFj Explore
 console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
+main.js:99 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, contentTypes: Array(1)}
 console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
+main.js:99 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, contentTypes: Array(1)}
 console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
+main.js:99 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, contentTypes: Array(1)}
 console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
+main.js:99 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, contentTypes: Array(1)}
 console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
+main.js:99 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, contentTypes: Array(1)}
 console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: {method: 'file:open', params: {…}, correlationId: 'ad9edfd7-d876-4df8-b3ef-dc2afacf5341'} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:67 [VSCodeService] Received RPC response: {type: 'rpc:response', requestId: 'ad9edfd7-d876-4df8-b3ef-dc2afacf5341', correlationId: 'ad9edfd7-d876-4df8-b3ef-dc2afacf5341', success: true, data: {…}, …}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: {method: 'file:open', params: {…}, correlationId: '382c3063-968d-485c-924d-503f59669e01'} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:67 [VSCodeService] Received RPC response: {type: 'rpc:response', requestId: '382c3063-968d-485c-924d-503f59669e01', correlationId: '382c3063-968d-485c-924d-503f59669e01', success: true, data: {…}, …}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, parent_tool_use_id: 'toolu_01VfEp1Ebu4b4PLw6jgD9rFj', contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'user', subtype: undefined, contentTypes: Array(1)}
-main.js:103 [JsonlMessageProcessor] Tool not found for result: toolu_01VfEp1Ebu4b4PLw6jgD9rFj
-handleUserMessage @ main.js:103
-processChunk @ main.js:103
-processJsonlChunk @ main.js:103
-(anonymous) @ main.js:67
-invokeTask @ polyfills.js:1
-onInvokeTask @ main.js:5
-invokeTask @ polyfills.js:1
-runTask @ polyfills.js:1
-invokeTask @ polyfills.js:1
-L @ polyfills.js:1
-H @ polyfills.js:1
-z @ polyfills.js:1
-postMessage
-(anonymous) @ index.html?id=753ec59e-f805-48db-9cbf-a42c21bf5f89&parentId=5&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:1282
-HostMessaging.channel.port1.onmessage @ index.html?id=753ec59e-f805-48db-9cbf-a42c21bf5f89&parentId=5&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:342
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'assistant', subtype: undefined, contentTypes: Array(1)}
-console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:103 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'result', subtype: 'success'}
+main.js:99 [JsonlMessageProcessor] 📥 JSONL chunk: {type: 'result', subtype: 'success'}
 console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:complete', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+main.js:67 [VSCodeService] Chat complete: {sessionId: 'msg_1764279427956_gc71bua', code: 0}
 console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:67 [VSCodeService] Chat complete: {sessionId: 'msg_1764246403158_j8sjkru', code: 0}
+console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: {method: 'file:open', params: {…}, correlationId: 'f3419a42-60ca-4dcd-a9da-a4225e2c4268'} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+main.js:67 [VSCodeService] Received RPC response: {type: 'rpc:response', requestId: 'f3419a42-60ca-4dcd-a9da-a4225e2c4268', correlationId: 'f3419a42-60ca-4dcd-a9da-a4225e2c4268', success: true, data: {…}, …}
+main.js:99 [ChatStore] Continuing EXISTING session: {sessionId: 'msg_1764279427956_gc71bua'}
+console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: {method: 'chat:continue', params: {…}, correlationId: 'f9ee4db8-5ef8-406e-93b1-09eff84fd2a1'} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+main.js:67 [VSCodeService] Received RPC response: {type: 'rpc:response', requestId: 'f9ee4db8-5ef8-406e-93b1-09eff84fd2a1', correlationId: 'f9ee4db8-5ef8-406e-93b1-09eff84fd2a1', success: true, data: {…}, …}
+main.js:99 [ChatStore] Conversation continued: {success: true, sessionId: 'msg_1764279427956_gc71bua'}
+log.ts:460   ERR [Extension Host] [ClaudeProcess] STDERR: Error: --resume requires a valid session ID when used with --print
+
+error @ log.ts:460
+error @ log.ts:565
+error @ logService.ts:51
+mCs @ remoteConsoleUtil.ts:58
+$logExtensionHostMessage @ mainThreadConsole.ts:38
+S @ rpcProtocol.ts:458
+Q @ rpcProtocol.ts:443
+M @ rpcProtocol.ts:373
+L @ rpcProtocol.ts:299
+(anonymous) @ rpcProtocol.ts:161
+C @ event.ts:1201
+fire @ event.ts:1232
+fire @ ipc.net.ts:652
+l.onmessage @ localProcessExtensionHost.ts:383
+console.ts:139 [Extension Host] [ClaudeProcess] STDERR: Error: --resume requires a valid session ID when used with --print
+ (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+gCs @ console.ts:139
+$logExtensionHostMessage @ mainThreadConsole.ts:39
+S @ rpcProtocol.ts:458
+Q @ rpcProtocol.ts:443
+M @ rpcProtocol.ts:373
+L @ rpcProtocol.ts:299
+(anonymous) @ rpcProtocol.ts:161
+C @ event.ts:1201
+fire @ event.ts:1232
+fire @ ipc.net.ts:652
+l.onmessage @ localProcessExtensionHost.ts:383
+log.ts:460   ERR [Extension Host] [ClaudeProcess] STDERR: Usage: claude -p --resume <session-id>
+Session IDs must be in UUID format (e.g., 550e8400-e29b-41d4-a716-446655440000)
+Provided value "msg_1764279427956_gc71bua" is not a valid UUID
+
+error @ log.ts:460
+error @ log.ts:565
+error @ logService.ts:51
+mCs @ remoteConsoleUtil.ts:58
+$logExtensionHostMessage @ mainThreadConsole.ts:38
+S @ rpcProtocol.ts:458
+Q @ rpcProtocol.ts:443
+M @ rpcProtocol.ts:373
+L @ rpcProtocol.ts:299
+(anonymous) @ rpcProtocol.ts:161
+C @ event.ts:1201
+fire @ event.ts:1232
+fire @ ipc.net.ts:652
+l.onmessage @ localProcessExtensionHost.ts:383
+console.ts:139 [Extension Host] [ClaudeProcess] STDERR: Usage: claude -p --resume <session-id>
+Session IDs must be in UUID format (e.g., 550e8400-e29b-41d4-a716-446655440000)
+Provided value "msg_1764279427956_gc71bua" is not a valid UUID
+ (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+gCs @ console.ts:139
+$logExtensionHostMessage @ mainThreadConsole.ts:39
+S @ rpcProtocol.ts:458
+Q @ rpcProtocol.ts:443
+M @ rpcProtocol.ts:373
+L @ rpcProtocol.ts:299
+(anonymous) @ rpcProtocol.ts:161
+C @ event.ts:1201
+fire @ event.ts:1232
+fire @ ipc.net.ts:652
+l.onmessage @ localProcessExtensionHost.ts:383
+console.ts:139 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:complete', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+main.js:67 [VSCodeService] Chat complete: {sessionId: 'msg_1764279427956_gc71bua', code: 1}
+console.ts:139 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))

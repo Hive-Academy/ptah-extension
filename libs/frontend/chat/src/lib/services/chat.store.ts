@@ -427,21 +427,22 @@ export class ChatStore {
       this.currentMessageId = null;
       this.sessionManager.clearNodeMaps();
 
-      // Generate new session ID for new conversation
+      // Generate placeholder session ID for new conversation
       const sessionId = this.generateId();
-      this._currentSessionId.set(sessionId);
+      this._currentSessionId.set(null); // Will be set when Claude responds with real ID
 
       // Update SessionManager state
       this.sessionManager.setSessionId(sessionId);
-      this.sessionManager.setStatus('streaming');
+      this.sessionManager.clearClaudeSessionId(); // Clear previous real ID
+      this.sessionManager.setStatus('draft'); // Start in draft state (no real session ID yet)
 
-      // Add user message immediately
+      // Add user message immediately (with null sessionId - will be updated when resolved)
       const userMessage = createExecutionChatMessage({
         id: this.generateId(),
         role: 'user',
         rawContent: content,
         files,
-        sessionId,
+        sessionId: null as any, // Will be updated when session:id-resolved arrives
       });
 
       this._messages.update((msgs) => [...msgs, userMessage]);
@@ -522,11 +523,12 @@ export class ChatStore {
         return;
       }
 
-      // Get existing session ID
-      const sessionId = this._currentSessionId();
+      // Get REAL Claude session ID (not the placeholder)
+      const sessionId = this.sessionManager.claudeSessionId();
       if (!sessionId) {
-        console.error('[ChatStore] No session selected - cannot continue');
-        // Fall back to starting new conversation
+        console.warn(
+          '[ChatStore] No Claude session ID - starting new conversation'
+        );
         return this.startNewConversation(content, files);
       }
 
@@ -570,6 +572,39 @@ export class ChatStore {
       console.error('[ChatStore] Failed to continue conversation:', error);
       this._isStreaming.set(false);
     }
+  }
+
+  /**
+   * Handle session ID resolution from backend
+   * Called when backend extracts real Claude CLI session UUID from JSONL stream
+   */
+  handleSessionIdResolved(data: {
+    sessionId: string;
+    realSessionId: string;
+  }): void {
+    console.log('[ChatStore] Session ID resolved:', data);
+
+    const { realSessionId } = data;
+
+    // Update session manager with real Claude ID
+    this.sessionManager.setClaudeSessionId(realSessionId);
+    this._currentSessionId.set(realSessionId);
+
+    // Update messages with real session ID
+    this._messages.update((msgs) =>
+      msgs.map((msg) => ({
+        ...msg,
+        sessionId: msg.sessionId === null ? realSessionId : msg.sessionId,
+      }))
+    );
+
+    // Refresh session list to show new session in sidebar
+    this.loadSessions().catch((err) => {
+      console.warn(
+        '[ChatStore] Failed to refresh sessions after ID resolution:',
+        err
+      );
+    });
   }
 
   /**

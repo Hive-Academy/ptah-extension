@@ -52,6 +52,7 @@ import { JSONLMessage } from '@ptah-extension/shared';
 // ClaudeProcess interface (avoid importing class from claude-domain)
 interface ClaudeProcessInterface {
   on(event: 'message', listener: (msg: JSONLMessage) => void): void;
+  on(event: 'session-id', listener: (sessionId: string) => void): void;
   on(event: 'error', listener: (error: Error) => void): void;
   on(event: 'close', listener: (code: number | null) => void): void;
   start(prompt: string, options?: any): Promise<void>;
@@ -141,6 +142,22 @@ export class RpcMethodRegistrationService {
           workspacePath
         );
 
+        // Extract session UUID from JSONL stream (emitted BEFORE message event)
+        process.on('session-id', (realSessionId: string) => {
+          this.logger.debug('Session UUID extracted from JSONL', {
+            sessionId,
+            realSessionId,
+          });
+          this.webviewManager
+            .sendMessage('ptah.main', 'session:id-resolved', {
+              sessionId,
+              realSessionId,
+            })
+            .catch((error) => {
+              this.logger.error('Failed to send session ID to webview', error);
+            });
+        });
+
         // Setup message streaming to webview
         process.on('message', (msg: JSONLMessage) => {
           this.webviewManager
@@ -204,6 +221,15 @@ export class RpcMethodRegistrationService {
       try {
         const { prompt, sessionId, workspacePath } = params;
         this.logger.debug('RPC: chat:continue called', { sessionId });
+
+        // Validate session ID format (Claude CLI expects UUID)
+        const uuidPattern =
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!uuidPattern.test(sessionId)) {
+          throw new Error(
+            `Invalid session ID format: ${sessionId}. Expected UUID format (e.g., 550e8400-e29b-41d4-a716-446655440000). Use session:id-resolved to get the real session ID from Claude CLI.`
+          );
+        }
 
         // Get Claude CLI path
         const installation = await this.cliDetector.findExecutable();

@@ -25,3 +25,4 @@
 | TASK_2025_023 | Complete Purge & Revolutionary Nested UI Rebuild - Delete broken systems, build recursive ExecutionNode UI with DaisyUI       | 🔄 In Progress                           | orchestrator       | 2025-11-25 | -          |
 | TASK_2025_024 | Streaming & Session Enhancement - Real-time agent session watching, summary integration, live permission UI                   | 📋 Planned                               | orchestrator       | 2025-11-27 | -          |
 | TASK_2025_025 | MCP Registration Refactoring & Cleanup - Fix .mcp.json registration, hardcode port, remove unused languageModelTools          | ✅ Complete                              | orchestrator       | 2025-11-27 | 2025-11-27 |
+| TASK_2025_027 | Proper Session Lifecycle (Phase 1 Multi-Session) - Fix session continuation, extract real Claude UUID, draft→active lifecycle | 🔄 In Progress                           | orchestrator       | 2025-11-27 | -          |

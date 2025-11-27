@@ -22,9 +22,13 @@ export class SessionManager {
   private readonly _sessionId = signal<string | null>(null);
   private readonly _status = signal<SessionStatus>('fresh');
 
+  // Real Claude CLI UUID (null when draft/fresh)
+  private readonly _claudeSessionId = signal<string | null>(null);
+
   // Public state
   readonly sessionId = this._sessionId.asReadonly();
   readonly status = this._status.asReadonly();
+  readonly claudeSessionId = this._claudeSessionId.asReadonly();
 
   /**
    * Get current session state
@@ -53,11 +57,31 @@ export class SessionManager {
   }
 
   /**
+   * Set the real Claude session ID (from session:id-resolved message)
+   * Transitions from draft to streaming when we get real ID
+   */
+  setClaudeSessionId(id: string): void {
+    this._claudeSessionId.set(id);
+    // Transition from draft to streaming when we get real ID
+    if (this._status() === 'draft') {
+      this._status.set('streaming');
+    }
+  }
+
+  /**
+   * Clear the real Claude session ID
+   */
+  clearClaudeSessionId(): void {
+    this._claudeSessionId.set(null);
+  }
+
+  /**
    * Clear session state (for new session)
    */
   clearSession(): void {
     this._sessionId.set(null);
     this._status.set('fresh');
+    this._claudeSessionId.set(null);
     this.clearNodeMaps();
   }
 

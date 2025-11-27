@@ -68,20 +68,6 @@ import { ChatStore } from '../../services/chat.store';
         <div class="flex items-center gap-2 text-base-content/60">
           <button
             class="btn btn-ghost btn-xs btn-circle"
-            title="Attach file"
-            type="button"
-          >
-            📎
-          </button>
-          <button
-            class="btn btn-ghost btn-xs btn-circle"
-            title="Mention context"
-            type="button"
-          >
-            @
-          </button>
-          <button
-            class="btn btn-ghost btn-xs btn-circle"
             title="Add screenshot"
             type="button"
           >
