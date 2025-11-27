@@ -4,10 +4,7 @@
  * Provides enhanced webview management with event bus integration
  */
 
-import type {
-  StrictMessageType,
-  WebviewMessage
-} from '@ptah-extension/shared';
+import type { StrictMessageType, WebviewMessage } from '@ptah-extension/shared';
 import { isRoutableMessage, isSystemMessage } from '@ptah-extension/shared';
 import { inject, injectable } from 'tsyringe';
 import * as vscode from 'vscode';

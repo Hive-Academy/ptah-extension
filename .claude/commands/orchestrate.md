@@ -527,6 +527,7 @@ CRITICAL: This is MODE 1 (DECOMPOSITION). You will be invoked again in MODE 2 af
 **🚨 CRITICAL: New Workflow with Business-Analyst Quality Gate**
 
 **Developers do NOT commit**. The team-leader:
+
 1. Verifies implementation files exist
 2. Invokes business-analyst to check for stubs/placeholders
 3. Creates git commits (only after BA approval)

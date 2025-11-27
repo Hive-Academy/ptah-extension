@@ -3,6 +3,7 @@
 ## Overview
 
 This plan addresses two remaining items for complete JSONL message handling in Ptah:
+
 1. Real-time agent session file watching
 2. Agent summary content integration
 
@@ -14,43 +15,43 @@ This plan addresses two remaining items for complete JSONL message handling in P
 
 ### All Tools Available
 
-| Tool | Input Parameters | Output | Used For |
-|------|------------------|--------|----------|
-| **Read** | `file_path`, `limit?`, `offset?` | File contents with line numbers | Reading files |
-| **Write** | `file_path`, `content` | Success/failure | Creating/modifying files |
-| **Edit** | `file_path`, `old_string`, `new_string`, `replace_all?` | Diff preview | Precise edits |
-| **Bash** | `command`, `description?`, `timeout?`, `run_in_background?` | Command output | Running commands |
-| **Glob** | `pattern`, `path?` | Array of file paths | Finding files |
-| **Grep** | `pattern`, `path?`, `type?`, `glob?`, `output_mode?`, etc. | Search results | Searching content |
-| **Task** | `description`, `prompt`, `subagent_type`, `model?` | Agent result | Spawning sub-agents |
-| **WebFetch** | `url`, `prompt` | Extracted content | Fetching URLs |
-| **WebSearch** | `query`, `allowed_domains?`, `blocked_domains?` | Search results | Web search |
+| Tool          | Input Parameters                                            | Output                          | Used For                 |
+| ------------- | ----------------------------------------------------------- | ------------------------------- | ------------------------ |
+| **Read**      | `file_path`, `limit?`, `offset?`                            | File contents with line numbers | Reading files            |
+| **Write**     | `file_path`, `content`                                      | Success/failure                 | Creating/modifying files |
+| **Edit**      | `file_path`, `old_string`, `new_string`, `replace_all?`     | Diff preview                    | Precise edits            |
+| **Bash**      | `command`, `description?`, `timeout?`, `run_in_background?` | Command output                  | Running commands         |
+| **Glob**      | `pattern`, `path?`                                          | Array of file paths             | Finding files            |
+| **Grep**      | `pattern`, `path?`, `type?`, `glob?`, `output_mode?`, etc.  | Search results                  | Searching content        |
+| **Task**      | `description`, `prompt`, `subagent_type`, `model?`          | Agent result                    | Spawning sub-agents      |
+| **WebFetch**  | `url`, `prompt`                                             | Extracted content               | Fetching URLs            |
+| **WebSearch** | `query`, `allowed_domains?`, `blocked_domains?`             | Search results                  | Web search               |
 
 ### JSONL Message Types
 
-| Type | Subtype | Content Blocks | What It Contains |
-|------|---------|----------------|------------------|
-| `system` | `init` | - | Session initialization |
-| `assistant` | - | `text`, `tool_use` | Claude's response, tool calls |
-| `user` | - | `tool_result` | Tool outputs, permission errors |
-| `tool` | `start`/`result` | - | Tool execution (rarely seen in streaming) |
-| `result` | `success`/`error` | - | Stream completion |
+| Type        | Subtype           | Content Blocks     | What It Contains                          |
+| ----------- | ----------------- | ------------------ | ----------------------------------------- |
+| `system`    | `init`            | -                  | Session initialization                    |
+| `assistant` | -                 | `text`, `tool_use` | Claude's response, tool calls             |
+| `user`      | -                 | `tool_result`      | Tool outputs, permission errors           |
+| `tool`      | `start`/`result`  | -                  | Tool execution (rarely seen in streaming) |
+| `result`    | `success`/`error` | -                  | Stream completion                         |
 
 ### Content Block Types
 
-| Block Type | Found In | Fields | Purpose |
-|------------|----------|--------|---------|
-| `text` | `assistant.message.content[]` | `text` | Plain text response |
-| `tool_use` | `assistant.message.content[]` | `id`, `name`, `input` | Tool invocation |
-| `tool_result` | `user.message.content[]` | `tool_use_id`, `content`, `is_error` | Tool output |
+| Block Type    | Found In                      | Fields                               | Purpose             |
+| ------------- | ----------------------------- | ------------------------------------ | ------------------- |
+| `text`        | `assistant.message.content[]` | `text`                               | Plain text response |
+| `tool_use`    | `assistant.message.content[]` | `id`, `name`, `input`                | Tool invocation     |
+| `tool_result` | `user.message.content[]`      | `tool_use_id`, `content`, `is_error` | Tool output         |
 
 ### Error Types (Currently Handled)
 
-| Error Pattern | `is_error` | Detection | UI Treatment |
-|---------------|------------|-----------|--------------|
-| Permission denied | `true` | `content.includes("permission")` | Warning badge, special message |
-| File system error | `true` | Not permission | Error badge, error message |
-| Success | `false`/`undefined` | - | Success badge, output display |
+| Error Pattern     | `is_error`          | Detection                        | UI Treatment                   |
+| ----------------- | ------------------- | -------------------------------- | ------------------------------ |
+| Permission denied | `true`              | `content.includes("permission")` | Warning badge, special message |
+| File system error | `true`              | Not permission                   | Error badge, error message     |
+| Success           | `false`/`undefined` | -                                | Success badge, output display  |
 
 ---
 
@@ -80,6 +81,7 @@ This plan addresses two remaining items for complete JSONL message handling in P
 ### Problem Statement
 
 When a Task tool spawns an agent, Claude CLI creates a new session file:
+
 - Location: `~/.claude/projects/{project-hash}/sessions/agent-{8-char-id}.jsonl`
 - The main session only receives the final `tool_result` when the agent completes
 - During execution, the agent's tools/progress are NOT visible in the main stream
@@ -87,11 +89,13 @@ When a Task tool spawns an agent, Claude CLI creates a new session file:
 ### Architecture Decision
 
 **Option A: Backend File Watcher** (Recommended)
+
 - VS Code extension watches for new `agent-*.jsonl` files
 - Parses and streams chunks to webview via existing `chat:chunk` message
 - Links to parent via `parent_tool_use_id` from the Task tool
 
 **Option B: Periodic Polling**
+
 - Webview requests agent session content periodically
 - Less efficient, more latency
 
@@ -113,10 +117,7 @@ export class AgentSessionWatcherService {
   private watchers: Map<string, fs.FSWatcher> = new Map();
   private filePositions: Map<string, number> = new Map(); // Track read position
 
-  constructor(
-    @inject(TOKENS.Logger) private logger: Logger,
-    @inject(TOKENS.EventBus) private eventBus: EventBus,
-  ) {}
+  constructor(@inject(TOKENS.Logger) private logger: Logger, @inject(TOKENS.EventBus) private eventBus: EventBus) {}
 
   /**
    * Start watching for agent session files in a project's sessions directory
@@ -147,7 +148,7 @@ export class AgentSessionWatcherService {
       fs.readSync(fd, buffer, 0, buffer.length, currentPos);
 
       const newContent = buffer.toString('utf8');
-      const lines = newContent.split('\n').filter(l => l.trim());
+      const lines = newContent.split('\n').filter((l) => l.trim());
 
       for (const line of lines) {
         try {
@@ -226,6 +227,7 @@ The existing `JsonlMessageProcessor.handleNestedAssistantMessage()` and `handleU
 ### Challenges
 
 1. **Matching agent file to Task tool**: Agent files are named `agent-{8-char-id}.jsonl` but the ID is internal. Options:
+
    - Watch for new files created after Task tool starts
    - Parse first line of new agent file which contains `agentId` field
    - Match by timing (file created within 100ms of Task tool)
@@ -241,6 +243,7 @@ The existing `JsonlMessageProcessor.handleNestedAssistantMessage()` and `handleU
 ### Problem Statement
 
 Agent summaries come from **separate "summary session" files**:
+
 - Main agent file: `agent-{id}.jsonl` - Contains actual execution (tools, results)
 - Summary session: Created by Claude CLI for progress reporting
 - Summary contains XML-like tags: `<function_calls>`, `<thinking>`, etc.
@@ -256,6 +259,7 @@ Agent summaries come from **separate "summary session" files**:
 #### Option A: Real-time Summary (Complex)
 
 Summary sessions are also written to `.jsonl` files. We could:
+
 1. Watch for summary session files (different naming pattern)
 2. Parse and update `AgentInfo.summaryContent` in real-time
 3. Trigger UI updates via signal
@@ -334,6 +338,7 @@ libs/frontend/chat/src/lib/services/chat.store.ts
 ### Unit Tests
 
 1. `AgentSessionWatcherService`
+
    - Test file watching triggers on new files
    - Test incremental reading (position tracking)
    - Test JSONL parsing with malformed input
@@ -361,18 +366,19 @@ libs/frontend/chat/src/lib/services/chat.store.ts
 
 ## Priority & Effort Estimates
 
-| Item | Priority | Effort | Dependencies |
-|------|----------|--------|--------------|
-| 1. Agent Session Watching | High | 3-4 days | None |
-| 2. Summary Integration | Medium | 1-2 days | Item 1 (or standalone for Option C) |
+| Item                      | Priority | Effort   | Dependencies                        |
+| ------------------------- | -------- | -------- | ----------------------------------- |
+| 1. Agent Session Watching | High     | 3-4 days | None                                |
+| 2. Summary Integration    | Medium   | 1-2 days | Item 1 (or standalone for Option C) |
 
 ---
 
 ## Definition of Done
 
 ### Item 1: Real-time Agent Session Watching
+
 - [ ] AgentSessionWatcherService created and registered
-- [ ] File watcher correctly detects new agent-*.jsonl files
+- [ ] File watcher correctly detects new agent-\*.jsonl files
 - [ ] Incremental reading works (no duplicate chunks)
 - [ ] Chunks forwarded to webview with correct parent_tool_use_id
 - [ ] Frontend displays nested tools in real-time
@@ -380,6 +386,7 @@ libs/frontend/chat/src/lib/services/chat.store.ts
 - [ ] Manual testing confirms real-time updates
 
 ### Item 2: Summary Integration
+
 - [ ] Summary content loads when agent completes
 - [ ] Summary section renders in AgentExecutionComponent
 - [ ] Historical sessions continue to work
@@ -390,6 +397,7 @@ libs/frontend/chat/src/lib/services/chat.store.ts
 ## Appendix: JSONL File Examples
 
 ### Main Session File (parent)
+
 ```json
 {"type":"user","message":{"content":"Analyze this codebase"},"sessionId":"abc123"}
 {"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_01XYZ","name":"Task","input":{"subagent_type":"Explore","description":"Analyze codebase","prompt":"..."}}]}}
@@ -398,6 +406,7 @@ libs/frontend/chat/src/lib/services/chat.store.ts
 ```
 
 ### Agent Session File (agent-{id}.jsonl)
+
 ```json
 {"agentId":"abc12345","isSidechain":true,"type":"assistant","message":{"content":[{"type":"text","text":"I'll analyze the codebase..."}]}}
 {"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_02ABC","name":"Glob","input":{"pattern":"**/*.ts"}}]}}
@@ -409,9 +418,9 @@ libs/frontend/chat/src/lib/services/chat.store.ts
 
 ### Key Fields for Linking
 
-| Field | Location | Purpose |
-|-------|----------|---------|
-| `tool_use.id` | Main session | ID of Task tool that spawned agent |
-| `agentId` | First line of agent file | 8-char identifier for agent session |
-| `parent_tool_use_id` | Agent messages during streaming | Links back to parent Task tool |
-| `isSidechain` | Agent file | Indicates this is a sub-agent session |
+| Field                | Location                        | Purpose                               |
+| -------------------- | ------------------------------- | ------------------------------------- |
+| `tool_use.id`        | Main session                    | ID of Task tool that spawned agent    |
+| `agentId`            | First line of agent file        | 8-char identifier for agent session   |
+| `parent_tool_use_id` | Agent messages during streaming | Links back to parent Task tool        |
+| `isSidechain`        | Agent file                      | Indicates this is a sub-agent session |

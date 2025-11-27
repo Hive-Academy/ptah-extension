@@ -327,13 +327,13 @@ Use the **Write** tool to create tasks.md:
 
 **🚨 CRITICAL: Separation of Concerns**:
 
-| Developer Responsibility | Team-Leader Responsibility |
-|--------------------------|---------------------------|
-| Write production-ready code | Stage files (git add) |
-| Verify build passes | Create commits |
-| Update tasks.md to "🔄 IMPLEMENTED" | Invoke business-analyst |
-| Report file paths | Handle BA rejections |
-| Focus on CODE QUALITY | Focus on GIT OPERATIONS |
+| Developer Responsibility            | Team-Leader Responsibility |
+| ----------------------------------- | -------------------------- |
+| Write production-ready code         | Stage files (git add)      |
+| Verify build passes                 | Create commits             |
+| Update tasks.md to "🔄 IMPLEMENTED" | Invoke business-analyst    |
+| Report file paths                   | Handle BA rejections       |
+| Focus on CODE QUALITY               | Focus on GIT OPERATIONS    |
 
 **Why?** When developers worry about commits, they create stubs to "get to the commit part". This separation ensures 100% focus on implementation quality.
 
@@ -452,6 +452,7 @@ Read task-tracking/TASK\_[ID]/tasks.md and find **Batch 1** (marked "🔄 IN PRO
 ### 🚨 CRITICAL: YOU OWN GIT OPERATIONS
 
 **Developers do NOT handle git**. You are solely responsible for:
+
 1. Verifying implementation files exist and contain REAL code
 2. Invoking business-analyst to check for stubs/placeholders
 3. Creating git commits (staging + commit)
@@ -494,18 +495,21 @@ I need to verify the implementation quality before committing.
 
 **Prompt for Business-Analyst**:
 ```
-You are business-analyst reviewing TASK_[ID] Batch [N] for implementation quality.
+
+You are business-analyst reviewing TASK\_[ID] Batch [N] for implementation quality.
 
 ## YOUR MISSION: DETECT STUBS AND PLACEHOLDERS
 
 Developers under commit pressure often create fake implementations. Your job is to catch them.
 
 ## FILES TO REVIEW
+
 [List all file paths from developer's report]
 
 ## QUALITY CRITERIA - REJECT IF ANY FOUND:
 
 ### 🚨 STUB PATTERNS (INSTANT REJECTION)
+
 - `// TODO: implement later`
 - `// Implementation`
 - `// for now, we'll...`
@@ -517,6 +521,7 @@ Developers under commit pressure often create fake implementations. Your job is 
 - `console.log('TODO:...')`
 
 ### 🚨 FAKE BUSINESS LOGIC (INSTANT REJECTION)
+
 - Empty method bodies
 - Methods that only log but don't do actual work
 - Hardcoded mock data without real service calls
@@ -524,6 +529,7 @@ Developers under commit pressure often create fake implementations. Your job is 
 - Comments describing what code SHOULD do instead of actual code
 
 ### 🚨 SIMULATION PATTERNS (INSTANT REJECTION)
+
 - `// simulating...`
 - `// mock...`
 - `setTimeout(() => {}, 0)` without real async work
@@ -533,6 +539,7 @@ Developers under commit pressure often create fake implementations. Your job is 
 ## YOUR OUTPUT
 
 If ALL code is REAL and COMPLETE:
+
 ```
 ## Business-Analyst Review: APPROVED ✅
 
@@ -551,6 +558,7 @@ If ALL code is REAL and COMPLETE:
 ```
 
 If ANY stubs/placeholders found:
+
 ```
 ## Business-Analyst Review: REJECTED ❌
 
@@ -567,7 +575,9 @@ If ANY stubs/placeholders found:
 
 **REJECTED - Return to developer for real implementation**
 ```
+
 ```
+
 ```
 
 #### STEP 4: Handle Business-Analyst Result
@@ -591,22 +601,28 @@ Proceed to STEP 5 (Git Operations)
 
 **Developer Re-assignment Prompt**:
 ```
+
 Your implementation for Batch [N] was REJECTED by business-analyst.
 
 ## ISSUES FOUND
+
 [List from BA report]
 
 ## REQUIRED FIXES
+
 [List specific fixes]
 
 ## CRITICAL REMINDER
+
 - NO stubs or placeholders
 - NO "// for now" comments
 - NO fake business logic
 - Implement REAL, COMPLETE code
 
 Return with updated implementation report when fixed.
+
 ```
+
 ```
 
 Do NOT proceed to git operations. Return to orchestrator with rejection.
@@ -686,6 +702,7 @@ Return batch assignment guidance for next batch.
 **Files Found**: [M]/[N]
 
 **Missing Files**:
+
 - Task [N].3: ❌ File not created
 
 **Action Required**: Return to developer for completion
@@ -700,6 +717,7 @@ Return batch assignment guidance for next batch.
 **Developer**: [developer-type]
 
 **Failures Detected**:
+
 - ❌ Files missing: [Details]
 - ❌ Business-analyst rejected: [Details]
 

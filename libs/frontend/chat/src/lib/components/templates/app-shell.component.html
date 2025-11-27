@@ -71,11 +71,12 @@
         >
           @if (chatStore.isLoadingMoreSessions()) {
           <span class="loading loading-spinner loading-xs"></span>
-          Loading...
-          } @else {
+          Loading... } @else {
           <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3" />
-          Load More ({{ chatStore.totalSessions() - chatStore.sessions().length }} more)
-          }
+          Load More ({{
+            chatStore.totalSessions() - chatStore.sessions().length
+          }}
+          more) }
         </button>
       </div>
       }

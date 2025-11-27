@@ -154,44 +154,48 @@ import { NgClass } from '@angular/common';
             @for (param of getInputParams(); track param.key) {
             <div>
               @if (shouldExpandParam(param)) {
-                <!-- Large content with expand/collapse -->
-                <div class="px-2 py-1">
-                  <div class="flex gap-2 items-center mb-1">
-                    <span class="text-primary/70">{{ param.key }}:</span>
-                    <button
-                      type="button"
-                      class="btn btn-xs btn-ghost gap-1 h-4 min-h-4 px-1"
-                      (click)="toggleContentExpanded($event)"
-                    >
-                      <lucide-angular
-                        [img]="ChevronRightIcon"
-                        class="w-3 h-3 transition-transform"
-                        [class.rotate-90]="isContentExpanded()"
-                      />
-                      {{ isContentExpanded() ? 'Hide' : 'Show' }} content ({{ getContentSize(param.fullValue) }})
-                    </button>
-                  </div>
-                  @if (isContentExpanded()) {
-                    <div class="bg-base-300/50 rounded max-h-96 overflow-y-auto overflow-x-auto">
-                      <markdown
-                        [data]="getFormattedParamContent(param)"
-                        class="tool-output-markdown prose prose-xs prose-invert max-w-none [&_pre]:my-0 [&_pre]:rounded-none [&_code]:text-[10px] [&_pre]:bg-transparent [&_p]:my-1 [&_p]:text-[10px]"
-                      />
-                    </div>
-                  } @else {
-                    <div class="text-base-content/60 italic">
-                      {{ param.value }}
-                    </div>
-                  }
-                </div>
-              } @else {
-                <!-- Normal param display -->
-                <div class="flex gap-2 px-2 py-1">
+              <!-- Large content with expand/collapse -->
+              <div class="px-2 py-1">
+                <div class="flex gap-2 items-center mb-1">
                   <span class="text-primary/70">{{ param.key }}:</span>
-                  <span class="text-base-content/80 break-all">{{
-                    param.value
-                  }}</span>
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-ghost gap-1 h-4 min-h-4 px-1"
+                    (click)="toggleContentExpanded($event)"
+                  >
+                    <lucide-angular
+                      [img]="ChevronRightIcon"
+                      class="w-3 h-3 transition-transform"
+                      [class.rotate-90]="isContentExpanded()"
+                    />
+                    {{ isContentExpanded() ? 'Hide' : 'Show' }} content ({{
+                      getContentSize(param.fullValue)
+                    }})
+                  </button>
                 </div>
+                @if (isContentExpanded()) {
+                <div
+                  class="bg-base-300/50 rounded max-h-96 overflow-y-auto overflow-x-auto"
+                >
+                  <markdown
+                    [data]="getFormattedParamContent(param)"
+                    class="tool-output-markdown prose prose-xs prose-invert max-w-none [&_pre]:my-0 [&_pre]:rounded-none [&_code]:text-[10px] [&_pre]:bg-transparent [&_p]:my-1 [&_p]:text-[10px]"
+                  />
+                </div>
+                } @else {
+                <div class="text-base-content/60 italic">
+                  {{ param.value }}
+                </div>
+                }
+              </div>
+              } @else {
+              <!-- Normal param display -->
+              <div class="flex gap-2 px-2 py-1">
+                <span class="text-primary/70">{{ param.key }}:</span>
+                <span class="text-base-content/80 break-all">{{
+                  param.value
+                }}</span>
+              </div>
               }
             </div>
             }
@@ -218,9 +222,7 @@ import { NgClass } from '@angular/common';
 
         <!-- Permission Request -->
         @if (node().isPermissionRequest) {
-        <div
-          class="alert alert-warning text-[10px] py-2 px-3 mt-1.5"
-        >
+        <div class="alert alert-warning text-[10px] py-2 px-3 mt-1.5">
           <div class="flex items-start gap-2 mb-2">
             <lucide-angular
               [img]="ShieldAlertIcon"
@@ -466,7 +468,11 @@ export class ToolCallItemComponent {
     return Object.keys(toolInput).length > 0;
   }
 
-  protected getInputParams(): Array<{ key: string; value: string; fullValue: unknown }> {
+  protected getInputParams(): Array<{
+    key: string;
+    value: string;
+    fullValue: unknown;
+  }> {
     const toolInput = this.node().toolInput;
     if (!toolInput) return [];
 
@@ -481,11 +487,16 @@ export class ToolCallItemComponent {
    * Check if a parameter should have expand/collapse functionality
    * Currently applies to Write tool's content parameter
    */
-  protected shouldExpandParam(param: { key: string; value: string; fullValue: unknown }): boolean {
+  protected shouldExpandParam(param: {
+    key: string;
+    value: string;
+    fullValue: unknown;
+  }): boolean {
     const toolName = this.node().toolName;
     const isWriteTool = toolName === 'Write';
     const isContentParam = param.key === 'content';
-    const isLargeContent = typeof param.fullValue === 'string' && param.fullValue.length > 200;
+    const isLargeContent =
+      typeof param.fullValue === 'string' && param.fullValue.length > 200;
 
     return isWriteTool && isContentParam && isLargeContent;
   }
@@ -512,8 +523,14 @@ export class ToolCallItemComponent {
    * Format parameter content for markdown rendering
    * Detects language from file_path if available (for Write tool)
    */
-  protected getFormattedParamContent(param: { key: string; fullValue: unknown }): string {
-    const content = typeof param.fullValue === 'string' ? param.fullValue : JSON.stringify(param.fullValue, null, 2);
+  protected getFormattedParamContent(param: {
+    key: string;
+    fullValue: unknown;
+  }): string {
+    const content =
+      typeof param.fullValue === 'string'
+        ? param.fullValue
+        : JSON.stringify(param.fullValue, null, 2);
 
     // For Write tool, detect language from file_path
     if (this.node().toolName === 'Write' && param.key === 'content') {
@@ -543,13 +560,18 @@ export class ToolCallItemComponent {
     // Try to extract the actual question from the error message
     // Permission errors typically contain descriptive text about what's being requested
     const lines = error.split('\n');
-    const questionLine = lines.find(line =>
-      line.includes('?') ||
-      line.toLowerCase().includes('permission') ||
-      line.toLowerCase().includes('allow')
+    const questionLine = lines.find(
+      (line) =>
+        line.includes('?') ||
+        line.toLowerCase().includes('permission') ||
+        line.toLowerCase().includes('allow')
     );
 
-    return questionLine || error.split('\n')[0] || 'This tool requires permission to proceed.';
+    return (
+      questionLine ||
+      error.split('\n')[0] ||
+      'This tool requires permission to proceed.'
+    );
   }
 
   /**
@@ -558,21 +580,28 @@ export class ToolCallItemComponent {
   protected handlePermission(response: 'allow' | 'always' | 'deny'): void {
     const toolCallId = this.node().toolCallId;
     if (!toolCallId) {
-      console.error('[ToolCallItem] Cannot handle permission: missing toolCallId');
+      console.error(
+        '[ToolCallItem] Cannot handle permission: missing toolCallId'
+      );
       return;
     }
 
     console.log(`[ToolCallItem] Permission ${response} for tool ${toolCallId}`);
 
     // Call RPC service (stub for now - backend will implement)
-    this.rpcService.call('permission:respond', {
-      toolUseId: toolCallId,
-      response
-    }).then(result => {
-      if (result.isError()) {
-        console.error('[ToolCallItem] Permission response failed:', result.error);
-      }
-    });
+    this.rpcService
+      .call('permission:respond', {
+        toolUseId: toolCallId,
+        response,
+      })
+      .then((result) => {
+        if (result.isError()) {
+          console.error(
+            '[ToolCallItem] Permission response failed:',
+            result.error
+          );
+        }
+      });
   }
 
   /**

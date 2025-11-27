@@ -1291,7 +1291,6 @@ async function testMultipleMessagesOnStdin(): Promise<{
  * This is our current fallback pattern - can we reliably resume?
  */
 
-
 // Main execution
 async function main(): Promise<void> {
   logSection('PTAH Infrastructure Test Suite');
@@ -1323,7 +1322,6 @@ async function main(): Promise<void> {
       'EXPERIMENT 4: Multiple messages on stdin',
       testMultipleMessagesOnStdin
     );
-
   } else if (runAgentTest) {
     logSection('Agent Streaming Test (--agent-test mode)');
     await runTest('Agent Streaming JSONL Structure', testAgentStreaming);

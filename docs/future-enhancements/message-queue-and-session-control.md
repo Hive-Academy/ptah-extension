@@ -11,13 +11,13 @@ This document outlines the implementation plan for two related features:
 
 ### Experiment Results (Validated)
 
-| Test                          | Result             | Finding                                  |
-| ----------------------------- | ------------------ | ---------------------------------------- |
-| Interactive mode (no -p)      | failed -p is required for stream-json format              | Claude processes after stdin.end()       |
-| stdin.end vs newline          | stdin.end required | Newline alone doesn't trigger processing |
-| SIGINT interrupt              | Works              | Clean interruption with SIGINT           |
-| Multiple messages per process | Failed             | Session closes after result              |
-| --resume pattern              | Works              | Context preserved across processes       |
+| Test                          | Result                                       | Finding                                  |
+| ----------------------------- | -------------------------------------------- | ---------------------------------------- |
+| Interactive mode (no -p)      | failed -p is required for stream-json format | Claude processes after stdin.end()       |
+| stdin.end vs newline          | stdin.end required                           | Newline alone doesn't trigger processing |
+| SIGINT interrupt              | Works                                        | Clean interruption with SIGINT           |
+| Multiple messages per process | Failed                                       | Session closes after result              |
+| --resume pattern              | Works                                        | Context preserved across processes       |
 
 ### Key Insights
 
