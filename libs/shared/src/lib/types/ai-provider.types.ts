@@ -4,9 +4,9 @@
  */
 
 // Browser-compatible stream type
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Readable = any; // In browser context, will be replaced with appropriate stream type
-import { SessionId, MessageId, CorrelationId } from './branded.types';
-import { StrictChatMessage, MessageResponse } from './message.types';
+import { SessionId, CorrelationId } from './branded.types';
 
 /**
  * Supported AI Provider IDs

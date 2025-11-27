@@ -17,7 +17,7 @@ export class WebviewHtmlGenerator {
    */
   generateAngularWebviewContent(
     webview: vscode.Webview,
-    workspaceInfo?: any
+    workspaceInfo?: Record<string, unknown>
   ): string {
     try {
       const htmlContent = this._getHtmlForWebview(webview, workspaceInfo);
@@ -35,7 +35,7 @@ export class WebviewHtmlGenerator {
    */
   private _getHtmlForWebview(
     webview: vscode.Webview,
-    workspaceInfo?: any
+    workspaceInfo?: Record<string, unknown>
   ): string {
     // Path to Angular dist folder (browser build output)
     // FIXED: context.extensionPath already points to dist/apps/ptah-extension-vscode
@@ -250,7 +250,7 @@ export class WebviewHtmlGenerator {
    */
   private generateFallbackHtml(
     webview: vscode.Webview,
-    workspaceInfo?: any
+    workspaceInfo?: Record<string, unknown>
   ): string {
     const { scriptUri, stylesUri } = this.getAssetUris(webview);
     const nonce = this.generateNonce();
@@ -320,29 +320,13 @@ export class WebviewHtmlGenerator {
 
   private getThemeStyles(): string {
     return `
-      :root {
-        --vscode-font-family: var(--vscode-font-family, 'Segoe WPC', 'Segoe UI', sans-serif);
-        --vscode-font-size: var(--vscode-font-size, 13px);
-        --vscode-foreground: var(--vscode-foreground);
-        --vscode-background: var(--vscode-editor-background);
-        --vscode-sidebar-background: var(--vscode-sideBar-background);
-        --vscode-button-background: var(--vscode-button-background);
-        --vscode-button-foreground: var(--vscode-button-foreground);
-        --vscode-input-background: var(--vscode-input-background);
-        --vscode-input-foreground: var(--vscode-input-foreground);
-        --vscode-input-border: var(--vscode-input-border);
-      }
-
       body {
-        font-family: var(--vscode-font-family);
-        font-size: var(--vscode-font-size);
-        color: var(--vscode-foreground);
-        background-color: var(--vscode-background);
         margin: 0;
         padding: 0;
         overflow: hidden;
       }
 
+      /* Color scheme for native browser controls (scrollbars, inputs) */
       body.vscode-dark { color-scheme: dark; }
       body.vscode-light { color-scheme: light; }
       body.vscode-high-contrast { color-scheme: dark; }
@@ -351,7 +335,7 @@ export class WebviewHtmlGenerator {
 
   private getVSCodeIntegrationScript(
     theme: vscode.ColorThemeKind,
-    workspaceInfo?: any,
+    workspaceInfo?: Record<string, unknown>,
     webview?: vscode.Webview
   ): string {
     // Generate proper webview URIs for assets
@@ -378,8 +362,12 @@ export class WebviewHtmlGenerator {
       window.ptahConfig = {
         isVSCode: true,
         theme: '${this.getThemeString(theme)}',
-        workspaceRoot: '${workspaceInfo?.path || ''}',
-        workspaceName: '${workspaceInfo?.name || ''}',
+        workspaceRoot: '${this.escapeJsString(
+          String(workspaceInfo?.['path'] || '')
+        )}',
+        workspaceName: '${this.escapeJsString(
+          String(workspaceInfo?.['name'] || '')
+        )}',
         extensionUri: '${this.context.extensionUri.toString()}',
         baseUri: '${baseUri}',
         iconUri: '${iconUri}'
@@ -464,5 +452,36 @@ export class WebviewHtmlGenerator {
       text += possible.charAt(Math.floor(Math.random() * possible.length));
     }
     return text;
+  }
+
+  /**
+   * Escape a string for safe inclusion in JavaScript template literal
+   * Handles backslashes (Windows paths), quotes, and special characters
+   */
+  private escapeJsString(str: string): string {
+    return str
+      .replace(/\\/g, '\\\\') // Escape backslashes first
+      .replace(/'/g, "\\'") // Escape single quotes
+      .replace(/"/g, '\\"') // Escape double quotes
+      .replace(/\n/g, '\\n') // Escape newlines
+      .replace(/\r/g, '\\r'); // Escape carriage returns
+  }
+
+  public buildWorkspaceInfo(): Record<string, unknown> | null {
+    try {
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (!workspaceFolders || workspaceFolders.length === 0) {
+        return null;
+      }
+
+      const workspaceFolder = workspaceFolders[0];
+
+      return {
+        name: workspaceFolder.name,
+        path: workspaceFolder.uri.fsPath,
+      };
+    } catch (error) {
+      return null;
+    }
   }
 }

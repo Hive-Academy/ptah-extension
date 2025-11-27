@@ -16,6 +16,11 @@ export { GetGitStatusTool } from './lib/tools/get-git-status.tool';
 // Service exports
 export { LMToolsRegistrationService } from './lib/lm-tools-registration.service';
 
+// Code Execution MCP exports
+export { PtahAPIBuilder } from './lib/code-execution/ptah-api-builder.service';
+export { CodeExecutionMCP } from './lib/code-execution/code-execution-mcp.service';
+export type { PtahAPI } from './lib/code-execution/types';
+
 // Type exports
 export type {
   IAnalyzeWorkspaceParameters,

@@ -1,26 +1,16 @@
-import * as vscode from 'vscode';
-import { injectable, inject } from 'tsyringe';
 import {
   TOKENS,
-  type Logger,
-  EventBus,
   WebviewManager,
+  type Logger,
+  type RpcHandler,
 } from '@ptah-extension/vscode-core';
-// Import from libraries instead of local services
-import { SessionManager } from '@ptah-extension/claude-domain';
-import {
-  ContextManager,
-  ProviderManager,
-} from '@ptah-extension/ai-providers-core';
-import { CommandBuilderService } from '../services/command-builder.service';
-import { AnalyticsDataCollector } from '../services/analytics-data-collector';
-import { WebviewHtmlGenerator } from '../services/webview-html-generator';
+import { inject, injectable } from 'tsyringe';
+import * as vscode from 'vscode';
+// SessionManager, InteractiveSessionManager DELETED in TASK_2025_023 purge
+// Sessions now handled by ClaudeProcess via CLI --session-id flag
+import { type WebviewMessage } from '@ptah-extension/shared';
 import { WebviewEventQueue } from '../services/webview-event-queue';
-import { WebviewInitialDataBuilder } from '../services/webview-initial-data-builder';
-import {
-  type MessagePayloadMap,
-  type WebviewMessage,
-} from '@ptah-extension/shared';
+import { WebviewHtmlGenerator } from '../services/webview-html-generator';
 
 /**
  * Workspace information interface
@@ -56,22 +46,12 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     @inject(TOKENS.EXTENSION_CONTEXT)
     private readonly context: vscode.ExtensionContext,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.SESSION_MANAGER)
-    private readonly sessionManager: SessionManager,
-    @inject(TOKENS.CONTEXT_MANAGER)
-    private readonly contextManager: ContextManager,
-    @inject(TOKENS.EVENT_BUS) private readonly eventBus: EventBus,
-    @inject(TOKENS.PROVIDER_MANAGER)
-    private readonly providerManager: ProviderManager,
+    // SessionManager DELETED in TASK_2025_023 - ClaudeProcess handles sessions
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: WebviewManager,
     @inject(TOKENS.WEBVIEW_EVENT_QUEUE)
     private readonly eventQueue: WebviewEventQueue,
-    @inject(TOKENS.WEBVIEW_INITIAL_DATA_BUILDER)
-    private readonly initialDataBuilder: WebviewInitialDataBuilder,
-    // TODO: Convert these to DI once they are available
-    private commandBuilderService: CommandBuilderService,
-    private analyticsDataCollector: AnalyticsDataCollector
+    @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler // InteractiveSessionManager DELETED in TASK_2025_023 - ClaudeProcess handles sessions
   ) {
     this.htmlGenerator = new WebviewHtmlGenerator(context);
     this.initializeDevelopmentWatcher();
@@ -91,6 +71,9 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     this.webviewManager.registerWebviewView('ptah.main', webviewView);
     this.logger.info('Webview registered with WebviewManager as "ptah.main"');
 
+    // InteractiveSessionManager DELETED in TASK_2025_023
+    // Sessions now handled by ClaudeProcess via CLI --session-id flag
+
     // Configure webview for Angular app
     // NOTE: context.extensionUri already points to dist/apps/ptah-extension-vscode
     webviewView.webview.options = {
@@ -102,35 +85,19 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       ],
     };
 
-    // Set Angular HTML content using dedicated generator
-    // Get workspace info from initial data builder
-    const initialData = await this.initialDataBuilder.build();
-    const workspaceInfo = initialData.config.workspaceInfo;
-
     webviewView.webview.html = this.htmlGenerator.generateAngularWebviewContent(
       webviewView.webview,
-      workspaceInfo
+      this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>
     );
 
-    // Handle messages using the router
+    // TASK_2025_019 Phase 1: Setup RPC message listener
     webviewView.webview.onDidReceiveMessage(
-      this.handleWebviewMessage.bind(this),
+      async (message: any) => {
+        await this.handleWebviewMessage(message);
+      },
       undefined,
       this._disposables
     );
-
-    // Handle visibility changes
-    webviewView.onDidChangeVisibility(() => {
-      if (webviewView.visible) {
-        this.sendInitialData();
-      }
-    });
-
-    // Send initial data when webview loads
-    this.sendInitialData();
-
-    // Register command to open full panel
-    this.registerPanelCommand();
   }
 
   /**
@@ -157,20 +124,9 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       }
     );
 
-    // Get workspace info from initial data builder
-    const initialData = await this.initialDataBuilder.build();
-    const workspaceInfo = initialData.config.workspaceInfo;
-
     this._panel.webview.html = this.htmlGenerator.generateAngularWebviewContent(
       this._panel.webview,
-      workspaceInfo
-    );
-
-    // Handle messages from Angular app
-    this._panel.webview.onDidReceiveMessage(
-      this.handleWebviewMessage.bind(this),
-      undefined,
-      this._disposables
+      this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>
     );
 
     // Handle panel disposal
@@ -181,9 +137,6 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       undefined,
       this._disposables
     );
-
-    // Send initial data
-    this.sendInitialData(this._panel.webview);
   }
 
   /**
@@ -213,111 +166,6 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   private markWebviewReady(): void {
     this.eventQueue.markReady();
     this.eventQueue.flush((event) => this.postMessageDirect(event));
-  }
-
-  /**
-   * Handle messages from Angular application using EventBus
-   * Single Responsibility: Receive webview messages and publish to EventBus
-   * MessageHandlerService subscribes to EventBus and routes to orchestration services
-   *
-   * ARCHITECTURE: Webview → this.eventBus.publish() → MessageHandlerService → Orchestration Services
-   */
-  private async handleWebviewMessage(message: WebviewMessage): Promise<void> {
-    try {
-      this.logger.info(`Received webview message: ${message.type}`, {
-        hasPayload: !!message.payload,
-      });
-
-      // Handle special system messages locally (don't publish to EventBus)
-      if (message.type === 'ready' || message.type === 'webview-ready') {
-        this.logger.info('Webview ready signal received');
-        this.markWebviewReady(); // Mark as ready and flush queue
-        await this.sendInitialData();
-        return;
-      }
-
-      if (message.type === 'requestInitialData') {
-        this.logger.info('Angular requested initial data');
-        await this.sendInitialData();
-        return;
-      }
-
-      // Publish all routable messages to EventBus (exclude system messages)
-      // MessageHandlerService will handle routing to appropriate orchestration services
-      // System messages: initialData, ready, webview-ready, requestInitialData, themeChanged, navigate, error, refresh
-      const systemMessageTypes = [
-        'initialData',
-        'ready',
-        'webview-ready',
-        'requestInitialData',
-        'themeChanged',
-        'navigate',
-        'error',
-        'refresh',
-      ];
-      const isSystemMessage = systemMessageTypes.includes(message.type);
-
-      if (!isSystemMessage) {
-        this.logger.info(`Publishing message to EventBus: ${message.type}`);
-
-        // Publish to EventBus with webview as source
-        this.eventBus.publish(
-          message.type as keyof MessagePayloadMap,
-          message.payload,
-          'webview'
-        );
-
-        this.logger.info(`Message ${message.type} published to EventBus`);
-      } else {
-        // System message not handled above
-        this.logger.warn(`Unrecognized system message type: ${message.type}`);
-      }
-    } catch (error) {
-      this.logger.error('Error handling webview message:', error);
-      this.postMessage({
-        type: 'error',
-        payload: {
-          message: error instanceof Error ? error.message : 'Unknown error',
-          source: message.type,
-        },
-      });
-    }
-  }
-
-  /**
-   * Send initial data to Angular application (with guard to prevent redundant calls)
-   * Now uses WebviewInitialDataBuilder for type-safe construction
-   */
-  private async sendInitialData(webview?: vscode.Webview): Promise<void> {
-    const target = webview || this._view?.webview || this._panel?.webview;
-    if (!target) return;
-
-    // Guard: Prevent redundant initializations
-    if (this._initialDataSent) {
-      this.logger.info('Initial data already sent, skipping redundant call');
-      return;
-    }
-
-    try {
-      // Build type-safe initial data using service
-      const payload = await this.initialDataBuilder.build();
-
-      // Send to webview
-      target.postMessage({
-        type: 'initialData',
-        payload,
-      });
-
-      this._initialDataSent = true;
-      this.logger.info('Initial data sent to webview', {
-        sessionCount: payload.data.sessions.length,
-        providerCount: payload.data.providers.available.length,
-      });
-    } catch (error) {
-      // Reset flag on error to allow retry
-      this._initialDataSent = false;
-      this.logger.error('Error sending initial data:', error);
-    }
   }
 
   /**
@@ -397,7 +245,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         `Webview file changed: ${uri.fsPath} - Reloading webview`
       );
       this.reloadWebview();
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error('Error during hot reload:', error);
     }
   }
@@ -416,13 +264,9 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     this._initialDataSent = false;
     this.eventQueue.reset(); // Webview instance changes on reload
 
-    // Get workspace info from builder
-    const payload = await this.initialDataBuilder.build();
-    const workspaceInfo = payload.config.workspaceInfo;
-
     const newHtml = this.htmlGenerator.generateAngularWebviewContent(
       webview,
-      workspaceInfo
+      this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>
     );
 
     if (this._panel?.webview) {
@@ -449,6 +293,99 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     vscode.commands.registerCommand('ptah.openFullPanel', () => {
       this.createPanel();
     });
+  }
+
+  /**
+   * Handle messages from webview (RPC requests + webview-ready)
+   * TASK_2025_019 Phase 1: Route RPC requests to handler and send responses back
+   * TASK_2025_010 FIX: Handle webview-ready message to flush event queue
+   */
+  private async handleWebviewMessage(message: any): Promise<void> {
+    console.log(
+      '[AngularWebviewProvider] Received message from webview:',
+      message.type
+    );
+    this.logger.info('[AngularWebviewProvider] Processing message', {
+      type: message.type,
+    });
+
+    try {
+      // CRITICAL FIX: Handle webview-ready message
+      if (message.type === 'webview-ready') {
+        console.log('[AngularWebviewProvider] Webview ready signal received!');
+        this.logger.info(
+          'Webview ready signal received - flushing event queue'
+        );
+        this.markWebviewReady();
+        console.log('[AngularWebviewProvider] markWebviewReady() completed');
+        return;
+      }
+
+      // Handle RPC requests (support both 'rpc:request' and 'rpc:call' for compatibility)
+      if (message.type === 'rpc:request' || message.type === 'rpc:call') {
+        // Frontend wraps RPC data in 'payload' object, so unwrap it
+        const rpcData = message.payload || message;
+        const { requestId, method, params, correlationId } = rpcData;
+        const reqId = requestId || correlationId; // Support both field names
+
+        console.log('[AngularWebviewProvider] RPC call:', {
+          method,
+          params,
+          correlationId: reqId,
+        });
+
+        try {
+          // Call RPC handler
+          const response = await this.rpcHandler.handleMessage({
+            method,
+            params,
+            correlationId: reqId,
+          });
+
+          // Send response back to webview
+          // CRITICAL: Send BOTH requestId AND correlationId for compatibility
+          // - VSCodeService.sendRequest() expects requestId
+          // - ClaudeRpcService expects correlationId
+          this.postMessageDirect({
+            type: 'rpc:response',
+            requestId: reqId,
+            correlationId: reqId, // ClaudeRpcService expects this field
+            success: response.success,
+            data: response.data, // ClaudeRpcService expects 'data'
+            result: response.data, // VSCodeService.sendRequest() expects 'result'
+            error: response.error ? { message: response.error } : undefined,
+          } as any);
+        } catch (error) {
+          // Send error response with both field formats for compatibility
+          this.postMessageDirect({
+            type: 'rpc:response',
+            requestId: reqId,
+            correlationId: reqId,
+            success: false,
+            data: undefined,
+            result: undefined,
+            error: {
+              message: error instanceof Error ? error.message : 'Unknown error',
+            },
+          } as any);
+        }
+        return;
+      }
+
+      // Log unhandled message types
+      this.logger.warn('Unhandled webview message type', {
+        type: message.type,
+      });
+    } catch (error) {
+      console.error(
+        '[AngularWebviewProvider] Error in handleWebviewMessage:',
+        error
+      );
+      this.logger.error(
+        'Failed to handle webview message',
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
   }
 
   /**

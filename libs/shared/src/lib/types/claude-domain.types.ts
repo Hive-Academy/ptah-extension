@@ -1,76 +1,11 @@
 /**
  * Claude Domain Types - Shared types for Claude CLI integration
- * Used across extension and webview for permissions, tool events, and streaming
+ * Used across extension and webview for tool events and streaming
  */
 
 import { z } from 'zod';
 import { SessionId } from './branded.types';
-
-/**
- * Permission Decision Types
- */
-export type PermissionDecision = 'allow' | 'deny' | 'always_allow';
-
-export const PermissionDecisionSchema = z.enum([
-  'allow',
-  'deny',
-  'always_allow',
-]);
-
-/**
- * Permission Rule - Defines an "always allow" pattern for commands
- */
-export interface ClaudePermissionRule {
-  readonly id: string;
-  readonly pattern: string; // Glob pattern for command matching
-  readonly scope: 'workspace' | 'user' | 'session';
-  readonly createdAt: number;
-  readonly expiresAt?: number; // Optional expiration timestamp
-}
-
-export const ClaudePermissionRuleSchema = z.object({
-  id: z.string(),
-  pattern: z.string(),
-  scope: z.enum(['workspace', 'user', 'session']),
-  createdAt: z.number(),
-  expiresAt: z.number().optional(),
-});
-
-/**
- * Permission Request - From Claude CLI requesting tool execution permission
- */
-export interface ClaudePermissionRequest {
-  readonly toolCallId: string;
-  readonly tool: string;
-  readonly args: Record<string, unknown>;
-  readonly description?: string;
-  readonly timestamp: number;
-}
-
-export const ClaudePermissionRequestSchema = z.object({
-  toolCallId: z.string(),
-  tool: z.string(),
-  args: z.record(z.unknown()),
-  description: z.string().optional(),
-  timestamp: z.number(),
-});
-
-/**
- * Permission Response - Response to permission request
- */
-export interface ClaudePermissionResponse {
-  readonly toolCallId: string;
-  readonly decision: PermissionDecision;
-  readonly provenance: 'user' | 'rule' | 'yolo';
-  readonly timestamp: number;
-}
-
-export const ClaudePermissionResponseSchema = z.object({
-  toolCallId: z.string(),
-  decision: PermissionDecisionSchema,
-  provenance: z.enum(['user', 'rule', 'yolo']),
-  timestamp: z.number(),
-});
+import { ContentBlock } from './message.types';
 
 /**
  * Tool Event Types - For event bus communication
@@ -117,7 +52,7 @@ export const ClaudeToolEventStartSchema = z.object({
   type: z.literal('start'),
   toolCallId: z.string(),
   tool: z.string(),
-  args: z.record(z.unknown()),
+  args: z.record(z.string(), z.unknown()),
   timestamp: z.number(),
 });
 
@@ -155,14 +90,14 @@ export const ClaudeToolEventSchema = z.discriminatedUnion('type', [
  */
 export interface ClaudeContentChunk {
   readonly type: 'content';
-  readonly delta: string;
+  readonly blocks: readonly ContentBlock[];
   readonly index?: number;
   readonly timestamp: number;
 }
 
 export const ClaudeContentChunkSchema = z.object({
   type: z.literal('content'),
-  delta: z.string(),
+  blocks: z.array(z.unknown()), // ContentBlock validation handled separately
   index: z.number().optional(),
   timestamp: z.number(),
 });
@@ -325,7 +260,7 @@ export const ClaudeAgentActivityEventSchema = z
     type: z.literal('agent_activity'),
     agentId: z.string(),
     toolName: z.string(),
-    toolInput: z.record(z.unknown()),
+    toolInput: z.record(z.string(), z.unknown()),
     timestamp: z.number(),
   })
   .strict();
@@ -345,3 +280,63 @@ export const ClaudeAgentEventSchema = z.discriminatedUnion('type', [
   ClaudeAgentActivityEventSchema,
   ClaudeAgentCompleteEventSchema,
 ]);
+
+/**
+ * Session UI Data - Complete session metadata for UI display
+ * Source: SessionManager.getSessionsUIData()
+ * Purpose: Display session list with full metadata (token usage, active state, workspace)
+ * Pattern: Single source of truth for session metadata across frontend and backend
+ */
+export interface SessionUIData {
+  /** Unique session identifier */
+  readonly id: string;
+  /** Session name (user-provided or auto-generated) */
+  readonly name: string;
+  /** Workspace identifier (if applicable) */
+  readonly workspaceId?: string;
+  /** Total messages in session */
+  readonly messageCount: number;
+  /** Token usage statistics */
+  readonly tokenUsage: {
+    readonly input: number;
+    readonly output: number;
+    readonly total: number;
+  };
+  /** Session creation timestamp (Unix epoch milliseconds) */
+  readonly createdAt: number;
+  /** Last activity timestamp (Unix epoch milliseconds) */
+  readonly lastActiveAt: number;
+  /** Whether this session is currently active */
+  readonly isActive: boolean;
+}
+
+/**
+ * SessionUIData Zod Schema - Runtime validation
+ * Used by RPC methods to validate session data from backend
+ */
+export const SessionUIDataSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  workspaceId: z.string().optional(),
+  messageCount: z.number().int().nonnegative(),
+  tokenUsage: z.object({
+    input: z.number().int().nonnegative(),
+    output: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+  }),
+  createdAt: z.number().int().positive(),
+  lastActiveAt: z.number().int().positive(),
+  isActive: z.boolean(),
+});
+
+/**
+ * @deprecated Use SessionUIData instead
+ * Legacy alias for backward compatibility - will be removed in future release
+ */
+export type SessionSummary = SessionUIData;
+
+/**
+ * @deprecated Use SessionUIDataSchema instead
+ * Legacy alias for backward compatibility - will be removed in future release
+ */
+export const SessionSummarySchema = SessionUIDataSchema;

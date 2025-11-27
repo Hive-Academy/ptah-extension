@@ -4,6 +4,7 @@
  * Validates user requirements from TASK_CMD_003
  */
 
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-unused-vars */
 import 'reflect-metadata';
 import * as vscode from 'vscode';
 import {

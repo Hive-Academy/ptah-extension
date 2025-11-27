@@ -15,7 +15,7 @@
  * @packageDocumentation
  */
 
-import { injectable } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 import * as vscode from 'vscode';
 import { ProjectType } from '../types/workspace.types';
 import { FileSystemService } from '../services/file-system.service';
@@ -29,6 +29,11 @@ import {
 } from '../workspace/workspace.service';
 import { ContextService } from '../context/context.service';
 import { WorkspaceIndexerService } from '../file-indexing/workspace-indexer.service';
+import { TreeSitterParserService } from '../ast/tree-sitter-parser.service';
+import { AstAnalysisService } from '../ast/ast-analysis.service';
+import { CodeInsights } from '../ast/ast-analysis.interfaces';
+import { SupportedLanguage } from '../ast/ast.types';
+import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 
 /**
  * Workspace information interface (matches old WorkspaceManager)
@@ -80,7 +85,13 @@ export class WorkspaceAnalyzerService implements vscode.Disposable {
     private readonly dependencyAnalyzer: DependencyAnalyzerService,
     private readonly workspaceService: WorkspaceService,
     private readonly contextService: ContextService,
-    private readonly indexer: WorkspaceIndexerService
+    private readonly indexer: WorkspaceIndexerService,
+    @inject(TOKENS.TREE_SITTER_PARSER_SERVICE)
+    private readonly treeSitterParser: TreeSitterParserService,
+    @inject(TOKENS.AST_ANALYSIS_SERVICE)
+    private readonly astAnalyzer: AstAnalysisService,
+    @inject(TOKENS.LOGGER)
+    private readonly logger: Logger
   ) {
     this.initialize();
   }
@@ -323,6 +334,80 @@ export class WorkspaceAnalyzerService implements vscode.Disposable {
     }
 
     return files;
+  }
+
+  /**
+   * Extracts code insights from a TypeScript/JavaScript file using AST analysis.
+   *
+   * **Phase 2 Implementation**: Returns empty insights (stub).
+   * **Phase 3 Integration**: Will use LLM to extract structured code insights.
+   *
+   * @param filePath - Absolute path to TypeScript/JavaScript file
+   * @returns Code insights (functions, classes, imports) or null on failure
+   *
+   * @example
+   * ```typescript
+   * const insights = await analyzer.extractCodeInsights('/path/to/file.ts');
+   * if (insights) {
+   *   console.log(`Found ${insights.functions.length} functions`);
+   *   console.log(`Found ${insights.classes.length} classes`);
+   *   console.log(`Found ${insights.imports.length} imports`);
+   * }
+   * ```
+   */
+  async extractCodeInsights(filePath: string): Promise<CodeInsights | null> {
+    try {
+      // Read file content
+      const uri = vscode.Uri.file(filePath);
+      const content = await this.fileSystemService.readFile(uri);
+
+      // Detect language from extension
+      const language: SupportedLanguage =
+        filePath.endsWith('.ts') || filePath.endsWith('.tsx')
+          ? 'typescript'
+          : 'javascript';
+
+      this.logger.debug(
+        `Extracting code insights from ${filePath} (language: ${language})`
+      );
+
+      // Parse to AST
+      const astResult = this.treeSitterParser.parse(content, language);
+      if (astResult.isErr()) {
+        this.logger.error(
+          `AST parsing failed for ${filePath}`,
+          astResult.error
+        );
+        return null;
+      }
+
+      this.logger.debug(`AST parsed successfully for ${filePath}`);
+
+      // Analyze AST (Phase 2: stub returns empty insights)
+      const insightsResult = await this.astAnalyzer.analyzeAst(
+        astResult.value!,
+        filePath
+      );
+
+      if (insightsResult.isErr()) {
+        this.logger.error(
+          `AST analysis failed for ${filePath}`,
+          insightsResult.error!
+        );
+        return null;
+      }
+
+      this.logger.debug(
+        `Code insights extracted for ${filePath} - Phase 2 stub (empty insights)`
+      );
+      return insightsResult.value!;
+    } catch (error) {
+      this.logger.error(
+        `Error extracting code insights from ${filePath}:`,
+        error instanceof Error ? error : new Error(String(error))
+      );
+      return null;
+    }
   }
 
   /**

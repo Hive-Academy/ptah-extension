@@ -1,0 +1,13 @@
+{
+  "name": "@ptah-extension/llm-abstraction",
+  "version": "0.0.1",
+  "private": true,
+  "type": "commonjs",
+  "main": "./index.cjs",
+  "types": "./index.d.ts",
+  "dependencies": {
+    "@ptah-extension/shared": "*",
+    "@ptah-extension/vscode-core": "0.0.1",
+    "tsyringe": "^4.8.0"
+  }
+}

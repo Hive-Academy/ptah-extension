@@ -1,6 +1,12 @@
-import { Injectable, signal, computed, inject } from '@angular/core';
+/**
+ * App State Manager - SIMPLIFIED for TASK_2025_023
+ *
+ * Keeping essential navigation and loading state.
+ * This service is already well-designed with signals.
+ */
+
+import { Injectable, signal, computed } from '@angular/core';
 import { WorkspaceInfo } from '@ptah-extension/shared';
-import { VSCodeService } from './vscode.service';
 
 export type ViewType =
   | 'chat'
@@ -17,38 +23,22 @@ export interface AppState {
   isConnected: boolean;
 }
 
-interface InitialState {
-  initialView?: ViewType;
-  previousState?: {
-    currentView?: ViewType;
-  };
-}
-
-interface InitialDataPayload {
-  workspaceInfo?: WorkspaceInfo;
-  currentView?: ViewType;
-}
-
 /**
- * App State Manager - Angular 20+ Signal-Based
- * - Already uses modern signal pattern ✅
- * - OnPush compatible state management
- * - Computed signals for derived state
- * - Pure reactive state updates
+ * App State Manager - Signal-based global state
+ * KEEPING: This service is clean and functional
  */
-@Injectable({
-  providedIn: 'root',
-})
+@Injectable({ providedIn: 'root' })
 export class AppStateManager {
-  // Service injection using inject() (Angular 20+)
-  private readonly vscodeService = inject(VSCodeService);
-
   // Core state signals
   private readonly _currentView = signal<ViewType>('chat');
   private readonly _isLoading = signal(false);
   private readonly _statusMessage = signal('Ready');
   private readonly _workspaceInfo = signal<WorkspaceInfo | null>(null);
   private readonly _isConnected = signal(true);
+
+  constructor() {
+    this.initializeState();
+  }
 
   // Public readonly signals
   readonly currentView = this._currentView.asReadonly();
@@ -66,28 +56,16 @@ export class AppStateManager {
     return workspace ? `Ptah - ${workspace.name}` : 'Ptah';
   });
 
-  constructor() {
-    this.initializeState();
-  }
-
   private initializeState(): void {
-    // Get initial view from window global (set by VS Code provider)
-    const windowWithState = window as Window & InitialState;
+    const windowWithState = window as Window & { initialView?: ViewType };
     const initialView = windowWithState.initialView || 'chat';
     this._currentView.set(initialView);
-
-    // Restore previous state if available
-    const previousState = windowWithState.previousState;
-    if (previousState?.currentView) {
-      this._currentView.set(previousState.currentView);
-    }
   }
 
   // State update methods
   setCurrentView(view: ViewType): void {
     if (this.canSwitchViews()) {
       this._currentView.set(view);
-      this.persistState();
     }
   }
 
@@ -113,39 +91,23 @@ export class AppStateManager {
     }
   }
 
-  // Handle initial data from VS Code
-  handleInitialData(data: InitialDataPayload): void {
-    if (data.workspaceInfo) {
-      this.setWorkspaceInfo(data.workspaceInfo);
-    }
-    if (data.currentView) {
-      this._currentView.set(data.currentView);
-    }
+  handleInitialData(data: {
+    workspaceInfo?: WorkspaceInfo;
+    currentView?: ViewType;
+  }): void {
+    if (data.workspaceInfo) this.setWorkspaceInfo(data.workspaceInfo);
+    if (data.currentView) this._currentView.set(data.currentView);
     this.setConnected(true);
   }
 
-  // Handle view switching from VS Code
   handleViewSwitch(view: ViewType): void {
     this._currentView.set(view);
-    this.persistState();
   }
 
-  // Handle errors
   handleError(error: string): void {
     this.setStatusMessage(`Error: ${error}`);
   }
 
-  // State persistence
-  private persistState(): void {
-    const state = {
-      currentView: this._currentView(),
-      timestamp: new Date().toISOString(),
-    };
-
-    this.vscodeService.saveState(state);
-  }
-
-  // Get current state snapshot
   getStateSnapshot(): AppState {
     return {
       currentView: this._currentView(),

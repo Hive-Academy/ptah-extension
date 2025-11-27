@@ -1,11 +1,9 @@
 // CRITICAL: reflect-metadata MUST be imported first for TSyringe to work
 import 'reflect-metadata';
 
-import type { ConfigManager, Logger } from '@ptah-extension/vscode-core';
+import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import * as vscode from 'vscode';
-import { AnalyticsDataCollectorAdapter } from './adapters/analytics-data-collector.adapter';
-import { ConfigurationProviderAdapter } from './adapters/configuration-provider.adapter';
 import { PtahExtension } from './core/ptah-extension';
 import { DIContainer } from './di/container';
 
@@ -27,12 +25,31 @@ export async function activate(
     logger.info('Activating Ptah extension...');
     console.log('[Activate] Step 2: Logger resolved');
 
-    // Initialize MessageHandlerService to start event routing
-    console.log('[Activate] Step 3: Initializing MessageHandlerService...');
-    const messageHandler = DIContainer.resolve(TOKENS.MESSAGE_HANDLER_SERVICE);
-    (messageHandler as { initialize: () => void }).initialize();
-    logger.info('MessageHandlerService initialized and subscribed to EventBus');
-    console.log('[Activate] Step 3: MessageHandlerService initialized');
+    // Register RPC Methods (Phase 2 - TASK_2025_021)
+    // Extracted to RpcMethodRegistrationService for clean separation
+    console.log('[Activate] Step 3.6: Registering RPC methods...');
+    const rpcMethodRegistration = DIContainer.resolve(
+      TOKENS.RPC_METHOD_REGISTRATION_SERVICE
+    ) as { registerAll: () => void };
+    rpcMethodRegistration.registerAll();
+    console.log('[Activate] Step 3.6: RPC methods registered');
+
+    // Initialize autocomplete discovery watchers (TASK_2025_019 Phase 2)
+    console.log('[Activate] Step 3.7: Initializing autocomplete watchers...');
+    const agentDiscovery = DIContainer.resolve(
+      TOKENS.AGENT_DISCOVERY_SERVICE
+    ) as any;
+    const mcpDiscovery = DIContainer.resolve(
+      TOKENS.MCP_DISCOVERY_SERVICE
+    ) as any;
+    const commandDiscovery = DIContainer.resolve(
+      TOKENS.COMMAND_DISCOVERY_SERVICE
+    ) as any;
+    agentDiscovery.initializeWatchers();
+    mcpDiscovery.initializeWatchers();
+    commandDiscovery.initializeWatchers();
+    logger.info('Autocomplete discovery watchers initialized (3 services)');
+    console.log('[Activate] Step 3.7: Autocomplete watchers initialized');
 
     // Initialize main extension controller
     console.log('[Activate] Step 4: Creating PtahExtension instance...');
@@ -45,27 +62,11 @@ export async function activate(
 
     // Register late-binding adapters (require PtahExtension initialization)
     console.log('[Activate] Step 6: Registering late-binding adapters...');
-    const container = DIContainer.getContainer();
-
     // NOTE: CONFIGURATION_PROVIDER is now registered in DIContainer.setup()
     // It was moved there to fix dependency injection order (ConfigOrchestrationService depends on it)
-
-    // AnalyticsDataCollector adapter
-    const analyticsDataCollector = ptahExtension.getAnalyticsDataCollector();
-    if (!analyticsDataCollector) {
-      const error = 'AnalyticsDataCollector not initialized in PtahExtension';
-      console.error('[Activate] ERROR:', error);
-      throw new Error(error);
-    }
-    const analyticsCollectorAdapter = new AnalyticsDataCollectorAdapter(
-      analyticsDataCollector
+    console.log(
+      '[Activate] Step 6: Late-binding adapters registered (analytics removed)'
     );
-    container.register(TOKENS.ANALYTICS_DATA_COLLECTOR, {
-      useValue: analyticsCollectorAdapter,
-    });
-    logger.info('AnalyticsDataCollector adapter registered');
-    console.log('[Activate] AnalyticsDataCollector adapter registered');
-    console.log('[Activate] Step 6: Late-binding adapters registered');
 
     // Register all providers, commands, and services
     console.log('[Activate] Step 7: Calling ptahExtension.registerAll()...');
@@ -85,6 +86,52 @@ export async function activate(
     logger.info('Language Model Tools registered (6 tools)');
     console.log('[Activate] Step 8: Language Model Tools registered');
 
+    // Start Code Execution MCP Server
+    console.log('[Activate] Step 9: Starting Code Execution MCP Server...');
+    const codeExecutionMCP = DIContainer.resolve(TOKENS.CODE_EXECUTION_MCP);
+    const mcpPort = await (
+      codeExecutionMCP as { start: () => Promise<number> }
+    ).start();
+    context.subscriptions.push(codeExecutionMCP as vscode.Disposable);
+    logger.info(`Code Execution MCP Server started on port ${mcpPort}`);
+    console.log(
+      `[Activate] Step 9: Code Execution MCP Server started (port ${mcpPort})`
+    );
+
+    // Register Ptah MCP server with Claude CLI (one-time)
+    console.log(
+      '[Activate] Step 10: Registering MCP server with Claude CLI...'
+    );
+
+    try {
+      const mcpRegistration = DIContainer.resolve(
+        TOKENS.MCP_REGISTRATION_SERVICE
+      );
+
+      await (
+        mcpRegistration as { registerPtahMCPServer: () => Promise<void> }
+      ).registerPtahMCPServer();
+
+      logger.info('MCP server registered with Claude CLI', {
+        context: 'Extension Activation',
+        status: 'registered',
+        scope: 'local',
+        url: 'http://localhost:${PTAH_MCP_PORT}',
+      });
+      console.log('[Activate] Step 10: MCP server registered with Claude CLI');
+    } catch (error) {
+      // Fix: Logger.error now takes 2 params: (message, errorOrContext)
+      logger.error(
+        'Failed to register MCP server (non-blocking)',
+        error instanceof Error ? error : new Error(String(error))
+      );
+      console.warn(
+        '[Activate] Step 10: MCP registration failed (non-blocking)',
+        error
+      );
+      // Don't block extension activation if MCP registration fails
+    }
+
     logger.info('Ptah extension activated successfully');
     console.log('===== PTAH ACTIVATION COMPLETE =====');
 
@@ -102,7 +149,10 @@ export async function activate(
       error instanceof Error ? error.stack : 'No stack trace'
     );
     const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
-    logger.error('Failed to activate Ptah extension', error);
+    logger.error(
+      'Failed to activate Ptah extension',
+      error instanceof Error ? error : new Error(String(error))
+    );
     vscode.window.showErrorMessage(
       `Ptah activation failed: ${
         error instanceof Error ? error.message : 'Unknown error'

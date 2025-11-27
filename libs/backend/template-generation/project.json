@@ -1,0 +1,37 @@
+{
+  "name": "@ptah-extension/template-generation",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/backend/template-generation/src",
+  "projectType": "library",
+  "tags": ["scope:extension", "type:feature"],
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/backend/template-generation",
+        "main": "libs/backend/template-generation/src/index.ts",
+        "tsConfig": "libs/backend/template-generation/tsconfig.lib.json",
+        "assets": ["libs/backend/template-generation/*.md"],
+        "format": ["cjs"],
+        "external": ["tsyringe", "@langchain/core", "zod", "vscode"]
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/backend/template-generation/jest.config.ts"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project libs/backend/template-generation/tsconfig.lib.json"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    }
+  }
+}

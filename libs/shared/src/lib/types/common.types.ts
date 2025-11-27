@@ -1,4 +1,3 @@
-import { SessionId, MessageId } from './branded.types';
 import { StrictChatMessage, StrictChatSession } from './message.types';
 
 /**

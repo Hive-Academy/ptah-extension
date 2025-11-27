@@ -1,9 +1,14 @@
 /**
- * Messaging Module Exports
- * Provides centralized access to all messaging-related components
+ * Messaging Module - RPC Infrastructure
+ * Phase 2: RPC Migration (TASK_2025_021)
+ *
+ * This module exports the RPC handler infrastructure that replaces
+ * the old event-based messaging system (deleted in Phase 0).
  */
 
-export { EventBus } from './event-bus';
-export type { TypedEvent, RequestEvent, ResponseEvent } from './event-bus';
+// RPC Handler (Phase 2 - TASK_2025_021)
+export { RpcHandler } from './rpc-handler';
+export type { RpcMessage, RpcResponse, RpcMethodHandler } from './rpc-types';
 
-export { WebviewMessageBridge } from './webview-message-bridge';
+// RPC Method Registration Service (Clean separation of concerns)
+export { RpcMethodRegistrationService } from './rpc-method-registration.service';

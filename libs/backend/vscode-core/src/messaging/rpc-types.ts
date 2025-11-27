@@ -1,0 +1,41 @@
+/**
+ * RPC Types - Type definitions for RPC messaging system
+ * Phase 2: RPC Migration (TASK_2025_021)
+ *
+ * These types replace the old event-based messaging system (deleted in Phase 0).
+ * Instead of 94 message types and EventBus subscriptions, we use simple RPC method routing.
+ */
+
+/**
+ * RPC message from frontend to backend
+ * Sent via webview.postMessage() and received by extension host
+ */
+export interface RpcMessage {
+  /** Method name (e.g., 'session:list', 'chat:sendMessage') */
+  method: string;
+  /** Method parameters (arbitrary data) */
+  params: unknown;
+  /** Correlation ID for matching requests with responses */
+  correlationId: string;
+}
+
+/**
+ * RPC response from backend to frontend
+ * Sent back via webview.postMessage() after method execution
+ */
+export interface RpcResponse<T = unknown> {
+  /** Whether the RPC method execution succeeded */
+  success: boolean;
+  /** Response data (if success=true) */
+  data?: T;
+  /** Error message (if success=false) */
+  error?: string;
+  /** Correlation ID matching the original request */
+  correlationId: string;
+}
+
+/**
+ * RPC method handler function signature
+ * All handlers are async and return arbitrary data
+ */
+export type RpcMethodHandler = (params: unknown) => Promise<unknown>;

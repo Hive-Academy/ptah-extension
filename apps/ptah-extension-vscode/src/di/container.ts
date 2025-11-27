@@ -21,8 +21,6 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 
 // Import vscode-core services
 import {
-  EventBus,
-  WebviewMessageBridge,
   Logger,
   ErrorHandler,
   ConfigManager,
@@ -32,6 +30,9 @@ import {
   OutputManager,
   StatusBarManager,
   FileSystemManager,
+  RpcHandler,
+  RpcMethodRegistrationService,
+  SessionDiscoveryService,
 } from '@ptah-extension/vscode-core';
 
 // Import workspace-intelligence services
@@ -52,6 +53,11 @@ import {
   FileRelevanceScorerService,
   ContextSizeOptimizerService,
   ContextOrchestrationService,
+  TreeSitterParserService,
+  AstAnalysisService,
+  AgentDiscoveryService,
+  MCPDiscoveryService,
+  CommandDiscoveryService,
 } from '@ptah-extension/workspace-intelligence';
 
 // Import VS Code Language Model Tools
@@ -63,42 +69,24 @@ import {
   FindSymbolTool,
   GetGitStatusTool,
   LMToolsRegistrationService,
+  PtahAPIBuilder,
+  CodeExecutionMCP,
 } from '@ptah-extension/vscode-lm-tools';
-
-// Import ai-providers-core services
-import {
-  IntelligentProviderStrategy,
-  ProviderManager,
-  ContextManager,
-  ClaudeCliAdapter,
-  VsCodeLmAdapter,
-} from '@ptah-extension/ai-providers-core';
 
 // Import claude-domain services
 import {
   ClaudeCliDetector,
-  SessionManager,
   ProcessManager,
-  ClaudeDomainEventPublisher,
-  PermissionService,
   ClaudeCliService,
-  ChatOrchestrationService,
-  ProviderOrchestrationService,
-  AnalyticsOrchestrationService,
-  ConfigOrchestrationService,
-  MessageHandlerService,
-  CommandService,
-  InMemoryPermissionRulesStore,
+  MCPRegistrationService,
+  ClaudeProcess,
+  // DELETED in TASK_2025_023 purge: SessionManager, InteractiveSessionManager, ClaudeCliLauncher
+  // DELETED: PermissionService, InMemoryPermissionRulesStore (over-engineered, unused)
 } from '@ptah-extension/claude-domain';
 
-// Import main app services
-import { AnalyticsDataCollector } from '../services/analytics-data-collector';
-import { CommandBuilderService } from '../services/command-builder.service';
+// Import webview support services
 import { WebviewEventQueue } from '../services/webview-event-queue';
-import { WebviewInitialDataBuilder } from '../services/webview-initial-data-builder';
 import { AngularWebviewProvider } from '../providers/angular-webview.provider';
-import { ConfigurationProviderAdapter } from '../adapters/configuration-provider.adapter';
-import { AnalyticsDataCollectorAdapter } from '../adapters/analytics-data-collector.adapter';
 
 /**
  * Centralized DI Container
@@ -112,12 +100,15 @@ export class DIContainer {
    */
   static setup(context: vscode.ExtensionContext): DependencyContainer {
     // ========================================
+    // PHASE 0: Extension Context (MUST BE FIRST)
+    // ========================================
+    // Extension Context must be registered BEFORE any services that depend on it
+    container.register(TOKENS.EXTENSION_CONTEXT, { useValue: context });
+
+    // ========================================
     // PHASE 1: Infrastructure Services (vscode-core)
     // ========================================
     // These must be registered FIRST as they're dependencies for everything else
-
-    // Event Bus - CRITICAL: Register first (many services depend on it)
-    container.registerSingleton(TOKENS.EVENT_BUS, EventBus);
 
     // Core infrastructure
     container.registerSingleton(TOKENS.LOGGER, Logger);
@@ -128,13 +119,8 @@ export class DIContainer {
       MessageValidatorService
     );
 
-    // Configuration Provider Adapter (depends on ConfigManager)
-    container.register(TOKENS.CONFIGURATION_PROVIDER, {
-      useFactory: (c) => {
-        const configManager = c.resolve<ConfigManager>(TOKENS.CONFIG_MANAGER);
-        return new ConfigurationProviderAdapter(configManager);
-      },
-    });
+    // NOTE: CONFIGURATION_PROVIDER token removed - orchestration services deleted in RPC Phase 3.5
+    // Configuration now accessed directly via ConfigManager
 
     // API Wrappers
     container.registerSingleton(TOKENS.COMMAND_MANAGER, CommandManager);
@@ -143,14 +129,26 @@ export class DIContainer {
     container.registerSingleton(TOKENS.STATUS_BAR_MANAGER, StatusBarManager);
     container.registerSingleton(TOKENS.FILE_SYSTEM_MANAGER, FileSystemManager);
 
-    // WebviewMessageBridge (depends on EventBus + WebviewManager)
+    // RPC Handler (Phase 2 - TASK_2025_021)
+    container.registerSingleton(TOKENS.RPC_HANDLER, RpcHandler);
+
+    // RPC Method Registration Service (Phase 2 - Clean separation)
     container.registerSingleton(
-      TOKENS.WEBVIEW_MESSAGE_BRIDGE,
-      WebviewMessageBridge
+      TOKENS.RPC_METHOD_REGISTRATION_SERVICE,
+      RpcMethodRegistrationService
     );
 
-    // Extension Context (value registration)
-    container.register(TOKENS.EXTENSION_CONTEXT, { useValue: context });
+    // Session Discovery Service (extracted from RpcMethodRegistrationService)
+    container.registerSingleton(
+      TOKENS.SESSION_DISCOVERY_SERVICE,
+      SessionDiscoveryService
+    );
+
+    // ClaudeProcess factory (Batch 4 - TASK_2025_023)
+    container.register('ClaudeProcessFactory', {
+      useValue: (cliPath: string, workspacePath: string) =>
+        new ClaudeProcess(cliPath, workspacePath),
+    });
 
     // ========================================
     // PHASE 2: Workspace Intelligence Services
@@ -221,6 +219,30 @@ export class DIContainer {
       ContextOrchestrationService
     );
 
+    // AST services (Phase 2: RooCode migration)
+    container.registerSingleton(
+      TOKENS.TREE_SITTER_PARSER_SERVICE,
+      TreeSitterParserService
+    );
+    container.registerSingleton(
+      TOKENS.AST_ANALYSIS_SERVICE,
+      AstAnalysisService
+    );
+
+    // Autocomplete discovery services (TASK_2025_019)
+    container.registerSingleton(
+      TOKENS.AGENT_DISCOVERY_SERVICE,
+      AgentDiscoveryService
+    );
+    container.registerSingleton(
+      TOKENS.MCP_DISCOVERY_SERVICE,
+      MCPDiscoveryService
+    );
+    container.registerSingleton(
+      TOKENS.COMMAND_DISCOVERY_SERVICE,
+      CommandDiscoveryService
+    );
+
     // ========================================
     // PHASE 2.5: VS Code Language Model Tools
     // ========================================
@@ -249,40 +271,20 @@ export class DIContainer {
       LMToolsRegistrationService
     );
 
-    // ========================================
-    // PHASE 3: AI Providers Core Services
-    // ========================================
-
-    // Strategy (no dependencies)
-    container.registerSingleton(
-      TOKENS.INTELLIGENT_PROVIDER_STRATEGY,
-      IntelligentProviderStrategy
-    );
-
-    // Context Manager (no dependencies)
-    container.registerSingleton(TOKENS.CONTEXT_MANAGER, ContextManager);
-
-    // Provider Manager (depends on EventBus and Strategy)
-    // CRITICAL: Must be singleton to ensure all code uses the SAME instance
-    // Otherwise providers registered in one instance won't be visible to other instances!
-    container.registerSingleton(TOKENS.PROVIDER_MANAGER, ProviderManager);
-
-    // Provider adapters
-    container.registerSingleton(TOKENS.CLAUDE_CLI_ADAPTER, ClaudeCliAdapter);
-    container.registerSingleton(TOKENS.VSCODE_LM_ADAPTER, VsCodeLmAdapter);
+    // Code Execution MCP services
+    container.registerSingleton(TOKENS.PTAH_API_BUILDER, PtahAPIBuilder);
+    container.registerSingleton(TOKENS.CODE_EXECUTION_MCP, CodeExecutionMCP);
 
     // ========================================
-    // PHASE 4: Claude Domain Services
+    // PHASE 3: Claude Domain Services
     // ========================================
-
-    // Permission store (special string token for interface)
-    const permissionStore = new InMemoryPermissionRulesStore();
-    container.register('IPermissionRulesStore', { useValue: permissionStore });
 
     // Storage adapter (from VS Code workspace state)
     const storageAdapter = {
       get: <T>(key: string, defaultValue?: T): T | undefined => {
-        return context.workspaceState.get<T>(key, defaultValue);
+        const value = context.workspaceState.get<T>(key);
+        // Fix: Handle undefined properly before passing to get()
+        return value !== undefined ? value : defaultValue;
       },
       set: async <T>(key: string, value: T): Promise<void> => {
         await context.workspaceState.update(key, value);
@@ -295,69 +297,31 @@ export class DIContainer {
 
     // Core domain services
     container.registerSingleton(TOKENS.CLAUDE_CLI_DETECTOR, ClaudeCliDetector);
-    container.registerSingleton(TOKENS.SESSION_MANAGER, SessionManager);
     container.registerSingleton(TOKENS.PROCESS_MANAGER, ProcessManager);
-    container.registerSingleton(
-      TOKENS.CLAUDE_DOMAIN_EVENT_PUBLISHER,
-      ClaudeDomainEventPublisher
-    );
-    container.registerSingleton(TOKENS.PERMISSION_SERVICE, PermissionService);
     container.registerSingleton(TOKENS.CLAUDE_CLI_SERVICE, ClaudeCliService);
-    // container.registerSingleton(TOKENS.COMMAND_SERVICE, CommandService);
-
-    // Orchestration services
     container.registerSingleton(
-      TOKENS.CHAT_ORCHESTRATION_SERVICE,
-      ChatOrchestrationService
-    );
-    container.registerSingleton(
-      TOKENS.PROVIDER_ORCHESTRATION_SERVICE,
-      ProviderOrchestrationService
-    );
-    container.registerSingleton(
-      TOKENS.ANALYTICS_ORCHESTRATION_SERVICE,
-      AnalyticsOrchestrationService
-    );
-    container.registerSingleton(
-      TOKENS.CONFIG_ORCHESTRATION_SERVICE,
-      ConfigOrchestrationService
+      TOKENS.MCP_REGISTRATION_SERVICE,
+      MCPRegistrationService
     );
 
-    // Message handler (depends on all orchestration services)
-    container.registerSingleton(
-      TOKENS.MESSAGE_HANDLER_SERVICE,
-      MessageHandlerService
-    );
+    // Session management - DELETED in TASK_2025_023 purge + cleanup
+    // SessionManager, InteractiveSessionManager, ClaudeCliLauncher removed
+    // New pattern: ClaudeProcess handles sessions directly via CLI --session-id flag
+    // Process lifecycle: ProcessManager tracks active processes by SessionId
 
     // ========================================
-    // PHASE 5: Main App Services
+    // PHASE 4: Main App Services
     // ========================================
 
-    // Webview support services (Priority 2 extraction)
+    // Webview support services (restored - still needed for webview lifecycle)
     container.registerSingleton(TOKENS.WEBVIEW_EVENT_QUEUE, WebviewEventQueue);
-    container.registerSingleton(
-      TOKENS.WEBVIEW_INITIAL_DATA_BUILDER,
-      WebviewInitialDataBuilder
-    );
-
-    // Main app services
-    container.registerSingleton(
-      TOKENS.COMMAND_BUILDER_SERVICE,
-      CommandBuilderService
-    );
-    container.registerSingleton(
-      TOKENS.ANALYTICS_DATA_COLLECTOR,
-      AnalyticsDataCollector
-    );
     container.registerSingleton(
       TOKENS.ANGULAR_WEBVIEW_PROVIDER,
       AngularWebviewProvider
     );
 
-    // Adapters (registered later in main.ts after PtahExtension initialization)
-    // These require the extension to be partially initialized first
-    // - CONFIGURATION_PROVIDER (uses ConfigManager)
-    // - ANALYTICS_DATA_COLLECTOR (uses AnalyticsDataCollector from PtahExtension)
+    // NOTE: WebviewHtmlGenerator is not registered in DI (instantiated directly in AngularWebviewProvider)
+    // NOTE: Orchestration services and CONFIGURATION_PROVIDER removed in RPC Phase 3.5
 
     return container;
   }

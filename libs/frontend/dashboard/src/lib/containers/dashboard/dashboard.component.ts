@@ -1,7 +1,7 @@
 import {
   Component,
   OnInit,
-  OnDestroy,
+  DestroyRef,
   signal,
   computed,
   inject,
@@ -9,11 +9,9 @@ import {
   output,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Subject, takeUntil, combineLatest } from 'rxjs';
-import { toObservable } from '@angular/core/rxjs-interop';
 
 // Core Services
-import { ChatService, StreamConsumptionState } from '@ptah-extension/core';
+// ChatService removed (use ChatStore from @ptah-extension/chat)
 import { AnalyticsService } from '@ptah-extension/core';
 import { LoggingService } from '@ptah-extension/core';
 import {
@@ -22,6 +20,14 @@ import {
   DashboardMetricsGridComponent,
   DashboardPerformanceChartComponent,
 } from '../../components';
+
+/**
+ * Legacy type for dead code (trackPerformanceEvents method never called)
+ * TODO: Remove in Phase 2 when RPC-based performance monitoring is implemented
+ */
+interface StreamConsumptionState {
+  lastMessageTimestamp: number;
+}
 
 /**
  * Dashboard Container Component - Business Logic & State Orchestrator
@@ -129,11 +135,12 @@ import {
     `,
   ],
 })
-export class DashboardComponent implements OnInit, OnDestroy {
-  private readonly enhancedChat = inject(ChatService);
+export class DashboardComponent implements OnInit {
+  // TODO: Replace with ChatStore from @ptah-extension/chat when RPC-based monitoring is implemented
+  // private readonly enhancedChat = inject(ChatService); // DELETED - Phase 0
   readonly analyticsService = inject(AnalyticsService);
   private readonly logger = inject(LoggingService);
-  private readonly destroy$ = new Subject<void>();
+  private readonly destroyRef = inject(DestroyRef);
 
   // Configuration inputs
   readonly displayMode = input<'inline' | 'expanded'>('inline');
@@ -198,11 +205,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.setupPerformanceMonitoring();
   }
 
-  ngOnDestroy(): void {
-    this.destroy$.next();
-    this.destroy$.complete();
-  }
-
   toggleExpanded(): void {
     const wasExpanded = this._isExpanded();
     this._isExpanded.set(!wasExpanded);
@@ -241,24 +243,22 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   private setupPerformanceMonitoring(): void {
-    if (!this.enhancedChat) {
-      this.logger.warn(
-        'ChatService not available for performance monitoring',
-        'DashboardComponent'
-      );
-      return;
-    }
-
-    // Monitor stream consumption state for additional performance insights
-    combineLatest([
-      toObservable(this.enhancedChat.streamConsumptionState),
-      toObservable(this.enhancedChat.messages),
-      toObservable(this.enhancedChat.isStreaming),
-    ])
-      .pipe(takeUntil(this.destroy$))
-      .subscribe(([streamState, messages]) => {
-        this.trackPerformanceEvents(streamState, messages.length);
-      });
+    // TODO: Phase 2 - Replace with RPC-based performance monitoring
+    // The previous implementation used event-based observables that were removed.
+    // ChatService was deleted in Phase 0 (replaced with ChatStore).
+    // For now, performance tracking is handled through:
+    // 1. Signal-based reads from ChatStore (when integrated)
+    // 2. Direct method calls to AnalyticsService
+    // 3. Manual refresh via refreshDashboard()
+    //
+    // Phase 2 will implement:
+    // - RPC-based event subscriptions for real-time updates
+    // - Proper request/response patterns for performance metrics
+    // - Structured event delivery instead of fire-and-forget
+    this.logger.info(
+      'Performance monitoring deferred to Phase 2',
+      'DashboardComponent'
+    );
   }
 
   private trackPerformanceEvents(

@@ -18,7 +18,6 @@
  */
 
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { VSCodeService } from './vscode.service';
 import { LoggingService } from './logging.service';
 
 export interface AnalyticsData {
@@ -68,7 +67,6 @@ export interface ActivityItem {
 })
 export class AnalyticsService {
   // ANGULAR 20 PATTERN: inject() for dependencies
-  private readonly vsCodeService = inject(VSCodeService);
   private readonly logger = inject(LoggingService);
 
   // Feature flag: Disable analytics during development
@@ -160,9 +158,9 @@ export class AnalyticsService {
       });
 
       // Request analytics data from backend via VSCodeService
-      this.vsCodeService.getAnalyticsData();
+      // this.vsCodeService.getAnalyticsData();
 
-      // TODO: Handle response via message listener
+      // Handle response via message listener
       // For now, just set loading to false after timeout
       setTimeout(() => {
         this._isLoading.set(false);
@@ -196,7 +194,7 @@ export class AnalyticsService {
         event,
         properties,
       });
-      this.vsCodeService.trackAnalyticsEvent(event, properties);
+      // this.vsCodeService.trackAnalyticsEvent(event, properties);
     } catch (error) {
       this.logger.error('Failed to track event', 'AnalyticsService', error);
     }

@@ -1,0 +1,99 @@
+<!-- Main layout - No drawer, simple sidebar + content -->
+<div class="flex h-full">
+  <!-- Session Sidebar (always visible, fixed width) -->
+  <aside
+    class="flex flex-col bg-base-200 border-r border-base-300"
+    [class.w-0]="!sidebarOpen()"
+    [class.w-52]="sidebarOpen()"
+    [class.overflow-hidden]="!sidebarOpen()"
+  >
+    <!-- Sidebar header -->
+    <div class="p-2 border-b border-base-300">
+      <button
+        class="btn btn-primary btn-sm w-full gap-1"
+        (click)="createNewSession()"
+      >
+        <lucide-angular [img]="PlusIcon" class="w-3.5 h-3.5" />
+        New Session
+      </button>
+    </div>
+
+    <!-- Session list (scrollable) -->
+    <div class="flex-1 overflow-y-auto p-1">
+      <ul class="menu menu-sm p-0 gap-0.5">
+        @for (session of chatStore.sessions(); track session.id) {
+        <li>
+          <button
+            type="button"
+            class="flex flex-col items-start gap-0.5 py-1.5 px-2 w-full text-left rounded-lg"
+            [class.active]="session.id === chatStore.currentSession()?.id"
+            [class.bg-primary]="session.id === chatStore.currentSession()?.id"
+            [class.text-primary-content]="
+              session.id === chatStore.currentSession()?.id
+            "
+            (click)="chatStore.switchSession(session.id)"
+          >
+            <!-- Session title -->
+            <span
+              class="font-medium text-xs truncate w-full leading-tight"
+              [title]="session.name"
+            >
+              {{ getSessionDisplayName(session) }}
+            </span>
+            <!-- Session metadata -->
+            <span
+              class="text-[10px] opacity-60 flex items-center gap-1.5 w-full"
+            >
+              <span>{{ session.lastActivityAt | date : 'M/d HH:mm' }}</span>
+              @if (session.messageCount > 0) {
+              <span class="badge badge-xs badge-ghost px-1">
+                {{ session.messageCount }} msgs
+              </span>
+              }
+            </span>
+          </button>
+        </li>
+        } @empty {
+        <li class="p-3 text-center text-xs text-base-content/50">
+          No sessions yet
+        </li>
+        }
+      </ul>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <div class="flex-1 flex flex-col min-w-0">
+    <!-- Header -->
+    <div
+      class="navbar bg-base-100 border-b border-base-300 min-h-[40px] px-2 gap-2"
+    >
+      <!-- Sidebar toggle -->
+      <button
+        class="btn btn-square btn-ghost btn-sm"
+        aria-label="Toggle sidebar"
+        (click)="toggleSidebar()"
+      >
+        <lucide-angular
+          [img]="sidebarOpen() ? PanelLeftCloseIcon : PanelLeftOpenIcon"
+          class="w-4 h-4"
+        />
+      </button>
+
+      <!-- Title -->
+      <div class="flex-1">
+        <span class="text-lg font-bold">Ptah</span>
+      </div>
+
+      <!-- Header actions -->
+      <div class="flex gap-1">
+        <button class="btn btn-square btn-ghost btn-sm" aria-label="Settings">
+          <lucide-angular [img]="SettingsIcon" class="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+
+    <!-- Chat View -->
+    <ptah-chat-view class="flex-1 overflow-hidden" />
+  </div>
+</div>

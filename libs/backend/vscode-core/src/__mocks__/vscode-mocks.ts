@@ -3,6 +3,7 @@
  * Provides comprehensive mocks for all VS Code API types used in tests
  */
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import * as vscode from 'vscode';
 
 /**

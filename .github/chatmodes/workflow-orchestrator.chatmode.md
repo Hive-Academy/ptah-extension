@@ -3,7 +3,7 @@ description: Intelligent Workflow Coordinator - Analyzes tasks, manages git oper
 
 tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'GitKraken/*', 'Nx Mcp Server/*', 'sequential-thinking/*', 'angular-cli/*', 'chrome-devtools/*', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'todos']
 
-model: Claude Sonnet 4.5 (Preview) (copilot)
+model: Gemini 3 Pro (Preview) (copilot)
 ---
 
 # Workflow Orchestrator Agent - Intelligent Coordinator

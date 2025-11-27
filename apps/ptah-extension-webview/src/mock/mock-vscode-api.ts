@@ -13,6 +13,7 @@ import {
   StrictChatSession,
   StrictChatMessage,
   SessionId,
+  SessionUIData,
   MessageId,
   CorrelationId,
 } from '@ptah-extension/shared';
@@ -57,6 +58,23 @@ export class MockVSCodeApiImpl implements MockVSCodeApi {
       providers: this.providers.length,
       currentSession: this.currentSessionId,
     });
+  }
+
+  /**
+   * Convert StrictChatSession to SessionUIData for message payloads
+   * Adds isActive flag based on currentSessionId
+   */
+  private toSessionUIData(session: StrictChatSession): SessionUIData {
+    return {
+      id: session.id,
+      name: session.name,
+      workspaceId: session.workspaceId,
+      messageCount: session.messages.length,
+      tokenUsage: session.tokenUsage,
+      createdAt: session.createdAt,
+      lastActiveAt: session.lastActiveAt,
+      isActive: session.id === this.currentSessionId,
+    };
   }
 
   /**
@@ -219,7 +237,7 @@ export class MockVSCodeApiImpl implements MockVSCodeApi {
             id: userMessageId,
             sessionId: this.currentSessionId,
             type: 'user',
-            content,
+            contentBlocks: [{ type: 'text', text: content }],
             timestamp: Date.now(),
           };
 
@@ -306,7 +324,9 @@ export class MockVSCodeApiImpl implements MockVSCodeApi {
       }
 
       case 'chat:requestSessions':
-        respondWith('chat:sessionsUpdated', { sessions: this.sessions });
+        respondWith('chat:sessionsUpdated', {
+          sessions: this.sessions.map((s) => this.toSessionUIData(s)),
+        });
         break;
 
       case 'chat:renameSession': {
@@ -316,7 +336,11 @@ export class MockVSCodeApiImpl implements MockVSCodeApi {
           s.id === sessionId ? { ...s, name: newName } : s
         );
         respondWith('chat:sessionRenamed', { sessionId, newName });
-        respondWith('chat:sessionsUpdated', { sessions: this.sessions }, 100);
+        respondWith(
+          'chat:sessionsUpdated',
+          { sessions: this.sessions.map((s) => this.toSessionUIData(s)) },
+          100
+        );
         break;
       }
 
@@ -331,7 +355,11 @@ export class MockVSCodeApiImpl implements MockVSCodeApi {
         }
 
         respondWith('chat:sessionDeleted', { sessionId });
-        respondWith('chat:sessionsUpdated', { sessions: this.sessions }, 100);
+        respondWith(
+          'chat:sessionsUpdated',
+          { sessions: this.sessions.map((s) => this.toSessionUIData(s)) },
+          100
+        );
         break;
       }
 
@@ -588,7 +616,7 @@ export class MockVSCodeApiImpl implements MockVSCodeApi {
         this.simulateExtensionMessage('chat:messageChunk', {
           sessionId,
           messageId,
-          content: chunk,
+          contentBlocks: [{ type: 'text', text: chunk }],
           isComplete,
           streaming: true,
         });
@@ -600,7 +628,7 @@ export class MockVSCodeApiImpl implements MockVSCodeApi {
               id: messageId,
               sessionId,
               type: 'assistant',
-              content: response,
+              contentBlocks: [{ type: 'text', text: response }],
               timestamp: Date.now(),
               isComplete: true,
               streaming: false,

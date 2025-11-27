@@ -1,792 +1,215 @@
-main.ts:35 🎭 MOCK ENVIRONMENT INITIALIZATION
-main.ts:36 =================================================
-main.ts:37 Running in browser development mode
-main.ts:38 Mock API will simulate VS Code extension behavior
-main.ts:39 =================================================
-content_script_bundle.js:1 Attempting initialization Sun Nov 09 2025 00:05:46 GMT+0200 (Eastern European Standard Time)
-mock-vscode-api.ts:51 [Mock VSCode API] Initialized with: {sessions: 3, providers: 2, currentSession: 'session-current'}
-main.ts:58 ✅ Mock environment initialized successfully
-main.ts:59 =================================================
-main.ts:65 === PTAH WEBVIEW BOOTSTRAP STARTING ===
-main.ts:66 Window globals: {hasVscode: true, hasPtahConfig: true, mode: 'Browser (Mock API)'}
-vscode.service.ts:124 === VSCodeService Constructor Called ===
-vscode.service.ts:159 VSCodeService: Initialized with VS Code config {isVSCode: false, theme: 'dark', workspaceRoot: '/mock/workspace', workspaceName: 'mock-project', extensionUri: '', …}
-vscode.service.ts:188 === VSCodeService: Setting up message listener (Zone.js mode) ===
-vscode.service.ts:226 === VSCodeService: Message listener setup complete ===
-vscode.service.ts:128 === VSCodeService Initialization Complete === {isConnected: true, hasVscode: true, config: {…}}
-webview-navigation.service.ts:84 WebviewNavigationService: Initialized with pure signal-based navigation
-app.ts:66 =================================================
-app.ts:67 PTAH APP NGONINIT STARTING
-app.ts:68 =================================================
-app.ts:72 Step 1: Initializing ViewManager...
-mock-vscode-api.ts:63 [Mock VSCode API] Received message: view:changed {view: 'chat'}
-mock-vscode-api.ts:326 [Mock VSCode] View changed to: chat
-mock-vscode-api.ts:63 [Mock VSCode API] Received message: webview-ready {}
-message-handler.service.ts:218 Webview ready with current view: chat
-debug_node.mjs:17990 Angular is running in development mode.
-app.ts:74 Step 1: COMPLETE - ViewManager initialized
-app.ts:76 Step 2: Notifying VS Code that webview is ready...
-mock-vscode-api.ts:63 [Mock VSCode API] Received message: webview-ready {}
-app.ts:78 Step 2: COMPLETE - VS Code notified
-app.ts:80 Step 3: Initializing ProviderService...
-provider.service.ts:155 [ProviderService] Initializing...
-app.ts:103 =================================================
-(anonymous) @ app.ts:103
-fulfilled @ chunk-3IG7FZWI.js:52
-invoke @ zone.js:398
-onInvoke @ debug_node.mjs:16672
-invoke @ zone.js:397
-run @ zone.js:113
-(anonymous) @ zone.js:2537
-invokeTask @ zone.js:431
-(anonymous) @ debug_node.mjs:16336
-onInvokeTask @ debug_node.mjs:16336
-invokeTask @ zone.js:430
-onInvokeTask @ debug_node.mjs:16659
-invokeTask @ zone.js:430
-runTask @ zone.js:161
-drainMicroTaskQueue @ zone.js:612
-Zone - Promise.then
-onScheduleTask @ debug_node.mjs:16330
-scheduleTask @ zone.js:411
-onScheduleTask @ zone.js:273
-scheduleTask @ zone.js:411
-scheduleTask @ zone.js:207
-scheduleMicroTask @ zone.js:227
-scheduleResolveOrReject @ zone.js:2527
-then @ zone.js:2732
-step @ chunk-3IG7FZWI.js:64
-(anonymous) @ chunk-3IG7FZWI.js:65
-ZoneAwarePromise @ zone.js:2701
-**async @ chunk-3IG7FZWI.js:49
-ngOnInit @ app.ts:65
-callHookInternal @ debug_node.mjs:860
-callHook @ debug_node.mjs:887
-callHooks @ debug_node.mjs:841
-executeInitAndCheckHooks @ debug_node.mjs:791
-refreshView @ debug_node.mjs:8980
-detectChangesInView @ debug_node.mjs:9185
-detectChangesInViewWhileDirty @ debug_node.mjs:8874
-detectChangesInternal @ debug_node.mjs:8862
-synchronizeOnce @ debug_node.mjs:20322
-synchronize @ debug_node.mjs:20281
-tickImpl @ debug_node.mjs:20254
-\_tick @ debug_node.mjs:20243
-tick @ debug_node.mjs:20231
-\_loadComponent @ debug_node.mjs:20401
-(anonymous) @ debug_node.mjs:20208
-invoke @ zone.js:398
-onInvoke @ debug_node.mjs:16672
-invoke @ zone.js:397
-run @ zone.js:113
-run @ debug_node.mjs:16518
-bootstrapImpl @ debug_node.mjs:20168
-bootstrap @ debug_node.mjs:20164
-(anonymous) @ core.mjs:970
-invoke @ zone.js:398
-onInvoke @ debug_node.mjs:16672
-invoke @ zone.js:397
-run @ zone.js:113
-(anonymous) @ zone.js:2537
-invokeTask @ zone.js:431
-(anonymous) @ debug_node.mjs:16336
-onInvokeTask @ debug_node.mjs:16336
-invokeTask @ zone.js:430
-onInvokeTask @ debug_node.mjs:16659
-invokeTask @ zone.js:430
-runTask @ zone.js:161
-drainMicroTaskQueue @ zone.js:612
-Zone - Promise.then
-onScheduleTask @ debug_node.mjs:16330
-scheduleTask @ zone.js:411
-onScheduleTask @ zone.js:273
-scheduleTask @ zone.js:411
-scheduleTask @ zone.js:207
-scheduleMicroTask @ zone.js:227
-scheduleResolveOrReject @ zone.js:2527
-then @ zone.js:2732
-(anonymous) @ core.mjs:951
-\_callAndReportToErrorHandler @ core.mjs:1012
-(anonymous) @ core.mjs:945
-invoke @ zone.js:398
-onInvoke @ debug_node.mjs:16672
-invoke @ zone.js:397
-run @ zone.js:113
-run @ debug_node.mjs:16518
-bootstrap @ core.mjs:904
-internalCreateApplication @ core.mjs:2659
-(anonymous) @ browser.mjs:440
-invoke @ zone.js:398
-run @ zone.js:113
-(anonymous) @ zone.js:2537
-invokeTask @ zone.js:431
-runTask @ zone.js:161
-drainMicroTaskQueue @ zone.js:612
-Promise.then
-nativeScheduleMicroTask @ zone.js:588
-scheduleMicroTask @ zone.js:599
-scheduleTask @ zone.js:420
-scheduleTask @ zone.js:207
-scheduleMicroTask @ zone.js:227
-scheduleResolveOrReject @ zone.js:2527
-resolvePromise @ zone.js:2461
-(anonymous) @ zone.js:2369
-(anonymous) @ zone.js:2385
-Promise.then
-(anonymous) @ zone.js:2779
-ZoneAwarePromise @ zone.js:2701
-Ctor.then @ zone.js:2778
-resolvePromise @ zone.js:2422
-resolve @ zone.js:2559
-step @ chunk-3IG7FZWI.js:64
-(anonymous) @ chunk-3IG7FZWI.js:65
-ZoneAwarePromise @ zone.js:2701
-**async @ chunk-3IG7FZWI.js:49
-initializeMockEnvironment @ main.ts:32
-(anonymous) @ main.ts:64Understand this error
-app.ts:104 PTAH APP INITIALIZATION FAILED
-(anonymous) @ app.ts:104
-fulfilled @ chunk-3IG7FZWI.js:52
-invoke @ zone.js:398
-onInvoke @ debug_node.mjs:16672
-invoke @ zone.js:397
-run @ zone.js:113
-(anonymous) @ zone.js:2537
-invokeTask @ zone.js:431
-(anonymous) @ debug_node.mjs:16336
-onInvokeTask @ debug_node.mjs:16336
-invokeTask @ zone.js:430
-onInvokeTask @ debug_node.mjs:16659
-invokeTask @ zone.js:430
-runTask @ zone.js:161
-drainMicroTaskQueue @ zone.js:612
-Zone - Promise.then
-onScheduleTask @ debug_node.mjs:16330
-scheduleTask @ zone.js:411
-onScheduleTask @ zone.js:273
-scheduleTask @ zone.js:411
-scheduleTask @ zone.js:207
-scheduleMicroTask @ zone.js:227
-scheduleResolveOrReject @ zone.js:2527
-then @ zone.js:2732
-step @ chunk-3IG7FZWI.js:64
-(anonymous) @ chunk-3IG7FZWI.js:65
-ZoneAwarePromise @ zone.js:2701
-**async @ chunk-3IG7FZWI.js:49
-ngOnInit @ app.ts:65
-callHookInternal @ debug_node.mjs:860
-callHook @ debug_node.mjs:887
-callHooks @ debug_node.mjs:841
-executeInitAndCheckHooks @ debug_node.mjs:791
-refreshView @ debug_node.mjs:8980
-detectChangesInView @ debug_node.mjs:9185
-detectChangesInViewWhileDirty @ debug_node.mjs:8874
-detectChangesInternal @ debug_node.mjs:8862
-synchronizeOnce @ debug_node.mjs:20322
-synchronize @ debug_node.mjs:20281
-tickImpl @ debug_node.mjs:20254
-\_tick @ debug_node.mjs:20243
-tick @ debug_node.mjs:20231
-\_loadComponent @ debug_node.mjs:20401
-(anonymous) @ debug_node.mjs:20208
-invoke @ zone.js:398
-onInvoke @ debug_node.mjs:16672
-invoke @ zone.js:397
-run @ zone.js:113
-run @ debug_node.mjs:16518
-bootstrapImpl @ debug_node.mjs:20168
-bootstrap @ debug_node.mjs:20164
-(anonymous) @ core.mjs:970
-invoke @ zone.js:398
-onInvoke @ debug_node.mjs:16672
-invoke @ zone.js:397
-run @ zone.js:113
-(anonymous) @ zone.js:2537
-invokeTask @ zone.js:431
-(anonymous) @ debug_node.mjs:16336
-onInvokeTask @ debug_node.mjs:16336
-invokeTask @ zone.js:430
-onInvokeTask @ debug_node.mjs:16659
-invokeTask @ zone.js:430
-runTask @ zone.js:161
-drainMicroTaskQueue @ zone.js:612
-Zone - Promise.then
-onScheduleTask @ debug_node.mjs:16330
-scheduleTask @ zone.js:411
-onScheduleTask @ zone.js:273
-scheduleTask @ zone.js:411
-scheduleTask @ zone.js:207
-scheduleMicroTask @ zone.js:227
-scheduleResolveOrReject @ zone.js:2527
-then @ zone.js:2732
-(anonymous) @ core.mjs:951
-\_callAndReportToErrorHandler @ core.mjs:1012
-(anonymous) @ core.mjs:945
-invoke @ zone.js:398
-onInvoke @ debug_node.mjs:16672
-invoke @ zone.js:397
-run @ zone.js:113
-run @ debug_node.mjs:16518
-bootstrap @ core.mjs:904
-internalCreateApplication @ core.mjs:2659
-(anonymous) @ browser.mjs:440
-invoke @ zone.js:398
-run @ zone.js:113
-(anonymous) @ zone.js:2537
-invokeTask @ zone.js:431
-runTask @ zone.js:161
-drainMicroTaskQueue @ zone.js:612
-Promise.then
-nativeScheduleMicroTask @ zone.js:588
-scheduleMicroTask @ zone.js:599
-scheduleTask @ zone.js:420
-scheduleTask @ zone.js:207
-scheduleMicroTask @ zone.js:227
-scheduleResolveOrReject @ zone.js:2527
-resolvePromise @ zone.js:2461
-(anonymous) @ zone.js:2369
-(anonymous) @ zone.js:2385
-Promise.then
-(anonymous) @ zone.js:2779
-ZoneAwarePromise @ zone.js:2701
-Ctor.then @ zone.js:2778
-resolvePromise @ zone.js:2422
-resolve @ zone.js:2559
-step @ chunk-3IG7FZWI.js:64
-(anonymous) @ chunk-3IG7FZWI.js:65
-ZoneAwarePromise @ zone.js:2701
-**async @ chunk-3IG7FZWI.js:49
-initializeMockEnvironment @ main.ts:32
-(anonymous) @ main.ts:64Understand this error
-app.ts:105 Error: RuntimeError: NG0203: effect() can only be used within an injection context such as a constructor, a factory function, a field initializer, or a function used with `runInInjectionContext`. Find more at <https://angular.dev/errors/NG0203>
-at assertInInjectionContext (root_effect_scheduler.mjs:2374:15)
-at effect (resource.mjs:137:9)
-at_ProviderService.setupAutoRefresh (provider.service.ts:449:5)
-at \_ProviderService.initialize (provider.service.ts:159:10)
-at_App.<anonymous> (app.ts:81:28)
-at Generator.next (<anonymous>)
-at fulfilled (chunk-3IG7FZWI.js:52:24)
-at \_ZoneDelegate.invoke (zone.js:398:28)
-at Object.onInvoke (debug_node.mjs:16672:33)
-at \_ZoneDelegate.invoke (zone.js:397:34)
-(anonymous) @ app.ts:105
-fulfilled @ chunk-3IG7FZWI.js:52
-invoke @ zone.js:398
-onInvoke @ debug_node.mjs:16672
-invoke @ zone.js:397
-run @ zone.js:113
-(anonymous) @ zone.js:2537
-invokeTask @ zone.js:431
-(anonymous) @ debug_node.mjs:16336
-onInvokeTask @ debug_node.mjs:16336
-invokeTask @ zone.js:430
-onInvokeTask @ debug_node.mjs:16659
-invokeTask @ zone.js:430
-runTask @ zone.js:161
-drainMicroTaskQueue @ zone.js:612
-Zone - Promise.then
-onScheduleTask @ debug_node.mjs:16330
-scheduleTask @ zone.js:411
-onScheduleTask @ zone.js:273
-scheduleTask @ zone.js:411
-scheduleTask @ zone.js:207
-scheduleMicroTask @ zone.js:227
-scheduleResolveOrReject @ zone.js:2527
-then @ zone.js:2732
-step @ chunk-3IG7FZWI.js:64
-(anonymous) @ chunk-3IG7FZWI.js:65
-ZoneAwarePromise @ zone.js:2701
-**async @ chunk-3IG7FZWI.js:49
-ngOnInit @ app.ts:65
-callHookInternal @ debug_node.mjs:860
-callHook @ debug_node.mjs:887
-callHooks @ debug_node.mjs:841
-executeInitAndCheckHooks @ debug_node.mjs:791
-refreshView @ debug_node.mjs:8980
-detectChangesInView @ debug_node.mjs:9185
-detectChangesInViewWhileDirty @ debug_node.mjs:8874
-detectChangesInternal @ debug_node.mjs:8862
-synchronizeOnce @ debug_node.mjs:20322
-synchronize @ debug_node.mjs:20281
-tickImpl @ debug_node.mjs:20254
-\_tick @ debug_node.mjs:20243
-tick @ debug_node.mjs:20231
-\_loadComponent @ debug_node.mjs:20401
-(anonymous) @ debug_node.mjs:20208
-invoke @ zone.js:398
-onInvoke @ debug_node.mjs:16672
-invoke @ zone.js:397
-run @ zone.js:113
-run @ debug_node.mjs:16518
-bootstrapImpl @ debug_node.mjs:20168
-bootstrap @ debug_node.mjs:20164
-(anonymous) @ core.mjs:970
-invoke @ zone.js:398
-onInvoke @ debug_node.mjs:16672
-invoke @ zone.js:397
-run @ zone.js:113
-(anonymous) @ zone.js:2537
-invokeTask @ zone.js:431
-(anonymous) @ debug_node.mjs:16336
-onInvokeTask @ debug_node.mjs:16336
-invokeTask @ zone.js:430
-onInvokeTask @ debug_node.mjs:16659
-invokeTask @ zone.js:430
-runTask @ zone.js:161
-drainMicroTaskQueue @ zone.js:612
-Zone - Promise.then
-onScheduleTask @ debug_node.mjs:16330
-scheduleTask @ zone.js:411
-onScheduleTask @ zone.js:273
-scheduleTask @ zone.js:411
-scheduleTask @ zone.js:207
-scheduleMicroTask @ zone.js:227
-scheduleResolveOrReject @ zone.js:2527
-then @ zone.js:2732
-(anonymous) @ core.mjs:951
-\_callAndReportToErrorHandler @ core.mjs:1012
-(anonymous) @ core.mjs:945
-invoke @ zone.js:398
-onInvoke @ debug_node.mjs:16672
-invoke @ zone.js:397
-run @ zone.js:113
-run @ debug_node.mjs:16518
-bootstrap @ core.mjs:904
-internalCreateApplication @ core.mjs:2659
-(anonymous) @ browser.mjs:440
-invoke @ zone.js:398
-run @ zone.js:113
-(anonymous) @ zone.js:2537
-invokeTask @ zone.js:431
-runTask @ zone.js:161
-drainMicroTaskQueue @ zone.js:612
-Promise.then
-nativeScheduleMicroTask @ zone.js:588
-scheduleMicroTask @ zone.js:599
-scheduleTask @ zone.js:420
-scheduleTask @ zone.js:207
-scheduleMicroTask @ zone.js:227
-scheduleResolveOrReject @ zone.js:2527
-resolvePromise @ zone.js:2461
-(anonymous) @ zone.js:2369
-(anonymous) @ zone.js:2385
-Promise.then
-(anonymous) @ zone.js:2779
-ZoneAwarePromise @ zone.js:2701
-Ctor.then @ zone.js:2778
-resolvePromise @ zone.js:2422
-resolve @ zone.js:2559
-step @ chunk-3IG7FZWI.js:64
-(anonymous) @ chunk-3IG7FZWI.js:65
-ZoneAwarePromise @ zone.js:2701
-**async @ chunk-3IG7FZWI.js:49
-initializeMockEnvironment @ main.ts:32
-(anonymous) @ main.ts:64Understand this error
-app.ts:106 =================================================
-(anonymous) @ app.ts:106
-fulfilled @ chunk-3IG7FZWI.js:52
-invoke @ zone.js:398
-onInvoke @ debug_node.mjs:16672
-invoke @ zone.js:397
-run @ zone.js:113
-(anonymous) @ zone.js:2537
-invokeTask @ zone.js:431
-(anonymous) @ debug_node.mjs:16336
-onInvokeTask @ debug_node.mjs:16336
-invokeTask @ zone.js:430
-onInvokeTask @ debug_node.mjs:16659
-invokeTask @ zone.js:430
-runTask @ zone.js:161
-drainMicroTaskQueue @ zone.js:612
-Zone - Promise.then
-onScheduleTask @ debug_node.mjs:16330
-scheduleTask @ zone.js:411
-onScheduleTask @ zone.js:273
-scheduleTask @ zone.js:411
-scheduleTask @ zone.js:207
-scheduleMicroTask @ zone.js:227
-scheduleResolveOrReject @ zone.js:2527
-then @ zone.js:2732
-step @ chunk-3IG7FZWI.js:64
-(anonymous) @ chunk-3IG7FZWI.js:65
-ZoneAwarePromise @ zone.js:2701
-**async @ chunk-3IG7FZWI.js:49
-ngOnInit @ app.ts:65
-callHookInternal @ debug_node.mjs:860
-callHook @ debug_node.mjs:887
-callHooks @ debug_node.mjs:841
-executeInitAndCheckHooks @ debug_node.mjs:791
-refreshView @ debug_node.mjs:8980
-detectChangesInView @ debug_node.mjs:9185
-detectChangesInViewWhileDirty @ debug_node.mjs:8874
-detectChangesInternal @ debug_node.mjs:8862
-synchronizeOnce @ debug_node.mjs:20322
-synchronize @ debug_node.mjs:20281
-tickImpl @ debug_node.mjs:20254
-\_tick @ debug_node.mjs:20243
-tick @ debug_node.mjs:20231
-\_loadComponent @ debug_node.mjs:20401
-(anonymous) @ debug_node.mjs:20208
-invoke @ zone.js:398
-onInvoke @ debug_node.mjs:16672
-invoke @ zone.js:397
-run @ zone.js:113
-run @ debug_node.mjs:16518
-bootstrapImpl @ debug_node.mjs:20168
-bootstrap @ debug_node.mjs:20164
-(anonymous) @ core.mjs:970
-invoke @ zone.js:398
-onInvoke @ debug_node.mjs:16672
-invoke @ zone.js:397
-run @ zone.js:113
-(anonymous) @ zone.js:2537
-invokeTask @ zone.js:431
-(anonymous) @ debug_node.mjs:16336
-onInvokeTask @ debug_node.mjs:16336
-invokeTask @ zone.js:430
-onInvokeTask @ debug_node.mjs:16659
-invokeTask @ zone.js:430
-runTask @ zone.js:161
-drainMicroTaskQueue @ zone.js:612
-Zone - Promise.then
-onScheduleTask @ debug_node.mjs:16330
-scheduleTask @ zone.js:411
-onScheduleTask @ zone.js:273
-scheduleTask @ zone.js:411
-scheduleTask @ zone.js:207
-scheduleMicroTask @ zone.js:227
-scheduleResolveOrReject @ zone.js:2527
-then @ zone.js:2732
-(anonymous) @ core.mjs:951
-\_callAndReportToErrorHandler @ core.mjs:1012
-(anonymous) @ core.mjs:945
-invoke @ zone.js:398
-onInvoke @ debug_node.mjs:16672
-invoke @ zone.js:397
-run @ zone.js:113
-run @ debug_node.mjs:16518
-bootstrap @ core.mjs:904
-internalCreateApplication @ core.mjs:2659
-(anonymous) @ browser.mjs:440
-invoke @ zone.js:398
-run @ zone.js:113
-(anonymous) @ zone.js:2537
-invokeTask @ zone.js:431
-runTask @ zone.js:161
-drainMicroTaskQueue @ zone.js:612
-Promise.then
-nativeScheduleMicroTask @ zone.js:588
-scheduleMicroTask @ zone.js:599
-scheduleTask @ zone.js:420
-scheduleTask @ zone.js:207
-scheduleMicroTask @ zone.js:227
-scheduleResolveOrReject @ zone.js:2527
-resolvePromise @ zone.js:2461
-(anonymous) @ zone.js:2369
-(anonymous) @ zone.js:2385
-Promise.then
-(anonymous) @ zone.js:2779
-ZoneAwarePromise @ zone.js:2701
-Ctor.then @ zone.js:2778
-resolvePromise @ zone.js:2422
-resolve @ zone.js:2559
-step @ chunk-3IG7FZWI.js:64
-(anonymous) @ chunk-3IG7FZWI.js:65
-ZoneAwarePromise @ zone.js:2701
-**async @ chunk-3IG7FZWI.js:49
-initializeMockEnvironment @ main.ts:32
-(anonymous) @ main.ts:64Understand this error
-main.ts:76 === PTAH WEBVIEW BOOTSTRAP COMPLETE ===
-mock-vscode-api.ts:423 [Mock VSCode API] Sending to webview: initialData {success: true, data: {…}, config: {…}, timestamp: 1762639546820}
-vscode.service.ts:193 === VSCodeService: Raw message event received === {origin: '<http://localhost:4200>', dataType: 'object', data: {…}}
-vscode.service.ts:201 === VSCodeService: Processing message type: initialData ===
-vscode.service.ts:207 - Emitted to RxJS subject
-vscode.service.ts:211 - Updated_lastMessageTime signal (Zone.js handles change detection)
-vscode.service.ts:215 === VSCodeService: Message processed successfully: initialData ===
-mock-vscode-api.ts:423 [Mock VSCode API] Sending to webview: initialData {success: true, data: {…}, config: {…}, timestamp: 1762639546829}
-vscode.service.ts:193 === VSCodeService: Raw message event received === {origin: '<http://localhost:4200>', dataType: 'object', data: {…}}
-vscode.service.ts:201 === VSCodeService: Processing message type: initialData ===
-vscode.service.ts:207 - Emitted to RxJS subject
-vscode.service.ts:211 - Updated \_lastMessageTime signal (Zone.js handles change detection)
-vscode.service.ts:215 === VSCodeService: Message processed successfully: initialData ===
-vscode.service.ts:193 === VSCodeService: Raw message event received === {origin: '<http://localhost:4200>', dataType: 'object', data: {…}}
-vscode.service.ts:219 === VSCodeService: Invalid message received === {source: 'angular-devtools-content-script', topic: 'handshake', args: undefined, **ignore_ng_zone**: true, **NG_DEVTOOLS_EVENT**: true}
-(anonymous) @ vscode.service.ts:219
-invokeTask @ zone.js:431
-(anonymous) @ debug_node.mjs:16336
-onInvokeTask @ debug_node.mjs:16336
-invokeTask @ zone.js:430
-onInvokeTask @ debug_node.mjs:16655
-invokeTask @ zone.js:430
-runTask @ zone.js:161
-invokeTask @ zone.js:515
-invokeTask @ zone.js:1141
-globalCallback @ zone.js:1172
-globalZoneAwareCallback @ zone.js:1205
-Zone - Window.addEventListener:message
-onScheduleTask @ debug_node.mjs:16330
-scheduleTask @ zone.js:411
-onScheduleTask @ zone.js:273
-scheduleTask @ zone.js:411
-scheduleTask @ zone.js:207
-scheduleEventTask @ zone.js:233
-(anonymous) @ zone.js:1498
-setupMessageListener @ vscode.service.ts:192
-\_VSCodeService @ vscode.service.ts:126
-VSCodeService_Factory @ vscode.service.ts:506
-(anonymous) @ root_effect_scheduler.mjs:2154
-runInInjectorProfilerContext @ root_effect_scheduler.mjs:720
-hydrate @ root_effect_scheduler.mjs:2152
-get @ root_effect_scheduler.mjs:2007
-retrieve @ root_effect_scheduler.mjs:1903
-injectInjectorOnly @ root_effect_scheduler.mjs:1020
-ɵɵinject @ root_effect_scheduler.mjs:1032
-inject2 @ root_effect_scheduler.mjs:1118
-<instance_members_initializer> @ app-state.service.ts:44
-\_AppStateManager @ app-state.service.ts:69
-AppStateManager_Factory @ app-state.service.ts:157
-(anonymous) @ root_effect_scheduler.mjs:2154
-runInInjectorProfilerContext @ root_effect_scheduler.mjs:720
-hydrate @ root_effect_scheduler.mjs:2152
-get @ root_effect_scheduler.mjs:2007
-get @ root_effect_scheduler.mjs:2019
-get @ debug_node.mjs:12288
-lookupTokenUsingModuleInjector @ debug_node.mjs:1718
-getOrCreateInjectable @ debug_node.mjs:1766
-ɵɵdirectiveInject @ debug_node.mjs:12339
-ɵɵinject @ root_effect_scheduler.mjs:1032
-inject2 @ root_effect_scheduler.mjs:1118
-<instance_members_initializer> @ app.ts:42
-\_App @ app.ts:38
-App_Factory @ app.ts:146
-getNodeInjectable @ debug_node.mjs:1989
-instantiateAllDirectives @ debug_node.mjs:8176
-createDirectivesInstances @ debug_node.mjs:7949
-create @ debug_node.mjs:13472
-(anonymous) @ debug_node.mjs:20199
-invoke @ zone.js:398
-onInvoke @ debug_node.mjs:16672
-invoke @ zone.js:397
-run @ zone.js:113
-run @ debug_node.mjs:16518
-bootstrapImpl @ debug_node.mjs:20168
-bootstrap @ debug_node.mjs:20164
-(anonymous) @ core.mjs:970
-invoke @ zone.js:398
-onInvoke @ debug_node.mjs:16672
-invoke @ zone.js:397
-run @ zone.js:113
-(anonymous) @ zone.js:2537
-invokeTask @ zone.js:431
-(anonymous) @ debug_node.mjs:16336
-onInvokeTask @ debug_node.mjs:16336
-invokeTask @ zone.js:430
-onInvokeTask @ debug_node.mjs:16659
-invokeTask @ zone.js:430
-runTask @ zone.js:161
-drainMicroTaskQueue @ zone.js:612
-Zone - Promise.then
-onScheduleTask @ debug_node.mjs:16330
-scheduleTask @ zone.js:411
-onScheduleTask @ zone.js:273
-scheduleTask @ zone.js:411
-scheduleTask @ zone.js:207
-scheduleMicroTask @ zone.js:227
-scheduleResolveOrReject @ zone.js:2527
-then @ zone.js:2732
-(anonymous) @ core.mjs:951
-\_callAndReportToErrorHandler @ core.mjs:1012
-(anonymous) @ core.mjs:945
-invoke @ zone.js:398
-onInvoke @ debug_node.mjs:16672
-invoke @ zone.js:397
-run @ zone.js:113
-run @ debug_node.mjs:16518
-bootstrap @ core.mjs:904
-internalCreateApplication @ core.mjs:2659
-(anonymous) @ browser.mjs:440
-invoke @ zone.js:398
-run @ zone.js:113
-(anonymous) @ zone.js:2537
-invokeTask @ zone.js:431
-runTask @ zone.js:161
-drainMicroTaskQueue @ zone.js:612
-Promise.then
-nativeScheduleMicroTask @ zone.js:588
-scheduleMicroTask @ zone.js:599
-scheduleTask @ zone.js:420
-scheduleTask @ zone.js:207
-scheduleMicroTask @ zone.js:227
-scheduleResolveOrReject @ zone.js:2527
-resolvePromise @ zone.js:2461
-(anonymous) @ zone.js:2369
-(anonymous) @ zone.js:2385
-Promise.then
-(anonymous) @ zone.js:2779
-ZoneAwarePromise @ zone.js:2701
-Ctor.then @ zone.js:2778
-resolvePromise @ zone.js:2422
-resolve @ zone.js:2559
-step @ chunk-3IG7FZWI.js:64
-(anonymous) @ chunk-3IG7FZWI.js:65
-ZoneAwarePromise @ zone.js:2701
-**async @ chunk-3IG7FZWI.js:49
-initializeMockEnvironment @ main.ts:32
-(anonymous) @ main.ts:64Understand this warning
-vscode.service.ts:193 === VSCodeService: Raw message event received === {origin: '<http://localhost:4200>', dataType: 'object', data: {…}}
-vscode.service.ts:219 === VSCodeService: Invalid message received === {source: 'angular-devtools-content-script', topic: 'handshake', args: undefined, **ignore_ng_zone**: true, **NG_DEVTOOLS_EVENT**: true}
-(anonymous) @ vscode.service.ts:219
-invokeTask @ zone.js:431
-(anonymous) @ debug_node.mjs:16336
-onInvokeTask @ debug_node.mjs:16336
-invokeTask @ zone.js:430
-onInvokeTask @ debug_node.mjs:16655
-invokeTask @ zone.js:430
-runTask @ zone.js:161
-invokeTask @ zone.js:515
-invokeTask @ zone.js:1141
-globalCallback @ zone.js:1172
-globalZoneAwareCallback @ zone.js:1205
-Zone - Window.addEventListener:message
-onScheduleTask @ debug_node.mjs:16330
-scheduleTask @ zone.js:411
-onScheduleTask @ zone.js:273
-scheduleTask @ zone.js:411
-scheduleTask @ zone.js:207
-scheduleEventTask @ zone.js:233
-(anonymous) @ zone.js:1498
-setupMessageListener @ vscode.service.ts:192
-\_VSCodeService @ vscode.service.ts:126
-VSCodeService_Factory @ vscode.service.ts:506
-(anonymous) @ root_effect_scheduler.mjs:2154
-runInInjectorProfilerContext @ root_effect_scheduler.mjs:720
-hydrate @ root_effect_scheduler.mjs:2152
-get @ root_effect_scheduler.mjs:2007
-retrieve @ root_effect_scheduler.mjs:1903
-injectInjectorOnly @ root_effect_scheduler.mjs:1020
-ɵɵinject @ root_effect_scheduler.mjs:1032
-inject2 @ root_effect_scheduler.mjs:1118
-<instance_members_initializer> @ app-state.service.ts:44
-\_AppStateManager @ app-state.service.ts:69
-AppStateManager_Factory @ app-state.service.ts:157
-(anonymous) @ root_effect_scheduler.mjs:2154
-runInInjectorProfilerContext @ root_effect_scheduler.mjs:720
-hydrate @ root_effect_scheduler.mjs:2152
-get @ root_effect_scheduler.mjs:2007
-get @ root_effect_scheduler.mjs:2019
-get @ debug_node.mjs:12288
-lookupTokenUsingModuleInjector @ debug_node.mjs:1718
-getOrCreateInjectable @ debug_node.mjs:1766
-ɵɵdirectiveInject @ debug_node.mjs:12339
-ɵɵinject @ root_effect_scheduler.mjs:1032
-inject2 @ root_effect_scheduler.mjs:1118
-<instance_members_initializer> @ app.ts:42
-\_App @ app.ts:38
-App_Factory @ app.ts:146
-getNodeInjectable @ debug_node.mjs:1989
-instantiateAllDirectives @ debug_node.mjs:8176
-createDirectivesInstances @ debug_node.mjs:7949
-create @ debug_node.mjs:13472
-(anonymous) @ debug_node.mjs:20199
-invoke @ zone.js:398
-onInvoke @ debug_node.mjs:16672
-invoke @ zone.js:397
-run @ zone.js:113
-run @ debug_node.mjs:16518
-bootstrapImpl @ debug_node.mjs:20168
-bootstrap @ debug_node.mjs:20164
-(anonymous) @ core.mjs:970
-invoke @ zone.js:398
-onInvoke @ debug_node.mjs:16672
-invoke @ zone.js:397
-run @ zone.js:113
-(anonymous) @ zone.js:2537
-invokeTask @ zone.js:431
-(anonymous) @ debug_node.mjs:16336
-onInvokeTask @ debug_node.mjs:16336
-invokeTask @ zone.js:430
-onInvokeTask @ debug_node.mjs:16659
-invokeTask @ zone.js:430
-runTask @ zone.js:161
-drainMicroTaskQueue @ zone.js:612
-Zone - Promise.then
-onScheduleTask @ debug_node.mjs:16330
-scheduleTask @ zone.js:411
-onScheduleTask @ zone.js:273
-scheduleTask @ zone.js:411
-scheduleTask @ zone.js:207
-scheduleMicroTask @ zone.js:227
-scheduleResolveOrReject @ zone.js:2527
-then @ zone.js:2732
-(anonymous) @ core.mjs:951
-\_callAndReportToErrorHandler @ core.mjs:1012
-(anonymous) @ core.mjs:945
-invoke @ zone.js:398
-onInvoke @ debug_node.mjs:16672
-invoke @ zone.js:397
-run @ zone.js:113
-run @ debug_node.mjs:16518
-bootstrap @ core.mjs:904
-internalCreateApplication @ core.mjs:2659
-(anonymous) @ browser.mjs:440
-invoke @ zone.js:398
-run @ zone.js:113
-(anonymous) @ zone.js:2537
-invokeTask @ zone.js:431
-runTask @ zone.js:161
-drainMicroTaskQueue @ zone.js:612
-Promise.then
-nativeScheduleMicroTask @ zone.js:588
-scheduleMicroTask @ zone.js:599
-scheduleTask @ zone.js:420
-scheduleTask @ zone.js:207
-scheduleMicroTask @ zone.js:227
-scheduleResolveOrReject @ zone.js:2527
-resolvePromise @ zone.js:2461
-(anonymous) @ zone.js:2369
-(anonymous) @ zone.js:2385
-Promise.then
-(anonymous) @ zone.js:2779
-ZoneAwarePromise @ zone.js:2701
-Ctor.then @ zone.js:2778
-resolvePromise @ zone.js:2422
-resolve @ zone.js:2559
-step @ chunk-3IG7FZWI.js:64
-(anonymous) @ chunk-3IG7FZWI.js:65
-ZoneAwarePromise @ zone.js:2701
-**async @ chunk-3IG7FZWI.js:49
-initializeMockEnvironment @ main.ts:32
-(anonymous) @ main.ts:64Understand this warning
-vscode.service.ts:193 === VSCodeService: Raw message event received === {origin: '<http://localhost:4200>', dataType: 'object', data: {…}}
-vscode.service.ts:219 === VSCodeService: Invalid message received === {isIvy: true, isAngular: true, isDebugMode: true, isSupportedAngularVersion: true, isAngularDevTools: true}
-(anonymous) @ vscode.service.ts:219
-invokeTask @ zone.js:431
-(anonymous) @ debug_node.mjs:16336
-onInvokeTask @ debug_node.mjs:16336
-invokeTask @ zone.js:430
-onInvokeTask @ debug_node.mjs:16659
-invokeTask @ zone.js:430
-runTask @ zone.js:161
-invokeTask @ zone.js:515
-invokeTask @ zone.js:1141
-globalCallback @ zone.js:1172
-globalZoneAwareCallback @ zone.js:1205
-Zone - Window.addEventListener:message
-onScheduleTask @ debug_node.mjs:16330
-scheduleTask @ zone.js:411
-onScheduleTask @ zone.js:273
-scheduleTask @ zone.js:411
-scheduleTask @ zone.js:207
-scheduleEventTask @ zone.js:233
-(anonymous) @ zone.js:1498
-setupMessageListener @ vscode.service.ts:192
-\_VSCodeService @ vscode.service.ts:126
-VSCodeService_Factory @ vscode.service.ts:506
-(anonymous) @ root_effect_scheduler.mjs:2154
-runInInjectorProfilerContext @ root_effect_scheduler.mjs:720
-hydrate @ root_effect_scheduler.mjs:2152
-get @ root_effect_scheduler.mjs:2007
-retrieve @ root_effect_scheduler.mjs:1903
-injectInjectorOnly @ root_effect_scheduler.mjs:1020
-ɵɵinject @ root_effect_scheduler.mjs:1032
-inject2 @ root_effect_scheduler.mjs:1118
+"I'll start by exploring the codebase to understand its structure and get familiar with the project.
+<function*calls>
+<invoke name="Glob">
+<parameter name="pattern">\**/\_.{ts,js,json,md}</parameter>
+<parameter name="limit">50</parameter>
+</invoke>
+</function_calls>
+<thinking>
+The user just said "Warmup" which suggests they want me to explore and familiarize myself with the codebase. Let me start by understanding the project structure.
+</thinking>
+
+<function_calls>
+<invoke name="Bash">
+<parameter name="command">cd "d:\projects\Anubis-MCP" && ls -la</parameter>
+</invoke>
+</function_calls>
+<thinking>
+Let me explore the project structure to understand what this codebase is about.
+</thinking>
+
+<function_calls>
+<invoke name="Read">
+<parameter name="file_path">d:\projects\Anubis-MCP\package.json</parameter>
+</invoke>
+</function_calls>
+<thinking>
+Let me continue exploring to understand the project structure better.
+</thinking>
+
+<function_calls>
+<invoke name="Bash">
+<parameter name="command">cd "d:\projects\Anubis-MCP" && find . -type f -name "\*.ts" | head -30</parameter>
+</invoke>
+</function_calls>
+<thinking>
+Let me explore the src directory structure to better understand this NestJS project.
+</thinking>
+
+<function_calls>
+<invoke name="Bash">
+<parameter name="command">cd "d:\projects\Anubis-MCP" && ls -la src/</parameter>
+</invoke>
+</function_calls>
+<thinking>
+Let me explore more of the source structure.
+</thinking>
+
+<function*calls>
+<invoke name="Glob">
+<parameter name="pattern">src/\**/\_.ts</parameter>
+<parameter name="limit">100</parameter>
+</invoke>
+</function_calls>
+<thinking>
+Now I have a better understanding. Let me read the main entry points and understand the architecture.
+</thinking>
+
+<function_calls>
+<invoke name="Read">
+<parameter name="file_path">d:\projects\Anubis-MCP\src\app.module.ts</parameter>
+</invoke>
+</function_calls>
+<thinking>
+This is a NestJS application. Let me explore the different modules to understand the architecture better.
+</thinking>
+
+<function_calls>
+<invoke name="Bash">
+<parameter name="command">cd "d:\projects\Anubis-MCP" && ls -la src/task-workflow/</parameter>
+</invoke>
+</function_calls>
+<thinking>
+Let me explore the task-workflow module structure.
+</thinking>
+
+<function_calls>
+<invoke name="Bash">
+<parameter name="command">cd "d:\projects\Anubis-MCP" && ls -laR src/task-workflow/</parameter>
+</invoke>
+</function_calls>
+<thinking>
+Now let me explore the MCP module which seems to be core to the project name.
+</thinking>
+
+<function_calls>
+<invoke name="Bash">
+<parameter name="command">cd "d:\projects\Anubis-MCP" && ls -laR src/mcp/</parameter>
+</invoke>
+</function_calls>
+<thinking>
+Let me read the README to understand the project purpose better.
+</thinking>
+
+<function_calls>
+<invoke name="Read">
+<parameter name="file_path">d:\projects\Anubis-MCP\README.md</parameter>
+</invoke>
+</function_calls>
+<thinking>
+Now I have a good understanding of the project. It's an AI Task Delegation System built with NestJS that uses the Model Context Protocol (MCP). Let me also check the Prisma schema to understand the data model.
+</thinking>
+
+<function_calls>
+<invoke name="Read">
+<parameter name="file_path">d:\projects\Anubis-MCP\prisma\schema.prisma</parameter>
+</invoke>
+</function_calls>
+<thinking>
+Now I have a comprehensive understanding of the codebase. Given the branch name "feature/ditch-prisma-json-markdown", it seems the project might be planning to move away from Prisma or change how JSON/Markdown content is handled.
+
+Let me check the docs files that were mentioned in the git status.
+</thinking>
+
+<function_calls>
+<invoke name="Read">
+<parameter name="file_path">d:\projects\Anubis-MCP\docs\files\codebase-analysis-findings.md</parameter>
+</invoke>
+</function_calls>
+<thinking>
+Let me also check the prisma-complexity-analysis.md file.
+</thinking>
+
+<function_calls>
+<invoke name="Read">
+<parameter name="file_path">d:\projects\Anubis-MCP\docs\files\prisma-complexity-analysis.md</parameter>
+</invoke>
+</function_calls>
+<thinking>
+Excellent! Now I have a comprehensive understanding of the project:
+
+## Summary
+
+**Project: Anubis-MCP** - An AI Task Delegation System built with NestJS
+
+### Key Components
+
+1. **MCP (Model Context Protocol)** - Server implementation for AI tool delegation
+2. **Task Workflow** - Manages AI agent tasks through a lifecycle with domains like:
+
+   - Research
+   - Solution Architecture
+   - Implementation Preparation
+   - Code Generation
+   - Code Review
+   - Completion
+
+3. **Dashboard API** - REST endpoints for monitoring task executions
+4. **WebSocket Gateway** - Real-time updates for the dashboard
+
+### Architecture
+
+- **NestJS** framework with modular structure
+- **Prisma** ORM with SQLite database
+- **Type-safe DTOs** for API responses
+- Heavy use of **JSON fields** in database for flexible data storage (noted as a complexity concern)
+
+### Current Branch Context (feature/ditch-prisma-json-markdown)
+
+Based on the analysis documents, the team is evaluating:
+
+1. **JSON Complexity Issues** - 157 JSON field references, 20 type casting patterns
+2. **Markdown Parsing Concerns** - 17 markdown template files, potential for runtime errors
+3. **Database Performance** - SQLite with JSON queries may have performance issues
+
+The project appears to be considering architectural changes to address these concerns.
+
+I'm now warmed up and ready to assist with any planning tasks related to this codebase!
+</thinking>
+
+I've explored the **Anubis-MCP** codebase. Here's what I found:
+
+## Project Overview
+
+**Anubis-MCP** is an AI Task Delegation System built with NestJS that implements the Model Context Protocol (MCP) for orchestrating AI agent workflows.
+
+### Core Architecture
+
+| Module               | Purpose                                      |
+| -------------------- | -------------------------------------------- |
+| `src/mcp/`           | MCP server with 29 tools for task management |
+| `src/task-workflow/` | Domain-driven task lifecycle management      |
+| `src/dashboard-api/` | REST API for monitoring executions           |
+| `src/common/`        | Shared services (Prisma, config, utilities)  |
+
+### Key Technologies
+
+- **NestJS** - Backend framework
+- **Prisma** - ORM with SQLite
+- **WebSocket** - Real-time dashboard updates
+- **MCP Protocol** - AI tool delegation
+
+### Database Schema
+
+- `Task` - Core task entity with lifecycle phases
+- `DelegationRecord` - Tracks AI agent assignments
+- `TaskExecution` - Execution history and metrics
+- Heavy use of JSON fields for flexible data storage
+
+### Current Branch Context
+
+The branch `feature/ditch-prisma-json-markdown` suggests evaluation of architectural changes. Analysis documents indicate:
+
+- **157 JSON field references** causing type safety concerns
+- **20 type casting patterns** adding complexity
+- **17 markdown templates** with potential runtime parsing risks
+- SQLite JSON query performance considerations
+
+### Critical Files
+
+- `d:\projects\Anubis-MCP\src\app.module.ts` - Application root
+- `d:\projects\Anubis-MCP\prisma\schema.prisma` - Data model
+- `d:\projects\Anubis-MCP\src\mcp\mcp.module.ts` - MCP server setup
+- `d:\projects\Anubis-MCP\src\task-workflow\task-workflow.module.ts` - Workflow orchestration
+
+Ready for your planning requirements!"

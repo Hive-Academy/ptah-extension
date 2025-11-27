@@ -21,95 +21,128 @@ import {
   ClaudeAgentStartEvent,
   ClaudeAgentActivityEvent,
   ClaudeAgentCompleteEvent,
+  SessionSummary,
 } from './claude-domain.types';
-import {
-  CHAT_MESSAGE_TYPES,
-  CHAT_RESPONSE_TYPES,
-  PROVIDER_MESSAGE_TYPES,
-  PROVIDER_RESPONSE_TYPES,
-  CONTEXT_MESSAGE_TYPES,
-  CONTEXT_RESPONSE_TYPES,
-  COMMAND_MESSAGE_TYPES,
-  COMMAND_RESPONSE_TYPES,
-  ANALYTICS_MESSAGE_TYPES,
-  ANALYTICS_RESPONSE_TYPES,
-  CONFIG_MESSAGE_TYPES,
-  CONFIG_RESPONSE_TYPES,
-  STATE_MESSAGE_TYPES,
-  STATE_RESPONSE_TYPES,
-  VIEW_MESSAGE_TYPES,
-  SYSTEM_MESSAGE_TYPES,
-} from '../constants/message-types';
+import type {
+  ContentBlock,
+  TextContentBlock,
+  ThinkingContentBlock,
+  ToolUseContentBlock,
+  ToolResultContentBlock,
+} from './content-block.types';
 
 // Re-export for convenience
 export { CorrelationId };
 
-/**
- * ContentBlock Discriminated Union - Structured Message Content
- * Replaces flat string content with typed blocks for text, tool use, and thinking
- */
+// Re-export ContentBlock types from foundation layer
+export type {
+  ContentBlock,
+  TextContentBlock,
+  ThinkingContentBlock,
+  ToolUseContentBlock,
+  ToolResultContentBlock,
+};
 
 /**
- * TextContentBlock - Plain text content from assistant or user
- */
-export interface TextContentBlock {
-  readonly type: 'text';
-  readonly text: string;
-  readonly index?: number;
-}
-
-/**
- * ToolUseContentBlock - Tool execution request from assistant
- */
-export interface ToolUseContentBlock {
-  readonly type: 'tool_use';
-  readonly id: string;
-  readonly name: string;
-  readonly input: Readonly<Record<string, unknown>>;
-  readonly index?: number;
-}
-
-/**
- * ThinkingContentBlock - Claude's reasoning process (extended thinking)
- */
-export interface ThinkingContentBlock {
-  readonly type: 'thinking';
-  readonly thinking: string;
-  readonly index?: number;
-}
-
-/**
- * ContentBlock - Discriminated union of all content block types
- * Enables type-safe pattern matching with TypeScript discriminated unions
- */
-export type ContentBlock =
-  | TextContentBlock
-  | ToolUseContentBlock
-  | ThinkingContentBlock;
-
-/**
- * Strict Message Types - derives from MESSAGE_TYPES constants
- * This ensures automatic sync between constants and types (single source of truth)
- *
- * By importing each category separately and creating a union, we maintain proper type narrowing
+ * Strict Message Types - Literal string union for type-safe message handling
+ * Defines all valid message types across the extension
  */
 export type StrictMessageType =
-  | (typeof CHAT_MESSAGE_TYPES)[keyof typeof CHAT_MESSAGE_TYPES]
-  | (typeof CHAT_RESPONSE_TYPES)[keyof typeof CHAT_RESPONSE_TYPES]
-  | (typeof PROVIDER_MESSAGE_TYPES)[keyof typeof PROVIDER_MESSAGE_TYPES]
-  | (typeof PROVIDER_RESPONSE_TYPES)[keyof typeof PROVIDER_RESPONSE_TYPES]
-  | (typeof CONTEXT_MESSAGE_TYPES)[keyof typeof CONTEXT_MESSAGE_TYPES]
-  | (typeof CONTEXT_RESPONSE_TYPES)[keyof typeof CONTEXT_RESPONSE_TYPES]
-  | (typeof COMMAND_MESSAGE_TYPES)[keyof typeof COMMAND_MESSAGE_TYPES]
-  | (typeof COMMAND_RESPONSE_TYPES)[keyof typeof COMMAND_RESPONSE_TYPES]
-  | (typeof ANALYTICS_MESSAGE_TYPES)[keyof typeof ANALYTICS_MESSAGE_TYPES]
-  | (typeof ANALYTICS_RESPONSE_TYPES)[keyof typeof ANALYTICS_RESPONSE_TYPES]
-  | (typeof CONFIG_MESSAGE_TYPES)[keyof typeof CONFIG_MESSAGE_TYPES]
-  | (typeof CONFIG_RESPONSE_TYPES)[keyof typeof CONFIG_RESPONSE_TYPES]
-  | (typeof STATE_MESSAGE_TYPES)[keyof typeof STATE_MESSAGE_TYPES]
-  | (typeof STATE_RESPONSE_TYPES)[keyof typeof STATE_RESPONSE_TYPES]
-  | (typeof VIEW_MESSAGE_TYPES)[keyof typeof VIEW_MESSAGE_TYPES]
-  | (typeof SYSTEM_MESSAGE_TYPES)[keyof typeof SYSTEM_MESSAGE_TYPES]; // System message types are now included in StrictMessageType above
+  // Chat messages
+  | 'chat:sendMessage'
+  | 'chat:messageChunk'
+  | 'chat:sessionStart'
+  | 'chat:sessionEnd'
+  | 'chat:newSession'
+  | 'chat:switchSession'
+  | 'chat:getHistory'
+  | 'chat:messageAdded'
+  | 'chat:messageComplete'
+  | 'chat:sessionCreated'
+  | 'chat:sessionSwitched'
+  | 'chat:sessionUpdated'
+  | 'chat:tokenUsageUpdated'
+  | 'chat:historyLoaded'
+  | 'chat:renameSession'
+  | 'chat:deleteSession'
+  | 'chat:bulkDeleteSessions'
+  | 'chat:sessionRenamed'
+  | 'chat:sessionDeleted'
+  | 'chat:getSessionStats'
+  | 'chat:requestSessions'
+  | 'chat:sessionsUpdated'
+  | 'chat:stopStream'
+  | 'chat:streamStopped'
+  | 'chat:agentStarted'
+  | 'chat:agentActivity'
+  | 'chat:agentCompleted'
+  | 'chat:thinking'
+  | 'chat:toolStart'
+  | 'chat:toolProgress'
+  | 'chat:toolResult'
+  | 'chat:toolError'
+  | 'chat:sessionInit'
+  | 'chat:healthUpdate'
+  | 'chat:cliError'
+  // Provider messages
+  | 'providers:getAvailable'
+  | 'providers:getCurrent'
+  | 'providers:switch'
+  | 'providers:getHealth'
+  | 'providers:getAllHealth'
+  | 'providers:setDefault'
+  | 'providers:enableFallback'
+  | 'providers:setAutoSwitch'
+  | 'providers:selectModel'
+  | 'providers:currentChanged'
+  | 'providers:healthChanged'
+  | 'providers:error'
+  | 'providers:availableUpdated'
+  | 'providers:modelChanged'
+  // Context messages
+  | 'context:updateFiles'
+  | 'context:getFiles'
+  | 'context:includeFile'
+  | 'context:excludeFile'
+  | 'context:searchFiles'
+  | 'context:getAllFiles'
+  | 'context:getFileSuggestions'
+  | 'context:searchImages'
+  // Command messages
+  | 'commands:getTemplates'
+  | 'commands:executeCommand'
+  | 'commands:selectFile'
+  | 'commands:saveTemplate'
+  // Analytics messages
+  | 'analytics:trackEvent'
+  | 'analytics:getData'
+  // Config messages
+  | 'config:get'
+  | 'config:set'
+  | 'config:update'
+  | 'config:refresh'
+  // State messages
+  | 'state:save'
+  | 'state:load'
+  | 'state:clear'
+  | 'state:saved'
+  | 'state:loaded'
+  // View messages
+  | 'view:changed'
+  | 'view:routeChanged'
+  | 'view:generic'
+  // System messages
+  | 'error'
+  | 'initialData'
+  | 'webview-ready'
+  | 'ready'
+  | 'requestInitialData'
+  | 'themeChanged'
+  | 'navigate'
+  | 'refresh'
+  | 'switchView'
+  | 'workspaceChanged'
+  | string; // Allow extensibility for custom message types
 
 /**
  * Message Payloads - Strict typing for each message type
@@ -127,7 +160,7 @@ export interface ChatSendMessagePayload {
 export interface ChatMessageChunkPayload {
   readonly sessionId: SessionId;
   readonly messageId: MessageId;
-  readonly content: string;
+  readonly contentBlocks: readonly ContentBlock[];
   readonly isComplete: boolean;
   readonly streaming: boolean;
 }
@@ -352,21 +385,6 @@ export interface ChatStopStreamPayload {
   readonly timestamp: number;
 }
 
-export interface ChatPermissionRequestPayload {
-  readonly id: string;
-  readonly tool: string;
-  readonly action: string;
-  readonly description: string;
-  readonly timestamp: number;
-  readonly sessionId: string;
-}
-
-export interface ChatPermissionResponsePayload {
-  readonly requestId: string;
-  readonly response: 'allow' | 'always_allow' | 'deny';
-  readonly timestamp: number;
-}
-
 /**
  * Thinking event payload (Claude's reasoning process)
  */
@@ -461,7 +479,7 @@ export interface ChatRequestSessionsPayload {
 }
 
 export interface ChatSessionsUpdatedPayload {
-  readonly sessions: readonly StrictChatSession[];
+  readonly sessions: readonly SessionSummary[];
 }
 
 /**
@@ -500,10 +518,21 @@ export interface ProvidersSetAutoSwitchPayload {
   readonly enabled: boolean;
 }
 
+export interface ProvidersSelectModelPayload {
+  readonly modelId: string;
+  readonly providerId?: string; // Optional - use current provider if omitted
+}
+
 export interface ProvidersCurrentChangedPayload {
   readonly from: string | null; // ProviderId | null
   readonly to: string; // ProviderId
   readonly reason: 'user-request' | 'auto-fallback' | 'error-recovery';
+  readonly timestamp: number;
+}
+
+export interface ProvidersModelChangedPayload {
+  readonly modelId: string;
+  readonly providerId: string;
   readonly timestamp: number;
 }
 
@@ -688,8 +717,6 @@ export interface MessagePayloadMap {
   'chat:sessionsUpdated': ChatSessionsUpdatedPayload;
   'chat:stopStream': ChatStopStreamPayload;
   'chat:streamStopped': ChatStreamStoppedPayload;
-  'chat:permissionRequest': ChatPermissionRequestPayload;
-  'chat:permissionResponse': ChatPermissionResponsePayload;
   'chat:agentStarted': ChatAgentStartedPayload;
   'chat:agentActivity': ChatAgentActivityPayload;
   'chat:agentCompleted': ChatAgentCompletedPayload;
@@ -709,10 +736,12 @@ export interface MessagePayloadMap {
   'providers:setDefault': ProvidersSetDefaultPayload;
   'providers:enableFallback': ProvidersEnableFallbackPayload;
   'providers:setAutoSwitch': ProvidersSetAutoSwitchPayload;
+  'providers:selectModel': ProvidersSelectModelPayload;
   'providers:currentChanged': ProvidersCurrentChangedPayload;
   'providers:healthChanged': ProvidersHealthChangedPayload;
   'providers:error': ProvidersErrorPayload;
   'providers:availableUpdated': ProvidersAvailableUpdatedPayload;
+  'providers:modelChanged': ProvidersModelChangedPayload;
   'context:updateFiles': ContextUpdatePayload;
   'context:getFiles': ContextGetFilesPayload;
   'context:includeFile': ContextIncludeFilePayload;
@@ -854,7 +883,7 @@ export interface StrictChatMessage {
   readonly id: MessageId;
   readonly sessionId: SessionId;
   readonly type: 'user' | 'assistant' | 'system';
-  readonly content: string;
+  readonly contentBlocks: readonly ContentBlock[];
   readonly timestamp: number;
   readonly streaming?: boolean;
   readonly files?: readonly string[];
@@ -1000,7 +1029,7 @@ export const MessageResponseSchema = z
       .object({
         code: z.string(),
         message: z.string(),
-        context: z.record(z.unknown()).optional(),
+        context: z.record(z.string(), z.unknown()).optional(),
         stack: z.string().optional(),
       })
       .optional(),
@@ -1026,16 +1055,65 @@ export const SessionCapabilitiesSchema = z.object({
   claude_code_version: z.string(),
 });
 
+/**
+ * Zod Schemas for ContentBlock Runtime Validation
+ */
+
+/**
+ * TextContentBlock Zod schema
+ */
+export const TextContentBlockSchema = z
+  .object({
+    type: z.literal('text'),
+    text: z.string(),
+    index: z.number().optional(),
+  })
+  .strict();
+
+/**
+ * ToolUseContentBlock Zod schema
+ */
+export const ToolUseContentBlockSchema = z
+  .object({
+    type: z.literal('tool_use'),
+    id: z.string(),
+    name: z.string(),
+    input: z.record(z.string(), z.unknown()),
+    index: z.number().optional(),
+  })
+  .strict();
+
+/**
+ * ThinkingContentBlock Zod schema
+ */
+export const ThinkingContentBlockSchema = z
+  .object({
+    type: z.literal('thinking'),
+    thinking: z.string(),
+    index: z.number().optional(),
+  })
+  .strict();
+
+/**
+ * ContentBlock Zod schema - discriminated union
+ * Enables runtime validation of structured content blocks
+ */
+export const ContentBlockSchema = z.discriminatedUnion('type', [
+  TextContentBlockSchema,
+  ToolUseContentBlockSchema,
+  ThinkingContentBlockSchema,
+]);
+
 export const StrictChatMessageSchema = z.object({
   id: MessageIdSchema,
   sessionId: SessionIdSchema,
   type: z.enum(['user', 'assistant', 'system']),
-  content: z.string(),
+  contentBlocks: z.array(ContentBlockSchema),
   timestamp: z.number().positive(),
   streaming: z.boolean().optional(),
   files: z.array(z.string()).optional(),
   isError: z.boolean().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   // For assistant messages
   isComplete: z.boolean().optional(),
   // For system messages
@@ -1079,55 +1157,6 @@ export const StrictChatSessionSchema = z
     totalTokensOutput: z.number().nonnegative().optional(),
   })
   .strict();
-
-/**
- * Zod Schemas for ContentBlock Runtime Validation
- */
-
-/**
- * TextContentBlock Zod schema
- */
-export const TextContentBlockSchema = z
-  .object({
-    type: z.literal('text'),
-    text: z.string(),
-    index: z.number().optional(),
-  })
-  .strict();
-
-/**
- * ToolUseContentBlock Zod schema
- */
-export const ToolUseContentBlockSchema = z
-  .object({
-    type: z.literal('tool_use'),
-    id: z.string(),
-    name: z.string(),
-    input: z.record(z.unknown()),
-    index: z.number().optional(),
-  })
-  .strict();
-
-/**
- * ThinkingContentBlock Zod schema
- */
-export const ThinkingContentBlockSchema = z
-  .object({
-    type: z.literal('thinking'),
-    thinking: z.string(),
-    index: z.number().optional(),
-  })
-  .strict();
-
-/**
- * ContentBlock Zod schema - discriminated union
- * Enables runtime validation of structured content blocks
- */
-export const ContentBlockSchema = z.discriminatedUnion('type', [
-  TextContentBlockSchema,
-  ToolUseContentBlockSchema,
-  ThinkingContentBlockSchema,
-]);
 
 /**
  * System Message Payloads - For webview lifecycle messages

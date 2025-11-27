@@ -266,7 +266,7 @@ export const ToolUseContentBlockSchema = z
     type: z.literal('tool_use'),
     id: z.string(),
     name: z.string(),
-    input: z.record(z.unknown()),
+    input: z.record(z.string(), z.unknown()),
     index: z.number().optional(),
   })
   .strict();
@@ -291,7 +291,7 @@ export const StrictChatMessageSchema = z
     streaming: z.boolean().optional(),
     files: z.array(z.string()).optional(),
     isError: z.boolean().optional(),
-    metadata: z.record(z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
     isComplete: z.boolean().optional(),
     level: z.enum(['info', 'warning', 'error']).optional(),
     cost: z.number().optional(),

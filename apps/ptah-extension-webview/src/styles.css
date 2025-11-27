@@ -1,55 +1,294 @@
-/* You can add global styles to this file, and also import other style files */
-/* VS Code Design System - Pure CSS Variables */
+/* ============================================================================
+PTAH VS Code Extension - Anubis Design System
+Egyptian-Inspired Theme with DaisyUI v4 + Tailwind CSS v3.4
+============================================================================ */
 
-/* Import Google Fonts for VS Code integration */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+/* Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Cinzel:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
-/* VS Code integration utility classes */
-.vscode-bg {
-  background-color: var(--vscode-editor-background);
-}
-.vscode-fg {
-  color: var(--vscode-editor-foreground);
-}
-.vscode-border {
-  border-color: var(--vscode-widget-border);
-}
-.vscode-input-bg {
-  background-color: var(--vscode-input-background);
-}
-.vscode-input-fg {
-  color: var(--vscode-input-foreground);
-}
-.vscode-input-border {
-  border-color: var(--vscode-input-border);
-}
-.vscode-button-bg {
-  background-color: var(--vscode-button-background);
-}
-.vscode-button-fg {
-  color: var(--vscode-button-foreground);
-}
-.vscode-button-hover {
-  background-color: var(--vscode-button-hoverBackground);
-}
-.vscode-focus {
-  border-color: var(--vscode-focusBorder);
-  box-shadow: 0 0 0 1px var(--vscode-focusBorder);
-}
-.vscode-hover-bg {
-  background-color: var(--vscode-list-hoverBackground);
-}
-.vscode-selection-bg {
-  background-color: var(--vscode-list-activeSelectionBackground);
-}
-.vscode-error {
-  color: var(--vscode-errorForeground);
-}
-.vscode-description {
-  color: var(--vscode-descriptionForeground);
+/* Tailwind CSS v3.4.x directives */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================================
+ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
+============================================================================ */
+
+:root {
+  /* ========================================================================
+     VS CODE SIDEBAR SCALING SYSTEM
+     Optimized for sidebar widths: 200px (min) to 600px (max)
+     Default sidebar: ~300px, responsive scaling applied
+  ======================================================================== */
+
+  /* Base sizing for sidebar context */
+  --sidebar-font-size: 13px;
+  --sidebar-icon-size: 16px;
+  --sidebar-spacing-xs: 4px;
+  --sidebar-spacing-sm: 8px;
+  --sidebar-spacing-md: 12px;
+  --sidebar-spacing-lg: 16px;
+
+  /* Compact sizing for narrow sidebars (<300px) */
+  --compact-font-size: 12px;
+  --compact-icon-size: 14px;
+  --compact-spacing-xs: 2px;
+  --compact-spacing-sm: 4px;
+  --compact-spacing-md: 8px;
+  --compact-spacing-lg: 12px;
+
+  /* Component sizing */
+  --btn-height-xs: 24px;
+  --btn-height-sm: 28px;
+  --btn-height-md: 32px;
+  --input-height: 32px;
+  --avatar-size-sm: 24px;
+  --avatar-size-md: 32px;
+
+  /* Glass Morphism (Crystalline Wisdom) */
+  --glass-panel: rgba(42, 42, 42, 0.7);
+  --glass-border: rgba(212, 175, 55, 0.2);
+  --glass-blur: blur(20px);
+
+  /* Divine Gradients (Ancient Egyptian Magic) */
+  --gradient-divine: linear-gradient(135deg, #1e3a8a, #d4af37);
+  --gradient-shadow: linear-gradient(
+    180deg,
+    rgba(212, 175, 55, 0.2),
+    transparent
+  );
+  --gradient-panel: linear-gradient(
+    135deg,
+    rgba(30, 58, 138, 0.1),
+    rgba(212, 175, 55, 0.05)
+  );
+
+  /* Agent Color Variables (God Pantheon) */
+  --agent-color-anubis: #d4af37; /* Supervisor - Gold */
+  --agent-color-thoth: #1e3a8a; /* Architect - Blue */
+  --agent-color-ptah: #228b22; /* Developer - Green */
+  --agent-color-seshat: #f5f5dc; /* QA - White */
+  --agent-color-maat: #d4af37; /* Reviewer - Gold */
+  --agent-color-khnum: #b22222; /* PM - Red */
+
+  /* Sacred Geometry */
+  --golden-ratio: 1.618;
 }
 
-/* Global reset and base styles */
+/* ============================================================================
+GLASS MORPHISM UTILITY CLASSES
+============================================================================ */
+
+.glass-panel {
+  background: var(--glass-panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 0 20px rgba(212, 175, 55, 0.1),
+    inset 0 1px 0 rgba(212, 175, 55, 0.2);
+}
+
+.glass-panel-divine::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--gradient-divine);
+}
+
+.divine-gradient {
+  background: var(--gradient-divine);
+}
+
+.divine-glow {
+  box-shadow: 0 0 20px rgba(212, 175, 55, 0.3);
+}
+
+/* ============================================================================
+ANUBIS ANIMATIONS - Egyptian Mystical Effects
+============================================================================ */
+
+/* Divine Pulse - For active agents */
+@keyframes divine-pulse {
+  0%,
+  100% {
+    opacity: 0.8;
+    transform: scaleY(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scaleY(1.05);
+  }
+}
+
+/* Hieroglyph Scan - For working agents */
+@keyframes hieroglyph-scan {
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+/* Divine Awakening - Agent activation */
+@keyframes divine-awakening {
+  0% {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+    filter: brightness(1.3);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    filter: brightness(1);
+  }
+}
+
+/* Ascension - Task completion */
+@keyframes ascension {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+    filter: hue-rotate(60deg) brightness(1.2);
+  }
+  100% {
+    transform: scale(1);
+    filter: hue-rotate(0deg) brightness(1);
+  }
+}
+
+/* Cosmic Spin - Loading states */
+@keyframes cosmic-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Divine Aura - Active workflow node */
+@keyframes divine-aura {
+  0%,
+  100% {
+    box-shadow: 0 0 20px rgba(212, 175, 55, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(212, 175, 55, 0.8);
+  }
+}
+
+/* Fade in animation for messages */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Slide in from right (for drawers/modals) */
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* Pulse animation for streaming cursor */
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* ============================================================================
+AGENT STATUS ANIMATION CLASSES
+============================================================================ */
+
+.agent-active {
+  animation: divine-pulse 2s ease-in-out infinite;
+}
+
+.agent-working {
+  position: relative;
+  overflow: hidden;
+}
+
+.agent-working::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(212, 175, 55, 0.3),
+    transparent
+  );
+  animation: hieroglyph-scan 2s linear infinite;
+}
+
+.agent-awakening {
+  animation: divine-awakening 0.8s ease-out;
+}
+
+.agent-completed {
+  animation: ascension 1s ease-in-out;
+}
+
+.divine-loading::after {
+  content: '';
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #d4af37;
+  border-top: 2px solid transparent;
+  border-radius: 50%;
+  animation: cosmic-spin 1s linear infinite;
+}
+
+.workflow-node-active {
+  animation: divine-aura 3s ease-in-out infinite;
+}
+
+.message-enter {
+  animation: fadeIn 200ms ease-out;
+}
+
+.drawer-enter {
+  animation: slideInRight 300ms ease-out;
+}
+
+.cursor-pulse {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* ============================================================================
+GLOBAL RESET AND BASE STYLES
+============================================================================ */
+
 * {
   margin: 0;
   padding: 0;
@@ -57,32 +296,44 @@
 }
 
 body {
-  font-family: var(--font-family);
-  font-size: var(--font-size);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    sans-serif;
+  font-size: 13px;
   line-height: 1.6;
-  background-color: var(--vscode-editor-background);
-  color: var(--vscode-editor-foreground);
+  background-color: oklch(var(--b1));
+  color: oklch(var(--bc));
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
+/* ============================================================================
+SCROLLBAR STYLING - Anubis Theme
+============================================================================ */
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--vscode-scrollbar-shadow);
+  background: rgba(10, 10, 10, 0.6);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--vscode-scrollbarSlider-background);
+  background: rgba(212, 175, 55, 0.3);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--vscode-scrollbarSlider-hoverBackground);
+  background: rgba(212, 175, 55, 0.5);
 }
 
-/* Accessibility: Respect user's motion preferences */
+/* ============================================================================
+ACCESSIBILITY STYLES
+============================================================================ */
+
+/* Respect user's motion preferences */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -93,16 +344,26 @@ body {
   }
 }
 
-/* Focus and accessibility styles */
-button:focus,
-input:focus,
-select:focus,
-textarea:focus {
-  outline: 1px solid var(--vscode-focusBorder);
+/* Focus styles for keyboard navigation - Anubis themed */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+  outline: 2px solid #d4af37;
   outline-offset: 2px;
 }
 
-/* Utility classes for accessibility */
+/* Remove default focus outline (replaced by focus-visible) */
+button:focus:not(:focus-visible),
+input:focus:not(:focus-visible),
+select:focus:not(:focus-visible),
+textarea:focus:not(:focus-visible),
+a:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Screen reader only utility class */
 .sr-only {
   position: absolute;
   width: 1px;
@@ -114,3 +375,464 @@ textarea:focus {
   white-space: nowrap;
   border: 0;
 }
+
+/* ============================================================================
+AGENT COLOR BADGES - Egyptian Pantheon
+============================================================================ */
+
+.badge-agent-architect {
+  background-color: #1e3a8a !important; /* Thoth - Lapis Blue */
+  color: #f5f5dc !important;
+}
+
+.badge-agent-frontend {
+  background-color: #3b82f6 !important; /* Light Blue */
+  color: #f5f5dc !important;
+}
+
+.badge-agent-backend {
+  background-color: #228b22 !important; /* Ptah - Malachite Green */
+  color: #f5f5dc !important;
+}
+
+.badge-agent-tester {
+  background-color: #8b5cf6 !important; /* Purple */
+  color: #f5f5dc !important;
+}
+
+.badge-agent-reviewer {
+  background-color: #d4af37 !important; /* Ma'at - Gold */
+  color: #0a0a0a !important;
+}
+
+.badge-agent-leader {
+  background-color: #6366f1 !important; /* Indigo */
+  color: #f5f5dc !important;
+}
+
+.badge-agent-pm {
+  background-color: #b22222 !important; /* Khnum - Carnelian Red */
+  color: #f5f5dc !important;
+}
+
+.badge-agent-researcher {
+  background-color: #06b6d4 !important; /* Cyan */
+  color: #0a0a0a !important;
+}
+
+.badge-agent-supervisor {
+  background-color: #d4af37 !important; /* Anubis - Gold */
+  color: #0a0a0a !important;
+}
+
+/* ============================================================================
+COMPONENT-SPECIFIC OVERRIDES
+============================================================================ */
+
+/* Card shadows - enhanced for depth perception */
+.card {
+  box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.3);
+  transition: box-shadow 0.2s ease-in-out;
+}
+
+.card:hover {
+  box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.4);
+}
+
+/* Collapse animation timing */
+.collapse {
+  transition: max-height 200ms ease-in-out;
+}
+
+/* Chat bubble max-width responsive */
+.chat-bubble {
+  max-width: 85%;
+}
+
+@media (max-width: 1024px) {
+  .chat-bubble {
+    max-width: 90%;
+  }
+}
+
+@media (max-width: 768px) {
+  .chat-bubble {
+    max-width: 95%;
+  }
+}
+
+/* Input textarea auto-resize helper */
+textarea.auto-resize {
+  min-height: 44px;
+  max-height: 200px;
+  resize: none;
+  overflow-y: auto;
+}
+
+/* ============================================================================
+MARKDOWN CONTENT STYLING (for ngx-markdown) - Anubis Theme
+============================================================================ */
+
+.prose {
+  max-width: none;
+}
+
+.prose code {
+  background-color: #2a2a2a;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Monaco, Consolas,
+    monospace;
+  font-size: 0.875em;
+  color: #fbbf24;
+}
+
+.prose pre {
+  background-color: #2a2a2a;
+  border: 1px solid #1a1a1a;
+  border-radius: 0.375rem;
+  padding: 1rem;
+  overflow-x: auto;
+}
+
+.prose pre code {
+  background-color: transparent;
+  padding: 0;
+  border-radius: 0;
+  color: #f5f5dc;
+}
+
+.prose a {
+  color: #3b82f6;
+  text-decoration: underline;
+}
+
+.prose a:hover {
+  color: #60a5fa;
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+  color: #d4af37;
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  line-height: 1.3;
+}
+
+.prose blockquote {
+  border-left: 4px solid #d4af37;
+  padding-left: 1rem;
+  font-style: italic;
+  color: #9ca3af;
+}
+
+.prose ul,
+.prose ol {
+  color: #f5f5dc;
+}
+
+.prose strong {
+  color: #f5f5dc;
+  font-weight: 600;
+}
+
+/* ============================================================================
+UTILITY CLASSES
+============================================================================ */
+
+/* Truncate text with ellipsis */
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Smooth transitions */
+.transition-colors {
+  transition-property: color, background-color, border-color;
+  transition-duration: 200ms;
+  transition-timing-function: ease-in-out;
+}
+
+.transition-shadow {
+  transition-property: box-shadow;
+  transition-duration: 200ms;
+  transition-timing-function: ease-in-out;
+}
+
+.transition-opacity {
+  transition-property: opacity;
+  transition-duration: 200ms;
+  transition-timing-function: ease-in-out;
+}
+
+/* Flexbox helpers */
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Egyptian-themed text utilities */
+.text-divine {
+  background: var(--gradient-divine);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-papyrus {
+  color: #f5f5dc;
+}
+
+.text-gold {
+  color: #d4af37;
+}
+
+.text-lapis {
+  color: #1e3a8a;
+}
+
+/* ============================================================================
+VS CODE SIDEBAR RESPONSIVE SCALING
+Adapts components for sidebar width constraints (200px - 600px)
+============================================================================ */
+
+/* Narrow sidebar (<300px) - Compact mode */
+@container (max-width: 299px) {
+  .chat-bubble {
+    max-width: 98%;
+    padding: var(--compact-spacing-sm);
+  }
+
+  .btn {
+    min-height: var(--btn-height-xs);
+    padding-inline: var(--compact-spacing-sm);
+    font-size: var(--compact-font-size);
+  }
+
+  .avatar {
+    width: var(--avatar-size-sm);
+    height: var(--avatar-size-sm);
+  }
+}
+
+/* Standard sidebar (300px - 450px) - Default mode */
+@container (min-width: 300px) and (max-width: 449px) {
+  .chat-bubble {
+    max-width: 95%;
+  }
+
+  .btn-sm {
+    min-height: var(--btn-height-sm);
+  }
+}
+
+/* Wide sidebar (450px+) - Comfortable mode */
+@container (min-width: 450px) {
+  .chat-bubble {
+    max-width: 90%;
+  }
+
+  .card-body {
+    padding: var(--sidebar-spacing-lg);
+  }
+}
+
+/* Container query root - enable container queries on main wrapper */
+.drawer-content,
+.chat-view-container {
+  container-type: inline-size;
+}
+
+/* ============================================================================
+SIDEBAR-OPTIMIZED DAISYUI COMPONENT OVERRIDES
+============================================================================ */
+
+/* Compact navbar for sidebar */
+.navbar {
+  min-height: 40px;
+  padding-inline: var(--sidebar-spacing-sm);
+}
+
+/* Smaller buttons by default for sidebar context */
+.btn {
+  min-height: var(--btn-height-sm);
+  font-size: var(--sidebar-font-size);
+}
+
+.btn-xs {
+  min-height: 20px;
+  padding-inline: var(--sidebar-spacing-xs);
+  font-size: 11px;
+}
+
+.btn-sm {
+  min-height: var(--btn-height-xs);
+  padding-inline: var(--sidebar-spacing-sm);
+  font-size: var(--compact-font-size);
+}
+
+/* Compact input for sidebar */
+.input,
+.textarea {
+  min-height: var(--input-height);
+  font-size: var(--sidebar-font-size);
+}
+
+.textarea {
+  padding: var(--sidebar-spacing-sm);
+}
+
+/* Compact avatars for chat */
+.chat-image .avatar > div {
+  width: var(--avatar-size-sm);
+  height: var(--avatar-size-sm);
+}
+
+/* Tighter chat spacing for sidebar */
+.chat {
+  gap: var(--sidebar-spacing-xs);
+}
+
+.chat-header {
+  font-size: 11px;
+}
+
+.chat-bubble {
+  padding: var(--sidebar-spacing-sm) var(--sidebar-spacing-md);
+  font-size: var(--sidebar-font-size);
+  line-height: 1.5;
+}
+
+/* Compact dropdown menus */
+.dropdown-content {
+  font-size: var(--sidebar-font-size);
+}
+
+.menu {
+  font-size: var(--sidebar-font-size);
+  padding: var(--sidebar-spacing-xs);
+}
+
+.menu li > * {
+  padding: var(--sidebar-spacing-xs) var(--sidebar-spacing-sm);
+}
+
+/* Compact badges for sidebar */
+.badge {
+  font-size: 10px;
+  padding: 0 var(--sidebar-spacing-xs);
+  height: 16px;
+}
+
+.badge-xs {
+  font-size: 9px;
+  height: 14px;
+}
+
+/* Compact alerts */
+.alert {
+  padding: var(--sidebar-spacing-sm);
+  font-size: var(--compact-font-size);
+}
+
+/* Compact cards */
+.card-body {
+  padding: var(--sidebar-spacing-md);
+}
+
+.card-title {
+  font-size: 14px;
+}
+
+/* Sidebar drawer optimization */
+.drawer-side .menu {
+  width: 100%;
+  max-width: 220px;
+}
+
+/* Collapse component - tighter */
+.collapse-title {
+  padding: var(--sidebar-spacing-sm) var(--sidebar-spacing-md);
+  min-height: 2rem;
+  font-size: var(--sidebar-font-size);
+}
+
+.collapse-content {
+  padding: 0 var(--sidebar-spacing-md) var(--sidebar-spacing-sm);
+}
+
+/* Toggle switch sizing */
+.toggle-sm {
+  width: 32px;
+  height: 16px;
+}
+
+/* Loading indicators - sidebar-appropriate sizes */
+.loading-sm {
+  width: 16px;
+  height: 16px;
+}
+
+.loading-xs {
+  width: 12px;
+  height: 12px;
+}
+
+/* ============================================================================
+LUCIDE ICON SIZING FOR SIDEBAR
+============================================================================ */
+
+/* Default icon size */
+lucide-angular {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+lucide-angular svg {
+  width: var(--sidebar-icon-size);
+  height: var(--sidebar-icon-size);
+}
+
+/* Icon size utilities */
+.icon-xs lucide-angular svg,
+lucide-angular.w-3 svg,
+lucide-angular.w-3\.5 svg {
+  width: 12px;
+  height: 12px;
+}
+
+.icon-sm lucide-angular svg,
+lucide-angular.w-4 svg {
+  width: 14px;
+  height: 14px;
+}
+
+.icon-md lucide-angular svg,
+lucide-angular.w-5 svg {
+  width: 16px;
+  height: 16px;
+}
+
+.icon-lg lucide-angular svg,
+lucide-angular.w-6 svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* ============================================================================
+END OF ANUBIS DESIGN SYSTEM
+============================================================================ */
