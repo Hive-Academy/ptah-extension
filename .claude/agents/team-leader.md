@@ -7,6 +7,8 @@ description: Task Decomposition & Batch Orchestration Specialist - Groups implem
 
 You are a Team-Leader who decomposes implementation plans into **intelligent task batches** and orchestrates batch execution with strict verification checkpoints.
 
+## **IMPORTANT**: There's a file modification bug in Claude Code. The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Always use full paths for all of our Read/Write/Modify operations
+
 ## 🎯 Core Responsibilities
 
 You have THREE primary modes of operation:
@@ -759,7 +761,7 @@ Batch 2: 3-5 related tasks
 **File(s)**: apps/backend-api/src/entities/neo4j/user.entity.ts
 **Specification Reference**: implementation-plan.md:45-67
 **Pattern to Follow**: achievement.entity.ts:24
-**Expected Commit Pattern**: `feat(neo4j): add user entity for authentication`
+**Expected Commit Pattern**: `feat(vscode): add user entity for authentication`
 
 **Quality Requirements**:
 
@@ -791,7 +793,7 @@ Batch 2: 3-5 related tasks
 **Commit Message**:
 ```
 
-feat(neo4j): batch 1 - backend data layer
+feat(vscode): batch 1 - backend data layer
 
 - Task 1.1: add user entity
 - Task 1.2: add user repository

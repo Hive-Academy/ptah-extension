@@ -34,15 +34,6 @@ export {
   PtahError,
 } from './validation';
 
-// Messaging
-export { EventBus } from './messaging/event-bus';
-export * from './messaging/webview-message-bridge';
-export type {
-  TypedEvent,
-  RequestEvent,
-  ResponseEvent,
-} from './messaging/event-bus';
-
 // API Wrappers
 export {
   CommandManager,
@@ -53,27 +44,24 @@ export {
 } from './api-wrappers';
 export type {
   CommandDefinition,
-  CommandExecutedPayload,
-  CommandErrorPayload,
   WebviewPanelConfig,
-  WebviewMessagePayload,
-  WebviewCreatedPayload,
-  WebviewDisposedPayload,
   OutputChannelConfig,
   WriteOptions,
-  OutputMessagePayload,
-  OutputChannelCreatedPayload,
-  OutputChannelErrorPayload,
   StatusBarItemConfig,
   StatusBarItemUpdate,
-  StatusBarItemCreatedPayload,
-  StatusBarItemUpdatedPayload,
-  StatusBarItemClickedPayload,
-  StatusBarItemErrorPayload,
   FileOperationType,
   FileOperationOptions,
   FileWatcherConfig,
-  FileOperationPayload,
-  FileWatcherEventPayload,
-  FileSystemErrorPayload,
 } from './api-wrappers';
+
+export { RpcHandler, RpcMethodRegistrationService } from './messaging';
+export type { RpcMessage, RpcResponse, RpcMethodHandler } from './messaging';
+
+// Session Discovery
+export { SessionDiscoveryService } from './services/session-discovery.service';
+export type {
+  SessionMetadata,
+  SessionSummary,
+  LinkedAgentSession,
+  SessionData,
+} from './services/session-discovery.service';

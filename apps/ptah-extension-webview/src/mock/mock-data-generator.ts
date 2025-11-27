@@ -118,7 +118,9 @@ export class MockDataGenerator {
         id: `msg-${sessionId}-${i}` as MessageId,
         sessionId,
         type: isUser ? 'user' : 'assistant',
-        content: isUser ? userMsg : assistantMsg,
+        contentBlocks: [
+          { type: 'text', text: isUser ? userMsg : assistantMsg },
+        ],
         timestamp: baseTime + i * 300000,
         isComplete: !isUser ? true : undefined,
       });
@@ -152,6 +154,7 @@ export class MockDataGenerator {
 
   /**
    * Generate mock providers list
+   * TODO: Phase 2 RPC - Remove mock provider data (provider UI removed in Phase 0)
    */
   public static getMockProviders() {
     return [
@@ -187,6 +190,7 @@ export class MockDataGenerator {
       return "For testing the webview in a browser, we've set up a comprehensive mock system that exactly mirrors the VS Code message protocol. The mock API responds to all the same message types with realistic data and simulated delays. This allows you to develop and test the UI without needing to run the full extension.";
     }
 
+    // TODO: Phase 2 RPC - Remove provider-related mock responses (provider UI removed in Phase 0)
     if (lowerMessage.includes('provider') || lowerMessage.includes('switch')) {
       return 'The provider system uses a centralized ProviderService that manages multiple AI providers. Each provider implements the same interface but may have different capabilities. The webview communicates with providers through message passing, and the service handles provider switching, health checking, and fallback logic automatically.';
     }

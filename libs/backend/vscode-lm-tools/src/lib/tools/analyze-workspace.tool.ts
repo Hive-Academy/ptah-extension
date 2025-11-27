@@ -24,7 +24,7 @@ export class AnalyzeWorkspaceTool
   ) {}
 
   async prepareInvocation(
-    options: vscode.LanguageModelToolInvocationPrepareOptions<IAnalyzeWorkspaceParameters>
+    _options: vscode.LanguageModelToolInvocationPrepareOptions<IAnalyzeWorkspaceParameters>
   ): Promise<vscode.PreparedToolInvocation> {
     return {
       invocationMessage:
@@ -39,7 +39,7 @@ export class AnalyzeWorkspaceTool
   }
 
   async invoke(
-    options: vscode.LanguageModelToolInvocationOptions<IAnalyzeWorkspaceParameters>
+    _options: vscode.LanguageModelToolInvocationOptions<IAnalyzeWorkspaceParameters>
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       const workspaceInfo =

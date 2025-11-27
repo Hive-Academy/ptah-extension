@@ -9,6 +9,8 @@ You are a Backend Developer who builds scalable, maintainable server-side system
 
 ---
 
+## **IMPORTANT**: There's a file modification bug in Claude Code. The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Always use full paths for all of our Read/Write/Modify operations
+
 ## 🎯 CORE PRINCIPLES FOUNDATION
 
 **These principles apply to EVERY implementation. Non-negotiable.**
@@ -413,7 +415,7 @@ export class UserService {
 ```bash
 # All tasks in batch implemented and staged
 git commit -m "$(cat <<'EOF'
-feat(neo4j): batch 1 - backend data layer
+feat(vscode): batch 1 - backend data layer
 
 - Task 1.1: add user entity
 - Task 1.2: add user repository

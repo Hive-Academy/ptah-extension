@@ -51,18 +51,28 @@
     "@angular/platform-browser": "~20.1.0",
     "@angular/platform-browser-dynamic": "~20.1.0",
     "@angular/router": "~20.1.0",
+    "@langchain/anthropic": "^0.3.33",
+    "@langchain/core": "^0.3.79",
+    "@langchain/google-genai": "^0.2.18",
+    "@langchain/openai": "^0.5.18",
     "@sinclair/typebox": "^0.34.41",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "eventemitter3": "^5.0.1",
+    "gray-matter": "^4.0.3",
+    "jsonrepair": "^3.13.1",
+    "langchain": "^0.3.36",
     "lucide-angular": "^0.542.0",
     "p-limit": "^7.1.1",
     "p-queue": "^8.1.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "~7.8.0",
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-javascript": "^0.23.1",
+    "tree-sitter-typescript": "^0.23.2",
     "tsyringe": "^4.10.0",
     "uuid": "^11.1.0",
-    "zod": "^3.25.76",
+    "zod": "^4.1.12",
     "zone.js": "~0.15.0"
   },
   "devDependencies": {
@@ -95,6 +105,8 @@
     "@types/vscode": "^1.103.0",
     "@typescript-eslint/utils": "^8.29.0",
     "angular-eslint": "^20.0.0",
+    "autoprefixer": "^10.4.22",
+    "daisyui": "^4.12.24",
     "esbuild": "^0.19.2",
     "eslint": "^9.8.0",
     "eslint-config-prettier": "^10.0.0",
@@ -106,12 +118,24 @@
     "jest-util": "^30.0.2",
     "jsonc-eslint-parser": "^2.1.0",
     "lint-staged": "^15.0.0",
+    "marked": "^17.0.0",
+    "ngx-markdown": "^21.0.0",
     "nx": "21.4.1",
+    "postcss": "^8.5.6",
     "prettier": "^2.6.2",
+    "tailwindcss": "^3.4.18",
     "ts-jest": "^29.4.0",
     "ts-node": "10.9.1",
     "tslib": "^2.3.0",
     "typescript": "~5.8.2",
     "typescript-eslint": "^8.29.0"
+  },
+  "overrides": {
+    "ngx-markdown": {
+      "@angular/common": "$@angular/common",
+      "@angular/core": "$@angular/core",
+      "@angular/browser": "$@angular/browser",
+      "@angular/platform-browser": "$@angular/platform-browser"
+    }
   }
 }

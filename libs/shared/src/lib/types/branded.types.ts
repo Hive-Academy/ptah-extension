@@ -172,7 +172,7 @@ export class BrandedTypeValidator {
     if (!result.success) {
       throw new TypeError(`Invalid SessionId: ${JSON.stringify(data)}`);
     }
-    return result.data;
+    return result.data as SessionId;
   }
 
   static validateMessageId(data: unknown): MessageId {
@@ -180,7 +180,7 @@ export class BrandedTypeValidator {
     if (!result.success) {
       throw new TypeError(`Invalid MessageId: ${JSON.stringify(data)}`);
     }
-    return result.data;
+    return result.data as MessageId;
   }
 
   static validateCorrelationId(data: unknown): CorrelationId {
@@ -188,6 +188,6 @@ export class BrandedTypeValidator {
     if (!result.success) {
       throw new TypeError(`Invalid CorrelationId: ${JSON.stringify(data)}`);
     }
-    return result.data;
+    return result.data as CorrelationId;
   }
 }

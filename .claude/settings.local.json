@@ -14,7 +14,12 @@
       "Bash(git reset:*)",
       "Bash(git commit:*)",
       "Bash(npm run lint:all:*)",
-      "Bash(npx nx:*)"
+      "Bash(npx nx:*)",
+      "Bash(npx eslint:*)",
+      "Bash(npm run build:*)",
+      "Bash(node:*)",
+      "mcp__daisyui__fetch_daisyui_documentation",
+      "Bash(powershell -Command:*)"
     ],
     "deny": [],
     "ask": [],

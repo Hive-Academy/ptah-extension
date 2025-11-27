@@ -52,7 +52,8 @@ libs/backend/claude-domain/src/
 ├── config/
 │   └── config-orchestration.service.ts    # Configuration management
 ├── session/
-│   └── session-manager.ts                 # Session CRUD + persistence
+│   ├── session-manager.ts                 # Session CRUD + persistence
+│   └── session-proxy.service.ts           # Read-only session file access
 ├── cli/
 │   ├── claude-cli.service.ts              # CLI facade
 │   ├── claude-cli-launcher.ts             # Process spawning
@@ -94,6 +95,8 @@ await providerOrchestration.switchProvider({ providerId: 'claude-cli' });
 
 ### Session Management
 
+#### SessionManager (Internal Use)
+
 ```typescript
 import { SessionManager } from '@ptah-extension/claude-domain';
 
@@ -114,6 +117,30 @@ const sessions = await sessionManager.getAllSessions('workspace-1');
 // Export session
 const markdown = await sessionManager.exportSession(session.id, 'markdown');
 ```
+
+#### SessionProxy (Read-Only Access)
+
+**Purpose**: Provides read-only access to `.claude_sessions/` directory for session listing and details without mutating session state.
+
+```typescript
+import { SessionProxy } from '@ptah-extension/claude-domain';
+
+// List all sessions (read-only from disk)
+const sessions: SessionSummary[] = await sessionProxy.listSessions();
+// Returns: [{ id, name, lastActiveAt, messageCount, workspaceId }]
+
+// Get session details (read-only from disk)
+const session: SessionData | null = await sessionProxy.getSessionById(sessionId);
+// Returns: { id, name, workspaceId, messages: ProcessedClaudeMessage[] }
+```
+
+**Key Characteristics**:
+
+- Read-only operations (no create/update/delete)
+- Direct file system access to `.claude_sessions/`
+- No in-memory cache (always reads from disk)
+- Used by frontend for session list display
+- Complements SessionManager (which handles writes)
 
 ### Claude CLI Detection
 

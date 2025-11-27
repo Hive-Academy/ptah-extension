@@ -1,32 +1,44 @@
 <!-- Streamlined Full-Screen App -->
-<main class="vscode-main-container">
+<main class="h-screen w-screen bg-base-100 overflow-hidden">
   <!-- Loading State -->
   @if (appState.isLoading() || isInitializing()) {
-  <div class="vscode-loading-container">
-    <ptah-loading-spinner size="lg" [message]="appState.statusMessage()" />
+  <div class="flex flex-col items-center justify-center h-full gap-3">
+    <span class="loading loading-spinner loading-lg text-primary"></span>
+    @if (appState.statusMessage()) {
+    <span class="text-sm text-base-content/70"
+      >{{ appState.statusMessage() }}</span
+    >
+    }
   </div>
   }
 
-  <!-- Main Content - View Switching -->
-  @if (isReady() && !appState.isLoading()) { @switch (appState.currentView()) {
-  @case ('chat') {
-  <ptah-chat class="vscode-view-container" />
-  } @case ('analytics') {
-  <ptah-analytics class="vscode-view-container" />
-  } @case ('settings') {
-  <ptah-settings-view class="vscode-view-container" />
-  } @default {
-  <ptah-chat class="vscode-view-container" />
-  } } }
+  <!-- Main Content - AppShell includes sidebar and chat view -->
+  @if (isReady() && !appState.isLoading()) {
+  <ptah-app-shell class="h-full w-full" />
+  }
 
   <!-- Error State -->
   @if (hasError()) {
-  <div class="vscode-error-container">
-    <div class="vscode-error-content">
-      <h3 class="vscode-error-title">Initialization Error</h3>
-      <p class="vscode-error-message">
-        Failed to initialize the application. Please try refreshing.
-      </p>
+  <div class="flex items-center justify-center h-full p-4">
+    <div class="alert alert-error max-w-md">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="w-6 h-6"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" x2="12" y1="8" y2="12" />
+        <line x1="12" x2="12.01" y1="16" y2="16" />
+      </svg>
+      <div>
+        <h3 class="font-bold">Initialization Error</h3>
+        <p class="text-sm">
+          Failed to initialize the application. Please try refreshing.
+        </p>
+      </div>
     </div>
   </div>
   }

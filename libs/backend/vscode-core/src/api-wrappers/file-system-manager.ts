@@ -6,12 +6,7 @@
 
 import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
-import { EventBus } from '../messaging/event-bus';
 import { TOKENS } from '../di/tokens';
-import {
-  ANALYTICS_MESSAGE_TYPES,
-  SYSTEM_MESSAGE_TYPES,
-} from '@ptah-extension/shared';
 
 /**
  * File operation type enumeration
@@ -103,8 +98,7 @@ export class FileSystemManager {
 
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT)
-    private readonly context: vscode.ExtensionContext,
-    @inject(TOKENS.EVENT_BUS) private readonly eventBus: EventBus
+    private readonly context: vscode.ExtensionContext
   ) {
     this.initializeMetrics();
   }
@@ -119,7 +113,8 @@ export class FileSystemManager {
    */
   async readFile(
     uri: vscode.Uri,
-    options: FileOperationOptions = {}
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options?: FileOperationOptions
   ): Promise<Uint8Array> {
     const startTime = Date.now();
 
@@ -133,19 +128,6 @@ export class FileSystemManager {
 
       // Update metrics
       this.updateOperationMetrics('read', true, content.byteLength, duration);
-
-      // Publish success event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'fileSystem:operationCompleted',
-        properties: {
-          operation: 'read',
-          uri: uri.toString(),
-          size: content.byteLength,
-          duration,
-          workspace: this.getWorkspaceForUri(uri) || 'unknown',
-          timestamp: Date.now(),
-        },
-      });
 
       return content;
     } catch (error) {
@@ -186,21 +168,6 @@ export class FileSystemManager {
 
       // Update metrics
       this.updateOperationMetrics('write', true, content.byteLength, duration);
-
-      // Publish success event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'fileSystem:operationCompleted',
-        properties: {
-          operation: 'write',
-          uri: uri.toString(),
-          size: content.byteLength,
-          duration,
-          created: writeOptions.create || false,
-          overwritten: writeOptions.overwrite || false,
-          workspace: this.getWorkspaceForUri(uri) || 'unknown',
-          timestamp: Date.now(),
-        },
-      });
     } catch (error) {
       const duration = Date.now() - startTime;
       this.handleFileSystemError('write', uri, undefined, error, duration);
@@ -217,7 +184,8 @@ export class FileSystemManager {
    */
   async delete(
     uri: vscode.Uri,
-    options: FileOperationOptions = {}
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options?: FileOperationOptions
   ): Promise<void> {
     const startTime = Date.now();
 
@@ -238,21 +206,6 @@ export class FileSystemManager {
 
       // Update metrics
       this.updateOperationMetrics('delete', true, stat.size, duration);
-
-      // Publish success event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'fileSystem:operationCompleted',
-        properties: {
-          operation: 'delete',
-          uri: uri.toString(),
-          size: stat.size,
-          duration,
-          fileType:
-            stat.type === vscode.FileType.Directory ? 'directory' : 'file',
-          workspace: this.getWorkspaceForUri(uri) || 'unknown',
-          timestamp: Date.now(),
-        },
-      });
     } catch (error) {
       const duration = Date.now() - startTime;
       this.handleFileSystemError('delete', uri, undefined, error, duration);
@@ -292,26 +245,6 @@ export class FileSystemManager {
 
       // Update metrics
       this.updateOperationMetrics('copy', true, sourceStat.size, duration);
-
-      // Publish success event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'fileSystem:operationCompleted',
-        properties: {
-          operation: 'copy',
-          uri: source.toString(),
-          targetUri: target.toString(),
-          size: sourceStat.size,
-          duration,
-          fileType:
-            sourceStat.type === vscode.FileType.Directory
-              ? 'directory'
-              : 'file',
-          overwrite: copyOptions.overwrite,
-          sourceWorkspace: this.getWorkspaceForUri(source) || 'unknown',
-          targetWorkspace: this.getWorkspaceForUri(target) || 'unknown',
-          timestamp: Date.now(),
-        },
-      });
     } catch (error) {
       const duration = Date.now() - startTime;
       this.handleFileSystemError('copy', source, target, error, duration);
@@ -351,26 +284,6 @@ export class FileSystemManager {
 
       // Update metrics
       this.updateOperationMetrics('move', true, sourceStat.size, duration);
-
-      // Publish success event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'fileSystem:operationCompleted',
-        properties: {
-          operation: 'move',
-          uri: source.toString(),
-          targetUri: target.toString(),
-          size: sourceStat.size,
-          duration,
-          fileType:
-            sourceStat.type === vscode.FileType.Directory
-              ? 'directory'
-              : 'file',
-          overwrite: renameOptions.overwrite,
-          sourceWorkspace: this.getWorkspaceForUri(source) || 'unknown',
-          targetWorkspace: this.getWorkspaceForUri(target) || 'unknown',
-          timestamp: Date.now(),
-        },
-      });
     } catch (error) {
       const duration = Date.now() - startTime;
       this.handleFileSystemError('move', source, target, error, duration);
@@ -396,21 +309,6 @@ export class FileSystemManager {
 
       // Update metrics
       this.updateOperationMetrics('stat', true, 0, duration);
-
-      // Publish success event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'fileSystem:operationCompleted',
-        properties: {
-          operation: 'stat',
-          uri: uri.toString(),
-          size: stat.size,
-          fileType:
-            stat.type === vscode.FileType.Directory ? 'directory' : 'file',
-          duration,
-          workspace: this.getWorkspaceForUri(uri) || 'unknown',
-          timestamp: Date.now(),
-        },
-      });
 
       return stat;
     } catch (error) {
@@ -451,20 +349,6 @@ export class FileSystemManager {
         duration
       );
 
-      // Publish success event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'fileSystem:operationCompleted',
-        properties: {
-          operation: 'readdir',
-          uri: uri.toString(),
-          entryCount: filteredEntries.length,
-          totalEntries: entries.length,
-          duration,
-          workspace: this.getWorkspaceForUri(uri) || 'unknown',
-          timestamp: Date.now(),
-        },
-      });
-
       return filteredEntries;
     } catch (error) {
       const duration = Date.now() - startTime;
@@ -483,9 +367,11 @@ export class FileSystemManager {
   createWatcher(config: FileWatcherConfig): vscode.FileSystemWatcher {
     if (this.activeWatchers.has(config.id)) {
       // Return existing watcher
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       return this.activeWatchers.get(config.id)!;
     }
 
+    // eslint-disable-next-line no-useless-catch
     try {
       // Create watcher with configuration
       const watcher = vscode.workspace.createFileSystemWatcher(
@@ -514,29 +400,8 @@ export class FileSystemManager {
       // Add to extension subscriptions for proper cleanup
       this.context.subscriptions.push(watcher);
 
-      // Publish watcher created event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'fileSystem:watcherCreated',
-        properties: {
-          watcherId: config.id,
-          pattern: config.pattern.toString(),
-          ignoreCreate: config.ignoreCreateEvents || false,
-          ignoreChange: config.ignoreChangeEvents || false,
-          ignoreDelete: config.ignoreDeleteEvents || false,
-          timestamp: Date.now(),
-        },
-      });
-
       return watcher;
     } catch (error) {
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'FILE_WATCHER_CREATE_FAILED',
-        message: `Failed to create file watcher ${config.id}: ${error}`,
-        source: 'FileSystemManager',
-        data: { config },
-        timestamp: Date.now(),
-      });
-
       throw error;
     }
   }
@@ -559,25 +424,8 @@ export class FileSystemManager {
       watcher.dispose();
       this.activeWatchers.delete(watcherId);
 
-      // Publish disposal event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'fileSystem:watcherDisposed',
-        properties: {
-          watcherId,
-          timestamp: Date.now(),
-        },
-      });
-
       return true;
     } catch (error) {
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'FILE_WATCHER_DISPOSE_FAILED',
-        message: `Failed to dispose file watcher ${watcherId}: ${error}`,
-        source: 'FileSystemManager',
-        data: { watcherId },
-        timestamp: Date.now(),
-      });
-
       return false;
     }
   }
@@ -614,21 +462,8 @@ export class FileSystemManager {
       this.activeWatchers.forEach((watcher) => watcher.dispose());
       this.activeWatchers.clear();
       this.operationMetrics.clear();
-
-      // Publish disposal event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'fileSystem:managerDisposed',
-        properties: {
-          timestamp: Date.now(),
-        },
-      });
     } catch (error) {
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'FILE_SYSTEM_MANAGER_DISPOSE_FAILED',
-        message: `Failed to dispose FileSystemManager: ${error}`,
-        source: 'FileSystemManager',
-        timestamp: Date.now(),
-      });
+      // Silently handle disposal errors
     }
   }
 
@@ -702,6 +537,7 @@ export class FileSystemManager {
     // Apply exclude patterns if specified
     if (options.exclude && options.exclude.length > 0) {
       filtered = filtered.filter(([name]) => {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         return !options.exclude!.some((pattern) => {
           // Simple pattern matching - can be enhanced with glob patterns
           return name.includes(pattern);
@@ -720,16 +556,7 @@ export class FileSystemManager {
     eventType: 'created' | 'changed' | 'deleted',
     uri: vscode.Uri
   ): void {
-    this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-      event: 'fileSystem:watcherEvent',
-      properties: {
-        watcherId,
-        eventType,
-        uri: uri.toString(),
-        workspace: this.getWorkspaceForUri(uri) || 'unknown',
-        timestamp: Date.now(),
-      },
-    });
+    // Handle file watcher events
   }
 
   /**
@@ -747,22 +574,6 @@ export class FileSystemManager {
 
     // Update metrics
     this.updateOperationMetrics(operation, false, 0, duration);
-
-    // Publish error event
-    this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-      code: `FILE_SYSTEM_${operation.toUpperCase()}_FAILED`,
-      message: `File system ${operation} operation failed: ${errorMessage}`,
-      source: 'FileSystemManager',
-      data: {
-        operation,
-        uri: uri.toString(),
-        targetUri: targetUri?.toString(),
-        errorCode,
-        duration,
-        workspace: this.getWorkspaceForUri(uri) || 'unknown',
-      },
-      timestamp: Date.now(),
-    });
   }
 
   /**

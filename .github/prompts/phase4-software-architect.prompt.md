@@ -2,7 +2,7 @@
 agent: software-architect
 description: Implementation planning phase with SOLID compliance and type reuse strategy (USER VALIDATES)
 tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
-model: Claude Sonnet 4.5 (Preview) (copilot)
+model: Gemini 3 Pro (Preview) (copilot)
 ---
 
 # Phase 4: Software Architect - Implementation Planning

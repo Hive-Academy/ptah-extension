@@ -3,7 +3,7 @@ import { container } from 'tsyringe';
 import * as vscode from 'vscode';
 import { DependencyAnalyzerService } from './dependency-analyzer.service';
 import { FileSystemService } from '../services/file-system.service';
-import { FILE_SYSTEM_SERVICE } from '../di/tokens';
+import { TOKENS } from '@ptah-extension/vscode-core';
 import { ProjectType } from '../types/workspace.types';
 
 // Mock vscode module
@@ -44,7 +44,10 @@ describe('DependencyAnalyzerService', () => {
 
     // Clear and setup container
     container.clearInstances();
-    container.registerInstance(FILE_SYSTEM_SERVICE, mockFileSystemService);
+    container.registerInstance(
+      TOKENS.FILE_SYSTEM_SERVICE,
+      mockFileSystemService
+    );
 
     // Create service instance
     service = container.resolve(DependencyAnalyzerService);

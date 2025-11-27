@@ -17,11 +17,11 @@ export const WEBVIEW_PROVIDER = Symbol.for('WebviewProvider');
 export const COMMAND_REGISTRY = Symbol.for('CommandRegistry');
 
 // ========================================
-// Messaging System Tokens
+// Messaging System Tokens (DELETED - event-based system removed)
 // ========================================
-export const EVENT_BUS = Symbol.for('EventBus');
-export const MESSAGE_ROUTER = Symbol.for('MessageRouter');
-export const WEBVIEW_MESSAGE_BRIDGE = Symbol.for('WebviewMessageBridge');
+// EVENT_BUS - DELETED
+// MESSAGE_ROUTER - DELETED
+// WEBVIEW_MESSAGE_BRIDGE - DELETED
 
 // ========================================
 // API Wrapper Service Tokens
@@ -40,6 +40,11 @@ export const ERROR_HANDLER = Symbol.for('ErrorHandler');
 export const CONFIG_MANAGER = Symbol.for('ConfigManager');
 export const MESSAGE_VALIDATOR = Symbol.for('MessageValidator');
 export const CONTEXT_MANAGER = Symbol.for('ContextManager');
+export const RPC_HANDLER = Symbol.for('RpcHandler');
+export const RPC_METHOD_REGISTRATION_SERVICE = Symbol.for(
+  'RpcMethodRegistrationService'
+);
+export const SESSION_DISCOVERY_SERVICE = Symbol.for('SessionDiscoveryService');
 
 // ========================================
 // Workspace Intelligence Service Tokens
@@ -76,6 +81,30 @@ export const SEMANTIC_CONTEXT_EXTRACTOR = Symbol.for(
 export const CONTEXT_ORCHESTRATION_SERVICE = Symbol.for(
   'ContextOrchestrationService'
 );
+export const TREE_SITTER_PARSER_SERVICE = Symbol.for('TreeSitterParserService');
+export const AST_ANALYSIS_SERVICE = Symbol.for('AstAnalysisService');
+export const AGENT_DISCOVERY_SERVICE = Symbol.for('AgentDiscoveryService');
+export const MCP_DISCOVERY_SERVICE = Symbol.for('MCPDiscoveryService');
+export const COMMAND_DISCOVERY_SERVICE = Symbol.for('CommandDiscoveryService');
+
+// ========================================
+// LLM Abstraction Service Tokens
+// ========================================
+export const LLM_SERVICE = Symbol.for('LlmService');
+export const PROVIDER_REGISTRY = Symbol.for('ProviderRegistry');
+
+// ========================================
+// Template Generation Service Tokens
+// ========================================
+export const TEMPLATE_MANAGER = Symbol.for('TemplateManager');
+export const CONTENT_GENERATOR = Symbol.for('ContentGenerator');
+export const CONTENT_PROCESSOR = Symbol.for('ContentProcessor');
+export const TEMPLATE_PROCESSOR = Symbol.for('TemplateProcessor');
+export const TEMPLATE_FILE_MANAGER = Symbol.for('TemplateFileManager');
+export const TEMPLATE_ORCHESTRATOR = Symbol.for('TemplateOrchestrator');
+export const TEMPLATE_GENERATOR_SERVICE = Symbol.for(
+  'TemplateGeneratorService'
+);
 
 // ========================================
 // VS Code Language Model Tools
@@ -90,54 +119,48 @@ export const LM_TOOLS_REGISTRATION_SERVICE = Symbol.for(
   'LMToolsRegistrationService'
 );
 
-// ========================================
-// AI Providers Core Tokens
-// ========================================
-export const PROVIDER_MANAGER = Symbol.for('ProviderManager');
-export const INTELLIGENT_PROVIDER_STRATEGY = Symbol.for(
-  'IntelligentProviderStrategy'
-);
-export const CLAUDE_CLI_ADAPTER = Symbol.for('ClaudeCliAdapter');
-export const VSCODE_LM_ADAPTER = Symbol.for('VsCodeLmAdapter');
+// Code Execution API
+export const PTAH_API_BUILDER = Symbol.for('PtahAPIBuilder');
+export const CODE_EXECUTION_MCP = Symbol.for('CodeExecutionMCP');
+export const MCP_REGISTRATION_SERVICE = Symbol.for('MCPRegistrationService');
 
 // ========================================
-// Claude Domain Service Tokens
+// AI Providers Core Tokens (DELETED - library removed)
 // ========================================
-// Core domain services
-export const SESSION_MANAGER = Symbol.for('SessionManager');
+// PROVIDER_MANAGER - DELETED
+// INTELLIGENT_PROVIDER_STRATEGY - DELETED
+// CLAUDE_CLI_ADAPTER - DELETED
+// VSCODE_LM_ADAPTER - DELETED
+
+// ========================================
+// Claude Domain Service Tokens (PARTIALLY DELETED)
+// ========================================
+// Core domain services (KEPT)
 export const CLAUDE_CLI_DETECTOR = Symbol.for('ClaudeCliDetector');
 export const CLAUDE_CLI_SERVICE = Symbol.for('ClaudeCliService');
-export const CLAUDE_CLI_LAUNCHER = Symbol.for('ClaudeCliLauncher');
-export const PERMISSION_SERVICE = Symbol.for('PermissionService');
 export const PROCESS_MANAGER = Symbol.for('ProcessManager');
-export const CLAUDE_DOMAIN_EVENT_PUBLISHER = Symbol.for(
-  'ClaudeDomainEventPublisher'
-);
+// PERMISSION_SERVICE - DELETED (over-engineered, unused)
 
-// Orchestration services
-export const CHAT_ORCHESTRATION_SERVICE = Symbol.for(
-  'ChatOrchestrationService'
-);
-export const PROVIDER_ORCHESTRATION_SERVICE = Symbol.for(
-  'ProviderOrchestrationService'
-);
-export const ANALYTICS_ORCHESTRATION_SERVICE = Symbol.for(
-  'AnalyticsOrchestrationService'
-);
-export const CONFIG_ORCHESTRATION_SERVICE = Symbol.for(
-  'ConfigOrchestrationService'
-);
-export const MESSAGE_HANDLER_SERVICE = Symbol.for('MessageHandlerService');
+// DELETED tokens (TASK_2025_023 purge)
+// SESSION_MANAGER - DELETED (in-memory session duplication)
+// INTERACTIVE_SESSION_MANAGER - DELETED (complex state machine)
+// SESSION_PROXY - DELETED (event-based orchestration removed)
+// CLAUDE_DOMAIN_EVENT_PUBLISHER - DELETED
+// CHAT_ORCHESTRATION_SERVICE - DELETED
+// PROVIDER_ORCHESTRATION_SERVICE - DELETED
+// ANALYTICS_ORCHESTRATION_SERVICE - DELETED
+// CONFIG_ORCHESTRATION_SERVICE - DELETED
+// MESSAGE_HANDLER_SERVICE - DELETED
 
 // Service dependencies
 export const STORAGE_SERVICE = Symbol.for('StorageService');
 export const CONFIGURATION_PROVIDER = Symbol.for('ConfigurationProvider');
 
 // ========================================
-// Main App Service Tokens
+// Main App Service Tokens (PARTIALLY DELETED)
 // ========================================
 export const COMMAND_BUILDER_SERVICE = Symbol.for('CommandBuilderService');
-export const ANALYTICS_DATA_COLLECTOR = Symbol.for('AnalyticsDataCollector');
+// ANALYTICS_DATA_COLLECTOR - DELETED (analytics-data-collector removed)
 export const ANGULAR_WEBVIEW_PROVIDER = Symbol.for('AngularWebviewProvider');
 export const COMMAND_HANDLERS = Symbol.for('CommandHandlers');
 export const WEBVIEW_EVENT_QUEUE = Symbol.for('WebviewEventQueue');
@@ -164,11 +187,11 @@ export const TOKENS = {
   WEBVIEW_MANAGER,
 
   // ========================================
-  // Messaging
+  // Messaging (DELETED - event-based system removed)
   // ========================================
-  EVENT_BUS,
-  MESSAGE_ROUTER,
-  WEBVIEW_MESSAGE_BRIDGE,
+  // EVENT_BUS - DELETED
+  // MESSAGE_ROUTER - DELETED
+  // WEBVIEW_MESSAGE_BRIDGE - DELETED
 
   // ========================================
   // API Wrappers
@@ -185,6 +208,9 @@ export const TOKENS = {
   CONFIG_MANAGER,
   MESSAGE_VALIDATOR,
   CONTEXT_MANAGER,
+  RPC_HANDLER,
+  RPC_METHOD_REGISTRATION_SERVICE,
+  SESSION_DISCOVERY_SERVICE,
 
   // ========================================
   // Workspace Intelligence
@@ -207,6 +233,28 @@ export const TOKENS = {
   CONTEXT_SIZE_OPTIMIZER,
   SEMANTIC_CONTEXT_EXTRACTOR,
   CONTEXT_ORCHESTRATION_SERVICE,
+  TREE_SITTER_PARSER_SERVICE,
+  AST_ANALYSIS_SERVICE,
+  AGENT_DISCOVERY_SERVICE,
+  MCP_DISCOVERY_SERVICE,
+  COMMAND_DISCOVERY_SERVICE,
+
+  // ========================================
+  // LLM Abstraction
+  // ========================================
+  LLM_SERVICE,
+  PROVIDER_REGISTRY,
+
+  // ========================================
+  // Template Generation
+  // ========================================
+  TEMPLATE_MANAGER,
+  CONTENT_GENERATOR,
+  CONTENT_PROCESSOR,
+  TEMPLATE_PROCESSOR,
+  TEMPLATE_FILE_MANAGER,
+  TEMPLATE_ORCHESTRATOR,
+  TEMPLATE_GENERATOR_SERVICE,
 
   // ========================================
   // VS Code Language Model Tools
@@ -218,38 +266,37 @@ export const TOKENS = {
   FIND_SYMBOL_TOOL,
   GET_GIT_STATUS_TOOL,
   LM_TOOLS_REGISTRATION_SERVICE,
+  PTAH_API_BUILDER,
+  CODE_EXECUTION_MCP,
+  MCP_REGISTRATION_SERVICE,
 
   // ========================================
-  // AI Providers Core
+  // AI Providers Core (DELETED - library removed)
   // ========================================
-  PROVIDER_MANAGER,
-  INTELLIGENT_PROVIDER_STRATEGY,
-  CLAUDE_CLI_ADAPTER,
-  VSCODE_LM_ADAPTER,
+  // PROVIDER_MANAGER - DELETED
+  // INTELLIGENT_PROVIDER_STRATEGY - DELETED
+  // CLAUDE_CLI_ADAPTER - DELETED
+  // VSCODE_LM_ADAPTER - DELETED
 
   // ========================================
-  // Claude Domain Services
+  // Claude Domain Services (PARTIALLY DELETED)
   // ========================================
-  SESSION_MANAGER,
   CLAUDE_CLI_DETECTOR,
   CLAUDE_CLI_SERVICE,
-  CLAUDE_CLI_LAUNCHER,
-  PERMISSION_SERVICE,
   PROCESS_MANAGER,
-  CLAUDE_DOMAIN_EVENT_PUBLISHER,
-  CHAT_ORCHESTRATION_SERVICE,
-  PROVIDER_ORCHESTRATION_SERVICE,
-  ANALYTICS_ORCHESTRATION_SERVICE,
-  CONFIG_ORCHESTRATION_SERVICE,
-  MESSAGE_HANDLER_SERVICE,
   STORAGE_SERVICE,
   CONFIGURATION_PROVIDER,
+  // PERMISSION_SERVICE - DELETED (over-engineered, unused)
+  // DELETED (TASK_2025_023 cleanup): SESSION_MANAGER, INTERACTIVE_SESSION_MANAGER,
+  // SESSION_PROXY, CLAUDE_DOMAIN_EVENT_PUBLISHER, CHAT_ORCHESTRATION_SERVICE,
+  // PROVIDER_ORCHESTRATION_SERVICE, ANALYTICS_ORCHESTRATION_SERVICE,
+  // CONFIG_ORCHESTRATION_SERVICE, MESSAGE_HANDLER_SERVICE
 
   // ========================================
-  // Main App Services
+  // Main App Services (PARTIALLY DELETED)
   // ========================================
   COMMAND_BUILDER_SERVICE,
-  ANALYTICS_DATA_COLLECTOR,
+  // ANALYTICS_DATA_COLLECTOR - DELETED
   ANGULAR_WEBVIEW_PROVIDER,
   COMMAND_HANDLERS,
   WEBVIEW_EVENT_QUEUE,

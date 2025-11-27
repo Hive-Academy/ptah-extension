@@ -6,12 +6,7 @@
 
 import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
-import { EventBus } from '../messaging/event-bus';
 import { TOKENS } from '../di/tokens';
-import {
-  ANALYTICS_MESSAGE_TYPES,
-  SYSTEM_MESSAGE_TYPES,
-} from '@ptah-extension/shared';
 
 /**
  * Status bar item configuration options
@@ -100,8 +95,7 @@ export class StatusBarManager {
 
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT)
-    private readonly context: vscode.ExtensionContext,
-    @inject(TOKENS.EVENT_BUS) private readonly eventBus: EventBus
+    private readonly context: vscode.ExtensionContext
   ) {}
 
   /**
@@ -114,72 +108,45 @@ export class StatusBarManager {
   createStatusBarItem(config: StatusBarItemConfig): vscode.StatusBarItem {
     // Check if item already exists
     if (this.statusBarItems.has(config.id)) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       return this.statusBarItems.get(config.id)!;
     }
 
-    try {
-      // Create status bar item with alignment and priority
-      const item = vscode.window.createStatusBarItem(
-        config.id,
-        config.alignment || vscode.StatusBarAlignment.Right,
-        config.priority || 0
-      );
+    // Create status bar item with alignment and priority
+    const item = vscode.window.createStatusBarItem(
+      config.id,
+      config.alignment || vscode.StatusBarAlignment.Right,
+      config.priority || 0
+    );
 
-      // Configure initial properties
-      if (config.text) item.text = config.text;
-      if (config.tooltip) item.tooltip = config.tooltip;
-      if (config.color) item.color = config.color;
-      if (config.backgroundColor) item.backgroundColor = config.backgroundColor;
-      if (config.command) item.command = config.command;
-      if (config.accessibilityInformation) {
-        item.accessibilityInformation = config.accessibilityInformation;
-      }
-
-      // Store item reference
-      this.statusBarItems.set(config.id, item);
-
-      // Initialize metrics tracking
-      this.itemMetrics.set(config.id, {
-        createdAt: Date.now(),
-        updateCount: 0,
-        lastUpdate: 0,
-        clickCount: 0,
-        lastClick: 0,
-        isVisible: false, // Items start hidden by default
-        errorCount: 0,
-      });
-
-      // Add to extension subscriptions for proper cleanup
-      this.context.subscriptions.push(item);
-
-      // Publish item created event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'statusBar:itemCreated',
-        properties: {
-          itemId: config.id,
-          alignment: config.alignment || vscode.StatusBarAlignment.Right,
-          priority: config.priority || 0,
-          hasText: !!config.text,
-          hasTooltip: !!config.tooltip,
-          hasCommand: !!config.command,
-          timestamp: Date.now(),
-        },
-      });
-
-      return item;
-    } catch (error) {
-      // Publish error event
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'STATUS_BAR_ITEM_CREATE_FAILED',
-        message: `Failed to create status bar item ${config.id}: ${error}`,
-        source: 'StatusBarManager',
-        data: { config },
-        timestamp: Date.now(),
-      });
-
-      // Re-throw to maintain VS Code error handling
-      throw error;
+    // Configure initial properties
+    if (config.text) item.text = config.text;
+    if (config.tooltip) item.tooltip = config.tooltip;
+    if (config.color) item.color = config.color;
+    if (config.backgroundColor) item.backgroundColor = config.backgroundColor;
+    if (config.command) item.command = config.command;
+    if (config.accessibilityInformation) {
+      item.accessibilityInformation = config.accessibilityInformation;
     }
+
+    // Store item reference
+    this.statusBarItems.set(config.id, item);
+
+    // Initialize metrics tracking
+    this.itemMetrics.set(config.id, {
+      createdAt: Date.now(),
+      updateCount: 0,
+      lastUpdate: 0,
+      clickCount: 0,
+      lastClick: 0,
+      isVisible: false, // Items start hidden by default
+      errorCount: 0,
+    });
+
+    // Add to extension subscriptions for proper cleanup
+    this.context.subscriptions.push(item);
+
+    return item;
   }
 
   /**
@@ -194,13 +161,6 @@ export class StatusBarManager {
     const item = this.statusBarItems.get(itemId);
 
     if (!item) {
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'STATUS_BAR_ITEM_NOT_FOUND',
-        message: `Status bar item ${itemId} not found`,
-        source: 'StatusBarManager',
-        data: { itemId, update },
-        timestamp: Date.now(),
-      });
       return false;
     }
 
@@ -236,30 +196,10 @@ export class StatusBarManager {
       // Update metrics
       this.updateItemMetrics(itemId, 'update', false);
 
-      // Publish update event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'statusBar:itemUpdated',
-        properties: {
-          itemId,
-          propertiesUpdated: updatedProperties.length,
-          updatedProperties: updatedProperties.join(','),
-          timestamp: Date.now(),
-        },
-      });
-
       return true;
     } catch (error) {
       // Update error metrics
       this.updateItemMetrics(itemId, 'update', true);
-
-      // Publish error event
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'STATUS_BAR_ITEM_UPDATE_FAILED',
-        message: `Failed to update status bar item ${itemId}: ${error}`,
-        source: 'StatusBarManager',
-        data: { itemId, update },
-        timestamp: Date.now(),
-      });
 
       return false;
     }
@@ -288,25 +228,8 @@ export class StatusBarManager {
         metrics.isVisible = true;
       }
 
-      // Publish show event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'statusBar:itemShown',
-        properties: {
-          itemId,
-          timestamp: Date.now(),
-        },
-      });
-
       return true;
     } catch (error) {
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'STATUS_BAR_ITEM_SHOW_FAILED',
-        message: `Failed to show status bar item ${itemId}: ${error}`,
-        source: 'StatusBarManager',
-        data: { itemId },
-        timestamp: Date.now(),
-      });
-
       return false;
     }
   }
@@ -334,25 +257,8 @@ export class StatusBarManager {
         metrics.isVisible = false;
       }
 
-      // Publish hide event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'statusBar:itemHidden',
-        properties: {
-          itemId,
-          timestamp: Date.now(),
-        },
-      });
-
       return true;
     } catch (error) {
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'STATUS_BAR_ITEM_HIDE_FAILED',
-        message: `Failed to hide status bar item ${itemId}: ${error}`,
-        source: 'StatusBarManager',
-        data: { itemId },
-        timestamp: Date.now(),
-      });
-
       return false;
     }
   }
@@ -371,17 +277,6 @@ export class StatusBarManager {
 
     // Update click metrics
     this.updateItemMetrics(itemId, 'click', false);
-
-    // Publish click event
-    this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-      event: 'statusBar:itemClicked',
-      properties: {
-        itemId,
-        hasCommand: !!command,
-        command: command || 'none',
-        timestamp: Date.now(),
-      },
-    });
   }
 
   /**
@@ -447,25 +342,8 @@ export class StatusBarManager {
       this.statusBarItems.delete(itemId);
       this.itemMetrics.delete(itemId);
 
-      // Publish disposal event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'statusBar:itemDisposed',
-        properties: {
-          itemId,
-          timestamp: Date.now(),
-        },
-      });
-
       return true;
     } catch (error) {
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'STATUS_BAR_ITEM_DISPOSE_FAILED',
-        message: `Failed to dispose status bar item ${itemId}: ${error}`,
-        source: 'StatusBarManager',
-        data: { itemId },
-        timestamp: Date.now(),
-      });
-
       return false;
     }
   }
@@ -479,21 +357,8 @@ export class StatusBarManager {
       this.statusBarItems.forEach((item) => item.dispose());
       this.statusBarItems.clear();
       this.itemMetrics.clear();
-
-      // Publish disposal event
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'statusBar:managerDisposed',
-        properties: {
-          timestamp: Date.now(),
-        },
-      });
     } catch (error) {
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'STATUS_BAR_MANAGER_DISPOSE_FAILED',
-        message: `Failed to dispose StatusBarManager: ${error}`,
-        source: 'StatusBarManager',
-        timestamp: Date.now(),
-      });
+      // Silently handle disposal errors
     }
   }
 

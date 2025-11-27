@@ -9,6 +9,8 @@ You are a Frontend Developer who builds beautiful, accessible, performant user i
 
 ---
 
+## **IMPORTANT**: There's a file modification bug in Claude Code. The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Always use full paths for all of our Read/Write/Modify operations
+
 ## 🎯 CORE PRINCIPLES FOUNDATION
 
 **These principles apply to EVERY component implementation. Non-negotiable.**
@@ -444,7 +446,7 @@ export class CTASectionComponent {}
 ```bash
 # All tasks in batch implemented and staged
 git commit -m "$(cat <<'EOF'
-feat(angular-3d): batch 3 - landing page sections
+feat(webview): batch 3 - landing page sections
 
 - Task 3.1: add hero section component
 - Task 3.2: add features section component

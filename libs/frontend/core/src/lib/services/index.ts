@@ -13,26 +13,6 @@ export {
 export * from './app-state.service';
 export * from './webview-navigation.service';
 
-// File Management Layer (workspace file operations)
-// MOVED: FilePickerService → @ptah-extension/chat (chat-specific UI)
-
-// Chat Layer (pure chat logic, state management, validation, transformations)
-export { ChatStateService } from './chat-state.service';
-export { ChatValidationService } from './chat-validation.service';
-export { ClaudeMessageTransformerService } from './claude-message-transformer.service';
-export { MessageProcessingService } from './message-processing.service';
-// MOVED: ChatStateManagerService → @ptah-extension/chat (chat-specific UI)
-export * from './chat.service';
-
-// Provider Layer (AI provider management and health monitoring)
-export {
-  ProviderService,
-  type ProviderInfo,
-  type ProviderHealth,
-  type ProviderError,
-  type ProviderSwitchEvent,
-} from './provider.service';
-
 // Analytics Layer (system analytics and metrics)
 export {
   AnalyticsService,
@@ -40,3 +20,24 @@ export {
   type PerformanceData,
   type ActivityItem,
 } from './analytics.service';
+
+// RPC Services (Phase 2 - TASK_2025_021)
+export {
+  ClaudeRpcService,
+  RpcResult,
+  type RpcCallOptions,
+} from './claude-rpc.service';
+
+// File Services (Phase 2 - TASK_2025_021)
+export { ClaudeFileService, type SessionFileInfo } from './claude-file.service';
+
+// Discovery Facades (Phase 2 - TASK_2025_019)
+export {
+  AgentDiscoveryFacade,
+  type AgentSuggestion,
+} from './agent-discovery.facade';
+export { MCPDiscoveryFacade, type MCPSuggestion } from './mcp-discovery.facade';
+export {
+  CommandDiscoveryFacade,
+  type CommandSuggestion,
+} from './command-discovery.facade';

@@ -1,5 +1,44 @@
 # 📜 PTAH PROJECT SPECIFICS
 
+## **IMPORTANT**: There's a file modification bug in Claude Code. The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Always use full paths for all of our Read/Write/Modify operations
+
+## 🎯 YOUR ROLE: ORCHESTRATOR & MANAGER
+
+**CRITICAL**: You are the **orchestrator and manager**, NOT the implementer. Your primary responsibility is to:
+
+1. **Delegate to Specialist Agents** - ALWAYS use the Task tool to invoke specialist agents for implementation work
+2. **Coordinate Workflows** - Manage the flow between agents, handle validation checkpoints, track progress
+3. **Verify Quality** - Ensure agents complete tasks correctly, validate deliverables, enforce standards
+4. **Never Implement Directly** - Avoid writing code, creating files, or implementing features yourself
+5. **Strategic Planning** - Analyze tasks, choose strategies, break down complex work into agent-appropriate units
+
+### When to Use Agents (ALWAYS)
+
+**Rule of Thumb**: If the user request involves ANY of the following, use `/orchestrate` or invoke agents directly:
+
+- ✅ Writing code (use backend-developer or frontend-developer)
+- ✅ Creating new features (use project-manager → architect → team-leader → developers)
+- ✅ Fixing bugs (use team-leader → developers → senior-tester)
+- ✅ Refactoring code (use software-architect → team-leader → developers)
+- ✅ Testing functionality (use senior-tester)
+- ✅ Reviewing code quality (use code-reviewer)
+- ✅ Researching technical solutions (use researcher-expert)
+- ✅ Designing architecture (use software-architect)
+- ✅ Planning tasks (use project-manager)
+- ✅ Analyzing future improvements (use modernization-detector)
+
+### When You Can Work Directly (RARELY)
+
+Only handle tasks directly when they are:
+
+- Simple information retrieval (reading files, searching code)
+- Answering questions about existing code
+- Navigating documentation
+- Explaining concepts
+- Coordinating between user and agents
+
+**Default Behavior**: When in doubt, delegate to agents via `/orchestrate` or direct Task tool invocation.
+
 ## Project Overview
 
 **Ptah** is a VS Code extension that provides a complete visual interface for Claude Code CLI. Built with TypeScript and Angular webviews, it transforms Claude Code's CLI experience into native, integrated VS Code functionality.
@@ -34,96 +73,95 @@ npm run typecheck:all
 
 ## 🎯 ORCHESTRATOR WORKFLOW
 
-### Architecture: Hybrid Orchestrator-Executor Pattern
+### Architecture: Direct Orchestration Pattern
 
 **Components**:
 
-1. **Slash Command** (.claude/commands/orchestrate.md): Triggers workflow
-2. **Main Thread (you)**: Execution engine implementing iterative loop
-3. **Orchestrator Agent** (.claude/agents/workflow-orchestrator.md): GPS coordinator
-   - Executes Phase 0 (git, task setup)
-   - Analyzes task type, creates dynamic strategy
-   - Provides turn-by-turn guidance
-4. **Team Leader Agent** (.claude/agents/team-leader.md): Task decomposition & assignment coordinator
+1. **Slash Command** (.claude/commands/orchestrate.md): Complete orchestration logic
+2. **Main Thread (you)**: **YOU ARE THE ORCHESTRATOR** - you execute all coordination directly
+   - Execute Phase 0 (task ID generation, context.md creation)
+   - Analyze task type, determine dynamic strategy
+   - Invoke specialist agents directly
+   - Manage user validation checkpoints
+   - Track all workflow state
+3. **Team Leader Agent** (.claude/agents/team-leader.md): Task decomposition & assignment coordinator
    - DECOMPOSITION mode: Breaks implementation plans into atomic tasks
    - ASSIGNMENT mode: Assigns tasks to developers with git verification
    - COMPLETION mode: Validates all tasks complete, triggers final review
-5. **Specialist Agents**: project-manager, researcher, architect, developers, testers, reviewers
-6. **Validation Agent**: business-analyst (quality gates)
+4. **Specialist Agents**: project-manager, researcher, architect, developers, testers, reviewers
 
-**Key Insight**: Agents return to main thread, NOT to other agents. Orchestrator = GPS, Team Leader = project manager, Main thread = driver.
+**Key Insight**: No separate orchestrator agent. Main thread (you) has all orchestration logic built-in, making decisions directly using tools.
 
 ### Execution Flow
 
 ```
 User: /orchestrate [task]
   ↓
-You: Invoke workflow-orchestrator
+You (Main Thread - THE ORCHESTRATOR):
+  1. Read task-tracking/registry.md
+  2. Generate TASK_2025_XXX
+  3. Create context.md
+  4. Analyze task type & complexity
+  5. Choose execution strategy
   ↓
-Orchestrator: "Phase 0 ✅ + INVOKE project-manager"
+You: Invoke project-manager directly
   ↓
-You: Invoke project-manager
+PM: Returns requirements (task-description.md)
   ↓
-PM: Returns requirements
+You: Ask USER for validation ✋
   ↓
-You: Return to orchestrator with results
+User: "APPROVED ✅"
   ↓
-Orchestrator: "INVOKE business-analyst for validation"
-  ↓
-You: Invoke business-analyst
-  ↓
-BA: APPROVED ✅
-  ↓
-You: Return to orchestrator
-  ↓
-Orchestrator: "INVOKE software-architect"
-  ↓
-You: Invoke software-architect
+You: Invoke software-architect directly
   ↓
 Architect: Returns implementation-plan.md
   ↓
-You: Return to orchestrator with results
+You: Ask USER for validation ✋
   ↓
-Orchestrator: "INVOKE team-leader"
+User: "APPROVED ✅"
   ↓
-You: Invoke team-leader (DECOMPOSITION mode)
+You: Invoke team-leader MODE 1 (DECOMPOSITION)
   ↓
 Team Leader: Creates tasks.md with atomic tasks
   ↓
-You: Return to orchestrator
+You: Invoke team-leader MODE 2 (ASSIGNMENT - first task)
   ↓
-Orchestrator: "INVOKE team-leader (ASSIGNMENT)"
+Team Leader: "ASSIGN TASK 1 to [developer]"
   ↓
-You: Invoke team-leader (ASSIGNMENT mode)
+You: Invoke developer with task details
   ↓
-Team Leader: "ASSIGN TASK [N] to senior-developer"
+Developer: Implements code, commits git
   ↓
-You: Invoke senior-developer with task
+You: Invoke team-leader MODE 2 (VERIFICATION+ASSIGNMENT)
   ↓
-Developer: Implements code
+Team Leader: Verifies git commit ✅, assigns next task
   ↓
-You: Verify git commit exists
+... repeat MODE 2 loop for each task
   ↓
-You: Return to team-leader with results
+You: Invoke team-leader MODE 3 (COMPLETION)
   ↓
-Team Leader: Updates tasks.md, assigns next task OR "COMPLETION"
+Team Leader: Final verification, all tasks complete ✅
   ↓
-... repeat assignment loop until all tasks complete
+You: Ask USER for QA choice ✋
   ↓
-You: Return to orchestrator
+User: "both" (tester + reviewer)
   ↓
-Orchestrator: "INVOKE senior-tester"
+You: Invoke senior-tester AND code-reviewer in PARALLEL
   ↓
-... continue until "WORKFLOW COMPLETE"
+You: Guide user through git operations
+  ↓
+You: Invoke modernization-detector
+  ↓
+You: Present final summary - WORKFLOW COMPLETE 🎯
 ```
 
 ### Dynamic Task-Type Strategies
 
-- **FEATURE**: PM → Research → Architect → Team Leader (Decomposition) → Team Leader (Assignment Loop) → Test → Review → Modernization
-- **BUGFIX**: Team Leader (Decomposition) → Team Leader (Assignment Loop) → Test → Review
-- **REFACTORING**: Architect → Team Leader (Decomposition) → Team Leader (Assignment Loop) → Test → Review
-- **DOCUMENTATION**: PM → Team Leader (Decomposition) → Team Leader (Assignment Loop) → Review
-- **RESEARCH**: Researcher → conditional implementation (Team Leader if code needed)
+- **FEATURE**: PM → USER VALIDATES → [Research] → [UI/UX Designer] → Architect → USER VALIDATES → Team Leader (3 modes) → USER CHOOSES QA → Modernization
+- **BUGFIX**: Team Leader (3 modes) → USER CHOOSES QA (skip PM/Architect - requirements clear)
+- **REFACTORING**: Architect → USER VALIDATES → Team Leader (3 modes) → USER CHOOSES QA
+- **DOCUMENTATION**: PM → USER VALIDATES → Developer → Reviewer
+- **RESEARCH**: Researcher → [conditional implementation]
 
 ### Usage
 
@@ -134,21 +172,26 @@ Orchestrator: "INVOKE senior-tester"
 /orchestrate TASK_2025_001                      # Continue task
 ```
 
-**Workflow Steps**:
+**How It Works**:
 
-1. You receive command → invoke workflow-orchestrator
-2. Orchestrator returns: "NEXT ACTION: INVOKE [agent] with [prompt]"
-3. You invoke recommended agent
-4. Agent returns results
-5. You return to orchestrator with results
-6. **Team Leader Iterative Loop** (when in ASSIGNMENT mode):
-   - Team Leader assigns task to developer
-   - You invoke developer with task details
-   - Developer implements and commits code
-   - You verify git commit exists before returning to Team Leader
-   - Team Leader updates tasks.md and assigns next task OR signals COMPLETION
-   - Repeat until all tasks complete
-7. Repeat orchestrator loop until "WORKFLOW COMPLETE"
+1. You receive `/orchestrate` command
+2. **You execute Phase 0 directly** (read registry, create context.md, analyze task)
+3. **You choose execution strategy** based on task type analysis
+4. **You invoke agents directly** following chosen strategy
+5. **You handle user validation** (PM & Architect deliverables)
+6. **You manage team-leader 3-mode loop** (DECOMPOSITION → ITERATIVE ASSIGNMENT → COMPLETION)
+7. **You handle QA choice** (user decides: tester/reviewer/both/skip)
+8. **You guide git operations** (user handles when ready)
+9. **You invoke modernization-detector** for future work analysis
+10. **You present final summary** when all phases complete
+
+**Benefits**:
+
+- ✅ **Faster**: No orchestrator agent overhead
+- ✅ **More Reliable**: Direct tool access (Read, Write, Glob, Bash) prevents hallucination
+- ✅ **Simpler**: One less abstraction layer
+- ✅ **Clearer**: User sees direct progress
+- ✅ **Less Context**: No copying results between agents
 
 ---
 
@@ -156,12 +199,46 @@ Orchestrator: "INVOKE senior-tester"
 
 ### Before ANY Request
 
-1. **Check Registry**: `cat task-tracking/registry.md`
-2. **Present Context**: Show active/pending/complete tasks
-3. **Route Decision**:
-   - Complex work → `/orchestrate [description]`
-   - Continue task → `/orchestrate TASK_2025_XXX`
-   - Quick fix → Only if user confirms
+**MANDATORY PROTOCOL**: For EVERY user request, follow these steps:
+
+1. **Check Registry**: Read `task-tracking/registry.md` to understand current project state
+2. **Analyze Request Type**: Classify the request (feature, bug, refactor, research, etc.)
+3. **Choose Delegation Strategy**:
+   - **Implementation work (90% of requests)** → Use `/orchestrate [description]` (creates new task) OR `/orchestrate TASK_2025_XXX` (continues existing)
+   - **Quick information retrieval (10% of requests)** → Answer directly (file reading, code search, explanations)
+4. **Present Context**: Show user the plan before proceeding
+
+   ```
+   📋 Request Analysis:
+   - Type: [FEATURE|BUGFIX|REFACTORING|etc]
+   - Complexity: [Simple|Medium|Complex]
+   - Strategy: [Agent workflow you'll use]
+   - Task ID: [TASK_2025_XXX or "New task"]
+
+   Proceeding with agent delegation...
+   ```
+
+### Mandatory Delegation Rules
+
+**YOU MUST USE AGENTS FOR**:
+
+- ❌ **NEVER** write code yourself → Use backend-developer or frontend-developer
+- ❌ **NEVER** create implementation files → Use team-leader → developers
+- ❌ **NEVER** fix bugs yourself → Use team-leader → developers → senior-tester
+- ❌ **NEVER** design architecture yourself → Use software-architect
+- ❌ **NEVER** plan features yourself → Use project-manager
+- ❌ **NEVER** write tests yourself → Use senior-tester
+- ❌ **NEVER** review code yourself → Use code-reviewer
+
+**YOUR RESPONSIBILITIES**:
+
+- ✅ Invoke `/orchestrate` for complex multi-phase work
+- ✅ Invoke agents directly via Task tool for single-phase work
+- ✅ Manage validation checkpoints (ask user for approval)
+- ✅ Track workflow state and progress
+- ✅ Verify agent deliverables
+- ✅ Coordinate between agents
+- ✅ Handle errors and escalations
 
 ### Agent Selection Matrix
 
@@ -228,16 +305,14 @@ task-tracking/
 
 #### Allowed Scopes (REQUIRED)
 
-- `chromadb`: ChromaDB library changes
-- `neo4j`: Neo4j library changes
-- `langgraph`: LangGraph modules changes
+- `webview`: Webview (Angular SPA) changes
+- `vscode`: VS Code extension changes
 - `deps`: Dependency updates
 - `release`: Release-related changes
 - `ci`: CI/CD changes
 - `docs`: Documentation changes
 - `hooks`: Git hooks changes
 - `scripts`: Script changes
-- `angular-3d`: Angular 3D UI changes
 
 #### Commit Rules (ENFORCED)
 
@@ -254,11 +329,11 @@ task-tracking/
 #### Valid Examples
 
 ```bash
-feat(chromadb): add semantic search for documents
-fix(neo4j): resolve connection timeout issue
-docs(langgraph): update workflow examples
+feat(webview): add semantic search for chat messages
+fix(vscode): resolve webview communication timeout issue
+docs(webview): update component usage examples
 refactor(hooks): simplify pre-commit validation
-chore(deps): update langchain to v0.3.30
+chore(deps): update @angular/core to v20.1.2
 ```
 
 #### Invalid Examples (WILL FAIL)
@@ -266,9 +341,9 @@ chore(deps): update langchain to v0.3.30
 ```bash
 ❌ "Feature: Add search" # Wrong type, wrong case
 ❌ "feat: Add search"    # Missing scope
-❌ "feat(search): Add search" # Invalid scope, wrong case
-❌ "feat(chromadb): Add search." # Period at end
-❌ "feat(chromadb): Add Search" # Uppercase in subject
+❌ "feat(search): Add search" # Invalid scope (not in allowed list), wrong case
+❌ "feat(webview): Add search." # Period at end
+❌ "feat(webview): Add Search" # Uppercase in subject
 ```
 
 #### Branch & PR Operations
@@ -363,11 +438,10 @@ The Ptah workspace is organized as an Nx monorepo with **14 projects** (2 apps +
 │  - ptah-extension-webview (Angular SPA)             │
 ├─────────────────────────────────────────────────────┤
 │  Frontend Feature Libraries                          │
-│  - chat, session, providers, analytics, dashboard   │
+│  - chat, providers, analytics, dashboard            │
 ├─────────────────────────────────────────────────────┤
 │  Frontend Core Services                              │
 │  - core (state, services, VS Code integration)      │
-│  - shared-ui (reusable components)                   │
 ├─────────────────────────────────────────────────────┤
 │  Backend Domain Libraries                            │
 │  - claude-domain (business logic)                    │
@@ -391,23 +465,21 @@ Each library has a dedicated `CLAUDE.md` file with architecture details, usage p
 - **[ptah-extension-vscode](apps/ptah-extension-vscode/CLAUDE.md)** - Main VS Code extension with command handlers, webview providers, and DI orchestration
 - **[ptah-extension-webview](apps/ptah-extension-webview/CLAUDE.md)** - Angular 20+ SPA with signal-based navigation and zoneless change detection
 
-#### **Backend Libraries** (4)
+#### **Backend Libraries** (5)
 
 - **[shared](libs/shared/CLAUDE.md)** - Type system foundation: Branded types (SessionId, MessageId), message protocol (94 types), AI provider abstractions
 - **[vscode-core](libs/backend/vscode-core/CLAUDE.md)** - Infrastructure layer: DI container (60+ tokens), API wrappers (CommandManager, WebviewManager), EventBus, Logger
-- **[claude-domain](libs/backend/claude-domain/CLAUDE.md)** - Business logic: CLI integration, session management, orchestration services, permission handling
+- **[claude-domain](libs/backend/claude-domain/CLAUDE.md)** - Business logic: CLI integration, session management via SessionProxy, orchestration services, permission handling
 - **[ai-providers-core](libs/backend/ai-providers-core/CLAUDE.md)** - Multi-provider abstraction: Intelligent provider selection, context management, Claude CLI & VS Code LM adapters
 - **[workspace-intelligence](libs/backend/workspace-intelligence/CLAUDE.md)** - Workspace analysis: Project detection (13+ types), file indexing, token optimization
 
-#### **Frontend Libraries** (7)
+#### **Frontend Libraries** (5)
 
 - **[core](libs/frontend/core/CLAUDE.md)** - Service layer: AppStateManager, VSCodeService, ChatService, signal-based state management
-- **[chat](libs/frontend/chat/CLAUDE.md)** - Chat UI: 11 components for message display, input, streaming, session management
-- **[session](libs/frontend/session/CLAUDE.md)** - Session management: SessionSelector, SessionCard, session lifecycle operations
+- **[chat](libs/frontend/chat/CLAUDE.md)** - Chat UI: 11 components for message display, input, streaming, session management (via ChatEmptyStateComponent)
 - **[providers](libs/frontend/providers/CLAUDE.md)** - Provider UI: Provider selection, health monitoring, capabilities display
 - **[analytics](libs/frontend/analytics/CLAUDE.md)** - Analytics dashboard: Usage statistics, performance metrics visualization
 - **[dashboard](libs/frontend/dashboard/CLAUDE.md)** - Performance dashboard: Real-time metrics, historical trends, activity feed
-- **[shared-ui](libs/frontend/shared-ui/CLAUDE.md)** - Component library: 12 reusable components with VS Code theming and accessibility
 
 ### Dependency Rules
 
@@ -444,11 +516,9 @@ Apps → Feature Libs → Core Services → Domain Libs → Infrastructure → S
 '@ptah-extension/workspace-intelligence'; // Workspace analysis
 '@ptah-extension/core'; // Frontend services
 '@ptah-extension/chat'; // Chat UI
-'@ptah-extension/session'; // Session UI
 '@ptah-extension/providers'; // Provider UI
 '@ptah-extension/analytics'; // Analytics UI
 '@ptah-extension/dashboard'; // Dashboard UI
-'@ptah-extension/shared-ui'; // Reusable components
 ```
 
 ### Testing Strategy
@@ -494,10 +564,10 @@ For detailed information about any library:
 
 ### Workspace Stats
 
-- **Total Projects**: 14 (2 apps + 12 libraries)
-- **Total Components**: 50+ Angular components
+- **Total Projects**: 12 (2 apps + 10 libraries)
+- **Total Components**: 48+ Angular components
 - **Total Services**: 40+ backend/frontend services
-- **TypeScript Files**: 300+ source files
+- **TypeScript Files**: 280+ source files
 - **Test Coverage Target**: 80% minimum
 - **Dependency Tokens**: 60+ DI tokens
 - **Message Types**: 94 distinct message types

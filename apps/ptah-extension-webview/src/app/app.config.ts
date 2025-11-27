@@ -4,6 +4,7 @@ import {
   provideZoneChangeDetection,
   ErrorHandler,
 } from '@angular/core';
+import { provideMarkdown } from 'ngx-markdown';
 import { provideVSCodeService } from '@ptah-extension/core';
 // Removed Material animations import - using pure VS Code design system
 // REMOVED: Angular Router imports - incompatible with VS Code webviews
@@ -55,5 +56,7 @@ export const appConfig: ApplicationConfig = {
     // CRITICAL: Eager initialization of VSCodeService before app starts
     // This ensures message listener is set up BEFORE any components render
     provideVSCodeService(),
+    // Markdown rendering for chat messages (required for ngx-markdown)
+    provideMarkdown(),
   ],
 };

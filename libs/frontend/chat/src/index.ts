@@ -10,5 +10,5 @@
  */
 
 export * from './lib/components';
-export * from './lib/containers';
+// Containers removed (TASK_2025_023) - use ChatViewComponent from components
 export * from './lib/services';

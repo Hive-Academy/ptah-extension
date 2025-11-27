@@ -97,5 +97,18 @@ export {
   type ContextRecommendations,
 } from './composite/workspace-analyzer.service';
 
+// AST services (Phase 2: RooCode migration)
+export { TreeSitterParserService } from './ast/tree-sitter-parser.service';
+export { AstAnalysisService } from './ast/ast-analysis.service';
+
+// AST types and interfaces
+export * from './ast/ast.types';
+export * from './ast/ast-analysis.interfaces';
+export * from './ast/tree-sitter.config';
+
+export * from './autocomplete/agent-discovery.service';
+export * from './autocomplete/command-discovery.service';
+export * from './autocomplete/mcp-discovery.service';
+
 // DI registration bootstrap function
 // NOTE: DI registration is now centralized in apps/ptah-extension-vscode/src/di/container.ts

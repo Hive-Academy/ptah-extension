@@ -6,7 +6,6 @@
 
 import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
-import { EventBus } from '../messaging/event-bus';
 import { TOKENS } from '../di/tokens';
 import type {
   WebviewMessage,
@@ -14,10 +13,6 @@ import type {
   MessagePayloadMap,
 } from '@ptah-extension/shared';
 import { isSystemMessage, isRoutableMessage } from '@ptah-extension/shared';
-import {
-  ANALYTICS_MESSAGE_TYPES,
-  SYSTEM_MESSAGE_TYPES,
-} from '@ptah-extension/shared';
 
 /**
  * Webview panel configuration options
@@ -83,8 +78,7 @@ export class WebviewManager {
 
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT)
-    private readonly context: vscode.ExtensionContext,
-    @inject(TOKENS.EVENT_BUS) private readonly eventBus: EventBus
+    private readonly context: vscode.ExtensionContext
   ) {}
 
   /**
@@ -101,6 +95,7 @@ export class WebviewManager {
   ): vscode.WebviewPanel {
     // Check if webview already exists
     if (this.activeWebviews.has(config.viewType)) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const existing = this.activeWebviews.get(config.viewType)!;
       existing.reveal(
         config.showOptions?.viewColumn,
@@ -160,17 +155,6 @@ export class WebviewManager {
       });
     }
 
-    // Publish webview created event
-    this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-      event: 'webview:created',
-      properties: {
-        webviewId: config.viewType,
-        viewType: config.viewType,
-        title: config.title,
-        timestamp: Date.now(),
-      },
-    });
-
     return panel;
   }
 
@@ -202,26 +186,6 @@ export class WebviewManager {
       console.log(`[WebviewManager] WebviewView disposed: ${viewType}`);
       this.activeWebviewViews.delete(viewType);
       this.webviewMetrics.delete(viewType);
-
-      this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-        event: 'webview:disposed',
-        properties: {
-          webviewId: viewType,
-          viewType,
-          timestamp: Date.now(),
-        },
-      });
-    });
-
-    // Publish webview created event
-    this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-      event: 'webview:created',
-      properties: {
-        webviewId: viewType,
-        viewType: viewType,
-        title: 'Ptah Sidebar',
-        timestamp: Date.now(),
-      },
     });
 
     console.log(
@@ -241,6 +205,7 @@ export class WebviewManager {
   async sendMessage<T extends StrictMessageType>(
     viewType: string,
     type: T,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     payload: any
   ): Promise<boolean> {
     // Check both panels and views
@@ -258,12 +223,6 @@ export class WebviewManager {
         `[WebviewManager] Active views:`,
         Array.from(this.activeWebviewViews.keys())
       );
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'WEBVIEW_NOT_FOUND',
-        message: `Webview ${viewType} not found`,
-        source: 'WebviewManager',
-        timestamp: Date.now(),
-      });
       return false;
     }
 
@@ -278,13 +237,6 @@ export class WebviewManager {
       return true;
     } catch (error) {
       console.error(`[WebviewManager] postMessage() threw error:`, error);
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'WEBVIEW_MESSAGE_SEND_FAILED',
-        message: `Failed to send message to webview ${viewType}: ${error}`,
-        source: 'WebviewManager',
-        data: { viewType, type, payload },
-        timestamp: Date.now(),
-      });
       return false;
     }
   }
@@ -297,6 +249,18 @@ export class WebviewManager {
    */
   getWebviewPanel(viewType: string): vscode.WebviewPanel | undefined {
     return this.activeWebviews.get(viewType);
+  }
+
+  /**
+   * Get a webview instance (either from panel or view)
+   *
+   * @param viewType - The view type to look up
+   * @returns Webview instance or undefined if not found
+   */
+  getWebview(viewType: string): vscode.Webview | undefined {
+    const panel = this.activeWebviews.get(viewType);
+    const view = this.activeWebviewViews.get(viewType);
+    return panel?.webview || view?.webview;
   }
 
   /**
@@ -381,23 +345,17 @@ export class WebviewManager {
       // Handle system messages internally
       this.handleSystemMessage(webviewId, message);
     } else if (isRoutableMessage(message)) {
-      // Route to event bus for handling by other services
-      // Type assertion is safe here since isRoutableMessage validates the type
-      this.eventBus.publish(
-        message.type as keyof MessagePayloadMap,
-        message.payload as any
+      // TODO: Phase 2 - Route to RPC handler for message processing
+      console.warn(
+        `[WebviewManager] Routable message received but EventBus removed:`,
+        message.type
       );
     } else {
-      // Fallback for messages that don't match our type system
-      this.eventBus.publish(SYSTEM_MESSAGE_TYPES.ERROR, {
-        code: 'INVALID_WEBVIEW_MESSAGE',
-        message: `Invalid message type received from webview: ${
-          (message as any).type
-        }`,
-        source: 'WebviewManager',
-        data: { webviewId, message },
-        timestamp: Date.now(),
-      });
+      console.error(
+        `[WebviewManager] Invalid message type:`,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (message as any).type
+      );
     }
   }
 
@@ -405,16 +363,11 @@ export class WebviewManager {
    * Handle system messages (ready, initialization, etc.)
    * These are handled internally and not routed to the event bus
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private handleSystemMessage(webviewId: string, message: any): void {
     switch (message.type) {
       case 'webview-ready':
-        this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-          event: 'webview:ready',
-          properties: {
-            webviewId,
-            timestamp: Date.now(),
-          },
-        });
+        // Webview ready event
         break;
 
       case 'requestInitialData':
@@ -435,16 +388,6 @@ export class WebviewManager {
   private handleWebviewDisposal(viewType: string): void {
     this.activeWebviews.delete(viewType);
     this.webviewMetrics.delete(viewType);
-
-    // Publish disposal event
-    this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-      event: 'webview:disposed',
-      properties: {
-        webviewId: viewType,
-        viewType,
-        timestamp: Date.now(),
-      },
-    });
   }
 
   /**
@@ -456,15 +399,5 @@ export class WebviewManager {
       metrics.isVisible = visible;
       metrics.lastActivity = Date.now();
     }
-
-    // Publish visibility change event
-    this.eventBus.publish(ANALYTICS_MESSAGE_TYPES.TRACK_EVENT, {
-      event: 'webview:visibilityChanged',
-      properties: {
-        webviewId: viewType,
-        visible,
-        timestamp: Date.now(),
-      },
-    });
   }
 }

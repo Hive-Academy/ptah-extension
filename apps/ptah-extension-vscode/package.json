@@ -34,7 +34,7 @@
     "anthropic.claude-code"
   ],
   "activationEvents": [
-    "onView:ptah.main"
+    "*"
   ],
   "main": "./main.js",
   "icon": "assets/images/ptah-icon.png",
@@ -43,7 +43,7 @@
       "activitybar": [
         {
           "id": "ptah",
-          "title": "Ptah - Code Assistant",
+          "title": "Ptah",
           "icon": "assets/images/ptah-icon.png"
         }
       ]
@@ -55,59 +55,11 @@
           "id": "ptah.main",
           "name": "Ptah Code",
           "icon": "$(robot)",
-          "contextualTitle": "Ptah -  Code Assistant"
+          "contextualTitle": "Ptah"
         }
       ]
     },
     "commands": [
-      {
-        "command": "ptah.quickChat",
-        "title": "Quick Chat",
-        "category": "Ptah",
-        "icon": "$(comment)"
-      },
-      {
-        "command": "ptah.reviewCurrentFile",
-        "title": "Review Current File",
-        "category": "Ptah",
-        "icon": "$(file-code)"
-      },
-      {
-        "command": "ptah.generateTests",
-        "title": "Generate Tests",
-        "category": "Ptah",
-        "icon": "$(beaker)"
-      },
-      {
-        "command": "ptah.buildCommand",
-        "title": "Build Command",
-        "category": "Ptah",
-        "icon": "$(terminal)"
-      },
-      {
-        "command": "ptah.newSession",
-        "title": "New Session",
-        "category": "Ptah",
-        "icon": "$(add)"
-      },
-      {
-        "command": "ptah.includeFile",
-        "title": "Include in Context",
-        "category": "Ptah",
-        "icon": "$(add)"
-      },
-      {
-        "command": "ptah.excludeFile",
-        "title": "Exclude from Context",
-        "category": "Ptah",
-        "icon": "$(remove)"
-      },
-      {
-        "command": "ptah.showAnalytics",
-        "title": "Show Analytics",
-        "category": "Ptah",
-        "icon": "$(graph)"
-      },
       {
         "command": "ptah.openFullPanel",
         "title": "Open Full Ptah Panel",
@@ -116,52 +68,9 @@
       }
     ],
     "menus": {
-      "commandPalette": [
-        {
-          "command": "ptah.quickChat"
-        },
-        {
-          "command": "ptah.reviewCurrentFile",
-          "when": "editorIsOpen"
-        },
-        {
-          "command": "ptah.generateTests",
-          "when": "editorIsOpen"
-        }
-      ],
-      "editor/context": [
-        {
-          "command": "ptah.reviewCurrentFile",
-          "group": "ptah@1"
-        },
-        {
-          "command": "ptah.generateTests",
-          "group": "ptah@2"
-        }
-      ],
-      "explorer/context": [
-        {
-          "command": "ptah.includeFile",
-          "when": "!ptah.fileIncluded",
-          "group": "ptah@1"
-        },
-        {
-          "command": "ptah.excludeFile",
-          "when": "ptah.fileIncluded",
-          "group": "ptah@1"
-        }
-      ],
+      "commandPalette": [],
+      "editor/context": [],
       "view/title": [
-        {
-          "command": "ptah.newSession",
-          "when": "view == ptah.main",
-          "group": "navigation"
-        },
-        {
-          "command": "ptah.showAnalytics",
-          "when": "view == ptah.main",
-          "group": "navigation"
-        },
         {
           "command": "ptah.openFullPanel",
           "when": "view == ptah.main",
@@ -169,125 +78,10 @@
         }
       ]
     },
-    "keybindings": [
-      {
-        "command": "ptah.quickChat",
-        "key": "ctrl+shift+p ctrl+shift+c",
-        "mac": "cmd+shift+p cmd+shift+c"
-      },
-      {
-        "command": "ptah.reviewCurrentFile",
-        "key": "ctrl+shift+p ctrl+shift+r",
-        "mac": "cmd+shift+p cmd+shift+r",
-        "when": "editorIsOpen"
-      },
-      {
-        "command": "ptah.buildCommand",
-        "key": "ctrl+shift+p ctrl+shift+b",
-        "mac": "cmd+shift+p cmd+shift+b"
-      }
-    ],
+    "keybindings": [],
     "configuration": {
-      "title": "Ptah - Claude Code",
-      "properties": {
-        "ptah.claudeCliPath": {
-          "type": "string",
-          "default": "claude",
-          "description": "Path to Claude Code CLI executable"
-        },
-        "ptah.defaultProvider": {
-          "type": "string",
-          "enum": [
-            "anthropic",
-            "bedrock",
-            "vertex"
-          ],
-          "default": "anthropic",
-          "description": "Default Claude provider"
-        },
-        "ptah.maxTokens": {
-          "type": "number",
-          "default": 200000,
-          "description": "Maximum tokens per session"
-        },
-        "ptah.autoIncludeOpenFiles": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically include open files in context"
-        },
-        "ptah.contextOptimization": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable automatic context optimization suggestions"
-        },
-        "ptah.analyticsEnabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable usage analytics tracking"
-        },
-        "ptah.claude.model": {
-          "type": "string",
-          "default": "claude-3-sonnet-20241022",
-          "description": "Claude model to use for chat"
-        },
-        "ptah.claude.temperature": {
-          "type": "number",
-          "default": 0.1,
-          "minimum": 0,
-          "maximum": 1,
-          "description": "Temperature setting for Claude responses (0 = deterministic, 1 = creative)"
-        },
-        "ptah.streaming.bufferSize": {
-          "type": "number",
-          "default": 8192,
-          "minimum": 1024,
-          "description": "Stream buffer size in bytes"
-        },
-        "ptah.streaming.chunkSize": {
-          "type": "number",
-          "default": 1024,
-          "minimum": 256,
-          "description": "Stream chunk size in bytes"
-        },
-        "ptah.streaming.timeoutMs": {
-          "type": "number",
-          "default": 30000,
-          "minimum": 5000,
-          "description": "Stream timeout in milliseconds"
-        },
-        "ptah.context.maxFileSize": {
-          "type": "number",
-          "default": 1048576,
-          "minimum": 1024,
-          "description": "Maximum file size for context inclusion in bytes"
-        },
-        "ptah.context.includedFiles": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [],
-          "description": "List of files included in the current context"
-        },
-        "ptah.context.excludedFiles": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [],
-          "description": "List of files excluded from the current context"
-        },
-        "ptah.development.enableDebugLogging": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable debug logging for development"
-        },
-        "ptah.development.mockResponses": {
-          "type": "boolean",
-          "default": false,
-          "description": "Use mock responses for development testing"
-        }
-      }
+      "title": "Ptah",
+      "properties": {}
     },
     "languageModelTools": [
       {

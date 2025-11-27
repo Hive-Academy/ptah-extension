@@ -99,6 +99,8 @@ export class LoggingService {
       PTAH_DEBUG_LOGGING?: boolean;
     };
 
+    win.PTAH_DEBUG_LOGGING = true;
+
     // Check for debug mode flag
     if (win.PTAH_DEBUG_LOGGING === true) {
       this._currentLevel.set(LogLevel.DEBUG);

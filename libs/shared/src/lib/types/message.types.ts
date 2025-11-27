@@ -21,52 +21,128 @@ import {
   ClaudeAgentStartEvent,
   ClaudeAgentActivityEvent,
   ClaudeAgentCompleteEvent,
+  SessionSummary,
 } from './claude-domain.types';
-import {
-  CHAT_MESSAGE_TYPES,
-  CHAT_RESPONSE_TYPES,
-  PROVIDER_MESSAGE_TYPES,
-  PROVIDER_RESPONSE_TYPES,
-  CONTEXT_MESSAGE_TYPES,
-  CONTEXT_RESPONSE_TYPES,
-  COMMAND_MESSAGE_TYPES,
-  COMMAND_RESPONSE_TYPES,
-  ANALYTICS_MESSAGE_TYPES,
-  ANALYTICS_RESPONSE_TYPES,
-  CONFIG_MESSAGE_TYPES,
-  CONFIG_RESPONSE_TYPES,
-  STATE_MESSAGE_TYPES,
-  STATE_RESPONSE_TYPES,
-  VIEW_MESSAGE_TYPES,
-  SYSTEM_MESSAGE_TYPES,
-} from '../constants/message-types';
+import type {
+  ContentBlock,
+  TextContentBlock,
+  ThinkingContentBlock,
+  ToolUseContentBlock,
+  ToolResultContentBlock,
+} from './content-block.types';
 
 // Re-export for convenience
 export { CorrelationId };
 
+// Re-export ContentBlock types from foundation layer
+export type {
+  ContentBlock,
+  TextContentBlock,
+  ThinkingContentBlock,
+  ToolUseContentBlock,
+  ToolResultContentBlock,
+};
+
 /**
- * Strict Message Types - derives from MESSAGE_TYPES constants
- * This ensures automatic sync between constants and types (single source of truth)
- *
- * By importing each category separately and creating a union, we maintain proper type narrowing
+ * Strict Message Types - Literal string union for type-safe message handling
+ * Defines all valid message types across the extension
  */
 export type StrictMessageType =
-  | (typeof CHAT_MESSAGE_TYPES)[keyof typeof CHAT_MESSAGE_TYPES]
-  | (typeof CHAT_RESPONSE_TYPES)[keyof typeof CHAT_RESPONSE_TYPES]
-  | (typeof PROVIDER_MESSAGE_TYPES)[keyof typeof PROVIDER_MESSAGE_TYPES]
-  | (typeof PROVIDER_RESPONSE_TYPES)[keyof typeof PROVIDER_RESPONSE_TYPES]
-  | (typeof CONTEXT_MESSAGE_TYPES)[keyof typeof CONTEXT_MESSAGE_TYPES]
-  | (typeof CONTEXT_RESPONSE_TYPES)[keyof typeof CONTEXT_RESPONSE_TYPES]
-  | (typeof COMMAND_MESSAGE_TYPES)[keyof typeof COMMAND_MESSAGE_TYPES]
-  | (typeof COMMAND_RESPONSE_TYPES)[keyof typeof COMMAND_RESPONSE_TYPES]
-  | (typeof ANALYTICS_MESSAGE_TYPES)[keyof typeof ANALYTICS_MESSAGE_TYPES]
-  | (typeof ANALYTICS_RESPONSE_TYPES)[keyof typeof ANALYTICS_RESPONSE_TYPES]
-  | (typeof CONFIG_MESSAGE_TYPES)[keyof typeof CONFIG_MESSAGE_TYPES]
-  | (typeof CONFIG_RESPONSE_TYPES)[keyof typeof CONFIG_RESPONSE_TYPES]
-  | (typeof STATE_MESSAGE_TYPES)[keyof typeof STATE_MESSAGE_TYPES]
-  | (typeof STATE_RESPONSE_TYPES)[keyof typeof STATE_RESPONSE_TYPES]
-  | (typeof VIEW_MESSAGE_TYPES)[keyof typeof VIEW_MESSAGE_TYPES]
-  | (typeof SYSTEM_MESSAGE_TYPES)[keyof typeof SYSTEM_MESSAGE_TYPES]; // System message types are now included in StrictMessageType above
+  // Chat messages
+  | 'chat:sendMessage'
+  | 'chat:messageChunk'
+  | 'chat:sessionStart'
+  | 'chat:sessionEnd'
+  | 'chat:newSession'
+  | 'chat:switchSession'
+  | 'chat:getHistory'
+  | 'chat:messageAdded'
+  | 'chat:messageComplete'
+  | 'chat:sessionCreated'
+  | 'chat:sessionSwitched'
+  | 'chat:sessionUpdated'
+  | 'chat:tokenUsageUpdated'
+  | 'chat:historyLoaded'
+  | 'chat:renameSession'
+  | 'chat:deleteSession'
+  | 'chat:bulkDeleteSessions'
+  | 'chat:sessionRenamed'
+  | 'chat:sessionDeleted'
+  | 'chat:getSessionStats'
+  | 'chat:requestSessions'
+  | 'chat:sessionsUpdated'
+  | 'chat:stopStream'
+  | 'chat:streamStopped'
+  | 'chat:agentStarted'
+  | 'chat:agentActivity'
+  | 'chat:agentCompleted'
+  | 'chat:thinking'
+  | 'chat:toolStart'
+  | 'chat:toolProgress'
+  | 'chat:toolResult'
+  | 'chat:toolError'
+  | 'chat:sessionInit'
+  | 'chat:healthUpdate'
+  | 'chat:cliError'
+  // Provider messages
+  | 'providers:getAvailable'
+  | 'providers:getCurrent'
+  | 'providers:switch'
+  | 'providers:getHealth'
+  | 'providers:getAllHealth'
+  | 'providers:setDefault'
+  | 'providers:enableFallback'
+  | 'providers:setAutoSwitch'
+  | 'providers:selectModel'
+  | 'providers:currentChanged'
+  | 'providers:healthChanged'
+  | 'providers:error'
+  | 'providers:availableUpdated'
+  | 'providers:modelChanged'
+  // Context messages
+  | 'context:updateFiles'
+  | 'context:getFiles'
+  | 'context:includeFile'
+  | 'context:excludeFile'
+  | 'context:searchFiles'
+  | 'context:getAllFiles'
+  | 'context:getFileSuggestions'
+  | 'context:searchImages'
+  // Command messages
+  | 'commands:getTemplates'
+  | 'commands:executeCommand'
+  | 'commands:selectFile'
+  | 'commands:saveTemplate'
+  // Analytics messages
+  | 'analytics:trackEvent'
+  | 'analytics:getData'
+  // Config messages
+  | 'config:get'
+  | 'config:set'
+  | 'config:update'
+  | 'config:refresh'
+  // State messages
+  | 'state:save'
+  | 'state:load'
+  | 'state:clear'
+  | 'state:saved'
+  | 'state:loaded'
+  // View messages
+  | 'view:changed'
+  | 'view:routeChanged'
+  | 'view:generic'
+  // System messages
+  | 'error'
+  | 'initialData'
+  | 'webview-ready'
+  | 'ready'
+  | 'requestInitialData'
+  | 'themeChanged'
+  | 'navigate'
+  | 'refresh'
+  | 'switchView'
+  | 'workspaceChanged'
+  | string; // Allow extensibility for custom message types
 
 /**
  * Message Payloads - Strict typing for each message type
@@ -84,7 +160,7 @@ export interface ChatSendMessagePayload {
 export interface ChatMessageChunkPayload {
   readonly sessionId: SessionId;
   readonly messageId: MessageId;
-  readonly content: string;
+  readonly contentBlocks: readonly ContentBlock[];
   readonly isComplete: boolean;
   readonly streaming: boolean;
 }
@@ -94,9 +170,14 @@ export interface ChatSessionStartPayload {
   readonly workspaceId?: string;
 }
 
+/**
+ * CLI session end payload
+ * NOTE: Replaces previous webview session end payload structure
+ */
 export interface ChatSessionEndPayload {
   readonly sessionId: SessionId;
-  readonly duration: number;
+  readonly reason?: string;
+  readonly timestamp: number;
 }
 
 export interface ChatNewSessionPayload {
@@ -304,18 +385,85 @@ export interface ChatStopStreamPayload {
   readonly timestamp: number;
 }
 
-export interface ChatPermissionRequestPayload {
-  readonly id: string;
-  readonly tool: string;
-  readonly action: string;
-  readonly description: string;
+/**
+ * Thinking event payload (Claude's reasoning process)
+ */
+export interface ChatThinkingPayload {
+  readonly sessionId: SessionId;
+  readonly content: string;
   readonly timestamp: number;
-  readonly sessionId: string;
 }
 
-export interface ChatPermissionResponsePayload {
-  readonly requestId: string;
-  readonly response: 'allow' | 'always_allow' | 'deny';
+/**
+ * Tool execution start payload
+ */
+export interface ChatToolStartPayload {
+  readonly sessionId: SessionId;
+  readonly toolCallId: string;
+  readonly tool: string;
+  readonly args: Record<string, unknown>;
+  readonly timestamp: number;
+}
+
+/**
+ * Tool execution progress payload
+ */
+export interface ChatToolProgressPayload {
+  readonly sessionId: SessionId;
+  readonly toolCallId: string;
+  readonly message: string;
+  readonly timestamp: number;
+}
+
+/**
+ * Tool execution result payload
+ */
+export interface ChatToolResultPayload {
+  readonly sessionId: SessionId;
+  readonly toolCallId: string;
+  readonly output: unknown;
+  readonly duration: number;
+  readonly timestamp: number;
+}
+
+/**
+ * Tool execution error payload
+ */
+export interface ChatToolErrorPayload {
+  readonly sessionId: SessionId;
+  readonly toolCallId: string;
+  readonly error: string;
+  readonly timestamp: number;
+}
+
+/**
+ * CLI session initialization payload
+ */
+export interface ChatSessionInitPayload {
+  readonly sessionId: SessionId;
+  readonly claudeSessionId: string;
+  readonly model?: string;
+  readonly timestamp: number;
+}
+
+/**
+ * CLI health update payload
+ */
+export interface ChatHealthUpdatePayload {
+  readonly available: boolean;
+  readonly version?: string;
+  readonly responseTime?: number;
+  readonly error?: string;
+  readonly timestamp: number;
+}
+
+/**
+ * CLI error payload
+ */
+export interface ChatCliErrorPayload {
+  readonly sessionId?: SessionId;
+  readonly error: string;
+  readonly context?: Record<string, unknown>;
   readonly timestamp: number;
 }
 
@@ -331,7 +479,7 @@ export interface ChatRequestSessionsPayload {
 }
 
 export interface ChatSessionsUpdatedPayload {
-  readonly sessions: readonly StrictChatSession[];
+  readonly sessions: readonly SessionSummary[];
 }
 
 /**
@@ -370,10 +518,21 @@ export interface ProvidersSetAutoSwitchPayload {
   readonly enabled: boolean;
 }
 
+export interface ProvidersSelectModelPayload {
+  readonly modelId: string;
+  readonly providerId?: string; // Optional - use current provider if omitted
+}
+
 export interface ProvidersCurrentChangedPayload {
   readonly from: string | null; // ProviderId | null
   readonly to: string; // ProviderId
   readonly reason: 'user-request' | 'auto-fallback' | 'error-recovery';
+  readonly timestamp: number;
+}
+
+export interface ProvidersModelChangedPayload {
+  readonly modelId: string;
+  readonly providerId: string;
   readonly timestamp: number;
 }
 
@@ -558,11 +717,17 @@ export interface MessagePayloadMap {
   'chat:sessionsUpdated': ChatSessionsUpdatedPayload;
   'chat:stopStream': ChatStopStreamPayload;
   'chat:streamStopped': ChatStreamStoppedPayload;
-  'chat:permissionRequest': ChatPermissionRequestPayload;
-  'chat:permissionResponse': ChatPermissionResponsePayload;
   'chat:agentStarted': ChatAgentStartedPayload;
   'chat:agentActivity': ChatAgentActivityPayload;
   'chat:agentCompleted': ChatAgentCompletedPayload;
+  'chat:thinking': ChatThinkingPayload;
+  'chat:toolStart': ChatToolStartPayload;
+  'chat:toolProgress': ChatToolProgressPayload;
+  'chat:toolResult': ChatToolResultPayload;
+  'chat:toolError': ChatToolErrorPayload;
+  'chat:sessionInit': ChatSessionInitPayload;
+  'chat:healthUpdate': ChatHealthUpdatePayload;
+  'chat:cliError': ChatCliErrorPayload;
   'providers:getAvailable': ProvidersGetAvailablePayload;
   'providers:getCurrent': ProvidersGetCurrentPayload;
   'providers:switch': ProvidersSwitchPayload;
@@ -571,10 +736,12 @@ export interface MessagePayloadMap {
   'providers:setDefault': ProvidersSetDefaultPayload;
   'providers:enableFallback': ProvidersEnableFallbackPayload;
   'providers:setAutoSwitch': ProvidersSetAutoSwitchPayload;
+  'providers:selectModel': ProvidersSelectModelPayload;
   'providers:currentChanged': ProvidersCurrentChangedPayload;
   'providers:healthChanged': ProvidersHealthChangedPayload;
   'providers:error': ProvidersErrorPayload;
   'providers:availableUpdated': ProvidersAvailableUpdatedPayload;
+  'providers:modelChanged': ProvidersModelChangedPayload;
   'context:updateFiles': ContextUpdatePayload;
   'context:getFiles': ContextGetFilesPayload;
   'context:includeFile': ContextIncludeFilePayload;
@@ -716,7 +883,7 @@ export interface StrictChatMessage {
   readonly id: MessageId;
   readonly sessionId: SessionId;
   readonly type: 'user' | 'assistant' | 'system';
-  readonly content: string;
+  readonly contentBlocks: readonly ContentBlock[];
   readonly timestamp: number;
   readonly streaming?: boolean;
   readonly files?: readonly string[];
@@ -726,6 +893,40 @@ export interface StrictChatMessage {
   readonly isComplete?: boolean;
   // For system messages
   readonly level?: 'info' | 'warning' | 'error';
+
+  // NEW: Missing fields for full message lifecycle (TASK_2025_008 - Batch 2)
+  readonly cost?: number; // Message cost in USD
+  readonly tokens?: {
+    // Token breakdown
+    readonly input: number;
+    readonly output: number;
+    readonly cacheHit?: number;
+  };
+  readonly duration?: number; // Processing time in ms
+}
+
+/**
+ * MCP Server Information
+ * Used in SessionCapabilities to track connected MCP servers
+ */
+export interface MCPServerInfo {
+  readonly name: string;
+  readonly status: 'connected' | 'disabled' | 'failed';
+  readonly tools?: readonly string[];
+}
+
+/**
+ * Session Capabilities
+ * Tracks Claude Code capabilities available in a session
+ */
+export interface SessionCapabilities {
+  readonly cwd: string;
+  readonly model: string;
+  readonly tools: readonly string[];
+  readonly agents: readonly string[];
+  readonly slash_commands: readonly string[];
+  readonly mcp_servers: readonly MCPServerInfo[];
+  readonly claude_code_version: string;
 }
 
 /**
@@ -747,6 +948,13 @@ export interface StrictChatSession {
     percentage: number;
     maxTokens?: number;
   }>;
+
+  // NEW: Missing fields for IMPLEMENTATION_PLAN compatibility (TASK_2025_008 - Batch 2)
+  readonly capabilities?: SessionCapabilities; // Claude Code capabilities
+  readonly model?: string; // Active model (e.g., "claude-sonnet-4")
+  readonly totalCost?: number; // Cumulative cost in USD
+  readonly totalTokensInput?: number; // Cumulative input tokens
+  readonly totalTokensOutput?: number; // Cumulative output tokens
 }
 
 /**
@@ -821,7 +1029,7 @@ export const MessageResponseSchema = z
       .object({
         code: z.string(),
         message: z.string(),
-        context: z.record(z.unknown()).optional(),
+        context: z.record(z.string(), z.unknown()).optional(),
         stack: z.string().optional(),
       })
       .optional(),
@@ -829,20 +1037,97 @@ export const MessageResponseSchema = z
   })
   .strict();
 
+// Zod schema for MCPServerInfo
+export const MCPServerInfoSchema = z.object({
+  name: z.string(),
+  status: z.enum(['connected', 'disabled', 'failed']),
+  tools: z.array(z.string()).optional(),
+});
+
+// Zod schema for SessionCapabilities
+export const SessionCapabilitiesSchema = z.object({
+  cwd: z.string(),
+  model: z.string(),
+  tools: z.array(z.string()),
+  agents: z.array(z.string()),
+  slash_commands: z.array(z.string()),
+  mcp_servers: z.array(MCPServerInfoSchema),
+  claude_code_version: z.string(),
+});
+
+/**
+ * Zod Schemas for ContentBlock Runtime Validation
+ */
+
+/**
+ * TextContentBlock Zod schema
+ */
+export const TextContentBlockSchema = z
+  .object({
+    type: z.literal('text'),
+    text: z.string(),
+    index: z.number().optional(),
+  })
+  .strict();
+
+/**
+ * ToolUseContentBlock Zod schema
+ */
+export const ToolUseContentBlockSchema = z
+  .object({
+    type: z.literal('tool_use'),
+    id: z.string(),
+    name: z.string(),
+    input: z.record(z.string(), z.unknown()),
+    index: z.number().optional(),
+  })
+  .strict();
+
+/**
+ * ThinkingContentBlock Zod schema
+ */
+export const ThinkingContentBlockSchema = z
+  .object({
+    type: z.literal('thinking'),
+    thinking: z.string(),
+    index: z.number().optional(),
+  })
+  .strict();
+
+/**
+ * ContentBlock Zod schema - discriminated union
+ * Enables runtime validation of structured content blocks
+ */
+export const ContentBlockSchema = z.discriminatedUnion('type', [
+  TextContentBlockSchema,
+  ToolUseContentBlockSchema,
+  ThinkingContentBlockSchema,
+]);
+
 export const StrictChatMessageSchema = z.object({
   id: MessageIdSchema,
   sessionId: SessionIdSchema,
   type: z.enum(['user', 'assistant', 'system']),
-  content: z.string(),
+  contentBlocks: z.array(ContentBlockSchema),
   timestamp: z.number().positive(),
   streaming: z.boolean().optional(),
   files: z.array(z.string()).optional(),
   isError: z.boolean().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   // For assistant messages
   isComplete: z.boolean().optional(),
   // For system messages
   level: z.enum(['info', 'warning', 'error']).optional(),
+  // NEW: Message lifecycle fields (TASK_2025_008 - Batch 2)
+  cost: z.number().nonnegative().optional(),
+  tokens: z
+    .object({
+      input: z.number().nonnegative(),
+      output: z.number().nonnegative(),
+      cacheHit: z.number().nonnegative().optional(),
+    })
+    .optional(),
+  duration: z.number().nonnegative().optional(),
 });
 
 export const StrictChatSessionSchema = z
@@ -864,6 +1149,12 @@ export const StrictChatSessionSchema = z
         maxTokens: z.number().positive().optional(),
       })
       .strict(),
+    // NEW: IMPLEMENTATION_PLAN compatibility fields (TASK_2025_008 - Batch 2)
+    capabilities: SessionCapabilitiesSchema.optional(),
+    model: z.string().optional(),
+    totalCost: z.number().nonnegative().optional(),
+    totalTokensInput: z.number().nonnegative().optional(),
+    totalTokensOutput: z.number().nonnegative().optional(),
   })
   .strict();
 

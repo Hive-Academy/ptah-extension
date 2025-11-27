@@ -7,4 +7,7 @@ export default {
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
   coverageDirectory: '../../../coverage/libs/backend/workspace-intelligence',
+  moduleNameMapper: {
+    '^vscode$': '<rootDir>/../../../__mocks__/vscode.ts',
+  },
 };

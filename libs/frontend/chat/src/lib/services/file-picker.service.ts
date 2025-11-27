@@ -1,13 +1,5 @@
-import {
-  Injectable,
-  signal,
-  computed,
-  inject,
-  DestroyRef,
-} from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CONTEXT_MESSAGE_TYPES } from '@ptah-extension/shared';
-import { VSCodeService } from '@ptah-extension/core';
+import { Injectable, signal, computed, inject, Injector } from '@angular/core';
+import { ClaudeRpcService } from '@ptah-extension/core';
 
 /**
  * File information for inclusion in chat messages
@@ -64,8 +56,9 @@ export interface FileSuggestion {
   providedIn: 'root',
 })
 export class FilePickerService {
-  private readonly destroyRef = inject(DestroyRef);
-  private readonly vscode = inject(VSCodeService);
+  // === ANGULAR 20 PATTERN: Injected services ===
+  private readonly injector = inject(Injector);
+  private readonly rpcService = inject(ClaudeRpcService);
 
   // === ANGULAR 20 PATTERN: Private signals for internal state ===
   private readonly _workspaceFiles = signal<FileSuggestion[]>([]);
@@ -155,139 +148,80 @@ export class FilePickerService {
     '.log',
   ]);
 
-  constructor() {
-    this.setupMessageHandlers();
-    this.refreshWorkspaceFiles();
-  }
-
   /**
-   * Set up message handlers for file operations from extension
+   * Fetch workspace files from backend via RPC
+   * TASK_2025_019 Phase 1: Populates _workspaceFiles signal for @ autocomplete
    */
-  private setupMessageHandlers(): void {
-    // Listen for workspace file updates (context:updateFiles provides includedFiles array)
-    this.vscode
-      .onMessageType(CONTEXT_MESSAGE_TYPES.UPDATE_FILES)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((payload) => {
-        // payload.includedFiles is string[] of file paths
-        this.processWorkspaceFiles(payload.includedFiles);
-      });
-
-    // TODO: Add 'context:fileContent' message type to shared types
-    // For now, file content loading will be handled by direct file reading
-    // when files are included via includeFile()
-  }
-
-  /**
-   * Request workspace files from VS Code extension
-   */
-  refreshWorkspaceFiles(): void {
-    this._isLoading.set(true);
-    this.vscode.getContextFiles();
-  }
-
-  /**
-   * Process workspace files from VS Code (legacy format)
-   */
-  private processWorkspaceFiles(filePaths: readonly string[]): void {
-    const suggestions: FileSuggestion[] = filePaths.map((path) => {
-      const name = path.split('/').pop() || path;
-      const directory = path.substring(0, path.lastIndexOf('/')) || '';
-      const extension = name.includes('.')
-        ? name.substring(name.lastIndexOf('.'))
-        : '';
-
-      return {
-        path,
-        name,
-        directory,
-        type: 'file' as const,
-        extension,
-        isImage: this.imageExtensions.has(extension.toLowerCase()),
-        isText: this.textExtensions.has(extension.toLowerCase()),
-      };
-    });
-
-    this._workspaceFiles.set(suggestions);
-    this._lastUpdate.set(Date.now());
-    this._isLoading.set(false);
-  }
-
-  /**
-   * Process workspace files response with metadata
-   */
-  private processWorkspaceFilesResponse(
-    files: readonly {
-      readonly path: string;
-      readonly name: string;
-      readonly size?: number;
-      readonly type: 'file' | 'directory';
-      readonly extension?: string;
-      readonly lastModified?: number;
-    }[]
-  ): void {
-    const suggestions: FileSuggestion[] = files
-      .filter((file) => file.type === 'file') // Only include files, not directories
-      .map((file) => {
-        const directory =
-          file.path.substring(0, file.path.lastIndexOf('/')) || '';
-        const extension = file.extension || '';
-
-        return {
-          path: file.path,
-          name: file.name,
-          directory,
-          type: 'file' as const,
-          extension,
-          size: file.size,
-          lastModified: file.lastModified,
-          isImage: this.imageExtensions.has(extension.toLowerCase()),
-          isText: this.textExtensions.has(extension.toLowerCase()),
-        };
-      });
-
-    this._workspaceFiles.set(suggestions);
-    this._lastUpdate.set(Date.now());
-    this._isLoading.set(false);
-  }
-
-  /**
-   * Process file content response from extension
-   */
-  private processFileContent(payload: {
-    readonly filePath: string;
-    readonly content: string;
-    readonly encoding: string;
-    readonly size: number;
-    readonly type: 'text' | 'image' | 'binary';
-    readonly preview?: string;
-    readonly error?: string;
-  }): void {
-    if (payload.error) {
-      console.error('File content error:', payload.error);
+  async fetchWorkspaceFiles(): Promise<void> {
+    if (this._isLoading()) return; // Prevent duplicate fetches
+    if (!this.rpcService) {
+      console.warn('[FilePickerService] ClaudeRpcService not initialized');
       return;
     }
 
-    // Update the included file with content
-    this._includedFiles.update((files) =>
-      files.map((file) => {
-        if (file.path === payload.filePath) {
-          return {
-            ...file,
-            content: payload.content,
-            encoding: payload.encoding,
-            size: payload.size,
-            type: payload.type,
-            preview: payload.preview,
-            tokenEstimate: this.estimateTokens(
-              payload.size,
-              payload.type === 'text'
-            ),
-          };
-        }
-        return file;
-      })
-    );
+    this._isLoading.set(true);
+
+    try {
+      // Call backend via RPC
+      const result = await this.rpcService.call<{
+        files?: Array<{
+          uri: string;
+          relativePath: string;
+          fileName: string;
+          fileType: string;
+          size: number;
+          lastModified: number;
+          isDirectory: boolean;
+        }>;
+      }>('context:getAllFiles', {
+        includeImages: false,
+        limit: 500,
+      });
+
+      if (result.success && result.data?.files) {
+        // Transform backend format to FileSuggestion format
+        const suggestions: FileSuggestion[] = result.data.files.map((file) => ({
+          path: file.uri,
+          name: file.fileName,
+          directory:
+            file.relativePath.substring(
+              0,
+              file.relativePath.lastIndexOf('/')
+            ) || '/',
+          type: file.isDirectory ? 'directory' : 'file',
+          extension: file.fileType || undefined,
+          size: file.size,
+          lastModified: file.lastModified,
+          isImage: this.imageExtensions.has(`.${file.fileType}`),
+          isText: this.textExtensions.has(`.${file.fileType}`),
+        }));
+
+        this._workspaceFiles.set(suggestions);
+        this._lastUpdate.set(Date.now());
+      }
+    } catch (error) {
+      console.error(
+        '[FilePickerService] Failed to fetch workspace files:',
+        error
+      );
+    } finally {
+      this._isLoading.set(false);
+    }
+  }
+
+  /**
+   * Ensure files are loaded before showing dropdown
+   * TASK_2025_019 Phase 1: Call this when @ is typed
+   */
+  async ensureFilesLoaded(): Promise<void> {
+    const files = this._workspaceFiles();
+    const lastUpdate = this._lastUpdate();
+    const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+
+    // Fetch if: no files OR last update > 5 minutes ago
+    if (files.length === 0 || lastUpdate < fiveMinutesAgo) {
+      await this.fetchWorkspaceFiles();
+    }
   }
 
   /**
@@ -323,45 +257,6 @@ export class FilePickerService {
         return a.name.localeCompare(b.name);
       })
       .slice(0, 20); // Limit to 20 results
-  }
-
-  /**
-   * Include a file in the chat message
-   *
-   * @param filePath - Absolute path to file
-   */
-  async includeFile(filePath: string): Promise<void> {
-    // Check if file is already included
-    if (this._includedFiles().some((f) => f.path === filePath)) {
-      return;
-    }
-
-    // Create a placeholder file entry first
-    const suggestion = this._workspaceFiles().find((f) => f.path === filePath);
-    if (suggestion) {
-      const chatFile: ChatFile = {
-        path: filePath,
-        name: suggestion.name,
-        size: suggestion.size || 0,
-        type: suggestion.isImage
-          ? 'image'
-          : suggestion.isText
-          ? 'text'
-          : 'binary',
-        isLarge: (suggestion.size || 0) > 100000, // > 100KB
-        tokenEstimate: this.estimateTokens(
-          suggestion.size || 0,
-          suggestion.isText
-        ),
-      };
-
-      this._includedFiles.update((files) => [...files, chatFile]);
-
-      // Request file content from VS Code for text files and images
-      if (suggestion.isText || suggestion.isImage) {
-        this.vscode.includeFile(filePath);
-      }
-    }
   }
 
   /**

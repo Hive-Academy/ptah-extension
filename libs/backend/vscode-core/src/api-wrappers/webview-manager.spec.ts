@@ -4,6 +4,7 @@
  * Validates user requirements from TASK_CMD_002
  */
 
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 import 'reflect-metadata';
 import * as vscode from 'vscode';
 import { WebviewManager, WebviewPanelConfig } from './webview-manager';
