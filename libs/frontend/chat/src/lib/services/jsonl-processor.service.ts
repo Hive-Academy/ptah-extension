@@ -502,6 +502,16 @@ export class JsonlMessageProcessor {
   }
 
   /**
+   * Strip system-reminder tags from content.
+   * Claude CLI adds these tags to tool results but they should not be displayed.
+   */
+  private stripSystemReminders(content: string): string {
+    return content
+      .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+      .trim();
+  }
+
+  /**
    * Handle user messages which may contain tool_result blocks.
    *
    * During streaming, tool results come as user messages with:
@@ -531,7 +541,11 @@ export class JsonlMessageProcessor {
     for (const block of chunk.message.content) {
       if (block.type === 'tool_result' && block.tool_use_id) {
         // Extract tool output from the tool_result block
-        const toolOutput = block.content;
+        // Strip system-reminder tags that Claude CLI adds to tool results
+        let toolOutput = block.content;
+        if (typeof toolOutput === 'string') {
+          toolOutput = this.stripSystemReminders(toolOutput);
+        }
         const isError = block.is_error === true;
 
         // Detect permission requests (error message contains "permission")
@@ -659,13 +673,19 @@ export class JsonlMessageProcessor {
       return tree;
     }
 
+    // Strip system-reminder tags from tool output
+    let toolOutput = chunk.output;
+    if (typeof toolOutput === 'string') {
+      toolOutput = this.stripSystemReminders(toolOutput);
+    }
+
     const toolNode = createExecutionNode({
       id: chunk.tool_use_id || this.treeBuilder.generateId(),
       type: 'tool',
       status: chunk.subtype === 'start' ? 'streaming' : 'complete',
       toolName: chunk.tool,
       toolInput: chunk.args,
-      toolOutput: chunk.output,
+      toolOutput,
       toolCallId: chunk.tool_use_id,
       error: chunk.error,
       isCollapsed: true,
@@ -700,11 +720,17 @@ export class JsonlMessageProcessor {
       return tree;
     }
 
+    // Strip system-reminder tags from tool output
+    let toolOutput = chunk.output;
+    if (typeof toolOutput === 'string') {
+      toolOutput = this.stripSystemReminders(toolOutput);
+    }
+
     // Update tool node with result
     const updatedNode: ExecutionNode = {
       ...toolNode,
       status: chunk.error ? 'error' : 'complete',
-      toolOutput: chunk.output,
+      toolOutput,
       error: chunk.error,
       endTime: Date.now(),
       duration: toolNode.startTime

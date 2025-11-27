@@ -527,10 +527,13 @@ export class ToolCallItemComponent {
     key: string;
     fullValue: unknown;
   }): string {
-    const content =
+    let content =
       typeof param.fullValue === 'string'
         ? param.fullValue
         : JSON.stringify(param.fullValue, null, 2);
+
+    // Strip system-reminder tags
+    content = this.stripSystemReminders(content);
 
     // For Write tool, detect language from file_path
     if (this.node().toolName === 'Write' && param.key === 'content') {
@@ -605,6 +608,17 @@ export class ToolCallItemComponent {
   }
 
   /**
+   * Strip system-reminder tags from content
+   * Claude CLI adds these tags to tool results but they should not be displayed
+   */
+  private stripSystemReminders(content: string): string {
+    // Remove <system-reminder>...</system-reminder> tags and their content
+    return content
+      .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+      .trim();
+  }
+
+  /**
    * Get formatted output with syntax highlighting
    * Wraps output in appropriate markdown code block based on:
    * - File extension for Read/Edit/Write tools
@@ -615,8 +629,12 @@ export class ToolCallItemComponent {
     const output = this.node().toolOutput;
     if (!output) return '';
 
-    const str =
+    let str =
       typeof output === 'string' ? output : JSON.stringify(output, null, 2);
+
+    // Strip system-reminder tags from tool output
+    str = this.stripSystemReminders(str);
+
     const toolName = this.node().toolName;
     const toolInput = this.node().toolInput;
 
