@@ -11,6 +11,7 @@ import {
   Plus,
   PanelLeftClose,
   PanelLeftOpen,
+  ChevronDown,
 } from 'lucide-angular';
 import { ChatViewComponent } from './chat-view.component';
 import { ChatStore } from '../../services/chat.store';
@@ -46,6 +47,7 @@ export class AppShellComponent {
   readonly PlusIcon = Plus;
   readonly PanelLeftCloseIcon = PanelLeftClose;
   readonly PanelLeftOpenIcon = PanelLeftOpen;
+  readonly ChevronDownIcon = ChevronDown;
 
   /**
    * Toggle sidebar visibility

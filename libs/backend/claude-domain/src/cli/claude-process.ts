@@ -25,6 +25,8 @@ export interface ClaudeProcessOptions {
   resumeSessionId?: string;
   /** Enable verbose output */
   verbose?: boolean;
+  /** Allowed MCP tools (space-separated or comma-separated list) */
+  allowedTools?: string[];
 }
 
 /**
@@ -105,6 +107,15 @@ export class ClaudeProcess extends EventEmitter {
     if (options?.resumeSessionId) {
       args.push('--resume', options.resumeSessionId);
     }
+
+    // Allow MCP tools - always include mcp__ptah for Ptah extension's MCP server
+    // Additional tools can be passed via options.allowedTools
+    // Format: --allowedTools "tool1,tool2" or --allowedTools tool1 tool2
+    const allowedTools = new Set<string>(['mcp__ptah']);
+    if (options?.allowedTools) {
+      options.allowedTools.forEach((tool) => allowedTools.add(tool));
+    }
+    args.push('--allowedTools', Array.from(allowedTools).join(','));
 
     return args;
   }

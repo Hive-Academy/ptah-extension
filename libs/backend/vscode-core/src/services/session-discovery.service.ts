@@ -71,16 +71,22 @@ export class SessionDiscoveryService {
    * - Internal/system sessions (isMeta=true or Caveat: prefix)
    *
    * @param workspacePath - The workspace path from VS Code
-   * @returns Array of session summaries sorted by last activity
+   * @param limit - Maximum number of sessions to return (default: 10)
+   * @param offset - Number of sessions to skip for pagination (default: 0)
+   * @returns Object with sessions array, total count, and hasMore flag
    */
-  async listSessions(workspacePath: string): Promise<SessionSummary[]> {
+  async listSessions(
+    workspacePath: string,
+    limit = 10,
+    offset = 0
+  ): Promise<{ sessions: SessionSummary[]; total: number; hasMore: boolean }> {
     const sessionsDir = await this.findSessionsDirectory(workspacePath);
 
     if (!sessionsDir) {
       this.logger.debug('No sessions directory found for workspace', {
         workspacePath,
       });
-      return [];
+      return { sessions: [], total: 0, hasMore: false };
     }
 
     try {
@@ -122,20 +128,34 @@ export class SessionDiscoveryService {
         (s) => s.messageCount > 0 && s.isUserSession
       );
 
-      this.logger.debug('Sessions filtered', {
+      // Sort by last activity (most recent first)
+      const sortedSessions = sessions.sort(
+        (a, b) => b.lastActivityAt - a.lastActivityAt
+      );
+
+      // Apply pagination
+      const total = sortedSessions.length;
+      const paginatedSessions = sortedSessions.slice(offset, offset + limit);
+      const hasMore = offset + limit < total;
+
+      this.logger.debug('Sessions filtered and paginated', {
         total: allSessions.length,
         withMessages: allSessions.filter((s) => s.messageCount > 0).length,
         userSessions: sessions.length,
         filtered: allSessions.length - sessions.length,
+        offset,
+        limit,
+        returned: paginatedSessions.length,
+        hasMore,
       });
 
-      return sessions.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+      return { sessions: paginatedSessions, total, hasMore };
     } catch (error) {
       this.logger.debug('Error reading sessions directory', {
         sessionsDir,
         error: error instanceof Error ? error.message : String(error),
       });
-      return [];
+      return { sessions: [], total: 0, hasMore: false };
     }
   }
 

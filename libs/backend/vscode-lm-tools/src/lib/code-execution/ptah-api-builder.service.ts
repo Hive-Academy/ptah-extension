@@ -1,7 +1,7 @@
 /**
  * Ptah API Builder Service
  *
- * Constructs the complete "ptah" API object with 7 namespaces for code execution context.
+ * Constructs the complete "ptah" API object with 11 namespaces for code execution context.
  * Delegates to workspace-intelligence services and VS Code APIs to provide:
  * - workspace: analysis, project type, frameworks detection
  * - search: file search and relevance
@@ -11,8 +11,11 @@
  * - ai: multi-agent VS Code LM API access
  * - files: read, list operations
  * - commands: execute VS Code commands
+ * - context: token budget management and optimization (NEW)
+ * - project: monorepo detection, dependencies (NEW)
+ * - relevance: file scoring with explanations (NEW)
  *
- * Pattern: Injectable service with DI (analyze-workspace.tool.ts:17-24)
+ * TASK_2025_025: Expanded from 8 to 11 namespaces for better Claude discoverability
  */
 
 import * as vscode from 'vscode';
@@ -26,6 +29,13 @@ import {
 import {
   WorkspaceAnalyzerService,
   ContextOrchestrationService,
+  ContextSizeOptimizerService,
+  MonorepoDetectorService,
+  DependencyAnalyzerService,
+  FileRelevanceScorerService,
+  TokenCounterService,
+  WorkspaceIndexerService,
+  ProjectDetectorService,
 } from '@ptah-extension/workspace-intelligence';
 import { CorrelationId } from '@ptah-extension/shared';
 import {
@@ -40,6 +50,13 @@ import {
   AINamespace,
   FilesNamespace,
   CommandsNamespace,
+  ContextNamespace,
+  ProjectNamespace,
+  RelevanceNamespace,
+  OptimizedContextResult,
+  MonorepoResult,
+  DependencyResult,
+  FileRelevanceResult,
 } from './types';
 
 @injectable()
@@ -58,15 +75,38 @@ export class PtahAPIBuilder {
     private readonly fileSystemManager: FileSystemManager,
 
     @inject(TOKENS.COMMAND_MANAGER)
-    private readonly commandManager: CommandManager
+    private readonly commandManager: CommandManager,
+
+    // New service injections (TASK_2025_025)
+    @inject(TOKENS.CONTEXT_SIZE_OPTIMIZER)
+    private readonly contextOptimizer: ContextSizeOptimizerService,
+
+    @inject(TOKENS.MONOREPO_DETECTOR_SERVICE)
+    private readonly monorepoDetector: MonorepoDetectorService,
+
+    @inject(TOKENS.DEPENDENCY_ANALYZER_SERVICE)
+    private readonly dependencyAnalyzer: DependencyAnalyzerService,
+
+    @inject(TOKENS.FILE_RELEVANCE_SCORER)
+    private readonly relevanceScorer: FileRelevanceScorerService,
+
+    @inject(TOKENS.TOKEN_COUNTER_SERVICE)
+    private readonly tokenCounter: TokenCounterService,
+
+    @inject(TOKENS.WORKSPACE_INDEXER_SERVICE)
+    private readonly workspaceIndexer: WorkspaceIndexerService,
+
+    @inject(TOKENS.PROJECT_DETECTOR_SERVICE)
+    private readonly projectDetector: ProjectDetectorService
   ) {}
 
   /**
    * Build complete ptah API object for code execution context
-   * Returns object with 7 namespaces exposing extension capabilities
+   * Returns object with 11 namespaces exposing extension capabilities
    */
   buildAPI(): PtahAPI {
     return {
+      // Original 8 namespaces
       workspace: this.buildWorkspaceNamespace(),
       search: this.buildSearchNamespace(),
       symbols: this.buildSymbolsNamespace(),
@@ -75,6 +115,11 @@ export class PtahAPIBuilder {
       ai: this.buildAINamespace(),
       files: this.buildFilesNamespace(),
       commands: this.buildCommandsNamespace(),
+
+      // New namespaces (TASK_2025_025)
+      context: this.buildContextNamespace(),
+      project: this.buildProjectNamespace(),
+      relevance: this.buildRelevanceNamespace(),
     };
   }
 
@@ -281,6 +326,187 @@ export class PtahAPIBuilder {
       list: async () => {
         const commands = await vscode.commands.getCommands();
         return commands.filter((c) => c.startsWith('ptah.'));
+      },
+    };
+  }
+
+  // ========================================
+  // New Namespace Builders (TASK_2025_025)
+  // ========================================
+
+  /**
+   * Build context optimization namespace
+   * Manages token budgets and intelligent file selection
+   */
+  private buildContextNamespace(): ContextNamespace {
+    return {
+      optimize: async (
+        query: string,
+        maxTokens = 150000
+      ): Promise<OptimizedContextResult> => {
+        // Index workspace files with token estimation
+        const index = await this.workspaceIndexer.indexWorkspace({
+          estimateTokens: true,
+          respectIgnoreFiles: true,
+        });
+
+        // Optimize context
+        const result = await this.contextOptimizer.optimizeContext({
+          files: index.files,
+          query,
+          maxTokens,
+          responseReserve: 50000,
+        });
+
+        return {
+          selectedFiles: result.selectedFiles.map((f) => ({
+            path: f.path,
+            relativePath: f.relativePath,
+            size: f.size,
+            estimatedTokens: f.estimatedTokens,
+          })),
+          totalTokens: result.totalTokens,
+          tokensRemaining: result.tokensRemaining,
+          stats: {
+            totalFiles: result.stats.totalFiles,
+            selectedFiles: result.stats.selectedFiles,
+            excludedFiles: result.stats.excludedFiles,
+            reductionPercentage: result.stats.reductionPercentage,
+          },
+        };
+      },
+
+      countTokens: async (text: string): Promise<number> => {
+        return await this.tokenCounter.countTokens(text);
+      },
+
+      getRecommendedBudget: (
+        projectType: 'monorepo' | 'library' | 'application' | 'unknown'
+      ): number => {
+        return this.contextOptimizer.getRecommendedBudget(projectType);
+      },
+    };
+  }
+
+  /**
+   * Build project analysis namespace
+   * Deep project analysis: monorepo detection, dependencies
+   */
+  private buildProjectNamespace(): ProjectNamespace {
+    return {
+      detectMonorepo: async (): Promise<MonorepoResult> => {
+        const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceUri) {
+          return {
+            isMonorepo: false,
+            type: '',
+            workspaceFiles: [],
+          };
+        }
+
+        const result = await this.monorepoDetector.detectMonorepo(workspaceUri);
+        return {
+          isMonorepo: result.isMonorepo,
+          type: result.type || '',
+          workspaceFiles: result.workspaceFiles,
+          packageCount: result.packageCount,
+        };
+      },
+
+      detectType: async (): Promise<string> => {
+        const info = await this.workspaceAnalyzer.getCurrentWorkspaceInfo();
+        return info?.projectType || 'unknown';
+      },
+
+      analyzeDependencies: async (): Promise<DependencyResult[]> => {
+        const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceUri) {
+          return [];
+        }
+
+        // Detect project type first (required by DependencyAnalyzerService)
+        const projectType = await this.projectDetector.detectProjectType(
+          workspaceUri
+        );
+
+        const analysis = await this.dependencyAnalyzer.analyzeDependencies(
+          workspaceUri,
+          projectType
+        );
+        return [
+          ...analysis.dependencies.map((d) => ({
+            name: d.name,
+            version: d.version,
+            isDev: false,
+          })),
+          ...analysis.devDependencies.map((d) => ({
+            name: d.name,
+            version: d.version,
+            isDev: true,
+          })),
+        ];
+      },
+    };
+  }
+
+  /**
+   * Build relevance scoring namespace
+   * File ranking with transparent explanations
+   */
+  private buildRelevanceNamespace(): RelevanceNamespace {
+    return {
+      scoreFile: async (
+        filePath: string,
+        query: string
+      ): Promise<FileRelevanceResult> => {
+        // Index to get file info (needed for scoring)
+        const index = await this.workspaceIndexer.indexWorkspace({
+          estimateTokens: false,
+          respectIgnoreFiles: true,
+        });
+
+        const file = index.files.find(
+          (f) => f.relativePath === filePath || f.path === filePath
+        );
+
+        if (!file) {
+          return {
+            file: filePath,
+            score: 0,
+            reasons: ['File not found in workspace'],
+          };
+        }
+
+        const result = this.relevanceScorer.scoreFile(file, query);
+        return {
+          file: file.relativePath,
+          score: result.score,
+          reasons: result.reasons,
+        };
+      },
+
+      rankFiles: async (
+        query: string,
+        limit = 20
+      ): Promise<FileRelevanceResult[]> => {
+        // Index workspace
+        const index = await this.workspaceIndexer.indexWorkspace({
+          estimateTokens: false,
+          respectIgnoreFiles: true,
+        });
+
+        // Get top files with reasons
+        const results = this.relevanceScorer.getTopFiles(
+          index.files,
+          query,
+          limit
+        );
+
+        return results.map((r) => ({
+          file: r.file.relativePath,
+          score: r.score,
+          reasons: r.reasons,
+        }));
       },
     };
   }

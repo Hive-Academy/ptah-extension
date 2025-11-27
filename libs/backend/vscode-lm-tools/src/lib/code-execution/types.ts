@@ -2,7 +2,9 @@
  * Code Execution API Type Definitions
  *
  * Provides type-safe interfaces for the Ptah Code Execution MCP server.
- * Supports 7 namespaces exposing VS Code extension capabilities to Claude CLI.
+ * Supports 11 namespaces exposing VS Code extension capabilities to Claude CLI.
+ *
+ * TASK_2025_025: Expanded API surface for better Claude discoverability
  */
 
 import * as vscode from 'vscode';
@@ -13,9 +15,10 @@ import * as vscode from 'vscode';
 
 /**
  * Complete Ptah API surface exposed to executed TypeScript code
- * Provides 7 namespaces: workspace, search, symbols, diagnostics, git, ai, files, commands
+ * Provides 11 namespaces for comprehensive workspace intelligence
  */
 export interface PtahAPI {
+  // Original 8 namespaces
   workspace: WorkspaceNamespace;
   search: SearchNamespace;
   symbols: SymbolsNamespace;
@@ -24,6 +27,11 @@ export interface PtahAPI {
   ai: AINamespace;
   files: FilesNamespace;
   commands: CommandsNamespace;
+
+  // New namespaces (TASK_2025_025)
+  context: ContextNamespace;
+  project: ProjectNamespace;
+  relevance: RelevanceNamespace;
 }
 
 // ========================================
@@ -330,4 +338,159 @@ export interface ExecuteCodeResult {
 
   /** Stack trace (if failure) */
   stack?: string;
+}
+
+// ========================================
+// New Namespaces (TASK_2025_025)
+// ========================================
+
+/**
+ * Context optimization capabilities
+ * Manages token budgets and intelligent file selection for AI context
+ */
+export interface ContextNamespace {
+  /**
+   * Optimize file selection within a token budget
+   * @param query - Query describing what context is needed
+   * @param maxTokens - Maximum token budget (default: 150000)
+   * @returns Optimized context with selected files and stats
+   */
+  optimize: (
+    query: string,
+    maxTokens?: number
+  ) => Promise<OptimizedContextResult>;
+
+  /**
+   * Count tokens in text using VS Code's native tokenizer
+   * @param text - Text to count tokens for
+   * @returns Token count
+   */
+  countTokens: (text: string) => Promise<number>;
+
+  /**
+   * Get recommended token budget based on project type
+   * @param projectType - "monorepo" | "library" | "application" | "unknown"
+   * @returns Recommended max tokens
+   */
+  getRecommendedBudget: (
+    projectType: 'monorepo' | 'library' | 'application' | 'unknown'
+  ) => number;
+}
+
+/**
+ * Result of context optimization
+ */
+export interface OptimizedContextResult {
+  /** Files selected within token budget */
+  selectedFiles: Array<{
+    path: string;
+    relativePath: string;
+    size: number;
+    estimatedTokens: number;
+  }>;
+
+  /** Total tokens of selected files */
+  totalTokens: number;
+
+  /** Remaining token budget */
+  tokensRemaining: number;
+
+  /** Optimization statistics */
+  stats: {
+    totalFiles: number;
+    selectedFiles: number;
+    excludedFiles: number;
+    reductionPercentage: number;
+  };
+}
+
+/**
+ * Deep project analysis capabilities
+ * Detects monorepos, project types, and analyzes dependencies
+ */
+export interface ProjectNamespace {
+  /**
+   * Detect if workspace is a monorepo and identify the tool
+   * @returns Monorepo detection result
+   */
+  detectMonorepo: () => Promise<MonorepoResult>;
+
+  /**
+   * Detect project type (React, Angular, Node, Python, etc.)
+   * @returns Project type string
+   */
+  detectType: () => Promise<string>;
+
+  /**
+   * Analyze project dependencies from package.json/requirements.txt
+   * @returns Array of dependency information
+   */
+  analyzeDependencies: () => Promise<DependencyResult[]>;
+}
+
+/**
+ * Monorepo detection result
+ */
+export interface MonorepoResult {
+  /** Whether workspace is a monorepo */
+  isMonorepo: boolean;
+
+  /** Monorepo tool type (nx, lerna, rush, turborepo, pnpm-workspaces, yarn-workspaces) */
+  type: string;
+
+  /** Config files that indicated monorepo */
+  workspaceFiles: string[];
+
+  /** Number of packages/projects if detectable */
+  packageCount?: number;
+}
+
+/**
+ * Dependency information
+ */
+export interface DependencyResult {
+  /** Package name */
+  name: string;
+
+  /** Version or version range */
+  version: string;
+
+  /** Whether it's a development dependency */
+  isDev: boolean;
+}
+
+/**
+ * File relevance scoring with explanations
+ * Ranks files by relevance to a query with transparent reasoning
+ */
+export interface RelevanceNamespace {
+  /**
+   * Score a single file's relevance to a query
+   * @param filePath - Relative file path to score
+   * @param query - Query describing what you're looking for
+   * @returns Score (0-100) with reasoning
+   */
+  scoreFile: (filePath: string, query: string) => Promise<FileRelevanceResult>;
+
+  /**
+   * Rank multiple files by relevance to a query
+   * @param query - Query describing what you're looking for
+   * @param limit - Maximum files to return (default: 20)
+   * @returns Ranked files with scores and explanations
+   */
+  rankFiles: (query: string, limit?: number) => Promise<FileRelevanceResult[]>;
+}
+
+/**
+ * File relevance scoring result
+ */
+export interface FileRelevanceResult {
+  /** File path */
+  file: string;
+
+  /** Relevance score (0-100, higher = more relevant) */
+  score: number;
+
+  /** Reasons explaining the score */
+  reasons: string[];
 }

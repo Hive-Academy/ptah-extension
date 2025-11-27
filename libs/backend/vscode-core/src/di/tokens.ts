@@ -107,22 +107,15 @@ export const TEMPLATE_GENERATOR_SERVICE = Symbol.for(
 );
 
 // ========================================
-// VS Code Language Model Tools
+// Code Execution MCP (TASK_2025_025)
 // ========================================
-export const ANALYZE_WORKSPACE_TOOL = Symbol.for('AnalyzeWorkspaceTool');
-export const SEARCH_FILES_TOOL = Symbol.for('SearchFilesTool');
-export const GET_RELEVANT_FILES_TOOL = Symbol.for('GetRelevantFilesTool');
-export const GET_DIAGNOSTICS_TOOL = Symbol.for('GetDiagnosticsTool');
-export const FIND_SYMBOL_TOOL = Symbol.for('FindSymbolTool');
-export const GET_GIT_STATUS_TOOL = Symbol.for('GetGitStatusTool');
-export const LM_TOOLS_REGISTRATION_SERVICE = Symbol.for(
-  'LMToolsRegistrationService'
-);
+// DELETED in TASK_2025_025: ANALYZE_WORKSPACE_TOOL, SEARCH_FILES_TOOL, GET_RELEVANT_FILES_TOOL,
+// GET_DIAGNOSTICS_TOOL, FIND_SYMBOL_TOOL, GET_GIT_STATUS_TOOL, LM_TOOLS_REGISTRATION_SERVICE
+// (These languageModelTools only worked with Copilot, not Claude CLI)
 
-// Code Execution API
 export const PTAH_API_BUILDER = Symbol.for('PtahAPIBuilder');
 export const CODE_EXECUTION_MCP = Symbol.for('CodeExecutionMCP');
-export const MCP_REGISTRATION_SERVICE = Symbol.for('MCPRegistrationService');
+export const MCP_CONFIG_MANAGER_SERVICE = Symbol.for('MCPConfigManagerService');
 
 // ========================================
 // AI Providers Core Tokens (DELETED - library removed)
@@ -257,18 +250,13 @@ export const TOKENS = {
   TEMPLATE_GENERATOR_SERVICE,
 
   // ========================================
-  // VS Code Language Model Tools
+  // Code Execution MCP (TASK_2025_025)
   // ========================================
-  ANALYZE_WORKSPACE_TOOL,
-  SEARCH_FILES_TOOL,
-  GET_RELEVANT_FILES_TOOL,
-  GET_DIAGNOSTICS_TOOL,
-  FIND_SYMBOL_TOOL,
-  GET_GIT_STATUS_TOOL,
-  LM_TOOLS_REGISTRATION_SERVICE,
+  // DELETED: ANALYZE_WORKSPACE_TOOL, SEARCH_FILES_TOOL, GET_RELEVANT_FILES_TOOL,
+  // GET_DIAGNOSTICS_TOOL, FIND_SYMBOL_TOOL, GET_GIT_STATUS_TOOL, LM_TOOLS_REGISTRATION_SERVICE
   PTAH_API_BUILDER,
   CODE_EXECUTION_MCP,
-  MCP_REGISTRATION_SERVICE,
+  MCP_CONFIG_MANAGER_SERVICE,
 
   // ========================================
   // AI Providers Core (DELETED - library removed)

@@ -45,7 +45,7 @@ export class CodeExecutionMCP implements vscode.Disposable {
   }
 
   /**
-   * Start HTTP MCP server on random localhost port
+   * Start HTTP MCP server on configured localhost port (default: 51820)
    * Stores port in workspace state for Claude CLI discovery
    */
   async start(): Promise<number> {
@@ -54,13 +54,16 @@ export class CodeExecutionMCP implements vscode.Disposable {
       return this.port!;
     }
 
+    // Get configured port (default: 51820)
+    const configuredPort = this.getConfiguredPort();
+
     return new Promise((resolve, reject) => {
       this.server = http.createServer((req, res) => {
         this.handleRequest(req, res);
       });
 
-      // Listen on random port (0 = OS assigns available port)
-      this.server.listen(0, 'localhost', () => {
+      // Listen on configured port instead of random port
+      this.server.listen(configuredPort, 'localhost', () => {
         const address = this.server!.address();
         if (!address || typeof address === 'string') {
           reject(new Error('Failed to get server address'));
@@ -80,9 +83,20 @@ export class CodeExecutionMCP implements vscode.Disposable {
         resolve(this.port);
       });
 
-      this.server.on('error', (error) => {
-        this.logger.error('CodeExecutionMCP server error', error);
-        reject(error);
+      this.server.on('error', (error: NodeJS.ErrnoException) => {
+        // Enhanced error handling for port conflicts
+        if (error.code === 'EADDRINUSE') {
+          const errorMsg = `Failed to start MCP server on port ${configuredPort}. Port is already in use. Please change 'ptah.mcpPort' setting to use a different port.`;
+          this.logger.error(errorMsg, error);
+
+          // Show user-friendly notification
+          vscode.window.showErrorMessage(errorMsg);
+
+          reject(new Error(errorMsg));
+        } else {
+          this.logger.error('CodeExecutionMCP server error', error);
+          reject(error);
+        }
       });
     });
   }
@@ -111,6 +125,16 @@ export class CodeExecutionMCP implements vscode.Disposable {
    */
   getPort(): number | null {
     return this.port;
+  }
+
+  /**
+   * Get MCP server port from VS Code configuration
+   * Default: 51820 (chosen to avoid common port conflicts)
+   */
+  private getConfiguredPort(): number {
+    return vscode.workspace
+      .getConfiguration('ptah')
+      .get<number>('mcpPort', 51820);
   }
 
   /**
@@ -229,23 +253,20 @@ export class CodeExecutionMCP implements vscode.Disposable {
 
   /**
    * Handle tools/list request
-   * Returns single tool: execute_code
+   * Returns single tool: execute_code with comprehensive API reference
    */
   private handleToolsList(request: MCPRequest): MCPResponse {
     const toolDefinition: MCPToolDefinition = {
       name: 'execute_code',
-      description:
-        'Execute TypeScript/JavaScript code with access to Ptah extension APIs. ' +
-        'Available namespaces: workspace, search, symbols, diagnostics, git, ai, files, commands. ' +
-        'The code has access to a global "ptah" object with all these namespaces.',
+      description: this.buildToolDescription(),
       inputSchema: {
         type: 'object',
         properties: {
           code: {
             type: 'string',
             description:
-              'TypeScript/JavaScript code to execute. Has access to "ptah" global object. ' +
-              'Example: const info = await ptah.workspace.analyze(); return info;',
+              'TypeScript/JavaScript code to execute. Has access to "ptah" global object with 11 namespaces. ' +
+              'All methods are async. Example: const info = await ptah.workspace.analyze(); return info;',
           },
           timeout: {
             type: 'number',
@@ -265,6 +286,91 @@ export class CodeExecutionMCP implements vscode.Disposable {
         tools: [toolDefinition],
       },
     };
+  }
+
+  /**
+   * Build comprehensive tool description with full API reference
+   * This helps Claude understand all available capabilities
+   */
+  private buildToolDescription(): string {
+    return `Execute TypeScript/JavaScript code with access to VS Code extension APIs via the global "ptah" object.
+
+## Available Namespaces (11 total)
+
+### ptah.workspace - Workspace Analysis
+- analyze(): Promise<{info, structure}> - Full workspace analysis
+- getInfo(): Promise<WorkspaceInfo> - Project metadata
+- getProjectType(): Promise<string> - Detected type (React, Angular, Node, etc.)
+- getFrameworks(): Promise<string[]> - Detected frameworks
+
+### ptah.search - File Discovery
+- findFiles(pattern: string, limit?: number): Promise<FileInfo[]> - Glob pattern search
+- getRelevantFiles(query: string, maxFiles?: number): Promise<FileInfo[]> - Semantic file search
+
+### ptah.symbols - Code Symbol Search
+- find(name: string, type?: string): Promise<SymbolInfo[]> - Find symbols (class, function, method, interface, variable)
+
+### ptah.diagnostics - Errors & Warnings
+- getErrors(): Promise<DiagnosticInfo[]> - All error-level diagnostics
+- getWarnings(): Promise<DiagnosticInfo[]> - All warning-level diagnostics
+- getAll(): Promise<DiagnosticInfo[]> - All diagnostics with severity
+
+### ptah.git - Repository Status
+- getStatus(): Promise<{branch, modified, staged, untracked}> - Git working tree status
+
+### ptah.ai - VS Code Language Model API
+- chat(message: string, model?: string): Promise<string> - Send message to VS Code LM
+- selectModel(family?: string): Promise<ModelInfo[]> - List available models
+
+### ptah.files - File Operations
+- read(path: string): Promise<string> - Read file contents as UTF-8
+- list(directory: string): Promise<{name, type}[]> - List directory contents
+
+### ptah.commands - VS Code Commands
+- execute(commandId: string, ...args): Promise<any> - Execute VS Code command
+- list(): Promise<string[]> - List ptah.* commands
+
+### ptah.context - Token Budget Management (NEW)
+- optimize(query: string, maxTokens?: number): Promise<OptimizedContext> - Select files within token budget
+- countTokens(text: string): Promise<number> - Count tokens in text
+- getRecommendedBudget(projectType): number - Get recommended budget for project type
+
+### ptah.project - Project Analysis (NEW)
+- detectMonorepo(): Promise<{isMonorepo, type, workspaceFiles, packageCount}> - Detect monorepo tool
+- detectType(): Promise<string> - Detect project type
+- analyzeDependencies(): Promise<{name, version, isDev}[]> - Analyze package dependencies
+
+### ptah.relevance - File Ranking (NEW)
+- scoreFile(filePath: string, query: string): Promise<{file, score, reasons}> - Score single file relevance
+- rankFiles(query: string, limit?: number): Promise<{file, score, reasons}[]> - Rank files by relevance
+
+## Usage Examples
+
+\`\`\`typescript
+// Get workspace overview
+const {info, structure} = await ptah.workspace.analyze();
+return {projectType: info.projectType, frameworks: info.frameworks};
+
+// Find authentication-related files with relevance scores
+const files = await ptah.relevance.rankFiles('authentication handler', 10);
+return files.map(f => ({file: f.file, score: f.score, why: f.reasons}));
+
+// Optimize context for a task within token budget
+const optimized = await ptah.context.optimize('implement user auth', 100000);
+return {selected: optimized.selectedFiles.length, tokens: optimized.totalTokens};
+
+// Check for TypeScript errors
+const errors = await ptah.diagnostics.getErrors();
+return errors.filter(e => e.file.endsWith('.ts'));
+
+// Detect monorepo structure
+const mono = await ptah.project.detectMonorepo();
+if (mono.isMonorepo) return {type: mono.type, packages: mono.packageCount};
+
+// Read and analyze a specific file
+const content = await ptah.files.read('/path/to/file.ts');
+return {lines: content.split('\\n').length, chars: content.length};
+\`\`\``;
   }
 
   /**

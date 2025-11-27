@@ -60,15 +60,11 @@ import {
   CommandDiscoveryService,
 } from '@ptah-extension/workspace-intelligence';
 
-// Import VS Code Language Model Tools
+// Import Code Execution MCP services (TASK_2025_025)
+// DELETED: AnalyzeWorkspaceTool, SearchFilesTool, GetRelevantFilesTool,
+// GetDiagnosticsTool, FindSymbolTool, GetGitStatusTool, LMToolsRegistrationService
+// (These languageModelTools only worked with Copilot, not Claude CLI)
 import {
-  AnalyzeWorkspaceTool,
-  SearchFilesTool,
-  GetRelevantFilesTool,
-  GetDiagnosticsTool,
-  FindSymbolTool,
-  GetGitStatusTool,
-  LMToolsRegistrationService,
   PtahAPIBuilder,
   CodeExecutionMCP,
 } from '@ptah-extension/vscode-lm-tools';
@@ -78,10 +74,11 @@ import {
   ClaudeCliDetector,
   ProcessManager,
   ClaudeCliService,
-  MCPRegistrationService,
+  MCPConfigManagerService,
   ClaudeProcess,
   // DELETED in TASK_2025_023 purge: SessionManager, InteractiveSessionManager, ClaudeCliLauncher
   // DELETED: PermissionService, InMemoryPermissionRulesStore (over-engineered, unused)
+  // DELETED in TASK_2025_025: MCPRegistrationService (replaced by MCPConfigManagerService)
 } from '@ptah-extension/claude-domain';
 
 // Import webview support services
@@ -244,34 +241,13 @@ export class DIContainer {
     );
 
     // ========================================
-    // PHASE 2.5: VS Code Language Model Tools
+    // PHASE 2.5: Code Execution MCP (TASK_2025_025)
     // ========================================
-    // These tools expose workspace-intelligence to GitHub Copilot and other LLMs
+    // DELETED: Individual languageModelTools registrations (only worked with Copilot)
+    // DELETED: ANALYZE_WORKSPACE_TOOL, SEARCH_FILES_TOOL, GET_RELEVANT_FILES_TOOL,
+    // GET_DIAGNOSTICS_TOOL, FIND_SYMBOL_TOOL, GET_GIT_STATUS_TOOL, LM_TOOLS_REGISTRATION_SERVICE
 
-    // Register individual tools
-    container.registerSingleton(
-      TOKENS.ANALYZE_WORKSPACE_TOOL,
-      AnalyzeWorkspaceTool
-    );
-    container.registerSingleton(TOKENS.SEARCH_FILES_TOOL, SearchFilesTool);
-    container.registerSingleton(
-      TOKENS.GET_RELEVANT_FILES_TOOL,
-      GetRelevantFilesTool
-    );
-    container.registerSingleton(
-      TOKENS.GET_DIAGNOSTICS_TOOL,
-      GetDiagnosticsTool
-    );
-    container.registerSingleton(TOKENS.FIND_SYMBOL_TOOL, FindSymbolTool);
-    container.registerSingleton(TOKENS.GET_GIT_STATUS_TOOL, GetGitStatusTool);
-
-    // Register the tools registration service
-    container.registerSingleton(
-      TOKENS.LM_TOOLS_REGISTRATION_SERVICE,
-      LMToolsRegistrationService
-    );
-
-    // Code Execution MCP services
+    // Code Execution MCP services (expose workspace-intelligence to Claude CLI)
     container.registerSingleton(TOKENS.PTAH_API_BUILDER, PtahAPIBuilder);
     container.registerSingleton(TOKENS.CODE_EXECUTION_MCP, CodeExecutionMCP);
 
@@ -300,8 +276,8 @@ export class DIContainer {
     container.registerSingleton(TOKENS.PROCESS_MANAGER, ProcessManager);
     container.registerSingleton(TOKENS.CLAUDE_CLI_SERVICE, ClaudeCliService);
     container.registerSingleton(
-      TOKENS.MCP_REGISTRATION_SERVICE,
-      MCPRegistrationService
+      TOKENS.MCP_CONFIG_MANAGER_SERVICE,
+      MCPConfigManagerService
     );
 
     // Session management - DELETED in TASK_2025_023 purge + cleanup

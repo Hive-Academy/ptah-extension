@@ -107,6 +107,13 @@ export class ChatStore {
   // Current execution tree being built (for streaming assistant messages)
   private readonly _currentExecutionTree = signal<ExecutionNode | null>(null);
 
+  // Pagination state for sessions
+  private readonly _hasMoreSessions = signal(false);
+  private readonly _totalSessions = signal(0);
+  private readonly _sessionsOffset = signal(0);
+  private readonly _isLoadingMoreSessions = signal(false);
+  private static readonly SESSIONS_PAGE_SIZE = 10;
+
   // ============================================================================
   // PUBLIC READONLY SIGNALS
   // ============================================================================
@@ -116,6 +123,9 @@ export class ChatStore {
   readonly messages = this._messages.asReadonly();
   readonly isStreaming = this._isStreaming.asReadonly();
   readonly currentExecutionTree = this._currentExecutionTree.asReadonly();
+  readonly hasMoreSessions = this._hasMoreSessions.asReadonly();
+  readonly totalSessions = this._totalSessions.asReadonly();
+  readonly isLoadingMoreSessions = this._isLoadingMoreSessions.asReadonly();
 
   // ============================================================================
   // DERIVED COMPUTED SIGNALS
@@ -164,7 +174,8 @@ export class ChatStore {
   }
 
   /**
-   * Load all sessions from backend via RPC
+   * Load sessions from backend via RPC (with pagination)
+   * Resets pagination and loads first page
    */
   async loadSessions(): Promise<void> {
     try {
@@ -193,19 +204,91 @@ export class ChatStore {
         return;
       }
 
-      const result = await this.claudeRpcService.call<ChatSessionSummary[]>(
-        'session:list',
-        { workspacePath }
-      );
+      // Reset pagination state
+      this._sessionsOffset.set(0);
+
+      const result = await this.claudeRpcService.call<{
+        sessions: ChatSessionSummary[];
+        total: number;
+        hasMore: boolean;
+      }>('session:list', {
+        workspacePath,
+        limit: ChatStore.SESSIONS_PAGE_SIZE,
+        offset: 0,
+      });
 
       if (result.success && result.data) {
-        this._sessions.set(result.data);
-        console.log('[ChatStore] Loaded sessions:', result.data.length);
+        this._sessions.set(result.data.sessions);
+        this._totalSessions.set(result.data.total);
+        this._hasMoreSessions.set(result.data.hasMore);
+        this._sessionsOffset.set(result.data.sessions.length);
+        console.log(
+          '[ChatStore] Loaded sessions:',
+          result.data.sessions.length,
+          'of',
+          result.data.total
+        );
       } else {
         console.error('[ChatStore] Failed to load sessions:', result.error);
       }
     } catch (error) {
       console.error('[ChatStore] Failed to load sessions:', error);
+    }
+  }
+
+  /**
+   * Load more sessions (pagination)
+   */
+  async loadMoreSessions(): Promise<void> {
+    if (!this._hasMoreSessions() || this._isLoadingMoreSessions()) {
+      return;
+    }
+
+    try {
+      this._isLoadingMoreSessions.set(true);
+
+      if (!this.claudeRpcService || !this.vscodeService) {
+        console.error('[ChatStore] Services not available');
+        return;
+      }
+
+      const workspacePath = this.vscodeService.config().workspaceRoot;
+      if (!workspacePath) {
+        return;
+      }
+
+      const currentOffset = this._sessionsOffset();
+
+      const result = await this.claudeRpcService.call<{
+        sessions: ChatSessionSummary[];
+        total: number;
+        hasMore: boolean;
+      }>('session:list', {
+        workspacePath,
+        limit: ChatStore.SESSIONS_PAGE_SIZE,
+        offset: currentOffset,
+      });
+
+      if (result.success && result.data) {
+        // Append new sessions to existing
+        this._sessions.update((current) => [
+          ...current,
+          ...result.data!.sessions,
+        ]);
+        this._totalSessions.set(result.data.total);
+        this._hasMoreSessions.set(result.data.hasMore);
+        this._sessionsOffset.set(currentOffset + result.data.sessions.length);
+        console.log(
+          '[ChatStore] Loaded more sessions:',
+          result.data.sessions.length,
+          ', total now:',
+          this._sessions().length
+        );
+      }
+    } catch (error) {
+      console.error('[ChatStore] Failed to load more sessions:', error);
+    } finally {
+      this._isLoadingMoreSessions.set(false);
     }
   }
 

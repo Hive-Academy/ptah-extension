@@ -305,13 +305,21 @@ export class RpcMethodRegistrationService {
    * Delegated to SessionDiscoveryService for better separation of concerns
    */
   private registerSessionMethods(): void {
-    // session:list - List all sessions for workspace
+    // session:list - List all sessions for workspace (with pagination)
     this.rpcHandler.registerMethod('session:list', async (params: any) => {
       try {
-        const { workspacePath } = params;
-        this.logger.debug('RPC: session:list called', { workspacePath });
+        const { workspacePath, limit = 10, offset = 0 } = params;
+        this.logger.debug('RPC: session:list called', {
+          workspacePath,
+          limit,
+          offset,
+        });
 
-        return await this.sessionDiscovery.listSessions(workspacePath);
+        return await this.sessionDiscovery.listSessions(
+          workspacePath,
+          limit,
+          offset
+        );
       } catch (error) {
         this.logger.error(
           'RPC: session:list failed',
