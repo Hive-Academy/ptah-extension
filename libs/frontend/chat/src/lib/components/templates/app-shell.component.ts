@@ -14,6 +14,7 @@ import {
   ChevronDown,
 } from 'lucide-angular';
 import { ChatViewComponent } from './chat-view.component';
+import { TabBarComponent } from '../organisms/tab-bar.component';
 import { ChatStore } from '../../services/chat.store';
 import type { ChatSessionSummary } from '@ptah-extension/shared';
 
@@ -31,7 +32,7 @@ import type { ChatSessionSummary } from '@ptah-extension/shared';
 @Component({
   selector: 'ptah-app-shell',
   standalone: true,
-  imports: [ChatViewComponent, DatePipe, LucideAngularModule],
+  imports: [ChatViewComponent, TabBarComponent, DatePipe, LucideAngularModule],
   templateUrl: './app-shell.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
