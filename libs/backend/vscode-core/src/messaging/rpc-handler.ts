@@ -42,6 +42,7 @@ const ALLOWED_METHOD_PREFIXES = [
   'config:',
   'context:',
   'autocomplete:',
+  'permission:',
 ] as const;
 
 /**

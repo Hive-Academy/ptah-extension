@@ -101,6 +101,9 @@ export class ClaudeProcess extends EventEmitter {
       '--verbose',
     ];
 
+    // Add permission prompt tool (TASK_2025_026 Batch 4)
+    args.push('--permission-prompt-tool', 'mcp__ptah__approval_prompt');
+
     if (options?.model && options.model !== 'sonnet') {
       args.push('--model', options.model);
     }
@@ -109,10 +112,13 @@ export class ClaudeProcess extends EventEmitter {
       args.push('--resume', options.resumeSessionId);
     }
 
-    // Allow MCP tools - always include mcp__ptah for Ptah extension's MCP server
+    // Allow MCP tools - always include mcp__ptah and mcp__ptah__approval_prompt
     // Additional tools can be passed via options.allowedTools
     // Format: --allowedTools "tool1,tool2" or --allowedTools tool1 tool2
-    const allowedTools = new Set<string>(['mcp__ptah']);
+    const allowedTools = new Set<string>([
+      'mcp__ptah',
+      'mcp__ptah__approval_prompt',
+    ]);
     if (options?.allowedTools) {
       options.allowedTools.forEach((tool) => allowedTools.add(tool));
     }

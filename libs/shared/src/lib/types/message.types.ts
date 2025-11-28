@@ -30,6 +30,7 @@ import type {
   ToolUseContentBlock,
   ToolResultContentBlock,
 } from './content-block.types';
+import type { PermissionRequest, PermissionResponse } from './permission.types';
 
 // Re-export for convenience
 export { CorrelationId };
@@ -84,6 +85,9 @@ export type StrictMessageType =
   | 'chat:sessionInit'
   | 'chat:healthUpdate'
   | 'chat:cliError'
+  // Permission messages
+  | 'permission:request'
+  | 'permission:response'
   // Provider messages
   | 'providers:getAvailable'
   | 'providers:getCurrent'
@@ -728,6 +732,8 @@ export interface MessagePayloadMap {
   'chat:sessionInit': ChatSessionInitPayload;
   'chat:healthUpdate': ChatHealthUpdatePayload;
   'chat:cliError': ChatCliErrorPayload;
+  'permission:request': PermissionRequest;
+  'permission:response': PermissionResponse;
   'providers:getAvailable': ProvidersGetAvailablePayload;
   'providers:getCurrent': ProvidersGetCurrentPayload;
   'providers:switch': ProvidersSwitchPayload;
