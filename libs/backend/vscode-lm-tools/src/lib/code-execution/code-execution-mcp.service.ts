@@ -12,16 +12,22 @@ import * as http from 'http';
 import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
+import type { WebviewManager } from '@ptah-extension/vscode-core';
+import type { PermissionResponse } from '@ptah-extension/shared';
 import { PtahAPIBuilder } from './ptah-api-builder.service';
+import { PermissionPromptService } from '../permission/permission-prompt.service';
 
 // TEMPORARY: Token will be registered in Batch 3, Task 3.1
 const PTAH_API_BUILDER = Symbol.for('PtahAPIBuilder');
+// TEMPORARY: Token will be registered in Batch 5
+const PERMISSION_PROMPT_SERVICE = Symbol.for('PermissionPromptService');
 import {
   PtahAPI,
   MCPRequest,
   MCPResponse,
   MCPToolDefinition,
   ExecuteCodeParams,
+  ApprovalPromptParams,
 } from './types';
 
 @injectable()
@@ -38,7 +44,13 @@ export class CodeExecutionMCP implements vscode.Disposable {
     private readonly logger: Logger,
 
     @inject(TOKENS.EXTENSION_CONTEXT)
-    private readonly context: vscode.ExtensionContext
+    private readonly context: vscode.ExtensionContext,
+
+    @inject(PERMISSION_PROMPT_SERVICE)
+    private readonly permissionPromptService: PermissionPromptService,
+
+    @inject(TOKENS.WEBVIEW_MANAGER)
+    private readonly webviewManager: WebviewManager
   ) {
     // Build ptah API once at construction (reused for all executions)
     this.ptahAPI = this.apiBuilder.buildAPI();
@@ -253,7 +265,7 @@ export class CodeExecutionMCP implements vscode.Disposable {
 
   /**
    * Handle tools/list request
-   * Returns single tool: execute_code with comprehensive API reference
+   * Returns two tools: execute_code and approval_prompt
    */
   private handleToolsList(request: MCPRequest): MCPResponse {
     const toolDefinition: MCPToolDefinition = {
@@ -283,7 +295,7 @@ export class CodeExecutionMCP implements vscode.Disposable {
       jsonrpc: '2.0',
       id: request.id,
       result: {
-        tools: [toolDefinition],
+        tools: [toolDefinition, this.getApprovalPromptTool()],
       },
     };
   }
@@ -374,24 +386,73 @@ return {lines: content.split('\\n').length, chars: content.length};
   }
 
   /**
+   * Get approval_prompt tool definition
+   * Allows Claude CLI to request user permission via VS Code UI
+   */
+  private getApprovalPromptTool(): MCPToolDefinition {
+    return {
+      name: 'approval_prompt',
+      description:
+        'Request user permission to execute a tool via VS Code dialog. ' +
+        'Called by Claude CLI when permission is needed for tool execution. ' +
+        'Returns approval decision with optional updated input parameters.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tool_name: {
+            type: 'string',
+            description: 'Name of the tool requesting permission',
+          },
+          input: {
+            type: 'object',
+            description: 'Input parameters for the tool',
+          },
+          tool_use_id: {
+            type: 'string',
+            description: 'Unique tool use request ID',
+          },
+        },
+        required: ['tool_name', 'input'],
+      },
+    };
+  }
+
+  /**
    * Handle tools/call request
-   * Executes code with AsyncFunction and timeout protection
+   * Routes to execute_code or approval_prompt handlers
    */
   private async handleToolsCall(request: MCPRequest): Promise<MCPResponse> {
     const { name, arguments: args } = request.params;
 
-    if (name !== 'execute_code') {
-      return {
-        jsonrpc: '2.0',
-        id: request.id,
-        error: {
-          code: -32602,
-          message: `Unknown tool: ${name}`,
-        },
-      };
+    if (name === 'execute_code') {
+      return await this.handleExecuteCode(request, args as ExecuteCodeParams);
     }
 
-    const params = args as ExecuteCodeParams;
+    if (name === 'approval_prompt') {
+      return await this.handleApprovalPrompt(
+        request,
+        args as ApprovalPromptParams
+      );
+    }
+
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      error: {
+        code: -32602,
+        message: `Unknown tool: ${name}`,
+      },
+    };
+  }
+
+  /**
+   * Handle execute_code tool call
+   * Executes TypeScript code with AsyncFunction and timeout protection
+   */
+  private async handleExecuteCode(
+    request: MCPRequest,
+    params: ExecuteCodeParams
+  ): Promise<MCPResponse> {
     const { code, timeout = 5000 } = params;
 
     // Validate timeout (cap at 30000ms)
@@ -424,6 +485,92 @@ return {lines: content.split('\\n').length, chars: content.length};
           code: -32000,
           message: `Code execution failed: ${errorMessage}`,
           data: errorStack,
+        },
+      };
+    }
+  }
+
+  /**
+   * Handle approval_prompt tool call
+   * Requests user permission via VS Code webview UI
+   *
+   * Flow:
+   * 1. Create permission request
+   * 2. Send to webview for user interaction
+   * 3. Wait for response via Promise-based resolver
+   * 4. Format MCP response per Claude CLI expectations
+   */
+  private async handleApprovalPrompt(
+    request: MCPRequest,
+    params: ApprovalPromptParams
+  ): Promise<MCPResponse> {
+    this.logger.debug('Handling approval_prompt', { params });
+
+    // 1. Create permission request
+    const permissionRequest =
+      this.permissionPromptService.createRequest(params);
+
+    // 2. Create Promise that will be resolved when user responds
+    const responsePromise = new Promise<PermissionResponse>((resolve) => {
+      this.permissionPromptService.setPendingResolver(
+        permissionRequest.id,
+        resolve,
+        permissionRequest
+      );
+    });
+
+    // 3. Send to webview via WebviewManager
+    // Note: Using 'main' as viewType - this is the main webview panel view type
+    await this.webviewManager.sendMessage(
+      'main',
+      'permission:request',
+      permissionRequest
+    );
+
+    // 4. Wait for user response (or timeout)
+    const response = await responsePromise;
+
+    // 5. Format MCP response based on user decision
+    if (response.decision === 'allow' || response.decision === 'always_allow') {
+      this.logger.info('Permission granted', {
+        id: response.id,
+        decision: response.decision,
+      });
+
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                behavior: 'allow',
+                updatedInput: params.input,
+              }),
+            },
+          ],
+        },
+      };
+    } else {
+      this.logger.info('Permission denied', {
+        id: response.id,
+        reason: response.reason,
+      });
+
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                behavior: 'deny',
+                message: response.reason || 'User denied permission',
+              }),
+            },
+          ],
         },
       };
     }
