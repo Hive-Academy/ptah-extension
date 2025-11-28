@@ -104,3 +104,35 @@ export interface ProcessedChunk {
     toolCallId?: string;
   };
 }
+
+/**
+ * Represents a single tab/session in the multi-session UI
+ */
+export interface TabState {
+  /** Unique tab identifier (frontend-generated) */
+  id: string;
+
+  /** Real Claude CLI session UUID (null if draft) */
+  claudeSessionId: string | null;
+
+  /** Display title for the tab */
+  title: string;
+
+  /** Tab order position */
+  order: number;
+
+  /** Current session status */
+  status: SessionStatus;
+
+  /** Whether session has unsent input */
+  isDirty: boolean;
+
+  /** Timestamp of last activity */
+  lastActivityAt: number;
+
+  /** Messages for this session */
+  messages: ExecutionChatMessage[];
+
+  /** Current execution tree (if streaming) */
+  executionTree: ExecutionNode | null;
+}
