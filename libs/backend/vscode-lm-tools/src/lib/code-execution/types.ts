@@ -340,6 +340,23 @@ export interface ExecuteCodeResult {
   stack?: string;
 }
 
+/**
+ * Parameters for approval_prompt MCP tool
+ * Called by Claude CLI when permission is needed for tool execution
+ *
+ * @see TASK_2025_026 - MCP Permission Prompt Integration
+ */
+export interface ApprovalPromptParams {
+  /** Name of the tool requesting permission (e.g., "Bash", "Write", "Read") */
+  readonly tool_name: string;
+
+  /** Input parameters for the tool (arbitrary JSON-serializable object) */
+  readonly input: Readonly<Record<string, unknown>>;
+
+  /** Claude's unique tool use ID for correlation */
+  readonly tool_use_id?: string;
+}
+
 // ========================================
 // New Namespaces (TASK_2025_025)
 // ========================================
