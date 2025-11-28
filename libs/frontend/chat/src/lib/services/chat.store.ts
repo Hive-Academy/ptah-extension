@@ -147,11 +147,16 @@ export class ChatStore {
   readonly messageCount = computed(() => this.messages().length);
 
   /**
-   * Check if we have an active session loaded from disk (not a fresh one)
+   * Check if the active tab has an existing session that can be continued
    * Used to determine whether to start new or continue existing conversation
+   *
+   * IMPORTANT: Reads from active TAB state, not global SessionManager,
+   * to ensure correct behavior in multi-tab scenarios
    */
   readonly hasExistingSession = computed(() => {
-    return this.sessionManager.shouldContinueSession();
+    const tab = this.tabManager.activeTab();
+    // Has existing session if tab has a real Claude session ID and is in 'loaded' state
+    return tab?.claudeSessionId !== null && tab?.status === 'loaded';
   });
 
   // ============================================================================
@@ -563,11 +568,13 @@ export class ChatStore {
         return;
       }
 
-      // Get REAL Claude session ID (not the placeholder)
-      const sessionId = this.sessionManager.claudeSessionId();
+      // Get REAL Claude session ID from the ACTIVE TAB (not global SessionManager)
+      // This is critical for multi-tab support - each tab has its own session
+      const activeTab = this.tabManager.activeTab();
+      const sessionId = activeTab?.claudeSessionId;
       if (!sessionId) {
         console.warn(
-          '[ChatStore] No Claude session ID - starting new conversation'
+          '[ChatStore] No Claude session ID on active tab - starting new conversation'
         );
         return this.startNewConversation(content, files);
       }
@@ -594,8 +601,7 @@ export class ChatStore {
         sessionId,
       });
 
-      // Update tab with user message
-      const activeTab = this.tabManager.activeTab();
+      // Update tab with user message (reuse activeTab from above)
       this.tabManager.updateTab(activeTabId, {
         messages: [...(activeTab?.messages ?? []), userMessage],
       });
