@@ -67,6 +67,7 @@ import {
 import {
   PtahAPIBuilder,
   CodeExecutionMCP,
+  PermissionPromptService,
 } from '@ptah-extension/vscode-lm-tools';
 
 // Import claude-domain services
@@ -250,6 +251,12 @@ export class DIContainer {
     // Code Execution MCP services (expose workspace-intelligence to Claude CLI)
     container.registerSingleton(TOKENS.PTAH_API_BUILDER, PtahAPIBuilder);
     container.registerSingleton(TOKENS.CODE_EXECUTION_MCP, CodeExecutionMCP);
+
+    // Permission Prompt Service (TASK_2025_026)
+    container.registerSingleton(
+      TOKENS.PERMISSION_PROMPT_SERVICE,
+      PermissionPromptService
+    );
 
     // ========================================
     // PHASE 3: Claude Domain Services

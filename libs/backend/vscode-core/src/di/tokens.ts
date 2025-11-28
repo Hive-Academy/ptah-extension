@@ -116,6 +116,7 @@ export const TEMPLATE_GENERATOR_SERVICE = Symbol.for(
 export const PTAH_API_BUILDER = Symbol.for('PtahAPIBuilder');
 export const CODE_EXECUTION_MCP = Symbol.for('CodeExecutionMCP');
 export const MCP_CONFIG_MANAGER_SERVICE = Symbol.for('MCPConfigManagerService');
+export const PERMISSION_PROMPT_SERVICE = Symbol.for('PermissionPromptService');
 
 // ========================================
 // AI Providers Core Tokens (DELETED - library removed)
@@ -257,6 +258,7 @@ export const TOKENS = {
   PTAH_API_BUILDER,
   CODE_EXECUTION_MCP,
   MCP_CONFIG_MANAGER_SERVICE,
+  PERMISSION_PROMPT_SERVICE,
 
   // ========================================
   // AI Providers Core (DELETED - library removed)

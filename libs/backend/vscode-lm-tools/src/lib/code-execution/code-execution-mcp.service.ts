@@ -16,11 +16,6 @@ import type { WebviewManager } from '@ptah-extension/vscode-core';
 import type { PermissionResponse } from '@ptah-extension/shared';
 import { PtahAPIBuilder } from './ptah-api-builder.service';
 import { PermissionPromptService } from '../permission/permission-prompt.service';
-
-// TEMPORARY: Token will be registered in Batch 3, Task 3.1
-const PTAH_API_BUILDER = Symbol.for('PtahAPIBuilder');
-// TEMPORARY: Token will be registered in Batch 5
-const PERMISSION_PROMPT_SERVICE = Symbol.for('PermissionPromptService');
 import {
   PtahAPI,
   MCPRequest,
@@ -37,7 +32,7 @@ export class CodeExecutionMCP implements vscode.Disposable {
   private ptahAPI: PtahAPI;
 
   constructor(
-    @inject(PTAH_API_BUILDER)
+    @inject(TOKENS.PTAH_API_BUILDER)
     private readonly apiBuilder: PtahAPIBuilder,
 
     @inject(TOKENS.LOGGER)
@@ -46,7 +41,7 @@ export class CodeExecutionMCP implements vscode.Disposable {
     @inject(TOKENS.EXTENSION_CONTEXT)
     private readonly context: vscode.ExtensionContext,
 
-    @inject(PERMISSION_PROMPT_SERVICE)
+    @inject(TOKENS.PERMISSION_PROMPT_SERVICE)
     private readonly permissionPromptService: PermissionPromptService,
 
     @inject(TOKENS.WEBVIEW_MANAGER)
