@@ -16,6 +16,7 @@ import {
 import { ChatViewComponent } from './chat-view.component';
 import { TabBarComponent } from '../organisms/tab-bar.component';
 import { ChatStore } from '../../services/chat.store';
+import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
 import type { ChatSessionSummary } from '@ptah-extension/shared';
 
 /**
@@ -37,6 +38,9 @@ import type { ChatSessionSummary } from '@ptah-extension/shared';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AppShellComponent {
+  // Initialize keyboard shortcuts (constructor injection triggers setup)
+  private readonly keyboardShortcuts = inject(KeyboardShortcutsService);
+
   readonly chatStore = inject(ChatStore);
 
   // Sidebar state (default hidden for VS Code sidebar space efficiency)
