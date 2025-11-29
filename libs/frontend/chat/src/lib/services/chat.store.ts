@@ -365,28 +365,18 @@ export class ChatStore {
           result.data.agentSessions ?? []
         );
 
-        // Get or create tab for this session
-        let activeTabId = this.tabManager.activeTabId();
-        const activeTab = this.tabManager.activeTab();
-
-        // If no active tab or active tab has a different session, create new tab
-        if (
-          !activeTabId ||
-          (activeTab?.claudeSessionId &&
-            activeTab.claudeSessionId !== sessionId)
-        ) {
-          activeTabId = this.tabManager.createTab(sessionId.substring(0, 50));
-        }
+        // Open or switch to tab for this session (prevents duplicate tabs)
+        const title =
+          messages[0]?.rawContent?.substring(0, 50) ||
+          sessionId.substring(0, 50);
+        const activeTabId = this.tabManager.openSessionTab(sessionId, title);
 
         // Update tab with loaded messages
         this.tabManager.updateTab(activeTabId, {
-          claudeSessionId: sessionId,
           messages,
           executionTree: null,
           status: 'loaded',
-          title:
-            messages[0]?.rawContent?.substring(0, 50) ||
-            sessionId.substring(0, 50),
+          title,
         });
 
         // Update SessionManager with node maps and state
@@ -882,5 +872,68 @@ export class ChatStore {
         '[ChatStore] VSCodeService not available for permission response'
       );
     }
+  }
+
+  // ============================================================================
+  // CHAT COMPLETION HANDLING
+  // ============================================================================
+
+  /**
+   * Handle chat completion signal from backend
+   * Called when Claude CLI process exits (success or error)
+   * Ensures UI state is reset to 'loaded' regardless of exit code
+   */
+  handleChatComplete(data: { sessionId: string; code: number }): void {
+    console.log('[ChatStore] Chat complete:', data);
+
+    const activeTabId = this.tabManager.activeTabId();
+    if (!activeTabId) {
+      console.warn('[ChatStore] No active tab for chat completion');
+      return;
+    }
+
+    const activeTab = this.tabManager.activeTab();
+
+    // Only reset if tab is still in streaming/resuming state
+    if (
+      activeTab?.status === 'streaming' ||
+      activeTab?.status === 'resuming' ||
+      activeTab?.status === 'draft'
+    ) {
+      // Finalize any pending message
+      this.finalizeCurrentMessage();
+
+      // Ensure tab status is reset to loaded
+      this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+      this.sessionManager.setStatus('loaded');
+
+      console.log(
+        '[ChatStore] Chat state reset to loaded (exit code:',
+        data.code,
+        ')'
+      );
+    }
+  }
+
+  /**
+   * Handle chat error signal from backend
+   * Called when an error occurs during chat (CLI error, network error, etc.)
+   * Resets streaming state and optionally displays error
+   */
+  handleChatError(data: { sessionId: string; error: string }): void {
+    console.error('[ChatStore] Chat error:', data);
+
+    const activeTabId = this.tabManager.activeTabId();
+    if (!activeTabId) {
+      console.warn('[ChatStore] No active tab for chat error');
+      return;
+    }
+
+    // Reset streaming state
+    this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+    this.sessionManager.setStatus('loaded');
+    this.currentMessageId = null;
+
+    console.log('[ChatStore] Chat state reset due to error');
   }
 }

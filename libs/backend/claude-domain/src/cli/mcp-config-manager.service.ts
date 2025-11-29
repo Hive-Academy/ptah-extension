@@ -5,19 +5,29 @@ import { injectable, inject } from 'tsyringe';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 
 /**
- * MCP Server configuration entry
+ * MCP Server configuration entry (command-based)
  */
-interface MCPServerConfig {
+interface MCPServerCommandConfig {
   command: string;
   args: string[];
   env?: Record<string, string>;
 }
 
 /**
+ * MCP Server configuration entry (HTTP-based)
+ * Used for HTTP transport MCP servers like Ptah
+ */
+interface MCPServerHttpConfig {
+  type: 'http';
+  url: string;
+}
+
+/**
  * .mcp.json file structure
+ * Supports both command-based and HTTP-based MCP servers
  */
 interface MCPConfig {
-  mcpServers: Record<string, MCPServerConfig>;
+  mcpServers: Record<string, MCPServerCommandConfig | MCPServerHttpConfig>;
 }
 
 /**
@@ -70,12 +80,13 @@ export class MCPConfigManagerService {
       }
 
       // Merge Ptah server config (overwrite if exists)
+      // Use HTTP transport format for MCP servers
       const updatedConfig: MCPConfig = {
         mcpServers: {
           ...existingConfig.mcpServers,
           ptah: {
-            command: 'http',
-            args: [`http://localhost:${port}`],
+            type: 'http',
+            url: `http://localhost:${port}`,
           },
         },
       };

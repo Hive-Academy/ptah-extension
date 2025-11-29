@@ -37,3 +37,9 @@ export type {
   ProcessedChunkType,
   ProcessedChunk,
 } from './chat.types';
+
+// ConfirmationDialogService - Custom confirmation dialog for VS Code webview
+export {
+  ConfirmationDialogService,
+  type ConfirmationDialogOptions,
+} from './confirmation-dialog.service';

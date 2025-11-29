@@ -31,7 +31,7 @@ import { PermissionRequest, PermissionResponse } from '@ptah-extension/shared';
   standalone: true,
   imports: [LucideAngularModule],
   template: `
-    <div class="alert alert-warning shadow-lg">
+    <div class="alert alert-warning alert-soft shadow-lg" role="alert">
       <div class="flex items-start gap-3">
         <lucide-angular [img]="ShieldAlertIcon" class="h-6 w-6 shrink-0" />
         <div class="flex-1 min-w-0">
@@ -44,7 +44,7 @@ import { PermissionRequest, PermissionResponse } from '@ptah-extension/shared';
       </div>
       <div class="flex gap-2 mt-3 justify-end">
         <button
-          class="btn btn-success btn-sm"
+          class="btn btn-success btn-outline btn-sm"
           (click)="respond('allow')"
           type="button"
           aria-label="Allow this request"
@@ -52,7 +52,7 @@ import { PermissionRequest, PermissionResponse } from '@ptah-extension/shared';
           Allow
         </button>
         <button
-          class="btn btn-info btn-sm"
+          class="btn btn-info  btn-outline btn-sm"
           (click)="respond('always_allow')"
           type="button"
           aria-label="Always allow this type of request"
@@ -60,7 +60,7 @@ import { PermissionRequest, PermissionResponse } from '@ptah-extension/shared';
           Always Allow
         </button>
         <button
-          class="btn btn-error btn-sm"
+          class="btn btn-outline btn-sm"
           (click)="respond('deny')"
           type="button"
           aria-label="Deny this request"

@@ -151,21 +151,9 @@ export function deactivate(): void {
   const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
   logger.info('Deactivating Ptah extension');
 
-  // Stop MCP server and clean up .mcp.json
-  try {
-    const mcpConfigManager = DIContainer.resolve(
-      TOKENS.MCP_CONFIG_MANAGER_SERVICE
-    );
-    (
-      mcpConfigManager as { removePtahMCPConfig: () => Promise<void> }
-    ).removePtahMCPConfig();
-  } catch (error) {
-    // Non-blocking cleanup
-    logger.error(
-      'Failed to clean up MCP config',
-      error instanceof Error ? error : new Error(String(error))
-    );
-  }
+  // NOTE: We intentionally do NOT remove ptah from .mcp.json on deactivation.
+  // The MCP config must persist so that resumed Claude sessions can find
+  // the permission-prompt-tool. The port gets updated on next activation.
 
   ptahExtension?.dispose();
   ptahExtension = undefined;

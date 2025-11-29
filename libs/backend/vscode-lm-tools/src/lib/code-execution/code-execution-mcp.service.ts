@@ -211,7 +211,7 @@ export class CodeExecutionMCP implements vscode.Disposable {
 
   /**
    * Handle MCP JSON-RPC 2.0 request
-   * Supports: tools/list, tools/call
+   * Supports: initialize, tools/list, tools/call
    */
   private async handleMCPRequest(request: MCPRequest): Promise<MCPResponse> {
     this.logger.info(`MCP Request: ${request.method}`, 'CodeExecutionMCP', {
@@ -220,6 +220,9 @@ export class CodeExecutionMCP implements vscode.Disposable {
 
     try {
       switch (request.method) {
+        case 'initialize':
+          return this.handleInitialize(request);
+
         case 'tools/list':
           return this.handleToolsList(request);
 
@@ -259,6 +262,31 @@ export class CodeExecutionMCP implements vscode.Disposable {
   }
 
   /**
+   * Handle initialize request
+   * Required by MCP protocol - must respond with server capabilities
+   */
+  private handleInitialize(request: MCPRequest): MCPResponse {
+    this.logger.info('MCP initialize request received', 'CodeExecutionMCP', {
+      clientInfo: request.params?.clientInfo,
+    });
+
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        protocolVersion: '2024-11-05',
+        capabilities: {
+          tools: {},
+        },
+        serverInfo: {
+          name: 'ptah',
+          version: '1.0.0',
+        },
+      },
+    };
+  }
+
+  /**
    * Handle tools/list request
    * Returns two tools: execute_code and approval_prompt
    */
@@ -273,7 +301,12 @@ export class CodeExecutionMCP implements vscode.Disposable {
             type: 'string',
             description:
               'TypeScript/JavaScript code to execute. Has access to "ptah" global object with 11 namespaces. ' +
-              'All methods are async. Example: const info = await ptah.workspace.analyze(); return info;',
+              'All methods are async. Code is auto-wrapped for execution - all patterns work:\n' +
+              '• Simple: `await ptah.workspace.getInfo()` or `ptah.workspace.getInfo()`\n' +
+              '• With variables: `const info = await ptah.workspace.getInfo(); return info;`\n' +
+              '• IIFE (any style): `(async () => { return await ptah.git.getStatus(); })()`\n' +
+              '• Direct return: `return "hello"`\n' +
+              'Results are automatically extracted from Promises. No special syntax required.',
           },
           timeout: {
             type: 'number',
@@ -456,6 +489,23 @@ return {lines: content.split('\\n').length, chars: content.length};
     try {
       const result = await this.executeCode(code, actualTimeout);
 
+      // Safely serialize result - handle undefined, null, and circular references
+      let textResult: string;
+      if (result === undefined) {
+        textResult = 'undefined';
+      } else if (result === null) {
+        textResult = 'null';
+      } else if (typeof result === 'string') {
+        textResult = result;
+      } else {
+        try {
+          textResult = JSON.stringify(result, null, 2);
+        } catch (serializeError) {
+          // Handle circular references or other serialization errors
+          textResult = String(result);
+        }
+      }
+
       return {
         jsonrpc: '2.0',
         id: request.id,
@@ -463,7 +513,7 @@ return {lines: content.split('\\n').length, chars: content.length};
           content: [
             {
               type: 'text',
-              text: JSON.stringify(result, null, 2),
+              text: textResult,
             },
           ],
         },
@@ -515,9 +565,9 @@ return {lines: content.split('\\n').length, chars: content.length};
     });
 
     // 3. Send to webview via WebviewManager
-    // Note: Using 'main' as viewType - this is the main webview panel view type
+    // The webview is registered as 'ptah.main' in angular-webview.provider.ts
     await this.webviewManager.sendMessage(
-      'main',
+      'ptah.main',
       'permission:request',
       permissionRequest
     );
@@ -589,21 +639,54 @@ return {lines: content.split('\\n').length, chars: content.length};
 
     // Create async function with ptah API in scope
     // AsyncFunction constructor pattern: new AsyncFunction('argName', 'functionBody')
+    //
+    // SMART CODE WRAPPING: We analyze the code to determine the best execution strategy.
+    //
+    // Supported patterns (all work automatically):
+    // 1. Simple expressions: `ptah.workspace.getInfo()` -> auto-wrapped with return
+    // 2. Direct returns: `return "hello"` -> used as-is
+    // 3. IIFE with async function: `(async function() {...})()` -> result awaited
+    // 4. IIFE with arrow function: `(async () => {...})()` -> result awaited
+    // 5. Multi-statement with variables: `const x = 1; return x;` -> wrapped in async IIFE
+    // 6. Async method calls: `await ptah.workspace.getInfo()` -> executed in async context
 
     const AsyncFunction = Object.getPrototypeOf(
       // eslint-disable-next-line @typescript-eslint/no-empty-function
       async function () {}
     ).constructor;
+
+    const wrappedCode = this.wrapCodeForExecution(code);
+
+    this.logger.debug('Wrapped code for execution', 'CodeExecutionMCP', {
+      original: code.substring(0, 100),
+      wrapped: wrappedCode.substring(0, 150),
+    });
+
     const asyncFunction = new AsyncFunction(
       'ptah',
       `
       'use strict';
-      ${code}
+      ${wrappedCode}
     `
     ) as (ptah: PtahAPI) => Promise<any>;
 
     // Execute with timeout protection
-    const executionPromise = asyncFunction(this.ptahAPI);
+    let executionPromise = asyncFunction(this.ptahAPI);
+
+    // Handle nested Promises (from IIFEs that return Promises)
+    // Keep unwrapping until we get a non-Promise value
+    executionPromise = executionPromise.then(async (result: any) => {
+      // Unwrap up to 3 levels of Promise nesting (safety limit)
+      let unwrapped = result;
+      for (
+        let i = 0;
+        i < 3 && unwrapped && typeof unwrapped.then === 'function';
+        i++
+      ) {
+        unwrapped = await unwrapped;
+      }
+      return unwrapped;
+    });
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(
         () => reject(new Error(`Execution timeout (${timeout}ms)`)),
@@ -626,6 +709,82 @@ return {lines: content.split('\\n').length, chars: content.length};
       );
       throw error;
     }
+  }
+
+  /**
+   * Smart code wrapping for execution
+   *
+   * Analyzes the code pattern and wraps it appropriately:
+   * - Simple expressions -> add `return`
+   * - Already has return -> use as-is
+   * - IIFE expressions -> add `return` to capture result
+   * - Multi-statement code -> wrap in async IIFE
+   * - Variable declarations at top level -> wrap in async IIFE
+   */
+  private wrapCodeForExecution(code: string): string {
+    const trimmed = code.trim();
+
+    // Pattern 1: Already starts with 'return' - use as-is
+    if (/^return\s/.test(trimmed)) {
+      return code;
+    }
+
+    // Pattern 2: IIFE pattern (async function or arrow function)
+    // Matches: (async function() {...})() or (async () => {...})() or (() => {...})()
+    const iifePattern =
+      /^\((?:async\s+)?(?:function\s*\(|(?:\([^)]*\)|[a-zA-Z_$][a-zA-Z0-9_$]*)\s*=>)/;
+    if (iifePattern.test(trimmed)) {
+      // It's an IIFE - add return to capture the Promise result
+      return `return ${code}`;
+    }
+
+    // Pattern 3: Starts with variable declaration (const, let, var)
+    // These need to be wrapped in an IIFE to work
+    if (/^(const|let|var)\s/.test(trimmed)) {
+      // Check if there's a return statement somewhere
+      if (/\breturn\b/.test(trimmed)) {
+        // Has return - wrap in async IIFE
+        return `return (async function() { ${code} })()`;
+      } else {
+        // No return - try to detect last expression and return it
+        // Split by semicolon and return the last non-empty statement
+        const statements = trimmed
+          .split(';')
+          .map((s) => s.trim())
+          .filter((s) => s);
+        if (statements.length > 0) {
+          const lastStatement = statements[statements.length - 1];
+          // Check if last statement is a variable reference or expression
+          if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(lastStatement)) {
+            // Last statement is just a variable name - return it
+            return `return (async function() { ${trimmed}; return ${lastStatement}; })()`;
+          }
+        }
+        // Just wrap it and hope for the best
+        return `return (async function() { ${code} })()`;
+      }
+    }
+
+    // Pattern 4: Contains 'await' at the start - it's an async expression
+    if (/^await\s/.test(trimmed)) {
+      return `return ${code}`;
+    }
+
+    // Pattern 5: Multiple statements (contains semicolon not at end)
+    // Check if it's multi-statement code
+    const withoutStrings = trimmed.replace(/'[^']*'|"[^"]*"|`[^`]*`/g, ''); // Remove string literals
+    if (withoutStrings.includes(';') && !withoutStrings.endsWith(';')) {
+      // Multiple statements without trailing semicolon - wrap in IIFE
+      return `return (async function() { ${code} })()`;
+    }
+    if ((withoutStrings.match(/;/g) || []).length > 1) {
+      // More than one semicolon - definitely multi-statement
+      return `return (async function() { ${code} })()`;
+    }
+
+    // Pattern 6: Simple expression - just add return
+    // This handles: ptah.workspace.getInfo(), "hello", 42, etc.
+    return `return ${code}`;
   }
 
   /**

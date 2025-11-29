@@ -64,12 +64,20 @@ export class ClaudeProcess extends EventEmitter {
   /**
    * Resume existing session with new prompt
    */
-  async resume(sessionId: string, prompt: string): Promise<void> {
+  async resume(
+    sessionId: string,
+    prompt: string,
+    options?: Omit<ClaudeProcessOptions, 'resumeSessionId'>
+  ): Promise<void> {
     if (this.process) {
       throw new Error('ClaudeProcess already running. Call kill() first.');
     }
 
-    const args = this.buildArgs({ resumeSessionId: sessionId, verbose: true });
+    const args = this.buildArgs({
+      ...options,
+      resumeSessionId: sessionId,
+      verbose: true,
+    });
     this.spawnProcess(args, prompt);
   }
 
@@ -112,13 +120,11 @@ export class ClaudeProcess extends EventEmitter {
       args.push('--resume', options.resumeSessionId);
     }
 
-    // Allow MCP tools - always include mcp__ptah and mcp__ptah__approval_prompt
+    // Allow MCP tools - always include mcp__ptah (all tools within ptah server are auto-allowed)
+    // The approval_prompt tool is internal to ptah server, no need to list separately
     // Additional tools can be passed via options.allowedTools
     // Format: --allowedTools "tool1,tool2" or --allowedTools tool1 tool2
-    const allowedTools = new Set<string>([
-      'mcp__ptah',
-      'mcp__ptah__approval_prompt',
-    ]);
+    const allowedTools = new Set<string>(['mcp__ptah']);
     if (options?.allowedTools) {
       options.allowedTools.forEach((tool) => allowedTools.add(tool));
     }

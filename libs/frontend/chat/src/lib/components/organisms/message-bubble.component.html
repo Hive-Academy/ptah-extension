@@ -5,7 +5,7 @@
   <div class="chat-image avatar placeholder">
     <div
       class="w-6 h-6 rounded-full flex items-center justify-center"
-      [style.background-color]="getAgentColor(message().agentInfo!.agentType)"
+      [ngStyle]="{ 'background-color': getAgentColor(message().agentInfo!.agentType) }"
     >
       <span class="text-white text-[10px] font-bold">
         {{ message().agentInfo!.agentType.charAt(0).toUpperCase() }}
@@ -145,7 +145,7 @@
     <div
       class="w-8 h-8 rounded-full flex items-center justify-center border border-base-content/20"
     >
-      <lucide-angular [img]="UserIcon" class="w-5 h-5 text-base-content/70" />
+      <lucide-angular [img]="UserIcon" class="w-5 h-5 flex text-base-content/70" />
     </div>
   </div>
 

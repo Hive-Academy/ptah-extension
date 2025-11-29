@@ -91,6 +91,9 @@ export class SessionReplayService {
     // PHASE 4: Pre-scan for tool_results to detect interrupted agents
     const taskToolResults = this.extractTaskToolResults(mainMessages);
 
+    // PHASE 4.5: Extract ALL tool results with content for linking to tool nodes
+    const allToolResults = this.extractAllToolResults(mainMessages);
+
     console.log('[SessionReplayService] Replay session - agent processing', {
       mainMessagesCount: mainMessages.length,
       totalAgentSessions: agentSessions.length,
@@ -98,6 +101,7 @@ export class SessionReplayService {
       taskToolUses: taskToolUses.length,
       correlatedTasks: taskToAgentMap.size,
       taskToolResults: taskToolResults.size,
+      allToolResults: allToolResults.size,
     });
 
     // PHASE 5: Process main messages and create chat bubbles
@@ -190,12 +194,18 @@ export class SessionReplayService {
               agentBlocks.push({ block, agentId });
             } else {
               // Regular tool - add to assistant tree
+              // Look up the tool result by tool_use_id
+              const toolResult = block.id
+                ? allToolResults.get(block.id)
+                : undefined;
+
               const toolNode = createExecutionNode({
                 id: block.id || this.generateId(),
                 type: 'tool',
-                status: 'complete',
+                status: toolResult?.isError ? 'error' : 'complete',
                 toolName: block.name,
                 toolInput: block.input,
+                toolOutput: toolResult?.content,
                 toolCallId: block.id,
                 isCollapsed: true,
               });
@@ -440,6 +450,55 @@ export class SessionReplayService {
     }
 
     return taskToolResults;
+  }
+
+  /**
+   * Extract ALL tool results with their content from main messages.
+   * Maps tool_use_id to the result content string.
+   *
+   * This is used to link tool_use blocks to their corresponding tool_result
+   * outputs when replaying a session.
+   */
+  private extractAllToolResults(
+    mainMessages: JSONLMessage[]
+  ): Map<string, { content: string; isError: boolean }> {
+    const toolResults = new Map<
+      string,
+      { content: string; isError: boolean }
+    >();
+
+    for (const msg of mainMessages) {
+      if (msg.type === 'user' && msg.message?.content) {
+        for (const block of msg.message.content) {
+          if (block.type === 'tool_result' && block.tool_use_id) {
+            const content = block.content;
+            const isError = block.is_error === true;
+            let resultText = '';
+
+            if (typeof content === 'string') {
+              resultText = content;
+            } else if (Array.isArray(content)) {
+              // Handle array content (text blocks)
+              resultText = content
+                .filter((c: any) => c.type === 'text')
+                .map((c: any) => c.text || '')
+                .join('\n');
+            }
+
+            toolResults.set(block.tool_use_id, {
+              content: resultText,
+              isError,
+            });
+          }
+        }
+      }
+    }
+
+    console.log('[SessionReplayService] extractAllToolResults', {
+      resultsFound: toolResults.size,
+    });
+
+    return toolResults;
   }
 
   /**

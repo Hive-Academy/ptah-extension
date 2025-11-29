@@ -19,7 +19,9 @@
       "Bash(npm run build:*)",
       "Bash(node:*)",
       "mcp__daisyui__fetch_daisyui_documentation",
-      "Bash(powershell -Command:*)"
+      "Bash(powershell -Command:*)",
+      "mcp__daisyui__search_daisyui_documentation",
+      "Bash(mkdir:*)"
     ],
     "deny": [],
     "ask": [],

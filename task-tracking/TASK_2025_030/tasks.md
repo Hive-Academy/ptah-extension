@@ -546,7 +546,7 @@ protected getStreamingDescription(): string {
 **Developer**: frontend-developer
 **Tasks**: 1
 **Dependencies**: Batches 1, 2, 3 complete
-**Batch Commit**: Pending
+**Batch Commit**: 25e6c28
 
 ### Task 4.1: Manual testing with live streaming and refinements
 

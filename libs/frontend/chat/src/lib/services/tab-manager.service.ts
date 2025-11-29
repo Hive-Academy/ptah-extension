@@ -1,5 +1,6 @@
-import { Injectable, signal, computed } from '@angular/core';
+import { Injectable, signal, computed, inject } from '@angular/core';
 import { TabState } from './chat.types';
+import { ConfirmationDialogService } from './confirmation-dialog.service';
 
 /**
  * TabManagerService - Manages multi-session tab state
@@ -18,6 +19,12 @@ import { TabState } from './chat.types';
  */
 @Injectable({ providedIn: 'root' })
 export class TabManagerService {
+  // ============================================================================
+  // DEPENDENCIES
+  // ============================================================================
+
+  private readonly confirmationDialog = inject(ConfirmationDialogService);
+
   // ============================================================================
   // PRIVATE STATE SIGNALS
   // ============================================================================
@@ -42,6 +49,21 @@ export class TabManagerService {
   readonly tabCount = computed(() => this._tabs().length);
 
   // ============================================================================
+  // TAB LOOKUP
+  // ============================================================================
+
+  /**
+   * Find a tab by its Claude session ID
+   * @param claudeSessionId - The Claude CLI session UUID
+   * @returns Tab state if found, null otherwise
+   */
+  findTabBySessionId(claudeSessionId: string): TabState | null {
+    return (
+      this._tabs().find((t) => t.claudeSessionId === claudeSessionId) ?? null
+    );
+  }
+
+  // ============================================================================
   // INITIALIZATION
   // ============================================================================
 
@@ -58,6 +80,54 @@ export class TabManagerService {
   // ============================================================================
   // TAB OPERATIONS
   // ============================================================================
+
+  /**
+   * Open a tab for a session - reuses existing tab if session already open
+   * This prevents duplicate tabs for the same Claude session.
+   * @param claudeSessionId - The Claude CLI session UUID
+   * @param title - Optional tab title (defaults to session ID prefix)
+   * @returns Tab ID (existing or newly created)
+   */
+  openSessionTab(claudeSessionId: string, title?: string): string {
+    // Check if tab already exists for this session
+    const existingTab = this.findTabBySessionId(claudeSessionId);
+
+    if (existingTab) {
+      // Switch to existing tab instead of creating duplicate
+      this.switchTab(existingTab.id);
+      console.log(
+        '[TabManager] Switched to existing tab for session:',
+        claudeSessionId
+      );
+      return existingTab.id;
+    }
+
+    // Create new tab with session ID
+    const id = this.generateTabId();
+    const newTab: TabState = {
+      id,
+      claudeSessionId,
+      title: title || claudeSessionId.substring(0, 50),
+      order: this._tabs().length,
+      status: 'loaded',
+      isDirty: false,
+      lastActivityAt: Date.now(),
+      messages: [],
+      executionTree: null,
+    };
+
+    this._tabs.update((tabs) => [...tabs, newTab]);
+    this._activeTabId.set(id);
+    this.saveTabState();
+
+    console.log(
+      '[TabManager] Created new tab for session:',
+      claudeSessionId,
+      '->',
+      id
+    );
+    return id;
+  }
 
   /**
    * Create a new tab
@@ -87,10 +157,11 @@ export class TabManagerService {
   }
 
   /**
-   * Close a tab (with confirmation for dirty/streaming tabs)
+   * Close a tab (with optional confirmation for streaming/dirty tabs)
+   * Uses custom confirmation dialog since window.confirm doesn't work in VS Code webviews.
    * @param tabId - Tab ID to close
    */
-  closeTab(tabId: string): void {
+  async closeTab(tabId: string): Promise<void> {
     const tabs = this._tabs();
     const tab = tabs.find((t) => t.id === tabId);
 
@@ -101,9 +172,14 @@ export class TabManagerService {
       tab.isDirty || tab.status === 'streaming' || tab.status === 'resuming';
 
     if (needsConfirmation) {
-      const confirmed = window.confirm(
-        'Close tab?\n\nThis session has unsaved changes or is actively streaming. Are you sure you want to close it?'
-      );
+      const confirmed = await this.confirmationDialog.confirm({
+        title: 'Close Tab?',
+        message:
+          'This session has unsaved changes or is actively streaming. Are you sure you want to close it?',
+        confirmLabel: 'Close',
+        cancelLabel: 'Keep Open',
+        confirmStyle: 'error',
+      });
 
       if (!confirmed) {
         console.log('[TabManager] Tab close cancelled by user');
@@ -206,26 +282,26 @@ export class TabManagerService {
 
   /**
    * Rename a tab
+   * Note: Uses signal-based approach since window.prompt doesn't work in VS Code webviews.
+   * The UI should handle this via inline editing or a custom dialog.
    * @param tabId - Tab ID to rename
+   * @param newTitle - New title for the tab
    */
-  renameTab(tabId: string): void {
+  renameTab(tabId: string, newTitle?: string): void {
     const tab = this._tabs().find((t) => t.id === tabId);
     if (!tab) return;
 
-    const newTitle = window.prompt('Enter new tab name:', tab.title);
-
+    // If no title provided, this is a no-op (UI should handle input)
     if (!newTitle || newTitle.trim() === '') {
-      console.log('[TabManager] Rename cancelled or empty');
+      console.log('[TabManager] Rename requires newTitle parameter');
       return;
     }
 
-    if (newTitle.length > 100) {
-      window.alert('Tab name is too long (max 100 characters)');
-      return;
-    }
+    // Truncate to 100 chars max
+    const sanitizedTitle = newTitle.trim().substring(0, 100);
 
-    this.updateTab(tabId, { title: newTitle.trim() });
-    console.log('[TabManager] Tab renamed:', tabId, '->', newTitle);
+    this.updateTab(tabId, { title: sanitizedTitle });
+    console.log('[TabManager] Tab renamed:', tabId, '->', sanitizedTitle);
   }
 
   /**
@@ -256,15 +332,25 @@ export class TabManagerService {
 
   /**
    * Close all tabs except the specified one
+   * Uses custom confirmation dialog since window.confirm doesn't work in VS Code webviews.
    * @param tabId - Tab ID to keep
    */
-  closeOtherTabs(tabId: string): void {
+  async closeOtherTabs(tabId: string): Promise<void> {
     const tab = this._tabs().find((t) => t.id === tabId);
     if (!tab) return;
 
-    const confirmed = window.confirm(
-      'Close all other tabs?\n\nThis will close all tabs except the current one.'
-    );
+    const otherTabsCount = this._tabs().length - 1;
+    if (otherTabsCount === 0) return;
+
+    const confirmed = await this.confirmationDialog.confirm({
+      title: 'Close Other Tabs?',
+      message: `This will close ${otherTabsCount} other tab${
+        otherTabsCount > 1 ? 's' : ''
+      }.`,
+      confirmLabel: 'Close Others',
+      cancelLabel: 'Cancel',
+      confirmStyle: 'warning',
+    });
 
     if (!confirmed) return;
 
@@ -277,17 +363,26 @@ export class TabManagerService {
 
   /**
    * Close all tabs to the right of the specified tab
+   * Uses custom confirmation dialog since window.confirm doesn't work in VS Code webviews.
    * @param tabId - Tab ID (tabs to the right will be closed)
    */
-  closeTabsToRight(tabId: string): void {
+  async closeTabsToRight(tabId: string): Promise<void> {
     const tabs = this._tabs();
     const tabIndex = tabs.findIndex((t) => t.id === tabId);
 
     if (tabIndex === -1 || tabIndex === tabs.length - 1) return;
 
-    const confirmed = window.confirm(
-      'Close tabs to the right?\n\nThis will close all tabs after the current one.'
-    );
+    const tabsToCloseCount = tabs.length - tabIndex - 1;
+
+    const confirmed = await this.confirmationDialog.confirm({
+      title: 'Close Tabs to Right?',
+      message: `This will close ${tabsToCloseCount} tab${
+        tabsToCloseCount > 1 ? 's' : ''
+      } to the right.`,
+      confirmLabel: 'Close',
+      cancelLabel: 'Cancel',
+      confirmStyle: 'warning',
+    });
 
     if (!confirmed) return;
 
