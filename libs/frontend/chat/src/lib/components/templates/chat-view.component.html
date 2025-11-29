@@ -10,16 +10,25 @@
     }
 
     <!-- Streaming assistant message (live execution tree) -->
-    @if (chatStore.isStreaming() && streamingMessage(); as msg) {
-    <ptah-message-bubble [message]="msg" />
-    }
-
-    <!-- Streaming indicator (only when tree not yet started) -->
-    @if (chatStore.isStreaming() && !chatStore.currentExecutionTree()) {
-    <div class="flex items-center gap-2 text-sm text-base-content/60 ml-4">
-      <span class="loading loading-dots loading-sm"></span>
-      Claude is responding...
-    </div>
+    @if (chatStore.isStreaming()) {
+      @if (streamingMessage(); as msg) {
+        <!-- Tree exists: show message bubble with streaming indicators -->
+        <ptah-message-bubble [message]="msg" />
+      } @else {
+        <!-- Tree NOT started: show skeleton placeholder -->
+        <div class="chat chat-start">
+          <div class="chat-image avatar">
+            <div class="w-8 h-8 rounded-full overflow-hidden">
+              <img [ngSrc]="ptahIconUri()" alt="Claude" width="32" height="32" />
+            </div>
+          </div>
+          <div class="chat-bubble bg-neutral">
+            <div class="skeleton h-4 w-64 mb-2"></div>
+            <div class="skeleton h-4 w-48 mb-2"></div>
+            <div class="skeleton h-4 w-56"></div>
+          </div>
+        </div>
+      }
     }
 
     <!-- Empty state - "Let's build" welcome screen -->

@@ -8,10 +8,12 @@ import {
   effect,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { NgOptimizedImage } from '@angular/common';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { ChatInputComponent } from '../molecules/chat-input.component';
 import { PermissionRequestCardComponent } from '../molecules/permission-request-card.component';
 import { ChatStore } from '../../services/chat.store';
+import { VSCodeService } from '@ptah-extension/core';
 import { createExecutionChatMessage } from '@ptah-extension/shared';
 
 /**
@@ -39,6 +41,7 @@ import { createExecutionChatMessage } from '@ptah-extension/shared';
   selector: 'ptah-chat-view',
   standalone: true,
   imports: [
+    NgOptimizedImage,
     MessageBubbleComponent,
     ChatInputComponent,
     PermissionRequestCardComponent,
@@ -49,6 +52,7 @@ import { createExecutionChatMessage } from '@ptah-extension/shared';
 })
 export class ChatViewComponent {
   readonly chatStore = inject(ChatStore);
+  private readonly vscodeService = inject(VSCodeService);
 
   @ViewChild('messageContainer') messageContainer?: ElementRef<HTMLElement>;
 
@@ -58,6 +62,11 @@ export class ChatViewComponent {
   // Welcome screen mode selection (Vibe/Spec)
   private readonly _selectedMode = signal<'vibe' | 'spec'>('vibe');
   readonly selectedMode = this._selectedMode.asReadonly();
+
+  /**
+   * Ptah icon URI for skeleton avatar placeholder
+   */
+  readonly ptahIconUri = computed(() => this.vscodeService.getPtahIconUri());
 
   /**
    * Computed signal that creates a temporary ExecutionChatMessage
