@@ -18,10 +18,6 @@ import {
   Loader2,
   ExternalLink,
   ChevronDown,
-  ShieldAlert,
-  Check,
-  CheckCheck,
-  X,
   ChevronRight,
 } from 'lucide-angular';
 import { DurationBadgeComponent } from '../atoms/duration-badge.component';
@@ -108,12 +104,7 @@ import { NgClass } from '@angular/common';
         }
 
         <!-- Status indicator -->
-        @if (node().isPermissionRequest) {
-        <lucide-angular
-          [img]="ShieldAlertIcon"
-          class="w-3 h-3 text-warning flex-shrink-0"
-        />
-        } @else if (node().status === 'complete' && node().toolOutput) {
+        @if (node().status === 'complete' && node().toolOutput) {
         <lucide-angular
           [img]="CheckIcon"
           class="w-3 h-3 text-success flex-shrink-0"
@@ -124,10 +115,17 @@ import { NgClass } from '@angular/common';
           class="w-3 h-3 text-error flex-shrink-0"
         />
         } @else if (node().status === 'streaming') {
-        <lucide-angular
-          [img]="LoaderIcon"
-          class="w-3 h-3 text-info animate-spin flex-shrink-0"
-        />
+        <div class="flex items-center gap-1 flex-shrink-0">
+          <lucide-angular
+            [img]="LoaderIcon"
+            class="w-3 h-3 text-info animate-spin"
+          />
+          <span
+            class="text-base-content/50 text-[10px] animate-pulse font-mono"
+          >
+            {{ getStreamingDescription() }}
+          </span>
+        </div>
         }
 
         <!-- Duration -->
@@ -220,55 +218,8 @@ import { NgClass } from '@angular/common';
         </div>
         }
 
-        <!-- Permission Request -->
-        @if (node().isPermissionRequest) {
-        <div class="alert alert-warning text-[10px] py-2 px-3 mt-1.5">
-          <div class="flex items-start gap-2 mb-2">
-            <lucide-angular
-              [img]="ShieldAlertIcon"
-              class="w-4 h-4 flex-shrink-0 text-warning mt-0.5"
-            />
-            <div class="flex-1">
-              <div class="font-semibold mb-1">Permission Required</div>
-              <div class="text-base-content/80">
-                {{ getPermissionQuestion() }}
-              </div>
-            </div>
-          </div>
-          <div class="flex gap-2 mt-2">
-            <button
-              type="button"
-              class="btn btn-xs btn-success gap-1"
-              (click)="handlePermission('allow')"
-              title="Grant permission for this operation"
-            >
-              <lucide-angular [img]="CheckIconSmall" class="w-3 h-3" />
-              Allow
-            </button>
-            <button
-              type="button"
-              class="btn btn-xs btn-info gap-1"
-              (click)="handlePermission('always')"
-              title="Grant permission for entire session"
-            >
-              <lucide-angular [img]="CheckCheckIcon" class="w-3 h-3" />
-              Allow Always
-            </button>
-            <button
-              type="button"
-              class="btn btn-xs btn-error gap-1"
-              (click)="handlePermission('deny')"
-              title="Deny this permission request"
-            >
-              <lucide-angular [img]="XIconSmall" class="w-3 h-3" />
-              Deny
-            </button>
-          </div>
-        </div>
-        }
-
-        <!-- Error (non-permission) -->
-        @if (node().error && !node().isPermissionRequest) {
+        <!-- Error -->
+        @if (node().error) {
         <div class="alert alert-error text-[10px] py-1 px-2 mt-1">
           <span>{{ node().error }}</span>
         </div>
@@ -319,10 +270,6 @@ export class ToolCallItemComponent {
   readonly LoaderIcon = Loader2;
   readonly ExternalLinkIcon = ExternalLink;
   readonly ChevronIcon = ChevronDown;
-  readonly ShieldAlertIcon = ShieldAlert;
-  readonly CheckIconSmall = Check;
-  readonly CheckCheckIcon = CheckCheck;
-  readonly XIconSmall = X;
   readonly ChevronRightIcon = ChevronRight;
 
   // Language extension mapping for syntax highlighting
@@ -554,60 +501,6 @@ export class ToolCallItemComponent {
   }
 
   /**
-   * Extract permission question from error message
-   */
-  protected getPermissionQuestion(): string {
-    const error = this.node().error;
-    if (!error) return 'This tool requires permission to proceed.';
-
-    // Try to extract the actual question from the error message
-    // Permission errors typically contain descriptive text about what's being requested
-    const lines = error.split('\n');
-    const questionLine = lines.find(
-      (line) =>
-        line.includes('?') ||
-        line.toLowerCase().includes('permission') ||
-        line.toLowerCase().includes('allow')
-    );
-
-    return (
-      questionLine ||
-      error.split('\n')[0] ||
-      'This tool requires permission to proceed.'
-    );
-  }
-
-  /**
-   * Handle permission response (allow/always/deny)
-   */
-  protected handlePermission(response: 'allow' | 'always' | 'deny'): void {
-    const toolCallId = this.node().toolCallId;
-    if (!toolCallId) {
-      console.error(
-        '[ToolCallItem] Cannot handle permission: missing toolCallId'
-      );
-      return;
-    }
-
-    console.log(`[ToolCallItem] Permission ${response} for tool ${toolCallId}`);
-
-    // Call RPC service (stub for now - backend will implement)
-    this.rpcService
-      .call('permission:respond', {
-        toolUseId: toolCallId,
-        response,
-      })
-      .then((result) => {
-        if (result.isError()) {
-          console.error(
-            '[ToolCallItem] Permission response failed:',
-            result.error
-          );
-        }
-      });
-  }
-
-  /**
    * Strip system-reminder tags from content
    * Claude CLI adds these tags to tool results but they should not be displayed
    */
@@ -650,6 +543,10 @@ export class ToolCallItemComponent {
     let str =
       typeof output === 'string' ? output : JSON.stringify(output, null, 2);
 
+    // Handle MCP content array format: [{type: "text", text: "..."}]
+    // Extract text from MCP-style content blocks
+    str = this.extractMCPContent(str);
+
     // Strip system-reminder tags from tool output
     str = this.stripSystemReminders(str);
 
@@ -678,11 +575,14 @@ export class ToolCallItemComponent {
       language = 'text';
     }
 
-    // Check if output is JSON
+    // Check if output is JSON (but not after MCP extraction)
     if (str.trim().startsWith('{') || str.trim().startsWith('[')) {
       try {
-        JSON.parse(str);
-        language = 'json';
+        const parsed = JSON.parse(str);
+        // Only treat as JSON if it's not just a simple value wrapped in array
+        if (typeof parsed === 'object') {
+          language = 'json';
+        }
       } catch {
         // Not valid JSON, keep detected language
       }
@@ -690,6 +590,44 @@ export class ToolCallItemComponent {
 
     // Wrap in code block with language
     return '```' + language + '\n' + str + '\n```';
+  }
+
+  /**
+   * Extract text content from MCP-style content blocks
+   * MCP responses often come as: [{type: "text", text: "..."}]
+   * This extracts just the text for cleaner display
+   */
+  private extractMCPContent(content: string): string {
+    // Check if it looks like an MCP content array
+    const trimmed = content.trim();
+    if (!trimmed.startsWith('[')) return content;
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!Array.isArray(parsed)) return content;
+
+      // Check if it's MCP content format: array of {type, text} objects
+      const isMCPContent = parsed.every(
+        (item: unknown) =>
+          typeof item === 'object' &&
+          item !== null &&
+          'type' in item &&
+          (item as { type: string }).type === 'text' &&
+          'text' in item
+      );
+
+      if (isMCPContent) {
+        // Extract and join all text content
+        return parsed
+          .map((item: { type: string; text: string }) => item.text)
+          .join('\n');
+      }
+
+      return content;
+    } catch {
+      // Not valid JSON, return as-is
+      return content;
+    }
   }
 
   private getLanguageFromPath(filePath: string): string {
@@ -719,5 +657,46 @@ export class ToolCallItemComponent {
     const parts = path.replace(/\\/g, '/').split('/');
     if (parts.length <= 2) return path;
     return '.../' + parts.slice(-2).join('/');
+  }
+
+  /**
+   * Get descriptive text for streaming tool activity
+   * Shows what the tool is doing (e.g., "Reading utils.ts...")
+   */
+  protected getStreamingDescription(): string {
+    const toolName = this.node().toolName;
+    const input = this.node().toolInput;
+
+    if (!toolName || !input) return 'Working...';
+
+    switch (toolName) {
+      case 'Read':
+        return `Reading ${this.shortenPath(input['file_path'] as string)}...`;
+      case 'Write':
+        return `Writing ${this.shortenPath(input['file_path'] as string)}...`;
+      case 'Edit':
+        return `Editing ${this.shortenPath(input['file_path'] as string)}...`;
+      case 'Bash': {
+        const desc = input['description'] as string;
+        if (desc) return `${desc}...`;
+        const cmd = input['command'] as string;
+        return `Running ${this.truncate(cmd, 20)}...`;
+      }
+      case 'Grep':
+        return `Searching for "${this.truncate(
+          input['pattern'] as string,
+          15
+        )}"...`;
+      case 'Glob':
+        return `Finding ${this.truncate(input['pattern'] as string, 15)}...`;
+      case 'Task':
+        return 'Invoking agent...';
+      case 'WebFetch':
+        return `Fetching ${this.truncate(input['url'] as string, 20)}...`;
+      case 'WebSearch':
+        return `Searching "${this.truncate(input['query'] as string, 15)}"...`;
+      default:
+        return `Executing ${toolName}...`;
+    }
   }
 }

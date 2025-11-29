@@ -44,9 +44,15 @@ import type { ExecutionNode } from '@ptah-extension/shared';
   template: `
     @switch (node().type) { @case ('text') { @if (isAgentSummaryContent()) {
     <!-- Agent summary with XML-like format (function_calls, thinking, etc.) -->
-    <ptah-agent-summary [content]="node().content || ''" />
+    <ptah-agent-summary
+      [content]="node().content || ''"
+      [class.animate-pulse]="node().status === 'streaming'"
+    />
     } @else {
-    <div class="prose prose-sm prose-invert max-w-none my-2">
+    <div
+      class="prose prose-sm prose-invert max-w-none my-2 transition-opacity duration-300"
+      [class.animate-pulse]="node().status === 'streaming'"
+    >
       <markdown [data]="node().content || ''" />
     </div>
     } } @case ('thinking') {
