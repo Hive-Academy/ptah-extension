@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { ChatInputComponent } from '../molecules/chat-input.component';
+import { PermissionRequestCardComponent } from '../molecules/permission-request-card.component';
 import { ChatStore } from '../../services/chat.store';
 import { createExecutionChatMessage } from '@ptah-extension/shared';
 
@@ -37,7 +38,11 @@ import { createExecutionChatMessage } from '@ptah-extension/shared';
 @Component({
   selector: 'ptah-chat-view',
   standalone: true,
-  imports: [MessageBubbleComponent, ChatInputComponent],
+  imports: [
+    MessageBubbleComponent,
+    ChatInputComponent,
+    PermissionRequestCardComponent,
+  ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,

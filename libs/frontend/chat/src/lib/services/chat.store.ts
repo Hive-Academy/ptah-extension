@@ -6,6 +6,8 @@ import {
   ExecutionNode,
   JSONLMessage,
   createExecutionChatMessage,
+  PermissionRequest,
+  PermissionResponse,
 } from '@ptah-extension/shared';
 import { SessionReplayService } from './session-replay.service';
 import { SessionManager } from './session-manager.service';
@@ -134,6 +136,10 @@ export class ChatStore {
   readonly hasMoreSessions = this._hasMoreSessions.asReadonly();
   readonly totalSessions = this._totalSessions.asReadonly();
   readonly isLoadingMoreSessions = this._isLoadingMoreSessions.asReadonly();
+
+  // Permission requests
+  private readonly _permissionRequests = signal<PermissionRequest[]>([]);
+  readonly permissionRequests = this._permissionRequests.asReadonly();
 
   // ============================================================================
   // DERIVED COMPUTED SIGNALS
@@ -836,5 +842,45 @@ export class ChatStore {
     }
 
     return true;
+  }
+
+  // ============================================================================
+  // PERMISSION REQUEST HANDLING
+  // ============================================================================
+
+  /**
+   * Handle incoming permission request from backend
+   * Adds request to pending permission requests list
+   */
+  handlePermissionRequest(request: PermissionRequest): void {
+    console.log('[ChatStore] Permission request received:', request);
+    this._permissionRequests.update((requests) => [...requests, request]);
+  }
+
+  /**
+   * Handle user response to permission request
+   * Removes request from pending list and sends response to backend
+   */
+  handlePermissionResponse(response: PermissionResponse): void {
+    console.log('[ChatStore] Permission response:', response);
+
+    // Remove from pending requests
+    this._permissionRequests.update((requests) =>
+      requests.filter((r) => r.id !== response.id)
+    );
+
+    // Send to backend via VSCodeService
+    // Access the private vscode API via type assertion (same pattern as ClaudeRpcService)
+    const vscodeService = this.vscodeService as any;
+    if (vscodeService?.vscode) {
+      vscodeService.vscode.postMessage({
+        type: 'permission:response',
+        payload: response,
+      });
+    } else {
+      console.error(
+        '[ChatStore] VSCodeService not available for permission response'
+      );
+    }
   }
 }
