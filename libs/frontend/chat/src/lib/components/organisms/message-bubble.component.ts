@@ -15,6 +15,7 @@ import {
 } from 'lucide-angular';
 import { ExecutionNodeComponent } from './execution-node.component';
 import { AgentExecutionComponent } from './agent-execution.component';
+import { TypingCursorComponent } from '../atoms/typing-cursor.component';
 import type { ExecutionChatMessage } from '@ptah-extension/shared';
 import { VSCodeService } from '@ptah-extension/core';
 
@@ -36,6 +37,7 @@ import { VSCodeService } from '@ptah-extension/core';
     MarkdownModule,
     ExecutionNodeComponent,
     AgentExecutionComponent,
+    TypingCursorComponent,
     LucideAngularModule,
     NgStyle,
     NgOptimizedImage,
@@ -51,6 +53,9 @@ export class MessageBubbleComponent {
   private readonly vscode = inject(VSCodeService);
 
   readonly message = input.required<ExecutionChatMessage>();
+
+  /** Indicates if this message is currently streaming */
+  readonly isStreaming = input<boolean>(false);
 
   // Lucide icons
   readonly CopyIcon = Copy;

@@ -65,9 +65,16 @@
 } @else if (message().role === 'assistant') {
 <!-- Assistant message (left-aligned) -->
 <div class="chat chat-start">
-  <!-- Avatar with Ptah icon -->
+  <!-- Avatar with Ptah icon + streaming ring -->
   <div class="chat-image avatar">
-    <div class="w-8 h-8 rounded-full overflow-hidden">
+    <div
+      class="w-8 h-8 rounded-full overflow-hidden transition-all duration-300"
+      [class.ring-2]="isStreaming()"
+      [class.ring-info]="isStreaming()"
+      [class.ring-offset-2]="isStreaming()"
+      [class.ring-offset-base-100]="isStreaming()"
+      [class.animate-pulse]="isStreaming()"
+    >
       <img
         [ngSrc]="ptahIconUri"
         alt="Claude"
@@ -96,13 +103,19 @@
     @if (message().executionTree) {
     <!-- ExecutionNode recursive tree -->
     <ptah-execution-node [node]="message().executionTree!" />
-    } @else {
+
+    <!-- Typing cursor at end of streaming text -->
+    @if (isStreaming()) {
+    <ptah-typing-cursor colorClass="text-neutral-content/70" />
+    } } @else {
     <!-- Fallback text content -->
     <markdown
       [data]="message().rawContent || ''"
       class="prose prose-sm prose-invert max-w-none"
     />
-    }
+    @if (isStreaming()) {
+    <ptah-typing-cursor colorClass="text-neutral-content/70" />
+    } }
   </div>
 
   <!-- Action buttons (hover reveal) -->
