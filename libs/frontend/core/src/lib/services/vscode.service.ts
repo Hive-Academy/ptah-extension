@@ -172,8 +172,8 @@ export class VSCodeService {
       // Route chat:chunk messages to ChatStore (TASK_2025_023)
       if (message.type === 'chat:chunk') {
         if (message.payload && this.chatStore) {
-          const { message: jsonlMessage } = message.payload;
-          this.chatStore.processJsonlChunk(jsonlMessage);
+          const { sessionId, message: jsonlMessage } = message.payload;
+          this.chatStore.processJsonlChunk(jsonlMessage, sessionId);
         } else if (!message.payload) {
           console.warn(
             '[VSCodeService] chat:chunk received but payload is undefined!'

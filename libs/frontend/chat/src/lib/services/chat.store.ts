@@ -725,7 +725,7 @@ export class ChatStore {
    *
    * Delegates to JsonlMessageProcessor and updates active tab's execution tree.
    */
-  processJsonlChunk(chunk: JSONLMessage): void {
+  processJsonlChunk(chunk: JSONLMessage, fromSessionId?: string): void {
     try {
       const activeTabId = this.tabManager.activeTabId();
       if (!activeTabId) {
@@ -734,6 +734,19 @@ export class ChatStore {
       }
 
       const activeTab = this.tabManager.activeTab();
+
+      // Validate chunk is for current session (session isolation)
+      if (
+        fromSessionId &&
+        activeTab?.claudeSessionId &&
+        activeTab.claudeSessionId !== fromSessionId
+      ) {
+        console.warn('[ChatStore] Ignoring chunk from different session', {
+          expected: activeTab.claudeSessionId,
+          received: fromSessionId,
+        });
+        return;
+      }
 
       // Delegate to JsonlMessageProcessor
       const result = this.jsonlProcessor.processChunk(
@@ -894,6 +907,19 @@ export class ChatStore {
 
     const activeTab = this.tabManager.activeTab();
 
+    // Validate completion is for current session (session isolation)
+    if (
+      data.sessionId &&
+      activeTab?.claudeSessionId &&
+      activeTab.claudeSessionId !== data.sessionId
+    ) {
+      console.warn('[ChatStore] Ignoring completion from different session', {
+        expected: activeTab.claudeSessionId,
+        received: data.sessionId,
+      });
+      return;
+    }
+
     // Only reset if tab is still in streaming/resuming state
     if (
       activeTab?.status === 'streaming' ||
@@ -926,6 +952,21 @@ export class ChatStore {
     const activeTabId = this.tabManager.activeTabId();
     if (!activeTabId) {
       console.warn('[ChatStore] No active tab for chat error');
+      return;
+    }
+
+    const activeTab = this.tabManager.activeTab();
+
+    // Validate error is for current session (session isolation)
+    if (
+      data.sessionId &&
+      activeTab?.claudeSessionId &&
+      activeTab.claudeSessionId !== data.sessionId
+    ) {
+      console.warn('[ChatStore] Ignoring error from different session', {
+        expected: activeTab.claudeSessionId,
+        received: data.sessionId,
+      });
       return;
     }
 

@@ -29,3 +29,5 @@
 | TASK_2025_028 | Tool Output Rendering Fix - PrismJS syntax highlighting, strip CLI line numbers and system-reminder tags                      | ✅ Complete                              | orchestrator       | 2025-11-28 | 2025-11-28 |
 | TASK_2025_029 | Tab-Based Multi-Session Support (Phases 2-4) - TabManager service, Tab UI components, keyboard shortcuts, persistence         | ✅ Complete                              | orchestrator       | 2025-11-28 | 2025-11-29 |
 | TASK_2025_030 | Enhanced Streaming UX - Typewriter effect, typing cursor, tool activity status, fix streaming indicator logic                 | ✅ Complete                              | orchestrator       | 2025-11-30 | 2025-11-30 |
+| TASK_2025_031 | Tool Component Refactoring - Decompose tool-call-item.component.ts into specialized components with TodoWrite display         | 📋 Planned                               | orchestrator       | 2025-11-30 | -          |
+| TASK_2025_032 | Session Isolation Bug Fix - Chat chunks routed to wrong tab when switching during streaming (P0 Critical)                     | ✅ Complete                              | orchestrator       | 2025-11-30 | 2025-11-30 |
