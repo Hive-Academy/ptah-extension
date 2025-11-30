@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2025_031
 
-**Total Tasks**: 11 | **Batches**: 4 | **Status**: 1/4 complete
+**Total Tasks**: 11 | **Batches**: 4 | **Status**: 2/4 complete
 
 ---
 
@@ -9,6 +9,7 @@
 **Developer**: frontend-developer
 **Tasks**: 3 | **Dependencies**: None
 **Rationale**: Create base service and foundational atoms with zero dependencies
+**Commit**: b9f05e8
 
 ### Task 1.1: Create TypewriterService - COMPLETE
 
@@ -94,13 +95,14 @@
 
 ---
 
-## Batch 2: Reusable Atoms - PENDING
+## Batch 2: Reusable Atoms - COMPLETE
 
 **Developer**: frontend-developer
 **Tasks**: 3 | **Dependencies**: None (independent atoms)
 **Rationale**: Create remaining atoms that can be developed in parallel
+**Commit**: [pending]
 
-### Task 2.1: Create FilePathLinkComponent - PENDING
+### Task 2.1: Create FilePathLinkComponent - COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\atoms\file-path-link.component.ts
 **Spec Reference**: implementation-plan.md:431-515
@@ -126,7 +128,7 @@
 
 ---
 
-### Task 2.2: Create ExpandableContentComponent - PENDING
+### Task 2.2: Create ExpandableContentComponent - COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\atoms\expandable-content.component.ts
 **Spec Reference**: implementation-plan.md:667-738
@@ -151,7 +153,7 @@
 
 ---
 
-### Task 2.3: Create ErrorAlertComponent - PENDING
+### Task 2.3: Create ErrorAlertComponent - COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\atoms\error-alert.component.ts
 **Spec Reference**: implementation-plan.md:1192-1245

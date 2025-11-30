@@ -1,7 +1,6 @@
 import { Component, input, ChangeDetectionStrategy } from '@angular/core';
 import {
   LucideAngularModule,
-  type LucideIcon,
   File,
   Terminal,
   Search,
@@ -47,7 +46,7 @@ export class ToolIconComponent {
    * Map tool name to lucide icon
    * Extracted from tool-call-item.component.ts:303-320
    */
-  protected getIcon(): LucideIcon {
+  protected getIcon(): typeof File {
     const name = this.toolName();
     switch (name) {
       case 'Read':
