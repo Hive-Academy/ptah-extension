@@ -158,6 +158,183 @@ execution-node.component.ts (EXISTING - Parent container)
 
 ## Component Specifications
 
+### Component 0: `typewriter.service.ts` (Service)
+
+**Purpose**: Provide RxJS-based typewriter animation effects for streaming text display
+
+**Pattern**: RxJS Observable service with interval-based character reveal
+**Evidence**: User-provided service specification
+
+**Responsibilities**:
+
+- Create character-by-character typing animation using RxJS interval
+- Support forward and backward typing (erase effect)
+- Provide cycling through multiple text strings
+- Configurable typing speed
+- Pause between type and erase cycles
+
+**Implementation**:
+
+```typescript
+// User-provided implementation
+import { Injectable } from '@angular/core';
+import { concat, from, interval, of } from 'rxjs';
+import { concatMap, delay, ignoreElements, map, repeat, take } from 'rxjs/operators';
+
+interface TypeParams {
+  word: string;
+  speed: number;
+  backwards?: boolean;
+}
+
+@Injectable({
+  providedIn: 'root',
+})
+export class TypewriterService {
+  private type({ word, speed, backwards = false }: TypeParams) {
+    return interval(speed).pipe(
+      map((x) => (backwards ? word.substring(0, word.length - x) : word.substring(0, x + 1))),
+      take(word.length)
+    );
+  }
+
+  typeEffect(word: string) {
+    return concat(this.type({ word, speed: 50 }), of('').pipe(delay(1200), ignoreElements()), this.type({ word, speed: 30, backwards: true }), of('').pipe(delay(300), ignoreElements()));
+  }
+
+  getTypewriterEffect(titles: string[]) {
+    return from(titles).pipe(
+      concatMap((title) => this.typeEffect(title)),
+      repeat()
+    );
+  }
+}
+```
+
+**Quality Requirements**:
+
+**Functional Requirements**:
+
+- Forward typing: Reveal characters from start to end at configurable speed
+- Backward typing (erase): Remove characters from end to start at faster speed
+- Type effect cycle: type → pause → erase → pause
+- Multiple titles: Cycle through array of strings indefinitely
+
+**Non-Functional Requirements**:
+
+- < 60 lines total
+- Pure RxJS observables (no side effects)
+- Tree-shakeable (providedIn: 'root')
+
+**Pattern Compliance**:
+
+- Must use RxJS operators (interval, concat, from, concatMap)
+- Must be injectable service with providedIn: 'root'
+- Must return Observable<string> for async composition
+
+**Files Affected**:
+
+- `D:\projects\ptah-extension\libs\frontend\chat\src\lib\services\typewriter.service.ts` (CREATE)
+
+---
+
+### Component 0.1: `streaming-text.component.ts` (Atom)
+
+**Purpose**: Display streaming text with typewriter effect and blinking cursor
+
+**Pattern**: Atom component with RxJS subscription
+**Evidence**: typing-cursor.component.ts (existing cursor atom), user requirement for typewriter during streaming
+
+**Responsibilities**:
+
+- Subscribe to TypewriterService for character-by-character reveal
+- Display text progressively with typing cursor at end
+- Integrate with existing typing-cursor component
+- Handle cleanup on destroy (unsubscribe)
+
+**Implementation Pattern**:
+
+```typescript
+import { Component, input, computed, OnInit, OnDestroy, signal, inject, ChangeDetectionStrategy } from '@angular/core';
+import { Subscription } from 'rxjs';
+import { TypewriterService } from '../../services/typewriter.service';
+import { TypingCursorComponent } from './typing-cursor.component';
+
+@Component({
+  selector: 'ptah-streaming-text',
+  standalone: true,
+  imports: [TypingCursorComponent],
+  template: ` <span class="streaming-text"> {{ displayText() }}<ptah-typing-cursor [colorClass]="cursorColor()" /> </span> `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class StreamingTextComponent implements OnInit, OnDestroy {
+  private readonly typewriterService = inject(TypewriterService);
+  private subscription?: Subscription;
+
+  /** The full text to display with typewriter effect */
+  readonly text = input.required<string>();
+
+  /** Speed in ms per character (default: 50ms) */
+  readonly speed = input<number>(50);
+
+  /** Whether to show typewriter effect or display full text immediately */
+  readonly animate = input<boolean>(true);
+
+  /** Cursor color class */
+  readonly cursorColor = input<string>('text-info');
+
+  /** Currently displayed text (progressive reveal) */
+  readonly displayText = signal<string>('');
+
+  ngOnInit() {
+    if (this.animate()) {
+      this.startTypewriter();
+    } else {
+      this.displayText.set(this.text());
+    }
+  }
+
+  ngOnDestroy() {
+    this.subscription?.unsubscribe();
+  }
+
+  private startTypewriter() {
+    const fullText = this.text();
+    this.subscription = this.typewriterService.type({ word: fullText, speed: this.speed() }).subscribe((partialText) => {
+      this.displayText.set(partialText);
+    });
+  }
+}
+```
+
+**Quality Requirements**:
+
+**Functional Requirements**:
+
+- Display text character-by-character when animate=true
+- Display full text immediately when animate=false
+- Show blinking cursor at end of text
+- Clean up subscription on component destroy
+
+**Non-Functional Requirements**:
+
+- < 80 lines total
+- OnPush change detection
+- Proper RxJS subscription cleanup
+
+**Pattern Compliance**:
+
+- Must use signal for reactive display state
+- Must compose with existing TypingCursorComponent
+- Must use inject() for service injection
+- Must implement OnDestroy for cleanup
+
+**Files Affected**:
+
+- `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\atoms\streaming-text.component.ts` (CREATE)
+
+---
+
 ### Component 1: `tool-icon.component.ts` (Atom)
 
 **Purpose**: Display tool-specific icon with semantic color coding
@@ -1361,22 +1538,26 @@ file-path-link.component.ts
 
 **Complexity**: MEDIUM
 
-**Estimated Effort**: 4-6 hours
+**Estimated Effort**: 5-7 hours
 
 **Breakdown**:
 
+- **Phase 0 - TypewriterService** (0.5 hours): Create TypewriterService with RxJS-based typewriter effects
+- **Phase 0.1 - StreamingText** (0.5 hours): Create StreamingTextComponent with typewriter integration
 - **Phase 1 - Atoms** (1.5 hours): Create 4 atomic components (ToolIcon, FilePathLink, ExpandableContent, ErrorAlert)
 - **Phase 2 - TodoWrite** (1 hour): Create TodoListDisplayComponent with progress bar
 - **Phase 3 - Output** (1 hour): Create CodeOutputComponent and ToolOutputDisplayComponent
 - **Phase 4 - Input** (1 hour): Create ToolInputDisplayComponent
 - **Phase 5 - Header** (1 hour): Create ToolCallHeaderComponent
 - **Phase 6 - Orchestrator** (0.5 hours): Refactor ToolCallItemComponent to use composition
-- **Phase 7 - Integration** (1 hour): Test all tools, verify no regressions
+- **Phase 7 - Integration** (1 hour): Test all tools, verify no regressions, test typewriter effect
 
 ### Files Affected Summary
 
-**CREATE** (8 new components):
+**CREATE** (11 new components - 1 service + 10 components):
 
+- `D:\projects\ptah-extension\libs\frontend\chat\src\lib\services\typewriter.service.ts` (NEW - TypewriterService)
+- `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\atoms\streaming-text.component.ts` (NEW - StreamingTextComponent)
 - `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\atoms\tool-icon.component.ts`
 - `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\atoms\file-path-link.component.ts`
 - `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\atoms\expandable-content.component.ts`

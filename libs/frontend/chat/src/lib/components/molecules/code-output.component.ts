@@ -31,7 +31,9 @@ import type { ExecutionNode } from '@ptah-extension/shared';
   standalone: true,
   imports: [MarkdownModule],
   template: `
-    <div class="bg-base-300/50 rounded max-h-48 overflow-y-auto overflow-x-auto">
+    <div
+      class="bg-base-300/50 rounded max-h-48 overflow-y-auto overflow-x-auto"
+    >
       <markdown
         [data]="formattedOutput()"
         class="tool-output-markdown prose prose-xs prose-invert max-w-none [&_pre]:my-0 [&_pre]:rounded-none [&_code]:text-[10px] [&_pre]:bg-transparent [&_p]:my-1 [&_p]:text-[10px]"
@@ -91,10 +93,14 @@ export class CodeOutputComponent {
    * Extracted from tool-call-item.component.ts:539-593
    */
   readonly formattedOutput = computed(() => {
-    const output = this.node().toolOutput;
+    const node = this.node();
+    if (!node) return '';
+
+    const output = node.toolOutput;
     if (!output) return '';
 
-    let str = typeof output === 'string' ? output : JSON.stringify(output, null, 2);
+    let str =
+      typeof output === 'string' ? output : JSON.stringify(output, null, 2);
 
     // Processing pipeline
     str = this.extractMCPContent(str);
@@ -115,9 +121,12 @@ export class CodeOutputComponent {
    * Extracted from tool-call-item.component.ts:633-637
    */
   private detectLanguage(): string {
-    const toolName = this.node().toolName;
-    const toolInput = this.node().toolInput;
-    const output = this.node().toolOutput;
+    const node = this.node();
+    if (!node) return 'text';
+
+    const toolName = node.toolName;
+    const toolInput = node.toolInput;
+    const output = node.toolOutput;
 
     // Detect language based on tool type
     let language = 'text';

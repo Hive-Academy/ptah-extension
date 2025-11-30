@@ -4,7 +4,10 @@ import {
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { TodoListDisplayComponent, type TodoWriteInput } from './todo-list-display.component';
+import {
+  TodoListDisplayComponent,
+  type TodoWriteInput,
+} from './todo-list-display.component';
 import { CodeOutputComponent } from './code-output.component';
 import { ErrorAlertComponent } from '../atoms/error-alert.component';
 import type { ExecutionNode } from '@ptah-extension/shared';
@@ -32,7 +35,9 @@ import type { ExecutionNode } from '@ptah-extension/shared';
   template: `
     @if (node().toolOutput) {
     <div class="mt-1.5">
-      <div class="text-[10px] font-semibold text-base-content/50 mb-0.5">Output</div>
+      <div class="text-[10px] font-semibold text-base-content/50 mb-0.5">
+        Output
+      </div>
 
       @if (isTodoWriteTool() && node().toolInput) {
       <ptah-todo-list-display [toolInput]="getTodoInput()" />
@@ -53,7 +58,10 @@ export class ToolOutputDisplayComponent {
    * Computed: Detect TodoWrite tool
    * TodoWrite gets specialized rendering with task list UI
    */
-  readonly isTodoWriteTool = computed(() => this.node().toolName === 'TodoWrite');
+  readonly isTodoWriteTool = computed(() => {
+    const node = this.node();
+    return node?.toolName === 'TodoWrite';
+  });
 
   /**
    * Get properly typed TodoWrite input

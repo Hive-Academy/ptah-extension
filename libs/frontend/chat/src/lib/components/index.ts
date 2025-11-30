@@ -5,8 +5,8 @@
  *
  * NEW: Atomic Design hierarchy with DaisyUI + Tailwind
  * - Atoms: MarkdownBlock, StatusBadge, TokenBadge, DurationBadge
- * - Molecules: ThinkingBlock, ToolCallItem, AgentCard
- * - Organisms: ExecutionNode (recursive!), MessageBubble
+ * - Molecules: ThinkingBlock, ToolCallItem, AgentSummary
+ * - Organisms: ExecutionNode (recursive!), MessageBubble, InlineAgentBubble, AgentExecution
  * - Templates: ChatView, AppShell
  *
  * KEEPING: Suggestion components (user request - feature required)
@@ -28,7 +28,6 @@ export * from './atoms/duration-badge.component';
 // ============================================================================
 export * from './molecules/thinking-block.component';
 export * from './molecules/tool-call-item.component';
-export * from './molecules/agent-card.component';
 export * from './molecules/agent-summary.component';
 export * from './molecules/chat-input.component';
 

@@ -79,7 +79,7 @@ export class MessageBubbleComponent {
 
   /**
    * Get color for agent avatar based on agent type
-   * Consistent with agent-card.component.ts colors
+   * Consistent with inline-agent-bubble.component.ts colors
    */
   protected getAgentColor(agentType: string): string {
     const colors: Record<string, string> = {

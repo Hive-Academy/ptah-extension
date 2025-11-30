@@ -12,12 +12,7 @@ import {
 } from '@ptah-extension/shared';
 import { SessionReplayService } from './session-replay.service';
 import { SessionManager } from './session-manager.service';
-import {
-  JsonlMessageProcessor,
-  AgentBubbleStarted,
-  AgentBubbleUpdate,
-  AgentBubbleCompleted,
-} from './jsonl-processor.service';
+import { JsonlMessageProcessor } from './jsonl-processor.service';
 import { TabManagerService } from './tab-manager.service';
 import { TabState } from './chat.types';
 
@@ -119,6 +114,10 @@ export class ChatStore {
   private readonly _isLoadingMoreSessions = signal(false);
   private static readonly SESSIONS_PAGE_SIZE = 10;
 
+  // Track pending session ID resolutions: placeholder sessionId -> tabId
+  // This ensures session:id-resolved goes to the correct tab even if user switches tabs
+  private readonly pendingSessionResolutions = new Map<string, string>();
+
   // ============================================================================
   // PUBLIC READONLY SIGNALS
   // ============================================================================
@@ -176,8 +175,8 @@ export class ChatStore {
   // STREAMING STATE TRACKING
   // ============================================================================
 
-  // Track currently building message
-  private currentMessageId: string | null = null;
+  // NOTE: currentMessageId is now tracked per-tab in TabState.currentMessageId
+  // This enables proper multi-tab streaming support
 
   // ============================================================================
   // ACTIONS
@@ -194,7 +193,7 @@ export class ChatStore {
     const newTabId = this.tabManager.createTab('New Chat');
     this.tabManager.switchTab(newTabId);
 
-    this.currentMessageId = null;
+    // New tab starts with no currentMessageId (handled by TabState default)
     this.sessionManager.clearSession();
   }
 
@@ -347,8 +346,7 @@ export class ChatStore {
         return;
       }
 
-      // Clear streaming state before loading
-      this.currentMessageId = null;
+      // Note: currentMessageId is now per-tab, cleared when tab is updated below
 
       // Load messages for this session via RPC
       const result = await this.claudeRpcService.call<{
@@ -489,11 +487,17 @@ export class ChatStore {
       const activeTab = this.tabManager.activeTab();
       this.tabManager.updateTab(activeTabId, {
         messages: [...(activeTab?.messages ?? []), userMessage],
+        currentMessageId: null, // Reset per-tab message ID for new conversation
       });
 
-      this.currentMessageId = null;
+      // Track this tab for session ID resolution
+      // When session:id-resolved arrives, we'll know which tab initiated this conversation
+      this.pendingSessionResolutions.set(sessionId, activeTabId);
 
-      console.log('[ChatStore] Starting NEW conversation:', { sessionId });
+      console.log('[ChatStore] Starting NEW conversation:', {
+        sessionId,
+        tabId: activeTabId,
+      });
 
       // Call RPC to start NEW chat
       const result = await this.claudeRpcService.call<{ sessionId: string }>(
@@ -508,6 +512,8 @@ export class ChatStore {
 
       if (!result.success) {
         console.error('[ChatStore] Failed to start chat:', result.error);
+        // Clean up pending resolution since chat failed
+        this.pendingSessionResolutions.delete(sessionId);
         // Update tab status to loaded (failed)
         this.tabManager.updateTab(activeTabId, { status: 'loaded' });
       } else {
@@ -648,37 +654,65 @@ export class ChatStore {
   }): void {
     console.log('[ChatStore] Session ID resolved:', data);
 
-    const { realSessionId } = data;
-    const activeTabId = this.tabManager.activeTabId();
+    const { sessionId: placeholderSessionId, realSessionId } = data;
 
-    if (!activeTabId) {
-      console.warn('[ChatStore] No active tab for session ID resolution');
+    // Find the tab that initiated this conversation using the pending resolutions map
+    let targetTabId = this.pendingSessionResolutions.get(placeholderSessionId);
+
+    if (targetTabId) {
+      // Remove from pending resolutions
+      this.pendingSessionResolutions.delete(placeholderSessionId);
+      console.log('[ChatStore] Found pending resolution for tab:', targetTabId);
+    } else {
+      // Fall back to active tab (for backwards compatibility)
+      targetTabId = this.tabManager.activeTabId() ?? undefined;
+      console.log(
+        '[ChatStore] No pending resolution found, using active tab:',
+        targetTabId
+      );
+    }
+
+    if (!targetTabId) {
+      console.warn('[ChatStore] No target tab for session ID resolution');
       return;
     }
 
-    const activeTab = this.tabManager.activeTab();
-    if (activeTab?.status !== 'draft') {
+    // Get the target tab
+    const targetTab = this.tabManager.tabs().find((t) => t.id === targetTabId);
+    if (!targetTab) {
+      console.warn('[ChatStore] Target tab not found:', targetTabId);
+      return;
+    }
+
+    if (targetTab.status !== 'draft') {
       console.warn(
-        '[ChatStore] Ignoring session ID resolution for non-draft tab'
+        '[ChatStore] Ignoring session ID resolution for non-draft tab',
+        { tabId: targetTabId, status: targetTab.status }
       );
       return;
     }
 
     // Update tab with real session ID
-    this.tabManager.resolveSessionId(activeTabId, realSessionId);
+    this.tabManager.resolveSessionId(targetTabId, realSessionId);
 
     // Update messages with real session ID
-    const updatedMessages = activeTab.messages.map((msg) => ({
+    const updatedMessages = targetTab.messages.map((msg) => ({
       ...msg,
       sessionId: msg.sessionId === null ? realSessionId : msg.sessionId,
     }));
 
-    this.tabManager.updateTab(activeTabId, {
+    this.tabManager.updateTab(targetTabId, {
       messages: updatedMessages,
     });
 
     // Update SessionManager
     this.sessionManager.setClaudeSessionId(realSessionId);
+
+    console.log('[ChatStore] Session ID resolved for tab:', {
+      tabId: targetTabId,
+      placeholderSessionId,
+      realSessionId,
+    });
 
     // Refresh session list to show new session in sidebar
     this.loadSessions().catch((err) => {
@@ -730,76 +764,73 @@ export class ChatStore {
   /**
    * Process a JSONL chunk from Claude CLI
    *
-   * Delegates to JsonlMessageProcessor and updates active tab's execution tree.
-   * NEW: Also handles agent bubble lifecycle signals for unified visual hierarchy.
+   * Delegates to JsonlMessageProcessor and updates the target tab's execution tree.
+   * Routes messages to the correct tab by sessionId, not just the active tab.
+   * Also handles agent bubble lifecycle signals for unified visual hierarchy.
    */
   processJsonlChunk(chunk: JSONLMessage, fromSessionId?: string): void {
     try {
-      const activeTabId = this.tabManager.activeTabId();
-      if (!activeTabId) {
-        console.warn('[ChatStore] No active tab for JSONL processing');
-        return;
+      // Find the target tab by session ID (proper multi-tab routing)
+      let targetTab: TabState | null = null;
+      let targetTabId: string | null = null;
+
+      if (fromSessionId) {
+        // First, try to find tab by Claude session ID
+        targetTab = this.tabManager.findTabBySessionId(fromSessionId);
+        if (targetTab) {
+          targetTabId = targetTab.id;
+        }
       }
 
-      const activeTab = this.tabManager.activeTab();
+      // Fall back to active tab if no session ID provided or tab not found
+      // (for backwards compatibility with draft tabs that don't have claudeSessionId yet)
+      if (!targetTab) {
+        targetTabId = this.tabManager.activeTabId();
+        targetTab = this.tabManager.activeTab();
 
-      // Validate chunk is for current session (session isolation)
-      if (
-        fromSessionId &&
-        activeTab?.claudeSessionId &&
-        activeTab.claudeSessionId !== fromSessionId
-      ) {
-        console.warn('[ChatStore] Ignoring chunk from different session', {
-          expected: activeTab.claudeSessionId,
-          received: fromSessionId,
-        });
+        // If we have a session ID but couldn't find the tab, and active tab doesn't match, warn
+        if (
+          fromSessionId &&
+          targetTab?.claudeSessionId &&
+          targetTab.claudeSessionId !== fromSessionId
+        ) {
+          console.warn('[ChatStore] Ignoring chunk - no matching tab found', {
+            sessionId: fromSessionId,
+            activeTabSessionId: targetTab.claudeSessionId,
+          });
+          return;
+        }
+      }
+
+      if (!targetTabId || !targetTab) {
+        console.warn('[ChatStore] No target tab for JSONL processing');
         return;
       }
 
       // Delegate to JsonlMessageProcessor
+      // Note: Agents are now nested inside the main execution tree (not separate messages)
+      // The processor updates the agent node in-tree, and we just update the tree state
       const result = this.jsonlProcessor.processChunk(
         chunk,
-        activeTab?.executionTree ?? null
+        targetTab.executionTree ?? null
       );
-
-      // === NEW: Handle agent bubble lifecycle signals ===
-      if (result.agentBubbleStarted) {
-        this.handleAgentBubbleStarted(
-          activeTabId,
-          activeTab!,
-          result.agentBubbleStarted
-        );
-      }
-
-      if (result.agentBubbleUpdate) {
-        this.handleAgentBubbleUpdate(
-          activeTabId,
-          activeTab!,
-          result.agentBubbleUpdate
-        );
-      }
-
-      if (result.agentBubbleCompleted) {
-        this.handleAgentBubbleCompleted(
-          activeTabId,
-          activeTab!,
-          result.agentBubbleCompleted
-        );
-      }
 
       // Update state based on result
       if (result.newMessageStarted) {
-        this.currentMessageId = result.messageId ?? null;
+        // Track currentMessageId per-tab for multi-tab streaming support
+        this.tabManager.updateTab(targetTabId, {
+          currentMessageId: result.messageId ?? null,
+        });
       }
 
-      if (result.tree !== activeTab?.executionTree) {
-        this.tabManager.updateTab(activeTabId, {
+      if (result.tree !== targetTab.executionTree) {
+        this.tabManager.updateTab(targetTabId, {
           executionTree: result.tree,
         });
       }
 
       if (result.streamComplete) {
-        this.finalizeCurrentMessage();
+        this.finalizeCurrentMessage(targetTabId);
       }
     } catch (error) {
       console.error('[ChatStore] Error processing JSONL chunk:', error, chunk);
@@ -809,16 +840,24 @@ export class ChatStore {
   /**
    * Finalize the current streaming message
    *
-   * Converts the execution tree to a chat message and adds it to active tab's messages.
+   * Converts the execution tree to a chat message and adds it to the target tab's messages.
+   * Uses per-tab currentMessageId for proper multi-tab streaming support.
+   * @param tabId - Optional tab ID to finalize. Falls back to active tab if not provided.
    */
-  private finalizeCurrentMessage(): void {
-    const activeTabId = this.tabManager.activeTabId();
-    if (!activeTabId) return;
+  private finalizeCurrentMessage(tabId?: string): void {
+    // Use provided tabId or fall back to active tab
+    const targetTabId = tabId ?? this.tabManager.activeTabId();
+    if (!targetTabId) return;
 
-    const activeTab = this.tabManager.activeTab();
-    const tree = activeTab?.executionTree;
+    // Get the target tab (by ID if provided, otherwise active)
+    const targetTab = tabId
+      ? this.tabManager.tabs().find((t) => t.id === tabId)
+      : this.tabManager.activeTab();
 
-    if (!tree || !this.currentMessageId) return;
+    const tree = targetTab?.executionTree;
+    const messageId = targetTab?.currentMessageId;
+
+    if (!tree || !messageId) return;
 
     // Mark all streaming nodes as complete
     const finalizeNode = (node: ExecutionNode): ExecutionNode => ({
@@ -831,144 +870,22 @@ export class ChatStore {
 
     // Create chat message with execution tree
     const assistantMessage = createExecutionChatMessage({
-      id: this.currentMessageId,
+      id: messageId,
       role: 'assistant',
       executionTree: finalTree,
-      sessionId: activeTab.claudeSessionId ?? undefined,
+      sessionId: targetTab?.claudeSessionId ?? undefined,
     });
 
-    // Add to active tab's messages
-    this.tabManager.updateTab(activeTabId, {
-      messages: [...activeTab.messages, assistantMessage],
+    // Add to target tab's messages and clear streaming state
+    this.tabManager.updateTab(targetTabId, {
+      messages: [...(targetTab?.messages ?? []), assistantMessage],
       executionTree: null,
       status: 'loaded',
+      currentMessageId: null,
     });
-
-    this.currentMessageId = null;
 
     // Update SessionManager status
     this.sessionManager.setStatus('loaded');
-  }
-
-  // ============================================================================
-  // AGENT BUBBLE HANDLERS (Unified Visual Hierarchy)
-  // ============================================================================
-
-  /**
-   * Handle creation of a new agent bubble.
-   * Creates a separate ExecutionChatMessage with agentInfo for the agent.
-   */
-  private handleAgentBubbleStarted(
-    tabId: string,
-    tab: TabState,
-    agentStart: AgentBubbleStarted
-  ): void {
-    const { id, toolUseId, agentType, agentDescription, agentModel } =
-      agentStart;
-
-    // Create agent message with AgentInfo
-    const agentMessage = createExecutionChatMessage({
-      id,
-      role: 'assistant',
-      agentInfo: {
-        agentType,
-        agentDescription,
-        agentModel,
-        isStreaming: true,
-        toolUseId,
-        hasSummary: true,
-        hasExecution: true,
-      },
-      executionTree: createExecutionNode({
-        id,
-        type: 'message',
-        status: 'streaming',
-      }),
-      sessionId: tab.claudeSessionId ?? undefined,
-    });
-
-    // Add to messages
-    this.tabManager.updateTab(tabId, {
-      messages: [...tab.messages, agentMessage],
-      streamingAgents: new Map(tab.streamingAgents ?? []).set(toolUseId, id),
-    });
-
-    console.log('[ChatStore] Agent bubble created:', toolUseId, agentType);
-  }
-
-  /**
-   * Handle update to an existing agent bubble.
-   * Updates the agent message's execution tree and summary content.
-   */
-  private handleAgentBubbleUpdate(
-    tabId: string,
-    tab: TabState,
-    update: AgentBubbleUpdate
-  ): void {
-    const { toolUseId, tree, summaryDelta } = update;
-
-    // Find and update the agent message
-    const updatedMessages = tab.messages.map((msg) => {
-      if (msg.agentInfo?.toolUseId === toolUseId) {
-        return {
-          ...msg,
-          executionTree: tree,
-          agentInfo: {
-            ...msg.agentInfo!,
-            summaryContent: summaryDelta
-              ? (msg.agentInfo!.summaryContent || '') + summaryDelta
-              : msg.agentInfo!.summaryContent,
-          },
-        };
-      }
-      return msg;
-    });
-
-    this.tabManager.updateTab(tabId, { messages: updatedMessages });
-  }
-
-  /**
-   * Handle completion of an agent bubble.
-   * Marks the agent as no longer streaming and updates final summary.
-   */
-  private handleAgentBubbleCompleted(
-    tabId: string,
-    tab: TabState,
-    completion: AgentBubbleCompleted
-  ): void {
-    const { toolUseId, finalSummary } = completion;
-
-    // Mark agent as complete
-    const updatedMessages = tab.messages.map((msg) => {
-      if (msg.agentInfo?.toolUseId === toolUseId) {
-        // Also mark execution tree as complete
-        const completedTree = msg.executionTree
-          ? { ...msg.executionTree, status: 'complete' as const }
-          : null;
-
-        return {
-          ...msg,
-          executionTree: completedTree,
-          agentInfo: {
-            ...msg.agentInfo!,
-            isStreaming: false,
-            summaryContent: finalSummary || msg.agentInfo!.summaryContent,
-          },
-        };
-      }
-      return msg;
-    });
-
-    // Remove from streaming agents map
-    const newStreamingAgents = new Map(tab.streamingAgents ?? []);
-    newStreamingAgents.delete(toolUseId);
-
-    this.tabManager.updateTab(tabId, {
-      messages: updatedMessages,
-      streamingAgents: newStreamingAgents,
-    });
-
-    console.log('[ChatStore] Agent bubble completed:', toolUseId);
   }
 
   // ============================================================================
@@ -1048,47 +965,64 @@ export class ChatStore {
   /**
    * Handle chat completion signal from backend
    * Called when Claude CLI process exits (success or error)
-   * Ensures UI state is reset to 'loaded' regardless of exit code
+   * Routes to correct tab by sessionId for proper multi-tab support.
+   * Ensures UI state is reset to 'loaded' regardless of exit code.
    */
   handleChatComplete(data: { sessionId: string; code: number }): void {
     console.log('[ChatStore] Chat complete:', data);
 
-    const activeTabId = this.tabManager.activeTabId();
-    if (!activeTabId) {
-      console.warn('[ChatStore] No active tab for chat completion');
-      return;
+    // Find the target tab by session ID (proper multi-tab routing)
+    let targetTab: TabState | null = null;
+    let targetTabId: string | null = null;
+
+    if (data.sessionId) {
+      targetTab = this.tabManager.findTabBySessionId(data.sessionId);
+      if (targetTab) {
+        targetTabId = targetTab.id;
+      }
     }
 
-    const activeTab = this.tabManager.activeTab();
+    // Fall back to active tab if no matching tab found
+    if (!targetTab) {
+      targetTabId = this.tabManager.activeTabId();
+      targetTab = this.tabManager.activeTab();
 
-    // Validate completion is for current session (session isolation)
-    if (
-      data.sessionId &&
-      activeTab?.claudeSessionId &&
-      activeTab.claudeSessionId !== data.sessionId
-    ) {
-      console.warn('[ChatStore] Ignoring completion from different session', {
-        expected: activeTab.claudeSessionId,
-        received: data.sessionId,
-      });
+      // Warn if session ID doesn't match active tab
+      if (
+        data.sessionId &&
+        targetTab?.claudeSessionId &&
+        targetTab.claudeSessionId !== data.sessionId
+      ) {
+        console.warn('[ChatStore] Completion for unknown session', {
+          sessionId: data.sessionId,
+          activeTabSessionId: targetTab.claudeSessionId,
+        });
+        return;
+      }
+    }
+
+    if (!targetTabId || !targetTab) {
+      console.warn('[ChatStore] No target tab for chat completion');
       return;
     }
 
     // Only reset if tab is still in streaming/resuming state
     if (
-      activeTab?.status === 'streaming' ||
-      activeTab?.status === 'resuming' ||
-      activeTab?.status === 'draft'
+      targetTab.status === 'streaming' ||
+      targetTab.status === 'resuming' ||
+      targetTab.status === 'draft'
     ) {
       // Finalize any pending message
-      this.finalizeCurrentMessage();
+      this.finalizeCurrentMessage(targetTabId);
 
       // Ensure tab status is reset to loaded
-      this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+      this.tabManager.updateTab(targetTabId, { status: 'loaded' });
       this.sessionManager.setStatus('loaded');
 
       console.log(
-        '[ChatStore] Chat state reset to loaded (exit code:',
+        '[ChatStore] Chat state reset to loaded for tab',
+        targetTabId,
+        '(exit code:',
         data.code,
         ')'
       );
@@ -1098,37 +1032,57 @@ export class ChatStore {
   /**
    * Handle chat error signal from backend
    * Called when an error occurs during chat (CLI error, network error, etc.)
-   * Resets streaming state and optionally displays error
+   * Routes to correct tab by sessionId for proper multi-tab support.
+   * Resets streaming state and optionally displays error.
    */
   handleChatError(data: { sessionId: string; error: string }): void {
     console.error('[ChatStore] Chat error:', data);
 
-    const activeTabId = this.tabManager.activeTabId();
-    if (!activeTabId) {
-      console.warn('[ChatStore] No active tab for chat error');
+    // Find the target tab by session ID (proper multi-tab routing)
+    let targetTab: TabState | null = null;
+    let targetTabId: string | null = null;
+
+    if (data.sessionId) {
+      targetTab = this.tabManager.findTabBySessionId(data.sessionId);
+      if (targetTab) {
+        targetTabId = targetTab.id;
+      }
+    }
+
+    // Fall back to active tab if no matching tab found
+    if (!targetTab) {
+      targetTabId = this.tabManager.activeTabId();
+      targetTab = this.tabManager.activeTab();
+
+      // Warn if session ID doesn't match active tab
+      if (
+        data.sessionId &&
+        targetTab?.claudeSessionId &&
+        targetTab.claudeSessionId !== data.sessionId
+      ) {
+        console.warn('[ChatStore] Error for unknown session', {
+          sessionId: data.sessionId,
+          activeTabSessionId: targetTab.claudeSessionId,
+        });
+        return;
+      }
+    }
+
+    if (!targetTabId) {
+      console.warn('[ChatStore] No target tab for chat error');
       return;
     }
 
-    const activeTab = this.tabManager.activeTab();
-
-    // Validate error is for current session (session isolation)
-    if (
-      data.sessionId &&
-      activeTab?.claudeSessionId &&
-      activeTab.claudeSessionId !== data.sessionId
-    ) {
-      console.warn('[ChatStore] Ignoring error from different session', {
-        expected: activeTab.claudeSessionId,
-        received: data.sessionId,
-      });
-      return;
-    }
-
-    // Reset streaming state
-    this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+    // Reset streaming state (including per-tab currentMessageId)
+    this.tabManager.updateTab(targetTabId, {
+      status: 'loaded',
+      currentMessageId: null,
+    });
     this.sessionManager.setStatus('loaded');
-    this.currentMessageId = null;
 
-    console.log('[ChatStore] Chat state reset due to error');
+    console.log(
+      '[ChatStore] Chat state reset due to error for tab',
+      targetTabId
+    );
   }
 }

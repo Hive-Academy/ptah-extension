@@ -142,12 +142,17 @@ export class RpcMethodRegistrationService {
           workspacePath
         );
 
+        // Track the effective session ID - starts as placeholder, updated when real ID resolved
+        let effectiveSessionId = sessionId;
+
         // Extract session UUID from JSONL stream (emitted BEFORE message event)
         process.on('session-id', (realSessionId: string) => {
           this.logger.debug('Session UUID extracted from JSONL', {
             sessionId,
             realSessionId,
           });
+          // Update effective session ID to use real Claude UUID for subsequent messages
+          effectiveSessionId = realSessionId;
           this.webviewManager
             .sendMessage('ptah.main', 'session:id-resolved', {
               sessionId,
@@ -162,7 +167,7 @@ export class RpcMethodRegistrationService {
         process.on('message', (msg: JSONLMessage) => {
           this.webviewManager
             .sendMessage('ptah.main', 'chat:chunk', {
-              sessionId,
+              sessionId: effectiveSessionId,
               message: msg,
             })
             .catch((error) => {
@@ -175,7 +180,7 @@ export class RpcMethodRegistrationService {
           this.logger.error('ClaudeProcess error', error);
           this.webviewManager
             .sendMessage('ptah.main', 'chat:error', {
-              sessionId,
+              sessionId: effectiveSessionId,
               error: error.message,
             })
             .catch((err) => {
@@ -185,11 +190,14 @@ export class RpcMethodRegistrationService {
 
         // Handle close
         process.on('close', (code: number | null) => {
-          this.logger.debug('ClaudeProcess closed', { sessionId, code });
+          this.logger.debug('ClaudeProcess closed', {
+            sessionId: effectiveSessionId,
+            code,
+          });
           this.activeProcesses.delete(sessionId);
           this.webviewManager
             .sendMessage('ptah.main', 'chat:complete', {
-              sessionId,
+              sessionId: effectiveSessionId,
               code,
             })
             .catch((err) => {
@@ -197,7 +205,7 @@ export class RpcMethodRegistrationService {
             });
         });
 
-        // Store process reference
+        // Store process reference (keep using placeholder for internal tracking)
         this.activeProcesses.set(sessionId, process);
 
         // Start the process

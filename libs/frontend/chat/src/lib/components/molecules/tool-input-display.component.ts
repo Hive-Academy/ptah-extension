@@ -38,9 +38,7 @@ interface InputParam {
       <div class="text-[10px] font-semibold text-base-content/50 mb-0.5">
         Input
       </div>
-      <div
-        class="bg-base-300/50 rounded text-[10px] font-mono overflow-x-auto"
-      >
+      <div class="bg-base-300/50 rounded text-[10px] font-mono overflow-x-auto">
         @for (param of getInputParams(); track param.key) {
         <div>
           @if (shouldExpandParam(param)) {
@@ -73,7 +71,9 @@ interface InputParam {
           <!-- Normal param display -->
           <div class="flex gap-2 px-2 py-1">
             <span class="text-primary/70">{{ param.key }}:</span>
-            <span class="text-base-content/80 break-all">{{ param.value }}</span>
+            <span class="text-base-content/80 break-all">{{
+              param.value
+            }}</span>
           </div>
           }
         </div>
@@ -111,7 +111,9 @@ export class ToolInputDisplayComponent {
    * Get parameter value as string for expandable content
    */
   protected getParamValueAsString(param: InputParam): string {
-    return typeof param.fullValue === 'string' ? param.fullValue : String(param.fullValue);
+    return typeof param.fullValue === 'string'
+      ? param.fullValue
+      : String(param.fullValue);
   }
 
   // Language extension mapping for Write tool content
@@ -143,10 +145,13 @@ export class ToolInputDisplayComponent {
    * Extracted from tool-call-item.component.ts:405-416
    */
   protected hasNonTrivialInput(): boolean {
-    const toolInput = this.node().toolInput;
+    const node = this.node();
+    if (!node) return false;
+
+    const toolInput = node.toolInput;
     if (!toolInput) return false;
     // Hide input for simple tools where description shows the key info
-    const toolName = this.node().toolName;
+    const toolName = node.toolName;
     if (['Read'].includes(toolName || '')) {
       // Only show if there are extra params besides file_path
       const keys = Object.keys(toolInput).filter((k) => k !== 'file_path');
@@ -160,7 +165,10 @@ export class ToolInputDisplayComponent {
    * Extracted from tool-call-item.component.ts:418-431
    */
   protected getInputParams(): InputParam[] {
-    const toolInput = this.node().toolInput;
+    const node = this.node();
+    if (!node) return [];
+
+    const toolInput = node.toolInput;
     if (!toolInput) return [];
 
     return Object.entries(toolInput).map(([key, value]) => ({
@@ -176,7 +184,10 @@ export class ToolInputDisplayComponent {
    * Extracted from tool-call-item.component.ts:437-449
    */
   protected shouldExpandParam(param: InputParam): boolean {
-    const toolName = this.node().toolName;
+    const node = this.node();
+    if (!node) return false;
+
+    const toolName = node.toolName;
     const isWriteTool = toolName === 'Write';
     const isContentParam = param.key === 'content';
     const isLargeContent =
@@ -200,8 +211,9 @@ export class ToolInputDisplayComponent {
     content = this.stripSystemReminders(content);
 
     // For Write tool, detect language from file_path
-    if (this.node().toolName === 'Write' && param.key === 'content') {
-      const filePath = this.node().toolInput?.['file_path'] as string;
+    const node = this.node();
+    if (node?.toolName === 'Write' && param.key === 'content') {
+      const filePath = node.toolInput?.['file_path'] as string;
       if (filePath) {
         const language = this.getLanguageFromPath(filePath);
         // For markdown files, render as markdown (no code block)

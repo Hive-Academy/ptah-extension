@@ -6,7 +6,7 @@ import {
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
 import { LucideAngularModule, Info } from 'lucide-angular';
-import { AgentCardComponent } from '../molecules/agent-card.component';
+import { InlineAgentBubbleComponent } from './inline-agent-bubble.component';
 import { AgentSummaryComponent } from '../molecules/agent-summary.component';
 import { ThinkingBlockComponent } from '../molecules/thinking-block.component';
 import { ToolCallItemComponent } from '../molecules/tool-call-item.component';
@@ -37,7 +37,7 @@ import type { ExecutionNode } from '@ptah-extension/shared';
   imports: [
     MarkdownModule,
     LucideAngularModule,
-    AgentCardComponent,
+    InlineAgentBubbleComponent,
     AgentSummaryComponent,
     ThinkingBlockComponent,
     ToolCallItemComponent,
@@ -75,16 +75,8 @@ import type { ExecutionNode } from '@ptah-extension/shared';
       }
     </ptah-tool-call-item>
     } @case ('agent') {
-    <ptah-agent-card [node]="node()">
-      <!-- RECURSIVE: Render agent's children using AGENT's streaming status -->
-      <!-- This separates agent streaming from main thread streaming -->
-      @for (child of node().children; track child.id) {
-      <ptah-execution-node
-        [node]="child"
-        [isStreaming]="node().status === 'streaming'"
-      />
-      }
-    </ptah-agent-card>
+    <!-- Inline agent bubble with chat-bubble styling, fixed height, and collapsible content -->
+    <ptah-inline-agent-bubble [node]="node()" />
     } @case ('message') {
     <!-- Message node unwraps to its children -->
     @for (child of node().children; track child.id) {
