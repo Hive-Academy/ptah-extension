@@ -571,6 +571,9 @@ export class SessionReplayService {
       hasSummary: !!summaryContent,
       hasExecution: executionNodes.length > 0,
       isInterrupted,
+      // NEW: Add toolUseId for consistency with streaming agent bubbles
+      toolUseId: block.id || undefined,
+      isStreaming: false, // Replay is never streaming
     };
 
     return createExecutionChatMessage({

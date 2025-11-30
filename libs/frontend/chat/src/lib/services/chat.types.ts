@@ -135,4 +135,12 @@ export interface TabState {
 
   /** Current execution tree (if streaming) */
   executionTree: ExecutionNode | null;
+
+  /**
+   * Map of active streaming agents by their toolUseId.
+   * Used to track and update agent bubbles during streaming.
+   * Key: Task tool_use_id
+   * Value: Message ID of the agent bubble
+   */
+  streamingAgents?: Map<string, string>;
 }

@@ -29,6 +29,12 @@
       {{ message().agentInfo!.agentDescription }}
     </span>
     }
+    @if (message().agentInfo!.isStreaming) {
+    <span class="badge badge-xs badge-info gap-1 ml-1">
+      <span class="loading loading-spinner loading-xs"></span>
+      Streaming
+    </span>
+    }
     <time
       class="opacity-50 ml-auto"
       [attr.datetime]="formatDateTime(message().timestamp)"

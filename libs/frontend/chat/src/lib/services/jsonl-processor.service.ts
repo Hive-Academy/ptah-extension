@@ -7,6 +7,51 @@ import {
 import { ExecutionTreeBuilder, AgentSpawnInfo } from './tree-builder.service';
 import { SessionManager } from './session-manager.service';
 
+// ============================================================================
+// AGENT BUBBLE LIFECYCLE SIGNALS
+// ============================================================================
+
+/**
+ * Signal to create a new agent bubble in the message list.
+ * Emitted when a Task tool_use is detected during streaming.
+ */
+export interface AgentBubbleStarted {
+  /** Message ID for the agent bubble (same as toolUseId) */
+  id: string;
+  /** Task tool_use ID (for linking nested content) */
+  toolUseId: string;
+  /** Agent type (e.g., 'Explore', 'Plan', 'software-architect') */
+  agentType: string;
+  /** Agent description from Task input */
+  agentDescription?: string;
+  /** Model used by agent (opus, sonnet, haiku) */
+  agentModel?: string;
+}
+
+/**
+ * Signal to update an existing agent bubble.
+ * Emitted when nested content (text, tools) arrives for an agent.
+ */
+export interface AgentBubbleUpdate {
+  /** Task tool_use ID identifying which agent to update */
+  toolUseId: string;
+  /** Updated execution tree for the agent */
+  tree: ExecutionNode;
+  /** Text delta to append to summary (if any) */
+  summaryDelta?: string;
+}
+
+/**
+ * Signal that an agent has completed execution.
+ * Emitted when Task tool_result is received.
+ */
+export interface AgentBubbleCompleted {
+  /** Task tool_use ID identifying which agent completed */
+  toolUseId: string;
+  /** Final summary content (if available) */
+  finalSummary?: string;
+}
+
 /**
  * Result from processing a JSONL chunk
  */
@@ -19,6 +64,14 @@ export interface ProcessingResult {
   newMessageStarted: boolean;
   /** ID of the new message (if newMessageStarted is true) */
   messageId?: string;
+
+  // Agent bubble lifecycle signals
+  /** Signal to create a new agent bubble in message list */
+  agentBubbleStarted?: AgentBubbleStarted;
+  /** Signal to update an existing agent bubble */
+  agentBubbleUpdate?: AgentBubbleUpdate;
+  /** Signal to mark an agent bubble as complete */
+  agentBubbleCompleted?: AgentBubbleCompleted;
 }
 
 /**
@@ -196,6 +249,7 @@ export class JsonlMessageProcessor {
     let tree = currentTree;
     let newMessageStarted = false;
     let messageId: string | undefined;
+    let agentBubbleStarted: AgentBubbleStarted | undefined;
 
     if (!tree) {
       messageId = this.treeBuilder.generateId();
@@ -227,29 +281,33 @@ export class JsonlMessageProcessor {
             inputObj?.['subagent_type'] &&
             block.id
           ) {
-            // Register as agent immediately so nested messages can find it
-            const agentInfo: AgentSpawnInfo = {
+            // NEW: Signal to create separate agent bubble instead of nesting in tree
+            agentBubbleStarted = {
+              id: block.id,
               toolUseId: block.id,
-              subagentType: inputObj['subagent_type'] as string,
-              description: inputObj['description'] as string,
-              prompt: inputObj['prompt'] as string,
-              model: inputObj['model'] as string,
+              agentType: inputObj['subagent_type'] as string,
+              agentDescription: inputObj['description'] as string,
+              agentModel: inputObj['model'] as string,
             };
 
-            tree = this.treeBuilder.appendAgent(tree, agentInfo);
+            // Register a placeholder agent node in SessionManager for nested message routing
+            const placeholderAgent = createExecutionNode({
+              id: block.id,
+              type: 'agent',
+              status: 'streaming',
+              agentType: inputObj['subagent_type'] as string,
+              agentDescription: inputObj['description'] as string,
+              agentModel: inputObj['model'] as string,
+            });
+            this.sessionManager.registerAgent(block.id, placeholderAgent);
 
-            // Find the agent node we just added and register it
-            if (block.id) {
-              const agentNode = this.findAgentNodeInTree(tree, block.id);
-              if (agentNode) {
-                this.sessionManager.registerAgent(block.id, agentNode);
-                console.log(
-                  '[JsonlMessageProcessor] Registered agent from tool_use block:',
-                  block.id,
-                  agentInfo.subagentType
-                );
-              }
-            }
+            console.log(
+              '[JsonlMessageProcessor] Agent spawn detected, signaling bubble creation:',
+              block.id,
+              inputObj['subagent_type']
+            );
+
+            // DO NOT append agent to tree - it's a separate message bubble now
           } else {
             // Regular tool use
             tree = this.treeBuilder.appendToolUse(tree, block);
@@ -271,12 +329,18 @@ export class JsonlMessageProcessor {
       streamComplete: false,
       newMessageStarted,
       messageId,
+      agentBubbleStarted,
     };
   }
 
   /**
    * Handle assistant messages that are nested inside an agent's execution context.
    * These come with parent_tool_use_id pointing to the Task tool that spawned the agent.
+   *
+   * NEW BEHAVIOR (Unified Agent Bubbles):
+   * Instead of modifying the main tree, we:
+   * 1. Update the agent's internal tree (stored in SessionManager)
+   * 2. Return agentBubbleUpdate signal for ChatStore to update the separate agent message
    */
   private handleNestedAssistantMessage(
     chunk: JSONLMessage,
@@ -301,33 +365,14 @@ export class JsonlMessageProcessor {
       };
     }
 
-    // If we don't have a tree yet (can happen when continuing a session mid-agent),
-    // create one now and attach the parent agent to it
-    let tree = currentTree;
-    let newMessageStarted = false;
-    let messageId: string | undefined;
+    let summaryDelta: string | undefined;
 
-    if (!tree) {
-      messageId = this.treeBuilder.generateId();
-      tree = this.treeBuilder.createMessageTree(messageId);
-      newMessageStarted = true;
-
-      // Add the parent agent to the new tree so updates can be applied
-      tree = {
-        ...tree,
-        children: [...tree.children, parentAgent],
-      };
-
-      console.log(
-        '[JsonlMessageProcessor] Created message tree for continued session, attached agent:',
-        parentToolUseId
-      );
-    }
-
-    // Add text content to the agent's children
+    // Add text content to the agent's children (this becomes the summary)
     if (chunk.message?.content) {
       for (const block of chunk.message.content) {
         if (block.type === 'text' && block.text) {
+          summaryDelta = block.text;
+
           const textNode = createExecutionNode({
             id: this.treeBuilder.generateId(),
             type: 'text',
@@ -341,17 +386,6 @@ export class JsonlMessageProcessor {
           };
 
           this.sessionManager.registerAgent(parentToolUseId, updatedAgent);
-
-          // Update tree
-          if (tree) {
-            tree = this.treeBuilder.replaceNode(
-              tree,
-              parentToolUseId,
-              updatedAgent
-            );
-          }
-
-          // Update reference for next iteration
           parentAgent = updatedAgent;
         } else if (block.type === 'tool_use' && block.name) {
           const toolNode = createExecutionNode({
@@ -374,15 +408,6 @@ export class JsonlMessageProcessor {
           };
 
           this.sessionManager.registerAgent(parentToolUseId, updatedAgent);
-
-          if (tree) {
-            tree = this.treeBuilder.replaceNode(
-              tree,
-              parentToolUseId,
-              updatedAgent
-            );
-          }
-
           parentAgent = updatedAgent;
         }
       }
@@ -390,6 +415,7 @@ export class JsonlMessageProcessor {
 
     // Handle text delta for streaming
     if (chunk.delta) {
+      summaryDelta = chunk.delta;
       const lastChild = parentAgent.children[parentAgent.children.length - 1];
 
       if (
@@ -408,14 +434,7 @@ export class JsonlMessageProcessor {
         };
 
         this.sessionManager.registerAgent(parentToolUseId, updatedAgent);
-
-        if (tree) {
-          tree = this.treeBuilder.replaceNode(
-            tree,
-            parentToolUseId,
-            updatedAgent
-          );
-        }
+        parentAgent = updatedAgent;
       } else {
         // Create new streaming text node
         const textNode = createExecutionNode({
@@ -431,18 +450,30 @@ export class JsonlMessageProcessor {
         };
 
         this.sessionManager.registerAgent(parentToolUseId, updatedAgent);
-
-        if (tree) {
-          tree = this.treeBuilder.replaceNode(
-            tree,
-            parentToolUseId,
-            updatedAgent
-          );
-        }
+        parentAgent = updatedAgent;
       }
     }
 
-    return { tree, streamComplete: false, newMessageStarted, messageId };
+    // Build agent execution tree for the bubble update
+    const agentTree = createExecutionNode({
+      id: parentToolUseId,
+      type: 'message',
+      status: 'streaming',
+      children: parentAgent.children,
+    });
+
+    // Return update signal instead of modifying main tree
+    // Main tree is left unchanged because agent is a separate message bubble
+    return {
+      tree: currentTree,
+      streamComplete: false,
+      newMessageStarted: false,
+      agentBubbleUpdate: {
+        toolUseId: parentToolUseId,
+        tree: agentTree,
+        summaryDelta,
+      },
+    };
   }
 
   private handleToolMessage(
@@ -450,50 +481,71 @@ export class JsonlMessageProcessor {
     currentTree: ExecutionNode | null
   ): ProcessingResult {
     let tree = currentTree;
-    let newMessageStarted = false;
-    let messageId: string | undefined;
+    const newMessageStarted = false;
+    const messageId: string | undefined = undefined;
+    let agentBubbleStarted: AgentBubbleStarted | undefined;
 
     const toolUseId = chunk.tool_use_id;
     const parentToolUseId = chunk.parent_tool_use_id;
 
-    // If we don't have a tree but this is a nested tool message, create one
-    if (!tree && parentToolUseId) {
-      const parentAgent = this.sessionManager.getAgent(parentToolUseId);
-      if (parentAgent) {
-        messageId = this.treeBuilder.generateId();
-        tree = this.treeBuilder.createMessageTree(messageId);
-        newMessageStarted = true;
+    // Check if this is a Task tool (agent spawn) from tool type message
+    if (chunk.tool === 'Task' && toolUseId) {
+      // NEW: Signal to create separate agent bubble
+      agentBubbleStarted = {
+        id: toolUseId,
+        toolUseId,
+        agentType: chunk.args?.['subagent_type'] as string,
+        agentDescription: chunk.args?.['description'] as string,
+        agentModel: chunk.args?.['model'] as string,
+      };
 
-        // Add the parent agent to the new tree
-        tree = {
-          ...tree,
-          children: [...tree.children, parentAgent],
-        };
+      // Register a placeholder agent node in SessionManager for nested message routing
+      const placeholderAgent = createExecutionNode({
+        id: toolUseId,
+        type: 'agent',
+        status: 'streaming',
+        agentType: chunk.args?.['subagent_type'] as string,
+        agentDescription: chunk.args?.['description'] as string,
+        agentModel: chunk.args?.['model'] as string,
+      });
+      this.sessionManager.registerAgent(toolUseId, placeholderAgent);
 
-        console.log(
-          '[JsonlMessageProcessor] Created message tree for nested tool, attached agent:',
-          parentToolUseId
-        );
-      }
+      console.log(
+        '[JsonlMessageProcessor] Agent spawn from tool message, signaling bubble creation:',
+        toolUseId,
+        chunk.args?.['subagent_type']
+      );
+
+      // DO NOT modify tree - agent is a separate message bubble
+      return {
+        tree: currentTree,
+        streamComplete: false,
+        newMessageStarted: false,
+        agentBubbleStarted,
+      };
     }
 
-    // Still no tree? Can't process tool messages without one
+    // Check if this is nested under an agent
+    if (parentToolUseId) {
+      // Handle nested tool and return bubble update
+      const result = this.handleNestedToolWithBubbleUpdate(
+        chunk,
+        parentToolUseId
+      );
+      return {
+        tree: currentTree, // Main tree unchanged
+        streamComplete: false,
+        newMessageStarted: false,
+        agentBubbleUpdate: result,
+      };
+    }
+
+    // Regular tool execution (not nested under agent)
     if (!tree) {
       return { tree, streamComplete: false, newMessageStarted: false };
     }
 
-    // Check if this is a Task tool (agent spawn)
-    if (chunk.tool === 'Task' && toolUseId) {
-      tree = this.handleAgentSpawn(tree, chunk, toolUseId);
-      return { tree, streamComplete: false, newMessageStarted, messageId };
-    }
-    // Check if this is nested under an agent
-    else if (parentToolUseId) {
-      tree = this.handleNestedTool(tree, chunk, parentToolUseId);
-      return { tree, streamComplete: false, newMessageStarted, messageId };
-    }
-    // Regular tool execution
-    else if (toolUseId) {
+    if (toolUseId) {
       tree = this.handleToolExecution(tree, chunk, toolUseId);
       return { tree, streamComplete: false, newMessageStarted, messageId };
     }
@@ -547,13 +599,16 @@ export class JsonlMessageProcessor {
    * - message.content[].content containing the tool output
    *
    * These need to be extracted and used to update the corresponding tool nodes.
+   *
+   * NEW BEHAVIOR: If the tool_result is for a Task (agent) tool, emit agentBubbleCompleted.
+   * If the tool_result is nested under an agent, emit agentBubbleUpdate.
    */
   private handleUserMessage(
     chunk: JSONLMessage,
     currentTree: ExecutionNode | null
   ): ProcessingResult {
     // If no content, nothing to process
-    if (!chunk.message?.content || !currentTree) {
+    if (!chunk.message?.content) {
       return {
         tree: currentTree,
         streamComplete: false,
@@ -563,6 +618,8 @@ export class JsonlMessageProcessor {
 
     const parentToolUseId = (chunk as any).parent_tool_use_id;
     let tree = currentTree;
+    let agentBubbleCompleted: AgentBubbleCompleted | undefined;
+    let agentBubbleUpdate: AgentBubbleUpdate | undefined;
 
     for (const block of chunk.message.content) {
       if (block.type === 'tool_result' && block.tool_use_id) {
@@ -575,6 +632,30 @@ export class JsonlMessageProcessor {
         const outputStr = typeof toolOutput === 'string' ? toolOutput : '';
         const isPermissionRequest =
           isError && outputStr.toLowerCase().includes('permission');
+
+        // Check if this is a result for a Task (agent) tool
+        const agentNode = this.sessionManager.getAgent(block.tool_use_id);
+        if (agentNode) {
+          // This is the result for a Task (agent) tool - agent has completed
+          agentBubbleCompleted = {
+            toolUseId: block.tool_use_id,
+            finalSummary:
+              typeof toolOutput === 'string' ? toolOutput : undefined,
+          };
+
+          // Update agent status to complete
+          const completedAgent: ExecutionNode = {
+            ...agentNode,
+            status: 'complete',
+          };
+          this.sessionManager.registerAgent(block.tool_use_id, completedAgent);
+
+          console.log(
+            '[JsonlMessageProcessor] Agent completed:',
+            block.tool_use_id
+          );
+          continue; // Skip normal tool processing
+        }
 
         // Find and update the tool node
         const toolNode = this.sessionManager.getTool(block.tool_use_id);
@@ -595,14 +676,7 @@ export class JsonlMessageProcessor {
           // Update in session manager
           this.sessionManager.registerTool(block.tool_use_id, updatedTool);
 
-          // Update tree
-          tree = this.treeBuilder.replaceNode(
-            tree,
-            block.tool_use_id,
-            updatedTool
-          );
-
-          // If this is nested under an agent, update the agent's children too
+          // If this is nested under an agent, emit bubble update instead of modifying tree
           if (parentToolUseId) {
             const parentAgent = this.sessionManager.getAgent(parentToolUseId);
             if (parentAgent) {
@@ -617,12 +691,27 @@ export class JsonlMessageProcessor {
               };
 
               this.sessionManager.registerAgent(parentToolUseId, updatedAgent);
-              tree = this.treeBuilder.replaceNode(
-                tree,
-                parentToolUseId,
-                updatedAgent
-              );
+
+              // Build agent tree for bubble update
+              const agentTree = createExecutionNode({
+                id: parentToolUseId,
+                type: 'message',
+                status: 'streaming',
+                children: updatedAgent.children,
+              });
+
+              agentBubbleUpdate = {
+                toolUseId: parentToolUseId,
+                tree: agentTree,
+              };
             }
+          } else if (tree) {
+            // Update tree for non-nested tools
+            tree = this.treeBuilder.replaceNode(
+              tree,
+              block.tool_use_id,
+              updatedTool
+            );
           }
         } else {
           // Tool not found - this can happen for nested tools that weren't registered yet
@@ -634,7 +723,13 @@ export class JsonlMessageProcessor {
       }
     }
 
-    return { tree, streamComplete: false, newMessageStarted: false };
+    return {
+      tree,
+      streamComplete: false,
+      newMessageStarted: false,
+      agentBubbleCompleted,
+      agentBubbleUpdate,
+    };
   }
 
   private handleResultMessage(
@@ -677,23 +772,24 @@ export class JsonlMessageProcessor {
     return updatedTree;
   }
 
-  private handleNestedTool(
-    tree: ExecutionNode,
+  /**
+   * Handle nested tool messages with the new unified agent bubble approach.
+   * Returns an AgentBubbleUpdate signal instead of modifying the main tree.
+   */
+  private handleNestedToolWithBubbleUpdate(
     chunk: JSONLMessage,
     parentToolUseId: string
-  ): ExecutionNode {
+  ): AgentBubbleUpdate | undefined {
     const parentAgent = this.sessionManager.getAgent(parentToolUseId);
 
-    // Parent agent should exist from either:
-    // 1. handleAgentSpawn during current streaming session
-    // 2. SessionManager.setNodeMaps when loading a session
+    // Parent agent should exist from earlier spawn
     if (!parentAgent) {
       console.warn(
         '[JsonlMessageProcessor] Parent agent not found for nested tool:',
         parentToolUseId,
         '- Message may be dropped. This can happen if resuming a session that was interrupted mid-agent.'
       );
-      return tree;
+      return undefined;
     }
 
     // Clean CLI-specific formatting from tool output
@@ -725,8 +821,18 @@ export class JsonlMessageProcessor {
       this.sessionManager.registerTool(chunk.tool_use_id, toolNode);
     }
 
-    // Update the execution tree with the updated agent
-    return this.treeBuilder.replaceNode(tree, parentToolUseId, updatedAgent);
+    // Build agent execution tree for the bubble update
+    const agentTree = createExecutionNode({
+      id: parentToolUseId,
+      type: 'message',
+      status: 'streaming',
+      children: updatedAgent.children,
+    });
+
+    return {
+      toolUseId: parentToolUseId,
+      tree: agentTree,
+    };
   }
 
   private handleToolExecution(

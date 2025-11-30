@@ -6,13 +6,20 @@ import {
   ExecutionNode,
   JSONLMessage,
   createExecutionChatMessage,
+  createExecutionNode,
   PermissionRequest,
   PermissionResponse,
 } from '@ptah-extension/shared';
 import { SessionReplayService } from './session-replay.service';
 import { SessionManager } from './session-manager.service';
-import { JsonlMessageProcessor } from './jsonl-processor.service';
+import {
+  JsonlMessageProcessor,
+  AgentBubbleStarted,
+  AgentBubbleUpdate,
+  AgentBubbleCompleted,
+} from './jsonl-processor.service';
 import { TabManagerService } from './tab-manager.service';
+import { TabState } from './chat.types';
 
 /**
  * ChatStore - Signal-based reactive store for chat state
@@ -724,6 +731,7 @@ export class ChatStore {
    * Process a JSONL chunk from Claude CLI
    *
    * Delegates to JsonlMessageProcessor and updates active tab's execution tree.
+   * NEW: Also handles agent bubble lifecycle signals for unified visual hierarchy.
    */
   processJsonlChunk(chunk: JSONLMessage, fromSessionId?: string): void {
     try {
@@ -753,6 +761,31 @@ export class ChatStore {
         chunk,
         activeTab?.executionTree ?? null
       );
+
+      // === NEW: Handle agent bubble lifecycle signals ===
+      if (result.agentBubbleStarted) {
+        this.handleAgentBubbleStarted(
+          activeTabId,
+          activeTab!,
+          result.agentBubbleStarted
+        );
+      }
+
+      if (result.agentBubbleUpdate) {
+        this.handleAgentBubbleUpdate(
+          activeTabId,
+          activeTab!,
+          result.agentBubbleUpdate
+        );
+      }
+
+      if (result.agentBubbleCompleted) {
+        this.handleAgentBubbleCompleted(
+          activeTabId,
+          activeTab!,
+          result.agentBubbleCompleted
+        );
+      }
 
       // Update state based on result
       if (result.newMessageStarted) {
@@ -815,6 +848,127 @@ export class ChatStore {
 
     // Update SessionManager status
     this.sessionManager.setStatus('loaded');
+  }
+
+  // ============================================================================
+  // AGENT BUBBLE HANDLERS (Unified Visual Hierarchy)
+  // ============================================================================
+
+  /**
+   * Handle creation of a new agent bubble.
+   * Creates a separate ExecutionChatMessage with agentInfo for the agent.
+   */
+  private handleAgentBubbleStarted(
+    tabId: string,
+    tab: TabState,
+    agentStart: AgentBubbleStarted
+  ): void {
+    const { id, toolUseId, agentType, agentDescription, agentModel } =
+      agentStart;
+
+    // Create agent message with AgentInfo
+    const agentMessage = createExecutionChatMessage({
+      id,
+      role: 'assistant',
+      agentInfo: {
+        agentType,
+        agentDescription,
+        agentModel,
+        isStreaming: true,
+        toolUseId,
+        hasSummary: true,
+        hasExecution: true,
+      },
+      executionTree: createExecutionNode({
+        id,
+        type: 'message',
+        status: 'streaming',
+      }),
+      sessionId: tab.claudeSessionId ?? undefined,
+    });
+
+    // Add to messages
+    this.tabManager.updateTab(tabId, {
+      messages: [...tab.messages, agentMessage],
+      streamingAgents: new Map(tab.streamingAgents ?? []).set(toolUseId, id),
+    });
+
+    console.log('[ChatStore] Agent bubble created:', toolUseId, agentType);
+  }
+
+  /**
+   * Handle update to an existing agent bubble.
+   * Updates the agent message's execution tree and summary content.
+   */
+  private handleAgentBubbleUpdate(
+    tabId: string,
+    tab: TabState,
+    update: AgentBubbleUpdate
+  ): void {
+    const { toolUseId, tree, summaryDelta } = update;
+
+    // Find and update the agent message
+    const updatedMessages = tab.messages.map((msg) => {
+      if (msg.agentInfo?.toolUseId === toolUseId) {
+        return {
+          ...msg,
+          executionTree: tree,
+          agentInfo: {
+            ...msg.agentInfo!,
+            summaryContent: summaryDelta
+              ? (msg.agentInfo!.summaryContent || '') + summaryDelta
+              : msg.agentInfo!.summaryContent,
+          },
+        };
+      }
+      return msg;
+    });
+
+    this.tabManager.updateTab(tabId, { messages: updatedMessages });
+  }
+
+  /**
+   * Handle completion of an agent bubble.
+   * Marks the agent as no longer streaming and updates final summary.
+   */
+  private handleAgentBubbleCompleted(
+    tabId: string,
+    tab: TabState,
+    completion: AgentBubbleCompleted
+  ): void {
+    const { toolUseId, finalSummary } = completion;
+
+    // Mark agent as complete
+    const updatedMessages = tab.messages.map((msg) => {
+      if (msg.agentInfo?.toolUseId === toolUseId) {
+        // Also mark execution tree as complete
+        const completedTree = msg.executionTree
+          ? { ...msg.executionTree, status: 'complete' as const }
+          : null;
+
+        return {
+          ...msg,
+          executionTree: completedTree,
+          agentInfo: {
+            ...msg.agentInfo!,
+            isStreaming: false,
+            summaryContent: finalSummary || msg.agentInfo!.summaryContent,
+          },
+        };
+      }
+      return msg;
+    });
+
+    // Remove from streaming agents map
+    const newStreamingAgents = new Map(tab.streamingAgents ?? []);
+    newStreamingAgents.delete(toolUseId);
+
+    this.tabManager.updateTab(tabId, {
+      messages: updatedMessages,
+      streamingAgents: newStreamingAgents,
+    });
+
+    console.log('[ChatStore] Agent bubble completed:', toolUseId);
   }
 
   // ============================================================================

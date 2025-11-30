@@ -55,11 +55,11 @@ Modify streaming to create separate agent messages (like replay does) instead of
 
 1. ✅ Research Report (`research-report.md`)
 2. ✅ Implementation Plan (`implementation-plan.md`)
-3. ⏳ Type updates (AgentInfo, ProcessingResult)
-4. ⏳ JsonlMessageProcessor refactor
-5. ⏳ ChatStore agent bubble handlers
-6. ⏳ Component enhancements
-7. ⏳ Testing and validation
+3. ✅ Type updates (AgentInfo, ProcessingResult)
+4. ✅ JsonlMessageProcessor refactor
+5. ✅ ChatStore agent bubble handlers
+6. ✅ Component enhancements
+7. ✅ Build validation
 
 ## Constraints
 

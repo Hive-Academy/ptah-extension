@@ -217,6 +217,18 @@ export interface AgentInfo {
    * This happens when loading historical sessions that were not completed.
    */
   readonly isInterrupted?: boolean;
+
+  /**
+   * True while agent is actively streaming.
+   * Used to show streaming indicators (typing cursor, loading spinner).
+   */
+  readonly isStreaming?: boolean;
+
+  /**
+   * Links to parent Task tool_use ID for message updates.
+   * Used during streaming to route nested content to the correct agent bubble.
+   */
+  readonly toolUseId?: string;
 }
 
 /**
@@ -438,6 +450,8 @@ export const AgentInfoSchema = z.object({
   hasSummary: z.boolean().optional(),
   hasExecution: z.boolean().optional(),
   isInterrupted: z.boolean().optional(),
+  isStreaming: z.boolean().optional(),
+  toolUseId: z.string().optional(),
 });
 
 export const ExecutionChatMessageSchema = z.object({
