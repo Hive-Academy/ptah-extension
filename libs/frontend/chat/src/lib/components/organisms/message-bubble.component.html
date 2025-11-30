@@ -103,13 +103,9 @@
     class="chat-bubble bg-neutral text-neutral-content shadow-card max-w-[85%] md:max-w-[90%] lg:max-w-[85%]"
   >
     @if (message().executionTree) {
-    <!-- ExecutionNode recursive tree -->
-    <ptah-execution-node [node]="message().executionTree!" />
-
-    <!-- Typing cursor at end of streaming text -->
-    @if (isStreaming()) {
-    <ptah-typing-cursor colorClass="text-neutral-content/70" />
-    } } @else {
+    <!-- ExecutionNode recursive tree with streaming state -->
+    <ptah-execution-node [node]="message().executionTree!" [isStreaming]="isStreaming()" />
+    } @else {
     <!-- Fallback text content -->
     <markdown
       [data]="message().rawContent || ''"

@@ -48,9 +48,9 @@ import type { ExecutionNode } from '@ptah-extension/shared';
     <!-- Agent summary with XML-like format (function_calls, thinking, etc.) -->
     <ptah-agent-summary
       [content]="node().content || ''"
-      [class.animate-pulse]="node().status === 'streaming'"
+      [class.animate-pulse]="isStreaming()"
     />
-    } @else { @if (node().status === 'streaming') {
+    } @else { @if (isStreaming()) {
     <!-- DUAL-PHASE: Phase 1 - Plain text + cursor during streaming -->
     <div
       class="prose prose-sm prose-invert max-w-none my-2 whitespace-pre-wrap transition-opacity duration-300"
@@ -71,20 +71,20 @@ import type { ExecutionNode } from '@ptah-extension/shared';
     <ptah-tool-call-item [node]="node()">
       <!-- RECURSIVE: Render nested children (tool results, sub-tools) -->
       @for (child of node().children; track child.id) {
-      <ptah-execution-node [node]="child" />
+      <ptah-execution-node [node]="child" [isStreaming]="isStreaming()" />
       }
     </ptah-tool-call-item>
     } @case ('agent') {
     <ptah-agent-card [node]="node()">
       <!-- RECURSIVE: Render agent's children (tools, nested agents) -->
       @for (child of node().children; track child.id) {
-      <ptah-execution-node [node]="child" />
+      <ptah-execution-node [node]="child" [isStreaming]="isStreaming()" />
       }
     </ptah-agent-card>
     } @case ('message') {
     <!-- Message node unwraps to its children -->
     @for (child of node().children; track child.id) {
-    <ptah-execution-node [node]="child" />
+    <ptah-execution-node [node]="child" [isStreaming]="isStreaming()" />
     } } @case ('system') {
     <!-- System messages (session init, etc.) -->
     <div class="alert alert-info my-2 text-xs">
@@ -97,6 +97,9 @@ import type { ExecutionNode } from '@ptah-extension/shared';
 })
 export class ExecutionNodeComponent {
   readonly node = input.required<ExecutionNode>();
+
+  /** Global streaming state passed from parent */
+  readonly isStreaming = input<boolean>(false);
 
   // Lucide icons
   readonly InfoIcon = Info;
