@@ -150,8 +150,15 @@ export class ToolInputDisplayComponent {
 
     const toolInput = node.toolInput;
     if (!toolInput) return false;
-    // Hide input for simple tools where description shows the key info
+
     const toolName = node.toolName;
+
+    // Hide input for TodoWrite - it has specialized display in ToolOutputDisplayComponent
+    if (toolName === 'TodoWrite') {
+      return false;
+    }
+
+    // Hide input for simple tools where description shows the key info
     if (['Read'].includes(toolName || '')) {
       // Only show if there are extra params besides file_path
       const keys = Object.keys(toolInput).filter((k) => k !== 'file_path');
