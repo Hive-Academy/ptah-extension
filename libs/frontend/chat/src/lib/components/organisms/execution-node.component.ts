@@ -37,7 +37,7 @@ import type { ExecutionNode } from '@ptah-extension/shared';
   imports: [
     MarkdownModule,
     LucideAngularModule,
-    InlineAgentBubbleComponent,
+    InlineAgentBubbleComponent, // Required in imports even with @defer - Angular needs to know about it
     AgentSummaryComponent,
     ThinkingBlockComponent,
     ToolCallItemComponent,
@@ -75,8 +75,14 @@ import type { ExecutionNode } from '@ptah-extension/shared';
       }
     </ptah-tool-call-item>
     } @case ('agent') {
-    <!-- Inline agent bubble with chat-bubble styling, fixed height, and collapsible content -->
-    <ptah-inline-agent-bubble [node]="node()" />
+    <!-- Use @defer to break circular dependency and lazy-load InlineAgentBubbleComponent -->
+    @defer {
+      <ptah-inline-agent-bubble [node]="node()" />
+    } @placeholder {
+      <div class="flex items-center gap-2 text-[10px] text-base-content/40 py-2">
+        <span>Loading agent...</span>
+      </div>
+    }
     } @case ('message') {
     <!-- Message node unwraps to its children -->
     @for (child of node().children; track child.id) {
