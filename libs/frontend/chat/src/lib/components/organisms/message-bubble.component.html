@@ -104,7 +104,10 @@
   >
     @if (message().executionTree) {
     <!-- ExecutionNode recursive tree with streaming state -->
-    <ptah-execution-node [node]="message().executionTree!" [isStreaming]="isStreaming()" />
+    <ptah-execution-node
+      [node]="message().executionTree!"
+      [isStreaming]="isStreaming()"
+    />
     } @else {
     <!-- Fallback text content -->
     <markdown

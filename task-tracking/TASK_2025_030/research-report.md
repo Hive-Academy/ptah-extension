@@ -86,14 +86,16 @@ Result: Visual "flash" when heading styling appears mid-word.
 
 **Problem 2: Broken Code Blocks**
 
-````markdown
+`````markdown
 ````typ → Parser error or renders as incomplete block
 ```typesc      → Still incomplete
 ```typescript  → Valid, but syntax highlighting kicks in suddenly
 const x        → Code block content appears raw
 ```            → Closing backticks may close prematurely
 ````
-````
+`````
+
+`````
 
 Result: Flickering between raw text, incomplete blocks, and styled code.
 
@@ -409,7 +411,7 @@ private isSafeBoundary(delta: string): boolean {
          delta.endsWith('```\n') || // Code block closure
          delta.endsWith('.\n');     // Sentence end
 }
-````
+`````
 
 **Pros**:
 

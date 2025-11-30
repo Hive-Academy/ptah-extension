@@ -31,3 +31,5 @@
 | TASK_2025_030 | Enhanced Streaming UX - Typewriter effect, typing cursor, tool activity status, fix streaming indicator logic                 | ✅ Complete                              | orchestrator       | 2025-11-30 | 2025-11-30 |
 | TASK_2025_031 | Tool Component Refactoring - Decompose tool-call-item.component.ts into specialized components with TodoWrite display         | 📋 Planned                               | orchestrator       | 2025-11-30 | -          |
 | TASK_2025_032 | Session Isolation Bug Fix - Chat chunks routed to wrong tab when switching during streaming (P0 Critical)                     | ✅ Complete                              | orchestrator       | 2025-11-30 | 2025-11-30 |
+| TASK_2025_033 | Unified Agent Bubble Visual Hierarchy - Make streaming agents match replay visual structure (separate bubbles, sections)      | 📋 Planned                               | orchestrator       | 2025-11-30 | -          |
+| TASK_2025_034 | Permission UI Embedding - Move permission requests from bottom fixed position to inside tool-call-item cards                  | 📋 Planned                               | orchestrator       | 2025-11-30 | -          |
