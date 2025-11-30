@@ -10,7 +10,7 @@ import { InlineAgentBubbleComponent } from './inline-agent-bubble.component';
 import { AgentSummaryComponent } from '../molecules/agent-summary.component';
 import { ThinkingBlockComponent } from '../molecules/thinking-block.component';
 import { ToolCallItemComponent } from '../molecules/tool-call-item.component';
-import { TypingCursorComponent } from '../atoms/typing-cursor.component';
+import { StreamingTextRevealComponent } from '../atoms/streaming-text-reveal.component';
 import type { ExecutionNode } from '@ptah-extension/shared';
 
 /**
@@ -41,7 +41,7 @@ import type { ExecutionNode } from '@ptah-extension/shared';
     AgentSummaryComponent,
     ThinkingBlockComponent,
     ToolCallItemComponent,
-    TypingCursorComponent,
+    StreamingTextRevealComponent,
   ],
   template: `
     @switch (node().type) { @case ('text') { @if (isAgentSummaryContent()) {
@@ -51,12 +51,16 @@ import type { ExecutionNode } from '@ptah-extension/shared';
       [class.animate-pulse]="isStreaming()"
     />
     } @else { @if (isStreaming()) {
-    <!-- DUAL-PHASE: Phase 1 - Plain text + cursor during streaming -->
+    <!-- DUAL-PHASE: Phase 1 - Typewriter effect with progressive character reveal -->
     <div
-      class="prose prose-sm prose-invert max-w-none my-2 whitespace-pre-wrap transition-opacity duration-300"
+      class="prose prose-sm prose-invert max-w-none my-2 transition-opacity duration-300"
     >
-      {{ node().content }}
-      <ptah-typing-cursor colorClass="text-neutral-content/70" />
+      <ptah-streaming-text-reveal
+        [content]="node().content || ''"
+        [isStreaming]="isStreaming()"
+        [revealSpeed]="18"
+        cursorColor="text-neutral-content/70"
+      />
     </div>
     } @else {
     <!-- DUAL-PHASE: Phase 2 - Full markdown after completion -->
@@ -77,13 +81,12 @@ import type { ExecutionNode } from '@ptah-extension/shared';
     } @case ('agent') {
     <!-- Use @defer to break circular dependency and lazy-load InlineAgentBubbleComponent -->
     @defer {
-      <ptah-inline-agent-bubble [node]="node()" />
+    <ptah-inline-agent-bubble [node]="node()" />
     } @placeholder {
-      <div class="flex items-center gap-2 text-[10px] text-base-content/40 py-2">
-        <span>Loading agent...</span>
-      </div>
-    }
-    } @case ('message') {
+    <div class="flex items-center gap-2 text-[10px] text-base-content/40 py-2">
+      <span>Loading agent...</span>
+    </div>
+    } } @case ('message') {
     <!-- Message node unwraps to its children -->
     @for (child of node().children; track child.id) {
     <ptah-execution-node [node]="child" [isStreaming]="isStreaming()" />
