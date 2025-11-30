@@ -10,6 +10,7 @@ import { AgentCardComponent } from '../molecules/agent-card.component';
 import { AgentSummaryComponent } from '../molecules/agent-summary.component';
 import { ThinkingBlockComponent } from '../molecules/thinking-block.component';
 import { ToolCallItemComponent } from '../molecules/tool-call-item.component';
+import { TypingCursorComponent } from '../atoms/typing-cursor.component';
 import type { ExecutionNode } from '@ptah-extension/shared';
 
 /**
@@ -40,6 +41,7 @@ import type { ExecutionNode } from '@ptah-extension/shared';
     AgentSummaryComponent,
     ThinkingBlockComponent,
     ToolCallItemComponent,
+    TypingCursorComponent,
   ],
   template: `
     @switch (node().type) { @case ('text') { @if (isAgentSummaryContent()) {
@@ -48,14 +50,22 @@ import type { ExecutionNode } from '@ptah-extension/shared';
       [content]="node().content || ''"
       [class.animate-pulse]="node().status === 'streaming'"
     />
+    } @else { @if (node().status === 'streaming') {
+    <!-- DUAL-PHASE: Phase 1 - Plain text + cursor during streaming -->
+    <div
+      class="prose prose-sm prose-invert max-w-none my-2 whitespace-pre-wrap transition-opacity duration-300"
+    >
+      {{ node().content }}
+      <ptah-typing-cursor colorClass="text-neutral-content/70" />
+    </div>
     } @else {
+    <!-- DUAL-PHASE: Phase 2 - Full markdown after completion -->
     <div
       class="prose prose-sm prose-invert max-w-none my-2 transition-opacity duration-300"
-      [class.animate-pulse]="node().status === 'streaming'"
     >
       <markdown [data]="node().content || ''" />
     </div>
-    } } @case ('thinking') {
+    } } } @case ('thinking') {
     <ptah-thinking-block [node]="node()" />
     } @case ('tool') {
     <ptah-tool-call-item [node]="node()">
