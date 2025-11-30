@@ -14,6 +14,10 @@ import { injectable, inject } from 'tsyringe';
 import type { Logger } from '../logging/logger';
 import type { RpcHandler } from './rpc-handler';
 import type { SessionDiscoveryService } from '../services/session-discovery.service';
+import type {
+  AgentSessionWatcherService,
+  AgentSummaryChunk,
+} from '../services/agent-session-watcher.service';
 import { TOKENS } from '../di/tokens';
 
 // Import domain service types
@@ -95,8 +99,32 @@ export class RpcMethodRegistrationService {
     @inject('ClaudeProcessFactory')
     private readonly createClaudeProcess: ClaudeProcessFactory,
     @inject(TOKENS.SESSION_DISCOVERY_SERVICE)
-    private readonly sessionDiscovery: SessionDiscoveryService
-  ) {}
+    private readonly sessionDiscovery: SessionDiscoveryService,
+    @inject(TOKENS.AGENT_SESSION_WATCHER_SERVICE)
+    private readonly agentWatcher: AgentSessionWatcherService
+  ) {
+    // Setup agent watcher summary chunk listener
+    this.setupAgentWatcherListeners();
+  }
+
+  /**
+   * Setup listeners for agent session watcher events
+   */
+  private setupAgentWatcherListeners(): void {
+    (this.agentWatcher as any).on(
+      'summary-chunk',
+      (chunk: AgentSummaryChunk) => {
+        this.webviewManager
+          .sendMessage('ptah.main', 'agent:summary-chunk', chunk)
+          .catch((error) => {
+            this.logger.error(
+              'Failed to send agent summary chunk to webview',
+              error
+            );
+          });
+      }
+    );
+  }
 
   /**
    * Register all RPC methods
@@ -165,6 +193,9 @@ export class RpcMethodRegistrationService {
 
         // Setup message streaming to webview
         process.on('message', (msg: JSONLMessage) => {
+          // Detect Task tool_use (agent spawn) and start watching for agent file
+          this.detectAndWatchAgents(msg, effectiveSessionId, workspacePath);
+
           this.webviewManager
             .sendMessage('ptah.main', 'chat:chunk', {
               sessionId: effectiveSessionId,
@@ -253,6 +284,9 @@ export class RpcMethodRegistrationService {
 
         // Setup message streaming
         process.on('message', (msg: JSONLMessage) => {
+          // Detect Task tool_use (agent spawn) and start watching for agent file
+          this.detectAndWatchAgents(msg, sessionId, workspacePath);
+
           this.webviewManager
             .sendMessage('ptah.main', 'chat:chunk', {
               sessionId,
@@ -600,5 +634,43 @@ export class RpcMethodRegistrationService {
         };
       }
     });
+  }
+
+  /**
+   * Detect Task tool_use (agent spawn) and tool_result (agent complete) in JSONL messages.
+   * Starts/stops watching for agent session files accordingly.
+   *
+   * @param msg - JSONL message from Claude CLI stream
+   * @param sessionId - Current session ID
+   * @param workspacePath - Workspace path for locating agent files
+   */
+  private detectAndWatchAgents(
+    msg: JSONLMessage,
+    sessionId: string,
+    workspacePath: string
+  ): void {
+    // Detect Task tool_use (agent spawn)
+    if (msg.type === 'assistant' && msg.message?.content) {
+      for (const block of msg.message.content) {
+        if (block.type === 'tool_use' && block.name === 'Task' && block.id) {
+          this.logger.debug('Detected Task tool_use, starting agent watch', {
+            toolUseId: block.id,
+            sessionId,
+          });
+          this.agentWatcher.startWatching(block.id, sessionId, workspacePath);
+        }
+      }
+    }
+
+    // Detect tool_result for Task tools (agent complete)
+    if (msg.type === 'user' && msg.message?.content) {
+      for (const block of msg.message.content) {
+        if (block.type === 'tool_result' && block.tool_use_id) {
+          // Check if this is a result for a watched agent
+          // The watcher will ignore if not tracked
+          this.agentWatcher.stopWatching(block.tool_use_id);
+        }
+      }
+    }
   }
 }

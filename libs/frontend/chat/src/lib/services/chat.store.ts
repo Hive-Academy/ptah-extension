@@ -724,6 +724,124 @@ export class ChatStore {
   }
 
   /**
+   * Handle agent summary chunk from backend file watcher
+   *
+   * This is called when the AgentSessionWatcherService detects new content
+   * in an agent's JSONL file during streaming. The summary content is
+   * extracted from text blocks and appended to the agent node.
+   *
+   * @param payload - Contains toolUseId and summaryDelta
+   */
+  handleAgentSummaryChunk(payload: {
+    toolUseId: string;
+    summaryDelta: string;
+  }): void {
+    const { toolUseId, summaryDelta } = payload;
+
+    console.log('[ChatStore] Agent summary chunk received:', {
+      toolUseId,
+      deltaLength: summaryDelta.length,
+    });
+
+    // Find the agent node by toolUseId
+    const agentNode = this.sessionManager.getAgent(toolUseId);
+    if (!agentNode) {
+      console.warn(
+        '[ChatStore] Agent node not found for summary chunk:',
+        toolUseId
+      );
+      return;
+    }
+
+    // Update agent node with appended summary content
+    const updatedAgent: ExecutionNode = {
+      ...agentNode,
+      summaryContent: (agentNode.summaryContent || '') + summaryDelta,
+    };
+
+    // Register updated agent
+    this.sessionManager.registerAgent(toolUseId, updatedAgent);
+
+    // Update the agent in the current message's execution tree
+    const activeTab = this.tabManager.activeTab();
+    if (!activeTab) return;
+
+    const currentMessages = activeTab.messages;
+    if (currentMessages.length === 0) return;
+
+    // Find the last assistant message and update the agent node in its tree
+    const lastMsgIndex = currentMessages.length - 1;
+    const lastMsg = currentMessages[lastMsgIndex];
+
+    if (lastMsg.role !== 'assistant' || !lastMsg.executionTree) return;
+
+    // Replace the agent node in the tree
+    const updatedTree = this.replaceNodeInTree(
+      lastMsg.executionTree,
+      toolUseId,
+      updatedAgent
+    );
+
+    if (updatedTree !== lastMsg.executionTree) {
+      // Update the message with the new tree
+      const updatedMessages = [...currentMessages];
+      updatedMessages[lastMsgIndex] = {
+        ...lastMsg,
+        executionTree: updatedTree,
+      };
+
+      this.tabManager.updateTab(activeTab.id, {
+        messages: updatedMessages,
+      });
+
+      console.log('[ChatStore] Agent summary updated in tree:', {
+        toolUseId,
+        summaryLength: updatedAgent.summaryContent?.length || 0,
+      });
+    }
+  }
+
+  /**
+   * Recursively replace a node in the execution tree by ID
+   *
+   * @param tree - Root node of the tree
+   * @param nodeId - ID of the node to replace
+   * @param replacement - New node to insert
+   * @returns Updated tree (new reference if changed)
+   */
+  private replaceNodeInTree(
+    tree: ExecutionNode,
+    nodeId: string,
+    replacement: ExecutionNode
+  ): ExecutionNode {
+    // Check if this is the node to replace
+    if (tree.id === nodeId || tree.toolCallId === nodeId) {
+      return replacement;
+    }
+
+    // Recursively check children
+    let childrenChanged = false;
+    const newChildren = tree.children.map((child) => {
+      const updated = this.replaceNodeInTree(child, nodeId, replacement);
+      if (updated !== child) {
+        childrenChanged = true;
+      }
+      return updated;
+    });
+
+    // Return same reference if nothing changed
+    if (!childrenChanged) {
+      return tree;
+    }
+
+    // Return new tree with updated children
+    return {
+      ...tree,
+      children: newChildren,
+    };
+  }
+
+  /**
    * Abort current streaming message via RPC
    */
   async abortCurrentMessage(): Promise<void> {

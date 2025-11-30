@@ -33,6 +33,7 @@ import {
   RpcHandler,
   RpcMethodRegistrationService,
   SessionDiscoveryService,
+  AgentSessionWatcherService,
 } from '@ptah-extension/vscode-core';
 
 // Import workspace-intelligence services
@@ -140,6 +141,12 @@ export class DIContainer {
     container.registerSingleton(
       TOKENS.SESSION_DISCOVERY_SERVICE,
       SessionDiscoveryService
+    );
+
+    // Agent Session Watcher (real-time summary streaming during agent execution)
+    container.registerSingleton(
+      TOKENS.AGENT_SESSION_WATCHER_SERVICE,
+      AgentSessionWatcherService
     );
 
     // ClaudeProcess factory (Batch 4 - TASK_2025_023)

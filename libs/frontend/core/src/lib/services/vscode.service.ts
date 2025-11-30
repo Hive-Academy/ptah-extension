@@ -249,6 +249,21 @@ export class VSCodeService {
           );
         }
       }
+
+      // Handle agent summary chunk (real-time agent summary streaming)
+      if (message.type === 'agent:summary-chunk') {
+        if (message.payload && this.chatStore) {
+          this.chatStore.handleAgentSummaryChunk(message.payload);
+        } else if (!message.payload) {
+          console.warn(
+            '[VSCodeService] agent:summary-chunk received but payload is undefined!'
+          );
+        } else {
+          console.warn(
+            '[VSCodeService] agent:summary-chunk received but ChatStore not registered!'
+          );
+        }
+      }
     });
   }
 }

@@ -11,9 +11,11 @@ import {
   ChevronDown,
   ChevronRight,
   Loader2,
+  FileText,
 } from 'lucide-angular';
 import { ExecutionNodeComponent } from './execution-node.component';
 import { TypingCursorComponent } from '../atoms/typing-cursor.component';
+import { AgentSummaryComponent } from '../molecules/agent-summary.component';
 import type { ExecutionNode } from '@ptah-extension/shared';
 
 /**
@@ -35,6 +37,7 @@ import type { ExecutionNode } from '@ptah-extension/shared';
     LucideAngularModule,
     ExecutionNodeComponent,
     TypingCursorComponent,
+    AgentSummaryComponent,
   ],
   template: `
     <div
@@ -97,6 +100,32 @@ import type { ExecutionNode } from '@ptah-extension/shared';
       <div
         class="px-3 pb-2 max-h-80 overflow-y-auto border-t border-base-300/30"
       >
+        <!-- Summary Section (if available) -->
+        @if (hasSummary()) {
+        <div class="py-2 border-b border-base-300/30 mb-2">
+          <div
+            class="flex items-center gap-1.5 text-[10px] text-base-content/50 mb-1.5"
+          >
+            <lucide-angular [img]="FileTextIcon" class="w-3 h-3" />
+            <span class="font-medium">Summary</span>
+            @if (isStreaming()) {
+            <ptah-typing-cursor colorClass="text-base-content/40" />
+            }
+          </div>
+          <ptah-agent-summary [content]="node().summaryContent!" />
+        </div>
+        } @else if (isStreaming() && !hasChildren()) {
+        <!-- Waiting for summary/execution -->
+        <div
+          class="flex items-center gap-1.5 text-[10px] text-base-content/40 py-1.5 mb-2"
+        >
+          <lucide-angular [img]="LoaderIcon" class="w-3 h-3 animate-spin" />
+          <span>Waiting for agent output...</span>
+          <ptah-typing-cursor colorClass="text-base-content/40" />
+        </div>
+        }
+
+        <!-- Execution Section (tool calls) -->
         @if (hasChildren()) { @for (child of node().children; track child.id) {
         <ptah-execution-node [node]="child" [isStreaming]="isStreaming()" />
         } @if (isStreaming()) {
@@ -107,7 +136,9 @@ import type { ExecutionNode } from '@ptah-extension/shared';
           <span>Agent working</span>
           <ptah-typing-cursor colorClass="text-base-content/40" />
         </div>
-        } } @else if (isStreaming()) {
+        } } @else if (!hasSummary()) {
+        <!-- No summary and no children -->
+        @if (isStreaming()) {
         <div
           class="flex items-center gap-2 text-[10px] text-base-content/40 py-2"
         >
@@ -119,7 +150,7 @@ import type { ExecutionNode } from '@ptah-extension/shared';
         <div class="text-[10px] text-base-content/40 py-2">
           No execution data
         </div>
-        }
+        } }
       </div>
       }
     </div>
@@ -133,12 +164,20 @@ export class InlineAgentBubbleComponent {
   readonly ChevronDownIcon = ChevronDown;
   readonly ChevronRightIcon = ChevronRight;
   readonly LoaderIcon = Loader2;
+  readonly FileTextIcon = FileText;
 
   // Collapse state - expanded by default
   readonly isCollapsed = signal(false);
 
   // Computed: is agent streaming
   readonly isStreaming = computed(() => this.node().status === 'streaming');
+
+  // Computed: has summary content
+  readonly hasSummary = computed(
+    () =>
+      !!this.node().summaryContent &&
+      this.node().summaryContent!.trim().length > 0
+  );
 
   // Computed: agent color based on type
   readonly agentColor = computed(() => {

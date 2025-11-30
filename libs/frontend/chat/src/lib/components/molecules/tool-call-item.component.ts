@@ -1,4 +1,9 @@
-import { Component, input, signal, ChangeDetectionStrategy } from '@angular/core';
+import {
+  Component,
+  input,
+  signal,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { ToolCallHeaderComponent } from './tool-call-header.component';
 import { ToolInputDisplayComponent } from './tool-input-display.component';
 import { ToolOutputDisplayComponent } from './tool-output-display.component';

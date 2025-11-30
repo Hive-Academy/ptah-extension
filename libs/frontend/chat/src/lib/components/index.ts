@@ -35,6 +35,7 @@ export * from './molecules/chat-input.component';
 // ORGANISMS - Complex sections
 // ============================================================================
 export * from './organisms/execution-node.component';
+export * from './organisms/inline-agent-bubble.component';
 export * from './organisms/agent-execution.component';
 export * from './organisms/message-bubble.component';
 

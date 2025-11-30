@@ -65,3 +65,7 @@ export type {
   LinkedAgentSession,
   SessionData,
 } from './services/session-discovery.service';
+
+// Agent Session Watcher (real-time summary streaming)
+export { AgentSessionWatcherService } from './services/agent-session-watcher.service';
+export type { AgentSummaryChunk } from './services/agent-session-watcher.service';

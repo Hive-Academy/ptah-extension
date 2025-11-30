@@ -85,10 +85,7 @@ import type { ExecutionNode } from '@ptah-extension/shared';
         class="w-3 h-3 text-success flex-shrink-0"
       />
       } @else if (node().status === 'error') {
-      <lucide-angular
-        [img]="XIcon"
-        class="w-3 h-3 text-error flex-shrink-0"
-      />
+      <lucide-angular [img]="XIcon" class="w-3 h-3 text-error flex-shrink-0" />
       } @else if (node().status === 'streaming') {
       <div class="flex items-center gap-1 flex-shrink-0">
         <lucide-angular
@@ -217,7 +214,10 @@ export class ToolCallHeaderComponent {
         return `Running ${this.truncate(cmd, 20)}...`;
       }
       case 'Grep':
-        return `Searching for "${this.truncate(input['pattern'] as string, 15)}"...`;
+        return `Searching for "${this.truncate(
+          input['pattern'] as string,
+          15
+        )}"...`;
       case 'Glob':
         return `Finding ${this.truncate(input['pattern'] as string, 15)}...`;
       case 'Task':

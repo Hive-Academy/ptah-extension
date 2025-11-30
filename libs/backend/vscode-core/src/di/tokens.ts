@@ -45,6 +45,9 @@ export const RPC_METHOD_REGISTRATION_SERVICE = Symbol.for(
   'RpcMethodRegistrationService'
 );
 export const SESSION_DISCOVERY_SERVICE = Symbol.for('SessionDiscoveryService');
+export const AGENT_SESSION_WATCHER_SERVICE = Symbol.for(
+  'AgentSessionWatcherService'
+);
 
 // ========================================
 // Workspace Intelligence Service Tokens
@@ -205,6 +208,7 @@ export const TOKENS = {
   RPC_HANDLER,
   RPC_METHOD_REGISTRATION_SERVICE,
   SESSION_DISCOVERY_SERVICE,
+  AGENT_SESSION_WATCHER_SERVICE,
 
   // ========================================
   // Workspace Intelligence

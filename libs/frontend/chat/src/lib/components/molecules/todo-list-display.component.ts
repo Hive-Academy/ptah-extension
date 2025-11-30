@@ -4,7 +4,12 @@ import {
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { LucideAngularModule, Circle, CheckCircle2, Loader2 } from 'lucide-angular';
+import {
+  LucideAngularModule,
+  Circle,
+  CheckCircle2,
+  Loader2,
+} from 'lucide-angular';
 
 /**
  * TodoListDisplayComponent - Specialized display for TodoWrite tool
@@ -52,42 +57,42 @@ export interface TodoWriteInput {
       <!-- Todo items -->
       <div class="space-y-1">
         @for (item of todos(); track item.content) {
-          <div class="flex items-start gap-2 text-[11px]">
-            <!-- Status icon -->
-            @if (item.status === 'completed') {
-              <lucide-angular
-                [img]="CheckIcon"
-                class="w-4 h-4 text-success flex-shrink-0 mt-0.5"
-              />
-            } @else if (item.status === 'in_progress') {
-              <lucide-angular
-                [img]="SpinnerIcon"
-                class="w-4 h-4 text-info animate-spin flex-shrink-0 mt-0.5"
-              />
-            } @else {
-              <lucide-angular
-                [img]="CircleIcon"
-                class="w-4 h-4 text-base-content/30 flex-shrink-0 mt-0.5"
-              />
-            }
+        <div class="flex items-start gap-2 text-[11px]">
+          <!-- Status icon -->
+          @if (item.status === 'completed') {
+          <lucide-angular
+            [img]="CheckIcon"
+            class="w-4 h-4 text-success flex-shrink-0 mt-0.5"
+          />
+          } @else if (item.status === 'in_progress') {
+          <lucide-angular
+            [img]="SpinnerIcon"
+            class="w-4 h-4 text-info animate-spin flex-shrink-0 mt-0.5"
+          />
+          } @else {
+          <lucide-angular
+            [img]="CircleIcon"
+            class="w-4 h-4 text-base-content/30 flex-shrink-0 mt-0.5"
+          />
+          }
 
-            <!-- Task text -->
-            <div class="flex-1">
-              @if (item.status === 'in_progress') {
-                <span class="font-medium text-info animate-pulse">
-                  {{ item.activeForm }}
-                </span>
-              } @else if (item.status === 'completed') {
-                <span class="font-medium text-base-content/50">
-                  {{ item.content }}
-                </span>
-              } @else {
-                <span class="font-medium">
-                  {{ item.content }}
-                </span>
-              }
-            </div>
+          <!-- Task text -->
+          <div class="flex-1">
+            @if (item.status === 'in_progress') {
+            <span class="font-medium text-info animate-pulse">
+              {{ item.activeForm }}
+            </span>
+            } @else if (item.status === 'completed') {
+            <span class="font-medium text-base-content/50">
+              {{ item.content }}
+            </span>
+            } @else {
+            <span class="font-medium">
+              {{ item.content }}
+            </span>
+            }
           </div>
+        </div>
         }
       </div>
     </div>
@@ -100,8 +105,14 @@ export class TodoListDisplayComponent {
   // Computed signals for reactive data
   readonly todos = computed(() => this.toolInput().todos);
   readonly totalCount = computed(() => this.todos().length);
-  readonly completedCount = computed(() => this.todos().filter((t) => t.status === 'completed').length);
-  readonly progressPercentage = computed(() => (this.totalCount() > 0 ? (this.completedCount() / this.totalCount()) * 100 : 0));
+  readonly completedCount = computed(
+    () => this.todos().filter((t) => t.status === 'completed').length
+  );
+  readonly progressPercentage = computed(() =>
+    this.totalCount() > 0
+      ? (this.completedCount() / this.totalCount()) * 100
+      : 0
+  );
 
   // Icons
   readonly CircleIcon = Circle;
