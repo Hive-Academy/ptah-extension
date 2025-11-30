@@ -76,9 +76,13 @@ import type { ExecutionNode } from '@ptah-extension/shared';
     </ptah-tool-call-item>
     } @case ('agent') {
     <ptah-agent-card [node]="node()">
-      <!-- RECURSIVE: Render agent's children (tools, nested agents) -->
+      <!-- RECURSIVE: Render agent's children using AGENT's streaming status -->
+      <!-- This separates agent streaming from main thread streaming -->
       @for (child of node().children; track child.id) {
-      <ptah-execution-node [node]="child" [isStreaming]="isStreaming()" />
+      <ptah-execution-node
+        [node]="child"
+        [isStreaming]="node().status === 'streaming'"
+      />
       }
     </ptah-agent-card>
     } @case ('message') {
