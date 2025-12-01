@@ -1,75 +1,4 @@
-@if (message().agentInfo) {
-<!-- Agent message (compact VS Code-like layout with dual sections) -->
-<div class="chat chat-start gap-0.5">
-  <!-- Compact colored avatar -->
-  <div class="chat-image avatar placeholder">
-    <div
-      class="w-6 h-6 rounded-full flex items-center justify-center"
-      [ngStyle]="{
-        'background-color': getAgentColor(message().agentInfo!.agentType)
-      }"
-    >
-      <span class="text-white text-[10px] font-bold">
-        {{ message().agentInfo!.agentType.charAt(0).toUpperCase() }}
-      </span>
-    </div>
-  </div>
-
-  <!-- Compact header: agent type + description inline -->
-  <div
-    class="chat-header text-[11px] text-base-content/70 flex items-center gap-1.5 leading-tight"
-  >
-    <span class="font-semibold">{{ message().agentInfo!.agentType }}</span>
-    @if (message().agentInfo!.agentDescription) {
-    <span class="text-base-content/40">•</span>
-    <span
-      class="text-base-content/50 truncate max-w-[180px]"
-      [title]="message().agentInfo!.agentDescription"
-    >
-      {{ message().agentInfo!.agentDescription }}
-    </span>
-    } @if (message().agentInfo!.isStreaming) {
-    <span class="badge badge-xs badge-info gap-1 ml-1">
-      <span class="loading loading-spinner loading-xs"></span>
-      Streaming
-    </span>
-    }
-    <time
-      class="opacity-50 ml-auto"
-      [attr.datetime]="formatDateTime(message().timestamp)"
-    >
-      {{ formatTime(message().timestamp) }}
-    </time>
-  </div>
-
-  <!-- Agent execution bubble with dual sections (Summary + Execution) -->
-  <div
-    class="chat-bubble bg-base-200 text-base-content shadow-sm max-w-[92%] border-l-2 p-2"
-    [ngStyle]="{
-      'border-left-color': getAgentColor(message().agentInfo!.agentType)
-    }"
-  >
-    <!-- Dual-section agent execution component -->
-    <ptah-agent-execution
-      [agentInfo]="message().agentInfo!"
-      [executionTree]="message().executionTree"
-    />
-  </div>
-
-  <!-- Compact action buttons -->
-  <div
-    class="chat-footer opacity-0 hover:opacity-100 transition-opacity flex gap-0.5 mt-0.5"
-  >
-    <button
-      class="btn btn-xs btn-ghost p-1 min-h-0 h-5"
-      aria-label="Copy"
-      title="Copy"
-    >
-      <lucide-angular [img]="CopyIcon" class="w-3 h-3" />
-    </button>
-  </div>
-</div>
-} @else if (message().role === 'assistant') {
+@if (message().role === 'assistant') {
 <!-- Assistant message (left-aligned) -->
 <div class="chat chat-start">
   <!-- Avatar with Ptah icon + streaming ring -->
@@ -112,6 +41,7 @@
     <ptah-execution-node
       [node]="message().executionTree!"
       [isStreaming]="isStreaming()"
+      [getPermissionForTool]="getPermissionForTool"
     />
     } @else {
     <!-- Fallback text content -->

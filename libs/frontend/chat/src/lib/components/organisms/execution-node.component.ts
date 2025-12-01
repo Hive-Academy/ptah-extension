@@ -11,7 +11,7 @@ import { AgentSummaryComponent } from '../molecules/agent-summary.component';
 import { ThinkingBlockComponent } from '../molecules/thinking-block.component';
 import { ToolCallItemComponent } from '../molecules/tool-call-item.component';
 import { StreamingTextRevealComponent } from '../atoms/streaming-text-reveal.component';
-import type { ExecutionNode } from '@ptah-extension/shared';
+import type { ExecutionNode, PermissionRequest } from '@ptah-extension/shared';
 
 /**
  * ExecutionNodeComponent - THE KEY RECURSIVE COMPONENT
@@ -72,16 +72,26 @@ import type { ExecutionNode } from '@ptah-extension/shared';
     } } } @case ('thinking') {
     <ptah-thinking-block [node]="node()" />
     } @case ('tool') {
-    <ptah-tool-call-item [node]="node()">
+    <ptah-tool-call-item
+      [node]="node()"
+      [permission]="getPermissionForTool()?.(node().toolCallId ?? '')"
+    >
       <!-- RECURSIVE: Render nested children (tool results, sub-tools) -->
       @for (child of node().children; track child.id) {
-      <ptah-execution-node [node]="child" [isStreaming]="isStreaming()" />
+      <ptah-execution-node
+        [node]="child"
+        [isStreaming]="isStreaming()"
+        [getPermissionForTool]="getPermissionForTool()"
+      />
       }
     </ptah-tool-call-item>
     } @case ('agent') {
     <!-- Use @defer to break circular dependency and lazy-load InlineAgentBubbleComponent -->
     @defer {
-    <ptah-inline-agent-bubble [node]="node()" />
+    <ptah-inline-agent-bubble
+      [node]="node()"
+      [getPermissionForTool]="getPermissionForTool()"
+    />
     } @placeholder {
     <div class="flex items-center gap-2 text-[10px] text-base-content/40 py-2">
       <span>Loading agent...</span>
@@ -89,7 +99,11 @@ import type { ExecutionNode } from '@ptah-extension/shared';
     } } @case ('message') {
     <!-- Message node unwraps to its children -->
     @for (child of node().children; track child.id) {
-    <ptah-execution-node [node]="child" [isStreaming]="isStreaming()" />
+    <ptah-execution-node
+      [node]="child"
+      [isStreaming]="isStreaming()"
+      [getPermissionForTool]="getPermissionForTool()"
+    />
     } } @case ('system') {
     <!-- System messages (session init, etc.) -->
     <div class="alert alert-info my-2 text-xs">
@@ -105,6 +119,14 @@ export class ExecutionNodeComponent {
 
   /** Global streaming state passed from parent */
   readonly isStreaming = input<boolean>(false);
+
+  /**
+   * Permission lookup function forwarded from parent
+   * Enables tool cards to check if they have pending permissions
+   */
+  readonly getPermissionForTool = input<
+    ((toolCallId: string) => PermissionRequest | null) | undefined
+  >();
 
   // Lucide icons
   readonly InfoIcon = Info;

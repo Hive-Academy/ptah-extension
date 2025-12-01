@@ -11,23 +11,25 @@ import {
   ChevronDown,
   ChevronRight,
   Loader2,
-  FileText,
 } from 'lucide-angular';
 import { ExecutionNodeComponent } from './execution-node.component';
 import { TypingCursorComponent } from '../atoms/typing-cursor.component';
-import { AgentSummaryComponent } from '../molecules/agent-summary.component';
-import type { ExecutionNode } from '@ptah-extension/shared';
+import type { ExecutionNode, PermissionRequest } from '@ptah-extension/shared';
 
 /**
- * InlineAgentBubbleComponent - Chat bubble style for agents nested in main response
+ * InlineAgentBubbleComponent - Unified agent rendering for both streaming and replay
  *
- * This component renders an agent with the same visual style as top-level agent bubbles:
+ * This component renders an agent as an inline bubble within the main Claude response:
  * - Colored avatar with agent initial
  * - Agent type header with streaming badge
- * - Collapsible execution content with fixed max-height
- * - Scrollable tool list
+ * - Collapsible content with INTERLEAVED timeline (text + tools in order)
+ * - No separate Summary/Execution sections - unified chronological view
  *
- * Used by ExecutionNodeComponent when rendering 'agent' type nodes inline.
+ * The children array contains both text nodes (agent's thoughts/explanations)
+ * and tool nodes (actual tool calls) in chronological order, creating a natural
+ * flow that matches how agents actually execute.
+ *
+ * Used by ExecutionNodeComponent when rendering 'agent' type nodes.
  */
 @Component({
   selector: 'ptah-inline-agent-bubble',
@@ -37,7 +39,6 @@ import type { ExecutionNode } from '@ptah-extension/shared';
     LucideAngularModule,
     ExecutionNodeComponent,
     TypingCursorComponent,
-    AgentSummaryComponent,
   ],
   template: `
     <div
@@ -82,52 +83,32 @@ import type { ExecutionNode } from '@ptah-extension/shared';
           }
         </div>
 
-        <!-- Streaming badge -->
+        <!-- Streaming badge or stats -->
         @if (isStreaming()) {
         <span class="badge badge-xs badge-info gap-1 flex-shrink-0">
           <lucide-angular [img]="LoaderIcon" class="w-2.5 h-2.5 animate-spin" />
           <span class="text-[9px]">Streaming</span>
         </span>
-        } @else {
+        } @else if (hasChildren()) {
         <span class="badge badge-xs badge-ghost text-[9px] flex-shrink-0">
-          {{ toolCount() }} tools
+          {{ childStats() }}
         </span>
         }
       </button>
 
-      <!-- Collapsible Content -->
+      <!-- Collapsible Content: INTERLEAVED TIMELINE (text + tools in order) -->
       @if (!isCollapsed()) {
       <div
         class="px-3 pb-2 max-h-80 overflow-y-auto border-t border-base-300/30"
       >
-        <!-- Summary Section (if available) -->
-        @if (hasSummary()) {
-        <div class="py-2 border-b border-base-300/30 mb-2">
-          <div
-            class="flex items-center gap-1.5 text-[10px] text-base-content/50 mb-1.5"
-          >
-            <lucide-angular [img]="FileTextIcon" class="w-3 h-3" />
-            <span class="font-medium">Summary</span>
-            @if (isStreaming()) {
-            <ptah-typing-cursor colorClass="text-base-content/40" />
-            }
-          </div>
-          <ptah-agent-summary [content]="node().summaryContent!" />
-        </div>
-        } @else if (isStreaming() && !hasChildren()) {
-        <!-- Waiting for summary/execution -->
-        <div
-          class="flex items-center gap-1.5 text-[10px] text-base-content/40 py-1.5 mb-2"
-        >
-          <lucide-angular [img]="LoaderIcon" class="w-3 h-3 animate-spin" />
-          <span>Waiting for agent output...</span>
-          <ptah-typing-cursor colorClass="text-base-content/40" />
-        </div>
-        }
-
-        <!-- Execution Section (tool calls) -->
-        @if (hasChildren()) { @for (child of node().children; track child.id) {
-        <ptah-execution-node [node]="child" [isStreaming]="isStreaming()" />
+        @if (hasChildren()) {
+        <!-- Render all children in chronological order (text + tools interleaved) -->
+        @for (child of node().children; track child.id) {
+        <ptah-execution-node
+          [node]="child"
+          [isStreaming]="isStreaming()"
+          [getPermissionForTool]="getPermissionForTool()"
+        />
         } @if (isStreaming()) {
         <div
           class="flex items-center gap-1 text-[10px] text-base-content/40 mt-2"
@@ -136,8 +117,8 @@ import type { ExecutionNode } from '@ptah-extension/shared';
           <span>Agent working</span>
           <ptah-typing-cursor colorClass="text-base-content/40" />
         </div>
-        } } @else if (!hasSummary()) {
-        <!-- No summary and no children -->
+        } } @else {
+        <!-- No children yet -->
         @if (isStreaming()) {
         <div
           class="flex items-center gap-2 text-[10px] text-base-content/40 py-2"
@@ -160,24 +141,23 @@ import type { ExecutionNode } from '@ptah-extension/shared';
 export class InlineAgentBubbleComponent {
   readonly node = input.required<ExecutionNode>();
 
+  /**
+   * Permission lookup function forwarded from parent
+   */
+  readonly getPermissionForTool = input<
+    ((toolCallId: string) => PermissionRequest | null) | undefined
+  >();
+
   // Icons
   readonly ChevronDownIcon = ChevronDown;
   readonly ChevronRightIcon = ChevronRight;
   readonly LoaderIcon = Loader2;
-  readonly FileTextIcon = FileText;
 
   // Collapse state - expanded by default
   readonly isCollapsed = signal(false);
 
   // Computed: is agent streaming
   readonly isStreaming = computed(() => this.node().status === 'streaming');
-
-  // Computed: has summary content
-  readonly hasSummary = computed(
-    () =>
-      !!this.node().summaryContent &&
-      this.node().summaryContent!.trim().length > 0
-  );
 
   // Computed: agent color based on type
   readonly agentColor = computed(() => {
@@ -212,9 +192,20 @@ export class InlineAgentBubbleComponent {
     return agentType.charAt(0).toUpperCase();
   });
 
-  // Computed: tool count
-  readonly toolCount = computed(() => {
-    return this.node().children?.filter((c) => c.type === 'tool').length ?? 0;
+  // Computed: child statistics for badge display
+  readonly childStats = computed(() => {
+    const children = this.node().children ?? [];
+    const toolCount = children.filter((c) => c.type === 'tool').length;
+    const textCount = children.filter((c) => c.type === 'text').length;
+
+    if (toolCount > 0 && textCount > 0) {
+      return `${toolCount} tools`;
+    } else if (toolCount > 0) {
+      return `${toolCount} tools`;
+    } else if (textCount > 0) {
+      return `${textCount} items`;
+    }
+    return '';
   });
 
   protected hasChildren(): boolean {
