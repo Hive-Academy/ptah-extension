@@ -104,16 +104,6 @@
     }
   </div>
 
-  <!-- Permission Request Cards (above input) -->
-  @for (request of chatStore.permissionRequests(); track request.id) {
-  <div class="px-4 pb-2">
-    <ptah-permission-request-card
-      [request]="request"
-      (responded)="chatStore.handlePermissionResponse($event)"
-    />
-  </div>
-  }
-
   <!-- Input Area -->
   <ptah-chat-input class="border-t border-base-300" />
 </div>
