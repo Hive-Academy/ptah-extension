@@ -147,6 +147,35 @@ export class ChatStore {
   private readonly _permissionRequests = signal<PermissionRequest[]>([]);
   readonly permissionRequests = this._permissionRequests.asReadonly();
 
+  /**
+   * Computed lookup: toolUseId → PermissionRequest
+   * Enables O(1) lookup for embedding permissions in tool cards
+   */
+  readonly permissionRequestsByToolId = computed(() => {
+    const requests = this._permissionRequests();
+    const map = new Map<string, PermissionRequest>();
+
+    requests.forEach((req) => {
+      if (req.toolUseId) {
+        map.set(req.toolUseId, req);
+      }
+    });
+
+    return map;
+  });
+
+  /**
+   * Get permission request for a specific tool by its toolCallId
+   * @param toolCallId The tool's unique identifier (from ExecutionNode.toolCallId)
+   * @returns PermissionRequest if one exists for this tool, null otherwise
+   */
+  getPermissionForTool(
+    toolCallId: string | undefined
+  ): PermissionRequest | null {
+    if (!toolCallId) return null;
+    return this.permissionRequestsByToolId().get(toolCallId) ?? null;
+  }
+
   // ============================================================================
   // DERIVED COMPUTED SIGNALS
   // ============================================================================
