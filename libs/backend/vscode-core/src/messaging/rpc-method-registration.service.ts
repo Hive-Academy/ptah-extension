@@ -405,6 +405,18 @@ export class RpcMethodRegistrationService {
     this.rpcHandler.registerMethod('session:load', async (params: any) => {
       try {
         const { sessionId, workspacePath } = params;
+
+        // Security: Validate sessionId format to prevent path traversal attacks
+        // Only allow alphanumeric characters, hyphens, and underscores
+        if (!sessionId || !/^[a-zA-Z0-9_-]+$/.test(sessionId)) {
+          this.logger.warn('RPC: session:load - Invalid sessionId format', {
+            sessionId,
+          });
+          throw new Error(
+            'Invalid session ID format. Only alphanumeric characters, hyphens, and underscores are allowed.'
+          );
+        }
+
         this.logger.debug('RPC: session:load called', {
           sessionId,
           workspacePath,

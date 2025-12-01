@@ -26,7 +26,6 @@ import { FileSuggestion } from '../../services';
   imports: [CommonModule],
 
   template: `
-    <!-- eslint-disable-next-line @angular-eslint/template/no-inline-styles -->
     <div
       class="vscode-file-dropdown"
       [style.top.px]="positionTop()"

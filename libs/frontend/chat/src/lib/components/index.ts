@@ -50,6 +50,6 @@ export * from './templates/app-shell.component';
 // ============================================================================
 // LEGACY COMPONENTS - KEPT (feature required)
 // ============================================================================
-export * from './file-tag/file-tag.component';
-export * from './file-suggestions-dropdown/file-suggestions-dropdown.component';
-export * from './unified-suggestions-dropdown/unified-suggestions-dropdown.component';
+export * from './file-suggestions/file-tag.component';
+export * from './file-suggestions/file-suggestions-dropdown.component';
+export * from './file-suggestions/unified-suggestions-dropdown.component';

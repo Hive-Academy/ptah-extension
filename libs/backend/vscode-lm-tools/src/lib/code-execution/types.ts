@@ -15,7 +15,7 @@ import * as vscode from 'vscode';
 
 /**
  * Complete Ptah API surface exposed to executed TypeScript code
- * Provides 11 namespaces for comprehensive workspace intelligence
+ * Provides 12 namespaces for comprehensive workspace intelligence
  */
 export interface PtahAPI {
   // Original 8 namespaces
@@ -28,10 +28,13 @@ export interface PtahAPI {
   files: FilesNamespace;
   commands: CommandsNamespace;
 
-  // New namespaces (TASK_2025_025)
+  // Extended namespaces (TASK_2025_025)
   context: ContextNamespace;
   project: ProjectNamespace;
   relevance: RelevanceNamespace;
+
+  // AST analysis namespace
+  ast: AstNamespace;
 }
 
 // ========================================
@@ -510,4 +513,197 @@ export interface FileRelevanceResult {
 
   /** Reasons explaining the score */
   reasons: string[];
+}
+
+// ========================================
+// AST Namespace (TASK_2025_0XX)
+// ========================================
+
+/**
+ * AST analysis capabilities
+ * Provides code structure analysis using tree-sitter parsing
+ */
+export interface AstNamespace {
+  /**
+   * Analyze a file and extract code insights (functions, classes, imports, exports)
+   * @param filePath - Absolute or relative file path
+   * @returns Code insights with structured information
+   */
+  analyze: (filePath: string) => Promise<AstCodeInsights>;
+
+  /**
+   * Parse a file and return the full AST structure
+   * @param filePath - Absolute or relative file path
+   * @param maxDepth - Maximum tree depth to return (default: 10, for performance)
+   * @returns Generic AST node tree
+   */
+  parse: (filePath: string, maxDepth?: number) => Promise<AstParseResult>;
+
+  /**
+   * Query functions from a file
+   * @param filePath - Absolute or relative file path
+   * @returns Array of function definitions
+   */
+  queryFunctions: (filePath: string) => Promise<AstFunctionInfo[]>;
+
+  /**
+   * Query classes from a file
+   * @param filePath - Absolute or relative file path
+   * @returns Array of class definitions
+   */
+  queryClasses: (filePath: string) => Promise<AstClassInfo[]>;
+
+  /**
+   * Query imports from a file
+   * @param filePath - Absolute or relative file path
+   * @returns Array of import statements
+   */
+  queryImports: (filePath: string) => Promise<AstImportInfo[]>;
+
+  /**
+   * Query exports from a file
+   * @param filePath - Absolute or relative file path
+   * @returns Array of export statements
+   */
+  queryExports: (filePath: string) => Promise<AstExportInfo[]>;
+
+  /**
+   * Get supported languages for AST parsing
+   * @returns Array of supported language identifiers
+   */
+  getSupportedLanguages: () => string[];
+}
+
+/**
+ * Complete code insights from AST analysis
+ */
+export interface AstCodeInsights {
+  /** File that was analyzed */
+  file: string;
+
+  /** Detected language */
+  language: string;
+
+  /** Function definitions found */
+  functions: AstFunctionInfo[];
+
+  /** Class definitions found */
+  classes: AstClassInfo[];
+
+  /** Import statements found */
+  imports: AstImportInfo[];
+
+  /** Export statements found */
+  exports: AstExportInfo[];
+}
+
+/**
+ * Function information extracted from AST
+ */
+export interface AstFunctionInfo {
+  /** Function name */
+  name: string;
+
+  /** Parameter names */
+  parameters: string[];
+
+  /** Start line (0-indexed) */
+  startLine?: number;
+
+  /** End line (0-indexed) */
+  endLine?: number;
+
+  /** Whether function is async */
+  isAsync?: boolean;
+}
+
+/**
+ * Class information extracted from AST
+ */
+export interface AstClassInfo {
+  /** Class name */
+  name: string;
+
+  /** Start line (0-indexed) */
+  startLine?: number;
+
+  /** End line (0-indexed) */
+  endLine?: number;
+
+  /** Methods in the class */
+  methods?: AstFunctionInfo[];
+}
+
+/**
+ * Import information extracted from AST
+ */
+export interface AstImportInfo {
+  /** Module source path */
+  source: string;
+
+  /** Imported symbols */
+  importedSymbols?: string[];
+
+  /** Whether this is a default import */
+  isDefault?: boolean;
+
+  /** Whether this is a namespace import (import * as X) */
+  isNamespace?: boolean;
+}
+
+/**
+ * Export information extracted from AST
+ */
+export interface AstExportInfo {
+  /** Exported symbol name */
+  name: string;
+
+  /** Type of export (function, class, variable, type, interface, unknown) */
+  kind: 'function' | 'class' | 'variable' | 'type' | 'interface' | 'unknown';
+
+  /** Whether this is a default export */
+  isDefault?: boolean;
+
+  /** Whether this is a re-export from another module */
+  isReExport?: boolean;
+
+  /** Source module if re-export */
+  source?: string;
+}
+
+/**
+ * Result of parsing a file to AST
+ */
+export interface AstParseResult {
+  /** File that was parsed */
+  file: string;
+
+  /** Detected language */
+  language: string;
+
+  /** Root AST node (simplified for JSON serialization) */
+  ast: AstNode;
+
+  /** Total node count */
+  nodeCount: number;
+}
+
+/**
+ * Simplified AST node for MCP serialization
+ */
+export interface AstNode {
+  /** Node type (e.g., 'function_declaration', 'class_declaration') */
+  type: string;
+
+  /** Node text content (may be truncated for large nodes) */
+  text?: string;
+
+  /** Start position */
+  start: { line: number; column: number };
+
+  /** End position */
+  end: { line: number; column: number };
+
+  /** Child nodes */
+  children?: AstNode[];
 }

@@ -98,7 +98,11 @@ export {
 } from './composite/workspace-analyzer.service';
 
 // AST services (Phase 2: RooCode migration)
-export { TreeSitterParserService } from './ast/tree-sitter-parser.service';
+export {
+  TreeSitterParserService,
+  type QueryCapture,
+  type QueryMatch,
+} from './ast/tree-sitter-parser.service';
 export { AstAnalysisService } from './ast/ast-analysis.service';
 
 // AST types and interfaces

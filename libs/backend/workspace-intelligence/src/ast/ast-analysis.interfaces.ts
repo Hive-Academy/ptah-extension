@@ -10,9 +10,22 @@ export interface FunctionInfo {
    * An array of parameter names for the function.
    */
   parameters: string[];
-  // Optional fields (add TSDoc if uncommented in future):
-  // startLine?: number;
-  // endLine?: number;
+  /**
+   * The starting line number (0-indexed).
+   */
+  startLine?: number;
+  /**
+   * The ending line number (0-indexed).
+   */
+  endLine?: number;
+  /**
+   * Whether this function is exported.
+   */
+  isExported?: boolean;
+  /**
+   * Whether this is an async function.
+   */
+  isAsync?: boolean;
 }
 
 /**
@@ -23,11 +36,22 @@ export interface ClassInfo {
    * The name of the class.
    */
   name: string;
-  // Optional fields (add TSDoc if uncommented in future):
-  // methods?: FunctionInfo[];
-  // properties?: string[];
-  // startLine?: number;
-  // endLine?: number;
+  /**
+   * The starting line number (0-indexed).
+   */
+  startLine?: number;
+  /**
+   * The ending line number (0-indexed).
+   */
+  endLine?: number;
+  /**
+   * Whether this class is exported.
+   */
+  isExported?: boolean;
+  /**
+   * Methods defined in the class.
+   */
+  methods?: FunctionInfo[];
 }
 
 /**
@@ -38,9 +62,44 @@ export interface ImportInfo {
    * The source module or path being imported (e.g., 'react', './utils').
    */
   source: string;
-  // Optional fields (add TSDoc if uncommented in future):
-  // importedSymbols?: string[];
-  // isDefault?: boolean;
+  /**
+   * The symbols imported from the module.
+   */
+  importedSymbols?: string[];
+  /**
+   * Whether this is a default import.
+   */
+  isDefault?: boolean;
+  /**
+   * Whether this is a namespace import (import * as X).
+   */
+  isNamespace?: boolean;
+}
+
+/**
+ * Represents information about an export statement identified in the code.
+ */
+export interface ExportInfo {
+  /**
+   * The name of the exported symbol.
+   */
+  name: string;
+  /**
+   * The type of export (function, class, variable, type, interface).
+   */
+  kind: 'function' | 'class' | 'variable' | 'type' | 'interface' | 'unknown';
+  /**
+   * Whether this is a default export.
+   */
+  isDefault?: boolean;
+  /**
+   * Whether this is a re-export from another module.
+   */
+  isReExport?: boolean;
+  /**
+   * The source module if this is a re-export.
+   */
+  source?: string;
 }
 
 /**
@@ -59,5 +118,8 @@ export interface CodeInsights {
    * An array of identified import statements.
    */
   imports: ImportInfo[];
-  // Future potential insights can be added here.
+  /**
+   * An array of identified export statements.
+   */
+  exports?: ExportInfo[];
 }

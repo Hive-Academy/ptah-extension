@@ -3,16 +3,11 @@ import {
   ExecutionNode,
   ExecutionChatMessage,
   JSONLMessage,
-  AgentInfo,
   createExecutionNode,
   createExecutionChatMessage,
 } from '@ptah-extension/shared';
 import { ExecutionTreeBuilder } from './tree-builder.service';
-import {
-  AgentSessionData,
-  ClassifiedAgentMessages,
-  NodeMaps,
-} from './chat.types';
+import { AgentSessionData, NodeMaps } from './chat.types';
 
 /**
  * SessionReplayService - Reconstructs chat history from JSONL session files
@@ -21,15 +16,17 @@ import {
  *
  * Key Features:
  * - Converts raw JSONL messages to ExecutionChatMessage format
- * - Groups agent sessions by agentId (each agent file = separate bubble)
- * - Correlates agents to Task tool_use via timestamp proximity
- * - Links tool_use to tool_result
+ * - Groups agent sessions by agentId and correlates to parent Task tool_use
+ * - Builds UNIFIED execution trees matching the streaming representation
+ * - Agents are INLINE nodes (type: 'agent') within the assistant message tree
+ * - Agent children are INTERLEAVED (text + tools in chronological order)
+ * - Links tool_use to tool_result for complete execution data
  * - Filters warmup/internal agents (no slug = warmup)
- * - Builds execution trees from historical data
  * - Returns NodeMaps for bridging to streaming
  *
- * IMPORTANT: Slug is SESSION-scoped, NOT agent-scoped!
- * All agents in a session share the same slug, so we must use agentId for grouping.
+ * IMPORTANT: This service produces the SAME ExecutionNode structure as
+ * JsonlMessageProcessor, ensuring visual consistency between loaded sessions
+ * and live streaming.
  *
  * Complexity Level: 3 (Complex - agent grouping, timestamp correlation, multi-pass processing)
  *
@@ -168,9 +165,8 @@ export class SessionReplayService {
           });
         }
 
-        // Collect Task blocks for separate agent bubbles
-        const agentBlocks: Array<{ block: any; agentId: string | null }> = [];
-
+        // Process all content blocks and add to the assistant tree
+        // Agents are added INLINE (not as separate bubbles) to match streaming behavior
         for (const block of msg.message.content) {
           if (block.type === 'text' && block.text) {
             currentAssistantTree = {
@@ -187,11 +183,24 @@ export class SessionReplayService {
             };
           } else if (block.type === 'tool_use') {
             if (block.name === 'Task' && block.input) {
-              // Find correlated agent for this Task
+              // Task tool = Agent spawn - add INLINE to assistant tree (matching streaming)
               const agentId = block.id
                 ? taskToAgentMap.get(block.id) || null
                 : null;
-              agentBlocks.push({ block, agentId });
+
+              // Build interleaved agent children from the agent session data
+              const agentNode = this.createInlineAgentNode(
+                block,
+                agentId,
+                agentDataMap,
+                taskToolResults,
+                nodeMaps
+              );
+
+              currentAssistantTree = {
+                ...currentAssistantTree,
+                children: [...currentAssistantTree.children, agentNode],
+              };
             } else {
               // Regular tool - add to assistant tree
               // Look up the tool result by tool_use_id
@@ -220,37 +229,6 @@ export class SessionReplayService {
               };
             }
           }
-        }
-
-        // Finalize assistant tree before agent bubbles
-        if (
-          currentAssistantTree.children.length > 0 &&
-          agentBlocks.length > 0
-        ) {
-          chatMessages.push(
-            this.createAssistantMessageFromTree(
-              currentAssistantTree,
-              currentAssistantId!
-            )
-          );
-          currentAssistantId = this.generateId();
-          currentAssistantTree = createExecutionNode({
-            id: currentAssistantId,
-            type: 'message',
-            status: 'complete',
-          });
-        }
-
-        // Create separate bubble for each agent
-        for (const { block, agentId } of agentBlocks) {
-          const agentMessage = this.createAgentBubble(
-            block,
-            agentId,
-            agentDataMap,
-            taskToolResults,
-            nodeMaps
-          );
-          chatMessages.push(agentMessage);
         }
       }
     }
@@ -281,6 +259,9 @@ export class SessionReplayService {
   /**
    * Build a map of agentId → agent data from agent sessions.
    * Filters out warmup agents (no slug).
+   *
+   * Now stores ALL messages (not separated into summary/execution) for
+   * interleaved timeline processing.
    */
   private buildAgentDataMap(agentSessions: AgentSessionData[]): Map<
     string,
@@ -321,16 +302,13 @@ export class SessionReplayService {
         continue;
       }
 
-      // Extract content
-      const { summaryContent, executionMessages } = this.classifyAgentMessages(
-        agent.messages
-      );
-
+      // Store ALL messages for interleaved processing
+      // (buildInterleavedAgentChildren will process them in order)
       agentDataMap.set(agent.agentId, {
         agentId: agent.agentId,
         timestamp,
-        summaryContent,
-        executionMessages,
+        summaryContent: null, // No longer used - interleaved timeline instead
+        executionMessages: agent.messages, // ALL messages, not filtered
       });
     }
 
@@ -502,9 +480,16 @@ export class SessionReplayService {
   }
 
   /**
-   * Create an agent chat bubble from a Task tool_use block.
+   * Create an INLINE agent ExecutionNode from a Task tool_use block.
+   *
+   * Unlike the old createAgentBubble (which created separate chat messages),
+   * this creates an ExecutionNode of type 'agent' that gets added as a child
+   * of the main assistant message tree - matching how streaming works.
+   *
+   * The agent's children are built as an INTERLEAVED timeline of text + tool nodes
+   * in chronological order, rather than separating into Summary/Execution sections.
    */
-  private createAgentBubble(
+  private createInlineAgentNode(
     block: any,
     agentId: string | null,
     agentDataMap: Map<
@@ -518,245 +503,138 @@ export class SessionReplayService {
     >,
     taskToolResults: Set<string>,
     nodeMaps: NodeMaps
-  ): ExecutionChatMessage {
+  ): ExecutionNode {
     const agentType = block.input?.['subagent_type'] as string;
     const agentDescription = block.input?.['description'] as string;
     const agentModel = block.input?.['model'] as string | undefined;
 
     // Get agent data if correlated
     const agentData = agentId ? agentDataMap.get(agentId) : null;
-    const summaryContent = agentData?.summaryContent || null;
-    const executionMessages = agentData?.executionMessages || [];
+    const agentMessages = agentData?.executionMessages || [];
 
-    // Build execution nodes
-    const executionNodes =
-      executionMessages.length > 0
-        ? this.processAgentExecutionMessages(executionMessages, nodeMaps)
-        : [];
+    // Build INTERLEAVED children (text + tools in chronological order)
+    // This processes ALL agent messages in order, creating a unified timeline
+    const interleavedChildren = this.buildInterleavedAgentChildren(
+      agentMessages,
+      nodeMaps
+    );
 
-    const agentExecutionTree = createExecutionNode({
+    // Create the agent node with interleaved children
+    const agentNode = createExecutionNode({
       id: block.id || this.generateId(),
-      type: 'message',
+      type: 'agent',
       status: 'complete',
-      children: executionNodes,
-    });
-
-    // Register in nodeMaps
-    if (block.id) {
-      nodeMaps.agents.set(
-        block.id,
-        createExecutionNode({
-          id: block.id,
-          type: 'agent',
-          status: 'complete',
-          agentType,
-          agentModel,
-          agentDescription,
-          toolCallId: block.id,
-          children: executionNodes,
-        })
-      );
-    }
-
-    // Determine interrupted status
-    const hasToolResult = block.id ? taskToolResults.has(block.id) : false;
-    const hasNoData = !summaryContent && executionNodes.length === 0;
-    const isInterrupted = hasNoData && !hasToolResult;
-
-    const agentInfo: AgentInfo = {
       agentType,
-      agentDescription,
       agentModel,
-      summaryContent: summaryContent || undefined,
-      hasSummary: !!summaryContent,
-      hasExecution: executionNodes.length > 0,
-      isInterrupted,
-      // NEW: Add toolUseId for consistency with streaming agent bubbles
-      toolUseId: block.id || undefined,
-      isStreaming: false, // Replay is never streaming
-    };
-
-    return createExecutionChatMessage({
-      id: block.id || this.generateId(),
-      role: 'assistant',
-      executionTree: agentExecutionTree,
-      agentInfo,
+      agentDescription,
+      toolCallId: block.id,
+      children: interleavedChildren,
     });
-  }
 
-  /**
-   * Extract content from agent messages.
-   *
-   * This method extracts:
-   * - Summary content: ALL text blocks from messages (no filtering by format)
-   * - Execution messages: Messages with tool_use blocks AND their tool_result responses
-   *
-   * The caller determines whether an agent is "summary" or "execution" based on
-   * whether it has tool_use blocks. This method just extracts the content.
-   *
-   * @param messages - Raw JSONL messages from an agent session
-   * @returns Object with summary text and execution messages
-   *
-   * @example
-   * ```typescript
-   * const { summaryContent, executionMessages } =
-   *   replayService.classifyAgentMessages(agentMessages);
-   * ```
-   */
-  private classifyAgentMessages(
-    messages: JSONLMessage[]
-  ): ClassifiedAgentMessages {
-    const summaryTexts: string[] = [];
-    const executionMessages: JSONLMessage[] = [];
-
-    for (const msg of messages) {
-      // Tool results come as type: "user" messages - include them in execution
-      if (msg.type === 'user' && msg.message?.content) {
-        const hasToolResult = msg.message.content.some(
-          (b: any) => b.type === 'tool_result'
-        );
-        if (hasToolResult) {
-          executionMessages.push(msg);
-        }
-        continue;
-      }
-
-      if (msg.type !== 'assistant' || !msg.message?.content) continue;
-
-      // Extract text blocks
-      const textBlocks = msg.message.content.filter(
-        (b: any) => b.type === 'text' && b.text
-      );
-      const toolBlocks = msg.message.content.filter(
-        (b: any) => b.type === 'tool_use'
-      );
-
-      // Collect ALL text content as potential summary
-      // (no filtering by XML format - UI should handle any text format)
-      for (const textBlock of textBlocks) {
-        const text = textBlock.text || '';
-        if (text.trim()) {
-          summaryTexts.push(text);
-        }
-      }
-
-      // If the message has tool_use blocks, it's execution content
-      if (toolBlocks.length > 0) {
-        executionMessages.push(msg);
-      }
+    // Register in nodeMaps for streaming bridge
+    if (block.id) {
+      nodeMaps.agents.set(block.id, agentNode);
     }
 
-    return {
-      summaryContent:
-        summaryTexts.length > 0 ? summaryTexts.join('\n\n') : null,
-      executionMessages,
-    };
+    console.log('[SessionReplayService] Created inline agent node', {
+      agentId: block.id,
+      agentType,
+      childrenCount: interleavedChildren.length,
+      textNodes: interleavedChildren.filter((c) => c.type === 'text').length,
+      toolNodes: interleavedChildren.filter((c) => c.type === 'tool').length,
+    });
+
+    return agentNode;
   }
 
   /**
-   * Process agent execution messages into ExecutionNode children.
-   * Links tool_use calls with their tool_result outputs by tool_use_id.
+   * Build interleaved agent children from JSONL messages.
    *
-   * Tools are collapsed by default to keep the view compact.
+   * Processes messages in chronological order, creating:
+   * - text nodes for assistant text content
+   * - tool nodes for tool_use blocks (linked to their tool_result outputs)
    *
-   * Also registers tool nodes in nodeMaps for streaming bridge.
-   *
-   * @param messages - JSONL messages containing tool_use and tool_result blocks
-   * @param nodeMaps - Node maps to register tool nodes for streaming bridge
-   * @returns Array of ExecutionNode representing tool executions
-   *
-   * @example
-   * ```typescript
-   * const nodes = replayService.processAgentExecutionMessages(
-   *   executionMessages,
-   *   nodeMaps
-   * );
-   * ```
+   * This creates a unified timeline that matches the streaming representation,
+   * where the agent's thought process and tool calls are interleaved naturally.
    */
-  private processAgentExecutionMessages(
+  private buildInterleavedAgentChildren(
     messages: JSONLMessage[],
     nodeMaps: NodeMaps
   ): readonly ExecutionNode[] {
+    const children: ExecutionNode[] = [];
+
     // First pass: collect all tool results by their tool_use_id
-    const toolResults = new Map<string, string>();
+    const toolResults = new Map<
+      string,
+      { content: string; isError: boolean }
+    >();
 
     for (const msg of messages) {
-      // Tool results come as type: "user" messages with tool_result content
       if (msg.type === 'user' && msg.message?.content) {
         for (const block of msg.message.content) {
           if (block.type === 'tool_result' && block.tool_use_id) {
-            // Extract the result content
             const content = block.content;
+            const isError = block.is_error === true;
+            let resultText = '';
+
             if (typeof content === 'string') {
-              toolResults.set(block.tool_use_id, content);
+              resultText = content;
             } else if (Array.isArray(content)) {
-              // Handle array content (text blocks)
-              const textContent = content
+              resultText = content
                 .filter((c: any) => c.type === 'text')
                 .map((c: any) => c.text || '')
                 .join('\n');
-              toolResults.set(block.tool_use_id, textContent);
             }
+
+            toolResults.set(block.tool_use_id, {
+              content: resultText,
+              isError,
+            });
           }
         }
       }
     }
 
-    // Second pass: create tool nodes with linked results
-    const nodes: ExecutionNode[] = [];
-    let toolsWithOutput = 0;
-    let toolsWithoutOutput = 0;
-
+    // Second pass: process messages in order, creating interleaved children
     for (const msg of messages) {
       if (msg.type === 'assistant' && msg.message?.content) {
         for (const block of msg.message.content) {
-          if (block.type === 'tool_use') {
-            const toolId = block.id || this.generateId();
-            const toolOutput = block.id ? toolResults.get(block.id) : undefined;
-
-            if (toolOutput) {
-              toolsWithOutput++;
-            } else {
-              toolsWithoutOutput++;
-            }
+          if (block.type === 'text' && block.text) {
+            // Add text node
+            children.push(
+              createExecutionNode({
+                id: this.generateId(),
+                type: 'text',
+                status: 'complete',
+                content: block.text,
+              })
+            );
+          } else if (block.type === 'tool_use') {
+            // Add tool node with linked result
+            const toolResult = block.id ? toolResults.get(block.id) : undefined;
 
             const toolNode = createExecutionNode({
-              id: toolId,
+              id: block.id || this.generateId(),
               type: 'tool',
-              status: 'complete',
+              status: toolResult?.isError ? 'error' : 'complete',
               toolName: block.name,
               toolInput: block.input,
-              toolOutput: toolOutput,
+              toolOutput: toolResult?.content,
               toolCallId: block.id,
               isCollapsed: true,
             });
 
-            // Register in nodeMaps for streaming bridge
             if (block.id) {
               nodeMaps.tools.set(block.id, toolNode);
             }
 
-            nodes.push(toolNode);
+            children.push(toolNode);
           }
         }
       }
     }
 
-    console.log('[SessionReplayService] processAgentExecutionMessages', {
-      inputMessages: messages.length,
-      toolResultsCollected: toolResults.size,
-      toolNodesCreated: nodes.length,
-      toolsWithOutput,
-      toolsWithoutOutput,
-    });
-
-    console.log('[SessionReplayService] Agent execution messages processed', {
-      inputMessages: messages.length,
-      toolResultsFound: toolResults.size,
-      outputNodes: nodes.length,
-    });
-
-    return nodes;
+    return children;
   }
 
   /**

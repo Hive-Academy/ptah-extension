@@ -75,7 +75,7 @@ describe('CodeExecutionMCP', () => {
 
     // Mock API builder
     mockApiBuilder = {
-      buildAPI: jest.fn(() => mockPtahAPI),
+      build: jest.fn(() => mockPtahAPI),
     } as any;
 
     // Mock logger
@@ -113,7 +113,7 @@ describe('CodeExecutionMCP', () => {
 
     it('should build ptah API on construction', () => {
       // buildAPI is called in constructor, so we need to create a new instance
-      const spy = jest.spyOn(mockApiBuilder, 'buildAPI');
+      const spy = jest.spyOn(mockApiBuilder, 'build');
       new CodeExecutionMCP(mockApiBuilder, mockLogger, mockContext);
       expect(spy).toHaveBeenCalled();
     });

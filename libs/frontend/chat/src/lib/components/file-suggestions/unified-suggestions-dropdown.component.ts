@@ -42,7 +42,6 @@ export type SuggestionItem =
   standalone: true,
   imports: [CommonModule],
   template: `
-    <!-- eslint-disable-next-line @angular-eslint/template/no-inline-styles -->
     <div
       class="vscode-unified-dropdown"
       [style.top.px]="positionTop()"

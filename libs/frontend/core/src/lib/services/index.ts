@@ -13,14 +13,6 @@ export {
 export * from './app-state.service';
 export * from './webview-navigation.service';
 
-// Analytics Layer (system analytics and metrics)
-export {
-  AnalyticsService,
-  type AnalyticsData,
-  type PerformanceData,
-  type ActivityItem,
-} from './analytics.service';
-
 // RPC Services (Phase 2 - TASK_2025_021)
 export {
   ClaudeRpcService,

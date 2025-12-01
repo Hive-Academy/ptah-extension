@@ -2,19 +2,15 @@
  * Unit Tests for PtahAPIBuilder Service
  *
  * Tests comprehensive namespace construction, service delegation, and error handling
- * for the Ptah API builder that exposes 7 namespaces to code execution context.
+ * for the Ptah API builder that exposes 12 namespaces to code execution context.
  *
  * Test Coverage:
  * - Constructor and dependency injection
- * - buildAPI() method with all 7 namespaces
- * - Workspace namespace (analyze, getInfo, getProjectType, getFrameworks)
- * - Search namespace (findFiles, getRelevantFiles)
- * - Symbols namespace (find with type filtering)
- * - Diagnostics namespace (getErrors, getWarnings, getAll)
- * - Git namespace (getStatus)
- * - AI namespace (chat, selectModel)
- * - Files namespace (read, list)
- * - Commands namespace (execute, list)
+ * - build() method with all 12 namespaces
+ * - Core namespaces: workspace, search, symbols, diagnostics, git
+ * - System namespaces: ai, files, commands
+ * - Analysis namespaces: context, project, relevance
+ * - AST namespace: ast
  * - Error handling for all operations
  */
 
@@ -28,6 +24,15 @@ import {
 import {
   WorkspaceAnalyzerService,
   ContextOrchestrationService,
+  ContextSizeOptimizerService,
+  MonorepoDetectorService,
+  DependencyAnalyzerService,
+  FileRelevanceScorerService,
+  TokenCounterService,
+  WorkspaceIndexerService,
+  ProjectDetectorService,
+  TreeSitterParserService,
+  AstAnalysisService,
 } from '@ptah-extension/workspace-intelligence';
 import * as vscode from 'vscode';
 
@@ -52,6 +57,10 @@ jest.mock('vscode', () => ({
   },
   Uri: {
     file: (path: string) => ({ fsPath: path, toString: () => path }),
+    joinPath: (uri: any, path: string) => ({
+      fsPath: `${uri.fsPath}/${path}`,
+      toString: () => `${uri.fsPath}/${path}`,
+    }),
   },
   LanguageModelChatMessage: {
     User: (msg: string) => ({ role: 'user', content: msg }),
@@ -69,6 +78,9 @@ jest.mock('vscode', () => ({
   lm: {
     selectChatModels: jest.fn(),
   },
+  workspace: {
+    workspaceFolders: [{ uri: { fsPath: '/workspace' } }],
+  },
 }));
 
 describe('PtahAPIBuilder', () => {
@@ -78,6 +90,15 @@ describe('PtahAPIBuilder', () => {
   let mockLogger: jest.Mocked<Logger>;
   let mockFileSystemManager: jest.Mocked<FileSystemManager>;
   let mockCommandManager: jest.Mocked<CommandManager>;
+  let mockContextOptimizer: jest.Mocked<ContextSizeOptimizerService>;
+  let mockMonorepoDetector: jest.Mocked<MonorepoDetectorService>;
+  let mockDependencyAnalyzer: jest.Mocked<DependencyAnalyzerService>;
+  let mockRelevanceScorer: jest.Mocked<FileRelevanceScorerService>;
+  let mockTokenCounter: jest.Mocked<TokenCounterService>;
+  let mockWorkspaceIndexer: jest.Mocked<WorkspaceIndexerService>;
+  let mockProjectDetector: jest.Mocked<ProjectDetectorService>;
+  let mockTreeSitterParser: jest.Mocked<TreeSitterParserService>;
+  let mockAstAnalysis: jest.Mocked<AstAnalysisService>;
 
   beforeEach(() => {
     // Create mock services with proper jest.fn() typing
@@ -107,13 +128,66 @@ describe('PtahAPIBuilder', () => {
       executeCommand: jest.fn(),
     } as any;
 
-    // Create service with mocked dependencies
+    // Analysis service mocks
+    mockContextOptimizer = {
+      optimizeContext: jest.fn(),
+      getRecommendedBudget: jest.fn(),
+    } as any;
+
+    mockMonorepoDetector = {
+      detectMonorepo: jest.fn(),
+    } as any;
+
+    mockDependencyAnalyzer = {
+      analyzeDependencies: jest.fn(),
+    } as any;
+
+    mockRelevanceScorer = {
+      scoreFile: jest.fn(),
+      getTopFiles: jest.fn(),
+    } as any;
+
+    mockTokenCounter = {
+      countTokens: jest.fn(),
+    } as any;
+
+    mockWorkspaceIndexer = {
+      indexWorkspace: jest.fn(),
+    } as any;
+
+    mockProjectDetector = {
+      detectProjectType: jest.fn(),
+    } as any;
+
+    // AST service mocks
+    mockTreeSitterParser = {
+      parse: jest.fn(),
+      queryFunctions: jest.fn(),
+      queryClasses: jest.fn(),
+      queryImports: jest.fn(),
+      queryExports: jest.fn(),
+    } as any;
+
+    mockAstAnalysis = {
+      analyzeSource: jest.fn(),
+    } as any;
+
+    // Create service with all mocked dependencies
     service = new PtahAPIBuilder(
       mockWorkspaceAnalyzer,
       mockContextOrchestration,
       mockLogger,
       mockFileSystemManager,
-      mockCommandManager
+      mockCommandManager,
+      mockContextOptimizer,
+      mockMonorepoDetector,
+      mockDependencyAnalyzer,
+      mockRelevanceScorer,
+      mockTokenCounter,
+      mockWorkspaceIndexer,
+      mockProjectDetector,
+      mockTreeSitterParser,
+      mockAstAnalysis
     );
 
     // Clear all mocks
@@ -127,30 +201,37 @@ describe('PtahAPIBuilder', () => {
     });
 
     it('should be injectable via @injectable() decorator', () => {
-      // Verify @injectable() decorator exists (checked via Reflect metadata)
       expect(Reflect.hasMetadata('design:paramtypes', PtahAPIBuilder)).toBe(
         true
       );
     });
   });
 
-  describe('buildAPI() Method', () => {
-    it('should return complete PtahAPI object with all 7 namespaces', () => {
-      const api = service.buildAPI();
+  describe('build() Method', () => {
+    it('should return complete PtahAPI object with all 12 namespaces', () => {
+      const api = service.build();
 
       expect(api).toBeDefined();
+      // Core namespaces
       expect(api).toHaveProperty('workspace');
       expect(api).toHaveProperty('search');
       expect(api).toHaveProperty('symbols');
       expect(api).toHaveProperty('diagnostics');
       expect(api).toHaveProperty('git');
+      // System namespaces
       expect(api).toHaveProperty('ai');
       expect(api).toHaveProperty('files');
       expect(api).toHaveProperty('commands');
+      // Analysis namespaces
+      expect(api).toHaveProperty('context');
+      expect(api).toHaveProperty('project');
+      expect(api).toHaveProperty('relevance');
+      // AST namespace
+      expect(api).toHaveProperty('ast');
     });
 
     it('should have workspace namespace with all methods', () => {
-      const api = service.buildAPI();
+      const api = service.build();
 
       expect(api.workspace).toHaveProperty('analyze');
       expect(api.workspace).toHaveProperty('getInfo');
@@ -159,20 +240,20 @@ describe('PtahAPIBuilder', () => {
     });
 
     it('should have search namespace with all methods', () => {
-      const api = service.buildAPI();
+      const api = service.build();
 
       expect(api.search).toHaveProperty('findFiles');
       expect(api.search).toHaveProperty('getRelevantFiles');
     });
 
     it('should have symbols namespace with find method', () => {
-      const api = service.buildAPI();
+      const api = service.build();
 
       expect(api.symbols).toHaveProperty('find');
     });
 
     it('should have diagnostics namespace with all methods', () => {
-      const api = service.buildAPI();
+      const api = service.build();
 
       expect(api.diagnostics).toHaveProperty('getErrors');
       expect(api.diagnostics).toHaveProperty('getWarnings');
@@ -180,30 +261,65 @@ describe('PtahAPIBuilder', () => {
     });
 
     it('should have git namespace with getStatus method', () => {
-      const api = service.buildAPI();
+      const api = service.build();
 
       expect(api.git).toHaveProperty('getStatus');
     });
 
     it('should have ai namespace with all methods', () => {
-      const api = service.buildAPI();
+      const api = service.build();
 
       expect(api.ai).toHaveProperty('chat');
       expect(api.ai).toHaveProperty('selectModel');
     });
 
     it('should have files namespace with all methods', () => {
-      const api = service.buildAPI();
+      const api = service.build();
 
       expect(api.files).toHaveProperty('read');
       expect(api.files).toHaveProperty('list');
     });
 
     it('should have commands namespace with all methods', () => {
-      const api = service.buildAPI();
+      const api = service.build();
 
       expect(api.commands).toHaveProperty('execute');
       expect(api.commands).toHaveProperty('list');
+    });
+
+    it('should have context namespace with all methods', () => {
+      const api = service.build();
+
+      expect(api.context).toHaveProperty('optimize');
+      expect(api.context).toHaveProperty('countTokens');
+      expect(api.context).toHaveProperty('getRecommendedBudget');
+    });
+
+    it('should have project namespace with all methods', () => {
+      const api = service.build();
+
+      expect(api.project).toHaveProperty('detectMonorepo');
+      expect(api.project).toHaveProperty('detectType');
+      expect(api.project).toHaveProperty('analyzeDependencies');
+    });
+
+    it('should have relevance namespace with all methods', () => {
+      const api = service.build();
+
+      expect(api.relevance).toHaveProperty('scoreFile');
+      expect(api.relevance).toHaveProperty('rankFiles');
+    });
+
+    it('should have ast namespace with all methods', () => {
+      const api = service.build();
+
+      expect(api.ast).toHaveProperty('analyze');
+      expect(api.ast).toHaveProperty('parse');
+      expect(api.ast).toHaveProperty('queryFunctions');
+      expect(api.ast).toHaveProperty('queryClasses');
+      expect(api.ast).toHaveProperty('queryImports');
+      expect(api.ast).toHaveProperty('queryExports');
+      expect(api.ast).toHaveProperty('getSupportedLanguages');
     });
   });
 
@@ -219,7 +335,7 @@ describe('PtahAPIBuilder', () => {
         mockWorkspaceAnalyzer.analyzeWorkspaceStructure as any
       ).mockResolvedValue(mockStructure);
 
-      const api = service.buildAPI();
+      const api = service.build();
       const result = await api.workspace.analyze();
 
       expect(mockWorkspaceAnalyzer.getCurrentWorkspaceInfo).toHaveBeenCalled();
@@ -235,7 +351,7 @@ describe('PtahAPIBuilder', () => {
         mockInfo
       );
 
-      const api = service.buildAPI();
+      const api = service.build();
       const result = await api.workspace.getInfo();
 
       expect(mockWorkspaceAnalyzer.getCurrentWorkspaceInfo).toHaveBeenCalled();
@@ -248,7 +364,7 @@ describe('PtahAPIBuilder', () => {
         mockInfo
       );
 
-      const api = service.buildAPI();
+      const api = service.build();
       const result = await api.workspace.getProjectType();
 
       expect(result).toBe('nestjs');
@@ -259,7 +375,7 @@ describe('PtahAPIBuilder', () => {
         null
       );
 
-      const api = service.buildAPI();
+      const api = service.build();
       const result = await api.workspace.getProjectType();
 
       expect(result).toBe('unknown');
@@ -271,7 +387,7 @@ describe('PtahAPIBuilder', () => {
         mockInfo
       );
 
-      const api = service.buildAPI();
+      const api = service.build();
       const result = await api.workspace.getFrameworks();
 
       expect(result).toEqual(['Jest', 'TypeScript', 'React']);
@@ -283,7 +399,7 @@ describe('PtahAPIBuilder', () => {
         mockInfo
       );
 
-      const api = service.buildAPI();
+      const api = service.build();
       const result = await api.workspace.getFrameworks();
 
       expect(result).toEqual([]);
@@ -303,7 +419,7 @@ describe('PtahAPIBuilder', () => {
         mockResults
       );
 
-      const api = service.buildAPI();
+      const api = service.build();
       const result = await api.search.findFiles('*.ts', 20);
 
       expect(mockContextOrchestration.searchFiles).toHaveBeenCalledWith({
@@ -321,7 +437,7 @@ describe('PtahAPIBuilder', () => {
         results: [],
       });
 
-      const api = service.buildAPI();
+      const api = service.build();
       await api.search.findFiles('*.js');
 
       expect(mockContextOrchestration.searchFiles).toHaveBeenCalledWith(
@@ -338,7 +454,7 @@ describe('PtahAPIBuilder', () => {
         mockSuggestions
       );
 
-      const api = service.buildAPI();
+      const api = service.build();
       const result = await api.search.getRelevantFiles('authentication', 10);
 
       expect(mockContextOrchestration.getFileSuggestions).toHaveBeenCalledWith({
@@ -355,7 +471,7 @@ describe('PtahAPIBuilder', () => {
         suggestions: [],
       });
 
-      const api = service.buildAPI();
+      const api = service.build();
       await api.search.getRelevantFiles('test query');
 
       expect(mockContextOrchestration.getFileSuggestions).toHaveBeenCalledWith(
@@ -374,7 +490,7 @@ describe('PtahAPIBuilder', () => {
         mockSymbols
       );
 
-      const api = service.buildAPI();
+      const api = service.build();
       const result = await api.symbols.find('User');
 
       expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
@@ -393,7 +509,7 @@ describe('PtahAPIBuilder', () => {
         mockSymbols
       );
 
-      const api = service.buildAPI();
+      const api = service.build();
       const result = await api.symbols.find('User', 'class');
 
       expect(result).toEqual([{ name: 'UserService', kind: 4 }]);
@@ -402,7 +518,7 @@ describe('PtahAPIBuilder', () => {
     it('symbols.find() should return empty array if no symbols found', async () => {
       (vscode.commands.executeCommand as jest.Mock).mockResolvedValue(null);
 
-      const api = service.buildAPI();
+      const api = service.build();
       const result = await api.symbols.find('NonExistent');
 
       expect(result).toEqual([]);
@@ -411,7 +527,6 @@ describe('PtahAPIBuilder', () => {
 
   describe('Diagnostics Namespace', () => {
     beforeEach(() => {
-      // Mock diagnostics data
       const mockDiagnostics = new Map([
         [
           { fsPath: 'file1.ts' },
@@ -445,7 +560,7 @@ describe('PtahAPIBuilder', () => {
     });
 
     it('diagnostics.getErrors() should filter by Error severity', async () => {
-      const api = service.buildAPI();
+      const api = service.build();
       const result = await api.diagnostics.getErrors();
 
       expect(result).toHaveLength(2);
@@ -456,7 +571,7 @@ describe('PtahAPIBuilder', () => {
     });
 
     it('diagnostics.getWarnings() should filter by Warning severity', async () => {
-      const api = service.buildAPI();
+      const api = service.build();
       const result = await api.diagnostics.getWarnings();
 
       expect(result).toHaveLength(1);
@@ -466,7 +581,7 @@ describe('PtahAPIBuilder', () => {
     });
 
     it('diagnostics.getAll() should return all diagnostics with severity', async () => {
-      const api = service.buildAPI();
+      const api = service.build();
       const result = await api.diagnostics.getAll();
 
       expect(result).toHaveLength(3);
@@ -520,7 +635,7 @@ describe('PtahAPIBuilder', () => {
         mockExtension
       );
 
-      const api = service.buildAPI();
+      const api = service.build();
       const result = await api.git.getStatus();
 
       expect(vscode.extensions.getExtension).toHaveBeenCalledWith('vscode.git');
@@ -536,7 +651,7 @@ describe('PtahAPIBuilder', () => {
     it('git.getStatus() should throw error if git extension not available', async () => {
       (vscode.extensions.getExtension as jest.Mock).mockReturnValue(undefined);
 
-      const api = service.buildAPI();
+      const api = service.build();
 
       await expect(api.git.getStatus()).rejects.toThrow(
         'Git extension not available'
@@ -553,7 +668,7 @@ describe('PtahAPIBuilder', () => {
         mockExtension
       );
 
-      const api = service.buildAPI();
+      const api = service.build();
 
       await expect(api.git.getStatus()).rejects.toThrow(
         'No git repository found'
@@ -577,7 +692,7 @@ describe('PtahAPIBuilder', () => {
       };
       (vscode.lm.selectChatModels as jest.Mock).mockResolvedValue([mockModel]);
 
-      const api = service.buildAPI();
+      const api = service.build();
       const result = await api.ai.chat('Test message', 'claude-3.5-sonnet');
 
       expect(vscode.lm.selectChatModels).toHaveBeenCalledWith({
@@ -590,7 +705,7 @@ describe('PtahAPIBuilder', () => {
     it('ai.chat() should throw error if no models found', async () => {
       (vscode.lm.selectChatModels as jest.Mock).mockResolvedValue([]);
 
-      const api = service.buildAPI();
+      const api = service.build();
 
       await expect(api.ai.chat('Test')).rejects.toThrow(
         'No language model found'
@@ -608,7 +723,7 @@ describe('PtahAPIBuilder', () => {
       ];
       (vscode.lm.selectChatModels as jest.Mock).mockResolvedValue(mockModels);
 
-      const api = service.buildAPI();
+      const api = service.build();
       const result = await api.ai.selectModel('claude');
 
       expect(vscode.lm.selectChatModels).toHaveBeenCalledWith({
@@ -630,7 +745,7 @@ describe('PtahAPIBuilder', () => {
       const mockContent = new TextEncoder().encode('file content');
       mockFileSystemManager.readFile.mockResolvedValue(mockContent);
 
-      const api = service.buildAPI();
+      const api = service.build();
       const result = await api.files.read('/path/to/file.ts');
 
       expect(mockFileSystemManager.readFile).toHaveBeenCalledWith(
@@ -647,7 +762,7 @@ describe('PtahAPIBuilder', () => {
       ];
       mockFileSystemManager.readDirectory.mockResolvedValue(mockEntries);
 
-      const api = service.buildAPI();
+      const api = service.build();
       const result = await api.files.list('/path/to/dir');
 
       expect(mockFileSystemManager.readDirectory).toHaveBeenCalledWith(
@@ -668,7 +783,7 @@ describe('PtahAPIBuilder', () => {
         mockResult
       );
 
-      const api = service.buildAPI();
+      const api = service.build();
       const result = await api.commands.execute('vscode.open', 'file.ts');
 
       expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
@@ -689,11 +804,47 @@ describe('PtahAPIBuilder', () => {
         mockCommands
       );
 
-      const api = service.buildAPI();
+      const api = service.build();
       const result = await api.commands.list();
 
       expect(vscode.commands.getCommands).toHaveBeenCalled();
       expect(result).toEqual(['ptah.quickChat', 'ptah.reviewFile']);
+    });
+  });
+
+  describe('Context Namespace', () => {
+    it('context.countTokens() should delegate to TokenCounterService', async () => {
+      mockTokenCounter.countTokens.mockResolvedValue(150);
+
+      const api = service.build();
+      const result = await api.context.countTokens('Hello world');
+
+      expect(mockTokenCounter.countTokens).toHaveBeenCalledWith('Hello world');
+      expect(result).toBe(150);
+    });
+
+    it('context.getRecommendedBudget() should delegate to ContextSizeOptimizerService', () => {
+      mockContextOptimizer.getRecommendedBudget.mockReturnValue(200000);
+
+      const api = service.build();
+      const result = api.context.getRecommendedBudget('monorepo');
+
+      expect(mockContextOptimizer.getRecommendedBudget).toHaveBeenCalledWith(
+        'monorepo'
+      );
+      expect(result).toBe(200000);
+    });
+  });
+
+  describe('AST Namespace', () => {
+    it('ast.getSupportedLanguages() should return unique languages', () => {
+      const api = service.build();
+      const result = api.ast.getSupportedLanguages();
+
+      expect(result).toContain('javascript');
+      expect(result).toContain('typescript');
+      // Should be unique values
+      expect(new Set(result).size).toBe(result.length);
     });
   });
 
@@ -704,7 +855,7 @@ describe('PtahAPIBuilder', () => {
         error
       );
 
-      const api = service.buildAPI();
+      const api = service.build();
 
       await expect(api.workspace.getInfo()).rejects.toThrow(
         'Workspace analysis failed'
@@ -715,7 +866,7 @@ describe('PtahAPIBuilder', () => {
       const error = new Error('Search failed');
       (mockContextOrchestration.searchFiles as any).mockRejectedValue(error);
 
-      const api = service.buildAPI();
+      const api = service.build();
 
       await expect(api.search.findFiles('*.ts')).rejects.toThrow(
         'Search failed'
@@ -726,7 +877,7 @@ describe('PtahAPIBuilder', () => {
       const error = new Error('File not found');
       mockFileSystemManager.readFile.mockRejectedValue(error);
 
-      const api = service.buildAPI();
+      const api = service.build();
 
       await expect(api.files.read('missing.ts')).rejects.toThrow(
         'File not found'

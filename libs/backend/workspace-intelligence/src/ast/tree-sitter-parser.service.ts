@@ -5,8 +5,35 @@ import { Result } from '@ptah-extension/shared';
 import {
   EXTENSION_LANGUAGE_MAP,
   SupportedLanguage,
+  LANGUAGE_QUERIES_MAP,
 } from './tree-sitter.config';
 import { GenericAstNode } from './ast.types';
+
+/**
+ * Represents a capture from a tree-sitter query match.
+ */
+export interface QueryCapture {
+  /** The name of the capture (e.g., 'function.name', 'class.declaration') */
+  name: string;
+  /** The captured node converted to GenericAstNode */
+  node: GenericAstNode;
+  /** The text content of the captured node */
+  text: string;
+  /** Start position */
+  startPosition: { row: number; column: number };
+  /** End position */
+  endPosition: { row: number; column: number };
+}
+
+/**
+ * Represents a single match from a tree-sitter query.
+ */
+export interface QueryMatch {
+  /** The pattern index that matched */
+  pattern: number;
+  /** All captures in this match */
+  captures: QueryCapture[];
+}
 
 // Use require based on documentation and user feedback
 const Parser = require('tree-sitter');
@@ -339,6 +366,149 @@ export class TreeSitterParserService {
         ) // Updated log context
       );
     }
+  }
+
+  /**
+   * Executes a tree-sitter query on the parsed content.
+   * This is the recommended way to extract specific code structures.
+   *
+   * @param content The source code content to parse
+   * @param language The language of the source code
+   * @param queryString The tree-sitter query in S-expression format
+   * @returns A Result containing an array of QueryMatch objects
+   */
+  query(
+    content: string,
+    language: SupportedLanguage,
+    queryString: string
+  ): Result<QueryMatch[], Error> {
+    this.logger.debug(`Running query for language: ${language}`);
+
+    const initResult = this.initialize();
+    if (initResult.isErr()) {
+      return Result.err(initResult.error!);
+    }
+
+    const parserResult = this.getOrCreateParser(language);
+    if (parserResult.isErr()) {
+      return Result.err(parserResult.error!);
+    }
+    const parser = parserResult.value;
+
+    const grammarResult = this._getPreloadedGrammar(language);
+    if (grammarResult.isErr()) {
+      return Result.err(grammarResult.error!);
+    }
+    const grammar = grammarResult.value;
+
+    try {
+      const tree = parser.parse(content);
+      if (!tree?.rootNode) {
+        throw new Error('Parsing resulted in an undefined tree or rootNode.');
+      }
+
+      // Create and run the query
+      const query = grammar.query(queryString);
+      const matches = query.matches(tree.rootNode);
+
+      // Convert matches to our QueryMatch format
+      const results: QueryMatch[] = matches.map((match: any) => ({
+        pattern: match.pattern,
+        captures: match.captures.map((capture: any) => ({
+          name: capture.name,
+          node: this._convertNodeToGenericAst(capture.node, 0, 3), // Limit depth for captures
+          text: capture.node.text,
+          startPosition: {
+            row: capture.node.startPosition.row,
+            column: capture.node.startPosition.column,
+          },
+          endPosition: {
+            row: capture.node.endPosition.row,
+            column: capture.node.endPosition.column,
+          },
+        })),
+      }));
+
+      this.logger.debug(
+        `Query returned ${results.length} matches for language: ${language}`
+      );
+      return Result.ok(results);
+    } catch (error: unknown) {
+      return Result.err(
+        this._handleAndLogError(
+          `Error during tree-sitter query for ${language}`,
+          error
+        )
+      );
+    }
+  }
+
+  /**
+   * Executes the pre-configured function query for the given language.
+   * @param content The source code content
+   * @param language The language of the source code
+   * @returns Query matches for functions, methods, and arrow functions
+   */
+  queryFunctions(
+    content: string,
+    language: SupportedLanguage
+  ): Result<QueryMatch[], Error> {
+    const queries = LANGUAGE_QUERIES_MAP[language];
+    if (!queries.functionQuery) {
+      return Result.ok([]);
+    }
+    return this.query(content, language, queries.functionQuery);
+  }
+
+  /**
+   * Executes the pre-configured class query for the given language.
+   * @param content The source code content
+   * @param language The language of the source code
+   * @returns Query matches for class declarations
+   */
+  queryClasses(
+    content: string,
+    language: SupportedLanguage
+  ): Result<QueryMatch[], Error> {
+    const queries = LANGUAGE_QUERIES_MAP[language];
+    if (!queries.classQuery) {
+      return Result.ok([]);
+    }
+    return this.query(content, language, queries.classQuery);
+  }
+
+  /**
+   * Executes the pre-configured import query for the given language.
+   * @param content The source code content
+   * @param language The language of the source code
+   * @returns Query matches for import statements
+   */
+  queryImports(
+    content: string,
+    language: SupportedLanguage
+  ): Result<QueryMatch[], Error> {
+    const queries = LANGUAGE_QUERIES_MAP[language];
+    if (!queries.importQuery) {
+      return Result.ok([]);
+    }
+    return this.query(content, language, queries.importQuery);
+  }
+
+  /**
+   * Executes the pre-configured export query for the given language.
+   * @param content The source code content
+   * @param language The language of the source code
+   * @returns Query matches for export statements
+   */
+  queryExports(
+    content: string,
+    language: SupportedLanguage
+  ): Result<QueryMatch[], Error> {
+    const queries = LANGUAGE_QUERIES_MAP[language];
+    if (!queries.exportQuery) {
+      return Result.ok([]);
+    }
+    return this.query(content, language, queries.exportQuery);
   }
 
   /**
