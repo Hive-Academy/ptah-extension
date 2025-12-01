@@ -1,6 +1,7 @@
 import {
   Component,
   input,
+  output,
   signal,
   computed,
   ChangeDetectionStrategy,
@@ -14,7 +15,11 @@ import {
 } from 'lucide-angular';
 import { ExecutionNodeComponent } from './execution-node.component';
 import { TypingCursorComponent } from '../atoms/typing-cursor.component';
-import type { ExecutionNode, PermissionRequest } from '@ptah-extension/shared';
+import type {
+  ExecutionNode,
+  PermissionRequest,
+  PermissionResponse,
+} from '@ptah-extension/shared';
 
 /**
  * InlineAgentBubbleComponent - Unified agent rendering for both streaming and replay
@@ -108,6 +113,7 @@ import type { ExecutionNode, PermissionRequest } from '@ptah-extension/shared';
           [node]="child"
           [isStreaming]="isStreaming()"
           [getPermissionForTool]="getPermissionForTool()"
+          (permissionResponded)="permissionResponded.emit($event)"
         />
         } @if (isStreaming()) {
         <div
@@ -147,6 +153,12 @@ export class InlineAgentBubbleComponent {
   readonly getPermissionForTool = input<
     ((toolCallId: string) => PermissionRequest | null) | undefined
   >();
+
+  /**
+   * Emits when user responds to permission request
+   * Bubbles up from nested execution nodes
+   */
+  readonly permissionResponded = output<PermissionResponse>();
 
   // Icons
   readonly ChevronDownIcon = ChevronDown;

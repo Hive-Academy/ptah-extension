@@ -18,6 +18,7 @@ import { TypingCursorComponent } from '../atoms/typing-cursor.component';
 import type {
   ExecutionChatMessage,
   PermissionRequest,
+  PermissionResponse,
 } from '@ptah-extension/shared';
 import { VSCodeService } from '@ptah-extension/core';
 import { ChatStore } from '../../services/chat.store';
@@ -75,6 +76,14 @@ export class MessageBubbleComponent {
   ): PermissionRequest | null => {
     return this.chatStore.getPermissionForTool(toolCallId);
   };
+
+  /**
+   * Handle permission response from execution tree
+   * Delegates to ChatStore for state management
+   */
+  protected onPermissionResponse(response: PermissionResponse): void {
+    this.chatStore.handlePermissionResponse(response);
+  }
 
   protected formatTime(timestamp: number): string {
     const date = new Date(timestamp);

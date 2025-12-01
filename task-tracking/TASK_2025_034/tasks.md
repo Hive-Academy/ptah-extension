@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2025_034
 
-**Total Tasks**: 6 | **Batches**: 4 | **Status**: 2/4 complete
+**Total Tasks**: 6 | **Batches**: 4 | **Status**: 3/4 complete
 
 **Task Summary**: Move permission request UI from fixed bottom position to be embedded directly inside tool-call-item cards for better context and cleaner UX.
 
@@ -8,14 +8,14 @@
 
 ## Task Table
 
-| Batch | ID  | Task                                       | Assignee           | Status      |
-| ----- | --- | ------------------------------------------ | ------------------ | ----------- |
-| 1     | 1.1 | Add permission lookup to ChatStore         | frontend-developer | COMPLETE    |
-| 2     | 2.1 | Add permission lookup to MessageBubble     | frontend-developer | COMPLETE    |
-| 2     | 2.2 | Forward permission lookup in ExecutionNode | frontend-developer | COMPLETE    |
-| 3     | 3.1 | Add permission input to ToolCallItem       | frontend-developer | IN PROGRESS |
-| 3     | 3.2 | Wire permission response back to ChatStore | frontend-developer | IN PROGRESS |
-| 4     | 4.1 | Remove fixed permission cards (cleanup)    | frontend-developer | PENDING     |
+| Batch | ID  | Task                                       | Assignee           | Status   |
+| ----- | --- | ------------------------------------------ | ------------------ | -------- |
+| 1     | 1.1 | Add permission lookup to ChatStore         | frontend-developer | COMPLETE |
+| 2     | 2.1 | Add permission lookup to MessageBubble     | frontend-developer | COMPLETE |
+| 2     | 2.2 | Forward permission lookup in ExecutionNode | frontend-developer | COMPLETE |
+| 3     | 3.1 | Add permission input to ToolCallItem       | frontend-developer | COMPLETE |
+| 3     | 3.2 | Wire permission response back to ChatStore | frontend-developer | COMPLETE |
+| 4     | 4.1 | Remove fixed permission cards (cleanup)    | frontend-developer | PENDING  |
 
 ---
 
@@ -94,7 +94,7 @@ getPermissionForTool(toolCallId: string | undefined): PermissionRequest | null {
 
 **Developer**: frontend-developer
 **Tasks**: 2 | **Dependencies**: Batch 1 (ChatStore lookup)
-**Commit**: (pending - deferred to Batch 3 due to expected type errors)
+**Commit**: 5391b45
 
 ### Task 2.1: Add permission lookup to MessageBubble COMPLETE
 
@@ -229,12 +229,13 @@ readonly getPermissionForTool = input<
 
 ---
 
-## Batch 3: Tool Integration (ToolCallItem + Response Wiring) IN PROGRESS
+## Batch 3: Tool Integration (ToolCallItem + Response Wiring) COMPLETE
 
 **Developer**: frontend-developer
 **Tasks**: 2 | **Dependencies**: Batch 2 (ExecutionNode forwards permission)
+**Commit**: [pending]
 
-### Task 3.1: Add permission input to ToolCallItem IN PROGRESS
+### Task 3.1: Add permission input to ToolCallItem COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\molecules\tool-call-item.component.ts
 **Spec Reference**: implementation-plan.md:197-241
@@ -309,15 +310,15 @@ protected handlePermissionResponse(response: PermissionResponse): void {
 
 **Acceptance Criteria**:
 
-- [ ] `permission` input added
-- [ ] `permissionResponded` output added
-- [ ] PermissionRequestCardComponent imported
-- [ ] Template renders permission card when permission exists
-- [ ] Border separator provides visual integration
+- [x] `permission` input added
+- [x] `permissionResponded` output added
+- [x] PermissionRequestCardComponent imported
+- [x] Template renders permission card when permission exists
+- [x] Border separator provides visual integration
 
 ---
 
-### Task 3.2: Wire permission response back to ChatStore IN PROGRESS
+### Task 3.2: Wire permission response back to ChatStore COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\organisms\execution-node.component.ts
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\organisms\message-bubble.component.ts
@@ -392,20 +393,20 @@ protected onPermissionResponse(response: PermissionResponse): void {
 
 **Acceptance Criteria**:
 
-- [ ] Permission response bubbles up from tool-call-item
-- [ ] ExecutionNode forwards response to parent
-- [ ] MessageBubble calls ChatStore.handlePermissionResponse()
-- [ ] All recursive children forward responses
-- [ ] Response data preserved through component tree
+- [x] Permission response bubbles up from tool-call-item
+- [x] ExecutionNode forwards response to parent
+- [x] MessageBubble calls ChatStore.handlePermissionResponse()
+- [x] All recursive children forward responses
+- [x] Response data preserved through component tree
 
 ---
 
 **Batch 3 Verification**:
 
-- All files exist at paths
-- Build passes: `npx nx build chat`
-- No TypeScript errors
-- Permission request/response flow complete
+- [x] All files exist at paths
+- [x] Build passes: TypeScript compilation successful
+- [x] No TypeScript errors
+- [x] Permission request/response flow complete
 
 ---
 

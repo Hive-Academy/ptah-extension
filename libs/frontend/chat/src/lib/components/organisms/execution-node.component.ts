@@ -1,6 +1,7 @@
 import {
   Component,
   input,
+  output,
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
@@ -11,7 +12,11 @@ import { AgentSummaryComponent } from '../molecules/agent-summary.component';
 import { ThinkingBlockComponent } from '../molecules/thinking-block.component';
 import { ToolCallItemComponent } from '../molecules/tool-call-item.component';
 import { StreamingTextRevealComponent } from '../atoms/streaming-text-reveal.component';
-import type { ExecutionNode, PermissionRequest } from '@ptah-extension/shared';
+import type {
+  ExecutionNode,
+  PermissionRequest,
+  PermissionResponse,
+} from '@ptah-extension/shared';
 
 /**
  * ExecutionNodeComponent - THE KEY RECURSIVE COMPONENT
@@ -74,7 +79,8 @@ import type { ExecutionNode, PermissionRequest } from '@ptah-extension/shared';
     } @case ('tool') {
     <ptah-tool-call-item
       [node]="node()"
-      [permission]="getPermissionForTool()?.(node().toolCallId ?? '')"
+      [permission]="getPermissionForTool()?.(node().toolCallId ?? '') ?? undefined"
+      (permissionResponded)="permissionResponded.emit($event)"
     >
       <!-- RECURSIVE: Render nested children (tool results, sub-tools) -->
       @for (child of node().children; track child.id) {
@@ -82,6 +88,7 @@ import type { ExecutionNode, PermissionRequest } from '@ptah-extension/shared';
         [node]="child"
         [isStreaming]="isStreaming()"
         [getPermissionForTool]="getPermissionForTool()"
+        (permissionResponded)="permissionResponded.emit($event)"
       />
       }
     </ptah-tool-call-item>
@@ -91,6 +98,7 @@ import type { ExecutionNode, PermissionRequest } from '@ptah-extension/shared';
     <ptah-inline-agent-bubble
       [node]="node()"
       [getPermissionForTool]="getPermissionForTool()"
+      (permissionResponded)="permissionResponded.emit($event)"
     />
     } @placeholder {
     <div class="flex items-center gap-2 text-[10px] text-base-content/40 py-2">
@@ -103,6 +111,7 @@ import type { ExecutionNode, PermissionRequest } from '@ptah-extension/shared';
       [node]="child"
       [isStreaming]="isStreaming()"
       [getPermissionForTool]="getPermissionForTool()"
+      (permissionResponded)="permissionResponded.emit($event)"
     />
     } } @case ('system') {
     <!-- System messages (session init, etc.) -->
@@ -127,6 +136,12 @@ export class ExecutionNodeComponent {
   readonly getPermissionForTool = input<
     ((toolCallId: string) => PermissionRequest | null) | undefined
   >();
+
+  /**
+   * Emits when user responds to permission request
+   * Bubbles up from tool-call-item through component tree
+   */
+  readonly permissionResponded = output<PermissionResponse>();
 
   // Lucide icons
   readonly InfoIcon = Info;
