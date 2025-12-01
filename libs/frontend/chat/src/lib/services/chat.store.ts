@@ -173,8 +173,86 @@ export class ChatStore {
     toolCallId: string | undefined
   ): PermissionRequest | null {
     if (!toolCallId) return null;
-    return this.permissionRequestsByToolId().get(toolCallId) ?? null;
+
+    const permission = this.permissionRequestsByToolId().get(toolCallId);
+
+    // Debug logging for ID correlation issues
+    if (!permission && this._permissionRequests().length > 0) {
+      console.debug('[ChatStore] Permission lookup miss:', {
+        lookupKey: toolCallId,
+        availableKeys: Array.from(this.permissionRequestsByToolId().keys()),
+        pendingCount: this._permissionRequests().length,
+      });
+    }
+
+    return permission ?? null;
   }
+
+  /**
+   * Set of all toolCallIds currently present in execution trees.
+   * Used to determine which permissions are matched vs unmatched.
+   *
+   * Scans both:
+   * 1. Current streaming execution tree (tools being executed now)
+   * 2. All finalized messages' execution trees (completed tools)
+   */
+  private readonly toolIdsInExecutionTree = computed(() => {
+    const toolIds = new Set<string>();
+    const messages = this.messages();
+    const currentTree = this.currentExecutionTree();
+
+    const collectToolIds = (node: ExecutionNode | null): void => {
+      if (!node) return;
+
+      // Collect this node's toolCallId if it's a tool
+      if (node.type === 'tool' && node.toolCallId) {
+        toolIds.add(node.toolCallId);
+      }
+
+      // Recurse into children
+      if (node.children) {
+        for (const child of node.children) {
+          collectToolIds(child);
+        }
+      }
+    };
+
+    // Scan current streaming tree
+    collectToolIds(currentTree);
+
+    // Scan all finalized messages' execution trees
+    for (const msg of messages) {
+      if (msg.executionTree) {
+        collectToolIds(msg.executionTree);
+      }
+    }
+
+    return toolIds;
+  });
+
+  /**
+   * Permissions that couldn't be matched to any tool in the execution tree.
+   * These need fallback display to ensure user can always respond.
+   *
+   * A permission is "unmatched" if:
+   * 1. It has no toolUseId (can never match), OR
+   * 2. Its toolUseId doesn't exist in any tool's toolCallId in the execution tree
+   */
+  readonly unmatchedPermissions = computed(() => {
+    const allPermissions = this._permissionRequests();
+    if (allPermissions.length === 0) return [];
+
+    const toolIdsInTree = this.toolIdsInExecutionTree();
+
+    return allPermissions.filter((req) => {
+      // No toolUseId = can never match
+      if (!req.toolUseId) return true;
+
+      // Check if any tool in the execution tree has this permission's toolUseId as its toolCallId
+      // If not found in tree, it's unmatched and needs fallback display
+      return !toolIdsInTree.has(req.toolUseId);
+    });
+  });
 
   // ============================================================================
   // DERIVED COMPUTED SIGNALS
