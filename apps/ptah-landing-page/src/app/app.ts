@@ -29,7 +29,7 @@ import { LandingPageComponent } from './pages/landing-page.component';
   selector: 'app-root',
   standalone: true,
   imports: [LandingPageComponent],
-  template: `<ptah-landing-page />`,
+  templateUrl: './app.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class App {}
