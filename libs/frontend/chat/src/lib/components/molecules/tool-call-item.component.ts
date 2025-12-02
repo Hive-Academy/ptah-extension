@@ -3,6 +3,7 @@ import {
   input,
   output,
   signal,
+  effect,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { ToolCallHeaderComponent } from './tool-call-header.component';
@@ -103,6 +104,16 @@ export class ToolCallItemComponent {
    * Permission request for this tool (if any)
    */
   readonly permission = input<PermissionRequest | undefined>();
+
+  constructor() {
+    // Auto-expand when a permission request is present
+    effect(() => {
+      const hasPermission = this.permission();
+      if (hasPermission) {
+        this.isCollapsed.set(false);
+      }
+    });
+  }
 
   /**
    * Emits when user responds to permission request

@@ -407,8 +407,9 @@ export class TreeSitterParserService {
         throw new Error('Parsing resulted in an undefined tree or rootNode.');
       }
 
-      // Create and run the query
-      const query = grammar.query(queryString);
+      // Create and run the query using Parser.Query constructor
+      // tree-sitter requires new Parser.Query(language, queryString)
+      const query = new Parser.Query(grammar, queryString);
       const matches = query.matches(tree.rootNode);
 
       // Convert matches to our QueryMatch format
