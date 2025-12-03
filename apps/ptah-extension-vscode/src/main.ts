@@ -35,20 +35,17 @@ export async function activate(
     console.log('[Activate] Step 3.6: RPC methods registered');
 
     // Initialize autocomplete discovery watchers (TASK_2025_019 Phase 2)
+    // NOTE: MCP discovery service was planned but never implemented - only agent and command discovery exist
     console.log('[Activate] Step 3.7: Initializing autocomplete watchers...');
     const agentDiscovery = DIContainer.resolve(
       TOKENS.AGENT_DISCOVERY_SERVICE
-    ) as any;
-    const mcpDiscovery = DIContainer.resolve(
-      TOKENS.MCP_DISCOVERY_SERVICE
-    ) as any;
+    ) as { initializeWatchers: () => void };
     const commandDiscovery = DIContainer.resolve(
       TOKENS.COMMAND_DISCOVERY_SERVICE
-    ) as any;
+    ) as { initializeWatchers: () => void };
     agentDiscovery.initializeWatchers();
-    mcpDiscovery.initializeWatchers();
     commandDiscovery.initializeWatchers();
-    logger.info('Autocomplete discovery watchers initialized (3 services)');
+    logger.info('Autocomplete discovery watchers initialized (2 services)');
     console.log('[Activate] Step 3.7: Autocomplete watchers initialized');
 
     // Initialize main extension controller
