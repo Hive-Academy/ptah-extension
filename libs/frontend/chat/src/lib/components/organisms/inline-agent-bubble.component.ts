@@ -172,31 +172,47 @@ export class InlineAgentBubbleComponent {
   readonly isStreaming = computed(() => this.node().status === 'streaming');
 
   // Computed: agent color based on type
+  // Built-in Claude agents get fixed colors for brand consistency
+  // Custom agents get dynamically generated colors based on name hash
   readonly agentColor = computed(() => {
     const agentType = this.node().agentType || '';
-    const colors: Record<string, string> = {
-      // Claude Code built-in agents
+
+    // Built-in Claude Code agents with fixed brand colors
+    const builtinColors: Record<string, string> = {
       Explore: '#22c55e',
       Plan: '#a855f7',
       'general-purpose': '#6366f1',
       'claude-code-guide': '#0ea5e9',
-      // Custom project agents
-      'software-architect': '#f97316',
-      'frontend-developer': '#3b82f6',
-      'backend-developer': '#10b981',
-      'senior-tester': '#8b5cf6',
-      'code-reviewer': '#ec4899',
-      'code-style-reviewer': '#ec4899',
-      'code-logic-reviewer': '#f43f5e',
-      'team-leader': '#6366f1',
-      'project-manager': '#d97706',
-      'researcher-expert': '#06b6d4',
-      'ui-ux-designer': '#f59e0b',
-      'business-analyst': '#f43f5e',
-      'modernization-detector': '#14b8a6',
+      'statusline-setup': '#64748b',
     };
-    return colors[agentType] || '#717171';
+
+    if (builtinColors[agentType]) {
+      return builtinColors[agentType];
+    }
+
+    // Generate consistent color for custom agents based on name hash
+    return this.generateColorFromString(agentType);
   });
+
+  /**
+   * Generate a consistent HSL color from a string
+   * Same string always produces the same color
+   */
+  private generateColorFromString(str: string): string {
+    if (!str) return '#717171'; // Default gray for empty strings
+
+    // Simple hash function
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+
+    // Convert hash to hue (0-360)
+    const hue = Math.abs(hash % 360);
+
+    // Use consistent saturation and lightness for readable colors
+    return `hsl(${hue}, 65%, 45%)`;
+  }
 
   // Computed: agent initial letter
   readonly agentInitial = computed(() => {

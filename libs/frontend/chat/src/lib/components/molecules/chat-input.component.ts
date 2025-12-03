@@ -27,6 +27,14 @@ import {
   type SuggestionItem,
 } from '../file-suggestions/unified-suggestions-dropdown.component';
 import { FileTagComponent } from '../file-suggestions/file-tag.component';
+import {
+  AtTriggerDirective,
+  type AtTriggerEvent,
+} from '../../directives/at-trigger.directive';
+import {
+  SlashTriggerDirective,
+  type SlashTriggerEvent,
+} from '../../directives/slash-trigger.directive';
 
 /**
  * ChatInputComponent - Enhanced message input with bottom bar controls
@@ -55,6 +63,8 @@ import { FileTagComponent } from '../file-suggestions/file-tag.component';
     AutopilotPopoverComponent,
     UnifiedSuggestionsDropdownComponent,
     FileTagComponent,
+    AtTriggerDirective,
+    SlashTriggerDirective,
   ],
   template: `
     <div class="flex flex-col gap-2 p-4 bg-base-100">
@@ -81,6 +91,12 @@ import { FileTagComponent } from '../file-suggestions/file-tag.component';
             (input)="handleInput($event)"
             (keydown)="handleKeyDown($event)"
             rows="1"
+            ptahAtTrigger
+            (atTriggered)="handleAtTriggered($event)"
+            (atClosed)="handleAtClosed()"
+            ptahSlashTrigger
+            (slashTriggered)="handleSlashTriggered($event)"
+            (slashClosed)="handleSlashClosed()"
           ></textarea>
 
           <!-- Unified Suggestions Dropdown -->
@@ -165,10 +181,6 @@ export class ChatInputComponent {
   readonly SendIcon = Send;
   readonly ZapIcon = Zap;
 
-  // Debounce timer for fetch calls
-  private fetchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private readonly DEBOUNCE_DELAY_MS = 150;
-
   // Local state
   private readonly _currentMessage = signal('');
 
@@ -247,73 +259,62 @@ export class ChatInputComponent {
   });
 
   /**
-   * Handle input change
+   * Handle input change (auto-resize only, trigger detection delegated to directives)
    */
   handleInput(event: Event): void {
     const target = event.target as HTMLTextAreaElement;
     const value = target.value;
-    const cursorPos = target.selectionStart;
 
     this._currentMessage.set(value);
 
     // Auto-resize textarea
     target.style.height = 'auto';
     target.style.height = `${Math.min(target.scrollHeight, 160)}px`;
+  }
 
-    // Trigger detection
-    this.detectTriggers(value, cursorPos);
+  // ============ DIRECTIVE EVENT HANDLERS ============
+
+  /**
+   * Handle @ trigger from AtTriggerDirective (debounced)
+   */
+  handleAtTriggered(event: AtTriggerEvent): void {
+    this._suggestionMode.set('at-trigger');
+    this._currentQuery.set(event.query);
+    this._showSuggestions.set(true);
+    this.fetchAtSuggestions();
   }
 
   /**
-   * Detect @ or / triggers and extract query (with debounced fetch)
+   * Handle @ trigger closed from AtTriggerDirective
    */
-  private detectTriggers(value: string, cursorPos: number): void {
-    // Clear any pending debounced fetch
-    if (this.fetchDebounceTimer) {
-      clearTimeout(this.fetchDebounceTimer);
-      this.fetchDebounceTimer = null;
+  handleAtClosed(): void {
+    if (this._suggestionMode() === 'at-trigger') {
+      this._showSuggestions.set(false);
+      this._suggestionMode.set(null);
     }
-
-    // Extract text up to cursor
-    const textBeforeCursor = value.substring(0, cursorPos);
-
-    // / trigger detection (must be at start of input)
-    if (textBeforeCursor.startsWith('/')) {
-      const query = textBeforeCursor.substring(1);
-      this._suggestionMode.set('slash-trigger');
-      this._currentQuery.set(query);
-      this._showSuggestions.set(true);
-      // Debounced fetch for commands
-      this.fetchDebounceTimer = setTimeout(() => {
-        this.fetchCommandSuggestions();
-      }, this.DEBOUNCE_DELAY_MS);
-      return;
-    }
-
-    // @ trigger detection (find last @ before cursor)
-    const lastAtIndex = textBeforeCursor.lastIndexOf('@');
-    if (lastAtIndex !== -1) {
-      // Check if @ is at start or preceded by whitespace
-      if (lastAtIndex === 0 || /\s/.test(textBeforeCursor[lastAtIndex - 1])) {
-        const query = textBeforeCursor.substring(lastAtIndex + 1);
-        // Only show if query doesn't contain whitespace (e.g., "@file name" → close dropdown)
-        if (!/\s/.test(query)) {
-          this._suggestionMode.set('at-trigger');
-          this._currentQuery.set(query);
-          this._showSuggestions.set(true);
-          // Debounced fetch for @ suggestions (files + agents)
-          this.fetchDebounceTimer = setTimeout(() => {
-            this.fetchAtSuggestions();
-          }, this.DEBOUNCE_DELAY_MS);
-          return;
-        }
-      }
-    }
-
-    // No active trigger
-    this._showSuggestions.set(false);
-    this._suggestionMode.set(null);
   }
+
+  /**
+   * Handle / trigger from SlashTriggerDirective (debounced)
+   */
+  handleSlashTriggered(event: SlashTriggerEvent): void {
+    this._suggestionMode.set('slash-trigger');
+    this._currentQuery.set(event.query);
+    this._showSuggestions.set(true);
+    this.fetchCommandSuggestions();
+  }
+
+  /**
+   * Handle / trigger closed from SlashTriggerDirective
+   */
+  handleSlashClosed(): void {
+    if (this._suggestionMode() === 'slash-trigger') {
+      this._showSuggestions.set(false);
+      this._suggestionMode.set(null);
+    }
+  }
+
+  // ============ END DIRECTIVE EVENT HANDLERS ============
 
   /**
    * Fetch suggestions for @ trigger (files + agents)
@@ -460,28 +461,17 @@ export class ChatInputComponent {
   }
 
   /**
-   * Send message - SMART ROUTING: queue if streaming, send if not
+   * Send message
+   * FIX #8: Delegate smart routing to ChatStore (SRP violation fixed)
    */
   async handleSend(): Promise<void> {
     const content = this.currentMessage().trim();
     if (!content) return;
 
     try {
-      // ========== SMART ROUTING BASED ON STREAMING STATE ==========
-      if (this.chatStore.isStreaming()) {
-        // Queue the message instead of sending
-        this.chatStore.queueOrAppendMessage(content);
-        console.log('[ChatInputComponent] Message queued during streaming');
-      } else {
-        // Normal send flow
-        // Get file paths from selected files
-        const filePaths = this._selectedFiles().map((f) => f.path);
-
-        // Send message with files
-        await this.chatStore.sendMessage(content, filePaths);
-        console.log('[ChatInputComponent] Message sent normally');
-      }
-      // ========== END SMART ROUTING ==========
+      // FIX #8: Use ChatStore's sendOrQueueMessage method (routing logic moved to store)
+      const filePaths = this._selectedFiles().map((f) => f.path);
+      await this.chatStore.sendOrQueueMessage(content, filePaths);
 
       // Clear input and files
       this._currentMessage.set('');
@@ -499,9 +489,22 @@ export class ChatInputComponent {
 
   /**
    * Restore content to input textarea (called by effect when signal changes)
+   * FIX #2: Check if input is empty before restoring to prevent overwriting user input
    * @param content - Content to restore to input
    */
   restoreContentToInput(content: string): void {
+    // FIX #2: Only restore if current message is empty (prevent overwriting user typing)
+    if (this._currentMessage().trim()) {
+      console.log(
+        '[ChatInputComponent] Skipping restoration - input not empty',
+        {
+          currentLength: this._currentMessage().length,
+          queueLength: content.length,
+        }
+      );
+      return;
+    }
+
     this._currentMessage.set(content);
 
     // Focus and resize textarea using signal-based viewChild
@@ -519,11 +522,27 @@ export class ChatInputComponent {
 
   constructor() {
     // Listen for queue-to-input restoration signal
+    // FIX #3: Validate tab ID to ensure content goes to correct tab
     effect(() => {
-      const content = this.chatStore.queueRestoreContent();
-      if (content) {
-        this.restoreContentToInput(content);
-        // Clear signal after restoration
+      const restoreData = this.chatStore.queueRestoreContent();
+      if (restoreData) {
+        // FIX #3: Verify tab ID matches active tab
+        const activeTab = this.chatStore.activeTab();
+        if (activeTab && activeTab.id === restoreData.tabId) {
+          this.restoreContentToInput(restoreData.content);
+          console.log('[ChatInputComponent] Queue restored to correct tab', {
+            tabId: restoreData.tabId,
+          });
+        } else {
+          console.log(
+            '[ChatInputComponent] Skipping restoration - tab mismatch',
+            {
+              restoreTabId: restoreData.tabId,
+              activeTabId: activeTab?.id,
+            }
+          );
+        }
+        // Clear signal after restoration (or rejection)
         this.chatStore.clearQueueRestoreSignal();
       }
     });

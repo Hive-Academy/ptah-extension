@@ -12,3 +12,4 @@
 export * from './lib/components';
 // Containers removed (TASK_2025_023) - use ChatViewComponent from components
 export * from './lib/services';
+export * from './lib/directives';
