@@ -7,6 +7,11 @@ import {
 } from '@angular/core';
 import { LucideAngularModule, Send, ChevronDown } from 'lucide-angular';
 import { ChatStore } from '../../services/chat.store';
+import {
+  ModelStateService,
+  AutopilotStateService,
+  type SelectableClaudeModel,
+} from '@ptah-extension/core';
 
 /**
  * ChatInputComponent - Enhanced message input with bottom bar controls
@@ -84,7 +89,9 @@ import { ChatStore } from '../../services/chat.store';
               class="btn btn-ghost btn-sm gap-1"
               type="button"
             >
-              <span class="text-xs">{{ selectedModel() }}</span>
+              <span class="text-xs">{{
+                modelState.currentModelDisplay()
+              }}</span>
               <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3" />
             </button>
             <ul
@@ -92,20 +99,17 @@ import { ChatStore } from '../../services/chat.store';
               class="dropdown-content menu p-2 shadow bg-base-200 rounded-box w-52 mb-1"
             >
               <li>
-                <button
-                  type="button"
-                  (click)="selectModel('Claude Sonnet 4.0')"
-                >
+                <button type="button" (click)="selectModel('sonnet')">
                   Claude Sonnet 4.0
                 </button>
               </li>
               <li>
-                <button type="button" (click)="selectModel('Claude Opus 4.0')">
+                <button type="button" (click)="selectModel('opus')">
                   Claude Opus 4.0
                 </button>
               </li>
               <li>
-                <button type="button" (click)="selectModel('Claude Haiku 3.5')">
+                <button type="button" (click)="selectModel('haiku')">
                   Claude Haiku 3.5
                 </button>
               </li>
@@ -118,7 +122,7 @@ import { ChatStore } from '../../services/chat.store';
             <input
               type="checkbox"
               class="toggle toggle-sm toggle-primary"
-              [checked]="autopilotEnabled()"
+              [checked]="autopilotState.enabled()"
               (change)="toggleAutopilot()"
             />
           </label>
@@ -130,6 +134,8 @@ import { ChatStore } from '../../services/chat.store';
 })
 export class ChatInputComponent {
   readonly chatStore = inject(ChatStore);
+  readonly modelState = inject(ModelStateService);
+  readonly autopilotState = inject(AutopilotStateService);
 
   // Lucide icons
   readonly SendIcon = Send;
@@ -137,13 +143,9 @@ export class ChatInputComponent {
 
   // Local state
   private readonly _currentMessage = signal('');
-  private readonly _selectedModel = signal('Claude Sonnet 4.0');
-  private readonly _autopilotEnabled = signal(false);
 
   // Public signals
   readonly currentMessage = this._currentMessage.asReadonly();
-  readonly selectedModel = this._selectedModel.asReadonly();
-  readonly autopilotEnabled = this._autopilotEnabled.asReadonly();
 
   // Computed
   readonly isDisabled = computed(() => this.chatStore.isStreaming());
@@ -201,16 +203,18 @@ export class ChatInputComponent {
   /**
    * Select AI model
    */
-  selectModel(model: string): void {
-    this._selectedModel.set(model);
-    // TODO: Integrate with backend model selection when implemented
+  selectModel(model: SelectableClaudeModel): void {
+    this.modelState.switchModel(model).catch((error) => {
+      console.error('[ChatInputComponent] Failed to switch model:', error);
+    });
   }
 
   /**
    * Toggle autopilot mode
    */
   toggleAutopilot(): void {
-    this._autopilotEnabled.update((enabled) => !enabled);
-    // TODO: Integrate with backend autopilot feature when implemented
+    this.autopilotState.toggleAutopilot().catch((error) => {
+      console.error('[ChatInputComponent] Failed to toggle autopilot:', error);
+    });
   }
 }
