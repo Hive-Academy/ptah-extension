@@ -8,11 +8,22 @@ import {
 } from '@angular/core';
 import { LucideAngularModule, Send, Zap } from 'lucide-angular';
 import { ChatStore } from '../../services/chat.store';
-import { AutopilotStateService, AgentDiscoveryFacade, CommandDiscoveryFacade } from '@ptah-extension/core';
+import {
+  AutopilotStateService,
+  AgentDiscoveryFacade,
+  CommandDiscoveryFacade,
+} from '@ptah-extension/core';
 import { ModelSelectorComponent } from './model-selector.component';
 import { AutopilotPopoverComponent } from './autopilot-popover.component';
-import { FilePickerService, type FileSuggestion, type ChatFile } from '../../services/file-picker.service';
-import { UnifiedSuggestionsDropdownComponent, type SuggestionItem } from '../file-suggestions/unified-suggestions-dropdown.component';
+import {
+  FilePickerService,
+  type FileSuggestion,
+  type ChatFile,
+} from '../../services/file-picker.service';
+import {
+  UnifiedSuggestionsDropdownComponent,
+  type SuggestionItem,
+} from '../file-suggestions/unified-suggestions-dropdown.component';
 import { FileTagComponent } from '../file-suggestions/file-tag.component';
 
 /**
@@ -49,10 +60,7 @@ import { FileTagComponent } from '../file-suggestions/file-tag.component';
       @if (selectedFiles().length > 0) {
       <div class="flex flex-wrap gap-2">
         @for (file of selectedFiles(); track file.path) {
-        <ptah-file-tag
-          [file]="file"
-          (removeFile)="removeFile(file.path)"
-        />
+        <ptah-file-tag [file]="file" (removeFile)="removeFile(file.path)" />
         }
       </div>
       }
@@ -153,7 +161,9 @@ export class ChatInputComponent {
 
   // NEW: Autocomplete state signals
   private readonly _showSuggestions = signal(false);
-  private readonly _suggestionMode = signal<'at-trigger' | 'slash-trigger' | null>(null);
+  private readonly _suggestionMode = signal<
+    'at-trigger' | 'slash-trigger' | null
+  >(null);
   private readonly _activeCategory = signal<'all' | 'files' | 'agents'>('all');
   private readonly _currentQuery = signal('');
   private readonly _selectedFiles = signal<ChatFile[]>([]);
@@ -168,9 +178,7 @@ export class ChatInputComponent {
   readonly isLoadingSuggestions = this._isLoadingSuggestions.asReadonly();
 
   // Computed
-  readonly canSend = computed(
-    () => this.currentMessage().trim().length > 0
-  );
+  readonly canSend = computed(() => this.currentMessage().trim().length > 0);
 
   // NEW: Computed signals for autocomplete
   readonly filteredSuggestions = computed(() => {
@@ -293,7 +301,10 @@ export class ChatInputComponent {
         this.agentDiscovery.fetchAgents(),
       ]);
     } catch (error) {
-      console.error('[ChatInputComponent] Failed to fetch @ suggestions:', error);
+      console.error(
+        '[ChatInputComponent] Failed to fetch @ suggestions:',
+        error
+      );
     } finally {
       this._isLoadingSuggestions.set(false);
     }
@@ -307,7 +318,10 @@ export class ChatInputComponent {
     try {
       await this.commandDiscovery.fetchCommands();
     } catch (error) {
-      console.error('[ChatInputComponent] Failed to fetch / suggestions:', error);
+      console.error(
+        '[ChatInputComponent] Failed to fetch / suggestions:',
+        error
+      );
     } finally {
       this._isLoadingSuggestions.set(false);
     }
@@ -351,7 +365,9 @@ export class ChatInputComponent {
    * Remove file tag
    */
   removeFile(filePath: string): void {
-    this._selectedFiles.update((files) => files.filter((f) => f.path !== filePath));
+    this._selectedFiles.update((files) =>
+      files.filter((f) => f.path !== filePath)
+    );
   }
 
   /**
@@ -364,7 +380,8 @@ export class ChatInputComponent {
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
     const currentValue = this._currentMessage();
-    const newValue = currentValue.substring(0, start) + text + currentValue.substring(end);
+    const newValue =
+      currentValue.substring(0, start) + text + currentValue.substring(end);
 
     this._currentMessage.set(newValue);
     textarea.value = newValue;
@@ -476,8 +493,8 @@ export class ChatInputComponent {
       const content = this.chatStore.queueRestoreContent();
       if (content) {
         this.restoreContentToInput(content);
-        // Clear signal after restoration (cast to access private signal)
-        (this.chatStore as any)._queueRestoreSignal.set(null);
+        // Clear signal after restoration
+        this.chatStore.clearQueueRestoreSignal();
       }
     });
   }

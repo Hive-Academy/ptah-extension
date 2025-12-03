@@ -76,11 +76,11 @@ import { type PermissionLevel } from '@ptah-extension/shared';
 
           <!-- Permission Level Selector -->
           <div class="mb-4">
-            <label
+            <span
               class="text-xs font-medium text-base-content/60 uppercase tracking-wide mb-2 block"
             >
               Permission Level
-            </label>
+            </span>
             <div class="flex flex-col gap-1">
               @for (level of permissionLevels; track level.id) {
               <button

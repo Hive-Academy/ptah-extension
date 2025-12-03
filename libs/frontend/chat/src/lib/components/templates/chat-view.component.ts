@@ -128,6 +128,14 @@ export class ChatViewComponent {
     this._selectedMode.set(mode);
   }
 
+  /**
+   * Cancel queued message (user-requested cancellation)
+   */
+  cancelQueue(): void {
+    this.chatStore.clearQueuedContent();
+    console.log('[ChatViewComponent] Queued content cancelled by user');
+  }
+
   private scrollToBottom(): void {
     if (!this.messageContainer) return;
 

@@ -87,10 +87,35 @@ export class ClaudeProcess extends EventEmitter {
 
   /**
    * Kill the active process
+   *
+   * TASK_2025_040: Changed to SIGINT for graceful mid-response interruption.
+   * SIGINT allows Claude CLI to finalize current message before exiting.
+   * Falls back to SIGTERM after 2 seconds if process doesn't respond.
    */
   kill(): void {
     if (this.process && !this.process.killed) {
-      this.process.kill('SIGTERM');
+      console.log('[ClaudeProcess] Sending SIGINT to process');
+
+      // Try SIGINT first (graceful interrupt)
+      try {
+        this.process.kill('SIGINT');
+
+        // Set timeout for SIGTERM fallback (Windows may not support SIGINT)
+        setTimeout(() => {
+          if (this.process && !this.process.killed) {
+            console.warn(
+              '[ClaudeProcess] SIGINT failed, falling back to SIGTERM'
+            );
+            this.process.kill('SIGTERM');
+          }
+        }, 2000); // 2 second timeout
+      } catch (error) {
+        // If SIGINT fails (e.g., on Windows), immediately use SIGTERM
+        console.error('[ClaudeProcess] SIGINT failed:', error);
+        console.log('[ClaudeProcess] Falling back to SIGTERM');
+        this.process.kill('SIGTERM');
+      }
+
       this.process = null;
     }
   }

@@ -1064,6 +1064,13 @@ export class ChatStore {
     return content;
   }
 
+  /**
+   * Clear the queue restore signal after content has been restored to input
+   */
+  clearQueueRestoreSignal(): void {
+    this._queueRestoreSignal.set(null);
+  }
+
   // ============================================================================
   // JSONL PROCESSING (Delegated to JsonlMessageProcessor)
   // ============================================================================
@@ -1348,7 +1355,10 @@ export class ChatStore {
 
         // Auto-send via continueConversation (async, don't await)
         this.continueConversation(queuedContent).catch((error) => {
-          console.error('[ChatStore] Failed to auto-send queued content:', error);
+          console.error(
+            '[ChatStore] Failed to auto-send queued content:',
+            error
+          );
           // Restore content on error (no data loss)
           this.tabManager.updateTab(targetTabId, {
             queuedContent: queuedContent,

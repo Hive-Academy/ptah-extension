@@ -128,6 +128,51 @@
   </div>
   }
 
+  <!-- Queued Content Indicator -->
+  @if (chatStore.activeTab()?.queuedContent) {
+  <div class="px-4 pb-2 border-t border-primary/20 bg-primary/5">
+    <div class="flex items-center justify-between gap-2 py-2">
+      <!-- Left: Queue icon and text -->
+      <div class="flex items-center gap-2 text-sm">
+        <svg
+          class="w-4 h-4 text-primary animate-pulse"
+          fill="currentColor"
+          viewBox="0 0 20 20"
+        >
+          <path
+            d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z"
+          />
+        </svg>
+        <span class="text-primary font-medium">Message queued</span>
+        <span class="text-base-content/60"
+          >(will send when Claude finishes)</span
+        >
+      </div>
+
+      <!-- Right: Cancel button -->
+      <button
+        class="btn btn-ghost btn-xs"
+        (click)="cancelQueue()"
+        type="button"
+        title="Cancel queued message"
+      >
+        ✕
+      </button>
+    </div>
+
+    <!-- Queued content preview (truncated) -->
+    <div
+      class="text-xs text-base-content/70 bg-base-200 rounded px-2 py-1 max-h-12 overflow-hidden"
+    >
+      {{ chatStore.activeTab()?.queuedContent?.substring(0, 100) }}
+      @if (chatStore.activeTab()?.queuedContent &&
+      chatStore.activeTab()!.queuedContent!.length > 100) {
+      <span>...</span>
+      }
+    </div>
+  </div>
+  }
+
   <!-- Input Area -->
   <ptah-chat-input class="border-t border-base-300" />
 </div>

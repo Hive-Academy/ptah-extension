@@ -141,4 +141,11 @@ export interface TabState {
    * Per-tab tracking enables proper multi-tab streaming support.
    */
   currentMessageId?: string | null;
+
+  /**
+   * Single queued message content (appended on multiple sends).
+   * When user sends messages during streaming, content is appended here.
+   * Auto-sent via continueConversation() when streaming completes.
+   */
+  queuedContent?: string | null;
 }
