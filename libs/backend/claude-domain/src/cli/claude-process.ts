@@ -125,14 +125,11 @@ export class ClaudeProcess extends EventEmitter {
     const autopilotEnabled = options?.autopilotEnabled ?? false;
     const permissionLevel = options?.permissionLevel ?? 'ask';
 
-    if (autopilotEnabled && permissionLevel === 'auto-edit') {
-      // Auto-edit mode: Allow Edit and Write tools without prompts
-      args.push('--allowedTools', 'Edit,Write');
-    } else if (autopilotEnabled && permissionLevel === 'yolo') {
+    // Handle YOLO mode separately (uses different flag)
+    if (autopilotEnabled && permissionLevel === 'yolo') {
       // YOLO mode: Skip ALL permission prompts (DANGEROUS)
       args.push('--dangerously-skip-permissions');
     }
-    // Default (ask): No additional flags, use permission-prompt-tool
 
     if (options?.resumeSessionId) {
       args.push('--resume', options.resumeSessionId);
@@ -141,11 +138,21 @@ export class ClaudeProcess extends EventEmitter {
     // Allow MCP tools - always include mcp__ptah (all tools within ptah server are auto-allowed)
     // The approval_prompt tool is internal to ptah server, no need to list separately
     // Additional tools can be passed via options.allowedTools
+    // Auto-edit mode adds Edit,Write tools to allowedTools Set (not separate flag)
     // Format: --allowedTools "tool1,tool2" or --allowedTools tool1 tool2
     const allowedTools = new Set<string>(['mcp__ptah']);
+
+    // Add autopilot tools to the Set (not separate flag) - QA FIX for duplicate --allowedTools
+    if (autopilotEnabled && permissionLevel === 'auto-edit') {
+      allowedTools.add('Edit');
+      allowedTools.add('Write');
+    }
+
     if (options?.allowedTools) {
       options.allowedTools.forEach((tool) => allowedTools.add(tool));
     }
+
+    // Single --allowedTools flag at the end
     args.push('--allowedTools', Array.from(allowedTools).join(','));
 
     return args;

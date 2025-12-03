@@ -127,8 +127,8 @@ export class ModelStateService {
         '[ModelStateService] Failed to switch model:',
         result.error
       );
-      // Rollback on failure: reload from backend to get authoritative state
-      await this.loadPersistedModel();
+      // QA FIX: Direct rollback to previous value (no RPC call to prevent cascading failures)
+      this._currentModel.set(previousModel);
     }
   }
 

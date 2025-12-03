@@ -182,6 +182,13 @@ export class RpcMethodRegistrationService {
           'model.selected',
           'sonnet'
         );
+
+        // QA FIX: Validate model is selectable (not 'default') before passing to CLI
+        const validModels: ClaudeModel[] = ['opus', 'sonnet', 'haiku'];
+        const safeModel: ClaudeModel = validModels.includes(selectedModel)
+          ? selectedModel
+          : 'sonnet';
+
         const autopilotEnabled = this.configManager.getWithDefault<boolean>(
           'autopilot.enabled',
           false
@@ -194,7 +201,7 @@ export class RpcMethodRegistrationService {
 
         // Build enhanced options with config values
         const processOptions = {
-          model: selectedModel,
+          model: safeModel, // Use validated model
           autopilotEnabled,
           permissionLevel,
           // Merge with any existing options from params
@@ -318,6 +325,13 @@ export class RpcMethodRegistrationService {
           'model.selected',
           'sonnet'
         );
+
+        // QA FIX: Validate model is selectable (not 'default') before passing to CLI
+        const validModels: ClaudeModel[] = ['opus', 'sonnet', 'haiku'];
+        const safeModel: ClaudeModel = validModels.includes(selectedModel)
+          ? selectedModel
+          : 'sonnet';
+
         const autopilotEnabled = this.configManager.getWithDefault<boolean>(
           'autopilot.enabled',
           false
@@ -330,7 +344,7 @@ export class RpcMethodRegistrationService {
 
         // Build enhanced options with config values (omit resumeSessionId since it's a separate parameter)
         const processOptions = {
-          model: selectedModel,
+          model: safeModel, // Use validated model
           autopilotEnabled,
           permissionLevel,
         };
