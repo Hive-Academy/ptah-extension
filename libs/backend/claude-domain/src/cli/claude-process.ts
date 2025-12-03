@@ -91,29 +91,49 @@ export class ClaudeProcess extends EventEmitter {
    * TASK_2025_040: Changed to SIGINT for graceful mid-response interruption.
    * SIGINT allows Claude CLI to finalize current message before exiting.
    * Falls back to SIGTERM after 2 seconds if process doesn't respond.
+   *
+   * Memory leak fix: Timeout is cleared if process exits before 2 seconds.
    */
   kill(): void {
     if (this.process && !this.process.killed) {
       console.log('[ClaudeProcess] Sending SIGINT to process');
+
+      // Capture process reference before nulling
+      const processRef = this.process;
 
       // Try SIGINT first (graceful interrupt)
       try {
         this.process.kill('SIGINT');
 
         // Set timeout for SIGTERM fallback (Windows may not support SIGINT)
-        setTimeout(() => {
-          if (this.process && !this.process.killed) {
+        const timeoutId = setTimeout(() => {
+          if (processRef && !processRef.killed) {
             console.warn(
               '[ClaudeProcess] SIGINT failed, falling back to SIGTERM'
             );
-            this.process.kill('SIGTERM');
+            try {
+              processRef.kill('SIGTERM');
+            } catch (e) {
+              // Process may have already exited
+              console.error('[ClaudeProcess] SIGTERM failed:', e);
+            }
           }
         }, 2000); // 2 second timeout
+
+        // Clear timeout if process exits quickly (prevents memory leak)
+        processRef.once('exit', () => {
+          clearTimeout(timeoutId);
+        });
       } catch (error) {
         // If SIGINT fails (e.g., on Windows), immediately use SIGTERM
         console.error('[ClaudeProcess] SIGINT failed:', error);
         console.log('[ClaudeProcess] Falling back to SIGTERM');
-        this.process.kill('SIGTERM');
+        try {
+          this.process.kill('SIGTERM');
+        } catch (e) {
+          // Process may have already exited
+          console.error('[ClaudeProcess] SIGTERM failed:', e);
+        }
       }
 
       this.process = null;

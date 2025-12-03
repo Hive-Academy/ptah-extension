@@ -118,9 +118,16 @@ export class ChatStore {
   // This ensures session:id-resolved goes to the correct tab even if user switches tabs
   private readonly pendingSessionResolutions = new Map<string, string>();
 
-  // Signal for queue-to-input restoration
-  private readonly _queueRestoreSignal = signal<string | null>(null);
+  // Signal for queue-to-input restoration (with tab ID validation)
+  private readonly _queueRestoreSignal = signal<{
+    tabId: string;
+    content: string;
+  } | null>(null);
   readonly queueRestoreContent = this._queueRestoreSignal.asReadonly();
+
+  // Guard signals for preventing race conditions
+  private readonly _isStopping = signal(false);
+  private readonly _isAutoSending = signal(false);
 
   // ============================================================================
   // PUBLIC READONLY SIGNALS
@@ -529,6 +536,27 @@ export class ChatStore {
       return this.continueConversation(content, files);
     } else {
       return this.startNewConversation(content, files);
+    }
+  }
+
+  /**
+   * FIX #8: Smart send or queue routing (Single Responsibility - store handles the logic)
+   * Automatically queues if streaming, sends normally if not
+   * @param content - Message content
+   * @param filePaths - Optional file paths to include
+   */
+  async sendOrQueueMessage(
+    content: string,
+    filePaths?: string[]
+  ): Promise<void> {
+    if (this.isStreaming()) {
+      // Queue the message instead of sending
+      this.queueOrAppendMessage(content);
+      console.log('[ChatStore] Message queued during streaming');
+    } else {
+      // Normal send flow
+      await this.sendMessage(content, filePaths);
+      console.log('[ChatStore] Message sent normally');
     }
   }
 
@@ -957,17 +985,27 @@ export class ChatStore {
 
   /**
    * Abort current streaming message via RPC
+   * FIX #5: Guard against multiple stop clicks causing signal thrashing
    */
   async abortCurrentMessage(): Promise<void> {
     try {
+      // FIX #5: Prevent multiple simultaneous abort calls
+      if (this._isStopping()) {
+        console.log('[ChatStore] Abort already in progress, skipping');
+        return;
+      }
+      this._isStopping.set(true);
+
       if (!this.claudeRpcService) {
         console.warn('[ChatStore] RPC service not initialized');
+        this._isStopping.set(false);
         return;
       }
 
       const sessionId = this.currentSessionId();
       if (!sessionId) {
         console.warn('[ChatStore] No active session to abort');
+        this._isStopping.set(false);
         return;
       }
 
@@ -981,8 +1019,11 @@ export class ChatStore {
           length: queuedContent.length,
         });
 
-        // Set signal for ChatInputComponent to restore
-        this._queueRestoreSignal.set(queuedContent);
+        // FIX #3: Include tab ID in restoration signal for validation
+        this._queueRestoreSignal.set({
+          tabId: activeTab.id,
+          content: queuedContent,
+        });
 
         // Clear queue (will be moved to input by ChatInputComponent)
         this.clearQueuedContent();
@@ -1004,22 +1045,37 @@ export class ChatStore {
       this.finalizeCurrentMessage();
     } catch (error) {
       console.error('[ChatStore] Failed to abort message:', error);
+    } finally {
+      // Always reset stopping flag
+      this._isStopping.set(false);
     }
   }
 
   /**
    * Queue or append message content to active tab
    * If content already queued, append with newline separator
+   * FIX #4: Whitespace-only queue validation
+   * FIX #7: Double newline prevention
    */
   queueOrAppendMessage(content: string): void {
     const activeTabId = this.tabManager.activeTabId();
     if (!activeTabId) return;
 
+    // FIX #4: Trim and validate before storing
+    const trimmedContent = content.trim();
+    if (!trimmedContent) {
+      console.log('[ChatStore] Skipping whitespace-only queue content');
+      return;
+    }
+
     const activeTab = this.tabManager.activeTab();
     const existing = activeTab?.queuedContent;
 
-    // Append with newline if content exists, otherwise set directly
-    const newContent = existing ? `${existing}\n${content}` : content;
+    // FIX #7: Trim trailing newlines before appending to prevent double newlines
+    const trimmedExisting = existing ? existing.replace(/\n+$/, '') : '';
+    const newContent = trimmedExisting
+      ? `${trimmedExisting}\n${trimmedContent}`
+      : trimmedContent;
 
     this.tabManager.updateTab(activeTabId, {
       queuedContent: newContent,
@@ -1047,21 +1103,23 @@ export class ChatStore {
 
   /**
    * Move queued content to caller (for input restoration) and clear queue
-   * @returns Queued content string or null if no content queued
+   * FIX #3: Include tab ID in return value for validation
+   * @returns Object with tabId and content, or null if no content queued
    */
-  moveQueueToInput(): string | null {
+  moveQueueToInput(): { tabId: string; content: string } | null {
     const activeTab = this.tabManager.activeTab();
     const content = activeTab?.queuedContent ?? null;
 
-    if (content) {
+    if (content && activeTab) {
       this.clearQueuedContent();
       console.log('[ChatStore] Queued content moved to input', {
-        tabId: activeTab?.id,
+        tabId: activeTab.id,
         length: content.length,
       });
+      return { tabId: activeTab.id, content };
     }
 
-    return content;
+    return null;
   }
 
   /**
@@ -1281,6 +1339,8 @@ export class ChatStore {
    * Called when Claude CLI process exits (success or error)
    * Routes to correct tab by sessionId for proper multi-tab support.
    * Ensures UI state is reset to 'loaded' regardless of exit code.
+   * FIX #1: Queue cleared AFTER auto-send starts (in .then callback)
+   * FIX #6: Guard against recursive auto-send
    */
   handleChatComplete(data: { sessionId: string; code: number }): void {
     console.log('[ChatStore] Chat complete:', data);
@@ -1342,6 +1402,12 @@ export class ChatStore {
       );
 
       // ========== AUTO-SEND QUEUED CONTENT ==========
+      // FIX #6: Guard against recursive auto-send
+      if (this._isAutoSending()) {
+        console.log('[ChatStore] Auto-send already in progress, skipping');
+        return;
+      }
+
       // Check if this tab has queued content
       const queuedContent = targetTab.queuedContent;
       if (queuedContent && queuedContent.trim()) {
@@ -1350,20 +1416,29 @@ export class ChatStore {
           length: queuedContent.length,
         });
 
-        // Clear queue before sending (prevent duplicate sends)
-        this.tabManager.updateTab(targetTabId, { queuedContent: null });
+        // FIX #6: Set auto-sending flag
+        this._isAutoSending.set(true);
 
+        // FIX #1: Clear queue AFTER send starts successfully (in .then)
         // Auto-send via continueConversation (async, don't await)
-        this.continueConversation(queuedContent).catch((error) => {
-          console.error(
-            '[ChatStore] Failed to auto-send queued content:',
-            error
-          );
-          // Restore content on error (no data loss)
-          this.tabManager.updateTab(targetTabId, {
-            queuedContent: queuedContent,
+        this.continueConversation(queuedContent)
+          .then(() => {
+            // Clear queue only after successful send start
+            this.tabManager.updateTab(targetTabId!, { queuedContent: null });
+            console.log('[ChatStore] Auto-send started, queue cleared');
+          })
+          .catch((error) => {
+            console.error(
+              '[ChatStore] Failed to auto-send queued content:',
+              error
+            );
+            // Keep content in queue on error (no data loss)
+            // No need to restore - it was never cleared
+          })
+          .finally(() => {
+            // Always reset auto-sending flag
+            this._isAutoSending.set(false);
           });
-        });
       }
       // ========== END AUTO-SEND ==========
     }
