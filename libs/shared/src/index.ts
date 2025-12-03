@@ -8,6 +8,7 @@ export * from './lib/types/message.types';
 export * from './lib/types/content-block.types';
 export * from './lib/types/permission.types';
 export * from './lib/types/webview-ui.types';
+export * from './lib/types/model-autopilot.types';
 
 // Utilities
 export * from './lib/utils/message-normalizer';

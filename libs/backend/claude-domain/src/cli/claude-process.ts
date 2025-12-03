@@ -10,7 +10,7 @@
  * Batch 4 - TASK_2025_023
  */
 
-import { JSONLMessage } from '@ptah-extension/shared';
+import { JSONLMessage, PermissionLevel } from '@ptah-extension/shared';
 import { ChildProcess, spawn } from 'child_process';
 import { EventEmitter } from 'events';
 import * as os from 'os';
@@ -27,6 +27,10 @@ export interface ClaudeProcessOptions {
   verbose?: boolean;
   /** Allowed MCP tools (space-separated or comma-separated list) */
   allowedTools?: string[];
+  /** TASK_2025_035: Autopilot enabled flag */
+  autopilotEnabled?: boolean;
+  /** TASK_2025_035: Permission level when autopilot enabled */
+  permissionLevel?: PermissionLevel;
 }
 
 /**
