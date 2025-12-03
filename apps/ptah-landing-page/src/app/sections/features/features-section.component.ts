@@ -57,12 +57,12 @@ interface Feature {
 
         <div class="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto features-grid">
           @for (feature of features; track feature.id) {
-            <ptah-feature-card
-              [iconEmoji]="feature.iconEmoji"
-              [title]="feature.title"
-              [description]="feature.description"
-              [capabilities]="feature.capabilities"
-            />
+          <ptah-feature-card
+            [iconEmoji]="feature.iconEmoji"
+            [title]="feature.title"
+            [description]="feature.description"
+            [capabilities]="feature.capabilities"
+          />
           }
         </div>
       </div>

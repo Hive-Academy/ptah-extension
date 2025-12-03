@@ -28,7 +28,10 @@ export default [
               sourceTag: 'scope:webview',
               onlyDependOnLibsWithTags: ['scope:shared', 'scope:webview'],
             },
-
+            {
+              sourceTag: 'scope:landing',
+              onlyDependOnLibsWithTags: ['scope:shared', 'scope:landing'],
+            },
             {
               sourceTag: 'type:application',
               onlyDependOnLibsWithTags: [

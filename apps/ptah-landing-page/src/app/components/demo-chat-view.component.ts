@@ -5,111 +5,157 @@ import {
   OnInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ExecutionNodeComponent } from '@ptah-extension/chat';
+import { MarkdownModule } from 'ngx-markdown';
 import { StaticSessionProvider } from '../services/static-session.provider';
 
 /**
- * DemoChatViewComponent - Displays pre-loaded demo chat session
+ * DemoChatViewComponent - Simplified demo chat display for landing page
  *
- * Single Responsibility: Render demo chat messages using ExecutionNodeComponent
+ * This is a simplified version that renders demo chat messages without
+ * depending on the complex ExecutionNodeComponent tree rendering.
  *
- * Complexity Level: 2 (Medium - state orchestration, conditional rendering, composition)
- *
- * Architecture Pattern: Container Component
- * - Injects StaticSessionProvider for demo session data
- * - Composes ExecutionNodeComponent from @ptah-extension/chat library
- * - Handles loading/error states with DaisyUI components
- *
- * Key Features:
- * - Signal-based reactivity (all state from StaticSessionProvider signals)
- * - User messages rendered as right-aligned chat bubbles
- * - Assistant messages rendered via ExecutionNodeComponent (execution trees)
- * - Custom gold-accent scrollbar styling
- * - Loading spinner and error alert states
- * - Auto-loads demo session on component init
- *
- * IMPORTANT: This component must NOT import from @ptah-extension/core
- * (VS Code dependencies). It uses only @ptah-extension/chat which is
- * VS Code-agnostic, making it suitable for standalone web deployment.
- *
- * Design Requirements:
- * - Max-height with overflow scroll
- * - Custom scrollbar: thin, gold accent (rgba(212, 175, 55, 0.4))
- * - DaisyUI chat classes for message bubbles
- * - Ptah icon for assistant avatar
- *
- * @example
- * ```typescript
- * <ptah-demo-chat-view />
- * ```
+ * Features:
+ * - User messages as right-aligned bubbles
+ * - Assistant messages with markdown rendering
+ * - Collapsible tool call cards
+ * - Nested agent display
+ * - DaisyUI styling
  */
 @Component({
   selector: 'ptah-demo-chat-view',
   standalone: true,
-  imports: [CommonModule, ExecutionNodeComponent],
+  imports: [CommonModule, MarkdownModule],
   template: `
     <div
       class="demo-chat-container h-full overflow-y-auto p-4 space-y-4"
       style="scrollbar-width: thin; scrollbar-color: rgba(212, 175, 55, 0.4) transparent;"
     >
       @if (provider.isLoading()) {
-        <!-- Loading State: DaisyUI spinner -->
-        <div class="flex items-center justify-center h-full">
-          <div class="loading loading-spinner loading-lg text-secondary"></div>
-        </div>
+      <div class="flex items-center justify-center h-full">
+        <div class="loading loading-spinner loading-lg text-secondary"></div>
+      </div>
       } @else if (provider.error()) {
-        <!-- Error State: DaisyUI alert -->
-        <div class="alert alert-error">
-          <span>{{ provider.error() }}</span>
+      <div class="alert alert-error">
+        <span>{{ provider.error() }}</span>
+      </div>
+      } @else { @for (message of provider.messages(); track message.id) { @if
+      (message.role === 'user') {
+      <!-- User Message -->
+      <div class="chat chat-end">
+        <div class="chat-bubble bg-primary text-primary-content">
+          {{ message.rawContent }}
         </div>
+      </div>
       } @else {
-        <!-- Messages: Iterate through ExecutionChatMessage array -->
-        @for (message of provider.messages(); track message.id) {
-          @if (message.role === 'user') {
-            <!-- User Message: Right-aligned bubble (chat-end) -->
-            <div class="chat chat-end">
-              <div class="chat-bubble bg-primary text-primary-content">
-                {{ message.rawContent }}
-              </div>
+      <!-- Assistant Message -->
+      <div class="chat chat-start">
+        <div class="chat-image avatar">
+          <div
+            class="w-10 rounded-full bg-secondary/20 p-2 flex items-center justify-center"
+          >
+            <span class="text-secondary text-lg">⚒</span>
+          </div>
+        </div>
+        <div
+          class="chat-bubble bg-base-300 text-base-content w-full max-w-none"
+        >
+          @if (message.executionTree) {
+          <!-- Render execution tree children -->
+          @for (child of message.executionTree.children; track child.id) {
+          @switch (child.type) { @case ('text') {
+          <div class="prose prose-sm prose-invert max-w-none my-2">
+            <markdown [data]="child.content || ''" />
+          </div>
+          } @case ('tool') {
+          <!-- Tool call card -->
+          <div
+            class="my-2 rounded-lg bg-base-200 border border-base-300 overflow-hidden"
+          >
+            <div class="flex items-center gap-2 px-3 py-2 bg-base-300/50">
+              <span
+                class="badge badge-sm"
+                [class]="getToolBadgeClass(child.toolName)"
+              >
+                {{ child.toolName }}
+              </span>
+              @if (child.toolInput) {
+              <span class="text-xs text-base-content/50 truncate">
+                {{ getToolInputSummary(child.toolInput) }}
+              </span>
+              }
             </div>
-          } @else {
-            <!-- Assistant Message: Left-aligned with execution tree -->
-            <div class="chat chat-start">
-              <!-- Avatar: Ptah icon with secondary accent background -->
-              <div class="chat-image avatar">
-                <div class="w-10 rounded-full bg-secondary/20 p-2">
-                  <img [src]="ptahIconUri" alt="Ptah" />
+            @if (child.toolOutput) {
+            <div
+              class="px-3 py-2 text-xs font-mono text-base-content/70 max-h-24 overflow-hidden"
+            >
+              {{ truncateOutput(getToolOutput(child.toolOutput)) }}
+            </div>
+            }
+          </div>
+          } @case ('agent') {
+          <!-- Agent execution card -->
+          <div
+            class="my-3 border-l-2 rounded-lg bg-base-200/50 overflow-hidden"
+            [style.border-left-color]="getAgentColor(child.agentType)"
+          >
+            <div class="flex items-center gap-2 px-3 py-2">
+              <div
+                class="w-6 h-6 rounded-full flex items-center justify-center"
+                [style.background-color]="getAgentColor(child.agentType)"
+              >
+                <span class="text-white text-[10px] font-bold">
+                  {{ child.agentType?.charAt(0)?.toUpperCase() }}
+                </span>
+              </div>
+              <span class="text-[11px] font-semibold text-base-content/80">
+                {{ child.agentType }}
+              </span>
+              @if (child.agentDescription) {
+              <span class="text-[10px] text-base-content/50 truncate">
+                {{ child.agentDescription }}
+              </span>
+              }
+              <span class="badge badge-xs badge-ghost ml-auto">
+                {{ child.children?.length || 0 }} items
+              </span>
+            </div>
+            <!-- Agent children -->
+            <div class="px-3 pb-2 border-t border-base-300/30">
+              @for (agentChild of child.children; track agentChild.id) { @if
+              (agentChild.type === 'text') {
+              <div class="prose prose-xs prose-invert max-w-none my-1">
+                <markdown [data]="agentChild.content || ''" />
+              </div>
+              } @else if (agentChild.type === 'tool') {
+              <div class="my-1 rounded bg-base-300/50 px-2 py-1">
+                <div class="flex items-center gap-2">
+                  <span
+                    class="badge badge-xs"
+                    [class]="getToolBadgeClass(agentChild.toolName)"
+                  >
+                    {{ agentChild.toolName }}
+                  </span>
+                  <span class="text-[10px] text-base-content/50 truncate">
+                    {{ getToolInputSummary(agentChild.toolInput) }}
+                  </span>
                 </div>
               </div>
-              <!-- Message Content: Use ExecutionNodeComponent for rich rendering -->
-              <div
-                class="chat-bubble bg-base-300 text-base-content w-full max-w-none"
-              >
-                @if (message.executionTree) {
-                  <!-- Execution Tree: Tool calls, agent spawns, thinking blocks -->
-                  <ptah-execution-node [node]="message.executionTree" />
-                } @else {
-                  <!-- Fallback: Plain text if no execution tree (shouldn't happen in demo) -->
-                  <div class="prose prose-invert prose-sm">
-                    {{ message.rawContent }}
-                  </div>
-                }
-              </div>
+              } }
             </div>
-          }
-        }
-      }
+          </div>
+          } } } }
+        </div>
+      </div>
+      } } }
     </div>
   `,
   styles: [
     `
-      /* Host: Full height to enable scrolling */
       :host {
         display: block;
         height: 100%;
       }
 
-      /* Custom Scrollbar: Gold accent, thin style */
       .demo-chat-container::-webkit-scrollbar {
         width: 8px;
       }
@@ -128,38 +174,56 @@ import { StaticSessionProvider } from '../services/static-session.provider';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DemoChatViewComponent implements OnInit {
-  // ============================================================================
-  // DEPENDENCIES
-  // ============================================================================
-  // Pattern: inject() function in class body (modern Angular approach)
-  // Evidence: apps/ptah-landing-page/src/app/services/static-session.provider.ts:62
-
   readonly provider = inject(StaticSessionProvider);
 
-  // ============================================================================
-  // STATIC ASSETS
-  // ============================================================================
-  // Static icon path for Ptah avatar (served from public/assets/)
-
-  readonly ptahIconUri = '/assets/icons/ptah-icon.png';
-
-  // ============================================================================
-  // LIFECYCLE HOOKS
-  // ============================================================================
-
-  /**
-   * OnInit: Load demo session if not already loaded
-   *
-   * This ensures the demo session data is available when the component renders.
-   * If the provider already has messages (e.g., loaded elsewhere), skip loading.
-   */
   ngOnInit(): void {
-    // Load demo session if not already loaded
-    if (
-      this.provider.messages().length === 0 &&
-      !this.provider.isLoading()
-    ) {
-      this.provider.loadSession('/assets/demo-sessions/sample.json');
+    if (this.provider.messages().length === 0 && !this.provider.isLoading()) {
+      this.provider.loadSession();
     }
+  }
+
+  getToolBadgeClass(toolName?: string): string {
+    const classes: Record<string, string> = {
+      Read: 'badge-info',
+      Write: 'badge-success',
+      Bash: 'badge-warning',
+      Task: 'badge-secondary',
+    };
+    return classes[toolName || ''] || 'badge-ghost';
+  }
+
+  getToolInputSummary(input?: Record<string, unknown>): string {
+    if (!input) return '';
+    if (input['file_path']) return String(input['file_path']);
+    if (input['command']) return String(input['command']).slice(0, 40);
+    if (input['description']) return String(input['description']);
+    return '';
+  }
+
+  getToolOutput(output: unknown): string {
+    if (typeof output === 'string') return output;
+    if (output === null || output === undefined) return '';
+    return JSON.stringify(output);
+  }
+
+  truncateOutput(output?: string): string {
+    if (!output) return '';
+    return output.length > 150 ? output.slice(0, 150) + '...' : output;
+  }
+
+  getAgentColor(agentType?: string): string {
+    const colors: Record<string, string> = {
+      'software-architect': '#f97316',
+      'frontend-developer': '#3b82f6',
+      'backend-developer': '#10b981',
+      'senior-tester': '#8b5cf6',
+      'code-reviewer': '#ec4899',
+      'team-leader': '#6366f1',
+      'project-manager': '#d97706',
+      'researcher-expert': '#06b6d4',
+      Explore: '#22c55e',
+      Plan: '#a855f7',
+    };
+    return colors[agentType || ''] || '#717171';
   }
 }

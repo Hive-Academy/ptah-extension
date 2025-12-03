@@ -1,4 +1,9 @@
-import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  OnInit,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { NavigationComponent } from '../components/navigation.component';
 import { HeroSectionComponent } from '../sections/hero/hero-section.component';

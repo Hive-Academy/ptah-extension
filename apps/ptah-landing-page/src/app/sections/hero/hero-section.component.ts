@@ -6,10 +6,14 @@ import {
   inject,
   afterNextRender,
   DestroyRef,
-  CUSTOM_ELEMENTS_SCHEMA,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import gsap from 'gsap';
+import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { HeroSceneComponent } from './hero-scene.component';
+
+// Register ScrollTrigger plugin
+gsap.registerPlugin(ScrollTrigger);
 
 /**
  * Hero Section Component (Layout Only)
@@ -39,52 +43,76 @@ import gsap from 'gsap';
 @Component({
   selector: 'ptah-hero-section',
   standalone: true,
-  imports: [CommonModule],
-  schemas: [CUSTOM_ELEMENTS_SCHEMA],
+  imports: [CommonModule, HeroSceneComponent],
   template: `
     <section
       #sectionRef
       class="relative min-h-screen flex items-center justify-center bg-base-100 overflow-hidden"
     >
-      <!-- Gradient Background (placeholder for Three.js) -->
-      <div class="absolute inset-0 z-0">
+      <!-- Three.js Egyptian Scene Background -->
+      <app-hero-scene class="absolute inset-0 z-0" />
+
+      <!-- Gradient Overlay for text readability -->
+      <div class="absolute inset-0 z-[1] pointer-events-none">
         <div
-          class="absolute inset-0 bg-gradient-to-b from-secondary/10 via-transparent to-transparent"
-        ></div>
-        <div
-          class="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary/20 via-transparent to-transparent"
+          class="absolute inset-0 bg-gradient-to-b from-base-100/30 via-transparent to-base-100/50"
         ></div>
       </div>
 
       <!-- Content -->
-      <div class="relative z-10 container mx-auto px-6 text-center">
-        <!-- Headline -->
+      <div
+        class="hero-text-content relative z-10 container mx-auto px-6 text-center flex flex-col items-center"
+      >
+        <!-- Headline - Shiny black with golden emerald outline -->
         <h1
-          class="hero-headline font-display font-bold text-5xl md:text-6xl lg:text-7xl text-accent mb-6"
-          style="text-shadow: 0 0 40px rgba(251, 191, 36, 0.5);"
+          class="hero-headline font-display font-bold text-5xl md:text-6xl lg:text-7xl mb-6"
+          style="
+            color: #1a1a1a;
+            text-shadow:
+              0 0 2px #d4af37,
+              0 0 4px #d4af37,
+              0 2px 4px rgba(0,0,0,0.8),
+              0 4px 8px rgba(0,0,0,0.6),
+              1px 1px 0 #d4af37,
+              -1px -1px 0 #10b981,
+              2px 2px 0 #d4af37;
+            -webkit-text-stroke: 1px #d4af37;
+            paint-order: stroke fill;
+          "
         >
           Ptah Extension
         </h1>
 
-        <!-- Tagline -->
+        <!-- Tagline - White with dark shadow for contrast -->
         <p
-          class="hero-tagline text-xl md:text-2xl text-base-content/80 mb-4 font-medium"
+          class="hero-tagline text-xl md:text-2xl mb-4 font-semibold"
+          style="
+            color: #ffffff;
+            text-shadow:
+              0 2px 4px rgba(0,0,0,0.9),
+              0 4px 8px rgba(0,0,0,0.7),
+              0 0 20px rgba(0,0,0,0.5);
+          "
         >
           Ancient Wisdom for Modern AI
         </p>
 
-        <!-- Subtext -->
+        <!-- Subtext - Light with strong shadow -->
         <p
-          class="hero-subtext text-base text-base-content/60 mb-12 max-w-2xl mx-auto"
+          class="hero-subtext text-base mb-12 max-w-2xl mx-auto font-medium"
+          style="
+            color: rgba(255,255,255,0.9);
+            text-shadow:
+              0 2px 4px rgba(0,0,0,0.9),
+              0 4px 8px rgba(0,0,0,0.7);
+          "
         >
           Enhance Claude Code with Egyptian-themed power-ups for your VS Code
           experience
         </p>
 
         <!-- CTA Buttons -->
-        <div
-          class="hero-ctas flex flex-col sm:flex-row gap-4 justify-center"
-        >
+        <div class="hero-ctas flex flex-col sm:flex-row gap-4 justify-center">
           <!-- Primary CTA: Install Now -->
           <a
             href="https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code"
@@ -109,7 +137,7 @@ import gsap from 'gsap';
 
       <!-- Scroll Indicator -->
       <div
-        class="absolute bottom-8 left-1/2 -translate-x-1/2 animate-bounce opacity-60"
+        class="scroll-indicator absolute bottom-8 left-1/2 -translate-x-1/2 animate-bounce opacity-60"
         aria-hidden="true"
       >
         <svg
@@ -144,69 +172,90 @@ export class HeroSectionComponent {
   }
 
   /**
-   * Initialize GSAP entrance animations with reduced-motion support
+   * Initialize GSAP scroll animations with reduced-motion support
    *
-   * Animation Sequence:
-   * 1. Headline fades in from below (y: 30 → 0, duration: 0.8s)
-   * 2. Tagline fades in (y: 20 → 0, duration: 0.6s, offset: -0.4s)
-   * 3. Subtext fades in (y: 20 → 0, duration: 0.6s, offset: -0.3s)
-   * 4. CTAs fade in (y: 20 → 0, duration: 0.6s, offset: -0.3s)
+   * Scroll Animation:
+   * - As user scrolls down, content fades out and moves up
+   * - Creates parallax effect with 3D scene staying in place
    *
    * Accessibility: Respects prefers-reduced-motion media query
    */
   private initAnimations(): void {
-    // Check if user prefers reduced motion
+    // Check if user prefers reduced motion - skip all animations
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      // Skip animations, set elements to final state immediately
-      gsap.set('.hero-headline, .hero-tagline, .hero-subtext, .hero-ctas', {
-        opacity: 1,
-        y: 0,
-      });
       return;
     }
 
     // Create GSAP context scoped to this section for automatic cleanup
     this.gsapContext = gsap.context(() => {
-      const tl = gsap.timeline();
-
-      // Staggered entrance animation
-      tl.from('.hero-headline', {
-        y: 30,
+      // Scroll-triggered fade out and move up animation
+      // Animations complete within a short scroll distance (first 20% of viewport)
+      // Each element animates with staggered timing for a cascading effect
+      gsap.to('.hero-headline', {
+        y: -50,
         opacity: 0,
-        duration: 0.8,
-        ease: 'power3.out',
-      })
-        .from(
-          '.hero-tagline',
-          {
-            y: 20,
-            opacity: 0,
-            duration: 0.6,
-          },
-          '-=0.4'
-        ) // Overlap by 0.4s
-        .from(
-          '.hero-subtext',
-          {
-            y: 20,
-            opacity: 0,
-            duration: 0.6,
-          },
-          '-=0.3'
-        ) // Overlap by 0.3s
-        .from(
-          '.hero-ctas',
-          {
-            y: 20,
-            opacity: 0,
-            duration: 0.6,
-          },
-          '-=0.3'
-        ); // Overlap by 0.3s
+        ease: 'power2.in',
+        scrollTrigger: {
+          trigger: this.sectionRef().nativeElement,
+          start: 'top top',
+          end: '15% top',
+          scrub: 0.5,
+        },
+      });
+
+      gsap.to('.hero-tagline', {
+        y: -40,
+        opacity: 0,
+        ease: 'power2.in',
+        scrollTrigger: {
+          trigger: this.sectionRef().nativeElement,
+          start: '2% top',
+          end: '17% top',
+          scrub: 0.5,
+        },
+      });
+
+      gsap.to('.hero-subtext', {
+        y: -30,
+        opacity: 0,
+        ease: 'power2.in',
+        scrollTrigger: {
+          trigger: this.sectionRef().nativeElement,
+          start: '4% top',
+          end: '19% top',
+          scrub: 0.5,
+        },
+      });
+
+      gsap.to('.hero-ctas', {
+        y: -20,
+        opacity: 0,
+        ease: 'power2.in',
+        scrollTrigger: {
+          trigger: this.sectionRef().nativeElement,
+          start: '6% top',
+          end: '21% top',
+          scrub: 0.5,
+        },
+      });
+
+      // Scroll indicator fades out immediately
+      gsap.to('.scroll-indicator', {
+        opacity: 0,
+        ease: 'power2.in',
+        scrollTrigger: {
+          trigger: this.sectionRef().nativeElement,
+          start: 'top top',
+          end: '8% top',
+          scrub: 0.5,
+        },
+      });
     }, this.sectionRef().nativeElement);
 
     // Register cleanup on component destroy
     this.destroyRef.onDestroy(() => {
+      // Kill all ScrollTriggers associated with this context
+      ScrollTrigger.getAll().forEach((trigger) => trigger.kill());
       this.gsapContext?.revert();
     });
   }

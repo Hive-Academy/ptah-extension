@@ -21,7 +21,10 @@
       "mcp__daisyui__fetch_daisyui_documentation",
       "Bash(powershell -Command:*)",
       "mcp__daisyui__search_daisyui_documentation",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "WebFetch(domain:code.visualstudio.com)",
+      "WebFetch(domain:vshaxe.github.io)",
+      "WebFetch(domain:github.com)"
     ],
     "deny": [],
     "ask": [],

@@ -52,9 +52,7 @@ gsap.registerPlugin(ScrollTrigger);
         >
           See It In Action
         </h2>
-        <p
-          class="text-base-content/70 text-center mb-12 max-w-2xl mx-auto"
-        >
+        <p class="text-base-content/70 text-center mb-12 max-w-2xl mx-auto">
           Real Claude Code conversation with Ptah enhancements - watch AI
           navigate your codebase
         </p>

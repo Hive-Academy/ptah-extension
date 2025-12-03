@@ -95,7 +95,8 @@ gsap.registerPlugin(ScrollTrigger);
                 <span class="text-success">✓</span> Beautiful visual interface
               </li>
               <li class="flex items-center gap-2 text-base-content">
-                <span class="text-success">✓</span> Session persistence & history
+                <span class="text-success">✓</span> Session persistence &
+                history
               </li>
               <li class="flex items-center gap-2 text-base-content">
                 <span class="text-success">✓</span> Workspace-aware context

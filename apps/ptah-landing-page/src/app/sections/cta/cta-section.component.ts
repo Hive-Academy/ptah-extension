@@ -54,7 +54,10 @@ import { CommonModule } from '@angular/common';
           </p>
 
           <!-- Footer Links -->
-          <nav class="flex justify-center gap-6 mt-4" aria-label="Footer navigation">
+          <nav
+            class="flex justify-center gap-6 mt-4"
+            aria-label="Footer navigation"
+          >
             <a
               href="https://github.com/anthropics/claude-code"
               target="_blank"

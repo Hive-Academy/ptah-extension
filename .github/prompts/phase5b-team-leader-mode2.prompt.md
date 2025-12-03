@@ -2,7 +2,7 @@
 agent: team-leader
 description: Iterative verification and assignment phase (MODE 2) - Verify task completion and assign next task
 tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
-model: Gemini 3 Pro (Preview) (copilot)
+model: Claude Opus 4.5 (Preview) (copilot)
 ---
 
 # Phase 5b: Team-Leader MODE 2 - Iterative Verification + Assignment
