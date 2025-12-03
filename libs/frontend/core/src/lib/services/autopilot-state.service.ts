@@ -153,7 +153,7 @@ export class AutopilotStateService {
 
       // Persist to backend via RPC
       const result: RpcResult<void> = await this.rpc.call<void>(
-        'autopilot:toggle',
+        'config:autopilot-toggle',
         {
           enabled: newState,
           permissionLevel: this._permissionLevel(),
@@ -209,10 +209,10 @@ export class AutopilotStateService {
       this._permissionLevel.set(level);
 
       // Persist to backend via RPC
-      // Note: We always call autopilot:toggle RPC with current enabled state
+      // Note: We always call config:autopilot-toggle RPC with current enabled state
       // Backend will persist the new permission level
       const result: RpcResult<void> = await this.rpc.call<void>(
-        'autopilot:toggle',
+        'config:autopilot-toggle',
         {
           enabled: this._enabled(),
           permissionLevel: level,
@@ -248,7 +248,7 @@ export class AutopilotStateService {
     }> = await this.rpc.call<{
       enabled: boolean;
       permissionLevel: PermissionLevel;
-    }>('autopilot:get', {});
+    }>('config:autopilot-get', {});
 
     if (result.isSuccess() && result.data) {
       const { enabled, permissionLevel } = result.data;

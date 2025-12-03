@@ -139,7 +139,7 @@ export class ModelStateService {
 
       // Persist to backend via RPC
       const result: RpcResult<void> = await this.rpc.call<void>(
-        'model:switch',
+        'config:model-switch',
         {
           model,
         }
@@ -170,7 +170,7 @@ export class ModelStateService {
   private async loadPersistedModel(): Promise<void> {
     const result: RpcResult<{ model: ClaudeModel }> = await this.rpc.call<{
       model: ClaudeModel;
-    }>('model:get', {});
+    }>('config:model-get', {});
 
     if (result.isSuccess() && result.data) {
       const model = result.data.model;

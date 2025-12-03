@@ -774,54 +774,62 @@ export class RpcMethodRegistrationService {
    * Handles model selection and autopilot configuration persistence
    */
   private registerModelAndAutopilotMethods(): void {
-    // model:switch - Switch AI model
-    this.rpcHandler.registerMethod('model:switch', async (params: any) => {
-      try {
-        const { model } = params;
+    // config:model-switch - Switch AI model
+    this.rpcHandler.registerMethod(
+      'config:model-switch',
+      async (params: any) => {
+        try {
+          const { model } = params;
 
-        // QA FIX ISSUE 1: Validate BEFORE type assertion
-        const validModels = ['opus', 'sonnet', 'haiku'] as const;
-        if (typeof model !== 'string' || !validModels.includes(model as any)) {
-          throw new Error(
-            `Invalid model: ${model}. Must be one of: ${validModels.join(', ')}`
+          // QA FIX ISSUE 1: Validate BEFORE type assertion
+          const validModels = ['opus', 'sonnet', 'haiku'] as const;
+          if (
+            typeof model !== 'string' ||
+            !validModels.includes(model as any)
+          ) {
+            throw new Error(
+              `Invalid model: ${model}. Must be one of: ${validModels.join(
+                ', '
+              )}`
+            );
+          }
+          // Now safe to use model as ClaudeModel
+          const validatedModel = model as ClaudeModel;
+
+          this.logger.debug('RPC: config:model-switch called', {
+            model: validatedModel,
+          });
+
+          // QA FIX ISSUE 3: Note on ConfigurationTarget.Workspace coupling
+          // Note: Using Workspace scope to persist per-workspace settings
+          // ConfigManager is VS Code-specific, so this coupling is acceptable
+          await this.configManager.set('model.selected', validatedModel, {
+            target: vscode.ConfigurationTarget.Workspace,
+          });
+
+          this.logger.info('Model switched successfully', {
+            model: validatedModel,
+          });
+
+          // QA FIX ISSUE 2: Include data field for consistency
+          return { success: true, data: { model: validatedModel } };
+        } catch (error) {
+          this.logger.error(
+            'RPC: config:model-switch failed',
+            error instanceof Error ? error : new Error(String(error))
           );
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
         }
-        // Now safe to use model as ClaudeModel
-        const validatedModel = model as ClaudeModel;
-
-        this.logger.debug('RPC: model:switch called', {
-          model: validatedModel,
-        });
-
-        // QA FIX ISSUE 3: Note on ConfigurationTarget.Workspace coupling
-        // Note: Using Workspace scope to persist per-workspace settings
-        // ConfigManager is VS Code-specific, so this coupling is acceptable
-        await this.configManager.set('model.selected', validatedModel, {
-          target: vscode.ConfigurationTarget.Workspace,
-        });
-
-        this.logger.info('Model switched successfully', {
-          model: validatedModel,
-        });
-
-        // QA FIX ISSUE 2: Include data field for consistency
-        return { success: true, data: { model: validatedModel } };
-      } catch (error) {
-        this.logger.error(
-          'RPC: model:switch failed',
-          error instanceof Error ? error : new Error(String(error))
-        );
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-        };
       }
-    });
+    );
 
-    // model:get - Get current model selection
-    this.rpcHandler.registerMethod('model:get', async () => {
+    // config:model-get - Get current model selection
+    this.rpcHandler.registerMethod('config:model-get', async () => {
       try {
-        this.logger.debug('RPC: model:get called');
+        this.logger.debug('RPC: config:model-get called');
 
         // Read from workspace configuration with default
         const model = this.configManager.getWithDefault<ClaudeModel>(
@@ -832,7 +840,7 @@ export class RpcMethodRegistrationService {
         return { success: true, data: { model } };
       } catch (error) {
         this.logger.error(
-          'RPC: model:get failed',
+          'RPC: config:model-get failed',
           error instanceof Error ? error : new Error(String(error))
         );
         return {
@@ -842,84 +850,87 @@ export class RpcMethodRegistrationService {
       }
     });
 
-    // autopilot:toggle - Toggle autopilot and set permission level
-    this.rpcHandler.registerMethod('autopilot:toggle', async (params: any) => {
-      try {
-        const { enabled, permissionLevel } = params;
+    // config:autopilot-toggle - Toggle autopilot and set permission level
+    this.rpcHandler.registerMethod(
+      'config:autopilot-toggle',
+      async (params: any) => {
+        try {
+          const { enabled, permissionLevel } = params;
 
-        // QA FIX ISSUE 1: Validate BEFORE type assertion
-        const validLevels = ['ask', 'auto-edit', 'yolo'] as const;
-        if (typeof enabled !== 'boolean') {
-          throw new Error(
-            `Invalid enabled value: ${enabled}. Must be a boolean.`
-          );
-        }
-        if (
-          typeof permissionLevel !== 'string' ||
-          !validLevels.includes(permissionLevel as any)
-        ) {
-          throw new Error(
-            `Invalid permission level: ${permissionLevel}. Must be one of: ${validLevels.join(
-              ', '
-            )}`
-          );
-        }
-        // Now safe to use permissionLevel as PermissionLevel
-        const validatedPermissionLevel = permissionLevel as PermissionLevel;
-
-        this.logger.debug('RPC: autopilot:toggle called', {
-          enabled,
-          permissionLevel: validatedPermissionLevel,
-        });
-
-        // Warn if YOLO mode is enabled (dangerous operation)
-        if (enabled && validatedPermissionLevel === 'yolo') {
-          this.logger.warn(
-            'YOLO mode enabled - DANGEROUS: All permission prompts will be skipped',
-            { enabled, permissionLevel: validatedPermissionLevel }
-          );
-        }
-
-        // QA FIX ISSUE 3: Note on ConfigurationTarget.Workspace coupling
-        // Note: Using Workspace scope to persist per-workspace settings
-        // ConfigManager is VS Code-specific, so this coupling is acceptable
-        await this.configManager.set('autopilot.enabled', enabled, {
-          target: vscode.ConfigurationTarget.Workspace,
-        });
-        await this.configManager.set(
-          'autopilot.permissionLevel',
-          validatedPermissionLevel,
-          {
-            target: vscode.ConfigurationTarget.Workspace,
+          // QA FIX ISSUE 1: Validate BEFORE type assertion
+          const validLevels = ['ask', 'auto-edit', 'yolo'] as const;
+          if (typeof enabled !== 'boolean') {
+            throw new Error(
+              `Invalid enabled value: ${enabled}. Must be a boolean.`
+            );
           }
-        );
+          if (
+            typeof permissionLevel !== 'string' ||
+            !validLevels.includes(permissionLevel as any)
+          ) {
+            throw new Error(
+              `Invalid permission level: ${permissionLevel}. Must be one of: ${validLevels.join(
+                ', '
+              )}`
+            );
+          }
+          // Now safe to use permissionLevel as PermissionLevel
+          const validatedPermissionLevel = permissionLevel as PermissionLevel;
 
-        this.logger.info('Autopilot state updated', {
-          enabled,
-          permissionLevel: validatedPermissionLevel,
-        });
+          this.logger.debug('RPC: config:autopilot-toggle called', {
+            enabled,
+            permissionLevel: validatedPermissionLevel,
+          });
 
-        // QA FIX ISSUE 2: Include data field for consistency
-        return {
-          success: true,
-          data: { enabled, permissionLevel: validatedPermissionLevel },
-        };
-      } catch (error) {
-        this.logger.error(
-          'RPC: autopilot:toggle failed',
-          error instanceof Error ? error : new Error(String(error))
-        );
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-        };
+          // Warn if YOLO mode is enabled (dangerous operation)
+          if (enabled && validatedPermissionLevel === 'yolo') {
+            this.logger.warn(
+              'YOLO mode enabled - DANGEROUS: All permission prompts will be skipped',
+              { enabled, permissionLevel: validatedPermissionLevel }
+            );
+          }
+
+          // QA FIX ISSUE 3: Note on ConfigurationTarget.Workspace coupling
+          // Note: Using Workspace scope to persist per-workspace settings
+          // ConfigManager is VS Code-specific, so this coupling is acceptable
+          await this.configManager.set('autopilot.enabled', enabled, {
+            target: vscode.ConfigurationTarget.Workspace,
+          });
+          await this.configManager.set(
+            'autopilot.permissionLevel',
+            validatedPermissionLevel,
+            {
+              target: vscode.ConfigurationTarget.Workspace,
+            }
+          );
+
+          this.logger.info('Autopilot state updated', {
+            enabled,
+            permissionLevel: validatedPermissionLevel,
+          });
+
+          // QA FIX ISSUE 2: Include data field for consistency
+          return {
+            success: true,
+            data: { enabled, permissionLevel: validatedPermissionLevel },
+          };
+        } catch (error) {
+          this.logger.error(
+            'RPC: config:autopilot-toggle failed',
+            error instanceof Error ? error : new Error(String(error))
+          );
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
       }
-    });
+    );
 
-    // autopilot:get - Get current autopilot state
-    this.rpcHandler.registerMethod('autopilot:get', async () => {
+    // config:autopilot-get - Get current autopilot state
+    this.rpcHandler.registerMethod('config:autopilot-get', async () => {
       try {
-        this.logger.debug('RPC: autopilot:get called');
+        this.logger.debug('RPC: config:autopilot-get called');
 
         // Read from workspace configuration with defaults
         const enabled = this.configManager.getWithDefault<boolean>(
@@ -935,7 +946,7 @@ export class RpcMethodRegistrationService {
         return { success: true, data: { enabled, permissionLevel } };
       } catch (error) {
         this.logger.error(
-          'RPC: autopilot:get failed',
+          'RPC: config:autopilot-get failed',
           error instanceof Error ? error : new Error(String(error))
         );
         return {
