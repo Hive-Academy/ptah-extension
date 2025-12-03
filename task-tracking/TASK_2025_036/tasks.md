@@ -1,6 +1,6 @@
 # Tasks - TASK_2025_036
 
-**Total Tasks**: 14 | **Batches**: 4 | **Status**: 0/4 complete
+**Total Tasks**: 14 | **Batches**: 4 | **Status**: 1/4 complete
 
 ---
 
@@ -32,12 +32,14 @@
 
 ---
 
-## Batch 1: MCP Cleanup & Type Changes 🔄 IMPLEMENTED
+## Batch 1: MCP Cleanup & Type Changes ✅ COMPLETE
+
+**Git Commit**: `c4a0349` - refactor(webview): delete mcp discovery services and types
 
 **Developer**: frontend-developer
 **Tasks**: 4 | **Dependencies**: None
 
-### Task 1.1: Verify MCP RPC Handler Location 🔄 IMPLEMENTED
+### Task 1.1: Verify MCP RPC Handler Location ✅ COMPLETE
 
 **File**: N/A (Investigation task)
 **Spec Reference**: implementation-plan.md:1020-1043 (MCP Cleanup Plan)
@@ -67,7 +69,7 @@
 
 ---
 
-### Task 1.2: Delete MCP Discovery Files 🔄 IMPLEMENTED
+### Task 1.2: Delete MCP Discovery Files ✅ COMPLETE
 
 **Files**:
 
@@ -106,7 +108,7 @@
 
 ---
 
-### Task 1.3: Remove MCP Exports from Index Files 🔄 IMPLEMENTED
+### Task 1.3: Remove MCP Exports from Index Files ✅ COMPLETE
 
 **Files**:
 
@@ -147,7 +149,7 @@
 
 ---
 
-### Task 1.4: Remove MCP Type from UnifiedSuggestionsDropdown 🔄 IMPLEMENTED
+### Task 1.4: Remove MCP Type from UnifiedSuggestionsDropdown ✅ COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\file-suggestions\unified-suggestions-dropdown.component.ts
 
@@ -192,12 +194,12 @@
 
 ---
 
-## Batch 2: ChatInputComponent Integration ⏸️ PENDING
+## Batch 2: ChatInputComponent Integration 🔄 IMPLEMENTED
 
 **Developer**: frontend-developer
 **Tasks**: 4 | **Dependencies**: Batch 1 complete
 
-### Task 2.1: Add Autocomplete State Signals to ChatInputComponent ⏸️ PENDING
+### Task 2.1: Add Autocomplete State Signals to ChatInputComponent 🔄 IMPLEMENTED
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\molecules\chat-input.component.ts
 
@@ -254,7 +256,7 @@
 
 ---
 
-### Task 2.2: Implement Trigger Detection Logic ⏸️ PENDING
+### Task 2.2: Implement Trigger Detection Logic 🔄 IMPLEMENTED
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\molecules\chat-input.component.ts
 
@@ -314,7 +316,7 @@
 
 ---
 
-### Task 2.3: Implement Suggestion Selection Handlers ⏸️ PENDING
+### Task 2.3: Implement Suggestion Selection Handlers 🔄 IMPLEMENTED
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\molecules\chat-input.component.ts
 
@@ -358,7 +360,7 @@
 
 ---
 
-### Task 2.4: Update ChatInputComponent Template with Dropdown ⏸️ PENDING
+### Task 2.4: Update ChatInputComponent Template with Dropdown 🔄 IMPLEMENTED
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\molecules\chat-input.component.ts
 

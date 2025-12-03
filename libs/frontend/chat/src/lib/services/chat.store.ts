@@ -118,11 +118,18 @@ export class ChatStore {
   // This ensures session:id-resolved goes to the correct tab even if user switches tabs
   private readonly pendingSessionResolutions = new Map<string, string>();
 
+  // Signal for queue-to-input restoration
+  private readonly _queueRestoreSignal = signal<string | null>(null);
+  readonly queueRestoreContent = this._queueRestoreSignal.asReadonly();
+
   // ============================================================================
   // PUBLIC READONLY SIGNALS
   // ============================================================================
 
   readonly sessions = this._sessions.asReadonly();
+
+  // Active tab accessor (delegated to TabManager)
+  readonly activeTab = computed(() => this.tabManager.activeTab());
 
   // Computed from active tab (delegated to TabManager)
   readonly currentSessionId = computed(
@@ -964,6 +971,24 @@ export class ChatStore {
         return;
       }
 
+      // ========== HANDLE QUEUED CONTENT BEFORE ABORT ==========
+      const activeTab = this.tabManager.activeTab();
+      const queuedContent = activeTab?.queuedContent;
+
+      if (queuedContent && queuedContent.trim()) {
+        console.log('[ChatStore] Queued content detected during stop', {
+          tabId: activeTab?.id,
+          length: queuedContent.length,
+        });
+
+        // Set signal for ChatInputComponent to restore
+        this._queueRestoreSignal.set(queuedContent);
+
+        // Clear queue (will be moved to input by ChatInputComponent)
+        this.clearQueuedContent();
+      }
+      // ========== END QUEUE HANDLING ==========
+
       // Call RPC to abort
       const result = await this.claudeRpcService.call<void>('chat:abort', {
         sessionId,
@@ -980,6 +1005,63 @@ export class ChatStore {
     } catch (error) {
       console.error('[ChatStore] Failed to abort message:', error);
     }
+  }
+
+  /**
+   * Queue or append message content to active tab
+   * If content already queued, append with newline separator
+   */
+  queueOrAppendMessage(content: string): void {
+    const activeTabId = this.tabManager.activeTabId();
+    if (!activeTabId) return;
+
+    const activeTab = this.tabManager.activeTab();
+    const existing = activeTab?.queuedContent;
+
+    // Append with newline if content exists, otherwise set directly
+    const newContent = existing ? `${existing}\n${content}` : content;
+
+    this.tabManager.updateTab(activeTabId, {
+      queuedContent: newContent,
+    });
+
+    console.log('[ChatStore] Message queued/appended', {
+      tabId: activeTabId,
+      newLength: newContent.length,
+    });
+  }
+
+  /**
+   * Clear queued content for active tab
+   */
+  clearQueuedContent(): void {
+    const activeTabId = this.tabManager.activeTabId();
+    if (!activeTabId) return;
+
+    this.tabManager.updateTab(activeTabId, {
+      queuedContent: null,
+    });
+
+    console.log('[ChatStore] Queued content cleared', { tabId: activeTabId });
+  }
+
+  /**
+   * Move queued content to caller (for input restoration) and clear queue
+   * @returns Queued content string or null if no content queued
+   */
+  moveQueueToInput(): string | null {
+    const activeTab = this.tabManager.activeTab();
+    const content = activeTab?.queuedContent ?? null;
+
+    if (content) {
+      this.clearQueuedContent();
+      console.log('[ChatStore] Queued content moved to input', {
+        tabId: activeTab?.id,
+        length: content.length,
+      });
+    }
+
+    return content;
   }
 
   // ============================================================================
@@ -1251,6 +1333,29 @@ export class ChatStore {
         data.code,
         ')'
       );
+
+      // ========== AUTO-SEND QUEUED CONTENT ==========
+      // Check if this tab has queued content
+      const queuedContent = targetTab.queuedContent;
+      if (queuedContent && queuedContent.trim()) {
+        console.log('[ChatStore] Auto-sending queued content', {
+          tabId: targetTabId,
+          length: queuedContent.length,
+        });
+
+        // Clear queue before sending (prevent duplicate sends)
+        this.tabManager.updateTab(targetTabId, { queuedContent: null });
+
+        // Auto-send via continueConversation (async, don't await)
+        this.continueConversation(queuedContent).catch((error) => {
+          console.error('[ChatStore] Failed to auto-send queued content:', error);
+          // Restore content on error (no data loss)
+          this.tabManager.updateTab(targetTabId, {
+            queuedContent: queuedContent,
+          });
+        });
+      }
+      // ========== END AUTO-SEND ==========
     }
   }
 
