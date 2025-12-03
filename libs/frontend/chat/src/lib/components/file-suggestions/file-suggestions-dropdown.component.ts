@@ -19,6 +19,12 @@ import { FileSuggestion } from '../../services';
  * - Handles keyboard navigation and selection
  * - No business logic or state management
  * - Pure VS Code styling - NO Tailwind classes
+ *
+ * @deprecated Use UnifiedSuggestionsDropdownComponent instead.
+ * This component will be removed in TASK_2025_037 (Phase 2 cleanup).
+ *
+ * Reason: Functionality fully replaced by UnifiedSuggestionsDropdownComponent
+ * which supports files, agents, and commands in a single dropdown with DaisyUI styling.
  */
 @Component({
   selector: 'ptah-file-suggestions-dropdown',

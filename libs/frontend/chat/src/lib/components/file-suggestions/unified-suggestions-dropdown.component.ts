@@ -38,226 +38,118 @@ export type SuggestionItem =
   imports: [CommonModule],
   template: `
     <div
-      class="vscode-unified-dropdown"
+      class="dropdown-content menu bg-base-100 rounded-box shadow-lg border border-base-300 w-80 max-h-96 overflow-hidden z-50"
       [style.top.px]="positionTop()"
       [style.left.px]="positionLeft()"
+      role="listbox"
     >
+      <!-- Category Tabs (only for @ trigger mode) -->
+      @if (showTabs()) {
+      <div role="tablist" class="tabs tabs-boxed tabs-sm m-2 mb-0">
+        <button
+          role="tab"
+          class="tab"
+          [class.tab-active]="activeCategory() === 'all'"
+          (click)="categoryChanged.emit('all')"
+          type="button"
+        >
+          All
+        </button>
+        <button
+          role="tab"
+          class="tab"
+          [class.tab-active]="activeCategory() === 'files'"
+          (click)="categoryChanged.emit('files')"
+          type="button"
+        >
+          📄 Files
+        </button>
+        <button
+          role="tab"
+          class="tab"
+          [class.tab-active]="activeCategory() === 'agents'"
+          (click)="categoryChanged.emit('agents')"
+          type="button"
+        >
+          🤖 Agents
+        </button>
+      </div>
+      }
+
+      <!-- Loading State -->
       @if (isLoading()) {
-      <div class="vscode-unified-loading">
-        <div class="vscode-unified-spinner"></div>
-        <span>Loading suggestions...</span>
+      <div class="flex items-center justify-center gap-3 p-4">
+        <span class="loading loading-spinner loading-md"></span>
+        <span class="text-sm text-base-content/70">Loading suggestions...</span>
       </div>
-      } @else if (suggestions().length === 0) {
-      <div class="vscode-unified-empty">
-        <span>No suggestions found</span>
+      }
+
+      <!-- Empty State -->
+      @else if (suggestions().length === 0) {
+      <div class="flex items-center justify-center p-4">
+        <span class="text-sm text-base-content/60">No suggestions found</span>
       </div>
-      } @else {
-      <div class="vscode-unified-list">
+      }
+
+      <!-- Suggestions List -->
+      @else {
+      <ul class="menu-compact overflow-y-auto max-h-80">
         @for (suggestion of suggestions(); track trackBy($index, suggestion);
         let i = $index) {
-        <div
-          class="vscode-unified-item"
-          [class.vscode-unified-focused]="i === focusedIndex()"
-          (click)="selectSuggestion(suggestion)"
-          (keydown.enter)="selectSuggestion(suggestion)"
-          (mouseenter)="setFocusedIndex(i)"
-          [attr.role]="'option'"
-          [attr.aria-selected]="i === focusedIndex()"
-          [attr.tabindex]="i === focusedIndex() ? 0 : -1"
-        >
-          <span class="vscode-unified-icon">{{ getIcon(suggestion) }}</span>
-          <div class="vscode-unified-content">
-            <div class="vscode-unified-name">{{ getName(suggestion) }}</div>
-            <div class="vscode-unified-description">
-              {{ getDescription(suggestion) }}
+        <li>
+          <a
+            class="flex items-center gap-3 py-2"
+            [class.active]="i === focusedIndex()"
+            (click)="selectSuggestion(suggestion)"
+            (mouseenter)="setFocusedIndex(i)"
+            role="option"
+            [attr.aria-selected]="i === focusedIndex()"
+          >
+            <span class="text-xl">{{ getIcon(suggestion) }}</span>
+            <div class="flex-1 min-w-0">
+              <div class="font-medium text-sm truncate">
+                {{ getName(suggestion) }}
+              </div>
+              <div class="text-xs text-base-content/60 truncate">
+                {{ getDescription(suggestion) }}
+              </div>
             </div>
-          </div>
-        </div>
+            @if (suggestion.type === 'agent' && suggestion.scope === 'builtin')
+            {
+            <span class="badge badge-primary badge-sm">Built-in</span>
+            } @if (suggestion.type === 'command' && suggestion.scope ===
+            'builtin') {
+            <span class="badge badge-accent badge-sm">Built-in</span>
+            }
+          </a>
+        </li>
         }
-      </div>
+      </ul>
       }
     </div>
   `,
   styles: [
     `
-      .vscode-unified-dropdown {
+      /* Position dropdown absolutely */
+      .dropdown-content {
         position: absolute;
         z-index: 1000;
-        background-color: var(
-          --vscode-dropdown-listBackground,
-          var(--vscode-editor-background, #1e1e1e)
-        );
-        border: 1px solid
-          var(--vscode-widget-border, var(--vscode-panel-border, #454545));
-        border-radius: 4px;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
-        min-width: 320px;
-        max-width: 600px;
-        max-height: 400px;
-        overflow: hidden;
-        font-family: var(--vscode-font-family);
-        font-size: var(--vscode-font-size, 13px);
-        animation: vscode-unified-fadeIn 0.15s ease-out;
       }
 
-      @keyframes vscode-unified-fadeIn {
-        from {
-          opacity: 0;
-          transform: translateY(-4px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
+      /* Smooth transitions */
+      .tab {
+        transition: all 0.15s ease;
       }
 
-      .vscode-unified-loading,
-      .vscode-unified-empty {
-        padding: 16px;
-        color: var(
-          --vscode-descriptionForeground,
-          var(--vscode-foreground, #cccccc)
-        );
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        justify-content: center;
-        min-height: 80px;
-      }
-
-      .vscode-unified-spinner {
-        width: 16px;
-        height: 16px;
-        border: 2px solid var(--vscode-progressBar-background);
-        border-top: 2px solid var(--vscode-progressBar-foreground);
-        border-radius: 50%;
-        animation: spin 1s linear infinite;
-      }
-
-      @keyframes spin {
-        0% {
-          transform: rotate(0deg);
-        }
-        100% {
-          transform: rotate(360deg);
-        }
-      }
-
-      .vscode-unified-list {
-        max-height: 300px;
-        overflow-y: auto;
-        overflow-x: hidden;
-      }
-
-      .vscode-unified-item {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 10px 16px;
-        cursor: pointer;
-        border-bottom: 1px solid
-          var(--vscode-panel-border, var(--vscode-widget-border, #454545));
-        transition: background-color 0.1s ease;
-        min-height: 44px;
-      }
-
-      .vscode-unified-item:last-child {
-        border-bottom: none;
-      }
-
-      .vscode-unified-item:hover,
-      .vscode-unified-item.vscode-unified-focused {
-        background-color: var(
-          --vscode-list-hoverBackground,
-          var(--vscode-list-activeSelectionBackground, rgba(51, 153, 255, 0.2))
-        );
-      }
-
-      .vscode-unified-item.vscode-unified-focused {
-        outline: 2px solid var(--vscode-focusBorder, #007acc);
+      /* Focus outline for accessibility */
+      .menu li > a:focus {
+        outline: 2px solid oklch(var(--p));
         outline-offset: -2px;
-      }
-
-      .vscode-unified-icon {
-        flex-shrink: 0;
-        font-size: 20px;
-        width: 28px;
-        height: 28px;
-        text-align: center;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      .vscode-unified-content {
-        flex: 1;
-        min-width: 0;
-      }
-
-      .vscode-unified-name {
-        font-weight: 500;
-        color: var(--vscode-foreground);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      .vscode-unified-description {
-        font-size: 11px;
-        color: var(--vscode-descriptionForeground);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        margin-top: 2px;
-      }
-
-      /* Backdrop for visual separation */
-      .vscode-unified-dropdown::before {
-        content: '';
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: transparent;
-        z-index: -1;
-        pointer-events: none;
-      }
-
-      /* High contrast mode */
-      @media (prefers-contrast: high) {
-        .vscode-unified-dropdown {
-          border-width: 2px;
-        }
-
-        .vscode-unified-item.vscode-unified-focused {
-          outline-width: 2px;
-        }
-      }
-
-      /* Scrollbar styling */
-      .vscode-unified-list::-webkit-scrollbar {
-        width: 8px;
-      }
-
-      .vscode-unified-list::-webkit-scrollbar-track {
-        background: var(--vscode-scrollbarSlider-background);
-      }
-
-      .vscode-unified-list::-webkit-scrollbar-thumb {
-        background: var(--vscode-scrollbarSlider-hoverBackground);
-        border-radius: 4px;
-      }
-
-      .vscode-unified-list::-webkit-scrollbar-thumb:hover {
-        background: var(--vscode-scrollbarSlider-activeBackground);
       }
 
       /* Reduced motion support */
       @media (prefers-reduced-motion: reduce) {
-        .vscode-unified-dropdown,
-        .vscode-unified-item {
-          animation: none;
+        .tab {
           transition: none;
         }
       }
@@ -270,10 +162,13 @@ export class UnifiedSuggestionsDropdownComponent {
   readonly isLoading = input(false);
   readonly positionTop = input(0);
   readonly positionLeft = input(0);
+  readonly showTabs = input(false); // NEW: Show tabs for @ mode
+  readonly activeCategory = input<'all' | 'files' | 'agents'>('all'); // NEW: Active tab
 
   // ANGULAR 20+ PATTERN: output() for event emitters
   readonly suggestionSelected = output<SuggestionItem>();
   readonly closed = output<void>();
+  readonly categoryChanged = output<'all' | 'files' | 'agents'>(); // NEW: Tab change
 
   // ANGULAR 20 PATTERN: Private signals for component state
   private readonly _focusedIndex = signal(0);
@@ -312,6 +207,22 @@ export class UnifiedSuggestionsDropdownComponent {
       case 'Escape': {
         event.preventDefault();
         this.closed.emit();
+        break;
+      }
+
+      case 'Tab': {
+        // NEW: Tab key cycles through categories (only in @ mode)
+        if (this.showTabs()) {
+          event.preventDefault();
+          const categories: Array<'all' | 'files' | 'agents'> = [
+            'all',
+            'files',
+            'agents',
+          ];
+          const currentIndex = categories.indexOf(this.activeCategory());
+          const nextIndex = (currentIndex + 1) % categories.length;
+          this.categoryChanged.emit(categories[nextIndex]);
+        }
         break;
       }
     }
