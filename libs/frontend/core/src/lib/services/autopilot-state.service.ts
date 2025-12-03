@@ -65,6 +65,7 @@ export class AutopilotStateService {
   // Private mutable signals
   private readonly _enabled = signal(false);
   private readonly _permissionLevel = signal<PermissionLevel>('ask');
+  private readonly _isPending = signal(false);
 
   // Public readonly signals
   /**
@@ -72,6 +73,12 @@ export class AutopilotStateService {
    * Read-only signal, updates reactively when toggled
    */
   readonly enabled = this._enabled.asReadonly();
+
+  /**
+   * Pending state for RPC operations
+   * True when an autopilot operation is in progress, prevents concurrent updates
+   */
+  readonly isPending = this._isPending.asReadonly();
 
   /**
    * Permission level (ask | auto-edit | yolo)
@@ -110,10 +117,11 @@ export class AutopilotStateService {
   /**
    * Toggle autopilot on/off
    *
-   * Implements optimistic update pattern:
-   * 1. Update local signal immediately (UI updates instantly)
-   * 2. Persist to backend via RPC
-   * 3. Rollback on RPC failure (invert state)
+   * Implements optimistic update pattern with race condition protection:
+   * 1. Check if operation already in progress (prevents concurrent updates)
+   * 2. Update local signal immediately (UI updates instantly)
+   * 3. Persist to backend via RPC
+   * 4. Rollback on RPC failure (invert state)
    *
    * When toggling on, uses current permission level.
    * When toggling off, preserves permission level for next enable.
@@ -125,35 +133,51 @@ export class AutopilotStateService {
    * // UI updates immediately, persists to backend asynchronously
    */
   async toggleAutopilot(): Promise<void> {
-    const newState = !this._enabled();
-    const previousState = this._enabled();
-
-    // Optimistic update (UI updates immediately)
-    this._enabled.set(newState);
-
-    // Persist to backend via RPC
-    const result: RpcResult<void> = await this.rpc.call<void>(
-      'autopilot:toggle',
-      {
-        enabled: newState,
-        permissionLevel: this._permissionLevel(),
-      }
-    );
-
-    if (!result.isSuccess()) {
-      console.error(
-        '[AutopilotStateService] Failed to toggle autopilot:',
-        result.error
+    // QA FIX: Prevent concurrent autopilot toggles (race condition protection)
+    if (this._isPending()) {
+      console.warn(
+        '[AutopilotStateService] Toggle already in progress, ignoring'
       );
-      // Rollback on failure: restore previous state
-      this._enabled.set(previousState);
+      return;
+    }
+
+    // Mark operation as in progress
+    this._isPending.set(true);
+
+    try {
+      const newState = !this._enabled();
+      const previousState = this._enabled();
+
+      // Optimistic update (UI updates immediately)
+      this._enabled.set(newState);
+
+      // Persist to backend via RPC
+      const result: RpcResult<void> = await this.rpc.call<void>(
+        'autopilot:toggle',
+        {
+          enabled: newState,
+          permissionLevel: this._permissionLevel(),
+        }
+      );
+
+      if (!result.isSuccess()) {
+        console.error(
+          '[AutopilotStateService] Failed to toggle autopilot:',
+          result.error
+        );
+        // Rollback on failure: restore previous state
+        this._enabled.set(previousState);
+      }
+    } finally {
+      // Always clear pending state
+      this._isPending.set(false);
     }
   }
 
   /**
    * Set permission level (ask, auto-edit, yolo)
    *
-   * Updates permission level and persists to backend.
+   * Updates permission level and persists to backend with race condition protection.
    * If autopilot is currently enabled, changes take effect immediately.
    * If autopilot is disabled, changes are saved but won't affect CLI until enabled.
    *
@@ -167,29 +191,45 @@ export class AutopilotStateService {
    * // UI updates immediately, persists to backend asynchronously
    */
   async setPermissionLevel(level: PermissionLevel): Promise<void> {
-    const previousLevel = this._permissionLevel();
-
-    // Optimistic update (UI updates immediately)
-    this._permissionLevel.set(level);
-
-    // Persist to backend via RPC
-    // Note: We always call autopilot:toggle RPC with current enabled state
-    // Backend will persist the new permission level
-    const result: RpcResult<void> = await this.rpc.call<void>(
-      'autopilot:toggle',
-      {
-        enabled: this._enabled(),
-        permissionLevel: level,
-      }
-    );
-
-    if (!result.isSuccess()) {
-      console.error(
-        '[AutopilotStateService] Failed to set permission level:',
-        result.error
+    // QA FIX: Prevent concurrent permission level updates (race condition protection)
+    if (this._isPending()) {
+      console.warn(
+        '[AutopilotStateService] Update already in progress, ignoring'
       );
-      // Rollback on failure: restore previous level
-      this._permissionLevel.set(previousLevel);
+      return;
+    }
+
+    // Mark operation as in progress
+    this._isPending.set(true);
+
+    try {
+      const previousLevel = this._permissionLevel();
+
+      // Optimistic update (UI updates immediately)
+      this._permissionLevel.set(level);
+
+      // Persist to backend via RPC
+      // Note: We always call autopilot:toggle RPC with current enabled state
+      // Backend will persist the new permission level
+      const result: RpcResult<void> = await this.rpc.call<void>(
+        'autopilot:toggle',
+        {
+          enabled: this._enabled(),
+          permissionLevel: level,
+        }
+      );
+
+      if (!result.isSuccess()) {
+        console.error(
+          '[AutopilotStateService] Failed to set permission level:',
+          result.error
+        );
+        // Rollback on failure: restore previous level
+        this._permissionLevel.set(previousLevel);
+      }
+    } finally {
+      // Always clear pending state
+      this._isPending.set(false);
     }
   }
 

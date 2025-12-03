@@ -201,7 +201,11 @@ export class ChatInputComponent {
   }
 
   /**
-   * Select AI model
+   * Select AI model for chat sessions.
+   * Fires async RPC call - errors are logged but do not block UI.
+   * Race condition protection is handled by ModelStateService.
+   *
+   * @param model - The model to switch to ('opus', 'sonnet', or 'haiku')
    */
   selectModel(model: SelectableClaudeModel): void {
     this.modelState.switchModel(model).catch((error) => {
@@ -210,7 +214,9 @@ export class ChatInputComponent {
   }
 
   /**
-   * Toggle autopilot mode
+   * Toggle autopilot mode on/off.
+   * Fires async RPC call - errors are logged but do not block UI.
+   * Race condition protection is handled by AutopilotStateService.
    */
   toggleAutopilot(): void {
     this.autopilotState.toggleAutopilot().catch((error) => {

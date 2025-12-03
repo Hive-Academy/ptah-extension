@@ -63,6 +63,7 @@ export class ModelStateService {
     'sonnet',
     'haiku',
   ]);
+  private readonly _isPending = signal(false);
 
   // Public readonly signals
   /**
@@ -70,6 +71,12 @@ export class ModelStateService {
    * Read-only signal, updates reactively when model changes
    */
   readonly currentModel = this._currentModel.asReadonly();
+
+  /**
+   * Pending state for RPC operations
+   * True when a model switch is in progress, prevents concurrent updates
+   */
+  readonly isPending = this._isPending.asReadonly();
 
   /**
    * Available selectable models
@@ -98,10 +105,11 @@ export class ModelStateService {
   /**
    * Switch to a different model
    *
-   * Implements optimistic update pattern:
-   * 1. Update local signal immediately (UI updates instantly)
-   * 2. Persist to backend via RPC
-   * 3. Rollback on RPC failure (reload from backend)
+   * Implements optimistic update pattern with race condition protection:
+   * 1. Check if operation already in progress (prevents concurrent updates)
+   * 2. Update local signal immediately (UI updates instantly)
+   * 3. Persist to backend via RPC
+   * 4. Rollback on RPC failure (reload from backend)
    *
    * @param model - Model to switch to (opus | sonnet | haiku)
    * @returns Promise that resolves when RPC call completes
@@ -111,24 +119,43 @@ export class ModelStateService {
    * // UI updates immediately, persists to backend asynchronously
    */
   async switchModel(model: SelectableClaudeModel): Promise<void> {
-    // Store previous model for rollback
-    const previousModel = this._currentModel();
-
-    // Optimistic update (UI updates immediately)
-    this._currentModel.set(model);
-
-    // Persist to backend via RPC
-    const result: RpcResult<void> = await this.rpc.call<void>('model:switch', {
-      model,
-    });
-
-    if (!result.isSuccess()) {
-      console.error(
-        '[ModelStateService] Failed to switch model:',
-        result.error
+    // QA FIX: Prevent concurrent model switches (race condition protection)
+    if (this._isPending()) {
+      console.warn(
+        '[ModelStateService] Model switch already in progress, ignoring'
       );
-      // QA FIX: Direct rollback to previous value (no RPC call to prevent cascading failures)
-      this._currentModel.set(previousModel);
+      return;
+    }
+
+    // Mark operation as in progress
+    this._isPending.set(true);
+
+    try {
+      // Store previous model for rollback
+      const previousModel = this._currentModel();
+
+      // Optimistic update (UI updates immediately)
+      this._currentModel.set(model);
+
+      // Persist to backend via RPC
+      const result: RpcResult<void> = await this.rpc.call<void>(
+        'model:switch',
+        {
+          model,
+        }
+      );
+
+      if (!result.isSuccess()) {
+        console.error(
+          '[ModelStateService] Failed to switch model:',
+          result.error
+        );
+        // QA FIX: Direct rollback to previous value (no RPC call to prevent cascading failures)
+        this._currentModel.set(previousModel);
+      }
+    } finally {
+      // Always clear pending state
+      this._isPending.set(false);
     }
   }
 
