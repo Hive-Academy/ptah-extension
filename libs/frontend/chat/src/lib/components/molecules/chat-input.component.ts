@@ -5,6 +5,8 @@ import {
   computed,
   effect,
   ChangeDetectionStrategy,
+  viewChild,
+  ElementRef,
 } from '@angular/core';
 import { LucideAngularModule, Send, Zap } from 'lucide-angular';
 import { ChatStore } from '../../services/chat.store';
@@ -88,7 +90,10 @@ import { FileTagComponent } from '../file-suggestions/file-tag.component';
             [isLoading]="isLoadingSuggestions()"
             [positionTop]="dropdownPosition().top"
             [positionLeft]="dropdownPosition().left"
+            [showTabs]="suggestionMode() === 'at-trigger'"
+            [activeCategory]="activeCategory()"
             (suggestionSelected)="handleSuggestionSelected($event)"
+            (categoryChanged)="setActiveCategory($event)"
             (closed)="closeSuggestions()"
           />
           }
@@ -152,9 +157,17 @@ export class ChatInputComponent {
   readonly agentDiscovery = inject(AgentDiscoveryFacade);
   readonly commandDiscovery = inject(CommandDiscoveryFacade);
 
+  // Signal-based viewChild reference for textarea (Angular 20+ pattern)
+  private readonly textareaRef =
+    viewChild<ElementRef<HTMLTextAreaElement>>('inputElement');
+
   // Lucide icons
   readonly SendIcon = Send;
   readonly ZapIcon = Zap;
+
+  // Debounce timer for fetch calls
+  private fetchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly DEBOUNCE_DELAY_MS = 150;
 
   // Local state
   private readonly _currentMessage = signal('');
@@ -222,11 +235,11 @@ export class ChatInputComponent {
   });
 
   readonly dropdownPosition = computed(() => {
-    // Calculate dropdown position relative to textarea
-    const textarea = document.querySelector('textarea') as HTMLTextAreaElement;
-    if (!textarea) return { top: 0, left: 0 };
+    // Calculate dropdown position relative to textarea using signal-based viewChild
+    const textareaEl = this.textareaRef()?.nativeElement;
+    if (!textareaEl) return { top: 0, left: 0 };
 
-    const rect = textarea.getBoundingClientRect();
+    const rect = textareaEl.getBoundingClientRect();
     return {
       top: rect.bottom + 4,
       left: rect.left,
@@ -252,9 +265,15 @@ export class ChatInputComponent {
   }
 
   /**
-   * Detect @ or / triggers and extract query
+   * Detect @ or / triggers and extract query (with debounced fetch)
    */
   private detectTriggers(value: string, cursorPos: number): void {
+    // Clear any pending debounced fetch
+    if (this.fetchDebounceTimer) {
+      clearTimeout(this.fetchDebounceTimer);
+      this.fetchDebounceTimer = null;
+    }
+
     // Extract text up to cursor
     const textBeforeCursor = value.substring(0, cursorPos);
 
@@ -263,8 +282,11 @@ export class ChatInputComponent {
       const query = textBeforeCursor.substring(1);
       this._suggestionMode.set('slash-trigger');
       this._currentQuery.set(query);
-      this.fetchCommandSuggestions();
       this._showSuggestions.set(true);
+      // Debounced fetch for commands
+      this.fetchDebounceTimer = setTimeout(() => {
+        this.fetchCommandSuggestions();
+      }, this.DEBOUNCE_DELAY_MS);
       return;
     }
 
@@ -278,8 +300,11 @@ export class ChatInputComponent {
         if (!/\s/.test(query)) {
           this._suggestionMode.set('at-trigger');
           this._currentQuery.set(query);
-          this.fetchAtSuggestions();
           this._showSuggestions.set(true);
+          // Debounced fetch for @ suggestions (files + agents)
+          this.fetchDebounceTimer = setTimeout(() => {
+            this.fetchAtSuggestions();
+          }, this.DEBOUNCE_DELAY_MS);
           return;
         }
       }
@@ -346,9 +371,16 @@ export class ChatInputComponent {
   }
 
   /**
-   * Add file tag above textarea
+   * Add file tag above textarea (prevents duplicates)
    */
   private addFileTag(file: FileSuggestion): void {
+    // Check for duplicate file path
+    const existingPaths = this._selectedFiles().map((f) => f.path);
+    if (existingPaths.includes(file.path)) {
+      console.log('[ChatInputComponent] File already selected:', file.path);
+      return;
+    }
+
     const chatFile: ChatFile = {
       path: file.path,
       name: file.name,
@@ -371,10 +403,10 @@ export class ChatInputComponent {
   }
 
   /**
-   * Insert text at cursor position
+   * Insert text at cursor position using signal-based viewChild
    */
   private insertAtCursor(text: string): void {
-    const textarea = document.querySelector('textarea') as HTMLTextAreaElement;
+    const textarea = this.textareaRef()?.nativeElement;
     if (!textarea) return;
 
     const start = textarea.selectionStart;
@@ -455,10 +487,8 @@ export class ChatInputComponent {
       this._currentMessage.set('');
       this._selectedFiles.set([]);
 
-      // Reset textarea height
-      const textarea = document.querySelector(
-        'textarea'
-      ) as HTMLTextAreaElement;
+      // Reset textarea height using signal-based viewChild
+      const textarea = this.textareaRef()?.nativeElement;
       if (textarea) {
         textarea.style.height = 'auto';
       }
@@ -474,8 +504,8 @@ export class ChatInputComponent {
   restoreContentToInput(content: string): void {
     this._currentMessage.set(content);
 
-    // Focus and resize textarea
-    const textarea = document.querySelector('textarea') as HTMLTextAreaElement;
+    // Focus and resize textarea using signal-based viewChild
+    const textarea = this.textareaRef()?.nativeElement;
     if (textarea) {
       textarea.focus();
       textarea.style.height = 'auto';

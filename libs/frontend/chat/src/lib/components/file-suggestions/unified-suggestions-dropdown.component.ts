@@ -1,4 +1,11 @@
-import { Component, input, output, signal, HostListener } from '@angular/core';
+import {
+  Component,
+  input,
+  output,
+  signal,
+  HostListener,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import type { AgentSuggestion, CommandSuggestion } from '@ptah-extension/core';
 import type { FileSuggestion } from '../../services/file-picker.service';
@@ -155,6 +162,7 @@ export type SuggestionItem =
       }
     `,
   ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UnifiedSuggestionsDropdownComponent {
   // ANGULAR 20+ PATTERN: input() for reactive inputs

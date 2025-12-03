@@ -1,4 +1,11 @@
-import { Component, computed, signal, input, output } from '@angular/core';
+import {
+  Component,
+  computed,
+  signal,
+  input,
+  output,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { CommonModule, NgOptimizedImage } from '@angular/common';
 import { ChatFile } from '../../services';
 
@@ -82,9 +89,10 @@ import { ChatFile } from '../../services';
               priority
             />
             } @else if (file().type === 'text') {
-            <pre class="text-xs bg-base-300 p-2 rounded overflow-auto max-h-32">{{
-              file().preview
-            }}</pre>
+            <pre
+              class="text-xs bg-base-300 p-2 rounded overflow-auto max-h-32"
+              >{{ file().preview }}</pre
+            >
             }
           </div>
         </div>
@@ -107,6 +115,7 @@ import { ChatFile } from '../../services';
       }
     `,
   ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FileTagComponent {
   // ANGULAR 20+ PATTERN: input() for reactive inputs
