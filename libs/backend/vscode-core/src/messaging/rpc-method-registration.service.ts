@@ -63,7 +63,7 @@ interface ClaudeProcessInterface {
   on(event: 'error', listener: (error: Error) => void): void;
   on(event: 'close', listener: (code: number | null) => void): void;
   start(prompt: string, options?: any): Promise<void>;
-  resume(sessionId: string, prompt: string): Promise<void>;
+  resume(sessionId: string, prompt: string, options?: any): Promise<void>;
   kill(): void;
   isRunning(): boolean;
 }
@@ -177,6 +177,30 @@ export class RpcMethodRegistrationService {
           workspacePath
         );
 
+        // TASK_2025_035: Read model and autopilot configuration
+        const selectedModel = this.configManager.getWithDefault<ClaudeModel>(
+          'model.selected',
+          'sonnet'
+        );
+        const autopilotEnabled = this.configManager.getWithDefault<boolean>(
+          'autopilot.enabled',
+          false
+        );
+        const permissionLevel =
+          this.configManager.getWithDefault<PermissionLevel>(
+            'autopilot.permissionLevel',
+            'ask'
+          );
+
+        // Build enhanced options with config values
+        const processOptions = {
+          model: selectedModel,
+          autopilotEnabled,
+          permissionLevel,
+          // Merge with any existing options from params
+          ...(options || {}),
+        };
+
         // Track the effective session ID - starts as placeholder, updated when real ID resolved
         let effectiveSessionId = sessionId;
 
@@ -246,8 +270,8 @@ export class RpcMethodRegistrationService {
         // Store process reference (keep using placeholder for internal tracking)
         this.activeProcesses.set(sessionId, process);
 
-        // Start the process
-        await process.start(prompt, options);
+        // Start the process with enhanced options
+        await process.start(prompt, processOptions);
 
         return { success: true, sessionId };
       } catch (error) {
@@ -288,6 +312,28 @@ export class RpcMethodRegistrationService {
           installation.path,
           workspacePath
         );
+
+        // TASK_2025_035: Read model and autopilot configuration
+        const selectedModel = this.configManager.getWithDefault<ClaudeModel>(
+          'model.selected',
+          'sonnet'
+        );
+        const autopilotEnabled = this.configManager.getWithDefault<boolean>(
+          'autopilot.enabled',
+          false
+        );
+        const permissionLevel =
+          this.configManager.getWithDefault<PermissionLevel>(
+            'autopilot.permissionLevel',
+            'ask'
+          );
+
+        // Build enhanced options with config values (omit resumeSessionId since it's a separate parameter)
+        const processOptions = {
+          model: selectedModel,
+          autopilotEnabled,
+          permissionLevel,
+        };
 
         // Setup message streaming
         process.on('message', (msg: JSONLMessage) => {
@@ -332,8 +378,8 @@ export class RpcMethodRegistrationService {
         // Store process reference
         this.activeProcesses.set(sessionId, process);
 
-        // Resume the session
-        await process.resume(sessionId, prompt);
+        // Resume the session with enhanced options
+        await process.resume(sessionId, prompt, processOptions);
 
         return { success: true, sessionId };
       } catch (error) {

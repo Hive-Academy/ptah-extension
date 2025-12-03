@@ -116,9 +116,23 @@ export class ClaudeProcess extends EventEmitter {
     // Add permission prompt tool (TASK_2025_026 Batch 4)
     args.push('--permission-prompt-tool', 'mcp__ptah__approval_prompt');
 
+    // TASK_2025_035: Add model flag (only if not default)
     if (options?.model && options.model !== 'sonnet') {
       args.push('--model', options.model);
     }
+
+    // TASK_2025_035: Add autopilot/permission flags based on configuration
+    const autopilotEnabled = options?.autopilotEnabled ?? false;
+    const permissionLevel = options?.permissionLevel ?? 'ask';
+
+    if (autopilotEnabled && permissionLevel === 'auto-edit') {
+      // Auto-edit mode: Allow Edit and Write tools without prompts
+      args.push('--allowedTools', 'Edit,Write');
+    } else if (autopilotEnabled && permissionLevel === 'yolo') {
+      // YOLO mode: Skip ALL permission prompts (DANGEROUS)
+      args.push('--dangerously-skip-permissions');
+    }
+    // Default (ask): No additional flags, use permission-prompt-tool
 
     if (options?.resumeSessionId) {
       args.push('--resume', options.resumeSessionId);
