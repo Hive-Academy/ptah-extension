@@ -19,6 +19,9 @@ import type {
   AgentSummaryChunk,
 } from '../services/agent-session-watcher.service';
 import { TOKENS } from '../di/tokens';
+import type { ConfigManager } from '../config/config-manager';
+import { ClaudeModel, PermissionLevel } from '@ptah-extension/shared';
+import * as vscode from 'vscode';
 
 // Import domain service types
 interface ContextOrchestrationService {
@@ -101,7 +104,9 @@ export class RpcMethodRegistrationService {
     @inject(TOKENS.SESSION_DISCOVERY_SERVICE)
     private readonly sessionDiscovery: SessionDiscoveryService,
     @inject(TOKENS.AGENT_SESSION_WATCHER_SERVICE)
-    private readonly agentWatcher: AgentSessionWatcherService
+    private readonly agentWatcher: AgentSessionWatcherService,
+    @inject(TOKENS.CONFIG_MANAGER)
+    private readonly configManager: ConfigManager
   ) {
     // Setup agent watcher summary chunk listener
     this.setupAgentWatcherListeners();
@@ -136,6 +141,8 @@ export class RpcMethodRegistrationService {
     this.registerContextMethods();
     this.registerAutocompleteMethods();
     this.registerFileMethods();
+    // TASK_2025_035 Batch 3: Model and autopilot RPC handlers
+    this.registerModelAndAutopilotMethods();
 
     this.logger.info(
       'RPC methods registered (TASK_2025_023 Batch 4 complete)',
@@ -684,5 +691,157 @@ export class RpcMethodRegistrationService {
         }
       }
     }
+  }
+
+  /**
+   * Model and Autopilot RPC methods (TASK_2025_035 Batch 3)
+   * Handles model selection and autopilot configuration persistence
+   */
+  private registerModelAndAutopilotMethods(): void {
+    // model:switch - Switch AI model
+    this.rpcHandler.registerMethod('model:switch', async (params: any) => {
+      try {
+        const { model } = params;
+
+        // Validate model parameter against whitelist
+        const validModels: ClaudeModel[] = ['opus', 'sonnet', 'haiku'];
+        if (!validModels.includes(model as ClaudeModel)) {
+          throw new Error(
+            `Invalid model: ${model}. Must be one of: ${validModels.join(', ')}`
+          );
+        }
+
+        this.logger.debug('RPC: model:switch called', { model });
+
+        // Persist to workspace configuration
+        await this.configManager.set('model.selected', model, {
+          target: vscode.ConfigurationTarget.Workspace,
+        });
+
+        this.logger.info('Model switched successfully', { model });
+
+        return { success: true };
+      } catch (error) {
+        this.logger.error(
+          'RPC: model:switch failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // model:get - Get current model selection
+    this.rpcHandler.registerMethod('model:get', async () => {
+      try {
+        this.logger.debug('RPC: model:get called');
+
+        // Read from workspace configuration with default
+        const model = this.configManager.getWithDefault<ClaudeModel>(
+          'model.selected',
+          'sonnet'
+        );
+
+        return { success: true, data: { model } };
+      } catch (error) {
+        this.logger.error(
+          'RPC: model:get failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // autopilot:toggle - Toggle autopilot and set permission level
+    this.rpcHandler.registerMethod('autopilot:toggle', async (params: any) => {
+      try {
+        const { enabled, permissionLevel } = params;
+
+        // Validate permission level against whitelist
+        const validLevels: PermissionLevel[] = ['ask', 'auto-edit', 'yolo'];
+        if (!validLevels.includes(permissionLevel as PermissionLevel)) {
+          throw new Error(
+            `Invalid permission level: ${permissionLevel}. Must be one of: ${validLevels.join(
+              ', '
+            )}`
+          );
+        }
+
+        this.logger.debug('RPC: autopilot:toggle called', {
+          enabled,
+          permissionLevel,
+        });
+
+        // Warn if YOLO mode is enabled (dangerous operation)
+        if (enabled && permissionLevel === 'yolo') {
+          this.logger.warn(
+            'YOLO mode enabled - DANGEROUS: All permission prompts will be skipped',
+            { enabled, permissionLevel }
+          );
+        }
+
+        // Persist both enabled and permissionLevel to workspace configuration
+        await this.configManager.set('autopilot.enabled', enabled, {
+          target: vscode.ConfigurationTarget.Workspace,
+        });
+        await this.configManager.set(
+          'autopilot.permissionLevel',
+          permissionLevel,
+          {
+            target: vscode.ConfigurationTarget.Workspace,
+          }
+        );
+
+        this.logger.info('Autopilot state updated', {
+          enabled,
+          permissionLevel,
+        });
+
+        return { success: true };
+      } catch (error) {
+        this.logger.error(
+          'RPC: autopilot:toggle failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // autopilot:get - Get current autopilot state
+    this.rpcHandler.registerMethod('autopilot:get', async () => {
+      try {
+        this.logger.debug('RPC: autopilot:get called');
+
+        // Read from workspace configuration with defaults
+        const enabled = this.configManager.getWithDefault<boolean>(
+          'autopilot.enabled',
+          false
+        );
+        const permissionLevel =
+          this.configManager.getWithDefault<PermissionLevel>(
+            'autopilot.permissionLevel',
+            'ask'
+          );
+
+        return { success: true, data: { enabled, permissionLevel } };
+      } catch (error) {
+        this.logger.error(
+          'RPC: autopilot:get failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
   }
 }
