@@ -88,6 +88,41 @@
           "minimum": 1024,
           "maximum": 65535,
           "markdownDescription": "Port number for Ptah MCP server (default: 51820). Change if port conflicts occur. **Requires extension reload to take effect.**"
+        },
+        "ptah.model.selected": {
+          "type": "string",
+          "enum": [
+            "opus",
+            "sonnet",
+            "haiku"
+          ],
+          "default": "sonnet",
+          "enumDescriptions": [
+            "Opus 4.5 - Most capable for complex work",
+            "Sonnet 4.5 - Best for everyday tasks (recommended)",
+            "Haiku 4.5 - Fastest for quick answers"
+          ],
+          "markdownDescription": "Default Claude model for new chat sessions."
+        },
+        "ptah.autopilot.enabled": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Enable autopilot mode to auto-approve certain actions."
+        },
+        "ptah.autopilot.permissionLevel": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "auto-edit",
+            "yolo"
+          ],
+          "default": "ask",
+          "enumDescriptions": [
+            "Manual - Approval required for each action (safest)",
+            "Auto-edit - Auto-approve file edit and write operations",
+            "Full Auto (YOLO) - Skip ALL permission prompts (dangerous)"
+          ],
+          "markdownDescription": "Permission level when autopilot is enabled."
         }
       }
     }

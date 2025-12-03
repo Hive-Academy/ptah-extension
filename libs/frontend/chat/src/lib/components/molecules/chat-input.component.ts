@@ -5,13 +5,11 @@ import {
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { LucideAngularModule, Send, ChevronDown } from 'lucide-angular';
+import { LucideAngularModule, Send, Zap } from 'lucide-angular';
 import { ChatStore } from '../../services/chat.store';
-import {
-  ModelStateService,
-  AutopilotStateService,
-  type SelectableClaudeModel,
-} from '@ptah-extension/core';
+import { AutopilotStateService } from '@ptah-extension/core';
+import { ModelSelectorComponent } from './model-selector.component';
+import { AutopilotPopoverComponent } from './autopilot-popover.component';
 
 /**
  * ChatInputComponent - Enhanced message input with bottom bar controls
@@ -21,7 +19,7 @@ import {
  *
  * Features:
  * - DaisyUI textarea with send button
- * - Model selector dropdown
+ * - Elegant model selector dropdown with title + description
  * - Autopilot toggle switch
  * - Shift+Enter for newlines, Enter to send
  * - Clear input after send
@@ -34,16 +32,21 @@ import {
  */
 @Component({
   selector: 'ptah-chat-input',
-  standalone: true,
-  imports: [LucideAngularModule],
+  imports: [
+    LucideAngularModule,
+    ModelSelectorComponent,
+    AutopilotPopoverComponent,
+  ],
   template: `
     <div class="flex flex-col gap-2 p-4 bg-base-100">
       <!-- Input Row with Textarea and Send Button -->
       <div class="flex items-end gap-2">
-        <!-- Textarea -->
+        <!-- Textarea with gold border when autopilot is enabled -->
         <textarea
           #inputElement
-          class="textarea textarea-bordered flex-1 min-h-[2.5rem] max-h-[10rem] resize-none"
+          class="textarea textarea-bordered flex-1 min-h-[2.5rem] max-h-[10rem] resize-none transition-colors"
+          [class.border-warning]="autopilotState.enabled()"
+          [class.border-2]="autopilotState.enabled()"
           placeholder="Ask a question or describe a task..."
           [value]="currentMessage()"
           (input)="handleInput($event)"
@@ -69,7 +72,7 @@ import {
 
       <!-- Bottom Controls Row -->
       <div class="flex items-center justify-between text-sm">
-        <!-- Left: Action Icons -->
+        <!-- Left: Action Icons with Autopilot Badge -->
         <div class="flex items-center gap-2 text-base-content/60">
           <button
             class="btn btn-ghost btn-xs btn-circle"
@@ -78,54 +81,23 @@ import {
           >
             📷
           </button>
+
+          <!-- Autopilot Mode Badge - shown when enabled -->
+          @if (autopilotState.enabled()) {
+          <div class="badge badge-warning badge-sm gap-1">
+            <lucide-angular [img]="ZapIcon" class="w-3 h-3" />
+            <span>{{ autopilotState.statusText() }}</span>
+          </div>
+          }
         </div>
 
-        <!-- Right: Model Selector and Autopilot Toggle -->
-        <div class="flex items-center gap-3">
-          <!-- Model Selector -->
-          <div class="dropdown dropdown-top dropdown-end">
-            <button
-              tabindex="0"
-              class="btn btn-ghost btn-sm gap-1"
-              type="button"
-            >
-              <span class="text-xs">{{
-                modelState.currentModelDisplay()
-              }}</span>
-              <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3" />
-            </button>
-            <ul
-              tabindex="0"
-              class="dropdown-content menu p-2 shadow bg-base-200 rounded-box w-52 mb-1"
-            >
-              <li>
-                <button type="button" (click)="selectModel('sonnet')">
-                  Claude Sonnet 4.0
-                </button>
-              </li>
-              <li>
-                <button type="button" (click)="selectModel('opus')">
-                  Claude Opus 4.0
-                </button>
-              </li>
-              <li>
-                <button type="button" (click)="selectModel('haiku')">
-                  Claude Haiku 3.5
-                </button>
-              </li>
-            </ul>
-          </div>
+        <!-- Right: Model Selector and Autopilot Popover -->
+        <div class="flex items-center gap-2">
+          <!-- Model Selector Component -->
+          <ptah-model-selector />
 
-          <!-- Autopilot Toggle -->
-          <label class="flex items-center gap-2 cursor-pointer">
-            <span class="text-xs text-base-content/70">Auto</span>
-            <input
-              type="checkbox"
-              class="toggle toggle-sm toggle-primary"
-              [checked]="autopilotState.enabled()"
-              (change)="toggleAutopilot()"
-            />
-          </label>
+          <!-- Autopilot Popover Component -->
+          <ptah-autopilot-popover />
         </div>
       </div>
     </div>
@@ -134,12 +106,11 @@ import {
 })
 export class ChatInputComponent {
   readonly chatStore = inject(ChatStore);
-  readonly modelState = inject(ModelStateService);
   readonly autopilotState = inject(AutopilotStateService);
 
   // Lucide icons
   readonly SendIcon = Send;
-  readonly ChevronDownIcon = ChevronDown;
+  readonly ZapIcon = Zap;
 
   // Local state
   private readonly _currentMessage = signal('');
@@ -198,29 +169,5 @@ export class ChatInputComponent {
     } catch (error) {
       console.error('[ChatInputComponent] Failed to send message:', error);
     }
-  }
-
-  /**
-   * Select AI model for chat sessions.
-   * Fires async RPC call - errors are logged but do not block UI.
-   * Race condition protection is handled by ModelStateService.
-   *
-   * @param model - The model to switch to ('opus', 'sonnet', or 'haiku')
-   */
-  selectModel(model: SelectableClaudeModel): void {
-    this.modelState.switchModel(model).catch((error) => {
-      console.error('[ChatInputComponent] Failed to switch model:', error);
-    });
-  }
-
-  /**
-   * Toggle autopilot mode on/off.
-   * Fires async RPC call - errors are logged but do not block UI.
-   * Race condition protection is handled by AutopilotStateService.
-   */
-  toggleAutopilot(): void {
-    this.autopilotState.toggleAutopilot().catch((error) => {
-      console.error('[ChatInputComponent] Failed to toggle autopilot:', error);
-    });
   }
 }

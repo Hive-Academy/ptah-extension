@@ -112,7 +112,6 @@ export * from './ast/tree-sitter.config';
 
 export * from './autocomplete/agent-discovery.service';
 export * from './autocomplete/command-discovery.service';
-export * from './autocomplete/mcp-discovery.service';
 
 // DI registration bootstrap function
 // NOTE: DI registration is now centralized in apps/ptah-extension-vscode/src/di/container.ts

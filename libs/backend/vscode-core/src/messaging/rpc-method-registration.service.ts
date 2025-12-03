@@ -20,7 +20,12 @@ import type {
 } from '../services/agent-session-watcher.service';
 import { TOKENS } from '../di/tokens';
 import type { ConfigManager } from '../config/config-manager';
-import { ClaudeModel, PermissionLevel } from '@ptah-extension/shared';
+import {
+  ClaudeModel,
+  PermissionLevel,
+  AVAILABLE_MODELS,
+  ModelInfo,
+} from '@ptah-extension/shared';
 import * as vscode from 'vscode';
 
 // Import domain service types
@@ -91,8 +96,6 @@ export class RpcMethodRegistrationService {
     private readonly contextOrchestration: ContextOrchestrationService,
     @inject(TOKENS.AGENT_DISCOVERY_SERVICE)
     private readonly agentDiscovery: AgentDiscoveryService,
-    @inject(TOKENS.MCP_DISCOVERY_SERVICE)
-    private readonly mcpDiscovery: MCPDiscoveryService,
     @inject(TOKENS.COMMAND_DISCOVERY_SERVICE)
     private readonly commandDiscovery: CommandDiscoveryService,
     @inject(TOKENS.CLAUDE_CLI_DETECTOR)
@@ -615,34 +618,6 @@ export class RpcMethodRegistrationService {
       }
     );
 
-    // autocomplete:mcps - Search for MCP servers
-    this.rpcHandler.registerMethod('autocomplete:mcps', async (params: any) => {
-      try {
-        const { query, maxResults, includeOffline } = params;
-        this.logger.debug('RPC: autocomplete:mcps called', {
-          query,
-          maxResults,
-          includeOffline,
-        });
-        const result = await this.mcpDiscovery.searchMCPServers({
-          query: query || '',
-          maxResults,
-          includeOffline,
-        });
-        return result;
-      } catch (error) {
-        this.logger.error(
-          'RPC: autocomplete:mcps failed',
-          error instanceof Error ? error : new Error(String(error))
-        );
-        throw new Error(
-          `Failed to search MCP servers: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
-      }
-    });
-
     // autocomplete:commands - Search for commands
     this.rpcHandler.registerMethod(
       'autocomplete:commands',
@@ -811,17 +786,15 @@ export class RpcMethodRegistrationService {
             model: validatedModel,
           });
 
-          // QA FIX ISSUE 2: Include data field for consistency
-          return { success: true, data: { model: validatedModel } };
+          // Return just the data - RpcHandler wraps with { success, data, correlationId }
+          return { model: validatedModel };
         } catch (error) {
           this.logger.error(
             'RPC: config:model-switch failed',
             error instanceof Error ? error : new Error(String(error))
           );
-          return {
-            success: false,
-            error: error instanceof Error ? error.message : String(error),
-          };
+          // Re-throw to let RpcHandler handle error response
+          throw error;
         }
       }
     );
@@ -837,16 +810,15 @@ export class RpcMethodRegistrationService {
           'sonnet'
         );
 
-        return { success: true, data: { model } };
+        // Return just the data - RpcHandler wraps with { success, data, correlationId }
+        return { model };
       } catch (error) {
         this.logger.error(
           'RPC: config:model-get failed',
           error instanceof Error ? error : new Error(String(error))
         );
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-        };
+        // Re-throw to let RpcHandler handle error response
+        throw error;
       }
     });
 
@@ -909,20 +881,15 @@ export class RpcMethodRegistrationService {
             permissionLevel: validatedPermissionLevel,
           });
 
-          // QA FIX ISSUE 2: Include data field for consistency
-          return {
-            success: true,
-            data: { enabled, permissionLevel: validatedPermissionLevel },
-          };
+          // Return just the data - RpcHandler wraps with { success, data, correlationId }
+          return { enabled, permissionLevel: validatedPermissionLevel };
         } catch (error) {
           this.logger.error(
             'RPC: config:autopilot-toggle failed',
             error instanceof Error ? error : new Error(String(error))
           );
-          return {
-            success: false,
-            error: error instanceof Error ? error.message : String(error),
-          };
+          // Re-throw to let RpcHandler handle error response
+          throw error;
         }
       }
     );
@@ -943,16 +910,43 @@ export class RpcMethodRegistrationService {
             'ask'
           );
 
-        return { success: true, data: { enabled, permissionLevel } };
+        // Return just the data - RpcHandler wraps with { success, data, correlationId }
+        return { enabled, permissionLevel };
       } catch (error) {
         this.logger.error(
           'RPC: config:autopilot-get failed',
           error instanceof Error ? error : new Error(String(error))
         );
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-        };
+        // Re-throw to let RpcHandler handle error response
+        throw error;
+      }
+    });
+
+    // config:models-list - Get available models with metadata
+    this.rpcHandler.registerMethod('config:models-list', async () => {
+      try {
+        this.logger.debug('RPC: config:models-list called');
+
+        // Get current selected model to mark it in the response
+        const selectedModel = this.configManager.getWithDefault<ClaudeModel>(
+          'model.selected',
+          'sonnet'
+        );
+
+        // Return models from shared constant with selection state
+        const models: (ModelInfo & { isSelected: boolean })[] =
+          AVAILABLE_MODELS.map((model) => ({
+            ...model,
+            isSelected: model.id === selectedModel,
+          }));
+
+        return { models };
+      } catch (error) {
+        this.logger.error(
+          'RPC: config:models-list failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        throw error;
       }
     });
   }

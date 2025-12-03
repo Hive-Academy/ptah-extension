@@ -1,18 +1,14 @@
 import { Component, input, output, signal, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import type {
-  AgentSuggestion,
-  MCPSuggestion,
-  CommandSuggestion,
-} from '@ptah-extension/core';
+import type { AgentSuggestion, CommandSuggestion } from '@ptah-extension/core';
 import type { FileSuggestion } from '../../services/file-picker.service';
 
 /**
- * Unified Suggestions Dropdown - Autocomplete UI for @agent, @mcp, @file, /command
+ * Unified Suggestions Dropdown - Autocomplete UI for @agent, @file, /command
  *
  * ARCHITECTURE:
  * - Level 1 component (Simple presentation component)
- * - Supports 4 suggestion types via discriminated union
+ * - Supports 3 suggestion types via discriminated union
  * - Keyboard navigation (ArrowUp, ArrowDown, Enter, Escape)
  * - Pure VS Code theming - NO Tailwind classes
  *
@@ -27,14 +23,13 @@ import type { FileSuggestion } from '../../services/file-picker.service';
  */
 
 // Type discriminated union for all suggestion types
-// Note: FileSuggestion extended with icon/description, MCP suggestion has type property renamed
+// Note: FileSuggestion extended with icon/description, MCP support removed (TASK_2025_036)
 export type SuggestionItem =
   | ({ type: 'file'; icon: string; description: string } & Omit<
       FileSuggestion,
       'type'
     >)
   | ({ type: 'agent' } & AgentSuggestion)
-  | ({ type: 'mcp' } & Omit<MCPSuggestion, 'type'> & { description: string })
   | ({ type: 'command' } & CommandSuggestion);
 
 @Component({

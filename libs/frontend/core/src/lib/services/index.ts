@@ -17,6 +17,7 @@ export * from './webview-navigation.service';
 export {
   ModelStateService,
   type SelectableClaudeModel,
+  type ModelInfoWithSelection,
 } from './model-state.service';
 export { AutopilotStateService } from './autopilot-state.service';
 
@@ -35,7 +36,6 @@ export {
   AgentDiscoveryFacade,
   type AgentSuggestion,
 } from './agent-discovery.facade';
-export { MCPDiscoveryFacade, type MCPSuggestion } from './mcp-discovery.facade';
 export {
   CommandDiscoveryFacade,
   type CommandSuggestion,

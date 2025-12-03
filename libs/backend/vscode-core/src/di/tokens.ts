@@ -87,7 +87,6 @@ export const CONTEXT_ORCHESTRATION_SERVICE = Symbol.for(
 export const TREE_SITTER_PARSER_SERVICE = Symbol.for('TreeSitterParserService');
 export const AST_ANALYSIS_SERVICE = Symbol.for('AstAnalysisService');
 export const AGENT_DISCOVERY_SERVICE = Symbol.for('AgentDiscoveryService');
-export const MCP_DISCOVERY_SERVICE = Symbol.for('MCPDiscoveryService');
 export const COMMAND_DISCOVERY_SERVICE = Symbol.for('CommandDiscoveryService');
 
 // ========================================
@@ -234,7 +233,6 @@ export const TOKENS = {
   TREE_SITTER_PARSER_SERVICE,
   AST_ANALYSIS_SERVICE,
   AGENT_DISCOVERY_SERVICE,
-  MCP_DISCOVERY_SERVICE,
   COMMAND_DISCOVERY_SERVICE,
 
   // ========================================

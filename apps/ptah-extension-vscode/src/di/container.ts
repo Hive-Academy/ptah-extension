@@ -57,7 +57,6 @@ import {
   TreeSitterParserService,
   AstAnalysisService,
   AgentDiscoveryService,
-  MCPDiscoveryService,
   CommandDiscoveryService,
 } from '@ptah-extension/workspace-intelligence';
 
@@ -238,10 +237,6 @@ export class DIContainer {
     container.registerSingleton(
       TOKENS.AGENT_DISCOVERY_SERVICE,
       AgentDiscoveryService
-    );
-    container.registerSingleton(
-      TOKENS.MCP_DISCOVERY_SERVICE,
-      MCPDiscoveryService
     );
     container.registerSingleton(
       TOKENS.COMMAND_DISCOVERY_SERVICE,

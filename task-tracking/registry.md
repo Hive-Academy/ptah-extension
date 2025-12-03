@@ -37,3 +37,4 @@
 | TASK_2025_036 | File Suggestions Integration & DaisyUI Styling - Wire file picker to ChatInput, modernize components                           | 📋 Planned                               | orchestrator       | 2025-12-01 | -          |
 | TASK_2025_037 | Permission UI Embedding Fixes - Fix ID mismatch, race condition, and restore fallback display (TASK_2025_034 bugfix)           | ✅ Complete                              | orchestrator       | 2025-12-01 | 2025-12-01 |
 | TASK_2025_039 | Enhanced ptah.ai Namespace - LLM chat enhancements (multi-turn, tokens, tools) + IDE superpowers (LSP, editor, actions, tests) | 📋 Planned                               | orchestrator       | 2025-12-03 | -          |
+| TASK_2025_040 | Message Queue & Session Control - Queue messages while streaming, stop/interrupt, queue→input on stop                          | 🔄 In Progress                           | orchestrator       | 2025-12-03 | -          |
