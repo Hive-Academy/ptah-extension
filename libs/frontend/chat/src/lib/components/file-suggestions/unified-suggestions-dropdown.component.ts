@@ -6,17 +6,18 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import type { AgentSuggestion, CommandSuggestion } from '@ptah-extension/core';
+import type { CommandSuggestion } from '@ptah-extension/core';
 import type { FileSuggestion } from '../../services/file-picker.service';
 
 /**
- * Unified Suggestions Dropdown - Autocomplete UI for @agent, @file, /command
+ * Unified Suggestions Dropdown - Autocomplete UI for @file, /command
  *
  * ARCHITECTURE:
  * - Level 1 component (Simple presentation component)
- * - Supports 3 suggestion types via discriminated union
+ * - Supports file and command types via discriminated union
+ * - Agents handled by dedicated AgentSelectorComponent (separate dropdown)
  * - Keyboard navigation (ArrowUp, ArrowDown, Enter, Escape)
- * - Pure VS Code theming - NO Tailwind classes
+ * - Full-width single-column layout matching Claude Code CLI style
  *
  * DEPENDENCIES:
  * - Type imports from @ptah-extension/core (facades)
@@ -25,17 +26,15 @@ import type { FileSuggestion } from '../../services/file-picker.service';
  * COMPLEXITY ASSESSMENT:
  * - Level: 2 (Medium) - Type discrimination, keyboard navigation
  * - Patterns: Composition (replaces FileSuggestionsDropdown)
- * - Rejected: Container/Presentational (pure presentation), State management (parent manages)
  */
 
-// Type discriminated union for all suggestion types
-// Note: FileSuggestion extended with icon/description, MCP support removed (TASK_2025_036)
+// Type discriminated union for file and command suggestions only
+// Note: Agents handled by AgentSelectorComponent - not part of this dropdown
 export type SuggestionItem =
   | ({ type: 'file'; icon: string; description: string } & Omit<
       FileSuggestion,
       'type'
     >)
-  | ({ type: 'agent' } & AgentSuggestion)
   | ({ type: 'command' } & CommandSuggestion);
 
 @Component({
@@ -47,115 +46,95 @@ export type SuggestionItem =
   },
   template: `
     <div
-      class="dropdown-content menu bg-base-100 rounded-box shadow-lg border border-base-300 w-full max-h-64 overflow-hidden z-50"
+      class="suggestions-dropdown z-50 p-1 shadow-lg bg-base-200 rounded-lg border border-base-300"
       role="listbox"
     >
-      <!-- Category Tabs (only for @ trigger mode) -->
-      @if (showTabs()) {
-      <div
-        role="tablist"
-        class="tabs tabs-boxed tabs-sm p-2 pb-0 border-b border-base-300"
-      >
-        <button
-          role="tab"
-          class="tab"
-          [class.tab-active]="activeCategory() === 'all'"
-          (click)="categoryChanged.emit('all')"
-          type="button"
+      <!-- Header -->
+      <div class="px-3 py-2 border-b border-base-300">
+        <span
+          class="text-xs font-semibold text-base-content/70 uppercase tracking-wide"
         >
-          All
-        </button>
-        <button
-          role="tab"
-          class="tab"
-          [class.tab-active]="activeCategory() === 'files'"
-          (click)="categoryChanged.emit('files')"
-          type="button"
-        >
-          📄 Files
-        </button>
-        <button
-          role="tab"
-          class="tab"
-          [class.tab-active]="activeCategory() === 'agents'"
-          (click)="categoryChanged.emit('agents')"
-          type="button"
-        >
-          🤖 Agents
-        </button>
+          {{ getHeaderTitle() }}
+        </span>
       </div>
-      }
 
       <!-- Loading State -->
       @if (isLoading()) {
       <div class="flex items-center justify-center gap-3 p-4">
-        <span class="loading loading-spinner loading-md"></span>
-        <span class="text-sm text-base-content/70">Loading suggestions...</span>
+        <span class="loading loading-spinner loading-sm"></span>
+        <span class="text-sm text-base-content/70">Loading...</span>
       </div>
       }
 
       <!-- Empty State -->
       @else if (suggestions().length === 0) {
       <div class="flex items-center justify-center p-4">
-        <span class="text-sm text-base-content/60">No suggestions found</span>
+        <span class="text-sm text-base-content/60">No matches found</span>
       </div>
       }
 
-      <!-- Suggestions List -->
+      <!-- Suggestions List - Single Column -->
       @else {
-      <ul class="menu-compact overflow-y-auto max-h-80 pt-2">
+      <ul class="menu menu-sm p-1 overflow-y-auto max-h-64">
         @for (suggestion of suggestions(); track trackBy($index, suggestion);
         let i = $index) {
         <li>
-          <a
-            class="flex items-center gap-3 py-2"
-            [class.active]="i === focusedIndex()"
+          <button
+            type="button"
+            class="flex items-start gap-3 py-2 px-3 rounded-md transition-colors w-full"
+            [class.bg-primary]="i === focusedIndex()"
+            [class.text-primary-content]="i === focusedIndex()"
+            [class.hover:bg-base-300]="i !== focusedIndex()"
             (click)="selectSuggestion(suggestion)"
             (mouseenter)="setFocusedIndex(i)"
             role="option"
             [attr.aria-selected]="i === focusedIndex()"
           >
-            <span class="text-xl">{{ getIcon(suggestion) }}</span>
-
-            <!-- Content area: File shows name+path stacked, Command/Agent show badges -->
-            <div class="flex-1 min-w-0 flex items-center gap-2">
-              @if (suggestion.type === 'file') {
-              <!-- Files: Name prominent, directory secondary -->
-              <div class="flex-1 min-w-0">
-                <div class="text-sm font-medium truncate">
-                  {{ getName(suggestion) }}
-                </div>
-                <div class="text-xs text-base-content/60 truncate">
-                  {{ getDescription(suggestion) }}
-                </div>
-              </div>
-              } @else {
-              <!-- Commands/Agents: Badge for name, description alongside -->
-              @if (suggestion.type === 'command') {
-              <span class="badge badge-sm badge-primary">{{
-                getName(suggestion)
-              }}</span>
-              } @if (suggestion.type === 'agent') {
-              <span class="badge badge-sm badge-secondary">{{
-                getName(suggestion)
-              }}</span>
-              }
-              <div class="flex-1 min-w-0">
-                <div class="text-xs text-base-content/60 truncate">
-                  {{ getDescription(suggestion) }}
-                </div>
-              </div>
-              }
+            <!-- Icon -->
+            <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+              <span class="text-base">{{ getIcon(suggestion) }}</span>
             </div>
 
-            @if (suggestion.type === 'agent' && suggestion.scope === 'builtin')
-            {
-            <span class="badge badge-accent badge-sm">Built-in</span>
-            } @if (suggestion.type === 'command' && suggestion.scope ===
-            'builtin') {
-            <span class="badge badge-accent badge-sm">Built-in</span>
-            }
-          </a>
+            <!-- Content area -->
+            <div class="flex flex-col items-start flex-1 min-w-0">
+              @if (suggestion.type === 'file') {
+              <!-- Files/Folders: Name prominent, directory secondary -->
+              <span class="font-medium text-sm truncate w-full">{{
+                getName(suggestion)
+              }}</span>
+              <span
+                [class]="
+                  'text-xs mt-0.5 truncate w-full ' +
+                  (i === focusedIndex()
+                    ? 'text-primary-content/70'
+                    : 'text-base-content/60')
+                "
+              >
+                {{ getDescription(suggestion) }}
+              </span>
+              } @else if (suggestion.type === 'command') {
+              <!-- Commands: Name with badge styling -->
+              <div class="flex items-center gap-2 w-full">
+                <span class="font-medium text-sm">{{
+                  getName(suggestion)
+                }}</span>
+                @if (suggestion.scope === 'builtin') {
+                <span class="badge badge-accent badge-xs">Built-in</span>
+                }
+              </div>
+              <span
+                [class]="
+                  'text-xs mt-0.5 truncate w-full ' +
+                  (i === focusedIndex()
+                    ? 'text-primary-content/70'
+                    : 'text-base-content/60')
+                "
+              >
+                {{ getDescription(suggestion) }}
+              </span>
+              }
+            </div>
+          </button>
         </li>
         }
       </ul>
@@ -164,8 +143,8 @@ export type SuggestionItem =
   `,
   styles: [
     `
-      /* Position dropdown absolutely above the textarea */
-      .dropdown-content {
+      /* Position dropdown absolutely above the textarea - full width */
+      .suggestions-dropdown {
         position: absolute;
         bottom: 100%;
         left: 0;
@@ -174,20 +153,20 @@ export type SuggestionItem =
         z-index: 1000;
       }
 
-      /* Smooth transitions */
-      .tab {
-        transition: all 0.15s ease;
-      }
-
       /* Focus outline for accessibility */
-      .menu li > a:focus {
+      .menu li > button:focus {
         outline: 2px solid oklch(var(--p));
         outline-offset: -2px;
       }
 
+      /* Ensure single column layout */
+      .menu li {
+        width: 100%;
+      }
+
       /* Reduced motion support */
       @media (prefers-reduced-motion: reduce) {
-        .tab {
+        button {
           transition: none;
         }
       }
@@ -199,13 +178,10 @@ export class UnifiedSuggestionsDropdownComponent {
   // ANGULAR 20+ PATTERN: input() for reactive inputs
   readonly suggestions = input.required<SuggestionItem[]>();
   readonly isLoading = input(false);
-  readonly showTabs = input(false); // Show tabs for @ mode
-  readonly activeCategory = input<'all' | 'files' | 'agents'>('all'); // Active tab
 
   // ANGULAR 20+ PATTERN: output() for event emitters
   readonly suggestionSelected = output<SuggestionItem>();
   readonly closed = output<void>();
-  readonly categoryChanged = output<'all' | 'files' | 'agents'>(); // NEW: Tab change
 
   // ANGULAR 20 PATTERN: Private signals for component state
   private readonly _focusedIndex = signal(0);
@@ -213,9 +189,23 @@ export class UnifiedSuggestionsDropdownComponent {
   // ANGULAR 20 PATTERN: Readonly signals for template access
   readonly focusedIndex = this._focusedIndex.asReadonly();
 
+  /**
+   * Get header title based on suggestion types
+   */
+  getHeaderTitle(): string {
+    const suggestions = this.suggestions();
+    if (suggestions.length === 0) return 'Suggestions';
+
+    const firstType = suggestions[0]?.type;
+    if (firstType === 'file') return 'Files & Folders';
+    if (firstType === 'command') return 'Slash Commands';
+    return 'Suggestions';
+  }
+
   // Keyboard navigation
   onKeyDown(event: KeyboardEvent): void {
     const suggestions = this.suggestions();
+    if (suggestions.length === 0) return;
 
     switch (event.key) {
       case 'ArrowDown': {
@@ -243,22 +233,6 @@ export class UnifiedSuggestionsDropdownComponent {
       case 'Escape': {
         event.preventDefault();
         this.closed.emit();
-        break;
-      }
-
-      case 'Tab': {
-        // NEW: Tab key cycles through categories (only in @ mode)
-        if (this.showTabs()) {
-          event.preventDefault();
-          const categories: Array<'all' | 'files' | 'agents'> = [
-            'all',
-            'files',
-            'agents',
-          ];
-          const currentIndex = categories.indexOf(this.activeCategory());
-          const nextIndex = (currentIndex + 1) % categories.length;
-          this.categoryChanged.emit(categories[nextIndex]);
-        }
         break;
       }
     }

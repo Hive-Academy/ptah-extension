@@ -12,7 +12,6 @@ import { LucideAngularModule, Send, Zap } from 'lucide-angular';
 import { ChatStore } from '../../services/chat.store';
 import {
   AutopilotStateService,
-  AgentDiscoveryFacade,
   CommandDiscoveryFacade,
 } from '@ptah-extension/core';
 import { ModelSelectorComponent } from './model-selector.component';
@@ -35,6 +34,7 @@ import {
   SlashTriggerDirective,
   type SlashTriggerEvent,
 } from '../../directives/slash-trigger.directive';
+import { AgentSelectorComponent } from './agent-selector.component';
 
 /**
  * ChatInputComponent - Enhanced message input with bottom bar controls
@@ -65,6 +65,7 @@ import {
     FileTagComponent,
     AtTriggerDirective,
     SlashTriggerDirective,
+    AgentSelectorComponent,
   ],
   template: `
     <div class="flex flex-col gap-2 p-4 bg-base-100">
@@ -99,15 +100,12 @@ import {
             (slashClosed)="handleSlashClosed()"
           ></textarea>
 
-          <!-- Unified Suggestions Dropdown - positioned above textarea -->
+          <!-- File/Folder Suggestions Dropdown - positioned above textarea -->
           @if (showSuggestions()) {
           <ptah-unified-suggestions-dropdown
             [suggestions]="filteredSuggestions()"
             [isLoading]="isLoadingSuggestions()"
-            [showTabs]="suggestionMode() === 'at-trigger'"
-            [activeCategory]="activeCategory()"
             (suggestionSelected)="handleSuggestionSelected($event)"
-            (categoryChanged)="setActiveCategory($event)"
             (closed)="closeSuggestions()"
           />
           }
@@ -140,6 +138,9 @@ import {
             📷
           </button>
 
+          <!-- Agent Selector - dedicated button for agents -->
+          <ptah-agent-selector (agentSelected)="handleAgentSelected($event)" />
+
           <!-- Autopilot Mode Badge - shown when enabled -->
           @if (autopilotState.enabled()) {
           <div class="badge badge-warning badge-sm gap-1">
@@ -166,9 +167,8 @@ export class ChatInputComponent {
   readonly chatStore = inject(ChatStore);
   readonly autopilotState = inject(AutopilotStateService);
 
-  // NEW: Autocomplete service injections
+  // Autocomplete service injections
   readonly filePicker = inject(FilePickerService);
-  readonly agentDiscovery = inject(AgentDiscoveryFacade);
   readonly commandDiscovery = inject(CommandDiscoveryFacade);
 
   // Signal-based viewChild reference for textarea (Angular 20+ pattern)
@@ -182,12 +182,11 @@ export class ChatInputComponent {
   // Local state
   private readonly _currentMessage = signal('');
 
-  // NEW: Autocomplete state signals
+  // Autocomplete state signals
   private readonly _showSuggestions = signal(false);
   private readonly _suggestionMode = signal<
     'at-trigger' | 'slash-trigger' | null
   >(null);
-  private readonly _activeCategory = signal<'all' | 'files' | 'agents'>('all');
   private readonly _currentQuery = signal('');
   private readonly _triggerPosition = signal(0); // Position where trigger (@, /) starts
   private readonly _selectedFiles = signal<ChatFile[]>([]);
@@ -197,7 +196,6 @@ export class ChatInputComponent {
   readonly currentMessage = this._currentMessage.asReadonly();
   readonly showSuggestions = this._showSuggestions.asReadonly();
   readonly suggestionMode = this._suggestionMode.asReadonly();
-  readonly activeCategory = this._activeCategory.asReadonly();
   readonly selectedFiles = this._selectedFiles.asReadonly();
   readonly isLoadingSuggestions = this._isLoadingSuggestions.asReadonly();
 
@@ -208,41 +206,32 @@ export class ChatInputComponent {
   readonly filteredSuggestions = computed(() => {
     const mode = this._suggestionMode();
     const query = this._currentQuery();
-    const category = this._activeCategory();
 
     console.log('[ChatInputComponent] filteredSuggestions computed', {
       mode,
       query,
-      category,
     });
 
     if (mode === 'at-trigger') {
-      // @ trigger: Files + Agents
+      // @ trigger: Files + Folders ONLY (agents moved to dedicated button)
       const files = this.filePicker.searchFiles(query).map((f) => {
         // Destructure to exclude original 'type' property (which is "file" | "directory")
-        const { type: _originalType, ...rest } = f;
+        const { type: originalType, ...rest } = f;
+        const isFolder = originalType === 'directory';
         return {
           type: 'file' as const,
-          icon: '📄',
+          icon: isFolder ? '📁' : '📄',
           description: f.directory,
+          isFolder,
           ...rest,
         };
       });
 
-      const agents = this.agentDiscovery.searchAgents(query).map((a) => ({
-        type: 'agent' as const,
-        ...a,
-      }));
-
       console.log('[ChatInputComponent] @ trigger results', {
         filesCount: files.length,
-        agentsCount: agents.length,
       });
 
-      // Category filtering
-      if (category === 'files') return files;
-      if (category === 'agents') return agents;
-      return [...files, ...agents]; // 'all' category
+      return files;
     }
 
     if (mode === 'slash-trigger') {
@@ -330,15 +319,12 @@ export class ChatInputComponent {
   // ============ END DIRECTIVE EVENT HANDLERS ============
 
   /**
-   * Fetch suggestions for @ trigger (files + agents)
+   * Fetch suggestions for @ trigger (files + folders only)
    */
   private async fetchAtSuggestions(): Promise<void> {
     this._isLoadingSuggestions.set(true);
     try {
-      await Promise.all([
-        this.filePicker.ensureFilesLoaded(),
-        this.agentDiscovery.fetchAgents(),
-      ]);
+      await this.filePicker.ensureFilesLoaded();
     } catch (error) {
       console.error(
         '[ChatInputComponent] Failed to fetch @ suggestions:',
@@ -372,17 +358,38 @@ export class ChatInputComponent {
    */
   handleSuggestionSelected(suggestion: SuggestionItem): void {
     if (suggestion.type === 'file') {
-      // Add file tag (don't insert text)
+      // Add file tag (don't insert text) and remove @ trigger from input
       this.addFileTag(suggestion);
-    } else if (suggestion.type === 'agent') {
-      // Replace @query with @agent-name
-      this.replaceTrigger(`@${suggestion.name} `);
+      this.removeTriggerText();
     } else if (suggestion.type === 'command') {
       // Replace /query with /command-name
       this.replaceTrigger(`/${suggestion.name} `);
     }
 
     this.closeSuggestions();
+  }
+
+  /**
+   * Handle agent selection from AgentSelectorComponent
+   * Appends @agent-{name} to input
+   */
+  handleAgentSelected(agentName: string): void {
+    const currentValue = this._currentMessage();
+    const newValue =
+      currentValue +
+      (currentValue.endsWith(' ') || currentValue === '' ? '' : ' ') +
+      `@${agentName} `;
+    this._currentMessage.set(newValue);
+
+    // Focus textarea and update value
+    const textarea = this.textareaRef()?.nativeElement;
+    if (textarea) {
+      textarea.value = newValue;
+      textarea.focus();
+      textarea.setSelectionRange(newValue.length, newValue.length);
+    }
+
+    console.log('[ChatInputComponent] Agent selected:', agentName);
   }
 
   /**
@@ -440,7 +447,7 @@ export class ChatInputComponent {
 
   /**
    * Replace trigger text with selected suggestion
-   * Used for @agent and /command autocomplete
+   * Used for /command autocomplete
    */
   private replaceTrigger(replacement: string): void {
     const textarea = this.textareaRef()?.nativeElement;
@@ -465,18 +472,34 @@ export class ChatInputComponent {
   }
 
   /**
+   * Remove trigger text from input (for file selection where we add tag instead)
+   */
+  private removeTriggerText(): void {
+    const textarea = this.textareaRef()?.nativeElement;
+    if (!textarea) return;
+
+    const currentValue = this._currentMessage();
+    const triggerStart = this._triggerPosition();
+    const cursorPos = textarea.selectionStart;
+
+    // Remove text from trigger start to current cursor position
+    const newValue =
+      currentValue.substring(0, triggerStart) +
+      currentValue.substring(cursorPos);
+
+    this._currentMessage.set(newValue);
+    textarea.value = newValue;
+
+    // Move cursor to trigger position
+    textarea.setSelectionRange(triggerStart, triggerStart);
+  }
+
+  /**
    * Close suggestions dropdown
    */
   closeSuggestions(): void {
     this._showSuggestions.set(false);
     this._suggestionMode.set(null);
-  }
-
-  /**
-   * Set active category (for tab switching)
-   */
-  setActiveCategory(category: 'all' | 'files' | 'agents'): void {
-    this._activeCategory.set(category);
   }
 
   /**
@@ -587,17 +610,16 @@ export class ChatInputComponent {
       }
     });
 
-    // Session change monitoring - clear caches on session change
+    // Session change monitoring - clear command cache on session change
     effect(
       () => {
         const activeTab = this.chatStore.activeTab();
 
         if (activeTab) {
-          // Clear both autocomplete caches when session changes
+          // Clear command autocomplete cache when session changes
           this.commandDiscovery.clearCache();
-          this.agentDiscovery.clearCache();
 
-          console.log('[ChatInputComponent] Session changed, caches cleared', {
+          console.log('[ChatInputComponent] Session changed, cache cleared', {
             sessionId: activeTab.id,
           });
         }
