@@ -1,12 +1,22 @@
 import {
   Directive,
   ElementRef,
-  HostListener,
   inject,
   input,
   output,
-  OnDestroy,
+  OnInit,
+  DestroyRef,
 } from '@angular/core';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { fromEvent, combineLatest } from 'rxjs';
+import {
+  map,
+  filter,
+  debounceTime,
+  distinctUntilChanged,
+  startWith,
+  pairwise,
+} from 'rxjs/operators';
 
 /**
  * Event emitted when slash trigger is detected
@@ -17,25 +27,33 @@ export interface SlashTriggerEvent {
 }
 
 /**
+ * Internal state for trigger detection
+ */
+interface TriggerState {
+  isActive: boolean;
+  query: string;
+  cursorPosition: number;
+}
+
+/**
  * SlashTriggerDirective - Detects / command trigger in textarea
  *
- * Complexity Level: 1 (Simple directive with single responsibility)
- * Patterns: Signal-based inputs/outputs, Host listener
+ * Complexity Level: 2 (RxJS pipeline with debouncing)
+ * Patterns: Signal-based inputs/outputs, RxJS reactive streams
  *
  * Purpose:
  * - Attaches to textarea element
  * - Detects / trigger at position 0 (start of input)
  * - Emits events for parent to handle dropdown display
- * - Includes 150ms debounced fetch capability
+ * - Debounces triggered events (150ms) to prevent excessive fetches
+ * - Emits close immediately when trigger is removed
  *
  * Usage:
  * ```html
  * <textarea
- *   [ptahSlashTrigger]
- *   [enabled]="true"
- *   (triggered)="handleSlashTrigger($event)"
- *   (closed)="closeSuggestions()"
- *   (queryChanged)="updateQuery($event)"
+ *   ptahSlashTrigger
+ *   (slashTriggered)="handleSlashTrigger($event)"
+ *   (slashClosed)="closeSuggestions()"
  * ></textarea>
  * ```
  *
@@ -46,88 +64,96 @@ export interface SlashTriggerEvent {
  */
 @Directive({
   selector: '[ptahSlashTrigger]',
-  standalone: true,
 })
-export class SlashTriggerDirective implements OnDestroy {
+export class SlashTriggerDirective implements OnInit {
   private readonly elementRef = inject(ElementRef<HTMLTextAreaElement>);
+  private readonly destroyRef = inject(DestroyRef);
 
   // Inputs
-  enabled = input(true);
+  readonly enabled = input(true);
+
+  // Convert signal to observable in injection context (field initializer)
+  // CRITICAL: toObservable() uses inject() internally, must be called here, not in ngOnInit
+  private readonly enabled$ = toObservable(this.enabled);
 
   // Outputs (prefixed with 'slash' to avoid conflicts with other trigger directives)
-  slashTriggered = output<SlashTriggerEvent>();
-  slashClosed = output<void>();
-  slashQueryChanged = output<string>();
+  readonly slashTriggered = output<SlashTriggerEvent>();
+  readonly slashClosed = output<void>();
 
-  // Debounce timer
-  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly DEBOUNCE_DELAY_MS = 150;
 
-  // Track previous state to detect changes
-  private previousQuery: string | null = null;
-  private wasTriggered = false;
-
-  /**
-   * Listen to input events on host textarea
-   */
-  @HostListener('input', ['$event'])
-  onInput(event: Event): void {
-    if (!this.enabled()) {
-      return;
-    }
-
-    const target = event.target as HTMLTextAreaElement;
-    const value = target.value;
-    const cursorPosition = target.selectionStart;
-
-    this.detectSlashTrigger(value, cursorPosition);
+  ngOnInit(): void {
+    console.log('[SlashTriggerDirective] ngOnInit called');
+    this.setupInputPipeline();
   }
 
   /**
-   * Detect / trigger at start of input
+   * Setup RxJS pipeline for input event handling
+   *
+   * Flow:
+   * 1. Listen to input events on textarea
+   * 2. Map to trigger state (isActive, query, cursorPosition)
+   * 3. Combine with enabled signal
+   * 4. Filter when disabled
+   * 5. Track state transitions for close detection
+   * 6. Debounce triggered events, emit close immediately
    */
-  private detectSlashTrigger(value: string, cursorPosition: number): void {
-    // Clear any pending debounce timer
-    if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
-      this.debounceTimer = null;
-    }
+  private setupInputPipeline(): void {
+    const textarea = this.elementRef.nativeElement;
 
-    // / trigger MUST be at position 0 (start of input)
-    if (value.startsWith('/')) {
-      const query = value.substring(1); // Everything after /
+    // Stream of input events mapped to trigger state
+    const inputState$ = fromEvent<InputEvent>(textarea, 'input').pipe(
+      map((): TriggerState => {
+        const value = textarea.value;
+        const cursorPosition = textarea.selectionStart;
+        // Slash trigger is active only if:
+        // 1. Value starts with /
+        // 2. Value does NOT contain @ (which means user wants @ autocomplete instead)
+        const isActive = value.startsWith('/') && !value.includes('@');
+        const query = isActive ? value.substring(1) : '';
 
-      // Emit slashQueryChanged immediately (no debounce)
-      if (query !== this.previousQuery) {
-        this.slashQueryChanged.emit(query);
-        this.previousQuery = query;
-      }
+        return { isActive, query, cursorPosition };
+      }),
+      startWith({
+        isActive: false,
+        query: '',
+        cursorPosition: 0,
+      } as TriggerState)
+    );
 
-      // Debounce the triggered event (for fetch operations)
-      this.debounceTimer = setTimeout(() => {
-        this.slashTriggered.emit({
-          query,
-          cursorPosition,
+    // Combined stream that respects enabled state
+    const triggerState$ = combineLatest([inputState$, this.enabled$]).pipe(
+      filter(([, enabled]) => enabled),
+      map(([state]) => state),
+      takeUntilDestroyed(this.destroyRef)
+    );
+
+    // Track state transitions to detect open/close
+    triggerState$
+      .pipe(pairwise(), takeUntilDestroyed(this.destroyRef))
+      .subscribe(([prev, curr]) => {
+        // Emit close immediately when transitioning from active to inactive
+        if (prev.isActive && !curr.isActive) {
+          this.slashClosed.emit();
+        }
+      });
+
+    // Debounced stream for triggered events (only when active)
+    triggerState$
+      .pipe(
+        filter((state) => state.isActive),
+        debounceTime(this.DEBOUNCE_DELAY_MS),
+        distinctUntilChanged((a, b) => a.query === b.query),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((state) => {
+        console.log('[SlashTriggerDirective] slashTriggered emitted', {
+          query: state.query,
         });
-        this.wasTriggered = true;
-      }, this.DEBOUNCE_DELAY_MS);
-    } else {
-      // / removed or not at start - close trigger immediately (no debounce)
-      if (this.wasTriggered) {
-        this.slashClosed.emit();
-        this.wasTriggered = false;
-      }
-      this.previousQuery = null;
-    }
-  }
-
-  /**
-   * Cleanup on destroy
-   */
-  ngOnDestroy(): void {
-    if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
-      this.debounceTimer = null;
-    }
+        this.slashTriggered.emit({
+          query: state.query,
+          cursorPosition: state.cursorPosition,
+        });
+      });
   }
 }
