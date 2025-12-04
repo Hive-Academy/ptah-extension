@@ -9,45 +9,79 @@
 - ✅ **Task 1.3**: Define supporting types (Location, HoverInfo, CodeAction, TestResult, etc.) (COMPLETE)
 - ✅ **Task 1.4**: Update `PtahAPI` interface to include enhanced structure (COMPLETE)
 
-**Batch 1 Commit**: [pending]
+**Batch 1 Commit**: 7015dc2
+**Review Status**: APPROVED by code-logic-reviewer
+**Files Modified**: libs/backend/vscode-lm-tools/src/lib/code-execution/types.ts
 
-### Phase 2: LLM Enhancements (ptah.ai.\*)
+### Phase 2: LLM Enhancements (ptah.ai.\*) ✅ COMPLETE
 
-- [ ] **Task 2.1**: Enhance `selectModel()` to return full metadata (maxInputTokens, vendor, version)
-- [ ] **Task 2.2**: Implement `chatWithHistory()` - multi-turn conversations
-- [ ] **Task 2.3**: Implement `chatStream()` - streaming responses with callback
-- [ ] **Task 2.4**: Implement `chatWithSystem()` - chat with system prompt (XML-delimited format)
-- [ ] **Task 2.5**: Implement `invokeAgent()` - load .md file as system prompt, invoke cheap model
-- [ ] **Task 2.6**: Implement `countTokens()` - model-specific token counting
-- [ ] **Task 2.7**: Implement `countFileTokens()` - token count for files
-- [ ] **Task 2.8**: Implement `fitsInContext()` - context capacity checker
-- [ ] **Task 2.9**: Implement `getTools()` - list registered VS Code LM tools
-- [ ] **Task 2.10**: Implement `invokeTool()` - invoke VS Code tools directly
-- [ ] **Task 2.11**: Implement `chatWithTools()` - chat with tool access
+- ✅ **Task 2.1**: Enhance `selectModel()` to return full metadata (maxInputTokens, vendor, version) - COMPLETE
+- ✅ **Task 2.2**: Implement `chatWithHistory()` - multi-turn conversations - COMPLETE
+- ✅ **Task 2.3**: Implement `chatStream()` - streaming responses with callback - COMPLETE
+- ✅ **Task 2.4**: Implement `chatWithSystem()` - chat with system prompt (XML-delimited format) - COMPLETE
+- ✅ **Task 2.5**: Implement `invokeAgent()` - load .md file as system prompt, invoke cheap model - COMPLETE
+- ✅ **Task 2.6**: Implement `countTokens()` - model-specific token counting - COMPLETE
+- ✅ **Task 2.7**: Implement `countFileTokens()` - token count for files - COMPLETE
+- ✅ **Task 2.8**: Implement `fitsInContext()` - context capacity checker - COMPLETE
+- ✅ **Task 2.9**: Implement `getTools()` - list registered VS Code LM tools - COMPLETE
+- ✅ **Task 2.10**: Implement `invokeTool()` - invoke VS Code tools directly - COMPLETE
+- ✅ **Task 2.11**: Implement `chatWithTools()` - chat with tool access - COMPLETE
 
-### Phase 3: Specialized AI Tasks
+**Files Modified**:
 
-- [ ] **Task 3.1**: Implement `summarize()` - content summarization
-- [ ] **Task 3.2**: Implement `explain()` - code explanation with context
-- [ ] **Task 3.3**: Implement `review()` - code review via LM
-- [ ] **Task 3.4**: Implement `transform()` - code transformation
-- [ ] **Task 3.5**: Implement `generate()` - code generation from description
+- libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/system-namespace.builders.ts
+- libs/backend/vscode-lm-tools/src/lib/code-execution/ptah-api-builder.service.ts (IDE stub added)
 
-### Phase 4: IDE LSP Namespace (ptah.ai.ide.lsp.\*)
+**Batch 2 Commit**: 3c8f2d8
+**Review Status**: APPROVED by code-logic-reviewer (all critical/serious issues fixed)
+**Build Status**: ✅ Passing (`npx nx build vscode-lm-tools`)
 
-- [ ] **Task 4.1**: Implement `getDefinition()` - go to definition
-- [ ] **Task 4.2**: Implement `getReferences()` - find all references
-- [ ] **Task 4.3**: Implement `getHover()` - hover info (types, docs)
-- [ ] **Task 4.4**: Implement `getTypeDefinition()` - type definition location
-- [ ] **Task 4.5**: Implement `getSignatureHelp()` - function signatures
+### Phase 3: Specialized AI Tasks ✅ COMPLETE
 
-### Phase 5: IDE Editor Namespace (ptah.ai.ide.editor.\*)
+- ✅ **Task 3.1**: Implement `summarize()` - content summarization - COMPLETE
+- ✅ **Task 3.2**: Implement `explain()` - code explanation with context - COMPLETE
+- ✅ **Task 3.3**: Implement `review()` - code review via LM - COMPLETE
+- ✅ **Task 3.4**: Implement `transform()` - code transformation - COMPLETE
+- ✅ **Task 3.5**: Implement `generate()` - code generation from description - COMPLETE
 
-- [ ] **Task 5.1**: Implement `getActive()` - active file, line, selection
-- [ ] **Task 5.2**: Implement `getOpenFiles()` - all open files
-- [ ] **Task 5.3**: Implement `getDirtyFiles()` - unsaved files
-- [ ] **Task 5.4**: Implement `getRecentFiles()` - recently accessed files
-- [ ] **Task 5.5**: Implement `getVisibleRange()` - visible code range
+**Note**: Phase 3 was implemented as part of Phase 2 work since all specialized AI tasks use `chatWithSystem()` internally. All methods are production-ready with proper system prompts.
+
+**Batch 2 Commit**: 3c8f2d8 (included with Phase 2)
+**Review Status**: APPROVED by code-logic-reviewer
+
+### Phase 4: IDE LSP Namespace (ptah.ai.ide.lsp.\*) ✅ COMPLETE
+
+- ✅ **Task 4.1**: Implement `getDefinition()` - go to definition (COMPLETE)
+- ✅ **Task 4.2**: Implement `getReferences()` - find all references (COMPLETE)
+- ✅ **Task 4.3**: Implement `getHover()` - hover info (types, docs) (COMPLETE)
+- ✅ **Task 4.4**: Implement `getTypeDefinition()` - type definition location (COMPLETE)
+- ✅ **Task 4.5**: Implement `getSignatureHelp()` - function signatures (COMPLETE)
+
+**Files Created**:
+
+- libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/ide-namespace.builder.ts
+
+**Files Modified**:
+
+- libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/index.ts (added IDE export)
+- libs/backend/vscode-lm-tools/src/lib/code-execution/ptah-api-builder.service.ts (replaced IDE stub with builder)
+
+**Build Status**: ✅ Passing (`npx nx build vscode-lm-tools`)
+**Batch 3 Commit**: fa05fcb
+**Review Status**: APPROVED by code-logic-reviewer (all 5 LSP methods production-ready)
+
+### Phase 5: IDE Editor Namespace (ptah.ai.ide.editor.\*) ✅ COMPLETE
+
+- ✅ **Task 5.1**: Implement `getActive()` - active file, line, selection (COMPLETE)
+- ✅ **Task 5.2**: Implement `getOpenFiles()` - all open files (COMPLETE)
+- ✅ **Task 5.3**: Implement `getDirtyFiles()` - unsaved files (COMPLETE)
+- ✅ **Task 5.4**: Implement `getRecentFiles()` - recently accessed files (COMPLETE)
+- ✅ **Task 5.5**: Implement `getVisibleRange()` - visible code range (COMPLETE)
+
+**Files Modified**: libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/ide-namespace.builder.ts
+**Build Status**: ✅ Passing (npx nx build vscode-lm-tools)
+**Review Status**: APPROVED by code-logic-reviewer (all 5 methods production-ready)
+**Batch 4 Commit**: [pending]
 
 ### Phase 6: IDE Actions Namespace (ptah.ai.ide.actions.\*)
 
@@ -80,18 +114,18 @@
 
 ## Progress Tracking
 
-| Phase                | Tasks  | Status         | Completion |
-| -------------------- | ------ | -------------- | ---------- |
-| Phase 1: Types       | 4      | ✅ IMPLEMENTED | 100%       |
-| Phase 2: LLM         | 11     | Not Started    | 0%         |
-| Phase 3: AI Tasks    | 5      | Not Started    | 0%         |
-| Phase 4: LSP         | 5      | Not Started    | 0%         |
-| Phase 5: Editor      | 5      | Not Started    | 0%         |
-| Phase 6: Actions     | 5      | Not Started    | 0%         |
-| Phase 7: Testing     | 4      | Not Started    | 0%         |
-| Phase 8: Integration | 3      | Not Started    | 0%         |
-| Phase 9: Discovery   | 5      | Not Started    | 0%         |
-| **TOTAL**            | **47** | In Progress    | 8.5%       |
+| Phase                | Tasks  | Status                      | Completion |
+| -------------------- | ------ | --------------------------- | ---------- |
+| Phase 1: Types       | 4      | ✅ COMPLETE                 | 100%       |
+| Phase 2: LLM         | 11     | ✅ COMPLETE                 | 100%       |
+| Phase 3: AI Tasks    | 5      | ✅ COMPLETE                 | 100%       |
+| Phase 4: LSP         | 5      | ✅ COMPLETE                 | 100%       |
+| Phase 5: Editor      | 5      | ✅ COMPLETE                 | 100%       |
+| Phase 6: Actions     | 5      | Not Started (Stub in place) | 0%         |
+| Phase 7: Testing     | 4      | Not Started (Stub in place) | 0%         |
+| Phase 8: Integration | 3      | Not Started                 | 0%         |
+| Phase 9: Discovery   | 5      | Not Started                 | 0%         |
+| **TOTAL**            | **47** | Phase 1-5 Complete          | 63.8%      |
 
 ## Assignment Notes
 
