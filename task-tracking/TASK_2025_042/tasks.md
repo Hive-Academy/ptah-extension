@@ -127,12 +127,12 @@
 
 ---
 
-## Batch 2: Agent Caching Enhancement ⏸️ PENDING
+## Batch 2: Agent Caching Enhancement 🔄 IN PROGRESS
 
 **Developer**: frontend-developer
 **Tasks**: 2 | **Dependencies**: Batch 1 complete (pattern established)
 
-### Task 2.1: Add client-side caching to AgentDiscoveryFacade ⏸️ PENDING
+### Task 2.1: Add client-side caching to AgentDiscoveryFacade 🔄 IMPLEMENTED
 
 **File**: D:\projects\ptah-extension\libs\frontend\core\src\lib\services\agent-discovery.facade.ts
 **Spec Reference**: implementation-plan.md:206-302 (Component 2)
@@ -187,7 +187,7 @@
 
 ---
 
-### Task 2.2: Remove arbitrary item limits from AgentDiscoveryFacade.searchAgents() ⏸️ PENDING
+### Task 2.2: Remove arbitrary item limits from AgentDiscoveryFacade.searchAgents() 🔄 IMPLEMENTED
 
 **File**: D:\projects\ptah-extension\libs\frontend\core\src\lib\services\agent-discovery.facade.ts
 **Dependencies**: Task 2.1

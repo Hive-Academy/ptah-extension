@@ -15,14 +15,22 @@ export class AgentDiscoveryFacade {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly _isLoading = signal(false);
   private readonly _agents = signal<AgentSuggestion[]>([]);
+  private readonly _isCached = signal(false);
 
   readonly isLoading = computed(() => this._isLoading());
   readonly agents = computed(() => this._agents());
+  readonly isCached = computed(() => this._isCached());
 
   /**
    * Fetch all agents from backend
    */
   async fetchAgents(): Promise<void> {
+    // Cache check - skip RPC if already cached
+    if (this._isCached()) {
+      console.log('[AgentDiscoveryFacade] Cache hit, skipping RPC');
+      return;
+    }
+
     this._isLoading.set(true);
 
     try {
@@ -46,6 +54,10 @@ export class AgentDiscoveryFacade {
                 : '👤',
           }))
         );
+        // Only mark cache as valid when we have actual data
+        if (result.data.agents.length > 0) {
+          this._isCached.set(true);
+        }
       } else if (result.error) {
         console.warn('[AgentDiscoveryFacade] Discovery failed:', result.error);
         this._agents.set([]);
@@ -63,16 +75,23 @@ export class AgentDiscoveryFacade {
    */
   searchAgents(query: string): AgentSuggestion[] {
     if (!query) {
-      return this._agents().slice(0, 10);
+      return this._agents();
     }
 
     const lowerQuery = query.toLowerCase();
-    return this._agents()
-      .filter(
-        (a) =>
-          a.name.toLowerCase().includes(lowerQuery) ||
-          a.description.toLowerCase().includes(lowerQuery)
-      )
-      .slice(0, 20);
+    return this._agents().filter(
+      (a) =>
+        a.name.toLowerCase().includes(lowerQuery) ||
+        a.description.toLowerCase().includes(lowerQuery)
+    );
+  }
+
+  /**
+   * Clear cached agents and force refetch on next request
+   */
+  clearCache(): void {
+    this._isCached.set(false);
+    this._agents.set([]);
+    console.log('[AgentDiscoveryFacade] Cache cleared');
   }
 }
