@@ -1,13 +1,22 @@
 import {
   Directive,
   ElementRef,
-  HostListener,
   inject,
   input,
   output,
-  signal,
-  OnDestroy,
+  OnInit,
+  DestroyRef,
 } from '@angular/core';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { fromEvent, combineLatest } from 'rxjs';
+import {
+  map,
+  filter,
+  debounceTime,
+  distinctUntilChanged,
+  startWith,
+  pairwise,
+} from 'rxjs/operators';
 
 /**
  * Event emitted when @ trigger is detected
@@ -19,7 +28,20 @@ export interface AtTriggerEvent {
 }
 
 /**
+ * Internal state for @ trigger detection
+ */
+interface AtTriggerState {
+  isActive: boolean;
+  query: string;
+  cursorPosition: number;
+  triggerPosition: number;
+}
+
+/**
  * Directive that detects @ trigger in textarea for file/agent autocomplete
+ *
+ * Complexity Level: 2 (RxJS pipeline with debouncing)
+ * Patterns: Signal-based inputs/outputs, RxJS reactive streams
  *
  * Responsibilities:
  * - Listen for input events on host textarea
@@ -27,36 +49,39 @@ export interface AtTriggerEvent {
  * - Extract query text after @
  * - Emit events for parent component to handle dropdown
  * - Debounce triggered events by 150ms
+ * - Emit close immediately when trigger is removed
  *
  * Usage:
  * ```html
  * <textarea
- *   [ptahAtTrigger]="true"
- *   (triggered)="handleAtTrigger($event)"
- *   (closed)="closeDropdown()"
- *   (queryChanged)="updateQuery($event)"
+ *   ptahAtTrigger
+ *   (atTriggered)="handleAtTrigger($event)"
+ *   (atClosed)="closeDropdown()"
  * ></textarea>
  * ```
  *
  * @example
  * // User types: "hello @fi"
- * // Emits: triggered({ query: "fi", cursorPosition: 9, triggerPosition: 6 })
+ * // Emits: atTriggered({ query: "fi", cursorPosition: 9, triggerPosition: 6 })
  *
  * // User types: "hello @f i"
- * // Emits: closed() - whitespace in query
+ * // Emits: atClosed() - whitespace in query
  */
 @Directive({
   selector: '[ptahAtTrigger]',
-  standalone: true,
 })
-export class AtTriggerDirective implements OnDestroy {
-  private readonly elementRef =
-    inject<ElementRef<HTMLTextAreaElement>>(ElementRef);
+export class AtTriggerDirective implements OnInit {
+  private readonly elementRef = inject(ElementRef<HTMLTextAreaElement>);
+  private readonly destroyRef = inject(DestroyRef);
 
   /**
    * Enable/disable the directive
    */
   readonly enabled = input(true);
+
+  // Convert signal to observable in injection context (field initializer)
+  // CRITICAL: toObservable() uses inject() internally, must be called here, not in ngOnInit
+  private readonly enabled$ = toObservable(this.enabled);
 
   /**
    * Emitted when @ trigger is detected with valid query
@@ -70,51 +95,89 @@ export class AtTriggerDirective implements OnDestroy {
    */
   readonly atClosed = output<void>();
 
-  /**
-   * Emitted when query text changes
-   * NOT debounced - immediate
-   */
-  readonly atQueryChanged = output<string>();
+  private readonly DEBOUNCE_DELAY_MS = 150;
 
-  /**
-   * Debounce timer for triggered events
-   */
-  private debounceTimer = signal<ReturnType<typeof setTimeout> | null>(null);
-
-  /**
-   * Last detected trigger position
-   */
-  private lastTriggerPosition = signal<number>(-1);
-
-  /**
-   * Listen for input events on the host textarea
-   */
-  @HostListener('input', ['$event'])
-  onInput(event: Event): void {
-    if (!this.enabled()) {
-      return;
-    }
-
-    const textarea = event.target as HTMLTextAreaElement;
-    const text = textarea.value;
-    const cursorPosition = textarea.selectionStart;
-
-    this.detectAtTrigger(text, cursorPosition);
+  ngOnInit(): void {
+    console.log('[AtTriggerDirective] ngOnInit called');
+    this.setupInputPipeline();
   }
 
   /**
-   * Detect @ trigger and emit appropriate events
+   * Setup RxJS pipeline for input event handling
+   *
+   * Flow:
+   * 1. Listen to input events on textarea
+   * 2. Detect @ trigger at start or after whitespace
+   * 3. Map to trigger state (isActive, query, cursorPosition, triggerPosition)
+   * 4. Combine with enabled signal
+   * 5. Filter when disabled
+   * 6. Track state transitions for close detection
+   * 7. Debounce triggered events, emit close immediately
+   */
+  private setupInputPipeline(): void {
+    const textarea = this.elementRef.nativeElement;
+
+    // Stream of input events mapped to trigger state
+    const inputState$ = fromEvent<InputEvent>(textarea, 'input').pipe(
+      map((): AtTriggerState => this.detectAtTrigger(textarea)),
+      startWith({
+        isActive: false,
+        query: '',
+        cursorPosition: 0,
+        triggerPosition: -1,
+      } as AtTriggerState)
+    );
+
+    // Combined stream that respects enabled state
+    const triggerState$ = combineLatest([inputState$, this.enabled$]).pipe(
+      filter(([, enabled]) => enabled),
+      map(([state]) => state),
+      takeUntilDestroyed(this.destroyRef)
+    );
+
+    // Track state transitions to detect open/close
+    triggerState$
+      .pipe(pairwise(), takeUntilDestroyed(this.destroyRef))
+      .subscribe(([prev, curr]) => {
+        // Emit close immediately when transitioning from active to inactive
+        if (prev.isActive && !curr.isActive) {
+          this.atClosed.emit();
+        }
+      });
+
+    // Debounced stream for triggered events (only when active)
+    triggerState$
+      .pipe(
+        filter((state) => state.isActive),
+        debounceTime(this.DEBOUNCE_DELAY_MS),
+        distinctUntilChanged((a, b) => a.query === b.query),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((state) => {
+        console.log('[AtTriggerDirective] atTriggered emitted', {
+          query: state.query,
+        });
+        this.atTriggered.emit({
+          query: state.query,
+          cursorPosition: state.cursorPosition,
+          triggerPosition: state.triggerPosition,
+        });
+      });
+  }
+
+  /**
+   * Detect @ trigger and return state
    *
    * Logic:
    * 1. Find @ symbol before cursor position
    * 2. Check if @ is at start OR preceded by whitespace
    * 3. Extract query after @ (until cursor or next whitespace)
-   * 4. If query contains whitespace → emit closed()
-   * 5. Otherwise → debounce and emit triggered()
+   * 4. If query contains whitespace → inactive
+   * 5. Otherwise → active with query
    */
-  private detectAtTrigger(text: string, cursorPosition: number): void {
-    // Clear any pending debounce timer
-    this.clearDebounceTimer();
+  private detectAtTrigger(textarea: HTMLTextAreaElement): AtTriggerState {
+    const text = textarea.value;
+    const cursorPosition = textarea.selectionStart;
 
     // Find the last @ before cursor
     const textBeforeCursor = text.substring(0, cursorPosition);
@@ -122,9 +185,12 @@ export class AtTriggerDirective implements OnDestroy {
 
     // No @ found
     if (lastAtIndex === -1) {
-      this.lastTriggerPosition.set(-1);
-      this.atClosed.emit();
-      return;
+      return {
+        isActive: false,
+        query: '',
+        cursorPosition,
+        triggerPosition: -1,
+      };
     }
 
     // Check if @ is at start OR preceded by whitespace
@@ -132,55 +198,34 @@ export class AtTriggerDirective implements OnDestroy {
       lastAtIndex === 0 || /\s/.test(text[lastAtIndex - 1]);
 
     if (!isValidTriggerPosition) {
-      this.lastTriggerPosition.set(-1);
-      this.atClosed.emit();
-      return;
+      return {
+        isActive: false,
+        query: '',
+        cursorPosition,
+        triggerPosition: -1,
+      };
     }
 
     // Extract query after @
     const queryStart = lastAtIndex + 1;
     const queryText = text.substring(queryStart, cursorPosition);
 
-    // If query contains whitespace, close the trigger
+    // If query contains whitespace, not active
     if (/\s/.test(queryText)) {
-      this.lastTriggerPosition.set(-1);
-      this.atClosed.emit();
-      return;
+      return {
+        isActive: false,
+        query: '',
+        cursorPosition,
+        triggerPosition: -1,
+      };
     }
 
     // Valid trigger detected
-    this.lastTriggerPosition.set(lastAtIndex);
-
-    // Emit query change immediately
-    this.atQueryChanged.emit(queryText);
-
-    // Debounce the triggered event
-    const timerId = setTimeout(() => {
-      this.atTriggered.emit({
-        query: queryText,
-        cursorPosition,
-        triggerPosition: lastAtIndex,
-      });
-    }, 150);
-
-    this.debounceTimer.set(timerId);
-  }
-
-  /**
-   * Clear debounce timer if exists
-   */
-  private clearDebounceTimer(): void {
-    const timerId = this.debounceTimer();
-    if (timerId !== null) {
-      clearTimeout(timerId);
-      this.debounceTimer.set(null);
-    }
-  }
-
-  /**
-   * Cleanup on directive destroy
-   */
-  ngOnDestroy(): void {
-    this.clearDebounceTimer();
+    return {
+      isActive: true,
+      query: queryText,
+      cursorPosition,
+      triggerPosition: lastAtIndex,
+    };
   }
 }

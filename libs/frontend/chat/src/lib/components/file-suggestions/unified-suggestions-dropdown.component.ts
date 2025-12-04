@@ -114,27 +114,37 @@ export type SuggestionItem =
           >
             <span class="text-xl">{{ getIcon(suggestion) }}</span>
 
-            <!-- Badge wrapper for name based on type -->
-            @if (suggestion.type === 'command') {
-            <span class="badge badge-sm badge-primary">{{
-              getName(suggestion)
-            }}</span>
-            } @if (suggestion.type === 'agent') {
-            <span class="badge badge-sm badge-secondary">{{
-              getName(suggestion)
-            }}</span>
-            } @if (suggestion.type === 'file') {
-            <span class="badge badge-sm badge-ghost">{{
-              getName(suggestion)
-            }}</span>
-            }
-
-            <!-- Description only (no stacking) -->
-            <div class="flex-1 min-w-0">
-              <div class="text-xs text-base-content/60 truncate">
-                {{ getDescription(suggestion) }}
+            <!-- Content area: File shows name+path stacked, Command/Agent show badges -->
+            <div class="flex-1 min-w-0 flex items-center gap-2">
+              @if (suggestion.type === 'file') {
+              <!-- Files: Name prominent, directory secondary -->
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-medium truncate">
+                  {{ getName(suggestion) }}
+                </div>
+                <div class="text-xs text-base-content/60 truncate">
+                  {{ getDescription(suggestion) }}
+                </div>
               </div>
+              } @else {
+              <!-- Commands/Agents: Badge for name, description alongside -->
+              @if (suggestion.type === 'command') {
+              <span class="badge badge-sm badge-primary">{{
+                getName(suggestion)
+              }}</span>
+              } @if (suggestion.type === 'agent') {
+              <span class="badge badge-sm badge-secondary">{{
+                getName(suggestion)
+              }}</span>
+              }
+              <div class="flex-1 min-w-0">
+                <div class="text-xs text-base-content/60 truncate">
+                  {{ getDescription(suggestion) }}
+                </div>
+              </div>
+              }
             </div>
+
             @if (suggestion.type === 'agent' && suggestion.scope === 'builtin')
             {
             <span class="badge badge-accent badge-sm">Built-in</span>
