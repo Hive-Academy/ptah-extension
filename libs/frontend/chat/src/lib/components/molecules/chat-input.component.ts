@@ -99,13 +99,11 @@ import {
             (slashClosed)="handleSlashClosed()"
           ></textarea>
 
-          <!-- Unified Suggestions Dropdown -->
+          <!-- Unified Suggestions Dropdown - positioned above textarea -->
           @if (showSuggestions()) {
           <ptah-unified-suggestions-dropdown
             [suggestions]="filteredSuggestions()"
             [isLoading]="isLoadingSuggestions()"
-            [positionTop]="dropdownPosition().top"
-            [positionLeft]="dropdownPosition().left"
             [showTabs]="suggestionMode() === 'at-trigger'"
             [activeCategory]="activeCategory()"
             (suggestionSelected)="handleSuggestionSelected($event)"
@@ -211,6 +209,12 @@ export class ChatInputComponent {
     const query = this._currentQuery();
     const category = this._activeCategory();
 
+    console.log('[ChatInputComponent] filteredSuggestions computed', {
+      mode,
+      query,
+      category,
+    });
+
     if (mode === 'at-trigger') {
       // @ trigger: Files + Agents
       const files = this.filePicker.searchFiles(query).map((f) => {
@@ -229,6 +233,11 @@ export class ChatInputComponent {
         ...a,
       }));
 
+      console.log('[ChatInputComponent] @ trigger results', {
+        filesCount: files.length,
+        agentsCount: agents.length,
+      });
+
       // Category filtering
       if (category === 'files') return files;
       if (category === 'agents') return agents;
@@ -237,25 +246,18 @@ export class ChatInputComponent {
 
     if (mode === 'slash-trigger') {
       // / trigger: Commands only
-      return this.commandDiscovery.searchCommands(query).map((c) => ({
+      const commands = this.commandDiscovery.searchCommands(query).map((c) => ({
         type: 'command' as const,
         ...c,
       }));
+
+      console.log('[ChatInputComponent] / trigger results', {
+        commandsCount: commands.length,
+      });
+      return commands;
     }
 
     return [];
-  });
-
-  readonly dropdownPosition = computed(() => {
-    // Calculate dropdown position relative to textarea using signal-based viewChild
-    const textareaEl = this.textareaRef()?.nativeElement;
-    if (!textareaEl) return { top: 0, left: 0 };
-
-    const rect = textareaEl.getBoundingClientRect();
-    return {
-      top: rect.bottom + 4,
-      left: rect.left,
-    };
   });
 
   /**
@@ -298,9 +300,17 @@ export class ChatInputComponent {
    * Handle / trigger from SlashTriggerDirective (debounced)
    */
   handleSlashTriggered(event: SlashTriggerEvent): void {
+    console.log('[ChatInputComponent] handleSlashTriggered called', {
+      query: event.query,
+    });
     this._suggestionMode.set('slash-trigger');
     this._currentQuery.set(event.query);
     this._showSuggestions.set(true);
+    console.log('[ChatInputComponent] State after slashTriggered', {
+      suggestionMode: this._suggestionMode(),
+      showSuggestions: this._showSuggestions(),
+      query: this._currentQuery(),
+    });
     this.fetchCommandSuggestions();
   }
 
@@ -340,6 +350,7 @@ export class ChatInputComponent {
    * Fetch suggestions for / trigger (commands)
    */
   private async fetchCommandSuggestions(): Promise<void> {
+    console.log('[ChatInputComponent] fetchCommandSuggestions called');
     this._isLoadingSuggestions.set(true);
     try {
       await this.commandDiscovery.fetchCommands();
@@ -546,5 +557,23 @@ export class ChatInputComponent {
         this.chatStore.clearQueueRestoreSignal();
       }
     });
+
+    // Session change monitoring - clear caches on session change
+    effect(
+      () => {
+        const activeTab = this.chatStore.activeTab();
+
+        if (activeTab) {
+          // Clear both autocomplete caches when session changes
+          this.commandDiscovery.clearCache();
+          this.agentDiscovery.clearCache();
+
+          console.log('[ChatInputComponent] Session changed, caches cleared', {
+            sessionId: activeTab.id,
+          });
+        }
+      },
+      { allowSignalWrites: true }
+    );
   }
 }
