@@ -41,3 +41,4 @@
 | TASK_2025_041 | Claude Agent SDK Research - Comprehensive analysis of SDK capabilities, migration strategy, and hybrid CLI+SDK approach        | ✅ Complete                              | researcher-expert  | 2025-12-04 | 2025-12-04 |
 | TASK_2025_043 | License Server Implementation - NestJS backend with Paymob integration, PostgreSQL, license verification API                   | 📋 Planned                               | team-leader        | 2025-12-04 | -          |
 | TASK_2025_044 | Claude Agent SDK Integration - SdkAgentAdapter with custom VS Code tools, dual auth (API key + OAuth token)                    | 📋 Planned                               | team-leader        | 2025-12-04 | -          |
+| TASK_2025_045 | Rich Text Input Component - Replace textarea with contenteditable mention/command badges (research & design)                   | 🔄 In Progress (Research)                | orchestrator       | 2025-12-04 | -          |
