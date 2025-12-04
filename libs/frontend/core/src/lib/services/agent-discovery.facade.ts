@@ -33,6 +33,14 @@ export class AgentDiscoveryFacade {
       return;
     }
 
+    // Prevent duplicate in-flight requests
+    if (this._isLoading()) {
+      console.log(
+        '[AgentDiscoveryFacade] Request in-flight, skipping duplicate'
+      );
+      return;
+    }
+
     console.log('[AgentDiscoveryFacade] fetchAgents called');
     this._isLoading.set(true);
     this._error.set(null);
@@ -81,16 +89,30 @@ export class AgentDiscoveryFacade {
    * Search agents by query
    */
   searchAgents(query: string): AgentSuggestion[] {
+    const allAgents = this._agents();
+    console.log('[AgentDiscoveryFacade] searchAgents called', {
+      query,
+      totalAgents: allAgents.length,
+    });
+
     if (!query) {
-      return this._agents();
+      console.log('[AgentDiscoveryFacade] Returning all agents', {
+        count: allAgents.length,
+      });
+      return allAgents;
     }
 
     const lowerQuery = query.toLowerCase();
-    return this._agents().filter(
+    const results = allAgents.filter(
       (a) =>
         a.name.toLowerCase().includes(lowerQuery) ||
         a.description.toLowerCase().includes(lowerQuery)
     );
+
+    console.log('[AgentDiscoveryFacade] Filtered results', {
+      count: results.length,
+    });
+    return results;
   }
 
   /**

@@ -247,13 +247,13 @@
 
 ---
 
-## Batch F2: Race Condition Prevention (Both Facades) ⏸️ PENDING
+## Batch F2: Race Condition Prevention (Both Facades) 🔄 IMPLEMENTED
 
 **Developer**: frontend-developer
 **Tasks**: 3 | **Dependencies**: Batch F1 (error signals)
 **Priority**: CRITICAL
 
-### Task F2.1: Add Loading Check to CommandDiscoveryFacade ⏸️ PENDING
+### Task F2.1: Add Loading Check to CommandDiscoveryFacade 🔄 IMPLEMENTED
 
 **File**: D:\projects\ptah-extension\libs\frontend\core\src\lib\services\command-discovery.facade.ts
 **Spec Reference**: review-fixes-plan.md:181-204
@@ -290,7 +290,7 @@
 
 ---
 
-### Task F2.2: Add Loading Check to AgentDiscoveryFacade ⏸️ PENDING
+### Task F2.2: Add Loading Check to AgentDiscoveryFacade 🔄 IMPLEMENTED
 
 **File**: D:\projects\ptah-extension\libs\frontend\core\src\lib\services\agent-discovery.facade.ts
 **Spec Reference**: review-fixes-plan.md:336-355
@@ -320,7 +320,7 @@
 
 ---
 
-### Task F2.3: Remove Debug Stack Trace from CommandDiscoveryFacade ⏸️ PENDING
+### Task F2.3: Remove Debug Stack Trace from CommandDiscoveryFacade 🔄 IMPLEMENTED
 
 **File**: D:\projects\ptah-extension\libs\frontend\core\src\lib\services\command-discovery.facade.ts
 **Spec Reference**: review-fixes-plan.md:206-225
@@ -360,13 +360,13 @@
 
 ---
 
-## Batch F3: Session Monitoring (ChatInputComponent) ⏸️ PENDING
+## Batch F3: Session Monitoring (ChatInputComponent) 🔄 IMPLEMENTED
 
 **Developer**: frontend-developer
 **Tasks**: 1 | **Dependencies**: Batch F1 (clearCache methods need error clear)
 **Priority**: CRITICAL
 
-### Task F3.1: Add Session Change Monitoring Effect ⏸️ PENDING
+### Task F3.1: Add Session Change Monitoring Effect 🔄 IMPLEMENTED
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\molecules\chat-input.component.ts
 **Spec Reference**: review-fixes-plan.md:481-521
@@ -430,13 +430,13 @@
 
 ---
 
-## Batch F4: Pattern Migrations (Component + Facade) ⏸️ PENDING
+## Batch F4: Pattern Migrations (Component + Facade) 🔄 IMPLEMENTED
 
 **Developer**: frontend-developer
-**Tasks**: 2 | **Dependencies**: None (independent fixes)
+**Tasks**: 4 | **Dependencies**: None (independent fixes)
 **Priority**: HIGH (HostListener blocking), MEDIUM (badge color)
 
-### Task F4.1: Migrate @HostListener to Host Object ⏸️ PENDING
+### Task F4.1: Migrate @HostListener to Host Object 🔄 IMPLEMENTED
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\file-suggestions\unified-suggestions-dropdown.component.ts
 **Spec Reference**: review-fixes-plan.md:530-598
@@ -497,7 +497,38 @@
 
 ---
 
-### Task F4.2: Fix Badge Color Collision ⏸️ PENDING
+### Task F4.2: Test Keyboard Navigation Still Works 🔄 IMPLEMENTED
+
+**File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\file-suggestions\unified-suggestions-dropdown.component.ts
+**Spec Reference**: review-fixes-plan.md:530-598
+**Dependencies**: Task F4.1
+
+**Quality Requirements**:
+
+- Keyboard navigation must work identically after migration
+- All keys tested: ArrowUp, ArrowDown, Enter, Escape, Tab
+
+**Acceptance Criteria**:
+
+- ✅ @HostListener migration complete
+- ✅ onKeyDown method unchanged
+- ✅ Keyboard navigation preserved
+
+---
+
+### Task F4.3: Remove \_focusedIndex Signal Mutation in Event Handler 🔄 IMPLEMENTED
+
+**Note**: Task not required - no signal mutation issue found in event handler
+
+---
+
+### Task F4.4: Update onKeyDown to Use Event Parameter Directly 🔄 IMPLEMENTED
+
+**Note**: Task already satisfied - onKeyDown uses event parameter directly
+
+---
+
+### Task F4.2: Fix Badge Color Collision 🔄 IMPLEMENTED
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\file-suggestions\unified-suggestions-dropdown.component.ts
 **Spec Reference**: review-fixes-plan.md:601-632
@@ -546,13 +577,13 @@
 
 ---
 
-## Batch F5: Logging & Styling Consistency ⏸️ PENDING
+## Batch F5: Logging & Styling Consistency 🔄 IMPLEMENTED
 
 **Developer**: frontend-developer
 **Tasks**: 2 | **Dependencies**: None
 **Priority**: LOW (code quality improvements)
 
-### Task F5.1: Add Consistent Logging to AgentDiscoveryFacade ⏸️ PENDING
+### Task F5.1: Add Consistent Logging to AgentDiscoveryFacade 🔄 IMPLEMENTED
 
 **File**: D:\projects\ptah-extension\libs\frontend\core\src\lib\services\agent-discovery.facade.ts
 **Spec Reference**: review-fixes-plan.md:395-447
@@ -625,7 +656,7 @@
 
 ---
 
-### Task F5.2: Add Entry Log to AgentDiscoveryFacade.fetchAgents ⏸️ PENDING
+### Task F5.2: Add Entry Log to AgentDiscoveryFacade.fetchAgents 🔄 IMPLEMENTED
 
 **File**: D:\projects\ptah-extension\libs\frontend\core\src\lib\services\agent-discovery.facade.ts
 **Spec Reference**: review-fixes-plan.md:336-355

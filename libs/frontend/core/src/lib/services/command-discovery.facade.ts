@@ -34,6 +34,14 @@ export class CommandDiscoveryFacade {
       return;
     }
 
+    // Prevent duplicate in-flight requests
+    if (this._isLoading()) {
+      console.log(
+        '[CommandDiscoveryFacade] Request in-flight, skipping duplicate'
+      );
+      return;
+    }
+
     console.log('[CommandDiscoveryFacade] fetchCommands called');
     this._isLoading.set(true);
     this._error.set(null);
