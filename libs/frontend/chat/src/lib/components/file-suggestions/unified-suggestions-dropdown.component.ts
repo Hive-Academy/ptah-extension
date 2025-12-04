@@ -45,9 +45,7 @@ export type SuggestionItem =
   imports: [CommonModule],
   template: `
     <div
-      class="dropdown-content menu bg-base-100 rounded-box shadow-lg border border-base-300 w-80 max-h-96 overflow-hidden z-50"
-      [style.top.px]="positionTop()"
-      [style.left.px]="positionLeft()"
+      class="dropdown-content menu bg-base-100 rounded-box shadow-lg border border-base-300 w-full max-h-64 overflow-hidden z-50"
       role="listbox"
     >
       <!-- Category Tabs (only for @ trigger mode) -->
@@ -113,10 +111,24 @@ export type SuggestionItem =
             [attr.aria-selected]="i === focusedIndex()"
           >
             <span class="text-xl">{{ getIcon(suggestion) }}</span>
+
+            <!-- Badge wrapper for name based on type -->
+            @if (suggestion.type === 'command') {
+            <span class="badge badge-sm badge-primary">{{
+              getName(suggestion)
+            }}</span>
+            } @if (suggestion.type === 'agent') {
+            <span class="badge badge-sm badge-secondary">{{
+              getName(suggestion)
+            }}</span>
+            } @if (suggestion.type === 'file') {
+            <span class="badge badge-sm badge-ghost">{{
+              getName(suggestion)
+            }}</span>
+            }
+
+            <!-- Description only (no stacking) -->
             <div class="flex-1 min-w-0">
-              <div class="font-medium text-sm truncate">
-                {{ getName(suggestion) }}
-              </div>
               <div class="text-xs text-base-content/60 truncate">
                 {{ getDescription(suggestion) }}
               </div>
@@ -137,9 +149,13 @@ export type SuggestionItem =
   `,
   styles: [
     `
-      /* Position dropdown absolutely */
+      /* Position dropdown absolutely above the textarea */
       .dropdown-content {
         position: absolute;
+        bottom: 100%;
+        left: 0;
+        right: 0;
+        margin-bottom: 4px;
         z-index: 1000;
       }
 
@@ -168,10 +184,8 @@ export class UnifiedSuggestionsDropdownComponent {
   // ANGULAR 20+ PATTERN: input() for reactive inputs
   readonly suggestions = input.required<SuggestionItem[]>();
   readonly isLoading = input(false);
-  readonly positionTop = input(0);
-  readonly positionLeft = input(0);
-  readonly showTabs = input(false); // NEW: Show tabs for @ mode
-  readonly activeCategory = input<'all' | 'files' | 'agents'>('all'); // NEW: Active tab
+  readonly showTabs = input(false); // Show tabs for @ mode
+  readonly activeCategory = input<'all' | 'files' | 'agents'>('all'); // Active tab
 
   // ANGULAR 20+ PATTERN: output() for event emitters
   readonly suggestionSelected = output<SuggestionItem>();

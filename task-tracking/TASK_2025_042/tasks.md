@@ -220,12 +220,12 @@
 
 ---
 
-## Batch 3: Visual Badge Enhancement ⏸️ PENDING
+## Batch 3: Visual Badge Enhancement 🔄 IN PROGRESS
 
 **Developer**: frontend-developer
 **Tasks**: 2 | **Dependencies**: None (independent of caching)
 
-### Task 3.1: Add DaisyUI badge wrappers for command names ⏸️ PENDING
+### Task 3.1: Add DaisyUI badge wrappers for command names 🔄 IMPLEMENTED
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\file-suggestions\unified-suggestions-dropdown.component.ts
 **Spec Reference**: implementation-plan.md:305-378 (Component 3)
@@ -276,7 +276,7 @@ Replace lines 114-121 with badge wrappers:
 
 ---
 
-### Task 3.2: Add DaisyUI badge wrappers for agent and file names ⏸️ PENDING
+### Task 3.2: Add DaisyUI badge wrappers for agent and file names 🔄 IMPLEMENTED
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\file-suggestions\unified-suggestions-dropdown.component.ts
 **Dependencies**: Task 3.1
