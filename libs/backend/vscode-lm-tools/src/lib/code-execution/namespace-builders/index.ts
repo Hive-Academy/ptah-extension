@@ -28,11 +28,12 @@ export {
   type CoreNamespaceDependencies,
 } from './core-namespace.builders';
 
-// System namespaces (ai, files, commands)
+// System namespaces (ai, files, commands) + help method
 export {
   buildAINamespace,
   buildFilesNamespace,
   buildCommandsNamespace,
+  buildHelpMethod,
   type SystemNamespaceDependencies,
 } from './system-namespace.builders';
 

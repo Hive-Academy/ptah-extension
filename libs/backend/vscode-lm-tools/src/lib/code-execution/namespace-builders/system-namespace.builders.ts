@@ -19,6 +19,108 @@ export interface SystemNamespaceDependencies {
 }
 
 /**
+ * Help documentation for Ptah namespaces
+ */
+export const HELP_DOCS: Record<string, string> = {
+  overview: `Ptah MCP Server - 13 Namespaces:
+
+WORKSPACE: workspace, search, symbols, files, diagnostics, git
+ANALYSIS: context, project, relevance, ast
+AI: ptah.ai.* (chat, tokens, tools, specialized tasks)
+IDE: ptah.ai.ide.* (lsp, editor, actions, testing)
+
+Use ptah.help('namespace') for details on any namespace.`,
+
+  ai: `ptah.ai - Enhanced LLM Capabilities
+
+CHAT:
+- chat(message, model?) - Single message
+- chatWithHistory(messages[], model?) - Multi-turn
+- chatStream(message, onChunk, model?) - Streaming
+- chatWithSystem(message, systemPrompt, model?) - Custom system prompt
+- invokeAgent(agentPath, task, model?) - Delegate to cheap model using .md file
+
+TOKEN INTELLIGENCE:
+- selectModel(family?) - Get models with maxInputTokens, vendor, version
+- countTokens(text, model?) - Count tokens
+- countFileTokens(file, model?) - Count file tokens
+- fitsInContext(content, model?, reserve?) - Check if fits (default reserve: 4000)
+
+TOOLS:
+- getTools() - List VS Code LM tools
+- invokeTool(name, input) - Invoke tool
+- chatWithTools(message, toolNames[], model?) - Chat with tool access
+
+SPECIALIZED TASKS:
+- summarize(content, options?) - Summarize content
+- explain(code, options?) - Explain code
+- review(code, options?) - Code review
+- transform(code, instruction, model?) - Transform code
+- generate(description, options?) - Generate code
+
+COST OPTIMIZATION:
+Use invokeAgent() with 'gpt-4o-mini' for routine tasks (150x cheaper than Opus).
+Example: ptah.ai.invokeAgent('.claude/agents/code-reviewer.md', 'Review this', 'gpt-4o-mini')`,
+
+  'ai.ide.lsp': `ptah.ai.ide.lsp - Language Server Protocol
+
+- getDefinition(file, line, col) - Go to definition
+- getReferences(file, line, col) - Find all references
+- getHover(file, line, col) - Get type info and docs
+- getTypeDefinition(file, line, col) - Go to type definition
+- getSignatureHelp(file, line, col) - Function signatures
+
+All methods use 0-based line/column. Returns [] if unavailable.`,
+
+  'ai.ide.editor': `ptah.ai.ide.editor - Editor State
+
+- getActive() - Active file, cursor, selection
+- getOpenFiles() - All open file paths
+- getDirtyFiles() - Unsaved files
+- getRecentFiles(limit?) - Recently accessed files
+- getVisibleRange() - Visible code range
+
+Returns null/[] when no editor active.`,
+
+  'ai.ide.actions': `ptah.ai.ide.actions - Refactoring Operations
+
+- getAvailable(file, line) - List code actions at position
+- apply(file, line, actionTitle) - Apply code action by title
+- rename(file, line, col, newName) - Rename symbol workspace-wide
+- organizeImports(file) - Sort and clean imports
+- fixAll(file, kind?) - Apply all auto-fixes
+
+Returns false if action unavailable, true on success.`,
+
+  'ai.ide.testing': `ptah.ai.ide.testing - Test Operations
+
+- discover() - Discover tests (requires TestController)
+- run(options?) - Run tests (requires TestController)
+- getLastResults() - Last test run results
+- getCoverage(file) - Coverage info
+
+Note: Requires test framework extension. Returns graceful defaults when unavailable.`,
+
+  workspace: `ptah.workspace - Project Analysis
+
+- analyze() - Full workspace analysis
+- getProjectType() - Detect project type
+- getFrameworks() - Detect frameworks
+- getDependencies() - Get package.json dependencies`,
+
+  context: `ptah.context - Token Budget Management
+
+- calculateBudget(files[], model?) - Calculate token budget
+- optimizeContext(files[], maxTokens) - Prioritize files
+- estimateTokens(content) - Estimate token count`,
+
+  relevance: `ptah.relevance - File Scoring
+
+- scoreFiles(query, files[]) - Score files by relevance
+- explainScore(file, query) - Explain relevance score`,
+};
+
+/**
  * Build AI namespace (MULTI-AGENT SUPPORT)
  * Exposes VS Code Language Model API for Claude CLI -> VS Code LM delegation
  * TASK_2025_039: Enhanced with advanced LLM chat, token intelligence, and specialized AI tasks
@@ -687,5 +789,27 @@ export function buildCommandsNamespace(): CommandsNamespace {
       const commands = await vscode.commands.getCommands();
       return commands.filter((c) => c.startsWith('ptah.'));
     },
+  };
+}
+
+/**
+ * Build the help method for Ptah API self-documentation
+ * Provides documentation for all Ptah namespaces at ptah.help() root level
+ */
+export function buildHelpMethod() {
+  return async (topic?: string): Promise<string> => {
+    if (!topic) {
+      return HELP_DOCS['overview'];
+    }
+
+    const doc = HELP_DOCS[topic];
+    if (!doc) {
+      const available = Object.keys(HELP_DOCS)
+        .filter((k) => k !== 'overview')
+        .join(', ');
+      return `Topic '${topic}' not found. Available: ${available}`;
+    }
+
+    return doc;
   };
 }

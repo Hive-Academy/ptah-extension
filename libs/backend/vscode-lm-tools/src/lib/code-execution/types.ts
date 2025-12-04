@@ -39,6 +39,13 @@ export interface PtahAPI {
 
   // IDE superpowers namespace (TASK_2025_039)
   ide: IDENamespace;
+
+  /**
+   * Get help documentation for Ptah API namespaces
+   * @param topic Optional topic (e.g., 'ai', 'workspace', 'ai.ide.lsp'). Omit for overview.
+   * @returns Help documentation for the specified topic
+   */
+  help(topic?: string): Promise<string>;
 }
 
 // ========================================

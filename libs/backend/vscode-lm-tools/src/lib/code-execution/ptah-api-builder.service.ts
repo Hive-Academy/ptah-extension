@@ -59,6 +59,7 @@ import {
   buildAINamespace,
   buildFilesNamespace,
   buildCommandsNamespace,
+  buildHelpMethod,
   // Analysis namespace builders
   buildContextNamespace,
   buildProjectNamespace,
@@ -176,6 +177,9 @@ export class PtahAPIBuilder {
 
       // IDE namespace (TASK_2025_039 - Phase 4: LSP implemented, Phase 5-7: stubs)
       ide: buildIDENamespace(),
+
+      // Help method at root level (ptah.help())
+      help: buildHelpMethod(),
     };
   }
 }
