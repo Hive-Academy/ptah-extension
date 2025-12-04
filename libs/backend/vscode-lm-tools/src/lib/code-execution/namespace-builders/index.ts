@@ -35,3 +35,6 @@ export {
   buildCommandsNamespace,
   type SystemNamespaceDependencies,
 } from './system-namespace.builders';
+
+// IDE namespace (lsp, editor, actions, testing)
+export { buildIDENamespace } from './ide-namespace.builder';

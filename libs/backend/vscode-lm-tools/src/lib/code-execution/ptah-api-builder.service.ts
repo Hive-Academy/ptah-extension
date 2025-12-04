@@ -65,6 +65,8 @@ import {
   buildRelevanceNamespace,
   // AST namespace builder
   buildAstNamespace,
+  // IDE namespace builder (TASK_2025_039)
+  buildIDENamespace,
 } from './namespace-builders';
 
 @injectable()
@@ -172,42 +174,8 @@ export class PtahAPIBuilder {
       // AST namespace (code structure)
       ast: buildAstNamespace(astDeps),
 
-      // IDE namespace (TASK_2025_039 - Phase 4-7, stub for now)
-      ide: {
-        lsp: {
-          getDefinition: async () => [],
-          getReferences: async () => [],
-          getHover: async () => null,
-          getTypeDefinition: async () => [],
-          getSignatureHelp: async () => null,
-        },
-        editor: {
-          getActive: async () => null,
-          getOpenFiles: async () => [],
-          getDirtyFiles: async () => [],
-          getRecentFiles: async () => [],
-          getVisibleRange: async () => null,
-        },
-        actions: {
-          getAvailable: async () => [],
-          apply: async () => false,
-          rename: async () => false,
-          organizeImports: async () => false,
-          fixAll: async () => false,
-        },
-        testing: {
-          discover: async () => [],
-          run: async () => ({
-            passed: 0,
-            failed: 0,
-            skipped: 0,
-            total: 0,
-            duration: 0,
-          }),
-          getLastResults: async () => null,
-          getCoverage: async () => null,
-        },
-      },
+      // IDE namespace (TASK_2025_039 - Phase 4: LSP implemented, Phase 5-7: stubs)
+      ide: buildIDENamespace(),
     };
   }
 }
