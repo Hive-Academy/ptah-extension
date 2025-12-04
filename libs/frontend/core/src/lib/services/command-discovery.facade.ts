@@ -17,10 +17,12 @@ export class CommandDiscoveryFacade {
   private readonly _isLoading = signal(false);
   private readonly _commands = signal<CommandSuggestion[]>([]);
   private readonly _isCached = signal(false);
+  private readonly _error = signal<string | null>(null);
 
   readonly isLoading = computed(() => this._isLoading());
   readonly commands = computed(() => this._commands());
   readonly isCached = computed(() => this._isCached());
+  readonly error = computed(() => this._error());
 
   /**
    * Fetch all commands from backend
@@ -32,11 +34,9 @@ export class CommandDiscoveryFacade {
       return;
     }
 
-    console.log(
-      '[CommandDiscoveryFacade] fetchCommands called',
-      new Error().stack
-    );
+    console.log('[CommandDiscoveryFacade] fetchCommands called');
     this._isLoading.set(true);
+    this._error.set(null);
 
     try {
       const result = await this.rpc.call<{
@@ -67,6 +67,9 @@ export class CommandDiscoveryFacade {
         this._commands.set([]);
       }
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to fetch commands';
+      this._error.set(message);
       console.error(
         '[CommandDiscoveryFacade] Failed to fetch commands:',
         error
@@ -128,6 +131,7 @@ export class CommandDiscoveryFacade {
   clearCache(): void {
     this._isCached.set(false);
     this._commands.set([]);
+    this._error.set(null);
     console.log('[CommandDiscoveryFacade] Cache cleared');
   }
 }

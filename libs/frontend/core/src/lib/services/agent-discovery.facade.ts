@@ -16,10 +16,12 @@ export class AgentDiscoveryFacade {
   private readonly _isLoading = signal(false);
   private readonly _agents = signal<AgentSuggestion[]>([]);
   private readonly _isCached = signal(false);
+  private readonly _error = signal<string | null>(null);
 
   readonly isLoading = computed(() => this._isLoading());
   readonly agents = computed(() => this._agents());
   readonly isCached = computed(() => this._isCached());
+  readonly error = computed(() => this._error());
 
   /**
    * Fetch all agents from backend
@@ -31,7 +33,9 @@ export class AgentDiscoveryFacade {
       return;
     }
 
+    console.log('[AgentDiscoveryFacade] fetchAgents called');
     this._isLoading.set(true);
+    this._error.set(null);
 
     try {
       const result = await this.rpc.call<{
@@ -63,6 +67,9 @@ export class AgentDiscoveryFacade {
         this._agents.set([]);
       }
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to fetch agents';
+      this._error.set(message);
       console.error('[AgentDiscoveryFacade] Failed to fetch agents:', error);
       this._agents.set([]);
     } finally {
@@ -92,6 +99,7 @@ export class AgentDiscoveryFacade {
   clearCache(): void {
     this._isCached.set(false);
     this._agents.set([]);
+    this._error.set(null);
     console.log('[AgentDiscoveryFacade] Cache cleared');
   }
 }
