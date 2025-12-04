@@ -7,12 +7,14 @@ import {
   ChangeDetectionStrategy,
   viewChild,
   ElementRef,
+  Injector,
 } from '@angular/core';
 import { LucideAngularModule, Send, Zap } from 'lucide-angular';
 import { ChatStore } from '../../services/chat.store';
 import {
   AutopilotStateService,
   CommandDiscoveryFacade,
+  DropdownInteractionService,
 } from '@ptah-extension/core';
 import { ModelSelectorComponent } from './model-selector.component';
 import { AutopilotPopoverComponent } from './autopilot-popover.component';
@@ -103,6 +105,7 @@ import { AgentSelectorComponent } from './agent-selector.component';
           <!-- File/Folder Suggestions Dropdown - positioned above textarea -->
           @if (showSuggestions()) {
           <ptah-unified-suggestions-dropdown
+            #suggestionsDropdown
             [suggestions]="filteredSuggestions()"
             [isLoading]="isLoadingSuggestions()"
             (suggestionSelected)="handleSuggestionSelected($event)"
@@ -171,9 +174,17 @@ export class ChatInputComponent {
   readonly filePicker = inject(FilePickerService);
   readonly commandDiscovery = inject(CommandDiscoveryFacade);
 
-  // Signal-based viewChild reference for textarea (Angular 20+ pattern)
+  // Dropdown interaction service for keyboard navigation
+  private readonly dropdownService = inject(DropdownInteractionService);
+  private readonly elementRef = inject(ElementRef);
+  private readonly injector = inject(Injector);
+
+  // Signal-based viewChild references (Angular 20+ pattern)
   private readonly textareaRef =
     viewChild<ElementRef<HTMLTextAreaElement>>('inputElement');
+  private readonly dropdownRef = viewChild<UnifiedSuggestionsDropdownComponent>(
+    'suggestionsDropdown'
+  );
 
   // Lucide icons
   readonly SendIcon = Send;
@@ -207,11 +218,6 @@ export class ChatInputComponent {
     const mode = this._suggestionMode();
     const query = this._currentQuery();
 
-    console.log('[ChatInputComponent] filteredSuggestions computed', {
-      mode,
-      query,
-    });
-
     if (mode === 'at-trigger') {
       // @ trigger: Files + Folders ONLY (agents moved to dedicated button)
       const files = this.filePicker.searchFiles(query).map((f) => {
@@ -227,10 +233,6 @@ export class ChatInputComponent {
         };
       });
 
-      console.log('[ChatInputComponent] @ trigger results', {
-        filesCount: files.length,
-      });
-
       return files;
     }
 
@@ -241,9 +243,6 @@ export class ChatInputComponent {
         ...c,
       }));
 
-      console.log('[ChatInputComponent] / trigger results', {
-        commandsCount: commands.length,
-      });
       return commands;
     }
 
@@ -291,18 +290,10 @@ export class ChatInputComponent {
    * Handle / trigger from SlashTriggerDirective (debounced)
    */
   handleSlashTriggered(event: SlashTriggerEvent): void {
-    console.log('[ChatInputComponent] handleSlashTriggered called', {
-      query: event.query,
-    });
     this._suggestionMode.set('slash-trigger');
     this._currentQuery.set(event.query);
     this._triggerPosition.set(0); // Slash always starts at position 0
     this._showSuggestions.set(true);
-    console.log('[ChatInputComponent] State after slashTriggered', {
-      suggestionMode: this._suggestionMode(),
-      showSuggestions: this._showSuggestions(),
-      query: this._currentQuery(),
-    });
     this.fetchCommandSuggestions();
   }
 
@@ -339,7 +330,6 @@ export class ChatInputComponent {
    * Fetch suggestions for / trigger (commands)
    */
   private async fetchCommandSuggestions(): Promise<void> {
-    console.log('[ChatInputComponent] fetchCommandSuggestions called');
     this._isLoadingSuggestions.set(true);
     try {
       await this.commandDiscovery.fetchCommands();
@@ -371,14 +361,15 @@ export class ChatInputComponent {
 
   /**
    * Handle agent selection from AgentSelectorComponent
-   * Appends @agent-{name} to input
+   * Appends agent-{name} to input (Claude Code CLI convention)
    */
   handleAgentSelected(agentName: string): void {
     const currentValue = this._currentMessage();
+    // Format: agent-{name} (not @{name}) per Claude Code CLI convention
     const newValue =
       currentValue +
       (currentValue.endsWith(' ') || currentValue === '' ? '' : ' ') +
-      `@${agentName} `;
+      `agent-${agentName} `;
     this._currentMessage.set(newValue);
 
     // Focus textarea and update value
@@ -388,8 +379,6 @@ export class ChatInputComponent {
       textarea.focus();
       textarea.setSelectionRange(newValue.length, newValue.length);
     }
-
-    console.log('[ChatInputComponent] Agent selected:', agentName);
   }
 
   /**
@@ -504,19 +493,17 @@ export class ChatInputComponent {
 
   /**
    * Handle keyboard shortcuts
-   * - Enter: Send message
+   * - Enter: Send message (only when dropdown NOT shown)
    * - Shift+Enter: New line
-   * - Escape: Close suggestions dropdown
+   *
+   * NOTE: Dropdown keyboard navigation (ArrowUp/Down/Enter/Escape) is now
+   * handled by DropdownInteractionService at document level, which intercepts
+   * these events BEFORE they reach the textarea. This prevents the viewChild
+   * timing race and ensures keyboard events work on first keypress.
    */
   handleKeyDown(event: KeyboardEvent): void {
-    // Escape closes suggestions dropdown
-    if (event.key === 'Escape' && this.showSuggestions()) {
-      event.preventDefault();
-      this.closeSuggestions();
-      return;
-    }
-
-    // Enter sends message (if dropdown not shown)
+    // Enter sends message (only when dropdown NOT shown)
+    // Note: When dropdown is shown, service intercepts Enter before this handler
     if (event.key === 'Enter' && !event.shiftKey && !this.showSuggestions()) {
       event.preventDefault();
       this.handleSend();
@@ -626,5 +613,47 @@ export class ChatInputComponent {
       },
       { allowSignalWrites: true }
     );
+
+    // Configure dropdown interaction service for keyboard navigation
+    // This attaches document-level listeners ONLY when dropdown is open
+    // and auto-detaches when closed (zero overhead when not in use)
+    this.dropdownService.autoManageListeners(this.injector, {
+      isOpenSignal: this.showSuggestions,
+      elementRef: this.elementRef,
+      onClickOutside: () => this.closeSuggestions(),
+      keyboardNav: {
+        onArrowDown: () => {
+          const dropdown = this.dropdownRef();
+          if (!dropdown) {
+            console.warn(
+              '[ChatInputComponent] Dropdown ref not ready for ArrowDown'
+            );
+            return;
+          }
+          dropdown.navigateDown();
+        },
+        onArrowUp: () => {
+          const dropdown = this.dropdownRef();
+          if (!dropdown) {
+            console.warn(
+              '[ChatInputComponent] Dropdown ref not ready for ArrowUp'
+            );
+            return;
+          }
+          dropdown.navigateUp();
+        },
+        onEnter: () => {
+          const dropdown = this.dropdownRef();
+          if (!dropdown) {
+            console.warn(
+              '[ChatInputComponent] Dropdown ref not ready for Enter'
+            );
+            return;
+          }
+          dropdown.selectFocused();
+        },
+        onEscape: () => this.closeSuggestions(),
+      },
+    });
   }
 }
