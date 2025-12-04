@@ -21,7 +21,17 @@
     "scope-enum": [
       2,
       "always",
-      ["webview", "vscode", "deps", "release", "ci", "docs", "hooks", "scripts"]
+      [
+        "webview",
+        "vscode",
+        "vscode-lm-tools",
+        "deps",
+        "release",
+        "ci",
+        "docs",
+        "hooks",
+        "scripts"
+      ]
     ],
     "scope-case": [2, "always", "lower-case"],
     "subject-case": [

@@ -309,6 +309,7 @@ task-tracking/
 
 - `webview`: Webview (Angular SPA) changes
 - `vscode`: VS Code extension changes
+- `vscode-lm-tools`: VS Code LM tools library changes
 - `deps`: Dependency updates
 - `release`: Release-related changes
 - `ci`: CI/CD changes
