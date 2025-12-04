@@ -3,7 +3,6 @@ import {
   input,
   output,
   signal,
-  HostListener,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -43,6 +42,9 @@ export type SuggestionItem =
   selector: 'ptah-unified-suggestions-dropdown',
   standalone: true,
   imports: [CommonModule],
+  host: {
+    '(document:keydown)': 'onKeyDown($event)',
+  },
   template: `
     <div
       class="dropdown-content menu bg-base-100 rounded-box shadow-lg border border-base-300 w-full max-h-64 overflow-hidden z-50"
@@ -135,7 +137,7 @@ export type SuggestionItem =
             </div>
             @if (suggestion.type === 'agent' && suggestion.scope === 'builtin')
             {
-            <span class="badge badge-primary badge-sm">Built-in</span>
+            <span class="badge badge-accent badge-sm">Built-in</span>
             } @if (suggestion.type === 'command' && suggestion.scope ===
             'builtin') {
             <span class="badge badge-accent badge-sm">Built-in</span>
@@ -199,7 +201,6 @@ export class UnifiedSuggestionsDropdownComponent {
   readonly focusedIndex = this._focusedIndex.asReadonly();
 
   // Keyboard navigation
-  @HostListener('document:keydown', ['$event'])
   onKeyDown(event: KeyboardEvent): void {
     const suggestions = this.suggestions();
 
