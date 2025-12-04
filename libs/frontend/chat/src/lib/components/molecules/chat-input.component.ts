@@ -189,6 +189,7 @@ export class ChatInputComponent {
   >(null);
   private readonly _activeCategory = signal<'all' | 'files' | 'agents'>('all');
   private readonly _currentQuery = signal('');
+  private readonly _triggerPosition = signal(0); // Position where trigger (@, /) starts
   private readonly _selectedFiles = signal<ChatFile[]>([]);
   private readonly _isLoadingSuggestions = signal(false);
 
@@ -282,6 +283,7 @@ export class ChatInputComponent {
   handleAtTriggered(event: AtTriggerEvent): void {
     this._suggestionMode.set('at-trigger');
     this._currentQuery.set(event.query);
+    this._triggerPosition.set(event.triggerPosition);
     this._showSuggestions.set(true);
     this.fetchAtSuggestions();
   }
@@ -305,6 +307,7 @@ export class ChatInputComponent {
     });
     this._suggestionMode.set('slash-trigger');
     this._currentQuery.set(event.query);
+    this._triggerPosition.set(0); // Slash always starts at position 0
     this._showSuggestions.set(true);
     console.log('[ChatInputComponent] State after slashTriggered', {
       suggestionMode: this._suggestionMode(),
@@ -372,11 +375,11 @@ export class ChatInputComponent {
       // Add file tag (don't insert text)
       this.addFileTag(suggestion);
     } else if (suggestion.type === 'agent') {
-      // Insert @agent-name text at cursor
-      this.insertAtCursor(`@${suggestion.name} `);
+      // Replace @query with @agent-name
+      this.replaceTrigger(`@${suggestion.name} `);
     } else if (suggestion.type === 'command') {
-      // Replace entire input with /command-name
-      this._currentMessage.set(`/${suggestion.name} `);
+      // Replace /query with /command-name
+      this.replaceTrigger(`/${suggestion.name} `);
     }
 
     this.closeSuggestions();
@@ -432,6 +435,32 @@ export class ChatInputComponent {
 
     // Move cursor after inserted text
     const newCursorPos = start + text.length;
+    textarea.setSelectionRange(newCursorPos, newCursorPos);
+  }
+
+  /**
+   * Replace trigger text with selected suggestion
+   * Used for @agent and /command autocomplete
+   */
+  private replaceTrigger(replacement: string): void {
+    const textarea = this.textareaRef()?.nativeElement;
+    if (!textarea) return;
+
+    const currentValue = this._currentMessage();
+    const triggerStart = this._triggerPosition();
+    const cursorPos = textarea.selectionStart;
+
+    // Replace text from trigger start to current cursor position
+    const newValue =
+      currentValue.substring(0, triggerStart) +
+      replacement +
+      currentValue.substring(cursorPos);
+
+    this._currentMessage.set(newValue);
+    textarea.value = newValue;
+
+    // Move cursor after replacement text
+    const newCursorPos = triggerStart + replacement.length;
     textarea.setSelectionRange(newCursorPos, newCursorPos);
   }
 
