@@ -52,7 +52,10 @@ export type SuggestionItem =
     >
       <!-- Category Tabs (only for @ trigger mode) -->
       @if (showTabs()) {
-      <div role="tablist" class="tabs tabs-boxed tabs-sm m-2 mb-0">
+      <div
+        role="tablist"
+        class="tabs tabs-boxed tabs-sm p-2 pb-0 border-b border-base-300"
+      >
         <button
           role="tab"
           class="tab"
@@ -100,7 +103,7 @@ export type SuggestionItem =
 
       <!-- Suggestions List -->
       @else {
-      <ul class="menu-compact overflow-y-auto max-h-80">
+      <ul class="menu-compact overflow-y-auto max-h-80 pt-2">
         @for (suggestion of suggestions(); track trackBy($index, suggestion);
         let i = $index) {
         <li>

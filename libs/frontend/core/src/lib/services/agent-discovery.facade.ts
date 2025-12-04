@@ -62,7 +62,7 @@ export class AgentDiscoveryFacade {
               a.scope === 'builtin'
                 ? '🤖'
                 : a.scope === 'project'
-                ? '📁'
+                ? '🛠️'
                 : '👤',
           }))
         );
