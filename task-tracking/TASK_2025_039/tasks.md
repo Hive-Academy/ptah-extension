@@ -81,15 +81,20 @@
 **Files Modified**: libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/ide-namespace.builder.ts
 **Build Status**: ✅ Passing (npx nx build vscode-lm-tools)
 **Review Status**: APPROVED by code-logic-reviewer (all 5 methods production-ready)
-**Batch 4 Commit**: [pending]
+**Batch 4 Commit**: 1447ebe
 
-### Phase 6: IDE Actions Namespace (ptah.ai.ide.actions.\*)
+### Phase 6: IDE Actions Namespace (ptah.ai.ide.actions.\*) ✅ COMPLETE
 
-- [ ] **Task 6.1**: Implement `getAvailable()` - get available code actions
-- [ ] **Task 6.2**: Implement `apply()` - apply a code action
-- [ ] **Task 6.3**: Implement `rename()` - rename symbol across workspace
-- [ ] **Task 6.4**: Implement `organizeImports()` - organize imports
-- [ ] **Task 6.5**: Implement `fixAll()` - apply all auto-fixes
+- ✅ **Task 6.1**: Implement `getAvailable()` - get available code actions (COMPLETE)
+- ✅ **Task 6.2**: Implement `apply()` - apply a code action (COMPLETE)
+- ✅ **Task 6.3**: Implement `rename()` - rename symbol across workspace (COMPLETE)
+- ✅ **Task 6.4**: Implement `organizeImports()` - organize imports (COMPLETE)
+- ✅ **Task 6.5**: Implement `fixAll()` - apply all auto-fixes (COMPLETE)
+
+**Files Modified**: libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/ide-namespace.builder.ts
+**Build Status**: ✅ Passing (npx nx build vscode-lm-tools)
+**Review Status**: APPROVED by team-leader (manual review - all 5 methods production-ready)
+**Batch 5 Commit**: [pending]
 
 ### Phase 7: IDE Testing Namespace (ptah.ai.ide.testing.\*)
 
@@ -121,11 +126,11 @@
 | Phase 3: AI Tasks    | 5      | ✅ COMPLETE                 | 100%       |
 | Phase 4: LSP         | 5      | ✅ COMPLETE                 | 100%       |
 | Phase 5: Editor      | 5      | ✅ COMPLETE                 | 100%       |
-| Phase 6: Actions     | 5      | Not Started (Stub in place) | 0%         |
+| Phase 6: Actions     | 5      | ✅ COMPLETE                 | 100%       |
 | Phase 7: Testing     | 4      | Not Started (Stub in place) | 0%         |
 | Phase 8: Integration | 3      | Not Started                 | 0%         |
 | Phase 9: Discovery   | 5      | Not Started                 | 0%         |
-| **TOTAL**            | **47** | Phase 1-5 Complete          | 63.8%      |
+| **TOTAL**            | **47** | Phase 1-6 Complete          | 74.5%      |
 
 ## Assignment Notes
 

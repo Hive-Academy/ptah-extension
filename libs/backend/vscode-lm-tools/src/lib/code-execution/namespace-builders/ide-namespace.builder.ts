@@ -18,7 +18,14 @@
  * - getRecentFiles(): Recently accessed files (via visible editors)
  * - getVisibleRange(): Visible code range in active editor
  *
- * Phase 6-7 (Actions, Testing) are stubs for future implementation.
+ * TASK_2025_039 - Phase 6: Actions Namespace Implementation (COMPLETE)
+ * - getAvailable(): Get available code actions at position
+ * - apply(): Apply a code action by title
+ * - rename(): Rename symbol across workspace
+ * - organizeImports(): Organize imports in file
+ * - fixAll(): Apply all auto-fixes with optional kind filter
+ *
+ * Phase 7 (Testing) is stub for future implementation.
  */
 
 import * as vscode from 'vscode';
@@ -466,16 +473,213 @@ function buildEditorNamespace(): EditorNamespace {
 }
 
 /**
- * Build the Actions namespace (stub for Phase 6)
- * @returns ActionsNamespace with stub implementations
+ * Build the Actions namespace for code actions and refactoring
+ * Provides access to VS Code's code action provider, rename, organize imports, and fix all
+ * @returns ActionsNamespace with all 5 action methods implemented
  */
 function buildActionsNamespace(): ActionsNamespace {
   return {
-    getAvailable: async (file, line) => [],
-    apply: async (file, line, actionTitle) => false,
-    rename: async (file, line, col, newName) => false,
-    organizeImports: async (file) => false,
-    fixAll: async (file, kind?) => false,
+    /**
+     * Get available code actions at position
+     * Uses vscode.executeCodeActionProvider command
+     */
+    getAvailable: async (file: string, line: number) => {
+      // Validate inputs
+      if (!file || file.trim().length === 0) {
+        throw new Error('File path cannot be empty');
+      }
+      if (line < 0) {
+        throw new Error('Line must be non-negative');
+      }
+
+      try {
+        const uri = vscode.Uri.file(file);
+        const position = new vscode.Position(line, 0);
+        const range = new vscode.Range(position, position);
+
+        const actions = await vscode.commands.executeCommand<
+          vscode.CodeAction[]
+        >('vscode.executeCodeActionProvider', uri, range);
+
+        if (!actions || actions.length === 0) {
+          return [];
+        }
+
+        // Convert to our CodeAction type
+        return actions.map((action) => ({
+          title: action.title,
+          kind: action.kind?.value || '',
+          isPreferred: action.isPreferred || false,
+        }));
+      } catch (error) {
+        throw new Error(
+          `Failed to get code actions for ${file}:${line}: ${
+            (error as Error).message
+          }`
+        );
+      }
+    },
+
+    /**
+     * Apply a code action by title
+     * Uses vscode.executeCodeActionProvider to find action, then applies edit or executes command
+     */
+    apply: async (file: string, line: number, actionTitle: string) => {
+      // Validate inputs
+      if (!file || file.trim().length === 0) {
+        throw new Error('File path cannot be empty');
+      }
+      if (line < 0) {
+        throw new Error('Line must be non-negative');
+      }
+      if (!actionTitle || actionTitle.trim().length === 0) {
+        throw new Error('Action title cannot be empty');
+      }
+
+      try {
+        const uri = vscode.Uri.file(file);
+        const position = new vscode.Position(line, 0);
+        const range = new vscode.Range(position, position);
+
+        // Get available actions
+        const actions = await vscode.commands.executeCommand<
+          vscode.CodeAction[]
+        >('vscode.executeCodeActionProvider', uri, range);
+
+        if (!actions || actions.length === 0) {
+          return false;
+        }
+
+        // Find action by title
+        const action = actions.find((a) => a.title === actionTitle);
+        if (!action) {
+          return false;
+        }
+
+        // Apply the action
+        if (action.edit) {
+          const success = await vscode.workspace.applyEdit(action.edit);
+          return success;
+        } else if (action.command) {
+          // Execute command
+          await vscode.commands.executeCommand(
+            action.command.command,
+            ...(action.command.arguments || [])
+          );
+          return true;
+        }
+
+        return false;
+      } catch (error) {
+        throw new Error(
+          `Failed to apply action "${actionTitle}" at ${file}:${line}: ${
+            (error as Error).message
+          }`
+        );
+      }
+    },
+
+    /**
+     * Rename symbol at position across workspace
+     * Uses editor.action.rename command
+     */
+    rename: async (
+      file: string,
+      line: number,
+      col: number,
+      newName: string
+    ) => {
+      // Validate inputs
+      if (!file || file.trim().length === 0) {
+        throw new Error('File path cannot be empty');
+      }
+      if (line < 0 || col < 0) {
+        throw new Error('Line and column must be non-negative');
+      }
+      if (!newName || newName.trim().length === 0) {
+        throw new Error('New name cannot be empty');
+      }
+
+      try {
+        const uri = vscode.Uri.file(file);
+        const position = new vscode.Position(line, col);
+
+        // Execute rename command
+        await vscode.commands.executeCommand(
+          'editor.action.rename',
+          uri,
+          position,
+          newName
+        );
+
+        return true;
+      } catch (error) {
+        throw new Error(
+          `Failed to rename symbol at ${file}:${line}:${col}: ${
+            (error as Error).message
+          }`
+        );
+      }
+    },
+
+    /**
+     * Organize imports in file
+     * Uses editor.action.organizeImports command
+     */
+    organizeImports: async (file: string) => {
+      // Validate input
+      if (!file || file.trim().length === 0) {
+        throw new Error('File path cannot be empty');
+      }
+
+      try {
+        const uri = vscode.Uri.file(file);
+
+        // Execute organize imports command
+        await vscode.commands.executeCommand(
+          'editor.action.organizeImports',
+          uri
+        );
+
+        return true;
+      } catch (error) {
+        throw new Error(
+          `Failed to organize imports in ${file}: ${(error as Error).message}`
+        );
+      }
+    },
+
+    /**
+     * Apply all auto-fixes in file with optional kind filter
+     * Uses editor.action.fixAll command
+     */
+    fixAll: async (file: string, kind?: string) => {
+      // Validate input
+      if (!file || file.trim().length === 0) {
+        throw new Error('File path cannot be empty');
+      }
+
+      try {
+        const uri = vscode.Uri.file(file);
+
+        if (kind) {
+          // Execute fixAll with specific kind
+          await vscode.commands.executeCommand('editor.action.fixAll', {
+            uri: uri,
+            kind: kind,
+          });
+        } else {
+          // Execute fixAll without kind filter
+          await vscode.commands.executeCommand('editor.action.fixAll', uri);
+        }
+
+        return true;
+      } catch (error) {
+        throw new Error(
+          `Failed to fix all issues in ${file}: ${(error as Error).message}`
+        );
+      }
+    },
   };
 }
 
