@@ -1,28 +1,34 @@
 /**
- * Claude Sonnet 4.5 Pricing Utilities
+ * Model Pricing Utilities
  *
- * Source: https://www.anthropic.com/pricing
- * Last updated: 2024-12-06
+ * Dynamic pricing support for multiple LLM models.
+ * Pricing data is loaded from LiteLLM at extension startup and cached locally.
  *
- * This module provides pricing constants and cost calculation functions
- * for Claude Sonnet 4.5 API usage tracking.
+ * Supports:
+ * - Anthropic Claude models (Opus, Sonnet, Haiku)
+ * - VS Code LM API models (GPT-4o, Copilot models)
+ * - Automatic fallback to bundled pricing when offline
+ *
+ * @see https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json
  */
 
 /**
- * Claude Sonnet 4.5 Pricing (as of December 2024)
- * Source: https://www.anthropic.com/pricing
- * Last updated: 2024-12-06
+ * Pricing information for a single model
  */
-export const CLAUDE_SONNET_4_5_PRICING = {
-  /** Input tokens: $3.00 per 1M tokens */
-  INPUT_PER_TOKEN: 0.000003,
-  /** Output tokens: $15.00 per 1M tokens */
-  OUTPUT_PER_TOKEN: 0.000015,
-  /** Cache read tokens: $0.30 per 1M tokens */
-  CACHE_READ_PER_TOKEN: 0.0000003,
-  /** Cache creation tokens: $3.75 per 1M tokens */
-  CACHE_CREATION_PER_TOKEN: 0.0000038,
-} as const;
+export interface ModelPricing {
+  /** Cost per input token in USD */
+  readonly inputCostPerToken: number;
+  /** Cost per output token in USD */
+  readonly outputCostPerToken: number;
+  /** Cost per cache read token in USD (optional) */
+  readonly cacheReadCostPerToken?: number;
+  /** Cost per cache creation token in USD (optional) */
+  readonly cacheCreationCostPerToken?: number;
+  /** Maximum context window size */
+  readonly maxTokens?: number;
+  /** Provider name (anthropic, openai, etc.) */
+  readonly provider?: string;
+}
 
 /**
  * Token breakdown for cost calculation
@@ -35,55 +41,267 @@ export interface TokenBreakdown {
 }
 
 /**
- * Calculate message cost in USD
+ * Default pricing for supported models (bundled fallback)
  *
- * @param tokens - Token breakdown from message
- * @returns Cost in USD (e.g., 0.0042 for $0.0042), rounded to 4 decimal places
+ * Prices are in USD per token.
+ * Updated: 2025-01-01 (from Anthropic pricing page and LiteLLM)
+ *
+ * @see https://www.anthropic.com/pricing
+ * @see https://openai.com/pricing
+ */
+export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
+  // ============================================================================
+  // Anthropic Claude Models (Claude Code CLI)
+  // ============================================================================
+
+  // Claude 4.5 Opus (latest flagship)
+  'claude-opus-4-5-20251101': {
+    inputCostPerToken: 5e-6, // $5.00 per 1M tokens
+    outputCostPerToken: 25e-6, // $25.00 per 1M tokens
+    cacheReadCostPerToken: 5e-7, // $0.50 per 1M tokens
+    cacheCreationCostPerToken: 6.25e-6, // $6.25 per 1M tokens
+    provider: 'anthropic',
+  },
+
+  // Claude 4.5 Sonnet (balanced)
+  'claude-sonnet-4-5-20250929': {
+    inputCostPerToken: 3e-6, // $3.00 per 1M tokens
+    outputCostPerToken: 15e-6, // $15.00 per 1M tokens
+    cacheReadCostPerToken: 3e-7, // $0.30 per 1M tokens
+    cacheCreationCostPerToken: 3.75e-6, // $3.75 per 1M tokens
+    provider: 'anthropic',
+  },
+
+  // Claude 3.5 Sonnet (previous gen)
+  'claude-3-5-sonnet-20241022': {
+    inputCostPerToken: 3e-6,
+    outputCostPerToken: 15e-6,
+    cacheReadCostPerToken: 3e-7,
+    cacheCreationCostPerToken: 3.75e-6,
+    provider: 'anthropic',
+  },
+
+  // Claude 3 Opus
+  'claude-3-opus-20240229': {
+    inputCostPerToken: 15e-6, // $15.00 per 1M tokens
+    outputCostPerToken: 75e-6, // $75.00 per 1M tokens
+    provider: 'anthropic',
+  },
+
+  // Claude 3.5 Haiku (fast & cheap)
+  'claude-3-5-haiku-20241022': {
+    inputCostPerToken: 0.8e-6, // $0.80 per 1M tokens
+    outputCostPerToken: 4e-6, // $4.00 per 1M tokens
+    cacheReadCostPerToken: 0.08e-6, // $0.08 per 1M tokens
+    cacheCreationCostPerToken: 1e-6, // $1.00 per 1M tokens
+    provider: 'anthropic',
+  },
+
+  // Claude 3 Haiku (legacy)
+  'claude-3-haiku-20240307': {
+    inputCostPerToken: 0.25e-6, // $0.25 per 1M tokens
+    outputCostPerToken: 1.25e-6, // $1.25 per 1M tokens
+    provider: 'anthropic',
+  },
+
+  // ============================================================================
+  // OpenAI Models (VS Code Copilot / LM API)
+  // ============================================================================
+
+  // GPT-4o (flagship)
+  'gpt-4o': {
+    inputCostPerToken: 2.5e-6, // $2.50 per 1M tokens
+    outputCostPerToken: 10e-6, // $10.00 per 1M tokens
+    provider: 'openai',
+  },
+
+  // GPT-4o Mini (fast & cheap)
+  'gpt-4o-mini': {
+    inputCostPerToken: 0.15e-6, // $0.15 per 1M tokens
+    outputCostPerToken: 0.6e-6, // $0.60 per 1M tokens
+    provider: 'openai',
+  },
+
+  // GPT-4 Turbo
+  'gpt-4-turbo': {
+    inputCostPerToken: 10e-6, // $10.00 per 1M tokens
+    outputCostPerToken: 30e-6, // $30.00 per 1M tokens
+    provider: 'openai',
+  },
+
+  // GPT-4
+  'gpt-4': {
+    inputCostPerToken: 30e-6, // $30.00 per 1M tokens
+    outputCostPerToken: 60e-6, // $60.00 per 1M tokens
+    provider: 'openai',
+  },
+
+  // GPT-3.5 Turbo
+  'gpt-3.5-turbo': {
+    inputCostPerToken: 0.5e-6, // $0.50 per 1M tokens
+    outputCostPerToken: 1.5e-6, // $1.50 per 1M tokens
+    provider: 'openai',
+  },
+
+  // ============================================================================
+  // Default Fallback (when model not found)
+  // Uses Claude Sonnet 4.5 pricing as reasonable default
+  // ============================================================================
+  default: {
+    inputCostPerToken: 3e-6,
+    outputCostPerToken: 15e-6,
+    cacheReadCostPerToken: 3e-7,
+    cacheCreationCostPerToken: 3.75e-6,
+    provider: 'unknown',
+  },
+};
+
+/**
+ * Model pricing map - can be updated dynamically at runtime
+ * Initialized with default bundled pricing
+ */
+let modelPricingMap: Record<string, ModelPricing> = {
+  ...DEFAULT_MODEL_PRICING,
+};
+
+/**
+ * Update the pricing map with new data (called by PricingService after fetch)
+ *
+ * @param newPricing - New pricing data to merge
+ */
+export function updatePricingMap(
+  newPricing: Record<string, ModelPricing>
+): void {
+  modelPricingMap = { ...DEFAULT_MODEL_PRICING, ...newPricing };
+}
+
+/**
+ * Get current pricing map (for debugging/testing)
+ */
+export function getPricingMap(): Record<string, ModelPricing> {
+  return { ...modelPricingMap };
+}
+
+/**
+ * Find pricing for a model by ID
+ *
+ * Matching strategy:
+ * 1. Exact match (e.g., "claude-opus-4-5-20251101")
+ * 2. Partial match (e.g., "claude-opus-4-5" matches "claude-opus-4-5-20251101")
+ * 3. Fallback to default pricing
+ *
+ * @param modelId - Model identifier from Claude CLI or VS Code LM API
+ * @returns Pricing for the model (never undefined)
  *
  * @example
  * ```typescript
- * const cost = calculateMessageCost({
+ * const pricing = findModelPricing('claude-opus-4-5-20251101');
+ * // Returns exact match for Opus 4.5
+ *
+ * const pricing2 = findModelPricing('gpt-4o-2024-08-06');
+ * // Returns partial match for gpt-4o
+ *
+ * const pricing3 = findModelPricing('unknown-model');
+ * // Returns default fallback pricing
+ * ```
+ */
+export function findModelPricing(modelId: string): ModelPricing {
+  if (!modelId) {
+    return modelPricingMap['default'];
+  }
+
+  const normalizedId = modelId.toLowerCase();
+
+  // 1. Exact match
+  if (modelPricingMap[normalizedId]) {
+    return modelPricingMap[normalizedId];
+  }
+
+  // 2. Partial match - find key that is contained in modelId or vice versa
+  for (const [key, pricing] of Object.entries(modelPricingMap)) {
+    if (key === 'default') continue;
+
+    // Check if modelId contains the key (e.g., "claude-opus-4-5-20251101" contains "claude-opus-4-5")
+    if (normalizedId.includes(key.toLowerCase())) {
+      return pricing;
+    }
+
+    // Check if key contains modelId (less common but possible)
+    if (key.toLowerCase().includes(normalizedId)) {
+      return pricing;
+    }
+  }
+
+  // 3. Fallback to default
+  console.warn(
+    `[Pricing] Model '${modelId}' not found in pricing map, using default`
+  );
+  return modelPricingMap['default'];
+}
+
+/**
+ * Calculate message cost in USD for a specific model
+ *
+ * @param modelId - Model identifier (e.g., "claude-opus-4-5-20251101")
+ * @param tokens - Token breakdown from message
+ * @returns Cost in USD (e.g., 0.0042 for $0.0042), rounded to 6 decimal places
+ *
+ * @example
+ * ```typescript
+ * const cost = calculateMessageCost('claude-opus-4-5-20251101', {
  *   input: 1000,
  *   output: 500,
  *   cacheHit: 200
  * });
- * // Returns: 0.0078 ($0.0078)
+ * // Returns cost based on Opus 4.5 pricing
  * ```
  *
  * @example
  * ```typescript
- * // Zero tokens returns 0.0000
- * const cost = calculateMessageCost({
+ * // Zero tokens returns 0
+ * const cost = calculateMessageCost('gpt-4o', {
  *   input: 0,
  *   output: 0
  * });
- * // Returns: 0.0000
+ * // Returns: 0
  * ```
+ */
+export function calculateMessageCost(
+  modelId: string,
+  tokens: TokenBreakdown
+): number {
+  const pricing = findModelPricing(modelId);
+
+  const inputCost = tokens.input * pricing.inputCostPerToken;
+  const outputCost = tokens.output * pricing.outputCostPerToken;
+  const cacheReadCost =
+    (tokens.cacheHit ?? 0) * (pricing.cacheReadCostPerToken ?? 0);
+  const cacheCreationCost =
+    (tokens.cacheCreation ?? 0) * (pricing.cacheCreationCostPerToken ?? 0);
+
+  const totalCost = inputCost + outputCost + cacheReadCost + cacheCreationCost;
+
+  // Round to 6 decimal places for sub-cent accuracy
+  return Math.round(totalCost * 1000000) / 1000000;
+}
+
+/**
+ * Get a human-readable description of model pricing
+ *
+ * @param modelId - Model identifier
+ * @returns Pricing description string
  *
  * @example
  * ```typescript
- * // Undefined cache tokens are treated as 0
- * const cost = calculateMessageCost({
- *   input: 5000,
- *   output: 2000
- * });
- * // cacheHit and cacheCreation are undefined, treated as 0
- * // Returns: 0.0450
+ * const desc = getModelPricingDescription('claude-opus-4-5-20251101');
+ * // Returns: "Input: $5.00/1M, Output: $25.00/1M"
  * ```
  */
-export function calculateMessageCost(tokens: TokenBreakdown): number {
-  const inputCost = tokens.input * CLAUDE_SONNET_4_5_PRICING.INPUT_PER_TOKEN;
-  const outputCost = tokens.output * CLAUDE_SONNET_4_5_PRICING.OUTPUT_PER_TOKEN;
-  const cacheReadCost =
-    (tokens.cacheHit ?? 0) * CLAUDE_SONNET_4_5_PRICING.CACHE_READ_PER_TOKEN;
-  const cacheCreationCost =
-    (tokens.cacheCreation ?? 0) *
-    CLAUDE_SONNET_4_5_PRICING.CACHE_CREATION_PER_TOKEN;
+export function getModelPricingDescription(modelId: string): string {
+  const pricing = findModelPricing(modelId);
 
-  // Round to 4 decimal places for sub-cent accuracy
-  return (
-    Math.round(
-      (inputCost + outputCost + cacheReadCost + cacheCreationCost) * 10000
-    ) / 10000
-  );
+  const inputPer1M = (pricing.inputCostPerToken * 1000000).toFixed(2);
+  const outputPer1M = (pricing.outputCostPerToken * 1000000).toFixed(2);
+
+  return `Input: $${inputPer1M}/1M, Output: $${outputPer1M}/1M`;
 }

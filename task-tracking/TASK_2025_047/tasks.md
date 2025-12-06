@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2025_047
 
-**Total Tasks**: 12 | **Batches**: 4 | **Status**: 2/4 complete
+**Total Tasks**: 12 | **Batches**: 4 | **Status**: 4/4 complete
 
 ---
 
@@ -250,7 +250,7 @@
 
 **Developer**: frontend-developer
 **Tasks**: 4 | **Dependencies**: Batch 2 (messages have tokens/cost)
-**Commit**: [PENDING]
+**Commit**: 0d282bd
 
 ### Task 3.1: Create Cost Badge Component ✅ COMPLETE
 
@@ -390,12 +390,13 @@
 
 ---
 
-## Batch 4: Session Summary Component ⏸️ PENDING
+## Batch 4: Session Summary Component ✅ COMPLETE
 
 **Developer**: frontend-developer
 **Tasks**: 3 | **Dependencies**: Batch 2 (session totals utility), Batch 3 (UI components)
+**Commit**: 2f7fd31
 
-### Task 4.1: Create Session Cost Summary Component ⏸️ PENDING
+### Task 4.1: Create Session Cost Summary Component ✅ COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\molecules\session-cost-summary.component.ts
 **Spec Reference**: implementation-plan.md:653-801
@@ -436,7 +437,7 @@
 
 ---
 
-### Task 4.2: Export Session Summary Component ⏸️ PENDING
+### Task 4.2: Export Session Summary Component ✅ COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\index.ts
 **Dependencies**: Task 4.1
@@ -457,7 +458,7 @@
 
 ---
 
-### Task 4.3: Document Integration Point for Session Summary ⏸️ PENDING
+### Task 4.3: Document Integration Point for Session Summary ✅ COMPLETE
 
 **File**: Create D:\projects\ptah-extension\task-tracking\TASK_2025_047\session-summary-integration.md
 **Dependencies**: Task 4.1

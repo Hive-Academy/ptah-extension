@@ -1254,7 +1254,14 @@ export class ChatStore {
         output: finalTree.tokenUsage.output,
         // cacheHit: Future enhancement when ExecutionNode.tokenUsage includes cache
       };
-      cost = calculateMessageCost(tokens);
+      // Use model from tree root (set during init) for accurate pricing
+      try {
+        const modelId = finalTree.model ?? 'default';
+        cost = calculateMessageCost(modelId, tokens);
+      } catch (error) {
+        console.error('[ChatStore] Cost calculation failed', error);
+        cost = undefined;
+      }
     }
 
     if (finalTree.duration !== undefined) {

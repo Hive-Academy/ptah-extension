@@ -19,6 +19,9 @@ export { ProcessManager } from './cli/process-manager';
 export type { ProcessMetadata } from './cli/process-manager';
 export { MCPConfigManagerService } from './cli/mcp-config-manager.service';
 
+// Pricing Service (LiteLLM integration)
+export { PricingService } from './pricing/pricing.service';
+
 // ClaudeProcess - NEW (Batch 4 - TASK_2025_023)
 export { ClaudeProcess } from './cli/claude-process';
 export type { ClaudeProcessOptions } from './cli/claude-process';

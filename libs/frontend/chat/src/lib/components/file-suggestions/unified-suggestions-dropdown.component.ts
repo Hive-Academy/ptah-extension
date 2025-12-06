@@ -114,19 +114,28 @@ export class UnifiedSuggestionsDropdownComponent
   readonly activeOptionId = this._activeOptionId.asReadonly();
 
   constructor() {
-    // Re-initialize key manager when suggestions change
+    // Initialize/re-initialize key manager when options change
+    // This handles both initial render AND subsequent suggestion changes
     effect(() => {
       const options = this.optionComponents();
-      if (options.length > 0 && this.keyManager) {
-        // Reset to first item when suggestions change
-        this.keyManager.setFirstItemActive();
-        this.updateActiveOptionId();
+      if (options.length > 0) {
+        if (this.keyManager) {
+          // Key manager exists - just reset to first item
+          this.keyManager.setFirstItemActive();
+          this.updateActiveOptionId();
+        } else {
+          // First time options are available - initialize key manager
+          this.initKeyManager();
+        }
       }
     });
   }
 
   ngAfterViewInit(): void {
-    this.initKeyManager();
+    // Key manager may already be initialized by effect() if options were available
+    if (!this.keyManager) {
+      this.initKeyManager();
+    }
   }
 
   ngOnDestroy(): void {

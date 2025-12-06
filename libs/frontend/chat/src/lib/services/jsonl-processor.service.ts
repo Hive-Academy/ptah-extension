@@ -19,6 +19,8 @@ export interface ProcessingResult {
   newMessageStarted: boolean;
   /** ID of the new message (if newMessageStarted is true) */
   messageId?: string;
+  /** Model ID from the init message (e.g., 'claude-opus-4-5-20251101') */
+  model?: string;
 }
 
 /**
@@ -72,6 +74,12 @@ export interface ProcessingResult {
 export class JsonlMessageProcessor {
   private readonly treeBuilder = inject(ExecutionTreeBuilder);
   private readonly sessionManager = inject(SessionManager);
+
+  /**
+   * Track the current model for the active session.
+   * Set from init messages and used when creating trees without init.
+   */
+  private currentModel?: string;
 
   /**
    * Process a JSONL chunk and return tree updates
@@ -158,15 +166,21 @@ export class JsonlMessageProcessor {
     currentTree: ExecutionNode | null
   ): ProcessingResult {
     if (chunk.subtype === 'init') {
-      // Initialize new assistant message
+      // Initialize new assistant message with model from init chunk
       const messageId = this.treeBuilder.generateId();
-      const tree = this.treeBuilder.createMessageTree(messageId);
+      const model = chunk.model; // Extract model from init message
+
+      // Store current model for use in subsequent messages
+      this.currentModel = model;
+
+      const tree = this.treeBuilder.createMessageTree(messageId, model);
 
       return {
         tree,
         streamComplete: false,
         newMessageStarted: true,
         messageId,
+        model, // Pass model to caller for cost calculation
       };
     }
 
@@ -199,7 +213,8 @@ export class JsonlMessageProcessor {
 
     if (!tree) {
       messageId = this.treeBuilder.generateId();
-      tree = this.treeBuilder.createMessageTree(messageId);
+      // Use stored model from most recent init message
+      tree = this.treeBuilder.createMessageTree(messageId, this.currentModel);
       newMessageStarted = true;
     }
 
@@ -273,6 +288,7 @@ export class JsonlMessageProcessor {
       streamComplete: false,
       newMessageStarted,
       messageId,
+      model: newMessageStarted ? this.currentModel : undefined,
     };
   }
 

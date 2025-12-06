@@ -149,6 +149,9 @@ export interface ExecutionNode {
     readonly output: number;
   };
 
+  /** Model ID used for this execution (e.g., 'claude-opus-4-5-20251101') */
+  readonly model?: string;
+
   /** Tool execution count (for agents) */
   readonly toolCount?: number;
 
@@ -277,6 +280,21 @@ export interface ExecutionChatMessage {
    * When present, this message is an agent execution extracted as a separate bubble.
    */
   readonly agentInfo?: AgentInfo;
+
+  // ---- Usage Metrics (TASK_2025_047) ----
+
+  /** Token usage for this message */
+  readonly tokens?: {
+    readonly input: number;
+    readonly output: number;
+    readonly cacheHit?: number;
+  };
+
+  /** Cost in USD for this message */
+  readonly cost?: number;
+
+  /** Duration in milliseconds for this message */
+  readonly duration?: number;
 }
 
 // ============================================================================

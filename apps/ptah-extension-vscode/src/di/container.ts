@@ -77,6 +77,7 @@ import {
   ClaudeCliService,
   MCPConfigManagerService,
   ClaudeProcess,
+  PricingService,
   // DELETED in TASK_2025_023 purge: SessionManager, InteractiveSessionManager, ClaudeCliLauncher
   // DELETED: PermissionService, InMemoryPermissionRulesStore (over-engineered, unused)
   // DELETED in TASK_2025_025: MCPRegistrationService (replaced by MCPConfigManagerService)
@@ -277,6 +278,9 @@ export class DIContainer {
     };
     container.register(TOKENS.STORAGE_SERVICE, { useValue: storageAdapter });
 
+    // Global state adapter (for pricing cache - uses globalState for cross-workspace persistence)
+    container.register(TOKENS.GLOBAL_STATE, { useValue: context.globalState });
+
     // NOTE: CONFIGURATION_PROVIDER is NOW registered during Phase 1 (line 121)
     // It was moved from main.ts to fix dependency injection order issues.
 
@@ -288,6 +292,9 @@ export class DIContainer {
       TOKENS.MCP_CONFIG_MANAGER_SERVICE,
       MCPConfigManagerService
     );
+
+    // Pricing service (fetches pricing from LiteLLM, caches in globalState)
+    container.registerSingleton(TOKENS.PRICING_SERVICE, PricingService);
 
     // Session management - DELETED in TASK_2025_023 purge + cleanup
     // SessionManager, InteractiveSessionManager, ClaudeCliLauncher removed

@@ -135,6 +135,10 @@ export const PERMISSION_PROMPT_SERVICE = Symbol.for('PermissionPromptService');
 export const CLAUDE_CLI_DETECTOR = Symbol.for('ClaudeCliDetector');
 export const CLAUDE_CLI_SERVICE = Symbol.for('ClaudeCliService');
 export const PROCESS_MANAGER = Symbol.for('ProcessManager');
+export const PRICING_SERVICE = Symbol.for('PricingService');
+
+// VS Code Memento for pricing cache
+export const GLOBAL_STATE = Symbol.for('GlobalState');
 // PERMISSION_SERVICE - DELETED (over-engineered, unused)
 
 // DELETED tokens (TASK_2025_023 purge)
@@ -276,6 +280,8 @@ export const TOKENS = {
   CLAUDE_CLI_DETECTOR,
   CLAUDE_CLI_SERVICE,
   PROCESS_MANAGER,
+  PRICING_SERVICE,
+  GLOBAL_STATE,
   STORAGE_SERVICE,
   CONFIGURATION_PROVIDER,
   // PERMISSION_SERVICE - DELETED (over-engineered, unused)

@@ -70,6 +70,19 @@ export async function activate(
     await ptahExtension.registerAll();
     console.log('[Activate] Step 7: ptahExtension.registerAll() complete');
 
+    // Initialize Pricing Service (fetches LiteLLM pricing, caches in globalState)
+    console.log('[Activate] Step 8: Initializing Pricing Service...');
+    const pricingService = DIContainer.resolve(TOKENS.PRICING_SERVICE) as {
+      initialize: () => Promise<void>;
+    };
+    // Run in background - don't block activation
+    pricingService.initialize().catch((error) => {
+      logger.warn('[PricingService] Background initialization failed', {
+        error,
+      });
+    });
+    console.log('[Activate] Step 8: Pricing Service initialization started');
+
     // Start Code Execution MCP Server
     console.log('[Activate] Step 9: Starting Code Execution MCP Server...');
     const codeExecutionMCP = DIContainer.resolve(TOKENS.CODE_EXECUTION_MCP);

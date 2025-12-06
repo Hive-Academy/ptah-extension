@@ -407,27 +407,6 @@ export class ChatInputComponent {
   }
 
   /**
-   * Insert text at cursor position using signal-based viewChild
-   */
-  private insertAtCursor(text: string): void {
-    const textarea = this.textareaRef()?.nativeElement;
-    if (!textarea) return;
-
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const currentValue = this._currentMessage();
-    const newValue =
-      currentValue.substring(0, start) + text + currentValue.substring(end);
-
-    this._currentMessage.set(newValue);
-    textarea.value = newValue;
-
-    // Move cursor after inserted text
-    const newCursorPos = start + text.length;
-    textarea.setSelectionRange(newCursorPos, newCursorPos);
-  }
-
-  /**
    * Replace trigger text with selected suggestion
    * Used for /command autocomplete
    */
@@ -493,19 +472,36 @@ export class ChatInputComponent {
    * Uses Angular CDK's ActiveDescendantKeyManager in the dropdown component.
    * Focus stays on textarea while keyboard events are forwarded to the dropdown.
    * The dropdown's onKeyDown() method handles navigation and returns true if handled.
+   *
+   * IMPORTANT: preventDefault() MUST be called BEFORE any other logic for navigation keys
+   * when dropdown is open, otherwise the textarea will process the event first.
    */
   handleKeyDown(event: KeyboardEvent): void {
-    // When dropdown is showing, forward keyboard events to it
+    // When dropdown is showing, intercept navigation keys IMMEDIATELY
     if (this.showSuggestions()) {
-      const dropdown = this.dropdownRef();
-      if (dropdown) {
-        // Forward event to dropdown - it returns true if it handled the event
-        const handled = dropdown.onKeyDown(event);
-        if (handled) {
-          event.preventDefault();
-          event.stopPropagation();
-          return;
+      // CRITICAL: Check navigation keys FIRST and preventDefault immediately
+      // This prevents the textarea from moving cursor before we can handle the event
+      const isNavigationKey = [
+        'ArrowUp',
+        'ArrowDown',
+        'Enter',
+        'Escape',
+        'Tab',
+        'Home',
+        'End',
+      ].includes(event.key);
+
+      if (isNavigationKey) {
+        // Prevent textarea default behavior IMMEDIATELY
+        event.preventDefault();
+        event.stopPropagation();
+
+        // Now forward to dropdown
+        const dropdown = this.dropdownRef();
+        if (dropdown) {
+          dropdown.onKeyDown(event);
         }
+        return;
       }
     }
 
