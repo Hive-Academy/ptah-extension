@@ -1248,6 +1248,13 @@ export class ChatStore {
     let cost: number | undefined;
     let duration: number | undefined;
 
+    console.log('[ChatStore] 📊 Finalizing message - tree data:', {
+      hasTokenUsage: !!finalTree.tokenUsage,
+      tokenUsage: finalTree.tokenUsage,
+      model: finalTree.model,
+      duration: finalTree.duration,
+    });
+
     if (finalTree.tokenUsage) {
       tokens = {
         input: finalTree.tokenUsage.input,
@@ -1258,10 +1265,17 @@ export class ChatStore {
       try {
         const modelId = finalTree.model ?? 'default';
         cost = calculateMessageCost(modelId, tokens);
+        console.log('[ChatStore] ✅ Cost calculated:', {
+          modelId,
+          tokens,
+          cost,
+        });
       } catch (error) {
         console.error('[ChatStore] Cost calculation failed', error);
         cost = undefined;
       }
+    } else {
+      console.warn('[ChatStore] ⚠️ No tokenUsage found on finalized tree!');
     }
 
     if (finalTree.duration !== undefined) {
@@ -1277,6 +1291,14 @@ export class ChatStore {
       tokens,
       cost,
       duration,
+    });
+
+    console.log('[ChatStore] 📝 Created assistant message:', {
+      messageId,
+      hasTokens: !!assistantMessage.tokens,
+      tokens: assistantMessage.tokens,
+      cost: assistantMessage.cost,
+      duration: assistantMessage.duration,
     });
 
     // Add to target tab's messages and clear streaming state

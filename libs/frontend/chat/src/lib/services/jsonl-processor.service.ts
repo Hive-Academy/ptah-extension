@@ -785,12 +785,24 @@ export class JsonlMessageProcessor {
     // Finalize current message and extract token usage/duration
     let updatedTree = currentTree;
 
+    console.log('[JsonlProcessor] 📊 Result message received:', {
+      hasUsage: !!chunk.usage,
+      usage: chunk.usage,
+      duration: chunk.duration,
+      hasTree: !!currentTree,
+    });
+
     if (currentTree && chunk.usage) {
       // Extract token usage from result message
       const tokenUsage = {
         input: chunk.usage.input_tokens ?? 0,
         output: chunk.usage.output_tokens ?? 0,
       };
+
+      console.log(
+        '[JsonlProcessor] ✅ Setting tokenUsage on tree:',
+        tokenUsage
+      );
 
       // Create updated tree with token usage and duration (immutable update)
       updatedTree = {

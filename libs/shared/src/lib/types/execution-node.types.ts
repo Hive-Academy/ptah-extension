@@ -370,6 +370,11 @@ export interface JSONLMessage {
   readonly message?: {
     readonly content?: readonly ContentBlockJSON[];
     readonly stop_reason?: string;
+    readonly usage?: {
+      readonly input_tokens?: number;
+      readonly output_tokens?: number;
+    };
+    readonly model?: string;
   };
 
   // ---- Tool message fields ----
@@ -390,6 +395,9 @@ export interface JSONLMessage {
 
   // ---- Metadata ----
   readonly timestamp?: string;
+  readonly isMeta?: boolean;
+  readonly uuid?: string;
+  readonly sessionId?: string;
 }
 
 /**

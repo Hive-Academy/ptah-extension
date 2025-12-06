@@ -5,6 +5,7 @@ import {
   JSONLMessage,
   createExecutionNode,
   createExecutionChatMessage,
+  calculateMessageCost,
 } from '@ptah-extension/shared';
 import { ExecutionTreeBuilder } from './tree-builder.service';
 import { AgentSessionData, NodeMaps } from './chat.types';
@@ -104,9 +105,13 @@ export class SessionReplayService {
     // PHASE 5: Process main messages and create chat bubbles
     let currentAssistantTree: ExecutionNode | null = null;
     let currentAssistantId: string | null = null;
+    let currentAssistantUsage:
+      | { input_tokens?: number; output_tokens?: number }
+      | undefined;
+    let currentAssistantModel: string | undefined;
 
     for (const msg of mainMessages) {
-      const rawMsg = msg as any;
+      const rawMsg = msg;
 
       // Skip non-message types
       if (!msg.type || !['user', 'assistant'].includes(msg.type)) {
@@ -127,16 +132,20 @@ export class SessionReplayService {
           continue;
         }
 
-        // Finalize pending assistant message
+        // Finalize pending assistant message with usage data
         if (currentAssistantTree && currentAssistantId) {
           chatMessages.push(
             this.createAssistantMessageFromTree(
               currentAssistantTree,
-              currentAssistantId
+              currentAssistantId,
+              currentAssistantUsage,
+              currentAssistantModel
             )
           );
           currentAssistantTree = null;
           currentAssistantId = null;
+          currentAssistantUsage = undefined;
+          currentAssistantModel = undefined;
         }
 
         // Create user message
@@ -163,6 +172,25 @@ export class SessionReplayService {
             type: 'message',
             status: 'complete',
           });
+        }
+
+        // Capture usage and model from each assistant message (last one will have final counts)
+        if (msg.message.usage) {
+          currentAssistantUsage = msg.message.usage;
+          console.log(
+            '[SessionReplay] 📊 Captured usage from assistant message:',
+            {
+              input: msg.message.usage.input_tokens,
+              output: msg.message.usage.output_tokens,
+            }
+          );
+        }
+        if (msg.message.model) {
+          currentAssistantModel = msg.message.model;
+          console.log(
+            '[SessionReplay] 🤖 Captured model:',
+            currentAssistantModel
+          );
         }
 
         // Process all content blocks and add to the assistant tree
@@ -233,7 +261,7 @@ export class SessionReplayService {
       }
     }
 
-    // Finalize remaining assistant message
+    // Finalize remaining assistant message with usage data
     if (
       currentAssistantTree &&
       currentAssistantId &&
@@ -242,7 +270,9 @@ export class SessionReplayService {
       chatMessages.push(
         this.createAssistantMessageFromTree(
           currentAssistantTree,
-          currentAssistantId
+          currentAssistantId,
+          currentAssistantUsage,
+          currentAssistantModel
         )
       );
     }
@@ -669,25 +699,64 @@ export class SessionReplayService {
   }
 
   /**
-   * Create an ExecutionChatMessage from an execution tree
+   * Create an ExecutionChatMessage from an execution tree with usage metrics
    *
    * @param tree - Execution tree root node
    * @param messageId - Unique message identifier
+   * @param usage - Token usage data from JSONL message
+   * @param model - Model ID for cost calculation
+   * @param duration - Message duration in ms
    * @returns ExecutionChatMessage ready for display
    *
    * @example
    * ```typescript
-   * const message = replayService.createAssistantMessageFromTree(tree, 'msg_123');
+   * const message = replayService.createAssistantMessageFromTree(tree, 'msg_123', usage, 'claude-opus-4-5');
    * ```
    */
   private createAssistantMessageFromTree(
     tree: ExecutionNode,
-    messageId: string
+    messageId: string,
+    usage?: { input_tokens?: number; output_tokens?: number },
+    model?: string,
+    duration?: number
   ): ExecutionChatMessage {
+    // Extract tokens and calculate cost if usage data is available
+    let tokens:
+      | { input: number; output: number; cacheHit?: number }
+      | undefined;
+    let cost: number | undefined;
+
+    if (usage) {
+      tokens = {
+        input: usage.input_tokens ?? 0,
+        output: usage.output_tokens ?? 0,
+      };
+
+      // Calculate cost using model ID
+      try {
+        const modelId = model ?? 'default';
+        cost = calculateMessageCost(modelId, tokens);
+      } catch (error) {
+        console.error('[SessionReplay] Cost calculation failed', error);
+      }
+    }
+
+    console.log('[SessionReplay] 📝 Creating assistant message:', {
+      messageId,
+      hasUsage: !!usage,
+      hasTokens: !!tokens,
+      tokens: tokens,
+      cost: cost,
+      model: model,
+    });
+
     return createExecutionChatMessage({
       id: messageId,
       role: 'assistant',
       executionTree: tree,
+      tokens,
+      cost,
+      duration,
     });
   }
 

@@ -55,24 +55,25 @@
     } }
   </div>
 
-  <!-- Action buttons + badges (hover reveal) -->
+  <!-- Metadata badges (always visible) -->
+  @if (!isStreaming() && (message().tokens || message().cost !== undefined || message().duration !== undefined)) {
+  <div class="chat-footer flex gap-1.5 items-center mt-1 text-base-content/70">
+    @if (message().tokens) {
+    <ptah-token-badge
+      [count]="message().tokens!.input + message().tokens!.output"
+    />
+    } @if (message().cost !== undefined) {
+    <ptah-cost-badge [cost]="message().cost!" />
+    } @if (message().duration !== undefined) {
+    <ptah-duration-badge [durationMs]="message().duration!" />
+    }
+  </div>
+  }
+
+  <!-- Action buttons (hover reveal) -->
   <div
     class="chat-footer opacity-0 hover:opacity-100 transition-opacity duration-200 flex gap-2 mt-1 items-center"
   >
-    <!-- Left side - Metadata badges (tokens, cost, duration) -->
-    <div class="flex gap-1.5 items-center mr-auto">
-      @if (!isStreaming() && message().tokens) {
-      <ptah-token-badge
-        [count]="message().tokens!.input + message().tokens!.output"
-      />
-      } @if (!isStreaming() && message().cost !== undefined) {
-      <ptah-cost-badge [cost]="message().cost!" />
-      } @if (!isStreaming() && message().duration !== undefined) {
-      <ptah-duration-badge [durationMs]="message().duration!" />
-      }
-    </div>
-
-    <!-- Right side - Action buttons -->
     <button class="btn btn-xs btn-ghost" aria-label="Copy message" title="Copy">
       <lucide-angular [img]="CopyIcon" class="w-3.5 h-3.5" />
     </button>
