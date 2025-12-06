@@ -763,12 +763,35 @@ export class JsonlMessageProcessor {
   }
 
   private handleResultMessage(
-    _chunk: JSONLMessage,
+    chunk: JSONLMessage,
     currentTree: ExecutionNode | null
   ): ProcessingResult {
-    // Finalize current message (chunk contains final metrics, stored in message if needed)
+    // Finalize current message and extract token usage/duration
+    let updatedTree = currentTree;
+
+    if (currentTree && chunk.usage) {
+      // Extract token usage from result message
+      const tokenUsage = {
+        input: chunk.usage.input_tokens ?? 0,
+        output: chunk.usage.output_tokens ?? 0,
+      };
+
+      // Create updated tree with token usage and duration (immutable update)
+      updatedTree = {
+        ...currentTree,
+        tokenUsage,
+        duration: chunk.duration,
+      };
+    } else if (currentTree && !chunk.usage) {
+      // Log warning if usage data is missing (graceful degradation)
+      console.warn('[JsonlProcessor] Result message missing usage data', {
+        chunkType: chunk.type,
+        hasTree: !!currentTree,
+      });
+    }
+
     return {
-      tree: currentTree,
+      tree: updatedTree,
       streamComplete: true,
       newMessageStarted: false,
     };

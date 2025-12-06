@@ -9,6 +9,7 @@ import {
   createExecutionNode,
   PermissionRequest,
   PermissionResponse,
+  calculateMessageCost,
 } from '@ptah-extension/shared';
 import { SessionReplayService } from './session-replay.service';
 import { SessionManager } from './session-manager.service';
@@ -1240,12 +1241,35 @@ export class ChatStore {
 
     const finalTree = finalizeNode(tree);
 
-    // Create chat message with execution tree
+    // Extract token usage and calculate cost from finalized tree
+    let tokens:
+      | { input: number; output: number; cacheHit?: number }
+      | undefined;
+    let cost: number | undefined;
+    let duration: number | undefined;
+
+    if (finalTree.tokenUsage) {
+      tokens = {
+        input: finalTree.tokenUsage.input,
+        output: finalTree.tokenUsage.output,
+        // cacheHit: Future enhancement when ExecutionNode.tokenUsage includes cache
+      };
+      cost = calculateMessageCost(tokens);
+    }
+
+    if (finalTree.duration !== undefined) {
+      duration = finalTree.duration;
+    }
+
+    // Create chat message with execution tree and token/cost metadata
     const assistantMessage = createExecutionChatMessage({
       id: messageId,
       role: 'assistant',
       executionTree: finalTree,
       sessionId: targetTab?.claudeSessionId ?? undefined,
+      tokens,
+      cost,
+      duration,
     });
 
     // Add to target tab's messages and clear streaming state

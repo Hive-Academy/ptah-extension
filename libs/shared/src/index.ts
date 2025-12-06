@@ -13,3 +13,5 @@ export * from './lib/types/model-autopilot.types';
 // Utilities
 export * from './lib/utils/message-normalizer';
 export * from './lib/utils';
+export * from './lib/utils/pricing.utils';
+export * from './lib/utils/session-totals.utils';
