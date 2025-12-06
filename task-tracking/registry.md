@@ -45,3 +45,4 @@
 | TASK_2025_046 | Dropdown Keyboard Navigation Fix - Use DropdownInteractionService for performant document-level keyboard capture               | ✅ Complete                              | team-leader        | 2025-12-04 | 2025-12-04 |
 | TASK_2025_047 | Token Count & Cost Display - Per-message tokens, session cost summary, integrate existing TokenBadge components                | 🔄 In Progress                           | orchestrator       | 2025-12-06 | -          |
 | TASK_2025_048 | Shared CDK Overlay UI Library - Build dropdown/popover/autocomplete with cdkConnectedOverlay, migrate 4 existing components    | 🔄 In Progress                           | orchestrator       | 2025-12-06 | -          |
+| TASK_2025_049 | SDK Integration Review & Critical Fixes - Fix multi-turn conversation, streaming input mode, proper SDK message mapping         | 🔄 In Progress                           | orchestrator       | 2025-12-06 | -          |

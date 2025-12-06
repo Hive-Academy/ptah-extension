@@ -54,7 +54,7 @@ export type {
   FileWatcherConfig,
 } from './api-wrappers';
 
-export { RpcHandler, RpcMethodRegistrationService } from './messaging';
+export { RpcHandler, RpcMethodRegistrationService, SdkRpcHandlers } from './messaging';
 export type { RpcMessage, RpcResponse, RpcMethodHandler } from './messaging';
 
 // Session Discovery

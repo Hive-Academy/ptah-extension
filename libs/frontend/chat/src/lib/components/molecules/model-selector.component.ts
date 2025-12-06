@@ -1,32 +1,39 @@
 /**
  * ModelSelectorComponent - Elegant AI Model Selection Dropdown
- * TASK_2025_035: Model selector and autopilot integration
+ * TASK_2025_048: Migrate to CDK Overlay with keyboard navigation
  *
  * A standalone dropdown component for selecting Claude AI models.
  * Features rich model metadata display with title, description, and recommended badge.
  *
  * Pattern: Signal-based state from ModelStateService
- * UI: DaisyUI dropdown with custom styling
+ * UI: lib-dropdown from @ptah-extension/ui with CDK Overlay portal rendering
+ * Keyboard Navigation: Handled by lib-option components (ArrowUp/Down/Enter/Escape)
  */
 
-import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
+import { Component, inject, signal, ChangeDetectionStrategy } from '@angular/core';
 import { LucideAngularModule, ChevronDown, Check } from 'lucide-angular';
 import {
   ModelStateService,
   type SelectableClaudeModel,
 } from '@ptah-extension/core';
+import { DropdownComponent, OptionComponent } from '@ptah-extension/ui';
 
 @Component({
   selector: 'ptah-model-selector',
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, DropdownComponent, OptionComponent],
   template: `
-    <div class="dropdown dropdown-top dropdown-end">
+    <lib-dropdown
+      [isOpen]="isOpen()"
+      [closeOnBackdropClick]="true"
+      (closed)="closeDropdown()"
+      (backdropClicked)="closeDropdown()">
+
       <button
-        tabindex="0"
+        trigger
         class="btn btn-ghost btn-sm gap-1 font-normal"
         type="button"
-        [class.btn-disabled]="modelState.isPending()"
-      >
+        (click)="toggleDropdown()"
+        [disabled]="modelState.isPending()">
         @if (modelState.isPending()) {
         <span class="loading loading-spinner loading-xs"></span>
         }
@@ -35,31 +42,24 @@ import {
         }}</span>
         <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3" />
       </button>
-      <div
-        tabindex="0"
-        class="dropdown-content z-50 mb-2 p-1 shadow-lg bg-base-200 rounded-lg w-72 border border-base-300"
-      >
+
+      <div content class="w-72 max-h-80 flex flex-col">
         <!-- Header -->
         <div class="px-3 py-2 border-b border-base-300">
           <span
-            class="text-xs font-semibold text-base-content/70 uppercase tracking-wide"
-          >
+            class="text-xs font-semibold text-base-content/70 uppercase tracking-wide">
             Select Model
           </span>
         </div>
 
         <!-- Model List -->
-        <ul class="menu menu-sm p-1">
-          @for (model of modelState.availableModels(); track model.id) {
-          <li>
-            <button
-              type="button"
-              class="flex items-start gap-3 py-2.5 px-3 rounded-md transition-colors"
-              [class.bg-primary]="model.isSelected"
-              [class.text-primary-content]="model.isSelected"
-              [class.hover:bg-base-300]="!model.isSelected"
-              (click)="selectModel(model.id)"
-            >
+        <div class="flex flex-col overflow-y-auto overflow-x-hidden max-h-64 p-1">
+          @for (model of modelState.availableModels(); track model.id; let i = $index) {
+          <lib-option
+            [optionId]="'model-' + i"
+            [value]="model"
+            (selected)="selectModel($event.id)">
+            <div class="flex items-start gap-3 py-0.5">
               <!-- Checkmark for selected -->
               <div class="w-4 h-4 mt-0.5 flex-shrink-0">
                 @if (model.isSelected) {
@@ -72,32 +72,21 @@ import {
                 <div class="flex items-center gap-2">
                   <span class="font-medium text-sm">{{ model.name }}</span>
                   @if (model.isRecommended) {
-                  <span
-                    class="badge badge-xs"
-                    [class.badge-primary-content]="model.isSelected"
-                    [class.badge-primary]="!model.isSelected"
-                  >
+                  <span class="badge badge-xs badge-primary">
                     Recommended
                   </span>
                   }
                 </div>
-                <span
-                  [class]="
-                    'text-xs mt-0.5 ' +
-                    (model.isSelected
-                      ? 'text-primary-content/70'
-                      : 'text-base-content/60')
-                  "
-                >
+                <span class="text-xs mt-0.5 text-base-content/60">
                   {{ model.description }}
                 </span>
               </div>
-            </button>
-          </li>
+            </div>
+          </lib-option>
           }
-        </ul>
+        </div>
       </div>
-    </div>
+    </lib-dropdown>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -108,17 +97,34 @@ export class ModelSelectorComponent {
   readonly ChevronDownIcon = ChevronDown;
   readonly CheckIcon = Check;
 
+  // Local state for dropdown visibility
+  private readonly _isOpen = signal(false);
+  readonly isOpen = this._isOpen.asReadonly();
+
+  /**
+   * Toggle dropdown visibility
+   */
+  toggleDropdown(): void {
+    this._isOpen.set(!this._isOpen());
+  }
+
+  /**
+   * Close dropdown
+   */
+  closeDropdown(): void {
+    this._isOpen.set(false);
+  }
+
   /**
    * Select AI model for chat sessions.
    * Fires async RPC call - errors are logged but do not block UI.
    * Race condition protection is handled by ModelStateService.
+   * Called by lib-option (selected) output.
    *
    * @param model - The model to switch to ('opus', 'sonnet', or 'haiku')
    */
   selectModel(model: SelectableClaudeModel): void {
-    // Close dropdown by removing focus
-    const activeElement = document.activeElement as HTMLElement;
-    activeElement?.blur();
+    this.closeDropdown();
 
     this.modelState.switchModel(model).catch((error) => {
       console.error('[ModelSelectorComponent] Failed to switch model:', error);

@@ -17,7 +17,7 @@
     "allowSyntheticDefaultImports": true,
     "baseUrl": ".",
     "paths": {
-      "@ptah-extension/agent-sdk": ["libs/backend/src/index.ts"],
+      "@ptah-extension/agent-sdk": ["libs/backend/agent-sdk/src/index.ts"],
       "@ptah-extension/chat": ["libs/frontend/chat/src/index.ts"],
       "@ptah-extension/claude-domain": [
         "libs/backend/claude-domain/src/index.ts"

@@ -70,6 +70,10 @@ import {
   PermissionPromptService,
 } from '@ptah-extension/vscode-lm-tools';
 
+// Import agent-sdk services (TASK_2025_044 Batch 3)
+import { registerSdkServices } from '@ptah-extension/agent-sdk';
+import { SdkRpcHandlers } from '@ptah-extension/vscode-core';
+
 // Import claude-domain services
 import {
   ClaudeCliDetector,
@@ -260,6 +264,17 @@ export class DIContainer {
       TOKENS.PERMISSION_PROMPT_SERVICE,
       PermissionPromptService
     );
+
+    // ========================================
+    // PHASE 2.7: Agent SDK Integration (TASK_2025_044 Batch 3)
+    // ========================================
+
+    // Register Agent SDK services (adapter, storage, permission handler)
+    const logger = container.resolve<Logger>(TOKENS.LOGGER);
+    registerSdkServices(container, context, logger);
+
+    // Register SDK RPC handlers
+    container.registerSingleton(TOKENS.SDK_RPC_HANDLERS, SdkRpcHandlers);
 
     // ========================================
     // PHASE 3: Claude Domain Services

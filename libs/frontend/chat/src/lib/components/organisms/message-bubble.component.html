@@ -56,7 +56,8 @@
   </div>
 
   <!-- Metadata badges (always visible) -->
-  @if (!isStreaming() && (message().tokens || message().cost !== undefined || message().duration !== undefined)) {
+  @if (!isStreaming() && (message().tokens || message().cost !== undefined ||
+  message().duration !== undefined)) {
   <div class="chat-footer flex gap-1.5 items-center mt-1 text-base-content/70">
     @if (message().tokens) {
     <ptah-token-badge

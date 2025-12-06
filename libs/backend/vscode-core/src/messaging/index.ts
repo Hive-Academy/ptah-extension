@@ -12,3 +12,6 @@ export type { RpcMessage, RpcResponse, RpcMethodHandler } from './rpc-types';
 
 // RPC Method Registration Service (Clean separation of concerns)
 export { RpcMethodRegistrationService } from './rpc-method-registration.service';
+
+// SDK RPC Handlers (TASK_2025_044 Batch 3)
+export { SdkRpcHandlers } from './sdk-rpc-handlers';

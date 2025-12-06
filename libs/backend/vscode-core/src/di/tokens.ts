@@ -44,6 +44,7 @@ export const RPC_HANDLER = Symbol.for('RpcHandler');
 export const RPC_METHOD_REGISTRATION_SERVICE = Symbol.for(
   'RpcMethodRegistrationService'
 );
+export const SDK_RPC_HANDLERS = Symbol.for('SdkRpcHandlers');
 export const SESSION_DISCOVERY_SERVICE = Symbol.for('SessionDiscoveryService');
 export const AGENT_SESSION_WATCHER_SERVICE = Symbol.for(
   'AgentSessionWatcherService'
@@ -210,6 +211,7 @@ export const TOKENS = {
   CONTEXT_MANAGER,
   RPC_HANDLER,
   RPC_METHOD_REGISTRATION_SERVICE,
+  SDK_RPC_HANDLERS,
   SESSION_DISCOVERY_SERVICE,
   AGENT_SESSION_WATCHER_SERVICE,
 
