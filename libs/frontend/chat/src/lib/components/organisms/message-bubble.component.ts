@@ -15,6 +15,9 @@ import {
 } from 'lucide-angular';
 import { ExecutionNodeComponent } from './execution-node.component';
 import { TypingCursorComponent } from '../atoms/typing-cursor.component';
+import { TokenBadgeComponent } from '../atoms/token-badge.component';
+import { CostBadgeComponent } from '../atoms/cost-badge.component';
+import { DurationBadgeComponent } from '../atoms/duration-badge.component';
 import type {
   ExecutionChatMessage,
   PermissionRequest,
@@ -41,6 +44,9 @@ import { ChatStore } from '../../services/chat.store';
     MarkdownModule,
     ExecutionNodeComponent,
     TypingCursorComponent,
+    TokenBadgeComponent,
+    CostBadgeComponent,
+    DurationBadgeComponent,
     LucideAngularModule,
     NgOptimizedImage,
   ],

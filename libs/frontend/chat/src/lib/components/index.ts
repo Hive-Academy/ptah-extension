@@ -20,6 +20,7 @@
 export * from './atoms/markdown-block.component';
 export * from './atoms/status-badge.component';
 export * from './atoms/token-badge.component';
+export * from './atoms/cost-badge.component';
 export * from './atoms/duration-badge.component';
 export * from './atoms/streaming-text-reveal.component';
 export * from './atoms/typing-cursor.component';
