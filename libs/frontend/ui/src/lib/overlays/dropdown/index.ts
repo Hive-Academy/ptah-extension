@@ -1,7 +1,5 @@
 /**
- * Dropdown Component - Barrel Export
- * (Component will be created in Batch 3)
+ * Dropdown Component Exports
  */
 
-// Placeholder to make this a valid module
-export {};
+export { DropdownComponent } from './dropdown.component';
