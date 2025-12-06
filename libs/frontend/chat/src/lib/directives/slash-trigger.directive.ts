@@ -83,7 +83,6 @@ export class SlashTriggerDirective implements OnInit {
   private readonly DEBOUNCE_DELAY_MS = 150;
 
   ngOnInit(): void {
-    console.log('[SlashTriggerDirective] ngOnInit called');
     this.setupInputPipeline();
   }
 
@@ -106,13 +105,28 @@ export class SlashTriggerDirective implements OnInit {
       map((): TriggerState => {
         const value = textarea.value;
         const cursorPosition = textarea.selectionStart;
-        // Slash trigger is active only if:
-        // 1. Value starts with /
-        // 2. Value does NOT contain @ (which means user wants @ autocomplete instead)
-        const isActive = value.startsWith('/') && !value.includes('@');
-        const query = isActive ? value.substring(1) : '';
 
-        return { isActive, query, cursorPosition };
+        // Slash trigger detection rules:
+        // 1. Value must start with /
+        // 2. Value must NOT contain @ (which means user wants @ autocomplete instead)
+        // 3. Query must NOT contain a space (space indicates command was completed/selected)
+        //    This prevents re-triggering after user selects a command like "/orchestrate "
+        if (!value.startsWith('/') || value.includes('@')) {
+          return { isActive: false, query: '', cursorPosition };
+        }
+
+        // Extract potential command (text after / until first space or end)
+        const query = value.substring(1);
+        const spaceIndex = query.indexOf(' ');
+
+        // If there's a space, command is complete - don't trigger autocomplete
+        // User has either selected a command or typed a complete command
+        if (spaceIndex !== -1) {
+          return { isActive: false, query: '', cursorPosition };
+        }
+
+        // Active: no space yet, still typing command name
+        return { isActive: true, query, cursorPosition };
       }),
       startWith({
         isActive: false,
@@ -147,9 +161,6 @@ export class SlashTriggerDirective implements OnInit {
         takeUntilDestroyed(this.destroyRef)
       )
       .subscribe((state) => {
-        console.log('[SlashTriggerDirective] slashTriggered emitted', {
-          query: state.query,
-        });
         this.slashTriggered.emit({
           query: state.query,
           cursorPosition: state.cursorPosition,

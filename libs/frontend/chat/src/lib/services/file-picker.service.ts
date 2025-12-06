@@ -180,21 +180,26 @@ export class FilePickerService {
 
       if (result.success && result.data?.files) {
         // Transform backend format to FileSuggestion format
-        const suggestions: FileSuggestion[] = result.data.files.map((file) => ({
-          path: file.uri,
-          name: file.fileName,
-          directory:
-            file.relativePath.substring(
-              0,
-              file.relativePath.lastIndexOf('/')
-            ) || '/',
-          type: file.isDirectory ? 'directory' : 'file',
-          extension: file.fileType || undefined,
-          size: file.size,
-          lastModified: file.lastModified,
-          isImage: this.imageExtensions.has(`.${file.fileType}`),
-          isText: this.textExtensions.has(`.${file.fileType}`),
-        }));
+        const suggestions: FileSuggestion[] = result.data.files.map((file) => {
+          // Extract directory from relativePath (everything before the last /)
+          const lastSlashIndex = file.relativePath.lastIndexOf('/');
+          const directory =
+            lastSlashIndex > 0
+              ? file.relativePath.substring(0, lastSlashIndex)
+              : file.relativePath; // Use full path if no slash or at root
+
+          return {
+            path: file.uri,
+            name: file.fileName,
+            directory,
+            type: file.isDirectory ? 'directory' : 'file',
+            extension: file.fileType || undefined,
+            size: file.size,
+            lastModified: file.lastModified,
+            isImage: this.imageExtensions.has(`.${file.fileType}`),
+            isText: this.textExtensions.has(`.${file.fileType}`),
+          };
+        });
 
         this._workspaceFiles.set(suggestions);
         this._lastUpdate.set(Date.now());

@@ -79,6 +79,7 @@
     "@angular-devkit/core": "~20.1.0",
     "@angular-devkit/schematics": "~20.1.0",
     "@angular/build": "~20.1.0",
+    "@angular/cdk": "^21.0.2",
     "@angular/cli": "~20.1.0",
     "@angular/compiler-cli": "~20.1.0",
     "@angular/language-service": "~20.1.0",

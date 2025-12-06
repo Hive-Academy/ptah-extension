@@ -9,10 +9,9 @@
  * - Organisms: ExecutionNode (recursive!), MessageBubble, InlineAgentBubble, AgentExecution
  * - Templates: ChatView, AppShell
  *
- * KEEPING: Suggestion components (user request - feature required)
- * - FileTagComponent - File tag with preview and removal
- * - FileSuggestionsDropdownComponent - File suggestions with keyboard navigation
- * - UnifiedSuggestionsDropdownComponent - Combined @ autocomplete dropdown
+ * Autocomplete Components:
+ * - FileTagComponent - Compact file chip with removal
+ * - UnifiedSuggestionsDropdownComponent - @ and / autocomplete dropdown
  */
 
 // ============================================================================
@@ -48,8 +47,7 @@ export * from './templates/chat-view.component';
 export * from './templates/app-shell.component';
 
 // ============================================================================
-// LEGACY COMPONENTS - KEPT (feature required)
+// AUTOCOMPLETE COMPONENTS
 // ============================================================================
 export * from './file-suggestions/file-tag.component';
-export * from './file-suggestions/file-suggestions-dropdown.component';
 export * from './file-suggestions/unified-suggestions-dropdown.component';

@@ -6,6 +6,7 @@
  */
 
 import { MCPToolDefinition } from '../types';
+import { PTAH_SYSTEM_PROMPT } from '../ptah-system-prompt.constant';
 
 /**
  * Build the execute_code tool definition
@@ -76,6 +77,8 @@ export function buildApprovalPromptTool(): MCPToolDefinition {
  */
 function buildExecuteCodeDescription(): string {
   return `Execute TypeScript/JavaScript code with access to VS Code extension APIs via the global "ptah" object.
+
+${PTAH_SYSTEM_PROMPT}
 
 ## Available Namespaces (12 total)
 

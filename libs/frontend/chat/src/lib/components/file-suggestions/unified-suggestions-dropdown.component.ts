@@ -5,7 +5,6 @@ import {
   signal,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import type { CommandSuggestion } from '@ptah-extension/core';
 import type { FileSuggestion } from '../../services/file-picker.service';
 
@@ -13,19 +12,18 @@ import type { FileSuggestion } from '../../services/file-picker.service';
  * Unified Suggestions Dropdown - Autocomplete UI for @file, /command
  *
  * ARCHITECTURE:
- * - Level 1 component (Simple presentation component)
+ * - Level 1 component (Pure presentation component)
  * - Supports file and command types via discriminated union
  * - Agents handled by dedicated AgentSelectorComponent (separate dropdown)
- * - Keyboard navigation (ArrowUp, ArrowDown, Enter, Escape)
- * - Full-width single-column layout matching Claude Code CLI style
+ * - Parent calls navigateUp/navigateDown/selectFocused methods directly
+ *
+ * KEYBOARD NAVIGATION:
+ * - Parent component (chat-input) handles keydown events on textarea
+ * - Parent calls public methods: navigateUp(), navigateDown(), selectFocused()
+ * - This is the proper Angular pattern - no document-level listeners needed
  *
  * DEPENDENCIES:
  * - Type imports from @ptah-extension/core (facades)
- * - CommonModule (Angular 20+)
- *
- * COMPLEXITY ASSESSMENT:
- * - Level: 2 (Medium) - Type discrimination, keyboard navigation
- * - Patterns: Composition (replaces FileSuggestionsDropdown)
  */
 
 // Type discriminated union for file and command suggestions only
@@ -40,13 +38,10 @@ export type SuggestionItem =
 @Component({
   selector: 'ptah-unified-suggestions-dropdown',
   standalone: true,
-  imports: [CommonModule],
-  host: {
-    '(document:keydown)': 'onKeyDown($event)',
-  },
+  imports: [],
   template: `
     <div
-      class="suggestions-dropdown z-50 p-1 shadow-lg bg-base-200 rounded-lg border border-base-300"
+      class="absolute bottom-full left-0 right-0 mb-1 z-50 flex flex-col max-h-80 p-1 shadow-lg bg-base-200 rounded-lg border border-base-300"
       role="listbox"
     >
       <!-- Header -->
@@ -73,105 +68,59 @@ export type SuggestionItem =
       </div>
       }
 
-      <!-- Suggestions List - Single Column -->
+      <!-- Suggestions List - Single Column Vertical -->
       @else {
-      <ul class="menu menu-sm p-1 overflow-y-auto max-h-64">
+      <div class="flex flex-col overflow-y-auto overflow-x-hidden max-h-64 p-1">
         @for (suggestion of suggestions(); track trackBy($index, suggestion);
         let i = $index) {
-        <li>
-          <button
-            type="button"
-            class="flex items-start gap-3 py-2 px-3 rounded-md transition-colors w-full"
-            [class.bg-primary]="i === focusedIndex()"
-            [class.text-primary-content]="i === focusedIndex()"
-            [class.hover:bg-base-300]="i !== focusedIndex()"
-            (click)="selectSuggestion(suggestion)"
-            (mouseenter)="setFocusedIndex(i)"
-            role="option"
-            [attr.aria-selected]="i === focusedIndex()"
+        <button
+          type="button"
+          class="btn btn-ghost justify-start items-start gap-3 px-3 py-2 h-auto min-h-0 rounded-md w-full text-left font-normal"
+          [class.btn-primary]="i === focusedIndex()"
+          (click)="selectSuggestion(suggestion)"
+          (mouseenter)="setFocusedIndex(i)"
+          role="option"
+          [attr.aria-selected]="i === focusedIndex()"
+        >
+          <!-- Icon -->
+          <span
+            class="shrink-0 w-5 h-5 flex items-center justify-center text-base"
           >
-            <!-- Icon -->
-            <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
-              <span class="text-base">{{ getIcon(suggestion) }}</span>
-            </div>
+            {{ getIcon(suggestion) }}
+          </span>
 
-            <!-- Content area -->
-            <div class="flex flex-col items-start flex-1 min-w-0">
-              @if (suggestion.type === 'file') {
-              <!-- Files/Folders: Name prominent, directory secondary -->
-              <span class="font-medium text-sm truncate w-full">{{
+          <!-- Content area -->
+          <div class="flex-1 min-w-0 flex flex-col gap-0.5">
+            @if (suggestion.type === 'file') {
+            <!-- Files/Folders: Name prominent, directory secondary -->
+            <span class="font-medium text-sm truncate">{{
+              getName(suggestion)
+            }}</span>
+            <span class="text-xs opacity-70 truncate">{{
+              getDescription(suggestion)
+            }}</span>
+            } @else if (suggestion.type === 'command') {
+            <!-- Commands: Name with badge styling -->
+            <div class="flex items-center gap-2">
+              <span class="font-medium text-sm truncate">{{
                 getName(suggestion)
               }}</span>
-              <span
-                [class]="
-                  'text-xs mt-0.5 truncate w-full ' +
-                  (i === focusedIndex()
-                    ? 'text-primary-content/70'
-                    : 'text-base-content/60')
-                "
-              >
-                {{ getDescription(suggestion) }}
-              </span>
-              } @else if (suggestion.type === 'command') {
-              <!-- Commands: Name with badge styling -->
-              <div class="flex items-center gap-2 w-full">
-                <span class="font-medium text-sm">{{
-                  getName(suggestion)
-                }}</span>
-                @if (suggestion.scope === 'builtin') {
-                <span class="badge badge-accent badge-xs">Built-in</span>
-                }
-              </div>
-              <span
-                [class]="
-                  'text-xs mt-0.5 truncate w-full ' +
-                  (i === focusedIndex()
-                    ? 'text-primary-content/70'
-                    : 'text-base-content/60')
-                "
-              >
-                {{ getDescription(suggestion) }}
-              </span>
+              @if (suggestion.scope === 'builtin') {
+              <span class="badge badge-accent badge-xs">Built-in</span>
               }
             </div>
-          </button>
-        </li>
+            <span class="text-xs opacity-70 truncate">{{
+              getDescription(suggestion)
+            }}</span>
+            }
+          </div>
+        </button>
         }
-      </ul>
+      </div>
       }
     </div>
   `,
-  styles: [
-    `
-      /* Position dropdown absolutely above the textarea - full width */
-      .suggestions-dropdown {
-        position: absolute;
-        bottom: 100%;
-        left: 0;
-        right: 0;
-        margin-bottom: 4px;
-        z-index: 1000;
-      }
-
-      /* Focus outline for accessibility */
-      .menu li > button:focus {
-        outline: 2px solid oklch(var(--p));
-        outline-offset: -2px;
-      }
-
-      /* Ensure single column layout */
-      .menu li {
-        width: 100%;
-      }
-
-      /* Reduced motion support */
-      @media (prefers-reduced-motion: reduce) {
-        button {
-          transition: none;
-        }
-      }
-    `,
-  ],
+  styles: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UnifiedSuggestionsDropdownComponent {
@@ -202,40 +151,45 @@ export class UnifiedSuggestionsDropdownComponent {
     return 'Suggestions';
   }
 
-  // Keyboard navigation
-  onKeyDown(event: KeyboardEvent): void {
+  // ============================================================
+  // PUBLIC API - Called by parent component for keyboard navigation
+  // ============================================================
+
+  /**
+   * Navigate to next item (ArrowDown)
+   */
+  navigateDown(): void {
     const suggestions = this.suggestions();
     if (suggestions.length === 0) return;
+    this._focusedIndex.set((this._focusedIndex() + 1) % suggestions.length);
+  }
 
-    switch (event.key) {
-      case 'ArrowDown': {
-        event.preventDefault();
-        this.setFocusedIndex((this._focusedIndex() + 1) % suggestions.length);
-        break;
-      }
+  /**
+   * Navigate to previous item (ArrowUp)
+   */
+  navigateUp(): void {
+    const suggestions = this.suggestions();
+    if (suggestions.length === 0) return;
+    const newIndex = this._focusedIndex() - 1;
+    this._focusedIndex.set(newIndex < 0 ? suggestions.length - 1 : newIndex);
+  }
 
-      case 'ArrowUp': {
-        event.preventDefault();
-        const newIndex = this._focusedIndex() - 1;
-        this.setFocusedIndex(newIndex < 0 ? suggestions.length - 1 : newIndex);
-        break;
-      }
-
-      case 'Enter': {
-        event.preventDefault();
-        const focused = suggestions[this._focusedIndex()];
-        if (focused) {
-          this.selectSuggestion(focused);
-        }
-        break;
-      }
-
-      case 'Escape': {
-        event.preventDefault();
-        this.closed.emit();
-        break;
-      }
+  /**
+   * Select currently focused item (Enter)
+   */
+  selectFocused(): void {
+    const suggestions = this.suggestions();
+    const focused = suggestions[this._focusedIndex()];
+    if (focused) {
+      this.suggestionSelected.emit(focused);
     }
+  }
+
+  /**
+   * Reset focused index (called when suggestions change)
+   */
+  resetFocus(): void {
+    this._focusedIndex.set(0);
   }
 
   setFocusedIndex(index: number): void {

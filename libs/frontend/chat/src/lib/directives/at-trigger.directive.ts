@@ -98,7 +98,6 @@ export class AtTriggerDirective implements OnInit {
   private readonly DEBOUNCE_DELAY_MS = 150;
 
   ngOnInit(): void {
-    console.log('[AtTriggerDirective] ngOnInit called');
     this.setupInputPipeline();
   }
 
@@ -154,9 +153,6 @@ export class AtTriggerDirective implements OnInit {
         takeUntilDestroyed(this.destroyRef)
       )
       .subscribe((state) => {
-        console.log('[AtTriggerDirective] atTriggered emitted', {
-          query: state.query,
-        });
         this.atTriggered.emit({
           query: state.query,
           cursorPosition: state.cursorPosition,

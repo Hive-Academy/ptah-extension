@@ -512,6 +512,7 @@ export class ContextService {
       const results: FileSearchResult[] = [];
       const workspacePath = workspaceFolder.uri.fsPath;
 
+      // Process files
       for (const file of files) {
         try {
           const stat = await vscode.workspace.fs.stat(file);
@@ -534,6 +535,14 @@ export class ContextService {
         }
       }
 
+      // Also discover directories (VS Code findFiles doesn't return directories)
+      const directories = await this.discoverDirectories(
+        workspaceFolder.uri,
+        workspacePath,
+        excludePatterns
+      );
+      results.push(...directories);
+
       // Sort by relevance (recently modified first)
       results.sort((a, b) => b.lastModified - a.lastModified);
 
@@ -541,13 +550,78 @@ export class ContextService {
       this.allFilesCache = results;
       this.allFilesCacheTimestamp = now;
 
-      this.logger.info(`Cached ${results.length} workspace files`);
+      this.logger.info(
+        `Cached ${results.length} workspace files and directories`
+      );
 
       return this.paginateResults(results, offset, limit, includeImages);
     } catch (error) {
       this.logger.error('Failed to get all files', error);
       return [];
     }
+  }
+
+  /**
+   * Discover directories in workspace (VS Code findFiles doesn't return directories)
+   * Uses recursive directory reading with depth limit for performance
+   */
+  private async discoverDirectories(
+    rootUri: vscode.Uri,
+    workspacePath: string,
+    excludePatterns: string[],
+    maxDepth = 4
+  ): Promise<FileSearchResult[]> {
+    const directories: FileSearchResult[] = [];
+    const excludeSet = new Set([
+      'node_modules',
+      '.git',
+      'dist',
+      'build',
+      'out',
+    ]);
+
+    const processDirectory = async (
+      uri: vscode.Uri,
+      depth: number
+    ): Promise<void> => {
+      if (depth > maxDepth) return;
+
+      try {
+        const entries = await vscode.workspace.fs.readDirectory(uri);
+
+        for (const [name, type] of entries) {
+          if (type !== vscode.FileType.Directory) continue;
+          if (excludeSet.has(name) || name.startsWith('.')) continue;
+
+          const dirUri = vscode.Uri.joinPath(uri, name);
+          const relativePath = path.relative(workspacePath, dirUri.fsPath);
+
+          try {
+            const stat = await vscode.workspace.fs.stat(dirUri);
+
+            directories.push({
+              uri: dirUri,
+              relativePath,
+              fileName: name,
+              fileType: 'unknown',
+              size: 0,
+              lastModified: stat.mtime,
+              isDirectory: true,
+            });
+
+            // Recurse into subdirectory
+            await processDirectory(dirUri, depth + 1);
+          } catch {
+            // Skip inaccessible directories
+          }
+        }
+      } catch {
+        // Skip if directory listing fails
+      }
+    };
+
+    await processDirectory(rootUri, 0);
+    return directories;
   }
 
   /**

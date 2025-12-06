@@ -1,406 +1,263 @@
- [Extension Host] STOPPED on first line for debugging on port 53123
+ [Extension Host] STOPPED on first line for debugging on port 53149
 F @ workbench.desktop.main.js:3880
-log.ts:440  INFO Loading development extension at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode
-languagesAssociations.ts:73 Overwriting extension <<copilot-instructions.md>> to now point to mime <<text/x-instructions>>
-(anonymous) @ languagesAssociations.ts:73
-languagesAssociations.ts:73 Overwriting extension <<.editorconfig>> to now point to mime <<text/x-editorconfig>>
-(anonymous) @ languagesAssociations.ts:73
-languagesAssociations.ts:73 Overwriting extension <<.hbs>> to now point to mime <<text/x-handlebars>>
-(anonymous) @ languagesAssociations.ts:73
-languagesAssociations.ts:73 Overwriting extension <<.handlebars>> to now point to mime <<text/x-handlebars>>
-(anonymous) @ languagesAssociations.ts:73
-languagesAssociations.ts:77 Overwriting filename <<.gitignore>> to now point to mime <<text/x-ignore>>
-(anonymous) @ languagesAssociations.ts:77
-languagesAssociations.ts:73 Overwriting extension <<.env>> to now point to mime <<text/x-env>>
-(anonymous) @ languagesAssociations.ts:73
+  INFO Loading development extension at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode
+ Overwriting extension <<copilot-instructions.md>> to now point to mime <<text/x-instructions>>
+(anonymous) @ workbench.desktop.main.js:577
+ Overwriting extension <<.editorconfig>> to now point to mime <<text/x-editorconfig>>
+(anonymous) @ workbench.desktop.main.js:577
+ Overwriting extension <<.hbs>> to now point to mime <<text/x-handlebars>>
+(anonymous) @ workbench.desktop.main.js:577
+ Overwriting extension <<.handlebars>> to now point to mime <<text/x-handlebars>>
+(anonymous) @ workbench.desktop.main.js:577
+ Overwriting filename <<.gitignore>> to now point to mime <<text/x-ignore>>
+(anonymous) @ workbench.desktop.main.js:577
+workbench.desktop.main.js:sourcemap:577 Overwriting extension <<.env>> to now point to mime <<text/x-env>>
+(anonymous) @ workbench.desktop.main.js:sourcemap:577
  An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing.
 mountTo @ workbench.desktop.main.js:4124
-log.ts:440  INFO Started local extension host with pid 27976.
+workbench.desktop.main.js:sourcemap:36  INFO Started local extension host with pid 33012.
 marketplace.visualstudio.com/_apis/public/gallery/vscode/ptah-extensions/ptah-extension-vscode/latest:1  Failed to load resource: the server responded with a status of 404 ()
-log.ts:440  INFO MCP Registry configured: https://api.mcp.github.com
-localProcessExtensionHost.ts:280 Extension Host
-localProcessExtensionHost.ts:281 Debugger attached.
-log.ts:440  INFO [perf] Render performance baseline is 22ms
-log.ts:460   ERR [Extension Host] (node:27976) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+workbench.desktop.main.js:sourcemap:36  INFO MCP Registry configured: https://api.mcp.github.com
+workbench.desktop.main.js:sourcemap:3880 Extension Host
+workbench.desktop.main.js:sourcemap:3880 Debugger attached.
+workbench.desktop.main.js:sourcemap:36  INFO [perf] Render performance baseline is 24ms
+workbench.desktop.main.js:sourcemap:36   ERR [Extension Host] (node:33012) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
 (Use `Code --trace-deprecation ...` to show where the warning was created)
-error @ log.ts:460
-console.ts:139 [Extension Host] (node:27976) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+error @ workbench.desktop.main.js:sourcemap:36
+workbench.desktop.main.js:sourcemap:528 [Extension Host] (node:33012) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
 (Use `Code --trace-deprecation ...` to show where the warning was created) (at file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517)
-gCs @ console.ts:139
-log.ts:460   ERR [Extension Host] (node:27976) ExperimentalWarning: SQLite is an experimental feature and might change at any time
-error @ log.ts:460
-console.ts:139 [Extension Host] (node:27976) ExperimentalWarning: SQLite is an experimental feature and might change at any time (at file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517)
-gCs @ console.ts:139
-console.ts:139 [Extension Host] Created lock file at C:\Users\abdal\.claude\ide\59422.lock (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] Set CLAUDE_CODE_SSE_PORT=59422 in terminal environment (in-memory) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] Set ENABLE_IDE_INTEGRATION=true in terminal environment (in-memory) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-log.ts:440  INFO Settings Sync: Account status changed from uninitialized to available
+gCs @ workbench.desktop.main.js:sourcemap:528
+workbench.desktop.main.js:sourcemap:36   ERR [Extension Host] (node:33012) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+error @ workbench.desktop.main.js:sourcemap:36
+workbench.desktop.main.js:sourcemap:528 [Extension Host] (node:33012) ExperimentalWarning: SQLite is an experimental feature and might change at any time (at file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517)
+gCs @ workbench.desktop.main.js:sourcemap:528
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Created lock file at C:\Users\abdal\.claude\ide\54445.lock (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Set CLAUDE_CODE_SSE_PORT=54445 in terminal environment (in-memory) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Set ENABLE_IDE_INTEGRATION=true in terminal environment (in-memory) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:36  INFO Settings Sync: Account status changed from uninitialized to available
+workbench.desktop.main.js:sourcemap:528 [Extension Host] ===== PTAH ACTIVATION START ===== (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 1: Setting up DI Container... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 1: DI Container setup complete (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 2: Resolving Logger... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Activating Ptah extension... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 2: Logger resolved (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 3.6: Registering RPC methods... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Loaded context state: 0 included, 0 excluded (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] RPC methods registered (TASK_2025_023 Batch 4 complete) Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 3.6: RPC methods registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 3.7: Initializing autocomplete watchers... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Autocomplete discovery watchers initialized (2 services) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 3.7: Autocomplete watchers initialized (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 4: Creating PtahExtension instance... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 4: PtahExtension instance created (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 5: Calling ptahExtension.initialize()... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Initializing Ptah extension... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] WebviewEventQueue initialized (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Development file watcher initialized for hot reload (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] AngularWebviewProvider initialized - message forwarding handled by WebviewMessageBridge (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Registering webview providers... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Webview providers registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Ptah extension initialized successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 5: ptahExtension.initialize() complete (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 6: Registering late-binding adapters... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 6: Late-binding adapters registered (analytics removed) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 7: Calling ptahExtension.registerAll()... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Extension components registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 7: ptahExtension.registerAll() complete (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 9: Starting Code Execution MCP Server... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Loaded context state: 0 included, 0 excluded (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] TreeSitterParserService created. Initialization required. (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] TreeSitterParserService created. Initialization required. (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] PtahAPIBuilder initialized with 12 namespaces (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] CodeExecutionMCP server started on http://localhost:51820 Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Code Execution MCP Server started on port 51820 (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 9: Code Execution MCP Server started (port 51820) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 10: Writing MCP config to .mcp.json... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 api.github.com/copilot/mcp_registry:1  Failed to load resource: the server responded with a status of 404 ()
-log.ts:460   ERR Failed to fetch MCP registry providers Server returned 404
-error @ log.ts:460
-console.ts:139 [Extension Host] ===== PTAH ACTIVATION START ===== (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 1: Setting up DI Container... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 1: DI Container setup complete (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 2: Resolving Logger... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Activating Ptah extension... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 2: Logger resolved (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 3.6: Registering RPC methods... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Loaded context state: 0 included, 0 excluded (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] RPC methods registered (TASK_2025_023 Batch 4 complete) Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 3.6: RPC methods registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 3.7: Initializing autocomplete watchers... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Autocomplete discovery watchers initialized (2 services) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 3.7: Autocomplete watchers initialized (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 4: Creating PtahExtension instance... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 4: PtahExtension instance created (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 5: Calling ptahExtension.initialize()... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Initializing Ptah extension... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] WebviewEventQueue initialized (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Development file watcher initialized for hot reload (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] AngularWebviewProvider initialized - message forwarding handled by WebviewMessageBridge (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Registering webview providers... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Webview providers registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Ptah extension initialized successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 5: ptahExtension.initialize() complete (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 6: Registering late-binding adapters... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 6: Late-binding adapters registered (analytics removed) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 7: Calling ptahExtension.registerAll()... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Extension components registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 7: ptahExtension.registerAll() complete (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 9: Starting Code Execution MCP Server... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Loaded context state: 0 included, 0 excluded (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] TreeSitterParserService created. Initialization required. (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] TreeSitterParserService created. Initialization required. (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] PtahAPIBuilder initialized with 12 namespaces (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] CodeExecutionMCP server started on http://localhost:51820 Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Code Execution MCP Server started on port 51820 (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 9: Code Execution MCP Server started (port 51820) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 10: Writing MCP config to .mcp.json... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Ptah MCP server registered in .mcp.json (port 51820) Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] MCP server registered in .mcp.json Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 10: MCP server registered in .mcp.json (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Ptah extension activated successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] ===== PTAH ACTIVATION COMPLETE ===== (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Registering WebviewView: ptah.main (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] WebviewView registered successfully: ptah.main (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Webview registered with WebviewManager as "ptah.main" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming href="favicon.ico" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/favicon.ico" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming href="styles.css" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/styles.css" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming href="chunk-H6IEFONP.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-H6IEFONP.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming href="chunk-PULQJNNA.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-PULQJNNA.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming href="chunk-JKOY2XUY.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-JKOY2XUY.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming src="polyfills.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/polyfills.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming src="scripts.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/scripts.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming src="main.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/main.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] Base URI set to: https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] All assets transformed to webview URIs (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-VM13:40 Ptah WebView: VS Code API initialized Object
-index.html?id=ee09e480-2647-4471-ba9a-cec98559d4e3&parentId=7&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:4 ===================================================
-index.html?id=ee09e480-2647-4471-ba9a-cec98559d4e3&parentId=7&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:5 PTAH STARTUP SCRIPT EXECUTING
-index.html?id=ee09e480-2647-4471-ba9a-cec98559d4e3&parentId=7&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:6 window.vscode exists: true
-index.html?id=ee09e480-2647-4471-ba9a-cec98559d4e3&parentId=7&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:7 window.ptahConfig exists: true
-index.html?id=ee09e480-2647-4471-ba9a-cec98559d4e3&parentId=7&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:8 ===================================================
-main.js:9 === PTAH WEBVIEW BOOTSTRAP STARTING ===
-main.js:9 Window globals: Object
-main.js:9 =================================================
-main.js:9 PTAH APP NGONINIT STARTING
-main.js:9 =================================================
-main.js:9 Setting up initial view with pure signal navigation
-main.js:9 🔍 [App] isReady computed: Object
-main.js:9 🔍 [App] isReady computed: Object
-main.js:7 [TabManager] Loaded tab state from localStorage: 1 tabs
-main.js:9 [KeyboardShortcuts] Global shortcuts initialized
-chunk-H6IEFONP.js:66 [VSCodeService] RPC service registered for response routing
-chunk-H6IEFONP.js:88 [ClaudeRpcService] Registered with VSCodeService for RPC routing
-main.js:7 [ChatStore] Initializing...
-chunk-H6IEFONP.js:66 [VSCodeService] ChatStore registered for message routing
-main.js:7 [ChatStore] Services initialized and ready
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Cache cleared
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Cache cleared
-main.js:9 [ChatInputComponent] Session changed, caches cleared Object
-main.js:9 [AtTriggerDirective] ngOnInit called
-main.js:9 [SlashTriggerDirective] ngOnInit called
-main.js:9 === PTAH WEBVIEW BOOTSTRAP COMPLETE ===
-log.ts:460   ERR chatParticipant must be declared in package.json: claude-code
-error @ log.ts:460
-console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-index.html?id=ee09e480-2647-4471-ba9a-cec98559d4e3&parentId=7&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:13 Sending webview-ready message to extension...
-console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-chunk-H6IEFONP.js:66 [VSCodeService] Received RPC response: Object
-chunk-H6IEFONP.js:66 [VSCodeService] Received RPC response: Object
-console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: webview-ready (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] Webview ready signal received! (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Webview ready signal received - flushing event queue (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] WebviewEventQueue: Marked as ready (0 events queued) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] markWebviewReady() completed (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-chunk-H6IEFONP.js:66 [VSCodeService] Received RPC response: Object
-main.js:7 [ChatStore] Loaded sessions: 10 of 38
-console.ts:139 [Extension Host] Workspace analyzed: nestjs-ai-saas-starter (angular) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] Workspace analyzed: nestjs-ai-saas-starter (angular) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-webviewCommands.ts:33 Using standard dev tools to debug iframe based webview
-main.js:9 [SlashTriggerDirective] slashTriggered emitted {query: ''}
-main.js:9 [ChatInputComponent] handleSlashTriggered called {query: ''}
-main.js:9 [ChatInputComponent] State after slashTriggered {suggestionMode: 'slash-trigger', showSuggestions: true, query: ''}
+workbench.desktop.main.js:sourcemap:36   ERR Failed to fetch MCP registry providers Server returned 404
+error @ workbench.desktop.main.js:sourcemap:36
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Ptah MCP server registered in .mcp.json (port 51820) Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] MCP server registered in .mcp.json Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [Activate] Step 10: MCP server registered in .mcp.json (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Ptah extension activated successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] ===== PTAH ACTIVATION COMPLETE ===== (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Registering WebviewView: ptah.main (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] WebviewView registered successfully: ptah.main (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewManager] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Webview registered with WebviewManager as "ptah.main" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewHtmlGenerator] Transforming href="favicon.ico" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/favicon.ico" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewHtmlGenerator] Transforming href="styles.css" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/styles.css" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewHtmlGenerator] Transforming href="chunk-LIU4QNJO.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-LIU4QNJO.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewHtmlGenerator] Transforming href="chunk-PULQJNNA.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-PULQJNNA.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewHtmlGenerator] Transforming href="chunk-JKOY2XUY.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-JKOY2XUY.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewHtmlGenerator] Transforming src="polyfills.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/polyfills.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewHtmlGenerator] Transforming src="scripts.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/scripts.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewHtmlGenerator] Transforming src="main.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/main.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewHtmlGenerator] Base URI set to: https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [WebviewHtmlGenerator] All assets transformed to webview URIs (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+ Ptah WebView: VS Code API initialized Object
+ ===================================================
+ PTAH STARTUP SCRIPT EXECUTING
+ window.vscode exists: true
+ window.ptahConfig exists: true
+ ===================================================
+ === PTAH WEBVIEW BOOTSTRAP STARTING ===
+ Window globals: Object
+ =================================================
+ PTAH APP NGONINIT STARTING
+ =================================================
+ Setting up initial view with pure signal navigation
+ 🔍 [App] isReady computed: Object
+ 🔍 [App] isReady computed: Object
+ [TabManager] Loaded tab state from localStorage: 1 tabs
+ [KeyboardShortcuts] Global shortcuts initialized
+ [VSCodeService] RPC service registered for response routing
+ [ClaudeRpcService] Registered with VSCodeService for RPC routing
+ [ChatStore] Initializing...
+ [VSCodeService] ChatStore registered for message routing
+ [ChatStore] Services initialized and ready
+ [CommandDiscoveryFacade] Cache cleared
+ [ChatInputComponent] Session changed, cache cleared Object
+ [AtTriggerDirective] ngOnInit called
+ [SlashTriggerDirective] ngOnInit called
+ [AgentDiscoveryFacade] fetchAgents called
+ === PTAH WEBVIEW BOOTSTRAP COMPLETE ===
+workbench.desktop.main.js:sourcemap:36   ERR chatParticipant must be declared in package.json: claude-code
+error @ workbench.desktop.main.js:sourcemap:36
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+ Sending webview-ready message to extension...
+ [VSCodeService] Received RPC response: Object
+ [VSCodeService] Received RPC response: Object
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [AngularWebviewProvider] Received message from webview: webview-ready (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [AngularWebviewProvider] Webview ready signal received! (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] Webview ready signal received - flushing event queue (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] WebviewEventQueue: Marked as ready (0 events queued) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [AngularWebviewProvider] markWebviewReady() completed (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+ [VSCodeService] Received RPC response: Object
+ [AgentDiscoveryFacade] searchAgents called Object
+ [AgentDiscoveryFacade] Returning all agents Object
+ [VSCodeService] Received RPC response: Object
+ [ChatStore] Loaded sessions: 10 of 37
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Workspace analyzed: nestjs-ai-saas-starter (angular) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] Workspace analyzed: nestjs-ai-saas-starter (angular) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+ [ChatInputComponent] Agent selected: team-leader
+ [SlashTriggerDirective] slashTriggered emitted Object
+ [ChatInputComponent] handleSlashTriggered called Object
+ [ChatInputComponent] State after slashTriggered Object
+ [ChatInputComponent] fetchCommandSuggestions called
+ [CommandDiscoveryFacade] fetchCommands called
+ [ChatInputComponent] filteredSuggestions computed Object
+ [CommandDiscoveryFacade] searchCommands called Object
+ [CommandDiscoveryFacade] Filtered results Object
+ [ChatInputComponent] / trigger results Object
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+workbench.desktop.main.js:sourcemap:528 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+ [VSCodeService] Received RPC response: Object
+main.js:9 [ChatInputComponent] filteredSuggestions computed Object
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] searchCommands called Object
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] Filtered results Object
+main.js:9 [ChatInputComponent] / trigger results Object
+main.js:9 [SlashTriggerDirective] slashTriggered emitted Object
+main.js:9 [ChatInputComponent] handleSlashTriggered called Object
+main.js:9 [ChatInputComponent] State after slashTriggered Object
 main.js:9 [ChatInputComponent] fetchCommandSuggestions called
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] fetchCommands called
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'slash-trigger', query: '', category: 'all'}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] searchCommands called {query: '', totalCommands: 0}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Returning all commands {count: 0}
-main.js:9 [ChatInputComponent] / trigger results {commandsCount: 0}
-console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: {method: 'autocomplete:commands', params: {…}, correlationId: '22fa4945-244d-4680-885e-641f028b1025'} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-chunk-H6IEFONP.js:66 [VSCodeService] Received RPC response: {type: 'rpc:response', requestId: '22fa4945-244d-4680-885e-641f028b1025', correlationId: '22fa4945-244d-4680-885e-641f028b1025', success: true, data: {…}, …}
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'slash-trigger', query: '', category: 'all'}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] searchCommands called {query: '', totalCommands: 21}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Returning all commands {count: 21}
-main.js:9 [ChatInputComponent] / trigger results {commandsCount: 21}
-main.js:9 [SlashTriggerDirective] slashTriggered emitted {query: 'orchestrate'}
-main.js:9 [ChatInputComponent] handleSlashTriggered called {query: 'orchestrate'}
-main.js:9 [ChatInputComponent] State after slashTriggered {suggestionMode: 'slash-trigger', showSuggestions: true, query: 'orchestrate'}
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
+main.js:9 [ChatInputComponent] filteredSuggestions computed Object
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] searchCommands called Object
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] Filtered results Object
+main.js:9 [ChatInputComponent] / trigger results Object
+main.js:9 [SlashTriggerDirective] slashTriggered emitted Object
+main.js:9 [ChatInputComponent] handleSlashTriggered called Object
+main.js:9 [ChatInputComponent] State after slashTriggered Object
 main.js:9 [ChatInputComponent] fetchCommandSuggestions called
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'slash-trigger', query: 'orchestrate', category: 'all'}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] searchCommands called {query: 'orchestrate', totalCommands: 21}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Filtered results {count: 2}
-main.js:9 [ChatInputComponent] / trigger results {commandsCount: 2}
-main.js:9 [SlashTriggerDirective] slashTriggered emitted {query: 'orchestrat'}
-main.js:9 [ChatInputComponent] handleSlashTriggered called {query: 'orchestrat'}
-main.js:9 [ChatInputComponent] State after slashTriggered {suggestionMode: 'slash-trigger', showSuggestions: true, query: 'orchestrat'}
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
+main.js:9 [ChatInputComponent] filteredSuggestions computed Object
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] searchCommands called Object
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] Filtered results Object
+main.js:9 [ChatInputComponent] / trigger results Object
+main.js:9 [SlashTriggerDirective] slashTriggered emitted Object
+main.js:9 [ChatInputComponent] handleSlashTriggered called Object
+main.js:9 [ChatInputComponent] State after slashTriggered Object
 main.js:9 [ChatInputComponent] fetchCommandSuggestions called
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'slash-trigger', query: 'orchestrat', category: 'all'}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] searchCommands called {query: 'orchestrat', totalCommands: 21}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Filtered results {count: 2}
-main.js:9 [ChatInputComponent] / trigger results {commandsCount: 2}
-main.js:9 [SlashTriggerDirective] slashTriggered emitted {query: 'orchestra'}
-main.js:9 [ChatInputComponent] handleSlashTriggered called {query: 'orchestra'}
-main.js:9 [ChatInputComponent] State after slashTriggered {suggestionMode: 'slash-trigger', showSuggestions: true, query: 'orchestra'}
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
+main.js:9 [ChatInputComponent] filteredSuggestions computed Object
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] searchCommands called Object
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] Filtered results Object
+main.js:9 [ChatInputComponent] / trigger results Object
+main.js:9 [SlashTriggerDirective] slashTriggered emitted Object
+main.js:9 [ChatInputComponent] handleSlashTriggered called Object
+main.js:9 [ChatInputComponent] State after slashTriggered Object
 main.js:9 [ChatInputComponent] fetchCommandSuggestions called
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'slash-trigger', query: 'orchestra', category: 'all'}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] searchCommands called {query: 'orchestra', totalCommands: 21}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Filtered results {count: 2}
-main.js:9 [ChatInputComponent] / trigger results {commandsCount: 2}
-main.js:9 [SlashTriggerDirective] slashTriggered emitted {query: 'orchestrate  '}
-main.js:9 [ChatInputComponent] handleSlashTriggered called {query: 'orchestrate  '}
-main.js:9 [ChatInputComponent] State after slashTriggered {suggestionMode: 'slash-trigger', showSuggestions: true, query: 'orchestrate  '}
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
+main.js:9 [ChatInputComponent] filteredSuggestions computed Object
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] searchCommands called Object
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] Filtered results Object
+main.js:9 [ChatInputComponent] / trigger results Object
+main.js:9 [SlashTriggerDirective] slashTriggered emitted Object
+main.js:9 [ChatInputComponent] handleSlashTriggered called Object
+main.js:9 [ChatInputComponent] State after slashTriggered Object
 main.js:9 [ChatInputComponent] fetchCommandSuggestions called
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'slash-trigger', query: 'orchestrate  ', category: 'all'}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] searchCommands called {query: 'orchestrate  ', totalCommands: 21}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Filtered results {count: 0}
-main.js:9 [ChatInputComponent] / trigger results {commandsCount: 0}
-main.js:9 [AtTriggerDirective] atTriggered emitted {query: ''}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] fetchAgents called
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'at-trigger', query: '', category: 'all'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] searchAgents called {query: '', totalAgents: 0}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Returning all agents {count: 0}
-main.js:9 [ChatInputComponent] @ trigger results {filesCount: 0, agentsCount: 0}
-console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: {method: 'context:getAllFiles', params: {…}, correlationId: '4b849623-118c-423a-bcd5-f367d2a1aa7c'} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: {method: 'autocomplete:agents', params: {…}, correlationId: 'ce4cb079-9854-45d7-bbfc-425020b81570'} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-main.js:9 [SlashTriggerDirective] slashTriggered emitted {query: 'orchestrate  @'}
-main.js:9 [ChatInputComponent] handleSlashTriggered called {query: 'orchestrate  @'}
-main.js:9 [ChatInputComponent] State after slashTriggered {suggestionMode: 'slash-trigger', showSuggestions: true, query: 'orchestrate  @'}
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
+main.js:9 [ChatInputComponent] filteredSuggestions computed Object
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] searchCommands called Object
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] Filtered results Object
+main.js:9 [ChatInputComponent] / trigger results Object
+main.js:9 [SlashTriggerDirective] slashTriggered emitted Object
+main.js:9 [ChatInputComponent] handleSlashTriggered called Object
+main.js:9 [ChatInputComponent] State after slashTriggered Object
 main.js:9 [ChatInputComponent] fetchCommandSuggestions called
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'slash-trigger', query: 'orchestrate  @', category: 'all'}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] searchCommands called {query: 'orchestrate  @', totalCommands: 21}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Filtered results {count: 0}
-main.js:9 [ChatInputComponent] / trigger results {commandsCount: 0}
-chunk-H6IEFONP.js:66 [VSCodeService] Received RPC response: {type: 'rpc:response', requestId: 'ce4cb079-9854-45d7-bbfc-425020b81570', correlationId: 'ce4cb079-9854-45d7-bbfc-425020b81570', success: true, data: {…}, …}
-console.ts:139 [Extension Host] [INFO] Cached 1487 workspace files (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-chunk-H6IEFONP.js:66 [VSCodeService] Received RPC response: {type: 'rpc:response', requestId: '4b849623-118c-423a-bcd5-f367d2a1aa7c', correlationId: '4b849623-118c-423a-bcd5-f367d2a1aa7c', success: true, data: {…}, …}
-main.js:9 [SlashTriggerDirective] slashTriggered emitted {query: 'orchestrate  @ta'}
-main.js:9 [ChatInputComponent] handleSlashTriggered called {query: 'orchestrate  @ta'}
-main.js:9 [ChatInputComponent] State after slashTriggered {suggestionMode: 'slash-trigger', showSuggestions: true, query: 'orchestrate  @ta'}
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
+main.js:9 [ChatInputComponent] filteredSuggestions computed Object
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] searchCommands called Object
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] Filtered results Object
+main.js:9 [ChatInputComponent] / trigger results Object
+main.js:9 [SlashTriggerDirective] slashTriggered emitted Object
+main.js:9 [ChatInputComponent] handleSlashTriggered called Object
+main.js:9 [ChatInputComponent] State after slashTriggered Object
 main.js:9 [ChatInputComponent] fetchCommandSuggestions called
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'slash-trigger', query: 'orchestrate  @ta', category: 'all'}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] searchCommands called {query: 'orchestrate  @ta', totalCommands: 21}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Filtered results {count: 0}
-main.js:9 [ChatInputComponent] / trigger results {commandsCount: 0}
-main.js:9 [AtTriggerDirective] atTriggered emitted {query: 'ta'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'at-trigger', query: 'ta', category: 'all'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] searchAgents called {query: 'ta', totalAgents: 17}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Filtered results {count: 6}
-main.js:9 [ChatInputComponent] @ trigger results {filesCount: 20, agentsCount: 6}
-main.js:9 [AtTriggerDirective] atTriggered emitted {query: 'tas'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'at-trigger', query: 'tas', category: 'all'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] searchAgents called {query: 'tas', totalAgents: 17}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Filtered results {count: 4}
-main.js:9 [ChatInputComponent] @ trigger results {filesCount: 20, agentsCount: 4}
-main.js:9 [SlashTriggerDirective] slashTriggered emitted {query: 'orchestrate  @tas'}
-main.js:9 [ChatInputComponent] handleSlashTriggered called {query: 'orchestrate  @tas'}
-main.js:9 [ChatInputComponent] State after slashTriggered {suggestionMode: 'slash-trigger', showSuggestions: true, query: 'orchestrate  @tas'}
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
+main.js:9 [ChatInputComponent] filteredSuggestions computed Object
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] searchCommands called Object
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] Filtered results Object
+main.js:9 [ChatInputComponent] / trigger results Object
+main.js:9 [SlashTriggerDirective] slashTriggered emitted Object
+main.js:9 [ChatInputComponent] handleSlashTriggered called Object
+main.js:9 [ChatInputComponent] State after slashTriggered Object
 main.js:9 [ChatInputComponent] fetchCommandSuggestions called
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'slash-trigger', query: 'orchestrate  @tas', category: 'all'}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] searchCommands called {query: 'orchestrate  @tas', totalCommands: 21}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Filtered results {count: 0}
-main.js:9 [ChatInputComponent] / trigger results {commandsCount: 0}
-main.js:9 [AtTriggerDirective] atTriggered emitted {query: 'task'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'at-trigger', query: 'task', category: 'all'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] searchAgents called {query: 'task', totalAgents: 17}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Filtered results {count: 4}
-main.js:9 [ChatInputComponent] @ trigger results {filesCount: 20, agentsCount: 4}
-main.js:9 [SlashTriggerDirective] slashTriggered emitted {query: 'orchestrate  @task'}
-main.js:9 [ChatInputComponent] handleSlashTriggered called {query: 'orchestrate  @task'}
-main.js:9 [ChatInputComponent] State after slashTriggered {suggestionMode: 'slash-trigger', showSuggestions: true, query: 'orchestrate  @task'}
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
+main.js:9 [ChatInputComponent] filteredSuggestions computed Object
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] searchCommands called Object
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] Filtered results Object
+main.js:9 [ChatInputComponent] / trigger results Object
+main.js:9 [SlashTriggerDirective] slashTriggered emitted Object
+main.js:9 [ChatInputComponent] handleSlashTriggered called Object
+main.js:9 [ChatInputComponent] State after slashTriggered Object
 main.js:9 [ChatInputComponent] fetchCommandSuggestions called
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'slash-trigger', query: 'orchestrate  @task', category: 'all'}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] searchCommands called {query: 'orchestrate  @task', totalCommands: 21}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Filtered results {count: 0}
-main.js:9 [ChatInputComponent] / trigger results {commandsCount: 0}
-main.js:9 [AtTriggerDirective] atTriggered emitted {query: 'task_'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'at-trigger', query: 'task_', category: 'all'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] searchAgents called {query: 'task_', totalAgents: 17}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Filtered results {count: 0}
-main.js:9 [ChatInputComponent] @ trigger results {filesCount: 20, agentsCount: 0}
-main.js:9 [SlashTriggerDirective] slashTriggered emitted {query: 'orchestrate  @task_'}
-main.js:9 [ChatInputComponent] handleSlashTriggered called {query: 'orchestrate  @task_'}
-main.js:9 [ChatInputComponent] State after slashTriggered {suggestionMode: 'slash-trigger', showSuggestions: true, query: 'orchestrate  @task_'}
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
+main.js:9 [ChatInputComponent] filteredSuggestions computed Object
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] searchCommands called Object
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] Filtered results Object
+main.js:9 [ChatInputComponent] / trigger results Object
+main.js:9 [SlashTriggerDirective] slashTriggered emitted Object
+main.js:9 [ChatInputComponent] handleSlashTriggered called Object
+main.js:9 [ChatInputComponent] State after slashTriggered Object
 main.js:9 [ChatInputComponent] fetchCommandSuggestions called
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'slash-trigger', query: 'orchestrate  @task_', category: 'all'}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] searchCommands called {query: 'orchestrate  @task_', totalCommands: 21}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Filtered results {count: 0}
-main.js:9 [ChatInputComponent] / trigger results {commandsCount: 0}
-main.js:9 [AtTriggerDirective] atTriggered emitted {query: 'task'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'at-trigger', query: 'task', category: 'all'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] searchAgents called {query: 'task', totalAgents: 17}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Filtered results {count: 4}
-main.js:9 [ChatInputComponent] @ trigger results {filesCount: 20, agentsCount: 4}
-main.js:9 [SlashTriggerDirective] slashTriggered emitted {query: 'orchestrate  @task'}
-main.js:9 [ChatInputComponent] handleSlashTriggered called {query: 'orchestrate  @task'}
-main.js:9 [ChatInputComponent] State after slashTriggered {suggestionMode: 'slash-trigger', showSuggestions: true, query: 'orchestrate  @task'}
-main.js:9 [ChatInputComponent] fetchCommandSuggestions called
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'slash-trigger', query: 'orchestrate  @task', category: 'all'}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] searchCommands called {query: 'orchestrate  @task', totalCommands: 21}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Filtered results {count: 0}
-main.js:9 [ChatInputComponent] / trigger results {commandsCount: 0}
-main.js:9 [AtTriggerDirective] atTriggered emitted {query: 'tasks'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'at-trigger', query: 'tasks', category: 'all'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] searchAgents called {query: 'tasks', totalAgents: 17}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Filtered results {count: 2}
-main.js:9 [ChatInputComponent] @ trigger results {filesCount: 20, agentsCount: 2}
-main.js:9 [SlashTriggerDirective] slashTriggered emitted {query: 'orchestrate  @tasks'}
-main.js:9 [ChatInputComponent] handleSlashTriggered called {query: 'orchestrate  @tasks'}
-main.js:9 [ChatInputComponent] State after slashTriggered {suggestionMode: 'slash-trigger', showSuggestions: true, query: 'orchestrate  @tasks'}
-main.js:9 [ChatInputComponent] fetchCommandSuggestions called
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'slash-trigger', query: 'orchestrate  @tasks', category: 'all'}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] searchCommands called {query: 'orchestrate  @tasks', totalCommands: 21}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Filtered results {count: 0}
-main.js:9 [ChatInputComponent] / trigger results {commandsCount: 0}
-main.js:9 [AtTriggerDirective] atTriggered emitted {query: 'task'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'at-trigger', query: 'task', category: 'all'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] searchAgents called {query: 'task', totalAgents: 17}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Filtered results {count: 4}
-main.js:9 [ChatInputComponent] @ trigger results {filesCount: 20, agentsCount: 4}
-main.js:9 [SlashTriggerDirective] slashTriggered emitted {query: 'orchestrate  @task'}
-main.js:9 [ChatInputComponent] handleSlashTriggered called {query: 'orchestrate  @task'}
-main.js:9 [ChatInputComponent] State after slashTriggered {suggestionMode: 'slash-trigger', showSuggestions: true, query: 'orchestrate  @task'}
-main.js:9 [ChatInputComponent] fetchCommandSuggestions called
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'slash-trigger', query: 'orchestrate  @task', category: 'all'}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] searchCommands called {query: 'orchestrate  @task', totalCommands: 21}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Filtered results {count: 0}
-main.js:9 [ChatInputComponent] / trigger results {commandsCount: 0}
-main.js:9 [AtTriggerDirective] atTriggered emitted {query: 'tas'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'at-trigger', query: 'tas', category: 'all'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] searchAgents called {query: 'tas', totalAgents: 17}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Filtered results {count: 4}
-main.js:9 [ChatInputComponent] @ trigger results {filesCount: 20, agentsCount: 4}
-main.js:9 [SlashTriggerDirective] slashTriggered emitted {query: 'orchestrate  @tas'}
-main.js:9 [ChatInputComponent] handleSlashTriggered called {query: 'orchestrate  @tas'}
-main.js:9 [ChatInputComponent] State after slashTriggered {suggestionMode: 'slash-trigger', showSuggestions: true, query: 'orchestrate  @tas'}
-main.js:9 [ChatInputComponent] fetchCommandSuggestions called
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'slash-trigger', query: 'orchestrate  @tas', category: 'all'}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] searchCommands called {query: 'orchestrate  @tas', totalCommands: 21}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Filtered results {count: 0}
-main.js:9 [ChatInputComponent] / trigger results {commandsCount: 0}
-main.js:9 [AtTriggerDirective] atTriggered emitted {query: 't'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'at-trigger', query: 't', category: 'all'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] searchAgents called {query: 't', totalAgents: 17}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Filtered results {count: 17}
-main.js:9 [ChatInputComponent] @ trigger results {filesCount: 20, agentsCount: 17}
-main.js:9 [SlashTriggerDirective] slashTriggered emitted {query: 'orchestrate  @t'}
-main.js:9 [ChatInputComponent] handleSlashTriggered called {query: 'orchestrate  @t'}
-main.js:9 [ChatInputComponent] State after slashTriggered {suggestionMode: 'slash-trigger', showSuggestions: true, query: 'orchestrate  @t'}
-main.js:9 [ChatInputComponent] fetchCommandSuggestions called
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'slash-trigger', query: 'orchestrate  @t', category: 'all'}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] searchCommands called {query: 'orchestrate  @t', totalCommands: 21}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Filtered results {count: 0}
-main.js:9 [ChatInputComponent] / trigger results {commandsCount: 0}
-main.js:9 [AtTriggerDirective] atTriggered emitted {query: ''}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'at-trigger', query: '', category: 'all'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] searchAgents called {query: '', totalAgents: 17}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Returning all agents {count: 17}
-main.js:9 [ChatInputComponent] @ trigger results {filesCount: 10, agentsCount: 17}
-main.js:9 [SlashTriggerDirective] slashTriggered emitted {query: 'orchestrate  @'}
-main.js:9 [ChatInputComponent] handleSlashTriggered called {query: 'orchestrate  @'}
-main.js:9 [ChatInputComponent] State after slashTriggered {suggestionMode: 'slash-trigger', showSuggestions: true, query: 'orchestrate  @'}
-main.js:9 [ChatInputComponent] fetchCommandSuggestions called
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'slash-trigger', query: 'orchestrate  @', category: 'all'}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] searchCommands called {query: 'orchestrate  @', totalCommands: 21}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Filtered results {count: 0}
-main.js:9 [ChatInputComponent] / trigger results {commandsCount: 0}
-main.js:9 [AtTriggerDirective] atTriggered emitted {query: 'ta'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'at-trigger', query: 'ta', category: 'all'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] searchAgents called {query: 'ta', totalAgents: 17}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Filtered results {count: 6}
-main.js:9 [ChatInputComponent] @ trigger results {filesCount: 20, agentsCount: 6}
-main.js:9 [SlashTriggerDirective] slashTriggered emitted {query: 'orchestrate  @ta'}
-main.js:9 [ChatInputComponent] handleSlashTriggered called {query: 'orchestrate  @ta'}
-main.js:9 [ChatInputComponent] State after slashTriggered {suggestionMode: 'slash-trigger', showSuggestions: true, query: 'orchestrate  @ta'}
-main.js:9 [ChatInputComponent] fetchCommandSuggestions called
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'slash-trigger', query: 'orchestrate  @ta', category: 'all'}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] searchCommands called {query: 'orchestrate  @ta', totalCommands: 21}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Filtered results {count: 0}
-main.js:9 [ChatInputComponent] / trigger results {commandsCount: 0}
-main.js:9 [AtTriggerDirective] atTriggered emitted {query: 'task'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'at-trigger', query: 'task', category: 'all'}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] searchAgents called {query: 'task', totalAgents: 17}
-chunk-H6IEFONP.js:89 [AgentDiscoveryFacade] Filtered results {count: 4}
-main.js:9 [ChatInputComponent] @ trigger results {filesCount: 20, agentsCount: 4}
-main.js:9 [SlashTriggerDirective] slashTriggered emitted {query: 'orchestrate  @task'}
-main.js:9 [ChatInputComponent] handleSlashTriggered called {query: 'orchestrate  @task'}
-main.js:9 [ChatInputComponent] State after slashTriggered {suggestionMode: 'slash-trigger', showSuggestions: true, query: 'orchestrate  @task'}
-main.js:9 [ChatInputComponent] fetchCommandSuggestions called
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
-main.js:9 [ChatInputComponent] filteredSuggestions computed {mode: 'slash-trigger', query: 'orchestrate  @task', category: 'all'}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] searchCommands called {query: 'orchestrate  @task', totalCommands: 21}
-chunk-H6IEFONP.js:89 [CommandDiscoveryFacade] Filtered results {count: 0}
-main.js:9 [ChatInputComponent] / trigger results {commandsCount: 0}
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] Cache hit, skipping RPC
+main.js:9 [ChatInputComponent] filteredSuggestions computed Object
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] searchCommands called Object
+chunk-LIU4QNJO.js:89 [CommandDiscoveryFacade] Filtered results Object
+main.js:9 [ChatInputComponent] / trigger results Object
+workbench.desktop.main.js:sourcemap:4124 Using standard dev tools to debug iframe based webview
