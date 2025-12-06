@@ -1,7 +1,10 @@
 /**
  * Option Component - Barrel Export
- * (Component will be created in Batch 2)
+ *
+ * Exports the OptionComponent and re-exports Highlightable interface
+ * from @angular/cdk/a11y for consumer convenience.
  */
+export * from './option.component';
 
 // Re-export Highlightable for consumer convenience
 export { Highlightable } from '@angular/cdk/a11y';
