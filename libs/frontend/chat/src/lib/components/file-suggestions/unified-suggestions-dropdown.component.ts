@@ -3,46 +3,51 @@ import {
   input,
   output,
   signal,
+  computed,
+  effect,
+  viewChildren,
   ChangeDetectionStrategy,
+  AfterViewInit,
+  OnDestroy,
 } from '@angular/core';
-import type { CommandSuggestion } from '@ptah-extension/core';
-import type { FileSuggestion } from '../../services/file-picker.service';
+import { ActiveDescendantKeyManager } from '@angular/cdk/a11y';
+import {
+  SuggestionOptionComponent,
+  type SuggestionItem,
+} from './suggestion-option.component';
+
+// Re-export for consumers
+export type { SuggestionItem } from './suggestion-option.component';
 
 /**
- * Unified Suggestions Dropdown - Autocomplete UI for @file, /command
+ * UnifiedSuggestionsDropdownComponent - Autocomplete UI with CDK A11y
  *
  * ARCHITECTURE:
- * - Level 1 component (Pure presentation component)
+ * - Uses ActiveDescendantKeyManager for keyboard navigation
+ * - Focus stays on parent textarea (aria-activedescendant pattern)
  * - Supports file and command types via discriminated union
- * - Agents handled by dedicated AgentSelectorComponent (separate dropdown)
- * - Parent calls navigateUp/navigateDown/selectFocused methods directly
+ * - Agents handled by dedicated AgentSelectorComponent
  *
  * KEYBOARD NAVIGATION:
- * - Parent component (chat-input) handles keydown events on textarea
- * - Parent calls public methods: navigateUp(), navigateDown(), selectFocused()
- * - This is the proper Angular pattern - no document-level listeners needed
+ * - Parent component calls onKeyDown() with keyboard events
+ * - ActiveDescendantKeyManager handles ArrowUp/ArrowDown
+ * - Parent handles Enter (via selectFocused) and Escape (via close)
  *
- * DEPENDENCIES:
- * - Type imports from @ptah-extension/core (facades)
+ * ACCESSIBILITY:
+ * - role="listbox" on container
+ * - role="option" on each item
+ * - aria-activedescendant points to currently focused option
+ * - getActiveDescendantId() provides the ID for parent's aria-activedescendant
  */
-
-// Type discriminated union for file and command suggestions only
-// Note: Agents handled by AgentSelectorComponent - not part of this dropdown
-export type SuggestionItem =
-  | ({ type: 'file'; icon: string; description: string } & Omit<
-      FileSuggestion,
-      'type'
-    >)
-  | ({ type: 'command' } & CommandSuggestion);
-
 @Component({
   selector: 'ptah-unified-suggestions-dropdown',
   standalone: true,
-  imports: [],
+  imports: [SuggestionOptionComponent],
   template: `
     <div
       class="absolute bottom-full left-0 right-0 mb-1 z-50 flex flex-col max-h-80 p-1 shadow-lg bg-base-200 rounded-lg border border-base-300"
       role="listbox"
+      [attr.aria-label]="getHeaderTitle()"
     >
       <!-- Header -->
       <div class="px-3 py-2 border-b border-base-300">
@@ -68,75 +73,105 @@ export type SuggestionItem =
       </div>
       }
 
-      <!-- Suggestions List - Single Column Vertical -->
+      <!-- Suggestions List -->
       @else {
       <div class="flex flex-col overflow-y-auto overflow-x-hidden max-h-64 p-1">
         @for (suggestion of suggestions(); track trackBy($index, suggestion);
         let i = $index) {
-        <button
-          type="button"
-          class="btn btn-ghost justify-start items-start gap-3 px-3 py-2 h-auto min-h-0 rounded-md w-full text-left font-normal"
-          [class.btn-primary]="i === focusedIndex()"
-          (click)="selectSuggestion(suggestion)"
-          (mouseenter)="setFocusedIndex(i)"
-          role="option"
-          [attr.aria-selected]="i === focusedIndex()"
-        >
-          <!-- Icon -->
-          <span
-            class="shrink-0 w-5 h-5 flex items-center justify-center text-base"
-          >
-            {{ getIcon(suggestion) }}
-          </span>
-
-          <!-- Content area -->
-          <div class="flex-1 min-w-0 flex flex-col gap-0.5">
-            @if (suggestion.type === 'file') {
-            <!-- Files/Folders: Name prominent, directory secondary -->
-            <span class="font-medium text-sm truncate">{{
-              getName(suggestion)
-            }}</span>
-            <span class="text-xs opacity-70 truncate">{{
-              getDescription(suggestion)
-            }}</span>
-            } @else if (suggestion.type === 'command') {
-            <!-- Commands: Name with badge styling -->
-            <div class="flex items-center gap-2">
-              <span class="font-medium text-sm truncate">{{
-                getName(suggestion)
-              }}</span>
-              @if (suggestion.scope === 'builtin') {
-              <span class="badge badge-accent badge-xs">Built-in</span>
-              }
-            </div>
-            <span class="text-xs opacity-70 truncate">{{
-              getDescription(suggestion)
-            }}</span>
-            }
-          </div>
-        </button>
+        <ptah-suggestion-option
+          [suggestion]="suggestion"
+          [optionId]="'suggestion-' + i"
+          (selected)="handleSelection($event)"
+          (hovered)="handleHover(i)"
+        />
         }
       </div>
       }
     </div>
   `,
-  styles: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class UnifiedSuggestionsDropdownComponent {
-  // ANGULAR 20+ PATTERN: input() for reactive inputs
+export class UnifiedSuggestionsDropdownComponent
+  implements AfterViewInit, OnDestroy
+{
+  // Inputs
   readonly suggestions = input.required<SuggestionItem[]>();
   readonly isLoading = input(false);
 
-  // ANGULAR 20+ PATTERN: output() for event emitters
+  // Outputs
   readonly suggestionSelected = output<SuggestionItem>();
   readonly closed = output<void>();
 
-  // ANGULAR 20 PATTERN: Private signals for component state
-  private readonly _focusedIndex = signal(0);
+  // ViewChildren for ActiveDescendantKeyManager
+  private readonly optionComponents = viewChildren(SuggestionOptionComponent);
 
-  // ANGULAR 20 PATTERN: Readonly signals for template access
-  readonly focusedIndex = this._focusedIndex.asReadonly();
+  // ActiveDescendantKeyManager - manages keyboard navigation
+  private keyManager: ActiveDescendantKeyManager<SuggestionOptionComponent> | null =
+    null;
+
+  // Track active option ID for aria-activedescendant
+  private readonly _activeOptionId = signal<string | null>(null);
+  readonly activeOptionId = this._activeOptionId.asReadonly();
+
+  constructor() {
+    // Re-initialize key manager when suggestions change
+    effect(() => {
+      const options = this.optionComponents();
+      if (options.length > 0 && this.keyManager) {
+        // Reset to first item when suggestions change
+        this.keyManager.setFirstItemActive();
+        this.updateActiveOptionId();
+      }
+    });
+  }
+
+  ngAfterViewInit(): void {
+    this.initKeyManager();
+  }
+
+  ngOnDestroy(): void {
+    this.keyManager?.destroy();
+  }
+
+  /**
+   * Initialize the ActiveDescendantKeyManager
+   */
+  private initKeyManager(): void {
+    const options = this.optionComponents();
+    if (options.length === 0) return;
+
+    this.keyManager = new ActiveDescendantKeyManager(options)
+      .withVerticalOrientation()
+      .withWrap()
+      .withHomeAndEnd();
+
+    // Set first item active initially
+    this.keyManager.setFirstItemActive();
+    this.updateActiveOptionId();
+
+    // Subscribe to active item changes
+    this.keyManager.change.subscribe(() => {
+      this.updateActiveOptionId();
+    });
+  }
+
+  /**
+   * Update the active option ID for aria-activedescendant
+   */
+  private updateActiveOptionId(): void {
+    const activeItem = this.keyManager?.activeItem;
+    if (activeItem) {
+      this._activeOptionId.set(activeItem.optionId());
+    }
+  }
+
+  /**
+   * Get the currently active option's ID for aria-activedescendant
+   * Parent component should bind this to the input's aria-activedescendant
+   */
+  getActiveDescendantId(): string | null {
+    return this._activeOptionId();
+  }
 
   /**
    * Get header title based on suggestion types
@@ -156,63 +191,79 @@ export class UnifiedSuggestionsDropdownComponent {
   // ============================================================
 
   /**
+   * Handle keyboard events from parent
+   * Call this from parent's (keydown) handler when dropdown is open
+   *
+   * @param event KeyboardEvent from parent textarea
+   * @returns true if event was handled (parent should preventDefault)
+   */
+  onKeyDown(event: KeyboardEvent): boolean {
+    if (!this.keyManager) return false;
+
+    switch (event.key) {
+      case 'ArrowDown':
+      case 'ArrowUp':
+      case 'Home':
+      case 'End':
+        this.keyManager.onKeydown(event);
+        return true;
+
+      case 'Enter':
+        this.selectFocused();
+        return true;
+
+      case 'Escape':
+        this.closed.emit();
+        return true;
+
+      default:
+        return false;
+    }
+  }
+
+  /**
    * Navigate to next item (ArrowDown)
    */
   navigateDown(): void {
-    const suggestions = this.suggestions();
-    if (suggestions.length === 0) return;
-    this._focusedIndex.set((this._focusedIndex() + 1) % suggestions.length);
+    this.keyManager?.setNextItemActive();
   }
 
   /**
    * Navigate to previous item (ArrowUp)
    */
   navigateUp(): void {
-    const suggestions = this.suggestions();
-    if (suggestions.length === 0) return;
-    const newIndex = this._focusedIndex() - 1;
-    this._focusedIndex.set(newIndex < 0 ? suggestions.length - 1 : newIndex);
+    this.keyManager?.setPreviousItemActive();
   }
 
   /**
    * Select currently focused item (Enter)
    */
   selectFocused(): void {
-    const suggestions = this.suggestions();
-    const focused = suggestions[this._focusedIndex()];
-    if (focused) {
-      this.suggestionSelected.emit(focused);
+    const activeItem = this.keyManager?.activeItem;
+    if (activeItem) {
+      this.suggestionSelected.emit(activeItem.suggestion());
     }
   }
 
   /**
-   * Reset focused index (called when suggestions change)
+   * Reset to first item
    */
   resetFocus(): void {
-    this._focusedIndex.set(0);
+    this.keyManager?.setFirstItemActive();
   }
 
-  setFocusedIndex(index: number): void {
-    this._focusedIndex.set(
-      Math.max(0, Math.min(index, this.suggestions().length - 1))
-    );
+  /**
+   * Handle mouse hover on option
+   */
+  handleHover(index: number): void {
+    this.keyManager?.setActiveItem(index);
   }
 
-  selectSuggestion(suggestion: SuggestionItem): void {
+  /**
+   * Handle selection via click
+   */
+  handleSelection(suggestion: SuggestionItem): void {
     this.suggestionSelected.emit(suggestion);
-  }
-
-  // Helper methods for type discrimination
-  getIcon(item: SuggestionItem): string {
-    return item.icon;
-  }
-
-  getName(item: SuggestionItem): string {
-    return item.name;
-  }
-
-  getDescription(item: SuggestionItem): string {
-    return item.description || '';
   }
 
   trackBy(index: number, item: SuggestionItem): string {

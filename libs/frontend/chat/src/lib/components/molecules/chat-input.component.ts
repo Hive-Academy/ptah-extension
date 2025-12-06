@@ -7,14 +7,12 @@ import {
   ChangeDetectionStrategy,
   viewChild,
   ElementRef,
-  Injector,
 } from '@angular/core';
 import { LucideAngularModule, Send, Zap } from 'lucide-angular';
 import { ChatStore } from '../../services/chat.store';
 import {
   AutopilotStateService,
   CommandDiscoveryFacade,
-  DropdownInteractionService,
 } from '@ptah-extension/core';
 import { ModelSelectorComponent } from './model-selector.component';
 import { AutopilotPopoverComponent } from './autopilot-popover.component';
@@ -173,11 +171,6 @@ export class ChatInputComponent {
   // Autocomplete service injections
   readonly filePicker = inject(FilePickerService);
   readonly commandDiscovery = inject(CommandDiscoveryFacade);
-
-  // Dropdown interaction service for keyboard navigation
-  private readonly dropdownService = inject(DropdownInteractionService);
-  private readonly elementRef = inject(ElementRef);
-  private readonly injector = inject(Injector);
 
   // Signal-based viewChild references (Angular 20+ pattern)
   private readonly textareaRef =
@@ -493,18 +486,31 @@ export class ChatInputComponent {
 
   /**
    * Handle keyboard shortcuts
-   * - Enter: Send message (only when dropdown NOT shown)
-   * - Shift+Enter: New line
+   * - When dropdown is open: Forward ArrowUp/Down/Enter/Escape to dropdown
+   * - When dropdown is closed: Enter sends message, Shift+Enter for new line
    *
-   * NOTE: Dropdown keyboard navigation (ArrowUp/Down/Enter/Escape) is now
-   * handled by DropdownInteractionService at document level, which intercepts
-   * these events BEFORE they reach the textarea. This prevents the viewChild
-   * timing race and ensures keyboard events work on first keypress.
+   * KEYBOARD NAVIGATION PATTERN:
+   * Uses Angular CDK's ActiveDescendantKeyManager in the dropdown component.
+   * Focus stays on textarea while keyboard events are forwarded to the dropdown.
+   * The dropdown's onKeyDown() method handles navigation and returns true if handled.
    */
   handleKeyDown(event: KeyboardEvent): void {
-    // Enter sends message (only when dropdown NOT shown)
-    // Note: When dropdown is shown, service intercepts Enter before this handler
-    if (event.key === 'Enter' && !event.shiftKey && !this.showSuggestions()) {
+    // When dropdown is showing, forward keyboard events to it
+    if (this.showSuggestions()) {
+      const dropdown = this.dropdownRef();
+      if (dropdown) {
+        // Forward event to dropdown - it returns true if it handled the event
+        const handled = dropdown.onKeyDown(event);
+        if (handled) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+      }
+    }
+
+    // Enter sends message (when dropdown NOT shown)
+    if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       this.handleSend();
     }
@@ -613,47 +619,5 @@ export class ChatInputComponent {
       },
       { allowSignalWrites: true }
     );
-
-    // Configure dropdown interaction service for keyboard navigation
-    // This attaches document-level listeners ONLY when dropdown is open
-    // and auto-detaches when closed (zero overhead when not in use)
-    this.dropdownService.autoManageListeners(this.injector, {
-      isOpenSignal: this.showSuggestions,
-      elementRef: this.elementRef,
-      onClickOutside: () => this.closeSuggestions(),
-      keyboardNav: {
-        onArrowDown: () => {
-          const dropdown = this.dropdownRef();
-          if (!dropdown) {
-            console.warn(
-              '[ChatInputComponent] Dropdown ref not ready for ArrowDown'
-            );
-            return;
-          }
-          dropdown.navigateDown();
-        },
-        onArrowUp: () => {
-          const dropdown = this.dropdownRef();
-          if (!dropdown) {
-            console.warn(
-              '[ChatInputComponent] Dropdown ref not ready for ArrowUp'
-            );
-            return;
-          }
-          dropdown.navigateUp();
-        },
-        onEnter: () => {
-          const dropdown = this.dropdownRef();
-          if (!dropdown) {
-            console.warn(
-              '[ChatInputComponent] Dropdown ref not ready for Enter'
-            );
-            return;
-          }
-          dropdown.selectFocused();
-        },
-        onEscape: () => this.closeSuggestions(),
-      },
-    });
   }
 }
