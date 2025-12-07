@@ -117,6 +117,14 @@ import { PopoverComponent, OptionComponent } from '@ptah-extension/ui';
           </div>
           }
 
+          <!-- Error Display -->
+          @if (errorMessage()) {
+          <div class="alert alert-error mb-4 py-2">
+            <lucide-angular [img]="AlertTriangleIcon" class="w-4 h-4" />
+            <span class="text-xs">{{ errorMessage() }}</span>
+          </div>
+          }
+
           <!-- Enable Button -->
           <button
             class="btn btn-warning btn-sm w-full gap-2"
@@ -189,6 +197,10 @@ export class AutopilotPopoverComponent {
   // Local state for level selection before enabling
   readonly selectedLevel = signal<PermissionLevel>('auto-edit');
 
+  // Error state for RPC failures
+  private readonly _errorMessage = signal<string | null>(null);
+  readonly errorMessage = this._errorMessage.asReadonly();
+
   /**
    * Toggle popover visibility
    */
@@ -201,6 +213,8 @@ export class AutopilotPopoverComponent {
    */
   closePopover(): void {
     this._isOpen.set(false);
+    // Clear error message when closing
+    this._errorMessage.set(null);
   }
 
   /**
@@ -216,16 +230,23 @@ export class AutopilotPopoverComponent {
    */
   async enableAutopilot(): Promise<void> {
     try {
+      // Clear any previous errors
+      this._errorMessage.set(null);
+
       // First set the permission level
       await this.autopilotState.setPermissionLevel(this.selectedLevel());
       // Then toggle on
       await this.autopilotState.toggleAutopilot();
-      // Close popover (CDK Overlay handles focus management)
+      // Only close popover on SUCCESS
       this.closePopover();
     } catch (error) {
       console.error(
         '[AutopilotPopoverComponent] Failed to enable autopilot:',
         error
+      );
+      // Show error to user, keep popover open for retry
+      this._errorMessage.set(
+        `Failed to enable autopilot: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     }
   }
@@ -235,13 +256,20 @@ export class AutopilotPopoverComponent {
    */
   async disableAutopilot(): Promise<void> {
     try {
+      // Clear any previous errors
+      this._errorMessage.set(null);
+
       await this.autopilotState.toggleAutopilot();
-      // Close popover (CDK Overlay handles focus management)
+      // Only close popover on SUCCESS
       this.closePopover();
     } catch (error) {
       console.error(
         '[AutopilotPopoverComponent] Failed to disable autopilot:',
         error
+      );
+      // Show error to user, keep popover open for retry
+      this._errorMessage.set(
+        `Failed to disable autopilot: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     }
   }

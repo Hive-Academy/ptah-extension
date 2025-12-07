@@ -46,7 +46,8 @@ import { DROPDOWN_POSITIONS } from '../shared/overlay-positions';
       [cdkConnectedOverlayHasBackdrop]="hasBackdrop()"
       [cdkConnectedOverlayBackdropClass]="backdropClass()"
       (backdropClick)="handleBackdropClick()"
-      (attach)="opened.emit()">
+      (attach)="opened.emit()"
+      (detach)="handleDetach()">
       <div class="dropdown-panel bg-base-200 border border-base-300 rounded-lg shadow-lg">
         <ng-content select="[content]" />
       </div>
@@ -80,5 +81,14 @@ export class DropdownComponent {
       // overlay detach event which happens when actually closing
       this.closed.emit();
     }
+  }
+
+  /**
+   * Handles overlay detach event.
+   * Emits closed output when overlay programmatically closes.
+   * This ensures closed event fires for ALL close scenarios (backdrop click, programmatic close, etc.)
+   */
+  protected handleDetach(): void {
+    this.closed.emit();
   }
 }

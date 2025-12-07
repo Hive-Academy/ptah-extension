@@ -6,6 +6,7 @@ import {
   ElementRef,
   inject,
   AfterViewInit,
+  OnDestroy,
 } from '@angular/core';
 import { OverlayModule, ConnectedPosition } from '@angular/cdk/overlay';
 import { A11yModule, FocusTrap, FocusTrapFactory } from '@angular/cdk/a11y';
@@ -66,7 +67,7 @@ import { POPOVER_POSITION_MAP } from '../shared/overlay-positions';
     </ng-template>
   `,
 })
-export class PopoverComponent implements AfterViewInit {
+export class PopoverComponent implements AfterViewInit, OnDestroy {
   private readonly focusTrapFactory = inject(FocusTrapFactory);
   private focusTrap: FocusTrap | null = null;
 
@@ -86,6 +87,14 @@ export class PopoverComponent implements AfterViewInit {
   ngAfterViewInit(): void {
     // FocusTrap setup happens when overlay attaches (handleAttach)
     // This lifecycle hook exists for potential future initialization needs
+  }
+
+  ngOnDestroy(): void {
+    // Clean up focus trap if component destroyed while popover is open
+    if (this.focusTrap) {
+      this.focusTrap.destroy();
+      this.focusTrap = null;
+    }
   }
 
   /**

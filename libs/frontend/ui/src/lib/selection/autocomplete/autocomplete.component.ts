@@ -154,6 +154,18 @@ export class AutocompleteComponent<T = unknown>
     // This handles both initial render AND subsequent suggestion changes
     effect(() => {
       const options = this.optionComponents();
+
+      if (options.length === 0) {
+        // Destroy keyManager when no options to prevent stale references
+        if (this.keyManager) {
+          this.keyManager.destroy();
+          this.keyManager = null;
+          this._activeOptionId.set(null);
+        }
+        return;
+      }
+
+      // Create/update keyManager when options exist
       if (options.length > 0) {
         if (this.keyManager) {
           // Key manager exists - just reset to first item

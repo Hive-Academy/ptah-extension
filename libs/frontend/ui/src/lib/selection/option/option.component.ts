@@ -1,4 +1,11 @@
-import { Component, input, output, ElementRef, inject } from '@angular/core';
+import {
+  Component,
+  input,
+  output,
+  ElementRef,
+  inject,
+  effect,
+} from '@angular/core';
 import { Highlightable } from '@angular/cdk/a11y';
 
 /**
@@ -51,6 +58,18 @@ export class OptionComponent<T = unknown> implements Highlightable {
 
   // Highlightable interface state
   isActive = false;
+
+  constructor() {
+    // Validate optionId is non-empty
+    effect(() => {
+      const id = this.optionId();
+      if (!id || id.trim().length === 0) {
+        throw new Error(
+          '[OptionComponent] optionId must be a non-empty string. Empty optionId breaks ARIA aria-activedescendant pattern.'
+        );
+      }
+    });
+  }
 
   /**
    * Highlightable interface - called by ActiveDescendantKeyManager
