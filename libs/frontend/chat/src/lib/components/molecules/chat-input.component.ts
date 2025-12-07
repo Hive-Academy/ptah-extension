@@ -104,7 +104,7 @@ import { AgentSelectorComponent } from './agent-selector.component';
           @if (showSuggestions()) {
           <ptah-unified-suggestions-dropdown
             #suggestionsDropdown
-            [suggestions]="filteredSuggestions()"
+            [suggestions]="allSuggestions()"
             [isLoading]="isLoadingSuggestions()"
             (suggestionSelected)="handleSuggestionSelected($event)"
             (closed)="closeSuggestions()"
@@ -191,7 +191,6 @@ export class ChatInputComponent {
   private readonly _suggestionMode = signal<
     'at-trigger' | 'slash-trigger' | null
   >(null);
-  private readonly _currentQuery = signal('');
   private readonly _triggerPosition = signal(0); // Position where trigger (@, /) starts
   private readonly _selectedFiles = signal<ChatFile[]>([]);
   private readonly _isLoadingSuggestions = signal(false);
@@ -206,15 +205,14 @@ export class ChatInputComponent {
   // Computed
   readonly canSend = computed(() => this.currentMessage().trim().length > 0);
 
-  // NEW: Computed signals for autocomplete
-  readonly filteredSuggestions = computed(() => {
+  // Computed signals for autocomplete - now returns ALL suggestions (no filtering)
+  readonly allSuggestions = computed(() => {
     const mode = this._suggestionMode();
-    const query = this._currentQuery();
 
     if (mode === 'at-trigger') {
       // @ trigger: Files + Folders ONLY (agents moved to dedicated button)
-      const files = this.filePicker.searchFiles(query).map((f) => {
-        // Destructure to exclude original 'type' property (which is "file" | "directory")
+      // Return ALL files (dropdown handles filtering)
+      const files = this.filePicker.workspaceFiles().map((f) => {
         const { type: originalType, ...rest } = f;
         const isFolder = originalType === 'directory';
         return {
@@ -231,7 +229,8 @@ export class ChatInputComponent {
 
     if (mode === 'slash-trigger') {
       // / trigger: Commands only
-      const commands = this.commandDiscovery.searchCommands(query).map((c) => ({
+      // Return ALL commands (dropdown handles filtering)
+      const commands = this.commandDiscovery.searchCommands('').map((c) => ({
         type: 'command' as const,
         ...c,
       }));
@@ -259,11 +258,11 @@ export class ChatInputComponent {
   // ============ DIRECTIVE EVENT HANDLERS ============
 
   /**
-   * Handle @ trigger from AtTriggerDirective (debounced)
+   * Handle @ trigger from AtTriggerDirective
+   * Opens dropdown with ALL files (dropdown handles filtering)
    */
   handleAtTriggered(event: AtTriggerEvent): void {
     this._suggestionMode.set('at-trigger');
-    this._currentQuery.set(event.query);
     this._triggerPosition.set(event.triggerPosition);
     this._showSuggestions.set(true);
     this.fetchAtSuggestions();
@@ -280,11 +279,11 @@ export class ChatInputComponent {
   }
 
   /**
-   * Handle / trigger from SlashTriggerDirective (debounced)
+   * Handle / trigger from SlashTriggerDirective
+   * Opens dropdown with ALL commands (dropdown handles filtering)
    */
   handleSlashTriggered(event: SlashTriggerEvent): void {
     this._suggestionMode.set('slash-trigger');
-    this._currentQuery.set(event.query);
     this._triggerPosition.set(0); // Slash always starts at position 0
     this._showSuggestions.set(true);
     this.fetchCommandSuggestions();
@@ -465,48 +464,21 @@ export class ChatInputComponent {
 
   /**
    * Handle keyboard shortcuts
-   * - When dropdown is open: Forward ArrowUp/Down/Enter/Escape to dropdown
    * - When dropdown is closed: Enter sends message, Shift+Enter for new line
    *
-   * KEYBOARD NAVIGATION PATTERN:
-   * Uses Angular CDK's ActiveDescendantKeyManager in the dropdown component.
-   * Focus stays on textarea while keyboard events are forwarded to the dropdown.
-   * The dropdown's onKeyDown() method handles navigation and returns true if handled.
+   * KEYBOARD NAVIGATION PATTERN (NEW: Batch 13):
+   * - Dropdown has its own filter input that receives focus when open
+   * - User types in filter input (NOT textarea)
+   * - Dropdown handles all keyboard navigation internally
+   * - No need to forward events from textarea to dropdown
    *
-   * IMPORTANT: preventDefault() MUST be called BEFORE any other logic for navigation keys
-   * when dropdown is open, otherwise the textarea will process the event first.
+   * IMPORTANT: Textarea only handles Enter to send messages when dropdown is CLOSED.
+   * When dropdown is open, focus is on filter input, so textarea doesn't receive events.
    */
   handleKeyDown(event: KeyboardEvent): void {
-    // When dropdown is showing, intercept navigation keys IMMEDIATELY
-    if (this.showSuggestions()) {
-      // CRITICAL: Check navigation keys FIRST and preventDefault immediately
-      // This prevents the textarea from moving cursor before we can handle the event
-      const isNavigationKey = [
-        'ArrowUp',
-        'ArrowDown',
-        'Enter',
-        'Escape',
-        'Tab',
-        'Home',
-        'End',
-      ].includes(event.key);
-
-      if (isNavigationKey) {
-        // Prevent textarea default behavior IMMEDIATELY
-        event.preventDefault();
-        event.stopPropagation();
-
-        // Now forward to dropdown
-        const dropdown = this.dropdownRef();
-        if (dropdown) {
-          dropdown.onKeyDown(event);
-        }
-        return;
-      }
-    }
-
-    // Enter sends message (when dropdown NOT shown)
-    if (event.key === 'Enter' && !event.shiftKey) {
+    // Only handle Enter when dropdown is NOT showing
+    // (when dropdown is open, focus is on filter input, not textarea)
+    if (!this.showSuggestions() && event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       this.handleSend();
     }

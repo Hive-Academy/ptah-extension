@@ -3,8 +3,10 @@ import {
   input,
   output,
   signal,
+  computed,
   effect,
   viewChildren,
+  viewChild,
   ElementRef,
   inject,
   ChangeDetectionStrategy,
@@ -31,27 +33,27 @@ export type { SuggestionItem } from './suggestion-option.component';
  * - Uses CDK Overlay for portal rendering (solves textarea keyboard interception)
  * - Portal renders dropdown in cdk-overlay-container at body level
  * - Uses ActiveDescendantKeyManager for keyboard navigation
- * - Focus stays on parent textarea (aria-activedescendant pattern)
+ * - Filter input INSIDE dropdown (new in Batch 13) - focus stays on filter input
  * - Supports file and command types via discriminated union
  * - Agents handled by dedicated AgentSelectorComponent
  *
  * KEYBOARD NAVIGATION:
- * - Parent component calls onKeyDown() with keyboard events
+ * - Filter input receives focus when dropdown opens
+ * - Typing filters suggestions locally
  * - ActiveDescendantKeyManager handles ArrowUp/ArrowDown/Home/End
- * - Parent handles Enter (via selectFocused) and Escape (via close)
+ * - Enter selects focused suggestion, Escape closes dropdown
  *
  * ACCESSIBILITY:
  * - role="listbox" on container
  * - role="option" on each item (via SuggestionOptionComponent)
  * - aria-activedescendant points to currently focused option
- * - getActiveDescendantId() provides the ID for parent's aria-activedescendant
+ * - Filter input has aria-label and placeholder
  *
- * MIGRATION NOTE (TASK_2025_048 Batch 6):
- * - Migrated from manual @if rendering to CDK Overlay portal
- * - Removed manual absolute positioning CSS (CDK handles)
- * - Added portal rendering to solve textarea keyboard interception bug
- * - Public API unchanged - backward compatible
- * - LOC reduced from 281 to ~210 lines (~25% reduction)
+ * MIGRATION NOTE (TASK_2025_048 Batch 13):
+ * - Added filter input inside dropdown (previously filtered in parent)
+ * - Filter input auto-focuses on open
+ * - Parent only triggers open/close, dropdown handles filtering
+ * - Simplified parent component - no more query extraction logic
  */
 @Component({
   selector: 'ptah-unified-suggestions-dropdown',
@@ -67,9 +69,10 @@ export type { SuggestionItem } from './suggestion-option.component';
       [cdkConnectedOverlayOrigin]="overlayOrigin"
       [cdkConnectedOverlayOpen]="true"
       [cdkConnectedOverlayPositions]="dropdownPositions"
-      cdkConnectedOverlayPush>
+      cdkConnectedOverlayPush
+      (attach)="handleAttach()">
       <div
-        class="suggestions-panel flex flex-col max-h-80 p-1 shadow-lg bg-base-200 rounded-lg border border-base-300 z-50"
+        class="suggestions-panel flex flex-col max-h-96 shadow-lg bg-base-200 rounded-lg border border-base-300 z-50 overflow-hidden"
         role="listbox"
         [attr.aria-label]="getHeaderTitle()">
         <!-- Header -->
@@ -78,6 +81,20 @@ export type { SuggestionItem } from './suggestion-option.component';
             class="text-xs font-semibold text-base-content/70 uppercase tracking-wide">
             {{ getHeaderTitle() }}
           </span>
+        </div>
+
+        <!-- Filter Input -->
+        <div class="px-2 py-2 border-b border-base-300">
+          <input
+            #filterInput
+            type="text"
+            class="input input-sm input-bordered w-full"
+            placeholder="Type to filter..."
+            [value]="filterQuery()"
+            (input)="onFilterInput($event)"
+            (keydown)="onKeyDown($event)"
+            aria-label="Filter suggestions"
+          />
         </div>
 
         <!-- Loading State -->
@@ -89,7 +106,7 @@ export type { SuggestionItem } from './suggestion-option.component';
         }
 
         <!-- Empty State -->
-        @else if (suggestions().length === 0) {
+        @else if (filteredSuggestions().length === 0) {
           <div class="flex items-center justify-center p-4">
             <span class="text-sm text-base-content/60">No matches found</span>
           </div>
@@ -100,7 +117,7 @@ export type { SuggestionItem } from './suggestion-option.component';
           <div
             class="flex flex-col overflow-y-auto overflow-x-hidden max-h-64 p-1">
             @for (
-              suggestion of suggestions();
+              suggestion of filteredSuggestions();
               track trackBy($index, suggestion);
               let i = $index
             ) {
@@ -130,6 +147,10 @@ export class UnifiedSuggestionsDropdownComponent
   // Outputs
   readonly suggestionSelected = output<SuggestionItem>();
   readonly closed = output<void>();
+  readonly filterChanged = output<string>(); // New: emit filter changes to parent
+
+  // ViewChild for filter input (auto-focus)
+  private readonly filterInputRef = viewChild<ElementRef<HTMLInputElement>>('filterInput');
 
   // ViewChildren for ActiveDescendantKeyManager
   private readonly optionComponents = viewChildren(SuggestionOptionComponent);
@@ -141,6 +162,33 @@ export class UnifiedSuggestionsDropdownComponent
   // Track active option ID for aria-activedescendant
   private readonly _activeOptionId = signal<string | null>(null);
   readonly activeOptionId = this._activeOptionId.asReadonly();
+
+  // Filter state (NEW: Batch 13)
+  private readonly _filterQuery = signal('');
+  readonly filterQuery = this._filterQuery.asReadonly();
+
+  // Filtered suggestions based on local filter query
+  readonly filteredSuggestions = computed(() => {
+    const query = this._filterQuery().toLowerCase().trim();
+    const allSuggestions = this.suggestions();
+
+    if (!query) return allSuggestions;
+
+    return allSuggestions.filter((suggestion) => {
+      if (suggestion.type === 'file') {
+        return (
+          suggestion.name.toLowerCase().includes(query) ||
+          suggestion.path.toLowerCase().includes(query)
+        );
+      } else if (suggestion.type === 'command') {
+        return (
+          suggestion.name.toLowerCase().includes(query) ||
+          suggestion.description.toLowerCase().includes(query)
+        );
+      }
+      return false;
+    });
+  });
 
   // Overlay positions (above input, fallback below)
   readonly dropdownPositions: ConnectedPosition[] = AUTOCOMPLETE_POSITIONS;
@@ -219,6 +267,32 @@ export class UnifiedSuggestionsDropdownComponent
   }
 
   /**
+   * Handle overlay attach - auto-focus filter input
+   */
+  handleAttach(): void {
+    // Auto-focus filter input when dropdown opens
+    setTimeout(() => {
+      this.filterInputRef()?.nativeElement.focus();
+    }, 0);
+  }
+
+  /**
+   * Handle filter input changes
+   */
+  onFilterInput(event: Event): void {
+    const value = (event.target as HTMLInputElement).value;
+    this._filterQuery.set(value);
+
+    // Emit filter change to parent (for server-side filtering if needed)
+    this.filterChanged.emit(value);
+
+    // Reset key manager to first item when filter changes
+    if (this.keyManager) {
+      this.keyManager.setFirstItemActive();
+    }
+  }
+
+  /**
    * Get the currently active option's ID for aria-activedescendant
    * Parent component should bind this to the input's aria-activedescendant
    */
@@ -244,32 +318,36 @@ export class UnifiedSuggestionsDropdownComponent
   // ============================================================
 
   /**
-   * Handle keyboard events from parent
-   * Call this from parent's (keydown) handler when dropdown is open
+   * Handle keyboard events from filter input
    *
-   * @param event KeyboardEvent from parent textarea
-   * @returns true if event was handled (parent should preventDefault)
+   * @param event KeyboardEvent from filter input
+   * @returns true if event was handled
    */
   onKeyDown(event: KeyboardEvent): boolean {
-    if (!this.keyManager) return false;
-
     switch (event.key) {
       case 'ArrowDown':
       case 'ArrowUp':
       case 'Home':
       case 'End':
-        this.keyManager.onKeydown(event);
+        // Navigate options list
+        if (this.keyManager) {
+          event.preventDefault();
+          this.keyManager.onKeydown(event);
+        }
         return true;
 
       case 'Enter':
+        event.preventDefault();
         this.selectFocused();
         return true;
 
       case 'Escape':
+        event.preventDefault();
         this.closed.emit();
         return true;
 
       default:
+        // Let typing happen in filter input
         return false;
     }
   }
