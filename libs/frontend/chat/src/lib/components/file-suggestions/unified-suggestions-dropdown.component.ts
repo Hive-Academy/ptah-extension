@@ -10,7 +10,9 @@ import {
   ChangeDetectionStrategy,
   AfterViewInit,
   OnDestroy,
+  DestroyRef,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActiveDescendantKeyManager } from '@angular/cdk/a11y';
 import { OverlayModule, ConnectedPosition } from '@angular/cdk/overlay';
 import { AUTOCOMPLETE_POSITIONS } from '@ptah-extension/ui';
@@ -119,6 +121,7 @@ export class UnifiedSuggestionsDropdownComponent
   implements AfterViewInit, OnDestroy
 {
   private readonly elementRef = inject(ElementRef);
+  private readonly destroyRef = inject(DestroyRef);
 
   // Inputs
   readonly suggestions = input.required<SuggestionItem[]>();
@@ -199,8 +202,8 @@ export class UnifiedSuggestionsDropdownComponent
     this.keyManager.setFirstItemActive();
     this.updateActiveOptionId();
 
-    // Subscribe to active item changes
-    this.keyManager.change.subscribe(() => {
+    // Subscribe to active item changes (auto-unsubscribes on component destroy)
+    this.keyManager.change.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
       this.updateActiveOptionId();
     });
   }

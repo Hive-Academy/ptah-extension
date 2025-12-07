@@ -10,7 +10,7 @@ import { DROPDOWN_POSITIONS } from '../shared/overlay-positions';
  * Supports backdrop click-outside detection.
  *
  * @example
- * <lib-dropdown
+ * <ptah-dropdown
  *   [isOpen]="isOpen()"
  *   [closeOnBackdropClick]="true"
  *   [positions]="dropdownPositions"
@@ -23,14 +23,14 @@ import { DROPDOWN_POSITIONS } from '../shared/overlay-positions';
  *   </button>
  *
  *   <div content class="dropdown-panel">
- *     <lib-option *ngFor="let item of items" [value]="item">
+ *     <ptah-option *ngFor="let item of items" [value]="item">
  *       {{ item.name }}
- *     </lib-option>
+ *     </ptah-option>
  *   </div>
- * </lib-dropdown>
+ * </ptah-dropdown>
  */
 @Component({
-  selector: 'lib-dropdown',
+  selector: 'ptah-dropdown',
   standalone: true,
   imports: [OverlayModule],
   template: `

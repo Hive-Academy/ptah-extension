@@ -67,7 +67,7 @@ import { OptionComponent } from '@ptah-extension/ui/selection';
 
       <div content>
         @for (model of models(); track model.id; let i = $index) {
-          <lib-option
+          <ptah-option
             [optionId]="'model-' + i"
             [value]="model"
             (selected)="selectModel($event)">
@@ -77,7 +77,7 @@ import { OptionComponent } from '@ptah-extension/ui/selection';
                 <span class="badge badge-primary badge-xs">Recommended</span>
               }
             </div>
-          </lib-option>
+          </ptah-option>
         }
       </div>
     </ptah-dropdown>
@@ -91,7 +91,7 @@ export class ModelSelectorComponent {}
 
 ```typescript
 @Component({
-  selector: 'lib-option',
+  selector: 'ptah-option',
   standalone: true,
 })
 export class OptionComponent<T = unknown> implements Highlightable {
@@ -133,7 +133,7 @@ import { DropdownComponent } from '@ptah-extension/ui/overlays';
 
 @Component({
   template: `
-    <lib-dropdown
+    <ptah-dropdown
       [isOpen]="isOpen()"
       [closeOnBackdropClick]="true"
       (backdropClicked)="closeDropdown()"
@@ -146,7 +146,7 @@ import { DropdownComponent } from '@ptah-extension/ui/overlays';
       <div content class="w-80">
         <!-- Dropdown content -->
       </div>
-    </lib-dropdown>
+    </ptah-dropdown>
   `,
   imports: [DropdownComponent],
 })
@@ -168,7 +168,7 @@ export class MyComponent {
 
 ```typescript
 @Component({
-  selector: 'lib-dropdown',
+  selector: 'ptah-dropdown',
   standalone: true,
 })
 export class DropdownComponent {
@@ -531,7 +531,7 @@ export class AgentSelectorComponent {
 // Template
 @Component({
   template: `
-    <lib-dropdown
+    <ptah-dropdown
       [isOpen]="isOpen()"
       [closeOnBackdropClick]="true"
       (closed)="closeDropdown()">
@@ -540,15 +540,15 @@ export class AgentSelectorComponent {
 
       <div content>
         @for (agent of agents(); track agent.name; let i = $index) {
-          <lib-option
+          <ptah-option
             [optionId]="'agent-' + i"
             [value]="agent"
             (selected)="selectAgent($event)">
             {{ agent.name }}
-          </lib-option>
+          </ptah-option>
         }
       </div>
-    </lib-dropdown>
+    </ptah-dropdown>
   `,
   imports: [DropdownComponent, OptionComponent],
 })
@@ -590,17 +590,17 @@ export class ModelSelectorComponent {
 ```typescript
 @Component({
   template: `
-    <lib-dropdown [isOpen]="isOpen()" (closed)="closeDropdown()">
+    <ptah-dropdown [isOpen]="isOpen()" (closed)="closeDropdown()">
       <button trigger (click)="toggleDropdown()">{{ currentModel }}</button>
 
       <div content>
         @for (model of models(); track model.id; let i = $index) {
-          <lib-option [optionId]="'model-' + i" [value]="model" (selected)="selectModel($event)">
+          <ptah-option [optionId]="'model-' + i" [value]="model" (selected)="selectModel($event)">
             {{ model.name }}
-          </lib-option>
+          </ptah-option>
         }
       </div>
-    </lib-dropdown>
+    </ptah-dropdown>
   `,
   imports: [DropdownComponent, OptionComponent],
 })
@@ -662,9 +662,9 @@ export class AutopilotPopoverComponent {}
       <div content class="w-80 p-4">
         <!-- Settings with keyboard nav -->
         @for (level of permissionLevels; track level.id; let i = $index) {
-          <lib-option [optionId]="'level-' + i" [value]="level" (selected)="selectLevel($event)">
+          <ptah-option [optionId]="'level-' + i" [value]="level" (selected)="selectLevel($event)">
             {{ level.name }}
-          </lib-option>
+          </ptah-option>
         }
       </div>
     </ptah-popover>

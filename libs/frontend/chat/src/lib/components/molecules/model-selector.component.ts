@@ -22,7 +22,7 @@ import { DropdownComponent, OptionComponent } from '@ptah-extension/ui';
   selector: 'ptah-model-selector',
   imports: [LucideAngularModule, DropdownComponent, OptionComponent],
   template: `
-    <lib-dropdown
+    <ptah-dropdown
       [isOpen]="isOpen()"
       [closeOnBackdropClick]="true"
       (closed)="closeDropdown()"
@@ -55,7 +55,7 @@ import { DropdownComponent, OptionComponent } from '@ptah-extension/ui';
         <!-- Model List -->
         <div class="flex flex-col overflow-y-auto overflow-x-hidden max-h-64 p-1">
           @for (model of modelState.availableModels(); track model.id; let i = $index) {
-          <lib-option
+          <ptah-option
             [optionId]="'model-' + i"
             [value]="model"
             (selected)="selectModel($event.id)">
@@ -82,11 +82,11 @@ import { DropdownComponent, OptionComponent } from '@ptah-extension/ui';
                 </span>
               </div>
             </div>
-          </lib-option>
+          </ptah-option>
           }
         </div>
       </div>
-    </lib-dropdown>
+    </ptah-dropdown>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

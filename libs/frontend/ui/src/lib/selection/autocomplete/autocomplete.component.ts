@@ -8,7 +8,10 @@ import {
   AfterViewInit,
   OnDestroy,
   TemplateRef,
+  DestroyRef,
+  inject,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { OverlayModule, ConnectedPosition } from '@angular/cdk/overlay';
 import { ActiveDescendantKeyManager } from '@angular/cdk/a11y';
 import { NgTemplateOutlet } from '@angular/common';
@@ -25,7 +28,7 @@ import { AUTOCOMPLETE_POSITIONS } from '../../overlays/shared/overlay-positions'
  * Dropdown renders in cdk-overlay-container at body level, NOT in component tree.
  *
  * @example
- * <lib-autocomplete
+ * <ptah-autocomplete
  *   [suggestions]="suggestions()"
  *   [isLoading]="isLoading()"
  *   [isOpen]="isOpen()"
@@ -34,7 +37,7 @@ import { AUTOCOMPLETE_POSITIONS } from '../../overlays/shared/overlay-positions'
  *   (closed)="onClose()">
  *
  *   <input type="text" autocompleteInput />
- * </lib-autocomplete>
+ * </ptah-autocomplete>
  *
  * <ng-template #suggestionTemplate let-suggestion>
  *   <div class="flex items-center gap-2">
@@ -44,7 +47,7 @@ import { AUTOCOMPLETE_POSITIONS } from '../../overlays/shared/overlay-positions'
  * </ng-template>
  */
 @Component({
-  selector: 'lib-autocomplete',
+  selector: 'ptah-autocomplete',
   standalone: true,
   imports: [OverlayModule, OptionComponent, NgTemplateOutlet],
   template: `
@@ -98,7 +101,7 @@ import { AUTOCOMPLETE_POSITIONS } from '../../overlays/shared/overlay-positions'
               track trackBy()($index, suggestion);
               let i = $index
             ) {
-              <lib-option
+              <ptah-option
                 [optionId]="'suggestion-' + i"
                 [value]="suggestion"
                 (selected)="handleSelection($event)"
@@ -108,7 +111,7 @@ import { AUTOCOMPLETE_POSITIONS } from '../../overlays/shared/overlay-positions'
                     suggestionTemplate();
                     context: { $implicit: suggestion }
                   " />
-              </lib-option>
+              </ptah-option>
             }
           </div>
         }
@@ -119,6 +122,8 @@ import { AUTOCOMPLETE_POSITIONS } from '../../overlays/shared/overlay-positions'
 export class AutocompleteComponent<T = unknown>
   implements AfterViewInit, OnDestroy
 {
+  private readonly destroyRef = inject(DestroyRef);
+
   // Inputs
   readonly suggestions = input.required<T[]>();
   readonly isLoading = input(false);
@@ -207,8 +212,8 @@ export class AutocompleteComponent<T = unknown>
     this.keyManager.setFirstItemActive();
     this.updateActiveOptionId();
 
-    // Subscribe to active item changes
-    this.keyManager.change.subscribe(() => {
+    // Subscribe to active item changes (auto-unsubscribes on component destroy)
+    this.keyManager.change.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
       this.updateActiveOptionId();
     });
   }

@@ -21,7 +21,7 @@ import { POPOVER_POSITION_MAP } from '../shared/overlay-positions';
  * - Escape key closes and returns focus to trigger
  *
  * @example
- * <lib-popover
+ * <ptah-popover
  *   [isOpen]="isOpen()"
  *   [position]="'below'"
  *   [hasBackdrop]="true"
@@ -37,10 +37,10 @@ import { POPOVER_POSITION_MAP } from '../shared/overlay-positions';
  *     <button (click)="save()">Save</button>
  *     <button (click)="cancel()">Cancel</button>
  *   </div>
- * </lib-popover>
+ * </ptah-popover>
  */
 @Component({
-  selector: 'lib-popover',
+  selector: 'ptah-popover',
   standalone: true,
   imports: [OverlayModule, A11yModule],
   template: `

@@ -32,7 +32,7 @@ import { PopoverComponent, OptionComponent } from '@ptah-extension/ui';
   selector: 'ptah-autopilot-popover',
   imports: [LucideAngularModule, PopoverComponent, OptionComponent],
   template: `
-    <lib-popover
+    <ptah-popover
       [isOpen]="isOpen()"
       [position]="'above'"
       [hasBackdrop]="true"
@@ -89,7 +89,7 @@ import { PopoverComponent, OptionComponent } from '@ptah-extension/ui';
             </span>
             <div class="flex flex-col gap-1">
               @for (level of permissionLevels; track level.id; let i = $index) {
-              <lib-option
+              <ptah-option
                 [optionId]="'level-' + i"
                 [value]="level"
                 (selected)="selectLevel($event.id)">
@@ -102,7 +102,7 @@ import { PopoverComponent, OptionComponent } from '@ptah-extension/ui';
                   <span class="badge badge-xs badge-primary mt-0.5">Selected</span>
                   }
                 </div>
-              </lib-option>
+              </ptah-option>
               }
             </div>
           </div>
@@ -167,7 +167,7 @@ import { PopoverComponent, OptionComponent } from '@ptah-extension/ui';
           }
         </div>
       </div>
-    </lib-popover>
+    </ptah-popover>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

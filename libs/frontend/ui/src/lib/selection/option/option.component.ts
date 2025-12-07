@@ -15,7 +15,7 @@ import { Highlightable } from '@angular/cdk/a11y';
  * Content projection allows custom option layouts.
  *
  * @example
- * <lib-option
+ * <ptah-option
  *   [optionId]="'option-' + index"
  *   [value]="item"
  *   (selected)="onSelect($event)">
@@ -23,10 +23,10 @@ import { Highlightable } from '@angular/cdk/a11y';
  *     <span>{{ item.icon }}</span>
  *     <span>{{ item.name }}</span>
  *   </div>
- * </lib-option>
+ * </ptah-option>
  */
 @Component({
-  selector: 'lib-option',
+  selector: 'ptah-option',
   standalone: true,
   host: {
     '[id]': 'optionId()',

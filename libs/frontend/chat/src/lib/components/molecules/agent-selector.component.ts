@@ -25,7 +25,7 @@ import { DropdownComponent, OptionComponent } from '@ptah-extension/ui';
   selector: 'ptah-agent-selector',
   imports: [LucideAngularModule, DropdownComponent, OptionComponent],
   template: `
-    <lib-dropdown
+    <ptah-dropdown
       [isOpen]="isOpen()"
       [closeOnBackdropClick]="true"
       (closed)="closeDropdown()"
@@ -74,7 +74,7 @@ import { DropdownComponent, OptionComponent } from '@ptah-extension/ui';
         @else {
         <div class="flex flex-col overflow-y-auto overflow-x-hidden max-h-64 p-1">
           @for (agent of agents(); track agent.name; let i = $index) {
-          <lib-option
+          <ptah-option
             [optionId]="'agent-' + i"
             [value]="agent"
             (selected)="selectAgent($event)">
@@ -98,12 +98,12 @@ import { DropdownComponent, OptionComponent } from '@ptah-extension/ui';
                 }}</span>
               </div>
             </div>
-          </lib-option>
+          </ptah-option>
           }
         </div>
         }
       </div>
-    </lib-dropdown>
+    </ptah-dropdown>
   `,
   styles: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
