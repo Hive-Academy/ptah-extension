@@ -15,6 +15,7 @@ import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import {
   ChatSessionSummary,
   createExecutionChatMessage,
+  SessionId,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
@@ -126,7 +127,7 @@ export class ConversationService {
    * Queue or append message content to active tab
    * If content already queued, append with newline separator
    */
-  private queueOrAppendMessage(content: string): void {
+  public queueOrAppendMessage(content: string): void {
     const activeTabId = this.tabManager.activeTabId();
     if (!activeTabId) return;
 
@@ -166,7 +167,7 @@ export class ConversationService {
   /**
    * Clear queued content for active tab
    */
-  private clearQueuedContent(): void {
+  public clearQueuedContent(): void {
     const activeTabId = this.tabManager.activeTabId();
     if (!activeTabId) return;
 
@@ -289,13 +290,13 @@ export class ConversationService {
       this.sessionManager.clearClaudeSessionId(); // Clear previous real ID
       this.sessionManager.setStatus('draft'); // Start in draft state (no real session ID yet)
 
-      // Add user message immediately (with null sessionId - will be updated when resolved)
+      // Add user message immediately (with empty sessionId - will be updated when resolved)
       const userMessage = createExecutionChatMessage({
         id: this.generateId(),
         role: 'user',
         rawContent: content,
         files,
-        sessionId: null as any, // Will be updated when session:id-resolved arrives
+        sessionId: '' as SessionId, // Will be updated when session:id-resolved arrives
       });
 
       // Update tab with user message

@@ -9,7 +9,7 @@
  * Part of ChatStore refactoring (Facade pattern) - ChatStore delegates here.
  */
 
-import { Injectable, signal, computed, inject } from '@angular/core';
+import { Injectable, signal, computed, inject, effect } from '@angular/core';
 import {
   PermissionRequest,
   PermissionResponse,
@@ -38,22 +38,58 @@ export class PermissionHandlerService {
    */
   readonly permissionRequests = this._permissionRequests.asReadonly();
 
+  /**
+   * Cache for tool IDs to avoid recursive tree traversal on every read
+   */
+  private _toolIdsCache = new Set<string>();
+
+  constructor() {
+    // Update tool IDs cache when tab state changes
+    effect(() => {
+      const activeTab = this.tabManager.activeTab();
+      const messages = activeTab?.messages ?? [];
+
+      this._toolIdsCache.clear();
+      messages.forEach((msg) => {
+        if (msg.executionTree) {
+          this.extractToolIds(msg.executionTree, this._toolIdsCache);
+        }
+      });
+    });
+  }
+
+  /**
+   * Helper to extract tool IDs from execution tree
+   */
+  private extractToolIds(node: ExecutionNode, set: Set<string>): void {
+    if (node.toolCallId) {
+      set.add(node.toolCallId);
+    }
+    node.children?.forEach((child) => this.extractToolIds(child, set));
+  }
+
   // ============================================================================
   // COMPUTED SIGNALS
   // ============================================================================
 
   /**
-   * Map of toolCallId → PermissionRequest
-   *
-   * Enables efficient lookup of permissions by tool ID.
-   * Used to display permission UI inline with tool execution.
+   * Get permission by tool ID
+   * Replaced computed signal with method to avoid Map recreation
    *
    * CORRELATION LOGIC:
    * - Permission has `toolUseId` (from Claude's tool_use)
    * - ExecutionNode has `toolCallId` (same value)
-   * - Map key = toolUseId, lookup key = toolCallId
+   * - Lookup key = toolCallId
    *
    * Extracted from chat.store.ts:178-188
+   */
+  public getPermissionByToolId(toolId: string): PermissionRequest | undefined {
+    return this._permissionRequests().find((req) => req.toolUseId === toolId);
+  }
+
+  /**
+   * DEPRECATED: Use getPermissionByToolId() method instead
+   * Kept for backward compatibility with components that use permissionRequestsByToolId()
    */
   readonly permissionRequestsByToolId = computed(() => {
     const requests = this._permissionRequests();
@@ -72,46 +108,12 @@ export class PermissionHandlerService {
    * Set of all toolCallIds currently present in execution trees.
    * Used to determine which permissions are matched vs unmatched.
    *
-   * Scans both:
-   * 1. Current streaming execution tree (tools being executed now)
-   * 2. All finalized messages' execution trees (completed tools)
+   * Performance optimized: Uses cached Set instead of recursive traversal.
+   * Cache is updated via effect in constructor when tab state changes.
    *
    * Extracted from chat.store.ts:222-254
    */
-  private readonly toolIdsInExecutionTree = computed(() => {
-    const toolIds = new Set<string>();
-    const activeTab = this.tabManager.activeTab();
-    const messages = activeTab?.messages ?? [];
-    const currentTree = activeTab?.executionTree ?? null;
-
-    const collectToolIds = (node: ExecutionNode | null): void => {
-      if (!node) return;
-
-      // Collect this node's toolCallId if it's a tool
-      if (node.type === 'tool' && node.toolCallId) {
-        toolIds.add(node.toolCallId);
-      }
-
-      // Recurse into children
-      if (node.children) {
-        for (const child of node.children) {
-          collectToolIds(child);
-        }
-      }
-    };
-
-    // Scan current streaming tree
-    collectToolIds(currentTree);
-
-    // Scan all finalized messages' execution trees
-    for (const msg of messages) {
-      if (msg.executionTree) {
-        collectToolIds(msg.executionTree);
-      }
-    }
-
-    return toolIds;
-  });
+  readonly toolIdsInExecutionTree = computed(() => this._toolIdsCache);
 
   /**
    * Permissions that couldn't be matched to any tool in the execution tree.
@@ -173,19 +175,11 @@ export class PermissionHandlerService {
       requests.filter((r) => r.id !== response.id)
     );
 
-    // Send to backend via VSCodeService
-    // Access the private vscode API via type assertion (same pattern as ClaudeRpcService)
-    const vscodeService = this.vscodeService as any;
-    if (vscodeService?.vscode) {
-      vscodeService.vscode.postMessage({
-        type: 'permission:response',
-        payload: response,
-      });
-    } else {
-      console.error(
-        '[PermissionHandlerService] VSCodeService not available for permission response'
-      );
-    }
+    // Use public VSCodeService.postMessage() API
+    this.vscodeService.postMessage({
+      type: 'chat:permission-response',
+      response,
+    });
   }
 
   /**

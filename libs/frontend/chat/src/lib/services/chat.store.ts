@@ -616,6 +616,29 @@ export class ChatStore {
     this.permissionHandler.handlePermissionResponse(response);
   }
 
+  /**
+   * Queue or append message based on streaming state
+   * Facade delegation to ConversationService
+   */
+  public queueOrAppendMessage(content: string): void {
+    this.conversation.queueOrAppendMessage(content);
+  }
+
+  /**
+   * Move queued content to input field
+   * Facade delegation to ConversationService
+   */
+  public moveQueueToInput(): void {
+    const queuedContent = this.conversation.queueRestoreSignal();
+    if (queuedContent) {
+      // Emit restore event to input component
+      this._vscodeService.postMessage({
+        type: 'chat:restore-input',
+        content: queuedContent,
+      });
+    }
+  }
+
   // ============================================================================
   // CHAT COMPLETION HANDLING
   // ============================================================================

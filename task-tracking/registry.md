@@ -50,3 +50,4 @@
 | TASK_2025_051 | SDK Backend Wiring - Replace CLI RPC handlers with SDK handlers, remove ClaudeProcess dependency                               | 📋 Planned                               | orchestrator       | 2025-12-07 | -          |
 | TASK_2025_052 | PricingService DI Registration Fix - Fix extension activation failure, investigate SDK integration impact                      | 🔄 In Progress                           | orchestrator       | 2025-12-07 | -          |
 | TASK_2025_053 | ChatStore Refactoring - Extract child services for maintainability, reduce 1500+ lines to ~400 via Facade pattern              | 📋 Planned                               | orchestrator       | 2025-12-07 | -          |
+| TASK_2025_054 | ChatStore Service Architecture Cleanup - Fix 5 serious issues: shared state, memory leak, callbacks, dual IDs, validation      | 📋 Planned                               | orchestrator       | 2025-12-07 | -          |

@@ -154,6 +154,20 @@ export class VSCodeService {
     return this.config().iconUri || this.getAssetUri('assets/ptah-icon.svg');
   }
 
+  /**
+   * Send message to VS Code extension host
+   * Public wrapper for vscode.postMessage() to avoid type assertions
+   */
+  public postMessage(message: unknown): void {
+    if (this.vscode) {
+      this.vscode.postMessage(message);
+    } else {
+      console.warn(
+        '[VSCodeService] postMessage called but VS Code API not available'
+      );
+    }
+  }
+
   private setupMessageListener(): void {
     window.addEventListener('message', (event) => {
       const message = event.data;

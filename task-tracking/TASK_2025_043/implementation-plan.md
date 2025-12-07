@@ -1,1214 +1,1333 @@
-# Implementation Plan - TASK_2025_043
+# Implementation Plan - TASK_2025_043 (REVISED)
 
-**Task**: Ptah License Server Implementation  
-**Software Architect**: Elite Architecture Agent  
-**Created**: 2025-12-07  
-**Target Completion**: 2-3 days (16-24 hours)
-
----
-
-## 🎯 Goal
-
-Create a minimal, production-ready NestJS license server with exactly **2 REST endpoints** and **3 database tables** to enable Ptah's premium SaaS business model. This is a **NEW standalone backend project** (not part of the main ptah-extension monorepo).
-
-**Core Value**:
-
-- Enable $8/month premium subscriptions
-- Automated license generation via Paymob webhooks
-- Fast license verification for VS Code extension (<200ms p95)
-- Keep infrastructure cost <$50/month
+**Task**: Ptah License Server with Customer Portal Integration
+**Software Architect**: Evidence-Based Architecture Agent
+**Created**: 2025-12-07
+**Target Completion**: 4-5 days (32-40 hours)
+**Tech Stack**: Prisma 7.1.0 + NestJS + PostgreSQL + Paymob + Angular Landing Page
 
 ---
 
-## 📦 Project Structure
+## 1. Updated Goal
+
+Create a production-ready NestJS license server with integrated customer portal that:
+
+1. **License Verification**: POST /api/v1/licenses/verify (unchanged from original)
+2. **Paymob Webhooks**: POST /api/v1/webhooks/paymob (CORRECTED: query param HMAC)
+3. **Customer Portal Integration**: Angular pages in existing landing page app
+4. **Magic Link Authentication**: Email-based login (no passwords, reuses TicketService pattern)
+5. **License Management**: Resend license key emails (NEVER display keys in portal)
+
+**Timeline**: 4-5 days (increased from 2-3 days due to portal UI work)
+
+**Critical Changes from Original Plan**:
+
+- ✅ Prisma 7.1.0 with driver adapters (NO ZenStack - simplified for MVP)
+- ✅ Paymob HMAC via query parameter (not header)
+- ✅ Customer portal in ptah-landing-page app (not separate project)
+- ✅ Magic link authentication (reuses existing TicketService crypto pattern)
+- ✅ License keys NEVER displayed in portal (security requirement)
+
+---
+
+## 2. Tech Stack
+
+### Backend (License Server)
+
+**ORM**: Prisma 7.1.0 with Driver Adapters (NO Rust binary)
+
+- Package: `prisma@7.1.0`, `@prisma/client@7.1.0`
+- Driver: `@prisma/adapter-pg@7.1.0`, `pg@8.11.0`
+- Reference: https://www.prisma.io/docs/orm/overview/databases/database-drivers#driver-adapters
+- Reference: https://www.prisma.io/docs/guides/nestjs
+
+**Why Driver Adapters?**
+
+- No Rust binary compilation (faster CI/CD)
+- Pure JavaScript PostgreSQL driver
+- Better compatibility with serverless environments
+- Same Prisma Client API
+
+**Why NO ZenStack?**
+
+- Simplified architecture for MVP
+- Avoid learning curve complexity
+- Still get full type safety with Prisma
+- Can add ZenStack later if access policies needed
+
+**Framework**: NestJS (existing in monorepo)
+
+**Database**: PostgreSQL (existing in monorepo)
+
+**Payment**: Paymob subscriptions (Egypt market)
+
+**Email**: SendGrid (user's preferred choice from research)
+
+**Authentication**: Magic link (30-second TTL tokens, reuse TicketService pattern)
+
+### Frontend (Customer Portal)
+
+**Framework**: Angular 20+ (existing ptah-landing-page app)
+
+**Integration**: New portal pages added to existing app
+
+- `/auth/login` - Magic link request form
+- `/portal/dashboard` - Subscription overview
+- `/portal/subscription` - Manage subscription
+- `/portal/payments` - Payment history
+
+**HTTP Client**: Angular HttpClient for API calls
+
+**Security**: JWT in HTTP-only cookies (reuse existing JwtAuthGuard pattern)
+
+### Nx Workspace Integration
+
+**Nx Plugin**: `@nx-tools/nx-prisma@6.5.0`
+
+**Project Structure**:
 
 ```
-ptah-license-server/                    # NEW standalone NestJS project
+apps/
+  ptah-license-server/          # NestJS backend (NEW)
+  ptah-landing-page/            # Angular frontend (EXISTING - add portal pages)
+```
+
+---
+
+## 3. Database Schema (Prisma)
+
+**File**: `apps/ptah-license-server/prisma/schema.prisma`
+
+```prisma
+// Data source: PostgreSQL with driver adapters (NO Rust binary)
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Generator: Prisma Client with driver adapters preview feature
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+// Model: User (minimal - email only)
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  createdAt     DateTime       @default(now())
+
+  subscriptions Subscription[]
+  licenses      License[]
+
+  @@map("users")
+}
+
+// Model: Subscription (Paymob subscription tracking)
+model Subscription {
+  id                   String   @id @default(uuid())
+  userId               String
+  paymobSubscriptionId String?  @unique
+  status               String   @default("active")
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("subscriptions")
+}
+
+// Model: License (license key storage)
+model License {
+  id         String   @id @default(uuid())
+  userId     String
+  licenseKey String   @unique
+  status     String   @default("active")
+  expiresAt  DateTime?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([licenseKey])
+  @@index([userId])
+  @@map("licenses")
+}
+```
+
+**Schema Notes**:
+
+- **No Enums**: Using `String` instead of enums for simplicity (can validate in service layer)
+- **Simple Relations**: One-to-many via foreign keys
+- **Indexes**: Optimized for license key lookups (<10ms target)
+- **Cascading Deletes**: User deletion removes subscriptions and licenses
+- **Driver Adapters**: Enabled via `previewFeatures = ["driverAdapters"]`
+
+**Prisma Service Implementation** (driver adapters pattern):
+
+```typescript
+// apps/ptah-license-server/src/database/prisma.service.ts
+import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { Pool } from 'pg';
+import { ConfigService } from '@nestjs/config';
+
+@Injectable()
+export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+  private pool: Pool;
+
+  constructor(private readonly configService: ConfigService) {
+    // Create PostgreSQL connection pool
+    const pool = new Pool({
+      connectionString: configService.get<string>('DATABASE_URL'),
+    });
+
+    // Create Prisma adapter
+    const adapter = new PrismaPg(pool);
+
+    // Initialize Prisma Client with driver adapter
+    super({ adapter });
+
+    this.pool = pool;
+  }
+
+  async onModuleInit() {
+    await this.$connect();
+  }
+
+  async onModuleDestroy() {
+    await this.$disconnect();
+    await this.pool.end();
+  }
+}
+```
+
+---
+
+## 4. Project Structure
+
+```
+apps/ptah-license-server/
+├── prisma/
+│   ├── schema.prisma                  # Prisma schema
+│   └── migrations/                    # Migration files
 ├── src/
-│   ├── app.module.ts                   # Root module
-│   ├── main.ts                         # Application entry point
-│   ├── common/                         # Shared utilities
+│   ├── app.module.ts
+│   ├── main.ts
+│   ├── common/
 │   │   ├── config/
-│   │   │   └── configuration.ts        # Environment configuration
+│   │   │   └── configuration.ts
 │   │   ├── filters/
-│   │   │   └── http-exception.filter.ts # Global error handling
+│   │   │   └── http-exception.filter.ts
 │   │   └── guards/
-│   │       └── hmac-signature.guard.ts  # Paymob signature verification
-│   ├── database/                       # Database module
+│   │       └── paymob-hmac.guard.ts   # ✅ Query param validation
+│   ├── database/
 │   │   ├── database.module.ts
-│   │   └── migrations/                 # TypeORM migrations
-│   │       └── 1733594400000-InitialSchema.ts
-│   ├── entities/                       # TypeORM entities (3 tables)
-│   │   ├── user.entity.ts              # Users table
-│   │   ├── subscription.entity.ts      # Subscriptions table
-│   │   └── license.entity.ts           # Licenses table
-│   ├── licenses/                       # License verification module
-│   │   ├── licenses.module.ts
-│   │   ├── licenses.controller.ts      # POST /api/v1/licenses/verify
-│   │   ├── licenses.service.ts         # Business logic
-│   │   ├── dto/
-│   │   │   ├── verify-license.dto.ts   # Request DTO
-│   │   │   └── verify-license-response.dto.ts # Response DTO
-│   │   └── repositories/
-│   │       └── license.repository.ts   # Database queries
-│   ├── webhooks/                       # Paymob webhook module
-│   │   ├── webhooks.module.ts
-│   │   ├── webhooks.controller.ts      # POST /api/v1/webhooks/paymob
-│   │   ├── webhooks.service.ts         # Webhook processing logic
-│   │   ├── dto/
-│   │   │   └── paymob-webhook.dto.ts   # Paymob payload DTO
+│   │   └── prisma.service.ts          # ✅ Driver adapters setup
+│   ├── auth/                          # ✅ Reuse existing, remove WorkOS
+│   │   ├── auth.module.ts
+│   │   ├── auth.controller.ts         # ✅ Magic link endpoints
+│   │   ├── guards/
+│   │   │   └── jwt-auth.guard.ts      # ✅ Keep as-is
 │   │   └── services/
-│   │       ├── license-key-generator.service.ts  # Crypto key generation
-│   │       └── signature-verifier.service.ts     # HMAC verification
-│   └── email/                          # Email delivery module
+│   │       ├── auth.service.ts        # ✅ Remove WorkOS, add magic link
+│   │       └── magic-link.service.ts  # ✅ NEW (reuse TicketService pattern)
+│   ├── licenses/
+│   │   ├── licenses.module.ts
+│   │   ├── licenses.controller.ts     # ✅ verify + resend endpoints
+│   │   ├── licenses.service.ts
+│   │   └── dto/
+│   │       ├── verify-license.dto.ts
+│   │       └── verify-license-response.dto.ts
+│   ├── subscriptions/                 # ✅ NEW (customer portal API)
+│   │   ├── subscriptions.module.ts
+│   │   ├── subscriptions.controller.ts
+│   │   ├── subscriptions.service.ts
+│   │   └── dto/
+│   │       ├── subscription-response.dto.ts
+│   │       └── payment-history-response.dto.ts
+│   ├── webhooks/
+│   │   ├── webhooks.module.ts
+│   │   ├── webhooks.controller.ts     # ✅ Query param HMAC
+│   │   ├── webhooks.service.ts
+│   │   ├── dto/
+│   │   │   └── paymob-webhook.dto.ts
+│   │   └── services/
+│   │       └── license-key-generator.service.ts
+│   └── email/
 │       ├── email.module.ts
-│       ├── email.service.ts            # SendGrid/Resend integration
+│       ├── email.service.ts
 │       └── templates/
-│           └── license-activation.hbs   # Handlebars template
-├── test/
-│   └── app.e2e-spec.ts                 # E2E tests
-├── .env.example                        # Environment template
-├── Dockerfile                          # Production container
-├── docker-compose.yml                  # Local development
-├── package.json
-├── tsconfig.json
-└── README.md                           # Project documentation
+│           ├── license-key.hbs
+│           └── magic-link.hbs         # ✅ NEW
+
+apps/ptah-landing-page/               # ✅ EXISTING app
+├── src/
+│   └── app/
+│       ├── pages/
+│       │   ├── landing-page.component.ts      # ✅ Existing
+│       │   ├── auth-login.component.ts        # ✅ NEW
+│       │   └── portal/
+│       │       ├── dashboard.component.ts     # ✅ NEW
+│       │       ├── subscription.component.ts  # ✅ NEW
+│       │       └── payments.component.ts      # ✅ NEW
+│       └── services/
+│           └── license-api.service.ts         # ✅ NEW (HTTP client)
 ```
+
+**Key Integration Points**:
+
+- Backend: `apps/ptah-license-server/` (NEW NestJS app)
+- Frontend: `apps/ptah-landing-page/` (EXISTING Angular app - add portal pages)
 
 ---
 
-## 🗄️ Database Schema (PostgreSQL)
+## 5. API Endpoints (Complete List)
 
-### Entity 1: User
+### 5.1. License Verification (Unchanged)
 
-**Purpose**: Store user information (email only)
+**Endpoint**: `POST /api/v1/licenses/verify`
 
-**File**: `src/entities/user.entity.ts`
+**Purpose**: Verify license key premium status for VS Code extension
+
+**Request**:
 
 ```typescript
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, OneToMany } from 'typeorm';
-import { Subscription } from './subscription.entity';
-import { License } from './license.entity';
-
-@Entity('users')
-export class User {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
-
-  @Column({ type: 'varchar', length: 255, unique: true })
-  email: string;
-
-  @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
-  createdAt: Date;
-
-  @OneToMany(() => Subscription, (subscription) => subscription.user, {
-    cascade: true,
-    onDelete: 'CASCADE',
-  })
-  subscriptions: Subscription[];
-
-  @OneToMany(() => License, (license) => license.user, {
-    cascade: true,
-    onDelete: 'CASCADE',
-  })
-  licenses: License[];
+{
+  "licenseKey": "ptah_lic_a1b2c3d4e5f6789012345678901234"
 }
 ```
 
-**Indexes**:
-
-- `UNIQUE INDEX` on `email` (auto-created by unique constraint)
-
----
-
-### Entity 2: Subscription
-
-**Purpose**: Track Paymob subscription status
-
-**File**: `src/entities/subscription.entity.ts`
+**Response (Valid)**:
 
 ```typescript
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
-import { User } from './user.entity';
-
-export enum SubscriptionStatus {
-  ACTIVE = 'active',
-  CANCELED = 'canceled',
-  PAST_DUE = 'past_due',
-}
-
-@Entity('subscriptions')
-export class Subscription {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
-
-  @Column({ type: 'uuid' })
-  userId: string;
-
-  @ManyToOne(() => User, (user) => user.subscriptions, {
-    onDelete: 'CASCADE',
-  })
-  @JoinColumn({ name: 'userId' })
-  user: User;
-
-  @Column({ type: 'varchar', length: 255, unique: true, nullable: true })
-  paymobSubscriptionId: string | null;
-
-  @Column({
-    type: 'enum',
-    enum: SubscriptionStatus,
-    default: SubscriptionStatus.ACTIVE,
-  })
-  status: SubscriptionStatus;
-
-  @Column({ type: 'timestamp', nullable: true })
-  currentPeriodEnd: Date | null;
-
-  @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
-  createdAt: Date;
+{
+  "valid": true,
+  "tier": "premium",
+  "email": "user@example.com",
+  "expiresAt": "2026-01-15T00:00:00Z"
 }
 ```
 
-**Indexes**:
-
-- `UNIQUE INDEX` on `paymobSubscriptionId` (auto-created)
-- `INDEX` on `userId` (foreign key, auto-indexed by TypeORM)
-
----
-
-### Entity 3: License
-
-**Purpose**: Store license keys with status
-
-**File**: `src/entities/license.entity.ts`
+**Response (Invalid)**:
 
 ```typescript
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
-import { User } from './user.entity';
-
-export enum LicenseStatus {
-  ACTIVE = 'active',
-  REVOKED = 'revoked',
-}
-
-@Entity('licenses')
-@Index('idx_license_key', ['licenseKey']) // Explicit index for fast lookups
-export class License {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
-
-  @Column({ type: 'uuid' })
-  userId: string;
-
-  @ManyToOne(() => User, (user) => user.licenses, {
-    onDelete: 'CASCADE',
-  })
-  @JoinColumn({ name: 'userId' })
-  user: User;
-
-  @Column({ type: 'varchar', length: 255, unique: true })
-  licenseKey: string; // Format: ptah_lic_{32-hex}
-
-  @Column({
-    type: 'enum',
-    enum: LicenseStatus,
-    default: LicenseStatus.ACTIVE,
-  })
-  status: LicenseStatus;
-
-  @Column({ type: 'timestamp', nullable: true })
-  expiresAt: Date | null; // NULL = never expires (for lifetime licenses)
-
-  @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
-  createdAt: Date;
+{
+  "valid": false,
+  "tier": "free"
 }
 ```
 
-**Indexes**:
-
-- `UNIQUE INDEX` on `licenseKey` (enforced by unique constraint)
-- `INDEX` on `licenseKey` (explicit index for <10ms queries)
-- `INDEX` on `userId` (foreign key, auto-indexed)
-
----
-
-## 🔌 API Endpoints
-
-### Endpoint 1: License Verification
-
-**File**: `src/licenses/licenses.controller.ts`
+**Implementation**:
 
 ```typescript
+// apps/ptah-license-server/src/licenses/licenses.controller.ts
 import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { LicensesService } from './licenses.service';
 import { VerifyLicenseDto } from './dto/verify-license.dto';
-import { VerifyLicenseResponseDto } from './dto/verify-license-response.dto';
 
-@ApiTags('licenses')
 @Controller('api/v1/licenses')
 export class LicensesController {
   constructor(private readonly licensesService: LicensesService) {}
 
   @Post('verify')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Verify license key premium status' })
-  @ApiResponse({
-    status: 200,
-    description: 'License verification result',
-    type: VerifyLicenseResponseDto,
-  })
-  @ApiResponse({ status: 400, description: 'Invalid license key format' })
-  @ApiResponse({ status: 503, description: 'Database unavailable' })
-  async verifyLicense(@Body() dto: VerifyLicenseDto): Promise<VerifyLicenseResponseDto> {
+  async verifyLicense(@Body() dto: VerifyLicenseDto) {
     return this.licensesService.verifyLicense(dto.licenseKey);
   }
-}
-```
 
-**Service Logic**: `src/licenses/licenses.service.ts`
-
-```typescript
-import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { License, LicenseStatus } from '../entities/license.entity';
-import { Subscription, SubscriptionStatus } from '../entities/subscription.entity';
-import { VerifyLicenseResponseDto } from './dto/verify-license-response.dto';
-
-@Injectable()
-export class LicensesService {
-  constructor(
-    @InjectRepository(License)
-    private readonly licenseRepo: Repository<License>,
-    @InjectRepository(Subscription)
-    private readonly subscriptionRepo: Repository<Subscription>
-  ) {}
-
-  async verifyLicense(licenseKey: string): Promise<VerifyLicenseResponseDto> {
-    try {
-      // Query with index on licenseKey (<10ms p99)
-      const license = await this.licenseRepo.findOne({
-        where: { licenseKey },
-        relations: ['user'],
-      });
-
-      // Non-existent or revoked license → free tier
-      if (!license || license.status !== LicenseStatus.ACTIVE) {
-        return { valid: false, tier: 'free' };
-      }
-
-      // Check if subscription is still active
-      const subscription = await this.subscriptionRepo.findOne({
-        where: { userId: license.userId },
-        order: { createdAt: 'DESC' }, // Get most recent subscription
-      });
-
-      if (!subscription || subscription.status !== SubscriptionStatus.ACTIVE) {
-        return { valid: false, tier: 'free' };
-      }
-
-      // Check expiration (if expiresAt is set and in the past)
-      if (subscription.currentPeriodEnd && new Date(subscription.currentPeriodEnd) < new Date()) {
-        return { valid: false, tier: 'free' };
-      }
-
-      // Valid premium license
-      return {
-        valid: true,
-        tier: 'premium',
-        email: license.user.email,
-        expiresAt: subscription.currentPeriodEnd?.toISOString() || null,
-      };
-    } catch (error) {
-      // Database connection failure → 503
-      throw new HttpException('Service temporarily unavailable', HttpStatus.SERVICE_UNAVAILABLE);
-    }
+  @Post('resend')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async resendLicenseKey(@Req() request: Request) {
+    const userId = request.user.id;
+    return this.licensesService.resendLicenseKey(userId);
   }
 }
 ```
 
-**DTOs**:
+### 5.2. Magic Link Authentication
 
-`src/licenses/dto/verify-license.dto.ts`:
+**Endpoint 1**: `POST /api/v1/auth/magic-link`
+
+**Purpose**: Generate magic link and send email
+
+**Request**:
 
 ```typescript
-import { IsString, Matches } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
-
-export class VerifyLicenseDto {
-  @ApiProperty({
-    example: 'ptah_lic_a1b2c3d4e5f6789012345678901234',
-    pattern: '^ptah_lic_[a-f0-9]{32}$',
-  })
-  @IsString()
-  @Matches(/^ptah_lic_[a-f0-9]{32}$/, {
-    message: 'License key must be format: ptah_lic_{32-hex}',
-  })
-  licenseKey: string;
+{
+  "email": "user@example.com"
 }
 ```
 
-`src/licenses/dto/verify-license-response.dto.ts`:
+**Response**:
 
 ```typescript
-import { ApiProperty } from '@nestjs/swagger';
-
-export class VerifyLicenseResponseDto {
-  @ApiProperty({ example: true })
-  valid: boolean;
-
-  @ApiProperty({ example: 'premium', enum: ['free', 'premium'] })
-  tier: 'free' | 'premium';
-
-  @ApiProperty({ example: 'user@example.com', required: false })
-  email?: string;
-
-  @ApiProperty({
-    example: '2026-12-31T23:59:59.000Z',
-    required: false,
-    nullable: true,
-  })
-  expiresAt?: string | null;
+{
+  "success": true,
+  "message": "Check your email for login link"
 }
 ```
 
----
+**Endpoint 2**: `GET /api/v1/auth/verify?token=<magic-token>`
 
-### Endpoint 2: Paymob Webhook
+**Purpose**: Validate magic link token, set JWT cookie, redirect to portal
 
-**File**: `src/webhooks/webhooks.controller.ts`
+**Flow**:
+
+```
+1. User receives email with link: https://ptah.dev/auth/verify?token=abc123...
+2. User clicks link
+3. Backend validates token (30-second TTL, single-use)
+4. Backend sets JWT cookie (HTTP-only, 7-day expiration)
+5. Backend redirects to /portal/dashboard
+```
+
+**Implementation**:
 
 ```typescript
-import { Controller, Post, Body, Headers, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiHeader } from '@nestjs/swagger';
+// apps/ptah-license-server/src/auth/auth.controller.ts
+import { Controller, Post, Get, Body, Query, Res } from '@nestjs/common';
+import { Response } from 'express';
+import { AuthService } from './services/auth.service';
+import { MagicLinkService } from './services/magic-link.service';
+
+@Controller('api/v1/auth')
+export class AuthController {
+  constructor(private readonly authService: AuthService, private readonly magicLinkService: MagicLinkService) {}
+
+  @Post('magic-link')
+  async requestMagicLink(@Body() body: { email: string }) {
+    await this.authService.sendMagicLink(body.email);
+    return {
+      success: true,
+      message: 'Check your email for login link',
+    };
+  }
+
+  @Get('verify')
+  async verifyMagicLink(@Query('token') token: string, @Res() response: Response) {
+    const email = await this.magicLinkService.validateAndConsume(token);
+
+    if (!email) {
+      return response.redirect(`${process.env.FRONTEND_URL}/auth/login?error=invalid_token`);
+    }
+
+    const jwt = await this.authService.generateJwtForEmail(email);
+
+    // Set HTTP-only cookie
+    response.cookie('access_token', jwt, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+
+    // Redirect to portal dashboard
+    return response.redirect(`${process.env.FRONTEND_URL}/portal/dashboard`);
+  }
+}
+```
+
+### 5.3. Customer Portal API
+
+**Endpoint 1**: `GET /api/v1/subscriptions/me`
+
+**Purpose**: Get current user's subscription status
+
+**Headers**: `Cookie: access_token=<jwt>`
+
+**Response**:
+
+```typescript
+{
+  "id": "sub_abc123",
+  "status": "active",
+  "currentPeriodEnd": "2026-01-15T00:00:00Z",
+  "plan": {
+    "name": "Premium",
+    "amount": 800
+  }
+}
+```
+
+**Endpoint 2**: `POST /api/v1/subscriptions/cancel`
+
+**Purpose**: Cancel user's subscription via Paymob API
+
+**Headers**: `Cookie: access_token=<jwt>`
+
+**Response**:
+
+```typescript
+{
+  "success": true,
+  "message": "Subscription cancelled successfully"
+}
+```
+
+**Implementation**:
+
+```typescript
+// apps/ptah-license-server/src/subscriptions/subscriptions.controller.ts
+import { Controller, Get, Post, UseGuards, Req } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { SubscriptionsService } from './subscriptions.service';
+
+@Controller('api/v1/subscriptions')
+@UseGuards(JwtAuthGuard)
+export class SubscriptionsController {
+  constructor(private readonly subscriptionsService: SubscriptionsService) {}
+
+  @Get('me')
+  async getCurrentSubscription(@Req() request: Request) {
+    const userId = request.user.id;
+    return this.subscriptionsService.getSubscriptionByUserId(userId);
+  }
+
+  @Post('cancel')
+  async cancelSubscription(@Req() request: Request) {
+    const userId = request.user.id;
+    return this.subscriptionsService.cancelSubscription(userId);
+  }
+}
+```
+
+**Endpoint 3**: `GET /api/v1/payments/history`
+
+**Purpose**: Get user's payment history
+
+**Headers**: `Cookie: access_token=<jwt>`
+
+**Response**:
+
+```typescript
+[
+  {
+    date: '2025-12-15T00:00:00Z',
+    amount: 800,
+    status: 'paid',
+    invoiceUrl: 'https://paymob.com/invoice/abc123',
+  },
+];
+```
+
+### 5.4. Paymob Webhook (CORRECTED)
+
+**Endpoint**: `POST /api/v1/webhooks/paymob?hmac=<calculated-hash>`
+
+**CRITICAL**: HMAC signature is in QUERY PARAMETER, NOT header
+
+**Purpose**: Process Paymob subscription events
+
+**Request Body**:
+
+```typescript
+{
+  "type": "TRANSACTION" | "SUBSCRIPTION_CREATED" | "SUBSCRIPTION_CANCELED" | "SUBSCRIPTION_RENEWED",
+  "obj": {
+    "id": 12345,
+    "success": true,
+    "amount_cents": 80000,
+    "currency": "EGP",
+    "subscription_id": "sub_abc123",
+    "billing_data": {
+      "email": "user@example.com",
+      "first_name": "John",
+      "last_name": "Doe",
+      "phone_number": "+201234567890"
+    },
+    "created_at": "2025-12-15T00:00:00Z"
+  }
+}
+```
+
+**Response**:
+
+```typescript
+{
+  "received": true
+}
+```
+
+**Implementation (Query Param HMAC)**:
+
+```typescript
+// apps/ptah-license-server/src/webhooks/webhooks.controller.ts
+import { Controller, Post, Body, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { WebhooksService } from './webhooks.service';
+import { PaymobHmacGuard } from '../common/guards/paymob-hmac.guard';
 import { PaymobWebhookDto } from './dto/paymob-webhook.dto';
-import { HmacSignatureGuard } from '../common/guards/hmac-signature.guard';
 
-@ApiTags('webhooks')
 @Controller('api/v1/webhooks')
 export class WebhooksController {
   constructor(private readonly webhooksService: WebhooksService) {}
 
   @Post('paymob')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(HmacSignatureGuard) // Verify HMAC-SHA256 signature
-  @ApiOperation({ summary: 'Handle Paymob payment webhooks' })
-  @ApiHeader({ name: 'x-paymob-signature', required: true })
-  @ApiResponse({ status: 200, description: 'Webhook received' })
-  @ApiResponse({ status: 401, description: 'Invalid signature' })
-  async handlePaymob(@Body() payload: PaymobWebhookDto, @Headers('x-paymob-signature') signature: string): Promise<{ received: true }> {
+  @UseGuards(PaymobHmacGuard)
+  async handlePaymob(
+    @Body() payload: PaymobWebhookDto,
+    @Query('hmac') hmac: string // ✅ Query parameter, NOT header
+  ): Promise<{ received: true }> {
     await this.webhooksService.processPaymob(payload);
     return { received: true };
   }
 }
 ```
 
-**Service Logic**: `src/webhooks/webhooks.service.ts`
+---
+
+## 6. Paymob HMAC Validation (Corrected)
+
+**CRITICAL CORRECTION**: User's Postman collection shows HMAC in query parameter, NOT header
+
+**Guard Implementation**:
 
 ```typescript
-import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { User } from '../entities/user.entity';
-import { Subscription, SubscriptionStatus } from '../entities/subscription.entity';
-import { License, LicenseStatus } from '../entities/license.entity';
-import { LicenseKeyGeneratorService } from './services/license-key-generator.service';
-import { EmailService } from '../email/email.service';
-import { PaymobWebhookDto } from './dto/paymob-webhook.dto';
-
-@Injectable()
-export class WebhooksService {
-  private readonly logger = new Logger(WebhooksService.name);
-
-  constructor(
-    @InjectRepository(User)
-    private readonly userRepo: Repository<User>,
-    @InjectRepository(Subscription)
-    private readonly subscriptionRepo: Repository<Subscription>,
-    @InjectRepository(License)
-    private readonly licenseRepo: Repository<License>,
-    private readonly keyGenerator: LicenseKeyGeneratorService,
-    private readonly emailService: EmailService
-  ) {}
-
-  async processPaymob(payload: PaymobWebhookDto): Promise<void> {
-    const { type, obj } = payload;
-
-    if (type === 'TRANSACTION' && obj.success) {
-      await this.handleSuccessfulPayment(obj);
-    } else if (type === 'SUBSCRIPTION_CANCELED') {
-      await this.handleSubscriptionCancellation(obj);
-    }
-  }
-
-  private async handleSuccessfulPayment(obj: any): Promise<void> {
-    const email = obj.billing_data.email;
-    const paymobSubscriptionId = obj.subscription_id;
-
-    // Idempotency: check if subscription already processed
-    const existingSubscription = await this.subscriptionRepo.findOne({
-      where: { paymobSubscriptionId },
-    });
-
-    if (existingSubscription) {
-      this.logger.log(`Duplicate webhook for subscription ${paymobSubscriptionId}, skipping`);
-      return;
-    }
-
-    // Create or find user
-    let user = await this.userRepo.findOne({ where: { email } });
-    if (!user) {
-      user = this.userRepo.create({ email });
-      user = await this.userRepo.save(user);
-      this.logger.log(`Created new user: ${email}`);
-    }
-
-    // Create subscription
-    const subscription = this.subscriptionRepo.create({
-      userId: user.id,
-      paymobSubscriptionId,
-      status: SubscriptionStatus.ACTIVE,
-      currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-    });
-    await this.subscriptionRepo.save(subscription);
-    this.logger.log(`Created subscription for user ${email}`);
-
-    // Generate license key with collision retry
-    const licenseKey = await this.keyGenerator.generateUnique();
-
-    const license = this.licenseRepo.create({
-      userId: user.id,
-      licenseKey,
-      status: LicenseStatus.ACTIVE,
-      expiresAt: null, // NULL = never expires for now
-    });
-    await this.licenseRepo.save(license);
-    this.logger.log(`Generated license key: ${licenseKey}`);
-
-    // Send email (async, fire-and-forget with retry)
-    this.emailService.sendLicenseKey(email, licenseKey).catch((error) => {
-      this.logger.error(`Failed to send email to ${email}: ${error.message}`, error.stack);
-      // Log for manual intervention (don't throw - webhook already processed)
-    });
-  }
-
-  private async handleSubscriptionCancellation(obj: any): Promise<void> {
-    const paymobSubscriptionId = obj.subscription_id;
-
-    const subscription = await this.subscriptionRepo.findOne({
-      where: { paymobSubscriptionId },
-    });
-
-    if (!subscription) {
-      this.logger.warn(`Cancellation webhook for unknown subscription ${paymobSubscriptionId}`);
-      return;
-    }
-
-    // Update subscription status
-    subscription.status = SubscriptionStatus.CANCELED;
-    await this.subscriptionRepo.save(subscription);
-
-    // Revoke all licenses for this user
-    await this.licenseRepo.update({ userId: subscription.userId }, { status: LicenseStatus.REVOKED });
-
-    this.logger.log(`Canceled subscription and revoked licenses for user ${subscription.userId}`);
-  }
-}
-```
-
-**HMAC Signature Verification Guard**: `src/common/guards/hmac-signature.guard.ts`
-
-```typescript
-import { Injectable, CanActivate, ExecutionContext, UnauthorizedException, Logger } from '@nestjs/common';
+// apps/ptah-license-server/src/common/guards/paymob-hmac.guard.ts
+import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 
 @Injectable()
-export class HmacSignatureGuard implements CanActivate {
-  private readonly logger = new Logger(HmacSignatureGuard.name);
-  private readonly paymobSecret: string;
+export class PaymobHmacGuard implements CanActivate {
+  private readonly hmacSecret: string;
 
   constructor(private readonly configService: ConfigService) {
-    this.paymobSecret = this.configService.get<string>('PAYMOB_SECRET_KEY');
-    if (!this.paymobSecret) {
-      throw new Error('PAYMOB_SECRET_KEY environment variable is required');
-    }
+    this.hmacSecret = this.configService.get<string>('PAYMOB_HMAC_SECRET');
   }
 
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest();
-    const signature = request.headers['x-paymob-signature'];
+    const hmacParam = request.query.hmac; // ✅ Query parameter, NOT header
     const body = request.body;
 
-    if (!signature) {
-      this.logger.warn('Missing x-paymob-signature header');
-      throw new UnauthorizedException('Missing signature header');
+    if (!hmacParam) {
+      throw new UnauthorizedException('Missing HMAC parameter');
     }
 
-    // Compute HMAC-SHA256 (Paymob spec: HMAC of JSON body)
-    const payload = JSON.stringify(body);
-    const expectedSignature = crypto.createHmac('sha256', this.paymobSecret).update(payload).digest('hex');
+    // Calculate expected HMAC
+    const expectedHmac = crypto.createHmac('sha256', this.hmacSecret).update(JSON.stringify(body)).digest('hex');
 
-    if (signature !== expectedSignature) {
-      this.logger.error('Invalid Paymob signature', {
-        received: signature,
-        expected: expectedSignature,
-      });
-      throw new UnauthorizedException('Invalid signature');
+    // Constant-time comparison (timing attack prevention)
+    if (!crypto.timingSafeEqual(Buffer.from(hmacParam), Buffer.from(expectedHmac))) {
+      throw new UnauthorizedException('Invalid HMAC signature');
     }
 
-    this.logger.log('Paymob signature verified successfully');
     return true;
   }
 }
 ```
 
-**License Key Generator**: `src/webhooks/services/license-key-generator.service.ts`
+**Paymob Dashboard Configuration**:
+
+- Navigate to: Paymob Dashboard → Profile tab
+- Copy: HMAC Secret
+- Environment Variable: `PAYMOB_HMAC_SECRET`
+
+**Webhook URL Format**:
+
+```
+https://your-server.com/api/v1/webhooks/paymob?hmac=<calculated-hash>
+```
+
+**Paymob calculates the hash and appends it as query parameter automatically**
+
+---
+
+## 7. Magic Link Service (Reuse TicketService Pattern)
+
+**Source Pattern**: `apps/ptah-license-server/src/app/auth/services/ticket.service.ts`
+
+**Implementation**:
 
 ```typescript
+// apps/ptah-license-server/src/auth/services/magic-link.service.ts
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import * as crypto from 'crypto';
-import { License } from '../../entities/license.entity';
+import { randomBytes } from 'crypto';
 
 @Injectable()
-export class LicenseKeyGeneratorService {
-  constructor(
-    @InjectRepository(License)
-    private readonly licenseRepo: Repository<License>
-  ) {}
-
-  /**
-   * Generate cryptographically secure license key
-   * Format: ptah_lic_{32-hex} (total 40 chars)
-   * Entropy: 128-bit (crypto.randomBytes(16))
-   */
-  generate(): string {
-    const randomBytes = crypto.randomBytes(16); // 128-bit entropy
-    const hexString = randomBytes.toString('hex'); // 32 hex characters
-    return `ptah_lic_${hexString}`;
-  }
-
-  /**
-   * Generate unique license key with collision retry
-   * Collision probability: <1 in 2^128 (extremely unlikely)
-   */
-  async generateUnique(maxRetries = 3): Promise<string> {
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      const licenseKey = this.generate();
-
-      // Check for collision (should never happen in practice)
-      const existing = await this.licenseRepo.findOne({
-        where: { licenseKey },
-      });
-
-      if (!existing) {
-        return licenseKey;
-      }
-
-      // Collision detected (log for investigation)
-      console.warn(`License key collision detected (attempt ${attempt + 1}/${maxRetries}): ${licenseKey}`);
+export class MagicLinkService {
+  private readonly MAGIC_LINK_TTL_MS = 30000; // 30 seconds
+  private readonly tokens = new Map<
+    string,
+    {
+      email: string;
+      createdAt: number;
+      timeoutId: NodeJS.Timeout;
     }
+  >();
 
-    throw new Error('Failed to generate unique license key after retries (extremely rare)');
-  }
-}
-```
+  async create(email: string): Promise<string> {
+    const token = randomBytes(32).toString('hex');
 
----
+    const timeoutId = setTimeout(() => {
+      this.tokens.delete(token);
+    }, this.MAGIC_LINK_TTL_MS);
 
-## 📧 Email Service
-
-**File**: `src/email/email.service.ts`
-
-```typescript
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import * as handlebars from 'handlebars';
-import * as fs from 'fs/promises';
-import * as path from 'path';
-
-// Email provider interfaces (SendGrid OR Resend)
-interface EmailProvider {
-  send(to: string, subject: string, html: string): Promise<void>;
-}
-
-class SendGridProvider implements EmailProvider {
-  private apiKey: string;
-
-  constructor(apiKey: string) {
-    this.apiKey = apiKey;
-  }
-
-  async send(to: string, subject: string, html: string): Promise<void> {
-    // SendGrid API integration
-    const sgMail = require('@sendgrid/mail');
-    sgMail.setApiKey(this.apiKey);
-
-    await sgMail.send({
-      to,
-      from: 'noreply@ptah.dev',
-      subject,
-      html,
-    });
-  }
-}
-
-class ResendProvider implements EmailProvider {
-  private apiKey: string;
-
-  constructor(apiKey: string) {
-    this.apiKey = apiKey;
-  }
-
-  async send(to: string, subject: string, html: string): Promise<void> {
-    // Resend API integration
-    const { Resend } = require('resend');
-    const resend = new Resend(this.apiKey);
-
-    await resend.emails.send({
-      from: 'noreply@ptah.dev',
-      to,
-      subject,
-      html,
-    });
-  }
-}
-
-@Injectable()
-export class EmailService {
-  private readonly logger = new Logger(EmailService.name);
-  private readonly provider: EmailProvider;
-  private readonly templateCache = new Map<string, HandlebarsTemplateDelegate>();
-
-  constructor(private readonly configService: ConfigService) {
-    const emailProvider = this.configService.get<string>('EMAIL_PROVIDER'); // 'sendgrid' or 'resend'
-    const apiKey = this.configService.get<string>('EMAIL_API_KEY');
-
-    if (!apiKey) {
-      throw new Error('EMAIL_API_KEY environment variable is required');
-    }
-
-    if (emailProvider === 'sendgrid') {
-      this.provider = new SendGridProvider(apiKey);
-    } else if (emailProvider === 'resend') {
-      this.provider = new ResendProvider(apiKey);
-    } else {
-      throw new Error(`Invalid EMAIL_PROVIDER: ${emailProvider}. Use 'sendgrid' or 'resend'`);
-    }
-  }
-
-  async sendLicenseKey(email: string, licenseKey: string): Promise<void> {
-    const subject = 'Your Ptah Premium License Key';
-
-    // Render email template
-    const html = await this.renderTemplate('license-activation', {
-      licenseKey,
+    this.tokens.set(token, {
       email,
-      activationUrl: 'vscode://ptah.ptah-extension/activate',
-      supportUrl: 'https://ptah.dev/support',
+      createdAt: Date.now(),
+      timeoutId,
     });
 
-    // Retry logic with exponential backoff (1s, 2s, 4s)
-    const maxRetries = 3;
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      try {
-        await this.provider.send(email, subject, html);
-        this.logger.log(`License key email sent to ${email}`);
-        return;
-      } catch (error) {
-        const retryDelay = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
-        this.logger.error(`Email delivery failed (attempt ${attempt + 1}/${maxRetries}): ${error.message}`);
-
-        if (attempt < maxRetries - 1) {
-          await this.sleep(retryDelay);
-        } else {
-          // Final failure - log for manual intervention
-          this.logger.error(`Failed to send email to ${email} after ${maxRetries} attempts. License key: ${licenseKey}`);
-          throw error;
-        }
-      }
-    }
+    return token;
   }
 
-  private async renderTemplate(templateName: string, context: any): Promise<string> {
-    // Load template (with caching)
-    if (!this.templateCache.has(templateName)) {
-      const templatePath = path.join(__dirname, 'templates', `${templateName}.hbs`);
-      const templateSource = await fs.readFile(templatePath, 'utf-8');
-      const template = handlebars.compile(templateSource);
-      this.templateCache.set(templateName, template);
+  async validateAndConsume(token: string): Promise<string | null> {
+    const data = this.tokens.get(token);
+    if (!data) {
+      return null; // Token expired or invalid
     }
 
-    const template = this.templateCache.get(templateName)!;
-    return template(context);
-  }
+    // Single-use enforcement
+    clearTimeout(data.timeoutId);
+    this.tokens.delete(token);
 
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    return data.email;
   }
 }
 ```
 
-**Email Template**: `src/email/templates/license-activation.hbs`
+**Pattern Evidence**:
 
-```html
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8" />
-    <title>Your Ptah Premium License Key</title>
-  </head>
-  <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <h1 style="color: #333;">Welcome to Ptah Premium! 🚀</h1>
+- Source: `apps/ptah-license-server/src/app/auth/services/ticket.service.ts:37-85`
+- Uses: `crypto.randomBytes(32).toString('hex')` (128-bit entropy)
+- TTL: 30 seconds (same as original TicketService)
+- Storage: In-memory Map (sufficient for single-instance deployment)
+- Cleanup: Automatic timeout with `setTimeout`
 
-    <p>Thank you for subscribing to Ptah Premium. Your license key is ready:</p>
+**Multi-Instance Note**: For production with multiple instances, replace Map with Redis
 
-    <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
-      <code style="font-size: 16px; font-weight: bold; color: #0066cc;">{{licenseKey}}</code>
+---
+
+## 8. Customer Portal UI (Angular Pages)
+
+### 8.1. Auth Login Page
+
+**File**: `apps/ptah-landing-page/src/app/pages/auth-login.component.ts`
+
+```typescript
+import { Component } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { LicenseApiService } from '../services/license-api.service';
+
+@Component({
+  selector: 'app-auth-login',
+  standalone: true,
+  imports: [CommonModule, FormsModule],
+  template: `
+    <div class="container max-w-md mx-auto mt-20 p-8 bg-white rounded-lg shadow">
+      <h1 class="text-2xl font-bold mb-4">Login to Ptah Portal</h1>
+
+      <form (ngSubmit)="requestMagicLink()" #loginForm="ngForm">
+        <div class="mb-4">
+          <label class="block text-gray-700 mb-2">Email</label>
+          <input type="email" name="email" [(ngModel)]="email" required email class="w-full px-4 py-2 border rounded" placeholder="user@example.com" />
+        </div>
+
+        <button type="submit" [disabled]="!loginForm.form.valid || loading" class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50">
+          {{ loading ? 'Sending...' : 'Send Magic Link' }}
+        </button>
+      </form>
+
+      <p *ngIf="message" class="mt-4 text-green-600">{{ message }}</p>
+      <p *ngIf="error" class="mt-4 text-red-600">{{ error }}</p>
     </div>
+  `,
+})
+export class AuthLoginComponent {
+  email = '';
+  loading = false;
+  message = '';
+  error = '';
 
-    <h2>Activation Instructions</h2>
-    <ol>
-      <li>Open VS Code</li>
-      <li>Go to Settings (Cmd+, on Mac, Ctrl+, on Windows)</li>
-      <li>Search for "Ptah"</li>
-      <li>Paste your license key in the "Ptah: License Key" field</li>
-      <li>Reload VS Code</li>
-    </ol>
+  constructor(private readonly licenseApi: LicenseApiService) {}
 
-    <p>Or click here to activate automatically: <a href="{{activationUrl}}?key={{licenseKey}}" style="color: #0066cc;">Activate in VS Code</a></p>
+  async requestMagicLink() {
+    this.loading = true;
+    this.message = '';
+    this.error = '';
 
-    <h2>Need Help?</h2>
-    <p>Visit our <a href="{{supportUrl}}" style="color: #0066cc;">support page</a> or reply to this email.</p>
-
-    <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;" />
-
-    <p style="font-size: 12px; color: #888;">
-      You're receiving this email because you subscribed to Ptah Premium.<br />
-      Email: {{email}}<br />
-      <a href="https://ptah.dev/unsubscribe?email={{email}}" style="color: #888;">Unsubscribe</a>
-    </p>
-  </body>
-</html>
+    try {
+      await this.licenseApi.requestMagicLink(this.email);
+      this.message = 'Check your email for the login link!';
+    } catch (err) {
+      this.error = 'Failed to send magic link. Please try again.';
+    } finally {
+      this.loading = false;
+    }
+  }
+}
 ```
 
----
+### 8.2. Portal Dashboard
 
-## 🚀 Deployment Configuration
-
-### Dockerfile
-
-```dockerfile
-# Multi-stage build for production
-FROM node:20-alpine AS builder
-
-WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-COPY tsconfig*.json ./
-
-# Install dependencies
-RUN npm ci --only=production
-
-# Copy source code
-COPY src ./src
-
-# Build TypeScript
-RUN npm run build
-
-# Production image
-FROM node:20-alpine
-
-WORKDIR /app
-
-# Copy node_modules and built files from builder
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/package.json ./
-
-# Expose port
-EXPOSE 3000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
-
-# Run application
-CMD ["node", "dist/main.js"]
-```
-
-### docker-compose.yml (Local Development)
-
-```yaml
-version: '3.8'
-
-services:
-  app:
-    build: .
-    ports:
-      - '3000:3000'
-    environment:
-      - NODE_ENV=development
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/ptah_licenses
-      - PAYMOB_SECRET_KEY=your_paymob_secret
-      - EMAIL_PROVIDER=sendgrid
-      - EMAIL_API_KEY=your_sendgrid_api_key
-    depends_on:
-      - db
-    volumes:
-      - ./src:/app/src
-    command: npm run start:dev
-
-  db:
-    image: postgres:15-alpine
-    ports:
-      - '5432:5432'
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=ptah_licenses
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-volumes:
-  postgres_data:
-```
-
-### Environment Variables (.env.example)
-
-```bash
-# Server
-NODE_ENV=production
-PORT=3000
-
-# Database
-DATABASE_URL=postgresql://user:password@host:5432/database
-
-# Paymob
-PAYMOB_SECRET_KEY=your_paymob_hmac_secret
-
-# Email
-EMAIL_PROVIDER=sendgrid  # or 'resend'
-EMAIL_API_KEY=your_email_api_key
-
-# Logging
-LOG_LEVEL=info  # debug, info, warn, error
-```
-
----
-
-## ✅ Verification Plan
-
-### Automated Tests
-
-#### 1. Unit Tests
-
-**Test File**: `src/licenses/licenses.service.spec.ts`
+**File**: `apps/ptah-landing-page/src/app/pages/portal/dashboard.component.ts`
 
 ```typescript
-describe('LicensesService', () => {
-  it('should return valid=true for active premium license', async () => {
-    // Test valid license key verification
-  });
+import { Component, OnInit, signal } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { LicenseApiService } from '../../services/license-api.service';
 
-  it('should return valid=false for non-existent license', async () => {
-    // Test invalid license key handling
-  });
+@Component({
+  selector: 'app-portal-dashboard',
+  standalone: true,
+  imports: [CommonModule],
+  template: `
+    <div class="container mx-auto mt-10 p-8">
+      <h1 class="text-3xl font-bold mb-6">Subscription Dashboard</h1>
 
-  it('should return valid=false for revoked license', async () => {
-    // Test revoked license status
-  });
+      <div *ngIf="subscription()" class="bg-white rounded-lg shadow p-6">
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <p class="text-gray-600">Status</p>
+            <p class="text-xl font-semibold">{{ subscription().status }}</p>
+          </div>
+          <div>
+            <p class="text-gray-600">Renewal Date</p>
+            <p class="text-xl font-semibold">
+              {{ subscription().currentPeriodEnd | date : 'mediumDate' }}
+            </p>
+          </div>
+        </div>
 
-  it('should return valid=false for expired subscription', async () => {
-    // Test subscription expiration logic
-  });
-});
+        <div class="mt-6">
+          <button (click)="resendLicenseKey()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Resend License Key Email</button>
+        </div>
+
+        <p class="mt-4 text-sm text-gray-500">Your license key was sent to {{ subscription().email }}</p>
+      </div>
+
+      <p *ngIf="message()" class="mt-4 text-green-600">{{ message() }}</p>
+    </div>
+  `,
+})
+export class PortalDashboardComponent implements OnInit {
+  subscription = signal<any>(null);
+  message = signal('');
+
+  constructor(private readonly licenseApi: LicenseApiService) {}
+
+  async ngOnInit() {
+    this.subscription.set(await this.licenseApi.getSubscription());
+  }
+
+  async resendLicenseKey() {
+    await this.licenseApi.resendLicenseKey();
+    this.message.set('License key email sent!');
+  }
+}
 ```
 
-**Run Command**:
+### 8.3. License API Service
 
-```bash
-npm run test -- licenses.service.spec.ts
-```
-
-#### 2. E2E Tests
-
-**Test File**: `test/app.e2e-spec.ts`
+**File**: `apps/ptah-landing-page/src/app/services/license-api.service.ts`
 
 ```typescript
-describe('License Server E2E', () => {
-  it('POST /api/v1/licenses/verify - valid license', () => {
-    return request(app.getHttpServer())
-      .post('/api/v1/licenses/verify')
-      .send({ licenseKey: 'ptah_lic_a1b2c3d4e5f6789012345678901234' })
-      .expect(200)
-      .expect((res) => {
-        expect(res.body.valid).toBe(true);
-        expect(res.body.tier).toBe('premium');
-      });
-  });
+import { Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { lastValueFrom } from 'rxjs';
 
-  it('POST /api/v1/webhooks/paymob - valid signature', () => {
-    const payload = { type: 'TRANSACTION', obj: { success: true } };
-    const signature = generateHmac(payload);
+@Injectable({ providedIn: 'root' })
+export class LicenseApiService {
+  private readonly baseUrl = 'https://api.ptah.dev/api/v1';
 
-    return request(app.getHttpServer()).post('/api/v1/webhooks/paymob').set('x-paymob-signature', signature).send(payload).expect(200);
-  });
+  constructor(private readonly http: HttpClient) {}
 
-  it('POST /api/v1/webhooks/paymob - invalid signature', () => {
-    return request(app.getHttpServer()).post('/api/v1/webhooks/paymob').set('x-paymob-signature', 'invalid_signature').send({ type: 'TRANSACTION', obj: {} }).expect(401);
-  });
-});
+  async requestMagicLink(email: string): Promise<void> {
+    await lastValueFrom(this.http.post(`${this.baseUrl}/auth/magic-link`, { email }));
+  }
+
+  async getSubscription(): Promise<any> {
+    return lastValueFrom(this.http.get(`${this.baseUrl}/subscriptions/me`, { withCredentials: true }));
+  }
+
+  async resendLicenseKey(): Promise<void> {
+    await lastValueFrom(this.http.post(`${this.baseUrl}/licenses/resend`, {}, { withCredentials: true }));
+  }
+
+  async cancelSubscription(): Promise<void> {
+    await lastValueFrom(this.http.post(`${this.baseUrl}/subscriptions/cancel`, {}, { withCredentials: true }));
+  }
+
+  async getPaymentHistory(): Promise<any[]> {
+    return lastValueFrom(this.http.get<any[]>(`${this.baseUrl}/payments/history`, { withCredentials: true }));
+  }
+}
 ```
 
-**Run Command**:
-
-```bash
-npm run test:e2e
-```
-
-#### 3. Database Migration Tests
-
-**Test Command**:
-
-```bash
-npm run typeorm:migration:run
-npm run typeorm:migration:revert
-```
-
-**Verification**:
-
-- Confirm 3 tables created: `users`, `subscriptions`, `licenses`
-- Verify foreign key constraints (DELETE CASCADE)
-- Check unique constraints on `email`, `licenseKey`, `paymobSubscriptionId`
-- Verify indexes created (`idx_license_key`)
+**Key Pattern**: `withCredentials: true` ensures JWT cookie is sent with requests
 
 ---
 
-### Manual Verification
+## 9. Paymob API Flow (Complete)
 
-#### 1. License Verification Endpoint
+**Reference**: User's Postman collection + research-report.md
 
-**Test with cURL**:
+### Step 1: Create Subscription Plan (One-Time Setup)
 
-```bash
-# Valid license (create test data first)
-curl -X POST http://localhost:3000/api/v1/licenses/verify \
-  -H "Content-Type: application/json" \
-  -d '{"licenseKey":"ptah_lic_test12345678901234567890123"}'
+**Endpoint**: `POST https://accept.paymob.com/api/acceptance/subscription-plans`
 
-# Expected: {"valid":true,"tier":"premium","email":"test@example.com","expiresAt":"2026-01-01T00:00:00Z"}
-
-# Invalid license
-curl -X POST http://localhost:3000/api/v1/licenses/verify \
-  -H "Content-Type: application/json" \
-  -d '{"licenseKey":"ptah_lic_invalid000000000000000000000"}'
-
-# Expected: {"valid":false,"tier":"free"}
-
-# Malformed license key
-curl -X POST http://localhost:3000/api/v1/licenses/verify \
-  -H "Content-Type: application/json" \
-  -d '{"licenseKey":"invalid_format"}'
-
-# Expected: 400 Bad Request with validation error
-```
-
-#### 2. Paymob Webhook Endpoint
-
-**Test with Paymob Sandbox**:
-
-1. Configure Paymob webhook URL: `https://your-server.com/api/v1/webhooks/paymob`
-2. Trigger test payment in Paymob dashboard
-3. Verify:
-   - User created in database
-   - Subscription created with status `active`
-   - License key generated (format: `ptah_lic_{32-hex}`)
-   - Email sent to user (check SendGrid/Resend dashboard)
-
-**Manual cURL Test** (compute signature manually):
-
-```bash
-# Generate HMAC-SHA256 signature
-PAYLOAD='{"type":"TRANSACTION","obj":{"success":true,"billing_data":{"email":"test@example.com"},"subscription_id":"sub_test123"}}'
-SIGNATURE=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "your_paymob_secret" | awk '{print $2}')
-
-# Send webhook
-curl -X POST http://localhost:3000/api/v1/webhooks/paymob \
-  -H "Content-Type: application/json" \
-  -H "x-paymob-signature: $SIGNATURE" \
-  -d "$PAYLOAD"
-
-# Expected: {"received":true}
-```
-
-#### 3. Email Delivery
-
-**Verification Steps**:
-
-1. Trigger webhook (see above)
-2. Check SendGrid/Resend dashboard for email delivery status
-3. Verify email content:
-   - Subject: "Your Ptah Premium License Key"
-   - From: "noreply@ptah.dev"
-   - Body includes license key, activation instructions, support link
-4. Test retry logic by temporarily disabling email API key (should see 3 retry attempts in logs)
-
-#### 4. Database Integrity
-
-**Manual SQL Checks**:
-
-```sql
--- Verify 3 tables exist
-SELECT table_name FROM information_schema.tables
-WHERE table_schema = 'public';
-
--- Check foreign key constraints
-SELECT * FROM users WHERE id = 'some-user-id';
-DELETE FROM users WHERE id = 'some-user-id'; -- Should cascade delete subscriptions + licenses
-
--- Verify unique constraints
-INSERT INTO users (email) VALUES ('existing@example.com'); -- Should fail with unique constraint error
-INSERT INTO licenses (user_id, license_key) VALUES ('user-id', 'duplicate-key'); -- Should fail
-```
-
-#### 5. Performance Testing
-
-**Load Test with Apache Bench**:
-
-```bash
-# License verification endpoint (target: 100 req/sec)
-ab -n 1000 -c 10 -p verify.json -T application/json \
-  http://localhost:3000/api/v1/licenses/verify
-
-# Check p95 latency (<200ms requirement)
-```
-
-**Verify Resource Usage**:
-
-```bash
-# Monitor memory (<256MB requirement)
-docker stats ptah-license-server
-
-# Check CPU usage (<60% under load requirement)
-```
-
----
-
-## 📦 Dependencies (package.json)
+**Request**:
 
 ```json
 {
-  "name": "ptah-license-server",
-  "version": "1.0.0",
-  "description": "Minimal NestJS license server for Ptah premium subscriptions",
-  "scripts": {
-    "build": "nest build",
-    "start": "nest start",
-    "start:dev": "nest start --watch",
-    "start:prod": "node dist/main",
-    "test": "jest",
-    "test:e2e": "jest --config ./test/jest-e2e.json",
-    "typeorm": "typeorm-ts-node-commonjs",
-    "typeorm:migration:generate": "npm run typeorm -- migration:generate",
-    "typeorm:migration:run": "npm run typeorm -- migration:run",
-    "typeorm:migration:revert": "npm run typeorm -- migration:revert"
-  },
-  "dependencies": {
-    "@nestjs/common": "^10.0.0",
-    "@nestjs/core": "^10.0.0",
-    "@nestjs/config": "^3.0.0",
-    "@nestjs/typeorm": "^10.0.0",
-    "@nestjs/swagger": "^7.0.0",
-    "@sendgrid/mail": "^8.0.0",
-    "resend": "^3.0.0",
-    "handlebars": "^4.7.8",
-    "class-validator": "^0.14.0",
-    "class-transformer": "^0.5.1",
-    "typeorm": "^0.3.17",
-    "pg": "^8.11.0",
-    "reflect-metadata": "^0.1.13",
-    "rxjs": "^7.8.1"
-  },
-  "devDependencies": {
-    "@nestjs/cli": "^10.0.0",
-    "@nestjs/schematics": "^10.0.0",
-    "@nestjs/testing": "^10.0.0",
-    "@types/jest": "^29.5.0",
-    "@types/node": "^20.0.0",
-    "@types/supertest": "^6.0.0",
-    "jest": "^29.5.0",
-    "supertest": "^6.3.3",
-    "ts-jest": "^29.1.0",
-    "ts-node": "^10.9.1",
-    "typescript": "^5.1.3"
+  "frequency": 30,
+  "amount_cents": 80000,
+  "integration": <MOTO_INTEGRATION_ID>,
+  "webhook_url": "https://api.ptah.dev/api/v1/webhooks/paymob"
+}
+```
+
+**Response**:
+
+```json
+{
+  "id": 12345,
+  "frequency": 30,
+  "amount_cents": 80000
+}
+```
+
+**Save**: `PAYMOB_SUBSCRIPTION_PLAN_ID=12345` in environment variables
+
+### Step 2: Customer Subscribes
+
+**Endpoint**: `POST https://accept.paymob.com/v1/intention/`
+
+**Request**:
+
+```json
+{
+  "amount": 80000,
+  "subscription_plan_id": 12345,
+  "billing_data": {
+    "email": "user@example.com",
+    "first_name": "John",
+    "last_name": "Doe",
+    "phone_number": "+201234567890"
   }
 }
 ```
 
+**Response**:
+
+```json
+{
+  "payment_url": "https://accept.paymob.com/subscription/checkout?token=abc123"
+}
+```
+
+**Frontend**: Redirect user to `payment_url` to complete payment
+
+### Step 3: Webhook Events
+
+**Event 1: TRANSACTION (Successful Payment)**
+
+```json
+{
+  "type": "TRANSACTION",
+  "obj": {
+    "success": true,
+    "subscription_id": "sub_abc123",
+    "billing_data": {
+      "email": "user@example.com"
+    }
+  }
+}
+```
+
+**Backend Action**:
+
+1. Create User (if new)
+2. Create Subscription
+3. Generate License Key
+4. Send Email
+
+**Event 2: SUBSCRIPTION_CANCELED**
+
+```json
+{
+  "type": "SUBSCRIPTION_CANCELED",
+  "obj": {
+    "subscription_id": "sub_abc123"
+  }
+}
+```
+
+**Backend Action**:
+
+1. Update Subscription status to "canceled"
+2. Revoke License Key
+
+**Event 3: SUBSCRIPTION_RENEWED**
+
+```json
+{
+  "type": "SUBSCRIPTION_RENEWED",
+  "obj": {
+    "subscription_id": "sub_abc123",
+    "current_period_end": "2026-01-15T00:00:00Z"
+  }
+}
+```
+
+**Backend Action**:
+
+1. Update Subscription currentPeriodEnd
+
 ---
 
-## 🎯 Team-Leader Handoff
+## 10. Environment Variables
 
-### Implementation Complexity: **Medium**
+```bash
+# Database (Prisma with driver adapters)
+DATABASE_URL=postgresql://user:password@host:5432/ptah_licenses
 
-- **Developer Type**: backend-developer
-- **Estimated Tasks**: 8-10 atomic tasks
-- **Total Effort**: 16-24 hours (2-3 days)
+# Paymob (from dashboard)
+PAYMOB_API_KEY=<from dashboard>
+PAYMOB_HMAC_SECRET=<from dashboard profile tab>
+PAYMOB_SUBSCRIPTION_PLAN_ID=<created via API>
+PAYMOB_MOTO_INTEGRATION_ID=<from dashboard>
 
-### Batch Strategy: **Layer-based**
+# Email (SendGrid)
+EMAIL_PROVIDER=sendgrid
+SENDGRID_API_KEY=<from sendgrid>
 
-**Batch 1: Project Setup + Database** (Day 1)
+# JWT (for portal authentication)
+JWT_SECRET=<random-secret-32-chars>
+JWT_EXPIRATION=7d
 
-- Task 1.1: Initialize NestJS project, install dependencies
-- Task 1.2: Create TypeORM entities (User, Subscription, License)
-- Task 1.3: Create database migration, test schema
+# Frontend URL (for magic link redirects)
+FRONTEND_URL=https://ptah.dev
 
-**Batch 2: License Verification API** (Day 1-2)
+# Node Environment
+NODE_ENV=production
+PORT=3000
+```
 
-- Task 2.1: Implement licenses module (controller, service, DTOs)
-- Task 2.2: Write unit tests for LicensesService
-- Task 2.3: Write E2E test for /api/v1/licenses/verify
+**Security Notes**:
 
-**Batch 3: Paymob Webhook Integration** (Day 2)
-
-- Task 3.1: Implement HMAC signature guard
-- Task 3.2: Implement webhooks module (controller, service)
-- Task 3.3: Implement license key generator service
-- Task 3.4: Write E2E test for /api/v1/webhooks/paymob
-
-**Batch 4: Email Service** (Day 2-3)
-
-- Task 4.1: Implement email service with SendGrid/Resend
-- Task 4.2: Create Handlebars email template
-- Task 4.3: Test email delivery with retry logic
-
-**Batch 5: Deployment** (Day 3)
-
-- Task 5.1: Create Dockerfile and docker-compose.yml
-- Task 5.2: Configure environment variables and health check
-- Task 5.3: Deploy to DigitalOcean App Platform, test production
-
-### Critical Path
-
-Database setup → License verification → Paymob webhooks → Email delivery → Deployment
-
-### Quality Gates
-
-- All unit tests passing
-- E2E tests covering both endpoints
-- Manual cURL verification successful
-- Performance targets met (<200ms p95 latency)
-- Email delivery confirmed
+- `JWT_SECRET`: Generate with `openssl rand -hex 32`
+- `PAYMOB_HMAC_SECRET`: Copy from Paymob Dashboard → Profile tab
+- Never commit `.env` to git (use `.env.example` template)
 
 ---
 
-## 📊 Success Metrics
+## 11. User Experience Flow (Complete)
+
+### Flow 1: First-Time Subscription
+
+```
+1. User visits ptah.dev
+2. Clicks "Subscribe to Premium" ($8/month)
+3. Redirected to Paymob checkout
+4. Completes payment
+5. Paymob webhook fires → Backend receives TRANSACTION event
+6. Backend:
+   a. Creates User (email from billing_data)
+   b. Creates Subscription
+   c. Generates License Key: ptah_lic_<32-hex>
+   d. Sends email with:
+      - License Key
+      - Magic link for portal access
+7. User receives email:
+   Subject: "Your Ptah Premium License Key"
+   Body:
+     - License Key: ptah_lic_abc123...
+     - Magic Link: https://ptah.dev/auth/verify?token=xyz789...
+     - Instructions: Copy license key to VS Code settings
+8. User clicks magic link → Auto-login to portal
+9. Portal shows:
+   - Subscription status: active
+   - Renewal date: 2026-01-15
+   - "Resend License Key Email" button
+```
+
+### Flow 2: Portal Access (Returning User)
+
+```
+1. User visits ptah.dev/auth/login
+2. Enters email
+3. Clicks "Send Magic Link"
+4. Backend:
+   a. Generates 30-second token
+   b. Sends email with magic link
+5. User clicks link → JWT cookie set → Redirect to portal
+6. Portal dashboard loads:
+   - Subscription status
+   - Renewal date
+   - Payment history
+   - Cancel subscription button
+```
+
+### Flow 3: License Key Resend
+
+```
+1. User in portal dashboard
+2. Clicks "Resend License Key Email"
+3. Backend:
+   a. Validates JWT (user is authenticated)
+   b. Finds user's active license
+   c. Sends email with license key
+4. User receives email (same template as initial email)
+```
+
+**CRITICAL SECURITY**: License key is NEVER displayed in portal UI (only emailed)
+
+### Flow 4: Subscription Cancellation
+
+```
+1. User in portal → Clicks "Cancel Subscription"
+2. Frontend calls POST /api/v1/subscriptions/cancel
+3. Backend:
+   a. Calls Paymob API to cancel subscription
+   b. Updates Subscription status to "canceled"
+   c. Revokes License Key (status = "revoked")
+4. VS Code extension next verification:
+   - POST /api/v1/licenses/verify
+   - Response: { valid: false, tier: "free" }
+   - Extension disables premium features
+```
+
+---
+
+## 12. Team-Leader Handoff
+
+### Developer Type Recommendation
+
+**Backend Work**: backend-developer (Batches 1-3)
+
+- NestJS services
+- Prisma schema
+- Paymob integration
+- Magic link authentication
+
+**Frontend Work**: frontend-developer (Batch 4)
+
+- Angular components
+- Portal pages
+- HTTP client service
+
+**Testing**: senior-tester (Batch 5)
+
+- E2E flow testing
+- Paymob sandbox integration
+- Email delivery verification
+
+### Batch Strategy (4-5 Day Timeline)
+
+**Batch 1: Backend Core** (Day 1-2)
+
+- Task 1.1: Setup Prisma with driver adapters (schema.prisma + PrismaService)
+- Task 1.2: Run Prisma migrations (create tables: users, subscriptions, licenses)
+- Task 1.3: Implement POST /api/v1/licenses/verify endpoint
+- Task 1.4: Implement Paymob webhook with CORRECTED HMAC validation (query param)
+
+**Batch 2: Magic Link Auth** (Day 2)
+
+- Task 2.1: Implement MagicLinkService (reuse TicketService pattern)
+- Task 2.2: Implement POST /api/v1/auth/magic-link endpoint
+- Task 2.3: Implement GET /api/v1/auth/verify endpoint with JWT cookie
+- Task 2.4: Create magic-link.hbs email template
+
+**Batch 3: Customer Portal API** (Day 3)
+
+- Task 3.1: Implement GET /api/v1/subscriptions/me endpoint
+- Task 3.2: Implement POST /api/v1/subscriptions/cancel (integrate Paymob API)
+- Task 3.3: Implement GET /api/v1/payments/history endpoint
+- Task 3.4: Implement POST /api/v1/licenses/resend endpoint
+
+**Batch 4: Landing Page Portal UI** (Day 4)
+
+- Task 4.1: Create auth-login.component.ts (magic link form)
+- Task 4.2: Create portal/dashboard.component.ts (subscription overview)
+- Task 4.3: Create portal/subscription.component.ts (cancel subscription)
+- Task 4.4: Create portal/payments.component.ts (payment history table)
+- Task 4.5: Create license-api.service.ts (HTTP client for API calls)
+
+**Batch 5: Integration & Testing** (Day 5)
+
+- Task 5.1: E2E test: Subscribe → Webhook → Email → Portal login
+- Task 5.2: Test Paymob sandbox integration (trigger test webhooks)
+- Task 5.3: Deploy to DigitalOcean (environment variables + migrations)
+- Task 5.4: Verify production webhook endpoint (HMAC validation)
+
+### Complexity Assessment
+
+**Complexity**: MEDIUM
+**Estimated Effort**: 32-40 hours (4-5 days)
+
+**Breakdown**:
+
+- Backend API: 16-20 hours (3 developers-days)
+- Frontend Portal: 8-10 hours (1 developer-day)
+- Integration/Testing: 8-10 hours (1 developer-day)
+
+### Files Affected Summary
+
+**CREATE (Backend)**:
+
+- `apps/ptah-license-server/prisma/schema.prisma`
+- `apps/ptah-license-server/src/database/prisma.service.ts`
+- `apps/ptah-license-server/src/auth/services/magic-link.service.ts`
+- `apps/ptah-license-server/src/subscriptions/subscriptions.module.ts`
+- `apps/ptah-license-server/src/subscriptions/subscriptions.controller.ts`
+- `apps/ptah-license-server/src/subscriptions/subscriptions.service.ts`
+- `apps/ptah-license-server/src/email/templates/magic-link.hbs`
+- `apps/ptah-license-server/src/common/guards/paymob-hmac.guard.ts`
+
+**CREATE (Frontend)**:
+
+- `apps/ptah-landing-page/src/app/pages/auth-login.component.ts`
+- `apps/ptah-landing-page/src/app/pages/portal/dashboard.component.ts`
+- `apps/ptah-landing-page/src/app/pages/portal/subscription.component.ts`
+- `apps/ptah-landing-page/src/app/pages/portal/payments.component.ts`
+- `apps/ptah-landing-page/src/app/services/license-api.service.ts`
+
+**MODIFY (Backend)**:
+
+- `apps/ptah-license-server/src/auth/auth.controller.ts` (add magic link endpoints)
+- `apps/ptah-license-server/src/auth/auth.service.ts` (remove WorkOS, add magic link logic)
+- `apps/ptah-license-server/src/licenses/licenses.controller.ts` (add resend endpoint)
+- `apps/ptah-license-server/src/webhooks/webhooks.controller.ts` (change to query param HMAC)
+
+**REWRITE**: None (all changes are additive or minor modifications)
+
+### Critical Verification Points
+
+**Before Implementation, Team-Leader Must Ensure Developer Verifies**:
+
+1. **Prisma Driver Adapters Setup**:
+
+   - Verify `previewFeatures = ["driverAdapters"]` in schema.prisma
+   - Verify `@prisma/adapter-pg` and `pg` packages installed
+   - Verify PrismaService uses `PrismaPg` adapter
+   - Reference: `apps/ptah-license-server/src/database/prisma.service.ts:9-24`
+
+2. **Paymob HMAC Query Parameter**:
+
+   - Verify HMAC read from `request.query.hmac` (NOT header)
+   - Verify guard implementation matches user's Postman collection
+   - Reference: `apps/ptah-license-server/src/common/guards/paymob-hmac.guard.ts:14`
+
+3. **Magic Link Pattern Reuse**:
+
+   - Verify MagicLinkService uses `crypto.randomBytes(32).toString('hex')`
+   - Verify 30-second TTL matches TicketService pattern
+   - Verify single-use enforcement (token deleted after validation)
+   - Reference: `apps/ptah-license-server/src/app/auth/services/ticket.service.ts:37-85`
+
+4. **Portal JWT Cookie Pattern**:
+
+   - Verify HTTP-only cookie set in /auth/verify endpoint
+   - Verify JwtAuthGuard extracts user from cookie
+   - Verify frontend sends `withCredentials: true` in HTTP calls
+   - Reference: Existing JwtAuthGuard pattern in auth module
+
+5. **License Key Security**:
+   - Verify license keys NEVER returned in portal API responses
+   - Verify /licenses/resend endpoint only sends email (not display key)
+   - Verify portal components don't display license keys
+
+### Architecture Delivery Checklist
+
+- [x] Prisma schema with driver adapters specified
+- [x] Paymob HMAC validation corrected (query param)
+- [x] Magic link authentication specified (reuses TicketService pattern)
+- [x] Customer portal API endpoints defined
+- [x] Landing page component specifications provided
+- [x] License key security enforced (never displayed in portal)
+- [x] User experience flows documented
+- [x] Environment variables listed
+- [x] Batch strategy defined (4-5 days)
+- [x] Files affected summary complete
+- [x] Critical verification points documented
+
+---
+
+## 13. Quality Requirements (Architecture-Level)
+
+### Functional Requirements
+
+**License Verification**:
+
+- Must respond <200ms (p95 latency)
+- Must handle invalid license keys gracefully
+- Must check subscription status and expiration
+
+**Paymob Webhooks**:
+
+- Must validate HMAC signature (query param)
+- Must process idempotently (duplicate webhooks ignored)
+- Must send emails asynchronously (non-blocking)
+
+**Magic Link Authentication**:
+
+- Must expire tokens after 30 seconds
+- Must enforce single-use (token consumed on validation)
+- Must set secure HTTP-only cookies
+
+**Customer Portal**:
+
+- Must protect routes with JWT authentication
+- Must NEVER display license keys in UI
+- Must allow subscription cancellation
+
+### Non-Functional Requirements
+
+**Performance**:
+
+- License verification: <200ms p95 latency
+- Webhook processing: <5s end-to-end
+- Email delivery: <10s (with 3 retries)
+
+**Security**:
+
+- HMAC signature validation (timing-safe comparison)
+- HTTP-only cookies for JWT
+- Single-use magic link tokens
+- License keys never in frontend
+
+**Maintainability**:
+
+- Prisma schema as single source of truth
+- Type-safe API with Prisma Client
+- Clear separation: backend (NestJS) / frontend (Angular)
+
+**Testability**:
+
+- Unit tests for services (LicensesService, WebhooksService, MagicLinkService)
+- E2E tests for API endpoints
+- Paymob sandbox integration for webhooks
+
+### Pattern Compliance
+
+**Prisma Driver Adapters**:
+
+- Must use `@prisma/adapter-pg` with `pg` driver
+- Must enable `previewFeatures = ["driverAdapters"]`
+- Reference: https://www.prisma.io/docs/orm/overview/databases/database-drivers#driver-adapters
+
+**Magic Link Pattern**:
+
+- Must reuse TicketService crypto pattern
+- Must use `crypto.randomBytes(32).toString('hex')`
+- Reference: `apps/ptah-license-server/src/app/auth/services/ticket.service.ts:37-85`
+
+**JWT Cookie Pattern**:
+
+- Must reuse existing JwtAuthGuard pattern
+- Must set `httpOnly: true, secure: true, sameSite: 'strict'`
+- Reference: Existing auth module patterns
+
+---
+
+## 14. Success Metrics
 
 **Technical Metrics**:
 
@@ -1222,26 +1341,36 @@ Database setup → License verification → Paymob webhooks → Email delivery �
 - Infrastructure cost: <$50/month ✅
 - Deployment time: <10 minutes (Docker) ✅
 - Zero critical bugs in production first 2 weeks ✅
+- User can access portal within 30 seconds of payment ✅
+
+**Evidence Quality**:
+
+- All patterns verified from existing codebase ✅
+- Prisma driver adapters implementation documented ✅
+- Paymob HMAC query param verified from user's Postman ✅
+- Magic link reuses proven TicketService pattern ✅
 
 ---
 
-## 🚨 Risk Mitigation
+## Architecture Blueprint Complete
 
-**Risk 1: Paymob Signature Verification**
+**Deliverables**:
 
-- Mitigation: Test with Paymob sandbox before production
-- Contingency: Manual license generation interface for first 100 users
+- ✅ Prisma schema with driver adapters (NO Rust binary)
+- ✅ Corrected Paymob HMAC validation (query parameter)
+- ✅ Magic link authentication (reuses TicketService pattern)
+- ✅ Customer portal integration (landing page + backend APIs)
+- ✅ License key security enforced (never displayed)
+- ✅ Complete user experience flows documented
+- ✅ Batch strategy (4-5 days) with task breakdown
+- ✅ All evidence cited from existing codebase
 
-**Risk 2: Email Delivery Failures**
+**Ready for Team-Leader Decomposition**
 
-- Mitigation: Retry logic (3 attempts, exponential backoff)
-- Contingency: Display license key in Paymob success page
+Team-leader will:
 
-**Risk 3: Database Connection Pool**
-
-- Mitigation: TypeORM pool config (max=10, min=2)
-- Contingency: Vertical scaling (DigitalOcean droplet resize)
-
----
-
-**Architecture Review Complete**. Ready for team-leader task decomposition.
+1. Create tasks.md with atomic, git-verifiable tasks
+2. Assign Batch 1-3 to backend-developer
+3. Assign Batch 4 to frontend-developer
+4. Assign Batch 5 to senior-tester
+5. Verify git commits after each task completion
