@@ -22,6 +22,8 @@ import {
   type SelectableClaudeModel,
 } from '@ptah-extension/core';
 import { DropdownComponent, OptionComponent } from '@ptah-extension/ui';
+import { ChatStore } from '../../services/chat.store';
+import { SessionId } from '@ptah-extension/shared';
 
 @Component({
   selector: 'ptah-model-selector',
@@ -103,6 +105,7 @@ import { DropdownComponent, OptionComponent } from '@ptah-extension/ui';
 })
 export class ModelSelectorComponent {
   readonly modelState = inject(ModelStateService);
+  private readonly chatStore = inject(ChatStore);
 
   // Lucide icons
   readonly ChevronDownIcon = ChevronDown;
@@ -137,7 +140,9 @@ export class ModelSelectorComponent {
   selectModel(model: SelectableClaudeModel): void {
     this.closeDropdown();
 
-    this.modelState.switchModel(model).catch((error) => {
+    // Pass sessionId for live SDK sync (cast to SessionId as it's actually a branded type from backend)
+    const sessionId = this.chatStore.currentSessionId() as SessionId | null;
+    this.modelState.switchModel(model, sessionId).catch((error) => {
       console.error('[ModelSelectorComponent] Failed to switch model:', error);
     });
   }

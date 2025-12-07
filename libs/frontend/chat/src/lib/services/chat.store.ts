@@ -1,12 +1,10 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import {
-  ExecutionChatMessage,
   ChatSessionSummary,
   ExecutionNode,
   JSONLMessage,
   createExecutionChatMessage,
-  createExecutionNode,
   PermissionRequest,
   PermissionResponse,
   calculateMessageCost,
@@ -133,6 +131,7 @@ export class ChatStore {
   // ============================================================================
 
   readonly sessions = this._sessions.asReadonly();
+  readonly isStopping = this._isStopping.asReadonly();
 
   // Active tab accessor (delegated to TabManager)
   readonly activeTab = computed(() => this.tabManager.activeTab());

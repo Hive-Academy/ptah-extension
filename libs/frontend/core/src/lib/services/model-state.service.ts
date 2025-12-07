@@ -17,6 +17,7 @@ import {
   ModelInfo,
   AVAILABLE_MODELS,
   isSelectableClaudeModel,
+  SessionId,
 } from '@ptah-extension/shared';
 
 /**
@@ -135,13 +136,17 @@ export class ModelStateService {
    * 4. Rollback on RPC failure (restore previous state)
    *
    * @param model - Model to switch to (opus | sonnet | haiku)
+   * @param sessionId - Optional active session ID for live SDK sync
    * @returns Promise that resolves when RPC call completes
    *
    * @example
    * await modelState.switchModel('opus');
    * // UI updates immediately, persists to backend asynchronously
    */
-  async switchModel(model: SelectableClaudeModel): Promise<void> {
+  async switchModel(
+    model: SelectableClaudeModel,
+    sessionId?: SessionId | null
+  ): Promise<void> {
     // Prevent concurrent model switches (race condition protection)
     if (this._isPending()) {
       console.warn(
@@ -161,10 +166,10 @@ export class ModelStateService {
       this._currentModel.set(model);
       this.updateSelectionState(model);
 
-      // Persist to backend via RPC
+      // Persist to backend via RPC (with sessionId for live SDK sync)
       const result: RpcResult<{ model: ClaudeModel }> = await this.rpc.call<{
         model: ClaudeModel;
-      }>('config:model-switch', { model });
+      }>('config:model-switch', { model, sessionId: sessionId ?? null });
 
       if (!result.isSuccess()) {
         console.error(

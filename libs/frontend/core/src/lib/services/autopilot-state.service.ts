@@ -15,6 +15,7 @@ import {
   PermissionLevel,
   PERMISSION_LEVEL_NAMES,
   isPermissionLevel,
+  SessionId,
 } from '@ptah-extension/shared';
 
 /**
@@ -126,13 +127,14 @@ export class AutopilotStateService {
    * When toggling on, uses current permission level.
    * When toggling off, preserves permission level for next enable.
    *
+   * @param sessionId - Optional active session ID for live SDK sync
    * @returns Promise that resolves when RPC call completes
    *
    * @example
    * await autopilotState.toggleAutopilot();
    * // UI updates immediately, persists to backend asynchronously
    */
-  async toggleAutopilot(): Promise<void> {
+  async toggleAutopilot(sessionId?: SessionId | null): Promise<void> {
     // QA FIX: Prevent concurrent autopilot toggles (race condition protection)
     if (this._isPending()) {
       console.warn(
@@ -151,12 +153,13 @@ export class AutopilotStateService {
       // Optimistic update (UI updates immediately)
       this._enabled.set(newState);
 
-      // Persist to backend via RPC
+      // Persist to backend via RPC (with sessionId for live SDK sync)
       const result: RpcResult<void> = await this.rpc.call<void>(
         'config:autopilot-toggle',
         {
           enabled: newState,
           permissionLevel: this._permissionLevel(),
+          sessionId: sessionId ?? null,
         }
       );
 
@@ -184,13 +187,17 @@ export class AutopilotStateService {
    * Implements optimistic update pattern with rollback on failure.
    *
    * @param level - Permission level to set
+   * @param sessionId - Optional active session ID for live SDK sync
    * @returns Promise that resolves when RPC call completes
    *
    * @example
    * await autopilotState.setPermissionLevel('auto-edit');
    * // UI updates immediately, persists to backend asynchronously
    */
-  async setPermissionLevel(level: PermissionLevel): Promise<void> {
+  async setPermissionLevel(
+    level: PermissionLevel,
+    sessionId?: SessionId | null
+  ): Promise<void> {
     // QA FIX: Prevent concurrent permission level updates (race condition protection)
     if (this._isPending()) {
       console.warn(
@@ -208,7 +215,7 @@ export class AutopilotStateService {
       // Optimistic update (UI updates immediately)
       this._permissionLevel.set(level);
 
-      // Persist to backend via RPC
+      // Persist to backend via RPC (with sessionId for live SDK sync)
       // Note: We always call config:autopilot-toggle RPC with current enabled state
       // Backend will persist the new permission level
       const result: RpcResult<void> = await this.rpc.call<void>(
@@ -216,6 +223,7 @@ export class AutopilotStateService {
         {
           enabled: this._enabled(),
           permissionLevel: level,
+          sessionId: sessionId ?? null,
         }
       );
 
