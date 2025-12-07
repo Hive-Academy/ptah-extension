@@ -12,6 +12,8 @@ import {
 import { SessionReplayService } from './session-replay.service';
 import { SessionManager } from './session-manager.service';
 import { TabManagerService } from './tab-manager.service';
+import { StreamingHandlerService } from './streaming-handler.service';
+import { CompletionHandlerService } from './completion-handler.service';
 import { TabState } from './chat.types';
 
 /**
@@ -51,6 +53,10 @@ export class ChatStore {
   private readonly sessionManager = inject(SessionManager);
   private readonly tabManager = inject(TabManagerService);
 
+  // Extracted services (Phase 7 - Batch 4 refactoring)
+  private readonly streamingHandler = inject(StreamingHandlerService);
+  private readonly completionHandler = inject(CompletionHandlerService);
+
   // Signal to track service initialization state
   private readonly _servicesReady = signal(false);
   readonly servicesReady = this._servicesReady.asReadonly();
@@ -69,6 +75,11 @@ export class ChatStore {
     try {
       // Register ChatStore with VSCodeService for message routing
       this._vscodeService?.setChatStore(this);
+
+      // Register callback for CompletionHandlerService auto-send feature
+      this.completionHandler.setContinueConversationCallback(
+        this.continueConversation.bind(this)
+      );
 
       // Mark services as ready
       this._servicesReady.set(true);
@@ -1133,58 +1144,10 @@ export class ChatStore {
 
   /**
    * Process ExecutionNode directly from SDK
-   *
-   * SDK returns clean ExecutionNode objects - no CLI formatting to strip.
+   * Delegates to StreamingHandlerService (Phase 7 extraction)
    */
   processExecutionNode(node: ExecutionNode, sessionId?: string): void {
-    try {
-      // 1. Find target tab by session ID
-      let targetTab: TabState | null = null;
-      let targetTabId: string | null = null;
-
-      if (sessionId) {
-        targetTab = this.tabManager.findTabBySessionId(sessionId);
-        if (targetTab) {
-          targetTabId = targetTab.id;
-        }
-      }
-
-      // Fall back to active tab
-      if (!targetTab) {
-        targetTabId = this.tabManager.activeTabId();
-        targetTab = this.tabManager.activeTab();
-      }
-
-      if (!targetTabId || !targetTab) {
-        console.warn('[ChatStore] No target tab for ExecutionNode processing');
-        return;
-      }
-
-      // 2. Merge node into execution tree
-      const currentTree = targetTab.executionTree;
-      const updatedTree = this.mergeExecutionNode(currentTree, node);
-
-      // 3. Update tab state
-      this.tabManager.updateTab(targetTabId, {
-        executionTree: updatedTree,
-      });
-
-      // 4. Register in SessionManager for agent/tool correlation
-      if (node.type === 'agent' && node.id) {
-        this.sessionManager.registerAgent(node.id, node);
-      } else if (node.type === 'tool' && node.toolCallId) {
-        this.sessionManager.registerTool(node.toolCallId, node);
-      }
-
-      // 5. Track streaming state
-      if (node.status === 'streaming' && !targetTab.currentMessageId) {
-        this.tabManager.updateTab(targetTabId, {
-          currentMessageId: node.id,
-        });
-      }
-    } catch (error) {
-      console.error('[ChatStore] Error processing ExecutionNode:', error, node);
-    }
+    this.streamingHandler.processExecutionNode(node, sessionId);
   }
 
   /**
