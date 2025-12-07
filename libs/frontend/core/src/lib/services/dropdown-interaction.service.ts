@@ -36,22 +36,34 @@ export interface AutoManageConfig {
 /**
  * DropdownInteractionService - Conditional Event Listener Management
  *
- * PURPOSE:
- * Provides performant, conditional document-level event listeners for dropdown components.
- * Listeners are ONLY attached when dropdown is open, and automatically cleaned up when closed.
+ * @deprecated Use @ptah-extension/ui components with CDK Overlay instead.
+ * See libs/frontend/ui/CLAUDE.md for migration guide.
  *
- * PERFORMANCE BENEFITS:
- * - Zero event handlers when dropdown closed (vs always-on with host bindings)
- * - Automatic cleanup via takeUntilDestroyed() (no memory leaks)
- * - Single service instance shared across all dropdowns
- * - ~75% reduction in event handler executions in typical usage
+ * This service was created in TASK_2025_046 as a temporary fix for dropdown
+ * keyboard navigation. It is now superseded by CDK Overlay portal rendering
+ * which solves the root cause (textarea event interception).
  *
- * ANGULAR 20+ PATTERNS:
- * - Signal-based state watching via effect()
- * - inject() for dependency injection
- * - takeUntilDestroyed() for automatic cleanup
+ * Migration path:
+ * - For dropdowns: Use DropdownComponent from @ptah-extension/ui/overlays
+ * - For popovers: Use PopoverComponent from @ptah-extension/ui/overlays
+ * - For autocomplete: Use AutocompleteComponent from @ptah-extension/ui/selection
  *
- * USAGE:
+ * Root Cause Explanation:
+ * DropdownInteractionService attempts to solve keyboard interception with capture-phase
+ * document listeners. This is a band-aid approach. The real issue is STRUCTURAL:
+ * dropdowns rendered inside component DOM tree (@if rendering) means keyboard events
+ * flow through parent textarea BEFORE reaching dropdown handlers.
+ *
+ * CDK Overlay Solution:
+ * Portal rendering at document body level means dropdown is OUTSIDE component hierarchy.
+ * No parent textarea/input elements in event path = no interception. Zero document listeners
+ * needed - CDK Overlay backdrop handles click-outside detection automatically.
+ *
+ * Event Flow Comparison:
+ * BEFORE: document → ... → textarea (intercepts ArrowDown) → dropdown handler (too late!)
+ * AFTER:  document → cdk-overlay-container (at body level) → dropdown handler ✅
+ *
+ * @example Old Pattern (Deprecated)
  * ```typescript
  * export class MyDropdownComponent {
  *   private readonly dropdownService = inject(DropdownInteractionService);
@@ -74,6 +86,41 @@ export interface AutoManageConfig {
  *     });
  *   }
  * }
+ * ```
+ *
+ * @example New Pattern (Recommended)
+ * ```typescript
+ * import { DropdownComponent, OptionComponent } from '@ptah-extension/ui';
+ *
+ * export class MyDropdownComponent {
+ *   // No DropdownInteractionService needed!
+ *   // No manual keyboard navigation methods!
+ *   // CDK Overlay handles everything automatically.
+ *
+ *   private readonly _isOpen = signal(false);
+ *   readonly isOpen = this._isOpen.asReadonly();
+ *
+ *   toggleDropdown(): void {
+ *     this._isOpen.set(!this._isOpen());
+ *   }
+ *
+ *   selectItem(item: Item): void {
+ *     // Handle selection
+ *     this._isOpen.set(false);
+ *   }
+ * }
+ *
+ * // Template:
+ * // <lib-dropdown [isOpen]="isOpen()" (closed)="toggleDropdown()">
+ * //   <button trigger (click)="toggleDropdown()">Open Menu</button>
+ * //   <div content>
+ * //     @for (item of items(); track item.id; let i = $index) {
+ * //       <lib-option [optionId]="'item-' + i" [value]="item" (selected)="selectItem($event)">
+ * //         {{ item.name }}
+ * //       </lib-option>
+ * //     }
+ * //   </div>
+ * // </lib-dropdown>
  * ```
  */
 @Injectable({ providedIn: 'root' })
