@@ -1,48 +1,72 @@
- [Extension Host] STOPPED on first line for debugging on port 53517
-F @ workbench.desktop.main.js:3880
-  INFO Loading development extension at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode
- Overwriting extension <<copilot-instructions.md>> to now point to mime <<text/x-instructions>>
-(anonymous) @ workbench.desktop.main.js:577
- Overwriting extension <<.editorconfig>> to now point to mime <<text/x-editorconfig>>
-(anonymous) @ workbench.desktop.main.js:577
- Overwriting extension <<.hbs>> to now point to mime <<text/x-handlebars>>
-(anonymous) @ workbench.desktop.main.js:577
- Overwriting extension <<.handlebars>> to now point to mime <<text/x-handlebars>>
-(anonymous) @ workbench.desktop.main.js:577
- Overwriting filename <<.gitignore>> to now point to mime <<text/x-ignore>>
-(anonymous) @ workbench.desktop.main.js:577
- Overwriting extension <<.env>> to now point to mime <<text/x-env>>
-(anonymous) @ workbench.desktop.main.js:577
- An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing.
-mountTo @ workbench.desktop.main.js:4124
-  INFO Started local extension host with pid 8668.
-  INFO MCP Registry configured: https://api.mcp.github.com
+localProcessExtensionHost.ts:350 [Extension Host] STOPPED on first line for debugging on port 53793
+F @ localProcessExtensionHost.ts:350
+log.ts:440  INFO Loading development extension at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode
+languagesAssociations.ts:73 Overwriting extension <<copilot-instructions.md>> to now point to mime <<text/x-instructions>>
+(anonymous) @ languagesAssociations.ts:73
+languagesAssociations.ts:73 Overwriting extension <<.editorconfig>> to now point to mime <<text/x-editorconfig>>
+(anonymous) @ languagesAssociations.ts:73
+languagesAssociations.ts:73 Overwriting extension <<.hbs>> to now point to mime <<text/x-handlebars>>
+(anonymous) @ languagesAssociations.ts:73
+languagesAssociations.ts:73 Overwriting extension <<.handlebars>> to now point to mime <<text/x-handlebars>>
+(anonymous) @ languagesAssociations.ts:73
+languagesAssociations.ts:77 Overwriting filename <<.gitignore>> to now point to mime <<text/x-ignore>>
+(anonymous) @ languagesAssociations.ts:77
+languagesAssociations.ts:73 Overwriting extension <<.env>> to now point to mime <<text/x-env>>
+(anonymous) @ languagesAssociations.ts:73
+webviewElement.ts:489 An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing.
+mountTo @ webviewElement.ts:489
+log.ts:440  INFO Started local extension host with pid 20232.
+log.ts:440  INFO MCP Registry configured: https://api.mcp.github.com
 marketplace.visualstudio.com/_apis/public/gallery/vscode/ptah-extensions/ptah-extension-vscode/latest:1  Failed to load resource: the server responded with a status of 404 ()
- Extension Host
- Debugger attached.
-  INFO [perf] Render performance baseline is 26ms
-   ERR [Extension Host] (node:8668) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+localProcessExtensionHost.ts:280 Extension Host
+localProcessExtensionHost.ts:281 Debugger attached.
+log.ts:440  INFO [perf] Render performance baseline is 29ms
+log.ts:460   ERR [Extension Host] (node:20232) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
 (Use `Code --trace-deprecation ...` to show where the warning was created)
-error @ workbench.desktop.main.js:36
- [Extension Host] (node:8668) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+error @ log.ts:460
+console.ts:139 [Extension Host] (node:20232) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
 (Use `Code --trace-deprecation ...` to show where the warning was created) (at file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517)
-gCs @ workbench.desktop.main.js:528
-   ERR [Extension Host] (node:8668) ExperimentalWarning: SQLite is an experimental feature and might change at any time
-error @ workbench.desktop.main.js:36
- [Extension Host] (node:8668) ExperimentalWarning: SQLite is an experimental feature and might change at any time (at file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517)
-gCs @ workbench.desktop.main.js:528
- [Extension Host] Created lock file at C:\Users\abdal\.claude\ide\31327.lock (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
- [Extension Host] Set CLAUDE_CODE_SSE_PORT=31327 in terminal environment (in-memory) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
- [Extension Host] Set ENABLE_IDE_INTEGRATION=true in terminal environment (in-memory) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
- [Extension Host] ===== PTAH ACTIVATION START ===== (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
- [Extension Host] [Activate] Step 1: Setting up DI Container... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
- [Extension Host] [Activate] Step 1: DI Container setup complete (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
- [Extension Host] [Activate] Step 2: Resolving Logger... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
- [Extension Host] [INFO] Activating Ptah extension... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
- [Extension Host] [Activate] Step 2: Logger resolved (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
- [Extension Host] [Activate] Step 3.6: Registering RPC methods... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
- [Extension Host] [INFO] Loaded context state: 0 included, 0 excluded (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] RPC methods registered (TASK_2025_023 Batch 4 complete) Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+gCs @ console.ts:139
+log.ts:460   ERR [Extension Host] (node:20232) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+error @ log.ts:460
+console.ts:139 [Extension Host] (node:20232) ExperimentalWarning: SQLite is an experimental feature and might change at any time (at file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517)
+gCs @ console.ts:139
+console.ts:139 [Extension Host] Created lock file at C:\Users\abdal\.claude\ide\59572.lock (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] Set CLAUDE_CODE_SSE_PORT=59572 in terminal environment (in-memory) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] Set ENABLE_IDE_INTEGRATION=true in terminal environment (in-memory) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+webviewCommands.ts:33 Using standard dev tools to debug iframe based webview
+log.ts:440  INFO Settings Sync: Account status changed from uninitialized to available
+requestImpl.ts:33  GET https://api.github.com/copilot/mcp_registry 404 (Not Found)
+yvn @ requestImpl.ts:33
+(anonymous) @ requestService.ts:38
+c @ request.ts:81
+request @ requestService.ts:38
+C @ defaultAccount.ts:328
+u @ defaultAccount.ts:232
+log.ts:460   ERR Failed to fetch MCP registry providers Server returned 404
+error @ log.ts:460
+error @ log.ts:565
+error @ logService.ts:51
+C @ defaultAccount.ts:344
+await in C
+u @ defaultAccount.ts:232
+log.ts:440  INFO Extension host (LocalProcess pid: 20232) is unresponsive.
+localProcessExtensionHost.ts:280 Extension Host
+localProcessExtensionHost.ts:281 Debugger attached.
+log.ts:440  INFO UNRESPONSIVE extension host: starting to profile NOW
+log.ts:440  INFO Extension host (LocalProcess pid: 20232) is responsive.
+log.ts:440  INFO UNRESPONSIVE extension host: received responsive event and cancelling profiling session
+console.ts:139 [Extension Host] ===== PTAH ACTIVATION START ===== (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [Activate] Step 1: Setting up DI Container... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] [AgentSDK] Registering SDK services... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] [AgentSDK] SDK services registered successfully {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [Activate] Step 1: DI Container setup complete (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [Activate] Step 2: Resolving Logger... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Activating Ptah extension... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [Activate] Step 2: Logger resolved (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [Activate] Step 3.6: Registering RPC methods... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] Loaded context state: 0 included, 0 excluded (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] RPC methods registered (SDK-only mode) {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [Activate] Step 3.6: RPC methods registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [Activate] Step 3.7: Initializing autocomplete watchers... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] Autocomplete discovery watchers initialized (2 services) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
@@ -64,34 +88,171 @@ console.ts:139 [Extension Host] [Activate] Step 7: Calling ptahExtension.registe
 console.ts:139 [Extension Host] [INFO] Extension components registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [Activate] Step 7: ptahExtension.registerAll() complete (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [Activate] Step 8: Initializing Pricing Service... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [PricingService] Initializing... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [PricingService] Using cached pricing (343 models) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 8: Pricing Service initialization started (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 9: Starting Code Execution MCP Server... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Loaded context state: 0 included, 0 excluded (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] TreeSitterParserService created. Initialization required. (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] TreeSitterParserService created. Initialization required. (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] PtahAPIBuilder initialized with 12 namespaces (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] CodeExecutionMCP server started on http://localhost:51820 Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Code Execution MCP Server started on port 51820 (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 9: Code Execution MCP Server started (port 51820) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 10: Writing MCP config to .mcp.json... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-api.github.com/copilot/mcp_registry:1  Failed to load resource: the server responded with a status of 404 ()
-log.ts:460   ERR Failed to fetch MCP registry providers Server returned 404
+log.ts:460   ERR [Extension Host] ===== PTAH ACTIVATION FAILED =====
 error @ log.ts:460
-log.ts:440  INFO Settings Sync: Account status changed from uninitialized to available
-console.ts:139 [Extension Host] [INFO] Ptah MCP server registered in .mcp.json (port 51820) Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] MCP server registered in .mcp.json Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [Activate] Step 10: MCP server registered in .mcp.json (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] Ptah extension activated successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] ===== PTAH ACTIVATION COMPLETE ===== (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+error @ log.ts:565
+error @ logService.ts:51
+mCs @ remoteConsoleUtil.ts:58
+$logExtensionHostMessage @ mainThreadConsole.ts:38
+S @ rpcProtocol.ts:458
+Q @ rpcProtocol.ts:443
+M @ rpcProtocol.ts:373
+L @ rpcProtocol.ts:299
+(anonymous) @ rpcProtocol.ts:161
+C @ event.ts:1201
+fire @ event.ts:1232
+fire @ ipc.net.ts:652
+l.onmessage @ localProcessExtensionHost.ts:383
+console.ts:139 [Extension Host] ===== PTAH ACTIVATION FAILED ===== (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+gCs @ console.ts:139
+$logExtensionHostMessage @ mainThreadConsole.ts:39
+S @ rpcProtocol.ts:458
+Q @ rpcProtocol.ts:443
+M @ rpcProtocol.ts:373
+L @ rpcProtocol.ts:299
+(anonymous) @ rpcProtocol.ts:161
+C @ event.ts:1201
+fire @ event.ts:1232
+fire @ ipc.net.ts:652
+l.onmessage @ localProcessExtensionHost.ts:383
+log.ts:460   ERR [Extension Host] [Activate] Error details: Error: Attempted to resolve unregistered dependency token: "Symbol(PricingService)"
+	at __webpack_modules__../node_modules/tsyringe/dist/esm5/dependency-container.js.InternalDependencyContainer.resolve (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:23010:19)
+	at DIContainer.resolve (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:299:37)
+	at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:384:60
+	at Generator.next (<anonymous>)
+	at fulfilled (d:\projects\ptah-extension\node_modules\tslib\tslib.js:167:62)
+error @ log.ts:460
+error @ log.ts:565
+error @ logService.ts:51
+mCs @ remoteConsoleUtil.ts:58
+$logExtensionHostMessage @ mainThreadConsole.ts:38
+S @ rpcProtocol.ts:458
+Q @ rpcProtocol.ts:443
+M @ rpcProtocol.ts:373
+L @ rpcProtocol.ts:299
+(anonymous) @ rpcProtocol.ts:161
+C @ event.ts:1201
+fire @ event.ts:1232
+fire @ ipc.net.ts:652
+l.onmessage @ localProcessExtensionHost.ts:383
+console.ts:139 [Extension Host] [Activate] Error details: Error: Attempted to resolve unregistered dependency token: "Symbol(PricingService)"
+	at __webpack_modules__../node_modules/tsyringe/dist/esm5/dependency-container.js.InternalDependencyContainer.resolve (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:23010:19)
+	at DIContainer.resolve (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:299:37)
+	at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:384:60
+	at Generator.next (<anonymous>)
+	at fulfilled (d:\projects\ptah-extension\node_modules\tslib\tslib.js:167:62) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+gCs @ console.ts:139
+$logExtensionHostMessage @ mainThreadConsole.ts:39
+S @ rpcProtocol.ts:458
+Q @ rpcProtocol.ts:443
+M @ rpcProtocol.ts:373
+L @ rpcProtocol.ts:299
+(anonymous) @ rpcProtocol.ts:161
+C @ event.ts:1201
+fire @ event.ts:1232
+fire @ ipc.net.ts:652
+l.onmessage @ localProcessExtensionHost.ts:383
+log.ts:460   ERR [Extension Host] [Activate] Error stack: Error: Attempted to resolve unregistered dependency token: "Symbol(PricingService)"
+	at __webpack_modules__../node_modules/tsyringe/dist/esm5/dependency-container.js.InternalDependencyContainer.resolve (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:23010:19)
+	at DIContainer.resolve (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:299:37)
+	at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:384:60
+	at Generator.next (<anonymous>)
+	at fulfilled (d:\projects\ptah-extension\node_modules\tslib\tslib.js:167:62)
+error @ log.ts:460
+error @ log.ts:565
+error @ logService.ts:51
+mCs @ remoteConsoleUtil.ts:58
+$logExtensionHostMessage @ mainThreadConsole.ts:38
+S @ rpcProtocol.ts:458
+Q @ rpcProtocol.ts:443
+M @ rpcProtocol.ts:373
+L @ rpcProtocol.ts:299
+(anonymous) @ rpcProtocol.ts:161
+C @ event.ts:1201
+fire @ event.ts:1232
+fire @ ipc.net.ts:652
+l.onmessage @ localProcessExtensionHost.ts:383
+console.ts:139 [Extension Host] [Activate] Error stack: Error: Attempted to resolve unregistered dependency token: "Symbol(PricingService)"
+	at __webpack_modules__../node_modules/tsyringe/dist/esm5/dependency-container.js.InternalDependencyContainer.resolve (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:23010:19)
+	at DIContainer.resolve (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:299:37)
+	at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:384:60
+	at Generator.next (<anonymous>)
+	at fulfilled (d:\projects\ptah-extension\node_modules\tslib\tslib.js:167:62) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+gCs @ console.ts:139
+$logExtensionHostMessage @ mainThreadConsole.ts:39
+S @ rpcProtocol.ts:458
+Q @ rpcProtocol.ts:443
+M @ rpcProtocol.ts:373
+L @ rpcProtocol.ts:299
+(anonymous) @ rpcProtocol.ts:161
+C @ event.ts:1201
+fire @ event.ts:1232
+fire @ ipc.net.ts:652
+l.onmessage @ localProcessExtensionHost.ts:383
+log.ts:460   ERR [Extension Host] [ERROR] Failed to activate Ptah extension Error: Attempted to resolve unregistered dependency token: "Symbol(PricingService)"
+	at __webpack_modules__../node_modules/tsyringe/dist/esm5/dependency-container.js.InternalDependencyContainer.resolve (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:23010:19)
+	at DIContainer.resolve (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:299:37)
+	at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:384:60
+	at Generator.next (<anonymous>)
+	at fulfilled (d:\projects\ptah-extension\node_modules\tslib\tslib.js:167:62)
+error @ log.ts:460
+error @ log.ts:565
+error @ logService.ts:51
+mCs @ remoteConsoleUtil.ts:58
+$logExtensionHostMessage @ mainThreadConsole.ts:38
+S @ rpcProtocol.ts:458
+Q @ rpcProtocol.ts:443
+M @ rpcProtocol.ts:373
+L @ rpcProtocol.ts:299
+(anonymous) @ rpcProtocol.ts:161
+C @ event.ts:1201
+fire @ event.ts:1232
+fire @ ipc.net.ts:652
+l.onmessage @ localProcessExtensionHost.ts:383
+console.ts:139 [Extension Host] [ERROR] Failed to activate Ptah extension Error: Attempted to resolve unregistered dependency token: "Symbol(PricingService)"
+	at __webpack_modules__../node_modules/tsyringe/dist/esm5/dependency-container.js.InternalDependencyContainer.resolve (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:23010:19)
+	at DIContainer.resolve (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:299:37)
+	at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:384:60
+	at Generator.next (<anonymous>)
+	at fulfilled (d:\projects\ptah-extension\node_modules\tslib\tslib.js:167:62) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+gCs @ console.ts:139
+$logExtensionHostMessage @ mainThreadConsole.ts:39
+S @ rpcProtocol.ts:458
+Q @ rpcProtocol.ts:443
+M @ rpcProtocol.ts:373
+L @ rpcProtocol.ts:299
+(anonymous) @ rpcProtocol.ts:161
+C @ event.ts:1201
+fire @ event.ts:1232
+fire @ ipc.net.ts:652
+l.onmessage @ localProcessExtensionHost.ts:383
+notificationsAlerts.ts:42 Ptah activation failed: Attempted to resolve unregistered dependency token: "Symbol(PricingService)"
+c @ notificationsAlerts.ts:42
+(anonymous) @ notificationsAlerts.ts:28
+C @ event.ts:1201
+D @ event.ts:1212
+fire @ event.ts:1236
+addNotification @ notifications.ts:228
+notify @ notificationService.ts:234
+(anonymous) @ mainThreadMessageService.ts:93
+g @ mainThreadMessageService.ts:56
+$showMessage @ mainThreadMessageService.ts:50
+S @ rpcProtocol.ts:458
+Q @ rpcProtocol.ts:443
+M @ rpcProtocol.ts:373
+L @ rpcProtocol.ts:299
+(anonymous) @ rpcProtocol.ts:161
+C @ event.ts:1201
+fire @ event.ts:1232
+fire @ ipc.net.ts:652
+l.onmessage @ localProcessExtensionHost.ts:383
 console.ts:139 [Extension Host] [WebviewManager] Registering WebviewView: ptah.main (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewManager] WebviewView registered successfully: ptah.main (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewManager] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewManager] Active webviews: ['ptah.main'] (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] Webview registered with WebviewManager as "ptah.main" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming href="favicon.ico" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/favicon.ico" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming href="styles.css" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/styles.css" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming href="chunk-LNWCG2JA.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-LNWCG2JA.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming href="chunk-JPEDWO3I.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-JPEDWO3I.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming href="chunk-PULQJNNA.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-PULQJNNA.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming href="chunk-JKOY2XUY.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-JKOY2XUY.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming src="polyfills.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/polyfills.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
@@ -99,587 +260,72 @@ console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming src="scripts
 console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming src="main.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/main.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewHtmlGenerator] Base URI set to: https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [WebviewHtmlGenerator] All assets transformed to webview URIs (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-log.ts:460   ERR chatParticipant must be declared in package.json: claude-code
-error @ log.ts:460
-VM9:40 Ptah WebView: VS Code API initialized Object
- ===================================================
- PTAH STARTUP SCRIPT EXECUTING
- window.vscode exists: true
- window.ptahConfig exists: true
- ===================================================
+VM15:40 Ptah WebView: VS Code API initialized {isVSCode: true, theme: 'dark', workspaceRoot: 'd:\\projects\\nestjs-ai-saas-starter', workspaceName: 'nestjs-ai-saas-starter', extensionUri: 'file:///d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode', …}
+index.html?id=f800a4b4-785a-4933-b12d-bf2d3e4c7d36&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:4 ===================================================
+index.html?id=f800a4b4-785a-4933-b12d-bf2d3e4c7d36&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:5 PTAH STARTUP SCRIPT EXECUTING
+index.html?id=f800a4b4-785a-4933-b12d-bf2d3e4c7d36&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:6 window.vscode exists: true
+index.html?id=f800a4b4-785a-4933-b12d-bf2d3e4c7d36&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:7 window.ptahConfig exists: true
+index.html?id=f800a4b4-785a-4933-b12d-bf2d3e4c7d36&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:8 ===================================================
 main.js:9 === PTAH WEBVIEW BOOTSTRAP STARTING ===
-main.js:9 Window globals: Object
+main.js:9 Window globals: {hasVscode: true, hasPtahConfig: true, mode: 'VS Code Extension'}
 main.js:9 =================================================
 main.js:9 PTAH APP NGONINIT STARTING
 main.js:9 =================================================
 main.js:9 Setting up initial view with pure signal navigation
-main.js:9 🔍 [App] isReady computed: Object
-main.js:9 🔍 [App] isReady computed: Object
-main.js:7 [TabManager] Loaded tab state from localStorage: 2 tabs
+main.js:9 🔍 [App] isReady computed: {initializationStatus: 'initializing', isReady: false}
+main.js:9 🔍 [App] isReady computed: {initializationStatus: 'ready', isReady: true}
+main.js:5 [TabManager] Loaded tab state from localStorage: 2 tabs
 main.js:9 [KeyboardShortcuts] Global shortcuts initialized
-chunk-LNWCG2JA.js:66 [VSCodeService] RPC service registered for response routing
-chunk-LNWCG2JA.js:88 [ClaudeRpcService] Registered with VSCodeService for RPC routing
-main.js:7 [ChatStore] Initializing...
-chunk-LNWCG2JA.js:66 [VSCodeService] ChatStore registered for message routing
-main.js:7 [ChatStore] Services initialized and ready
-chunk-LNWCG2JA.js:89 [CommandDiscoveryFacade] Cache cleared
-main.js:9 [ChatInputComponent] Session changed, cache cleared Object
-chunk-LNWCG2JA.js:89 [AgentDiscoveryFacade] fetchAgents called
+chunk-JPEDWO3I.js:66 [VSCodeService] RPC service registered for response routing
+chunk-JPEDWO3I.js:88 [ClaudeRpcService] Registered with VSCodeService for RPC routing
+main.js:5 [ChatStore] Initializing...
+chunk-JPEDWO3I.js:66 [VSCodeService] ChatStore registered for message routing
+main.js:5 [ChatStore] Services initialized and ready
+chunk-JPEDWO3I.js:89 [CommandDiscoveryFacade] Cache cleared
+main.js:9 [ChatInputComponent] Session changed, cache cleared {sessionId: 'tab_1765041084431_mhswzbs'}
+chunk-JPEDWO3I.js:89 [AgentDiscoveryFacade] fetchAgents called
 main.js:9 === PTAH WEBVIEW BOOTSTRAP COMPLETE ===
+index.html?id=f800a4b4-785a-4933-b12d-bf2d3e4c7d36&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:13 Sending webview-ready message to extension...
 console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: {method: 'session:list', params: {…}, correlationId: '68a9292a-dc6a-40c8-afb4-2edfc10bba56'} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+chunk-JPEDWO3I.js:66 [VSCodeService] Received RPC response: {type: 'rpc:response', requestId: '68a9292a-dc6a-40c8-afb4-2edfc10bba56', correlationId: '68a9292a-dc6a-40c8-afb4-2edfc10bba56', success: true, data: {…}, …}
+main.js:5 [ChatStore] Loaded sessions: 0 of 0
+console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: {method: 'config:autopilot-get', params: {…}, correlationId: '62c01b81-8438-4a84-bb8a-4ff217642c9d'} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+chunk-JPEDWO3I.js:66 [VSCodeService] Received RPC response: {type: 'rpc:response', requestId: '62c01b81-8438-4a84-bb8a-4ff217642c9d', correlationId: '62c01b81-8438-4a84-bb8a-4ff217642c9d', success: true, data: {…}, …}
+console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: {method: 'config:models-list', params: {…}, correlationId: '2fa1ecac-d196-46ae-b58b-7ca7b7f21d09'} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+chunk-JPEDWO3I.js:66 [VSCodeService] Received RPC response: {type: 'rpc:response', requestId: '2fa1ecac-d196-46ae-b58b-7ca7b7f21d09', correlationId: '2fa1ecac-d196-46ae-b58b-7ca7b7f21d09', success: true, data: {…}, …}
 console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
- Sending webview-ready message to extension...
-chunk-LNWCG2JA.js:66 [VSCodeService] Received RPC response: Object
-chunk-LNWCG2JA.js:66 [VSCodeService] Received RPC response: Object
+console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: {method: 'autocomplete:agents', params: {…}, correlationId: '6e566bec-8649-4042-8a43-10ce85cd243c'} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: webview-ready (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
+console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [AngularWebviewProvider] Webview ready signal received! (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] Webview ready signal received - flushing event queue (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [INFO] WebviewEventQueue: Marked as ready (0 events queued) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
 console.ts:139 [Extension Host] [AngularWebviewProvider] markWebviewReady() completed (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-chunk-LNWCG2JA.js:66 [VSCodeService] Received RPC response: Object
-chunk-LNWCG2JA.js:89 [AgentDiscoveryFacade] searchAgents called Object
-chunk-LNWCG2JA.js:89 [AgentDiscoveryFacade] Returning all agents Object
-chunk-LNWCG2JA.js:66 [VSCodeService] Received RPC response: Object
-main.js:7 [ChatStore] Loaded sessions: 10 of 34
-console.ts:139 [Extension Host] Workspace analyzed: nestjs-ai-saas-starter (angular) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] Workspace analyzed: nestjs-ai-saas-starter (angular) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-log.ts:460   ERR [Extension Host] [Playwright Test]: Unexpected end of JSON input
+log.ts:460   ERR chatParticipant must be declared in package.json: claude-code
 error @ log.ts:460
-console.ts:139 [Extension Host] [Playwright Test]: Unexpected end of JSON input (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-gCs @ console.ts:139
-main.js:7 [TabManager] Tab state saved to localStorage
-main.js:7 [TabManager] Switched to tab: tab_1765037507204_t25xxij
-chunk-LNWCG2JA.js:89 [CommandDiscoveryFacade] Cache cleared
-main.js:9 [ChatInputComponent] Session changed, cache cleared Object
-main.js:7 [TabManager] Tab state saved to localStorage
-main.js:7 [TabManager] Switched to tab: tab_1764775363160_vhe4m5d
-chunk-LNWCG2JA.js:89 [CommandDiscoveryFacade] Cache cleared
-main.js:9 [ChatInputComponent] Session changed, cache cleared Object
-webviewCommands.ts:33 Using standard dev tools to debug iframe based webview
-main.js:7 [TabManager] Tab state saved to localStorage
-main.js:7 [TabManager] Tab closed: tab_1765037507204_t25xxij
-main.js:7 [TabManager] Tab state saved to localStorage
-main.js:7 [TabManager] Tab closed: tab_1764775363160_vhe4m5d
-console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: {method: 'session:load', params: {…}, correlationId: 'bbadafbf-b9c4-4aad-ac92-78c9864f6bf6'} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-chunk-LNWCG2JA.js:66 [VSCodeService] Received RPC response: {type: 'rpc:response', requestId: 'bbadafbf-b9c4-4aad-ac92-78c9864f6bf6', correlationId: 'bbadafbf-b9c4-4aad-ac92-78c9864f6bf6', success: true, data: {…}, …}
-main.js:7 [ChatStore] Loaded session: 7 messages, 3 agent sessions
-main.js:3 [SessionReplayService] extractAllToolResults {resultsFound: 1}
-main.js:2 [SessionReplayService] Replay session - agent processing {mainMessagesCount: 7, totalAgentSessions: 3, validAgents: 0, taskToolUses: 1, correlatedTasks: 0, …}
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 2, output: 1}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-opus-4-5-20251101
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 2, output: 657}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-opus-4-5-20251101
-main.js:3 [SessionReplayService] Created inline agent node {agentId: 'toolu_01XRFY5HorBJSw1RDsqLNmnp', agentType: 'workflow-orchestrator', childrenCount: 0, textNodes: 0, toolNodes: 0}
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 88}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-opus-4-5-20251101
-main.js:5 [SessionReplay] 📝 Creating assistant message: {messageId: 'ecb4e53d-8d56-45c0-9b55-bd77ab4e7416', hasUsage: true, hasTokens: true, tokens: {…}, cost: 0.0022, …}
-main.js:2 [SessionReplayService] Replay complete {messagesGenerated: 2, agentsRegistered: 1, toolsRegistered: 0}
-main.js:7 [TabManager] Tab state saved to localStorage
-main.js:7 [TabManager] Created new tab for session: 7ec1e8c6-1942-4f2d-b7aa-2d92f0d60b9c -> tab_1765041084431_mhswzbs
-main.js:7 [TabManager] Tab state saved to localStorage
-main.js:7 [ChatStore] Processed into 2 chat messages, 1 agents registered, 0 tools registered
-chunk-LNWCG2JA.js:89 [CommandDiscoveryFacade] Cache cleared
-main.js:9 [ChatInputComponent] Session changed, cache cleared {sessionId: 'tab_1765041084431_mhswzbs'}
-console.ts:139 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [INFO] [AngularWebviewProvider] Processing message {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
-console.ts:139 [Extension Host] [AngularWebviewProvider] RPC call: {method: 'session:load', params: {…}, correlationId: '1cb72dcd-86d8-4659-bed8-969e19532017'} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:212:29517))
- [VSCodeService] Received RPC response: {type: 'rpc:response', requestId: '1cb72dcd-86d8-4659-bed8-969e19532017', correlationId: '1cb72dcd-86d8-4659-bed8-969e19532017', success: true, data: {…}, …}
- [ChatStore] Loaded session: 399 messages, 3 agent sessions
- [SessionReplayService] extractAllToolResults {resultsFound: 136}
- [SessionReplayService] Replay session - agent processing {mainMessagesCount: 399, totalAgentSessions: 3, validAgents: 0, taskToolUses: 0, correlatedTasks: 0, …}
- [SessionReplay] 📊 Captured usage from assistant message: {input: 3, output: 327}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 3, output: 327}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 6, output: 161}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 6, output: 161}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 6, output: 85}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 6, output: 258}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 6, output: 258}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 6, output: 280}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 6, output: 280}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 6, output: 117}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 6, output: 93}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 6, output: 85}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 6, output: 294}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 6, output: 294}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 6, output: 1357}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 6, output: 1357}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 6, output: 1485}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 6, output: 1485}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 6, output: 242}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 6, output: 100}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 6, output: 100}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 5, output: 392}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 5, output: 392}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 6, output: 101}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 5, output: 153}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 5, output: 153}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 4, output: 75}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 5, output: 59}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 3, output: 126}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📝 Creating assistant message: {messageId: 'd725fde7-4dbb-461f-9b57-8f6a7234cf69', hasUsage: true, hasTokens: true, tokens: {…}, cost: 0.001899, …}
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 223}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 2, output: 124}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 2, output: 124}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 1, output: 83}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 2, output: 64}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 83}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 133}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 133}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 79}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 79}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 139}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 139}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 142}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 142}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 98}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 223}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 203}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 203}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 117}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 125}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 125}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 261}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 261}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 622}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 622}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 304}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 200}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 108}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 108}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 69}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 69}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 1, output: 126}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 74}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 59}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 368}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 368}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 265}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 265}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 91}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 114}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 114}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 80}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 80}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 266}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📝 Creating assistant message: {messageId: 'd176b4ee-4aa1-444b-b057-e88546dbf1f1', hasUsage: true, hasTokens: true, tokens: {…}, cost: 0.00399, …}
- [SessionReplay] 📊 Captured usage from assistant message: {input: 3, output: 233}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 3, output: 233}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 5, output: 162}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 5, output: 162}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 4, output: 111}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 3, output: 116}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 2, output: 148}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 2, output: 148}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 1, output: 217}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 1, output: 217}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 396}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 396}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 123}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 123}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 145}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 145}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 150}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 150}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 90}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 98}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 98}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 285}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 732}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 732}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 292}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 292}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 390}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 390}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 405}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 405}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 293}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 528}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 528}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 528}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 528}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 306}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 306}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 118}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 72}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 72}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 1, output: 124}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 75}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📝 Creating assistant message: {messageId: 'd96dc52c-9654-45fe-939e-76978b102cd0', hasUsage: true, hasTokens: true, tokens: {…}, cost: 0.001125, …}
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 127}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 2, output: 74}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 1, output: 59}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 307}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 307}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 497}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 497}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 603}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 603}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 388}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 388}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📝 Creating assistant message: {messageId: '64ad9d7e-b2f7-422a-a55b-c8f78728a3d1', hasUsage: true, hasTokens: true, tokens: {…}, cost: 0.00582, …}
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 208}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 208}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 2, output: 370}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📝 Creating assistant message: {messageId: '92e29971-4126-4f30-bcc0-13d1f4d46fc6', hasUsage: true, hasTokens: true, tokens: {…}, cost: 0.005556, …}
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 117}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 2, output: 295}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 2, output: 295}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📝 Creating assistant message: {messageId: 'b35a36ad-3b01-4c9d-9706-0bba0e3f424d', hasUsage: true, hasTokens: true, tokens: {…}, cost: 0.004431, …}
- [SessionReplay] 📊 Captured usage from assistant message: {input: 3, output: 191}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 3, output: 191}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 3, output: 191}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 46, output: 77}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 46, output: 77}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 5, output: 99}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 4, output: 439}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 4, output: 439}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 3, output: 402}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 2, output: 933}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 2, output: 933}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 1, output: 105}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 1, output: 105}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 87}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 123}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 123}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 1, output: 108}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 1, output: 104}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 162}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 162}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 182}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 101}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 101}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 90}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 142}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 142}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 117}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 206}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 206}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 206}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 206}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 206}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 1, output: 133}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 159}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 159}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
- [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 172}
- [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 172}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 220}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 220}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 237}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 237}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 649}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 649}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 313}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 366}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 366}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 420}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 420}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 417}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 147}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 147}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 157}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 157}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 368}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 368}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 1020}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:5 [SessionReplay] 📝 Creating assistant message: {messageId: '357fa406-2ca1-4128-8967-88f0932eb067', hasUsage: true, hasTokens: true, tokens: {…}, cost: 0.0153, …}
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 0}
-main.js:2 [SessionReplay] 🤖 Captured model: <synthetic>
-chunk-LNWCG2JA.js:88 [Pricing] Model '<synthetic>' not found in pricing map, using default
-FE @ chunk-LNWCG2JA.js:88
-VY @ chunk-LNWCG2JA.js:88
-createAssistantMessageFromTree @ main.js:5
-replaySession @ main.js:2
-(anonymous) @ main.js:7
-n @ chunk-JKOY2XUY.js:1
-invoke @ polyfills.js:1
-onInvoke @ chunk-LNWCG2JA.js:4
-invoke @ polyfills.js:1
-run @ polyfills.js:1
-(anonymous) @ polyfills.js:2
-invokeTask @ polyfills.js:1
-onInvokeTask @ chunk-LNWCG2JA.js:4
-invokeTask @ polyfills.js:1
-runTask @ polyfills.js:1
-$ @ polyfills.js:1
-invokeTask @ polyfills.js:1
-L @ polyfills.js:1
-H @ polyfills.js:1
-z @ polyfills.js:1
-postMessage
-(anonymous) @ index.html?id=0b223b45-286d-4c83-9938-e43d90cbaa9c&parentId=7&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:1282
-HostMessaging.channel.port1.onmessage @ index.html?id=0b223b45-286d-4c83-9938-e43d90cbaa9c&parentId=7&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:342
-main.js:5 [SessionReplay] 📝 Creating assistant message: {messageId: '7ef76a2b-863c-480c-b6d8-31c6d0d0283e', hasUsage: true, hasTokens: true, tokens: {…}, cost: 0, …}
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 3, output: 371}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 3, output: 371}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 3, output: 371}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 3, output: 371}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 3, output: 371}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 7, output: 93}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 7, output: 93}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 5, output: 123}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 5, output: 123}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 4, output: 57}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 3, output: 222}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 3, output: 222}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 3, output: 222}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 3, output: 222}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 4, output: 85}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 4, output: 85}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 2, output: 185}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 2, output: 185}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 2, output: 185}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 3, output: 95}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 3, output: 95}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 1, output: 107}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 1, output: 107}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 1445}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:5 [SessionReplay] 📝 Creating assistant message: {messageId: '92a9e26a-cdc4-4cf2-9cf5-254be9f535f0', hasUsage: true, hasTokens: true, tokens: {…}, cost: 0.021675, …}
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 291}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 291}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 0, output: 291}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 594, output: 121}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 594, output: 121}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 2, output: 97}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 2, output: 97}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:2 [SessionReplay] 📊 Captured usage from assistant message: {input: 1, output: 712}
-main.js:2 [SessionReplay] 🤖 Captured model: claude-sonnet-4-5-20250929
-main.js:5 [SessionReplay] 📝 Creating assistant message: {messageId: 'bccd51e4-a500-48e8-a77e-c4a0505f7296', hasUsage: true, hasTokens: true, tokens: {…}, cost: 0.010683, …}
-main.js:2 [SessionReplayService] Replay complete {messagesGenerated: 27, agentsRegistered: 0, toolsRegistered: 136}
-main.js:7 [TabManager] Tab state saved to localStorage
-main.js:7 [TabManager] Created new tab for session: 3675f2b6-c061-4bac-a78b-871664df694e -> tab_1765041087988_3grmp3r
-main.js:7 [TabManager] Tab state saved to localStorage
-main.js:7 [ChatStore] Processed into 27 chat messages, 0 agents registered, 136 tools registered
-chunk-LNWCG2JA.js:89 [CommandDiscoveryFacade] Cache cleared
-main.js:9 [ChatInputComponent] Session changed, cache cleared {sessionId: 'tab_1765041087988_3grmp3r'}
+error @ log.ts:565
+error @ logService.ts:51
+oc @ workbench.ts:123
+(anonymous) @ workbench.ts:104
+onUnexpectedError @ errors.ts:65
+wt @ errors.ts:110
+$onUnexpectedError @ mainThreadErrors.ts:21
+S @ rpcProtocol.ts:458
+Q @ rpcProtocol.ts:443
+M @ rpcProtocol.ts:373
+L @ rpcProtocol.ts:299
+(anonymous) @ rpcProtocol.ts:161
+C @ event.ts:1201
+fire @ event.ts:1232
+fire @ ipc.net.ts:652
+l.onmessage @ localProcessExtensionHost.ts:383
+chunk-JPEDWO3I.js:66 [VSCodeService] Received RPC response: {type: 'rpc:response', requestId: '6e566bec-8649-4042-8a43-10ce85cd243c', correlationId: '6e566bec-8649-4042-8a43-10ce85cd243c', success: true, data: {…}, …}
+chunk-JPEDWO3I.js:89 [AgentDiscoveryFacade] searchAgents called {query: '', totalAgents: 17}
+chunk-JPEDWO3I.js:89 [AgentDiscoveryFacade] Returning all agents {count: 17}

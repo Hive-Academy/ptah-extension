@@ -25,6 +25,7 @@ import { SdkPermissionHandler } from './sdk-permission-handler';
 import { StoredSession, StoredSessionMessage } from './types/sdk-session.types';
 import { MessageId } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
+import { createPtahTools } from './ptah-tools-server';
 
 /**
  * SDK Types - Structural typing to avoid ESM/CommonJS import issues
@@ -313,7 +314,7 @@ export class SdkAgentAdapter implements IAIProvider {
 
     // Dynamically import query function and custom tools (ESM in CommonJS context)
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
-    const { createPtahTools } = await import('./ptah-tools-server.js');
+
     const ptahTools = await createPtahTools();
 
     // Create message queue for streaming input mode

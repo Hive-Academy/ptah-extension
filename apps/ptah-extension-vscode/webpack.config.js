@@ -65,6 +65,10 @@ module.exports = {
         __dirname,
         '../../libs/backend/vscode-lm-tools/src'
       ),
+      '@ptah-extension/agent-sdk': path.resolve(
+        __dirname,
+        '../../libs/backend/agent-sdk/src'
+      ),
     },
   },
 
