@@ -557,7 +557,7 @@ export class RpcMethodRegistrationService {
       ConfigModelSwitchResult
     >('config:model-switch', async (params) => {
       try {
-        const { model } = params;
+        const { model, sessionId } = params;
 
         // Validate model (already typed, but runtime check for safety)
         const validModels = ['opus', 'sonnet', 'haiku'] as const;
@@ -567,11 +567,40 @@ export class RpcMethodRegistrationService {
           );
         }
 
-        this.logger.debug('RPC: config:model-switch called', { model });
+        this.logger.debug('RPC: config:model-switch called', {
+          model,
+          sessionId,
+        });
 
         await this.configManager.set('model.selected', model, {
           target: vscode.ConfigurationTarget.Workspace,
         });
+
+        // Sync to active SDK session if provided
+        if (sessionId) {
+          try {
+            const modelInfo = AVAILABLE_MODELS.find((m) => m.id === model);
+            if (modelInfo) {
+              await this.sdkAdapter.setSessionModel(
+                sessionId,
+                modelInfo.apiName
+              );
+              this.logger.debug('Model synced to active session', {
+                sessionId,
+                model,
+                apiName: modelInfo.apiName,
+              });
+            }
+          } catch (syncError) {
+            this.logger.warn(
+              'Failed to sync model to active session (config saved)',
+              syncError instanceof Error
+                ? syncError
+                : new Error(String(syncError))
+            );
+            // Continue - config was saved, just live sync failed
+          }
+        }
 
         this.logger.info('Model switched successfully', { model });
 
@@ -614,7 +643,7 @@ export class RpcMethodRegistrationService {
       ConfigAutopilotToggleResult
     >('config:autopilot-toggle', async (params) => {
       try {
-        const { enabled, permissionLevel } = params;
+        const { enabled, permissionLevel, sessionId } = params;
 
         // Validate permission level (already typed, but runtime check for safety)
         const validLevels = ['ask', 'auto-edit', 'yolo'] as const;
@@ -631,6 +660,7 @@ export class RpcMethodRegistrationService {
         this.logger.debug('RPC: config:autopilot-toggle called', {
           enabled,
           permissionLevel,
+          sessionId,
         });
 
         // Warn if YOLO mode is enabled (dangerous operation)
@@ -651,6 +681,26 @@ export class RpcMethodRegistrationService {
             target: vscode.ConfigurationTarget.Workspace,
           }
         );
+
+        // Sync to active SDK session if provided and autopilot is enabled
+        if (sessionId && enabled) {
+          try {
+            const sdkMode = this.mapPermissionToSdkMode(permissionLevel);
+            await this.sdkAdapter.setSessionPermissionMode(sessionId, sdkMode);
+            this.logger.debug('Permission mode synced to active session', {
+              sessionId,
+              sdkMode,
+            });
+          } catch (syncError) {
+            this.logger.warn(
+              'Failed to sync permission mode to active session (config saved)',
+              syncError instanceof Error
+                ? syncError
+                : new Error(String(syncError))
+            );
+            // Continue - config was saved, just live sync failed
+          }
+        }
 
         this.logger.info('Autopilot state updated', {
           enabled,
@@ -723,5 +773,22 @@ export class RpcMethodRegistrationService {
         }
       }
     );
+  }
+
+  /**
+   * Map frontend permission level to SDK permission mode
+   */
+  private mapPermissionToSdkMode(
+    level: PermissionLevel
+  ): 'default' | 'acceptEdits' | 'bypassPermissions' {
+    const modeMap: Record<
+      PermissionLevel,
+      'default' | 'acceptEdits' | 'bypassPermissions'
+    > = {
+      ask: 'default',
+      'auto-edit': 'acceptEdits',
+      yolo: 'bypassPermissions',
+    };
+    return modeMap[level];
   }
 }
