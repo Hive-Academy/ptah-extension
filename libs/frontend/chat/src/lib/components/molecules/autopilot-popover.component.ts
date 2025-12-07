@@ -1,12 +1,14 @@
 /**
  * AutopilotPopoverComponent - Elegant Autopilot Toggle with Confirmation
- * TASK_2025_035: Model selector and autopilot integration
+ * TASK_2025_048: Migrate to CDK Overlay with dark backdrop and keyboard navigation
  *
  * A sleek popover component for toggling autopilot mode with a confirmation step.
- * Explains what autopilot does before enabling and shows current permission level.
+ * Features dark backdrop (modal-like UX) and keyboard navigation for permission levels.
  *
  * Pattern: Signal-based state from AutopilotStateService
- * UI: DaisyUI dropdown with confirmation content
+ * UI: lib-popover from @ptah-extension/ui with CDK Overlay portal rendering
+ * Keyboard Navigation: Handled by lib-option components (ArrowUp/Down/Enter/Escape)
+ * New Features: Dark backdrop, keyboard navigation for permission level selection
  */
 
 import {
@@ -24,19 +26,27 @@ import {
 } from 'lucide-angular';
 import { AutopilotStateService } from '@ptah-extension/core';
 import { type PermissionLevel } from '@ptah-extension/shared';
+import { PopoverComponent, OptionComponent } from '@ptah-extension/ui';
 
 @Component({
   selector: 'ptah-autopilot-popover',
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, PopoverComponent, OptionComponent],
   template: `
-    <div class="dropdown dropdown-top dropdown-end">
+    <lib-popover
+      [isOpen]="isOpen()"
+      [position]="'above'"
+      [hasBackdrop]="true"
+      [backdropClass]="'cdk-overlay-dark-backdrop'"
+      (closed)="closePopover()"
+      (backdropClicked)="closePopover()">
+
       <button
-        tabindex="0"
+        trigger
         class="btn btn-ghost btn-sm gap-1.5 font-normal"
         type="button"
-        [class.btn-disabled]="autopilotState.isPending()"
-        [class.text-warning]="autopilotState.enabled()"
-      >
+        (click)="togglePopover()"
+        [disabled]="autopilotState.isPending()"
+        [class.text-warning]="autopilotState.enabled()">
         @if (autopilotState.isPending()) {
         <span class="loading loading-spinner loading-xs"></span>
         } @else if (autopilotState.enabled()) {
@@ -48,10 +58,7 @@ import { type PermissionLevel } from '@ptah-extension/shared';
         <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3" />
       </button>
 
-      <div
-        tabindex="0"
-        class="dropdown-content z-50 mb-2 p-0 shadow-lg bg-base-200 rounded-lg w-80 border border-base-300"
-      >
+      <div content class="w-80">
         <!-- Header -->
         <div class="px-4 py-3 border-b border-base-300 flex items-center gap-2">
           <lucide-angular
@@ -74,25 +81,28 @@ import { type PermissionLevel } from '@ptah-extension/shared';
             without asking for confirmation each time.
           </p>
 
-          <!-- Permission Level Selector -->
+          <!-- Permission Level Selector with Keyboard Navigation -->
           <div class="mb-4">
             <span
-              class="text-xs font-medium text-base-content/60 uppercase tracking-wide mb-2 block"
-            >
+              class="text-xs font-medium text-base-content/60 uppercase tracking-wide mb-2 block">
               Permission Level
             </span>
             <div class="flex flex-col gap-1">
-              @for (level of permissionLevels; track level.id) {
-              <button
-                type="button"
-                class="btn btn-sm justify-start gap-2"
-                [class.btn-primary]="selectedLevel() === level.id"
-                [class.btn-ghost]="selectedLevel() !== level.id"
-                (click)="selectLevel(level.id)"
-              >
-                <span class="font-medium">{{ level.name }}</span>
-                <span class="text-xs opacity-70">{{ level.description }}</span>
-              </button>
+              @for (level of permissionLevels; track level.id; let i = $index) {
+              <lib-option
+                [optionId]="'level-' + i"
+                [value]="level"
+                (selected)="selectLevel($event.id)">
+                <div class="flex items-start gap-2 py-0.5">
+                  <div class="flex flex-col items-start flex-1 min-w-0">
+                    <span class="font-medium text-sm">{{ level.name }}</span>
+                    <span class="text-xs text-base-content/60">{{ level.description }}</span>
+                  </div>
+                  @if (selectedLevel() === level.id) {
+                  <span class="badge badge-xs badge-primary mt-0.5">Selected</span>
+                  }
+                </div>
+              </lib-option>
               }
             </div>
           </div>
@@ -111,8 +121,7 @@ import { type PermissionLevel } from '@ptah-extension/shared';
           <button
             class="btn btn-warning btn-sm w-full gap-2"
             [disabled]="autopilotState.isPending()"
-            (click)="enableAutopilot()"
-          >
+            (click)="enableAutopilot()">
             @if (autopilotState.isPending()) {
             <span class="loading loading-spinner loading-xs"></span>
             } @else {
@@ -139,8 +148,7 @@ import { type PermissionLevel } from '@ptah-extension/shared';
             <button
               class="btn btn-ghost btn-sm w-full gap-2"
               [disabled]="autopilotState.isPending()"
-              (click)="disableAutopilot()"
-            >
+              (click)="disableAutopilot()">
               @if (autopilotState.isPending()) {
               <span class="loading loading-spinner loading-xs"></span>
               } @else {
@@ -151,7 +159,7 @@ import { type PermissionLevel } from '@ptah-extension/shared';
           }
         </div>
       </div>
-    </div>
+    </lib-popover>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -163,6 +171,10 @@ export class AutopilotPopoverComponent {
   readonly ZapOffIcon = ZapOff;
   readonly ChevronDownIcon = ChevronDown;
   readonly AlertTriangleIcon = AlertTriangle;
+
+  // Local state for popover visibility
+  private readonly _isOpen = signal(false);
+  readonly isOpen = this._isOpen.asReadonly();
 
   // Permission levels for selector
   readonly permissionLevels: {
@@ -178,7 +190,22 @@ export class AutopilotPopoverComponent {
   readonly selectedLevel = signal<PermissionLevel>('auto-edit');
 
   /**
+   * Toggle popover visibility
+   */
+  togglePopover(): void {
+    this._isOpen.set(!this._isOpen());
+  }
+
+  /**
+   * Close popover (called by PopoverComponent on backdrop click)
+   */
+  closePopover(): void {
+    this._isOpen.set(false);
+  }
+
+  /**
    * Select permission level before enabling autopilot
+   * Called by lib-option (selected) output with keyboard navigation support
    */
   selectLevel(level: PermissionLevel): void {
     this.selectedLevel.set(level);
@@ -193,8 +220,8 @@ export class AutopilotPopoverComponent {
       await this.autopilotState.setPermissionLevel(this.selectedLevel());
       // Then toggle on
       await this.autopilotState.toggleAutopilot();
-      // Close dropdown
-      this.closeDropdown();
+      // Close popover (CDK Overlay handles focus management)
+      this.closePopover();
     } catch (error) {
       console.error(
         '[AutopilotPopoverComponent] Failed to enable autopilot:',
@@ -209,20 +236,13 @@ export class AutopilotPopoverComponent {
   async disableAutopilot(): Promise<void> {
     try {
       await this.autopilotState.toggleAutopilot();
-      this.closeDropdown();
+      // Close popover (CDK Overlay handles focus management)
+      this.closePopover();
     } catch (error) {
       console.error(
         '[AutopilotPopoverComponent] Failed to disable autopilot:',
         error
       );
     }
-  }
-
-  /**
-   * Close dropdown by removing focus
-   */
-  private closeDropdown(): void {
-    const activeElement = document.activeElement as HTMLElement;
-    activeElement?.blur();
   }
 }
