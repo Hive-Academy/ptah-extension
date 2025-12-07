@@ -176,6 +176,8 @@ export interface FileOpenResult {
 export interface ConfigModelSwitchParams {
   /** Model to switch to */
   model: ClaudeModel;
+  /** Active session ID for live SDK sync (optional) */
+  sessionId?: SessionId | null;
 }
 
 /** Response from config:model-switch RPC method */
@@ -194,6 +196,8 @@ export interface ConfigAutopilotToggleParams {
   enabled: boolean;
   /** Permission level for autopilot */
   permissionLevel: PermissionLevel;
+  /** Active session ID for live SDK sync (optional) */
+  sessionId?: SessionId | null;
 }
 
 /** Response from config:autopilot-toggle RPC method */

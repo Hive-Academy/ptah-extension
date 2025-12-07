@@ -149,6 +149,9 @@ export interface ExecutionNode {
     readonly output: number;
   };
 
+  /** Cost in USD calculated from token usage */
+  readonly cost?: number;
+
   /** Model ID used for this execution (e.g., 'claude-opus-4-5-20251101') */
   readonly model?: string;
 

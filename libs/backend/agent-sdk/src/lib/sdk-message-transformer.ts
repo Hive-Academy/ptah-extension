@@ -11,6 +11,7 @@ import {
   ExecutionStatus,
   SessionId,
   createExecutionNode,
+  calculateMessageCost,
 } from '@ptah-extension/shared';
 import { Logger } from '@ptah-extension/vscode-core';
 
@@ -272,6 +273,11 @@ export class SdkMessageTransformer {
           }
         : undefined;
 
+    // Calculate cost from usage (using model for accurate pricing)
+    const cost = tokenUsage
+      ? calculateMessageCost(message.model || '', tokenUsage)
+      : undefined;
+
     // Create message node
     const messageNode = createExecutionNode({
       id: uuid,
@@ -280,6 +286,7 @@ export class SdkMessageTransformer {
       content: null, // Content is in children
       children,
       tokenUsage,
+      cost,
       model: message.model,
       // Link to parent if nested under agent
       // parent_tool_use_id is used for correlation but not stored in ExecutionNode

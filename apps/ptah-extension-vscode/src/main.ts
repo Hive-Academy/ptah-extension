@@ -70,21 +70,8 @@ export async function activate(
     await ptahExtension.registerAll();
     console.log('[Activate] Step 7: ptahExtension.registerAll() complete');
 
-    // Initialize Pricing Service (fetches LiteLLM pricing, caches in globalState)
-    console.log('[Activate] Step 8: Initializing Pricing Service...');
-    const pricingService = DIContainer.resolve(TOKENS.PRICING_SERVICE) as {
-      initialize: () => Promise<void>;
-    };
-    // Run in background - don't block activation
-    pricingService.initialize().catch((error) => {
-      logger.warn('[PricingService] Background initialization failed', {
-        error,
-      });
-    });
-    console.log('[Activate] Step 8: Pricing Service initialization started');
-
     // Start Code Execution MCP Server
-    console.log('[Activate] Step 9: Starting Code Execution MCP Server...');
+    console.log('[Activate] Step 8: Starting Code Execution MCP Server...');
     const codeExecutionMCP = DIContainer.resolve(TOKENS.CODE_EXECUTION_MCP);
     const mcpPort = await (
       codeExecutionMCP as { start: () => Promise<number> }
@@ -92,11 +79,11 @@ export async function activate(
     context.subscriptions.push(codeExecutionMCP as vscode.Disposable);
     logger.info(`Code Execution MCP Server started on port ${mcpPort}`);
     console.log(
-      `[Activate] Step 9: Code Execution MCP Server started (port ${mcpPort})`
+      `[Activate] Step 8: Code Execution MCP Server started (port ${mcpPort})`
     );
 
     // Write Ptah MCP server to .mcp.json file
-    console.log('[Activate] Step 10: Writing MCP config to .mcp.json...');
+    console.log('[Activate] Step 9: Writing MCP config to .mcp.json...');
 
     try {
       const mcpConfigManager = DIContainer.resolve(
@@ -115,14 +102,14 @@ export async function activate(
         port: mcpPort,
         url: `http://localhost:${mcpPort}`,
       });
-      console.log('[Activate] Step 10: MCP server registered in .mcp.json');
+      console.log('[Activate] Step 9: MCP server registered in .mcp.json');
     } catch (error) {
       logger.error(
         'Failed to write MCP config (non-blocking)',
         error instanceof Error ? error : new Error(String(error))
       );
       console.warn(
-        '[Activate] Step 10: MCP config write failed (non-blocking)',
+        '[Activate] Step 9: MCP config write failed (non-blocking)',
         error
       );
       // Don't block extension activation if MCP config fails

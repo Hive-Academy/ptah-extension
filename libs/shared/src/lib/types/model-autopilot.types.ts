@@ -35,6 +35,8 @@ export interface ModelInfo {
   description: string;
   /** Whether this is the recommended/default model */
   isRecommended?: boolean;
+  /** SDK API model name (e.g., 'claude-sonnet-4-20250514') */
+  apiName: string;
 }
 
 /**
@@ -108,16 +110,19 @@ export const AVAILABLE_MODELS: readonly ModelInfo[] = [
     name: 'Sonnet 4.5',
     description: 'Best for everyday tasks',
     isRecommended: true,
+    apiName: 'claude-sonnet-4-20250514',
   },
   {
     id: 'opus',
     name: 'Opus 4.5',
     description: 'Most capable for complex work',
+    apiName: 'claude-opus-4-20250514',
   },
   {
     id: 'haiku',
     name: 'Haiku 4.5',
     description: 'Fastest for quick answers',
+    apiName: 'claude-haiku-3-20240307',
   },
 ] as const;
 
