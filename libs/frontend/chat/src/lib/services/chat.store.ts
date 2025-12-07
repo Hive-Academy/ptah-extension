@@ -13,7 +13,6 @@ import {
 } from '@ptah-extension/shared';
 import { SessionReplayService } from './session-replay.service';
 import { SessionManager } from './session-manager.service';
-import { JsonlMessageProcessor } from './jsonl-processor.service';
 import { TabManagerService } from './tab-manager.service';
 import { TabState } from './chat.types';
 
@@ -52,7 +51,6 @@ export class ChatStore {
   // Extracted services (Phase 6)
   private readonly sessionReplay = inject(SessionReplayService);
   private readonly sessionManager = inject(SessionManager);
-  private readonly jsonlProcessor = inject(JsonlMessageProcessor);
   private readonly tabManager = inject(TabManagerService);
 
   // Signal to track service initialization state
@@ -1131,83 +1129,104 @@ export class ChatStore {
   }
 
   // ============================================================================
-  // JSONL PROCESSING (Delegated to JsonlMessageProcessor)
+  // EXECUTION NODE PROCESSING (SDK Path)
   // ============================================================================
 
   /**
-   * Process a JSONL chunk from Claude CLI
+   * Process ExecutionNode directly from SDK
    *
-   * Delegates to JsonlMessageProcessor and updates the target tab's execution tree.
-   * Routes messages to the correct tab by sessionId, not just the active tab.
-   * Also handles agent bubble lifecycle signals for unified visual hierarchy.
+   * SDK returns clean ExecutionNode objects - no CLI formatting to strip.
    */
-  processJsonlChunk(chunk: JSONLMessage, fromSessionId?: string): void {
+  processExecutionNode(node: ExecutionNode, sessionId?: string): void {
     try {
-      // Find the target tab by session ID (proper multi-tab routing)
+      // 1. Find target tab by session ID
       let targetTab: TabState | null = null;
       let targetTabId: string | null = null;
 
-      if (fromSessionId) {
-        // First, try to find tab by Claude session ID
-        targetTab = this.tabManager.findTabBySessionId(fromSessionId);
+      if (sessionId) {
+        targetTab = this.tabManager.findTabBySessionId(sessionId);
         if (targetTab) {
           targetTabId = targetTab.id;
         }
       }
 
-      // Fall back to active tab if no session ID provided or tab not found
-      // (for backwards compatibility with draft tabs that don't have claudeSessionId yet)
+      // Fall back to active tab
       if (!targetTab) {
         targetTabId = this.tabManager.activeTabId();
         targetTab = this.tabManager.activeTab();
-
-        // If we have a session ID but couldn't find the tab, and active tab doesn't match, warn
-        if (
-          fromSessionId &&
-          targetTab?.claudeSessionId &&
-          targetTab.claudeSessionId !== fromSessionId
-        ) {
-          console.warn('[ChatStore] Ignoring chunk - no matching tab found', {
-            sessionId: fromSessionId,
-            activeTabSessionId: targetTab.claudeSessionId,
-          });
-          return;
-        }
       }
 
       if (!targetTabId || !targetTab) {
-        console.warn('[ChatStore] No target tab for JSONL processing');
+        console.warn('[ChatStore] No target tab for ExecutionNode processing');
         return;
       }
 
-      // Delegate to JsonlMessageProcessor
-      // Note: Agents are now nested inside the main execution tree (not separate messages)
-      // The processor updates the agent node in-tree, and we just update the tree state
-      const result = this.jsonlProcessor.processChunk(
-        chunk,
-        targetTab.executionTree ?? null
-      );
+      // 2. Merge node into execution tree
+      const currentTree = targetTab.executionTree;
+      const updatedTree = this.mergeExecutionNode(currentTree, node);
 
-      // Update state based on result
-      if (result.newMessageStarted) {
-        // Track currentMessageId per-tab for multi-tab streaming support
-        this.tabManager.updateTab(targetTabId, {
-          currentMessageId: result.messageId ?? null,
-        });
+      // 3. Update tab state
+      this.tabManager.updateTab(targetTabId, {
+        executionTree: updatedTree,
+      });
+
+      // 4. Register in SessionManager for agent/tool correlation
+      if (node.type === 'agent' && node.id) {
+        this.sessionManager.registerAgent(node.id, node);
+      } else if (node.type === 'tool' && node.toolCallId) {
+        this.sessionManager.registerTool(node.toolCallId, node);
       }
 
-      if (result.tree !== targetTab.executionTree) {
+      // 5. Track streaming state
+      if (node.status === 'streaming' && !targetTab.currentMessageId) {
         this.tabManager.updateTab(targetTabId, {
-          executionTree: result.tree,
+          currentMessageId: node.id,
         });
-      }
-
-      if (result.streamComplete) {
-        this.finalizeCurrentMessage(targetTabId);
       }
     } catch (error) {
-      console.error('[ChatStore] Error processing JSONL chunk:', error, chunk);
+      console.error('[ChatStore] Error processing ExecutionNode:', error, node);
     }
+  }
+
+  /**
+   * Merge ExecutionNode into existing tree
+   */
+  private mergeExecutionNode(
+    currentTree: ExecutionNode | null,
+    node: ExecutionNode
+  ): ExecutionNode {
+    if (!currentTree) {
+      // First node becomes the root
+      return node;
+    }
+
+    // Check if this node should replace an existing node (by ID)
+    const existingNode = this.findNodeInTree(currentTree, node.id);
+    if (existingNode) {
+      // Replace existing node (update scenario)
+      return this.replaceNodeInTree(currentTree, node.id, node);
+    }
+
+    // Append as new child
+    return {
+      ...currentTree,
+      children: [...currentTree.children, node],
+    };
+  }
+
+  /**
+   * Find node by ID in tree (recursive)
+   */
+  private findNodeInTree(
+    tree: ExecutionNode,
+    id: string
+  ): ExecutionNode | null {
+    if (tree.id === id) return tree;
+    for (const child of tree.children) {
+      const found = this.findNodeInTree(child, id);
+      if (found) return found;
+    }
+    return null;
   }
 
   /**

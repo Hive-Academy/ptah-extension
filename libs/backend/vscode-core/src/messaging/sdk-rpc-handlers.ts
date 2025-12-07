@@ -56,11 +56,15 @@ interface WebviewManager {
 @injectable()
 export class SdkRpcHandlers {
   // Active SDK sessions (sessionId -> stream iterator)
-  private readonly activeSessions = new Map<string, AsyncIterator<ExecutionNode>>();
+  private readonly activeSessions = new Map<
+    string,
+    AsyncIterator<ExecutionNode>
+  >();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.WEBVIEW_MANAGER) private readonly webviewManager: WebviewManager,
+    @inject(TOKENS.WEBVIEW_MANAGER)
+    private readonly webviewManager: WebviewManager,
     @inject('SdkAgentAdapter') private readonly sdkAdapter: SdkAgentAdapter,
     @inject('SdkPermissionHandler')
     private readonly permissionHandler: SdkPermissionHandler
@@ -235,10 +239,13 @@ export class SdkRpcHandlers {
         requestId: params.requestId,
       });
     } catch (error) {
-      this.logger.error('[SdkRpcHandlers] Failed to handle permission response', {
-        error,
-        requestId: params.requestId,
-      });
+      this.logger.error(
+        '[SdkRpcHandlers] Failed to handle permission response',
+        {
+          error,
+          requestId: params.requestId,
+        }
+      );
     }
   }
 
@@ -255,9 +262,13 @@ export class SdkRpcHandlers {
 
         if (done) {
           // Signal completion
-          await this.webviewManager.sendMessage('ptah.main', 'sdk:sessionComplete', {
-            sessionId,
-          });
+          await this.webviewManager.sendMessage(
+            'ptah.main',
+            'sdk:sessionComplete',
+            {
+              sessionId,
+            }
+          );
           this.activeSessions.delete(sessionId as string);
           this.logger.info('[SdkRpcHandlers] SDK session stream completed', {
             sessionId,
@@ -266,10 +277,14 @@ export class SdkRpcHandlers {
         }
 
         // Send ExecutionNode to webview
-        await this.webviewManager.sendMessage('ptah.main', 'sdk:executionNode', {
-          sessionId,
-          node,
-        });
+        await this.webviewManager.sendMessage(
+          'ptah.main',
+          'sdk:executionNode',
+          {
+            sessionId,
+            node,
+          }
+        );
       }
     } catch (error) {
       this.logger.error('[SdkRpcHandlers] SDK session stream error', {

@@ -18,7 +18,10 @@ import {
   OnInit,
 } from '@angular/core';
 import { LucideAngularModule, Users, ChevronDown } from 'lucide-angular';
-import { AgentDiscoveryFacade, type AgentSuggestion } from '@ptah-extension/core';
+import {
+  AgentDiscoveryFacade,
+  type AgentSuggestion,
+} from '@ptah-extension/core';
 import { DropdownComponent, OptionComponent } from '@ptah-extension/ui';
 
 @Component({
@@ -29,14 +32,15 @@ import { DropdownComponent, OptionComponent } from '@ptah-extension/ui';
       [isOpen]="isOpen()"
       [closeOnBackdropClick]="true"
       (closed)="closeDropdown()"
-      (backdropClicked)="closeDropdown()">
-
+      (backdropClicked)="closeDropdown()"
+    >
       <button
         trigger
         class="btn btn-ghost btn-xs gap-1 font-normal"
         type="button"
         (click)="toggleDropdown()"
-        [disabled]="isLoading()">
+        [disabled]="isLoading()"
+      >
         @if (isLoading()) {
         <span class="loading loading-spinner loading-xs"></span>
         } @else {
@@ -50,7 +54,8 @@ import { DropdownComponent, OptionComponent } from '@ptah-extension/ui';
         <!-- Header -->
         <div class="px-3 py-2 border-b border-base-300">
           <span
-            class="text-xs font-semibold text-base-content/70 uppercase tracking-wide">
+            class="text-xs font-semibold text-base-content/70 uppercase tracking-wide"
+          >
             Select Agent
           </span>
         </div>
@@ -72,16 +77,20 @@ import { DropdownComponent, OptionComponent } from '@ptah-extension/ui';
 
         <!-- Agent List - Single Column Vertical -->
         @else {
-        <div class="flex flex-col overflow-y-auto overflow-x-hidden max-h-64 p-1">
+        <div
+          class="flex flex-col overflow-y-auto overflow-x-hidden max-h-64 p-1"
+        >
           @for (agent of agents(); track agent.name; let i = $index) {
           <ptah-option
             [optionId]="'agent-' + i"
             [value]="agent"
-            (selected)="selectAgent($event)">
+            (selected)="selectAgent($event)"
+          >
             <div class="flex items-start gap-3 py-0.5">
               <!-- Icon -->
               <span
-                class="shrink-0 w-5 h-5 flex items-center justify-center text-base mt-0.5">
+                class="shrink-0 w-5 h-5 flex items-center justify-center text-base mt-0.5"
+              >
                 {{ agent.icon }}
               </span>
 

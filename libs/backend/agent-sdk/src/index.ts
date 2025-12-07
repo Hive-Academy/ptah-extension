@@ -23,7 +23,10 @@ export { SdkPermissionHandler } from './lib/sdk-permission-handler';
 
 // Custom tools exports (TASK_2025_044 Batch 3)
 export { createPtahTools } from './lib/ptah-tools-server';
-export { executePtahHelpTool, ptahHelpToolDefinition } from './lib/tools/ptah-help-tool';
+export {
+  executePtahHelpTool,
+  ptahHelpToolDefinition,
+} from './lib/tools/ptah-help-tool';
 export {
   executePtahExecuteCodeTool,
   ptahExecuteCodeToolDefinition,

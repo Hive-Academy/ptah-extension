@@ -19,14 +19,15 @@ This document captures modernization opportunities identified during TASK_2025_0
 **Effort**: 2 hours
 
 **Implementation**:
+
 ```typescript
 import { Clipboard, ClipboardModule } from '@angular/cdk/clipboard';
 
 @Component({
   imports: [
     // ... existing imports
-    ClipboardModule
-  ]
+    ClipboardModule,
+  ],
 })
 export class MessageBubbleComponent {
   private readonly clipboard = inject(Clipboard);
@@ -44,17 +45,15 @@ export class MessageBubbleComponent {
 ```
 
 **Template Update**:
+
 ```html
-<button
-  class="btn btn-xs btn-ghost"
-  (click)="copyMessage()"
-  aria-label="Copy message"
-  title="Copy">
+<button class="btn btn-xs btn-ghost" (click)="copyMessage()" aria-label="Copy message" title="Copy">
   <lucide-angular [img]="CopyIcon" class="w-3.5 h-3.5" />
 </button>
 ```
 
 **Benefits**:
+
 - Cross-browser clipboard support
 - Fallback for older browsers
 - Visual feedback on copy success
@@ -75,6 +74,7 @@ export class MessageBubbleComponent {
 **Effort**: 4 hours
 
 **Current Pattern**:
+
 ```html
 <dialog #dialog class="modal">
   <!-- Manual dialog content -->
@@ -82,6 +82,7 @@ export class MessageBubbleComponent {
 ```
 
 **Recommended Pattern**:
+
 ```typescript
 import { Dialog, DialogModule } from '@angular/cdk/dialog';
 
@@ -93,7 +94,7 @@ export class ConfirmationService {
     const dialogRef = this.dialog.open(ConfirmDialogComponent, {
       data: options,
       hasBackdrop: true,
-      backdropClass: 'cdk-overlay-dark-backdrop'
+      backdropClass: 'cdk-overlay-dark-backdrop',
     });
     return firstValueFrom(dialogRef.closed);
   }
@@ -101,6 +102,7 @@ export class ConfirmationService {
 ```
 
 **Benefits**:
+
 - Better accessibility (focus trap, ARIA roles)
 - Programmatic dialog creation via `Dialog.open()`
 - Built-in backdrop and escape key handling
@@ -117,16 +119,19 @@ export class ConfirmationService {
 **Effort**: 1 hour
 
 **Current Pattern**:
+
 ```typescript
 @ViewChild('messageContainer') messageContainer?: ElementRef<HTMLElement>;
 ```
 
 **Modern Pattern**:
+
 ```typescript
 private readonly messageContainer = viewChild<ElementRef<HTMLElement>>('messageContainer');
 ```
 
 **Benefits**:
+
 - Reactive signal-based API
 - Better type safety (no optional chaining needed)
 - Consistent with Angular 20+ signal patterns
@@ -149,30 +154,31 @@ private readonly messageContainer = viewChild<ElementRef<HTMLElement>>('messageC
 **When to Implement**: Only if performance issues occur with large message lists
 
 **Current Pattern**:
+
 ```html
 <div class="flex-1 overflow-y-auto">
   @for (message of messages(); track message.id) {
-    <ptah-message-bubble [message]="message" />
+  <ptah-message-bubble [message]="message" />
   }
 </div>
 ```
 
 **Recommended Pattern**:
+
 ```html
 <cdk-virtual-scroll-viewport itemSize="100" class="flex-1">
-  <ptah-message-bubble
-    *cdkVirtualFor="let message of messages(); trackBy: trackById"
-    [message]="message"
-  />
+  <ptah-message-bubble *cdkVirtualFor="let message of messages(); trackBy: trackById" [message]="message" />
 </cdk-virtual-scroll-viewport>
 ```
 
 **Challenges**:
+
 - Messages have variable heights (need `autosize` strategy)
 - Scroll-to-bottom behavior for new messages
 - Anchor scroll position when loading older messages
 
 **Benefits**:
+
 - Only renders visible messages (better performance)
 - Smooth scrolling with dynamic height support
 - Handles 1000+ messages without lag
@@ -190,21 +196,19 @@ private readonly messageContainer = viewChild<ElementRef<HTMLElement>>('messageC
 **Effort**: 1 hour
 
 **Current Pattern**:
+
 ```html
 <span [title]="fullPath()">{{ getShortPath() }}</span>
 ```
 
 **Recommended Pattern**:
+
 ```html
-<span
-  [cdkTooltip]="fullPath()"
-  cdkTooltipPosition="above"
-  cdkTooltipShowDelay="500">
-  {{ getShortPath() }}
-</span>
+<span [cdkTooltip]="fullPath()" cdkTooltipPosition="above" cdkTooltipShowDelay="500"> {{ getShortPath() }} </span>
 ```
 
 **Benefits**:
+
 - Custom styling and positioning
 - Show/hide delays
 - Rich content support (not just text)
@@ -227,14 +231,14 @@ private readonly messageContainer = viewChild<ElementRef<HTMLElement>>('messageC
 
 ## Summary
 
-| Priority | Enhancement | Effort | Module |
-|----------|-------------|--------|--------|
-| HIGH | Copy-to-Clipboard | 2h | `cdk/clipboard` |
-| MEDIUM | CDK Dialog Migration | 4h | `cdk/dialog` |
-| MEDIUM | ViewChild Signal Migration | 1h | Angular signals |
-| LOW | Virtual Scrolling | 8h | `cdk/scrolling` |
-| LOW | CDK Tooltip | 1h | `cdk/tooltip` |
-| LOW | Remove explicit standalone | 0.5h | Cosmetic |
+| Priority | Enhancement                | Effort | Module          |
+| -------- | -------------------------- | ------ | --------------- |
+| HIGH     | Copy-to-Clipboard          | 2h     | `cdk/clipboard` |
+| MEDIUM   | CDK Dialog Migration       | 4h     | `cdk/dialog`    |
+| MEDIUM   | ViewChild Signal Migration | 1h     | Angular signals |
+| LOW      | Virtual Scrolling          | 8h     | `cdk/scrolling` |
+| LOW      | CDK Tooltip                | 1h     | `cdk/tooltip`   |
+| LOW      | Remove explicit standalone | 0.5h   | Cosmetic        |
 
 **Total Estimated Effort**: 16.5h (or 7h for HIGH+MEDIUM only)
 
@@ -243,6 +247,7 @@ private readonly messageContainer = viewChild<ElementRef<HTMLElement>>('messageC
 ## Observations
 
 **Already Modernized** (no work needed):
+
 - All components use `input()` and `output()` signals
 - All components use `ChangeDetectionStrategy.OnPush`
 - All components use signal-based state management
@@ -257,6 +262,7 @@ private readonly messageContainer = viewChild<ElementRef<HTMLElement>>('messageC
 **TASK_2025_050**: Implement Copy-to-Clipboard Functionality
 
 Create a new task to implement the copy button with `@angular/cdk/clipboard`. This is:
+
 - High value, low effort (2h)
 - User-facing feature (button exists but doesn't work)
 - Foundation for other message actions (ThumbsUp/ThumbsDown could follow same pattern)

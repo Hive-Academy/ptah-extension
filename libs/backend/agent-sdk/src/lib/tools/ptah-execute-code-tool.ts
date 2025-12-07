@@ -12,7 +12,9 @@ export const ptahExecuteCodeToolDefinition = {
     'Executes JavaScript/TypeScript code in sandboxed environment with license validation',
   input_schema: z.object({
     code: z.string().describe('JavaScript/TypeScript code to execute'),
-    language: z.enum(['javascript', 'typescript']).describe('Programming language'),
+    language: z
+      .enum(['javascript', 'typescript'])
+      .describe('Programming language'),
     timeout: z
       .number()
       .max(60000)
@@ -58,10 +60,14 @@ export async function executePtahExecuteCodeTool(
     // Create sandboxed context with limited globals
     const sandbox = {
       console: {
-        log: (...args: unknown[]) => capturedOutput.push(args.map(String).join(' ')),
-        error: (...args: unknown[]) => capturedErrors.push(args.map(String).join(' ')),
-        warn: (...args: unknown[]) => capturedOutput.push(`WARN: ${args.map(String).join(' ')}`),
-        info: (...args: unknown[]) => capturedOutput.push(`INFO: ${args.map(String).join(' ')}`),
+        log: (...args: unknown[]) =>
+          capturedOutput.push(args.map(String).join(' ')),
+        error: (...args: unknown[]) =>
+          capturedErrors.push(args.map(String).join(' ')),
+        warn: (...args: unknown[]) =>
+          capturedOutput.push(`WARN: ${args.map(String).join(' ')}`),
+        info: (...args: unknown[]) =>
+          capturedOutput.push(`INFO: ${args.map(String).join(' ')}`),
       },
       setTimeout,
       setInterval,
@@ -118,7 +124,11 @@ export async function executePtahExecuteCodeTool(
 
     if (returnValue !== undefined) {
       outputSections.push(
-        `**Return Value:**\n${typeof returnValue === 'object' ? JSON.stringify(returnValue, null, 2) : String(returnValue)}`
+        `**Return Value:**\n${
+          typeof returnValue === 'object'
+            ? JSON.stringify(returnValue, null, 2)
+            : String(returnValue)
+        }`
       );
     }
 
@@ -144,7 +154,9 @@ export async function executePtahExecuteCodeTool(
       content: [
         {
           type: 'text',
-          text: `Execution failed after ${duration}ms:\n${error instanceof Error ? error.message : String(error)}`,
+          text: `Execution failed after ${duration}ms:\n${
+            error instanceof Error ? error.message : String(error)
+          }`,
         },
       ],
       isError: true,

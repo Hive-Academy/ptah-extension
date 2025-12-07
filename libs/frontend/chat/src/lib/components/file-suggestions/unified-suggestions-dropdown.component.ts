@@ -61,7 +61,11 @@ export type { SuggestionItem } from './suggestion-option.component';
   imports: [OverlayModule, SuggestionOptionComponent],
   template: `
     <!-- Overlay origin - attach to parent's textarea via host element -->
-    <div cdkOverlayOrigin #overlayOrigin="cdkOverlayOrigin" class="hidden"></div>
+    <div
+      cdkOverlayOrigin
+      #overlayOrigin="cdkOverlayOrigin"
+      class="hidden"
+    ></div>
 
     <!-- Portal-rendered dropdown (rendered in cdk-overlay-container at body level) -->
     <ng-template
@@ -70,15 +74,18 @@ export type { SuggestionItem } from './suggestion-option.component';
       [cdkConnectedOverlayOpen]="true"
       [cdkConnectedOverlayPositions]="dropdownPositions"
       cdkConnectedOverlayPush
-      (attach)="handleAttach()">
+      (attach)="handleAttach()"
+    >
       <div
         class="suggestions-panel flex flex-col max-h-96 shadow-lg bg-base-200 rounded-lg border border-base-300 z-50 overflow-hidden"
         role="listbox"
-        [attr.aria-label]="getHeaderTitle()">
+        [attr.aria-label]="getHeaderTitle()"
+      >
         <!-- Header -->
         <div class="px-3 py-2 border-b border-base-300">
           <span
-            class="text-xs font-semibold text-base-content/70 uppercase tracking-wide">
+            class="text-xs font-semibold text-base-content/70 uppercase tracking-wide"
+          >
             {{ getHeaderTitle() }}
           </span>
         </div>
@@ -99,35 +106,34 @@ export type { SuggestionItem } from './suggestion-option.component';
 
         <!-- Loading State -->
         @if (isLoading()) {
-          <div class="flex items-center justify-center gap-3 p-4">
-            <span class="loading loading-spinner loading-sm"></span>
-            <span class="text-sm text-base-content/70">Loading...</span>
-          </div>
+        <div class="flex items-center justify-center gap-3 p-4">
+          <span class="loading loading-spinner loading-sm"></span>
+          <span class="text-sm text-base-content/70">Loading...</span>
+        </div>
         }
 
         <!-- Empty State -->
         @else if (filteredSuggestions().length === 0) {
-          <div class="flex items-center justify-center p-4">
-            <span class="text-sm text-base-content/60">No matches found</span>
-          </div>
+        <div class="flex items-center justify-center p-4">
+          <span class="text-sm text-base-content/60">No matches found</span>
+        </div>
         }
 
         <!-- Suggestions List -->
         @else {
-          <div
-            class="flex flex-col overflow-y-auto overflow-x-hidden max-h-64 p-1">
-            @for (
-              suggestion of filteredSuggestions();
-              track trackBy($index, suggestion);
-              let i = $index
-            ) {
-              <ptah-suggestion-option
-                [suggestion]="suggestion"
-                [optionId]="'suggestion-' + i"
-                (selected)="handleSelection($event)"
-                (hovered)="handleHover(i)" />
-            }
-          </div>
+        <div
+          class="flex flex-col overflow-y-auto overflow-x-hidden max-h-64 p-1"
+        >
+          @for ( suggestion of filteredSuggestions(); track trackBy($index,
+          suggestion); let i = $index ) {
+          <ptah-suggestion-option
+            [suggestion]="suggestion"
+            [optionId]="'suggestion-' + i"
+            (selected)="handleSelection($event)"
+            (hovered)="handleHover(i)"
+          />
+          }
+        </div>
         }
       </div>
     </ng-template>
@@ -150,7 +156,8 @@ export class UnifiedSuggestionsDropdownComponent
   readonly filterChanged = output<string>(); // New: emit filter changes to parent
 
   // ViewChild for filter input (auto-focus)
-  private readonly filterInputRef = viewChild<ElementRef<HTMLInputElement>>('filterInput');
+  private readonly filterInputRef =
+    viewChild<ElementRef<HTMLInputElement>>('filterInput');
 
   // ViewChildren for ActiveDescendantKeyManager
   private readonly optionComponents = viewChildren(SuggestionOptionComponent);
@@ -251,9 +258,11 @@ export class UnifiedSuggestionsDropdownComponent
     this.updateActiveOptionId();
 
     // Subscribe to active item changes (auto-unsubscribes on component destroy)
-    this.keyManager.change.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
-      this.updateActiveOptionId();
-    });
+    this.keyManager.change
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        this.updateActiveOptionId();
+      });
   }
 
   /**

@@ -38,15 +38,16 @@ import { PopoverComponent, OptionComponent } from '@ptah-extension/ui';
       [hasBackdrop]="true"
       [backdropClass]="'cdk-overlay-dark-backdrop'"
       (closed)="closePopover()"
-      (backdropClicked)="closePopover()">
-
+      (backdropClicked)="closePopover()"
+    >
       <button
         trigger
         class="btn btn-ghost btn-sm gap-1.5 font-normal"
         type="button"
         (click)="togglePopover()"
         [disabled]="autopilotState.isPending()"
-        [class.text-warning]="autopilotState.enabled()">
+        [class.text-warning]="autopilotState.enabled()"
+      >
         @if (autopilotState.isPending()) {
         <span class="loading loading-spinner loading-xs"></span>
         } @else if (autopilotState.enabled()) {
@@ -84,7 +85,8 @@ import { PopoverComponent, OptionComponent } from '@ptah-extension/ui';
           <!-- Permission Level Selector with Keyboard Navigation -->
           <div class="mb-4">
             <span
-              class="text-xs font-medium text-base-content/60 uppercase tracking-wide mb-2 block">
+              class="text-xs font-medium text-base-content/60 uppercase tracking-wide mb-2 block"
+            >
               Permission Level
             </span>
             <div class="flex flex-col gap-1">
@@ -92,14 +94,19 @@ import { PopoverComponent, OptionComponent } from '@ptah-extension/ui';
               <ptah-option
                 [optionId]="'level-' + i"
                 [value]="level"
-                (selected)="selectLevel($event.id)">
+                (selected)="selectLevel($event.id)"
+              >
                 <div class="flex items-start gap-2 py-0.5">
                   <div class="flex flex-col items-start flex-1 min-w-0">
                     <span class="font-medium text-sm">{{ level.name }}</span>
-                    <span class="text-xs text-base-content/60">{{ level.description }}</span>
+                    <span class="text-xs text-base-content/60">{{
+                      level.description
+                    }}</span>
                   </div>
                   @if (selectedLevel() === level.id) {
-                  <span class="badge badge-xs badge-primary mt-0.5">Selected</span>
+                  <span class="badge badge-xs badge-primary mt-0.5"
+                    >Selected</span
+                  >
                   }
                 </div>
               </ptah-option>
@@ -129,7 +136,8 @@ import { PopoverComponent, OptionComponent } from '@ptah-extension/ui';
           <button
             class="btn btn-warning btn-sm w-full gap-2"
             [disabled]="autopilotState.isPending()"
-            (click)="enableAutopilot()">
+            (click)="enableAutopilot()"
+          >
             @if (autopilotState.isPending()) {
             <span class="loading loading-spinner loading-xs"></span>
             } @else {
@@ -156,7 +164,8 @@ import { PopoverComponent, OptionComponent } from '@ptah-extension/ui';
             <button
               class="btn btn-ghost btn-sm w-full gap-2"
               [disabled]="autopilotState.isPending()"
-              (click)="disableAutopilot()">
+              (click)="disableAutopilot()"
+            >
               @if (autopilotState.isPending()) {
               <span class="loading loading-spinner loading-xs"></span>
               } @else {
@@ -246,7 +255,9 @@ export class AutopilotPopoverComponent {
       );
       // Show error to user, keep popover open for retry
       this._errorMessage.set(
-        `Failed to enable autopilot: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Failed to enable autopilot: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
       );
     }
   }
@@ -269,7 +280,9 @@ export class AutopilotPopoverComponent {
       );
       // Show error to user, keep popover open for retry
       this._errorMessage.set(
-        `Failed to disable autopilot: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Failed to disable autopilot: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
       );
     }
   }

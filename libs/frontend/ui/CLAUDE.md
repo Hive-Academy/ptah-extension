@@ -67,17 +67,14 @@ import { OptionComponent } from '@ptah-extension/ui/selection';
 
       <div content>
         @for (model of models(); track model.id; let i = $index) {
-          <ptah-option
-            [optionId]="'model-' + i"
-            [value]="model"
-            (selected)="selectModel($event)">
-            <div class="flex items-center gap-2">
-              <span>{{ model.name }}</span>
-              @if (model.isRecommended) {
-                <span class="badge badge-primary badge-xs">Recommended</span>
-              }
-            </div>
-          </ptah-option>
+        <ptah-option [optionId]="'model-' + i" [value]="model" (selected)="selectModel($event)">
+          <div class="flex items-center gap-2">
+            <span>{{ model.name }}</span>
+            @if (model.isRecommended) {
+            <span class="badge badge-primary badge-xs">Recommended</span>
+            }
+          </div>
+        </ptah-option>
         }
       </div>
     </ptah-dropdown>
@@ -133,15 +130,8 @@ import { DropdownComponent } from '@ptah-extension/ui/overlays';
 
 @Component({
   template: `
-    <ptah-dropdown
-      [isOpen]="isOpen()"
-      [closeOnBackdropClick]="true"
-      (backdropClicked)="closeDropdown()"
-      (closed)="closeDropdown()">
-
-      <button trigger (click)="toggleDropdown()">
-        Open Menu
-      </button>
+    <ptah-dropdown [isOpen]="isOpen()" [closeOnBackdropClick]="true" (backdropClicked)="closeDropdown()" (closed)="closeDropdown()">
+      <button trigger (click)="toggleDropdown()">Open Menu</button>
 
       <div content class="w-80">
         <!-- Dropdown content -->
@@ -209,16 +199,8 @@ import { PopoverComponent } from '@ptah-extension/ui/overlays';
 
 @Component({
   template: `
-    <ptah-popover
-      [isOpen]="isOpen()"
-      [position]="'above'"
-      [hasBackdrop]="true"
-      [backdropClass]="'cdk-overlay-dark-backdrop'"
-      (closed)="closePopover()">
-
-      <button trigger (click)="togglePopover()">
-        Settings
-      </button>
+    <ptah-popover [isOpen]="isOpen()" [position]="'above'" [hasBackdrop]="true" [backdropClass]="'cdk-overlay-dark-backdrop'" (closed)="closePopover()">
+      <button trigger (click)="togglePopover()">Settings</button>
 
       <div content class="w-80 p-4">
         <h3 class="text-lg font-semibold">Settings</h3>
@@ -287,20 +269,8 @@ import { AutocompleteComponent, AutocompleteDirective } from '@ptah-extension/ui
 
 @Component({
   template: `
-    <ptah-autocomplete
-      [suggestions]="suggestions()"
-      [isLoading]="isLoading()"
-      [isOpen]="isOpen()"
-      [headerTitle]="'Files'"
-      (suggestionSelected)="insertSuggestion($event)"
-      (closed)="closeSuggestions()">
-
-      <input
-        autocompleteInput
-        type="text"
-        [(ngModel)]="query"
-        (input)="onInput($event)"
-      />
+    <ptah-autocomplete [suggestions]="suggestions()" [isLoading]="isLoading()" [isOpen]="isOpen()" [headerTitle]="'Files'" (suggestionSelected)="insertSuggestion($event)" (closed)="closeSuggestions()">
+      <input autocompleteInput type="text" [(ngModel)]="query" (input)="onInput($event)" />
 
       <ng-template suggestionTemplate let-suggestion>
         <div class="flex items-center gap-2">
@@ -497,9 +467,15 @@ export class AgentSelectorComponent {
     });
   }
 
-  navigateDown(): void { /* manual focus tracking */ }
-  navigateUp(): void { /* manual focus tracking */ }
-  selectFocused(): void { /* manual selection */ }
+  navigateDown(): void {
+    /* manual focus tracking */
+  }
+  navigateUp(): void {
+    /* manual focus tracking */
+  }
+  selectFocused(): void {
+    /* manual selection */
+  }
 }
 ```
 
@@ -595,9 +571,9 @@ export class ModelSelectorComponent {
 
       <div content>
         @for (model of models(); track model.id; let i = $index) {
-          <ptah-option [optionId]="'model-' + i" [value]="model" (selected)="selectModel($event)">
-            {{ model.name }}
-          </ptah-option>
+        <ptah-option [optionId]="'model-' + i" [value]="model" (selected)="selectModel($event)">
+          {{ model.name }}
+        </ptah-option>
         }
       </div>
     </ptah-dropdown>
@@ -650,21 +626,15 @@ export class AutopilotPopoverComponent {}
 ```typescript
 @Component({
   template: `
-    <ptah-popover
-      [isOpen]="isOpen()"
-      [position]="'above'"
-      [hasBackdrop]="true"
-      [backdropClass]="'cdk-overlay-dark-backdrop'"
-      (closed)="closePopover()">
-
+    <ptah-popover [isOpen]="isOpen()" [position]="'above'" [hasBackdrop]="true" [backdropClass]="'cdk-overlay-dark-backdrop'" (closed)="closePopover()">
       <button trigger (click)="togglePopover()">Autopilot</button>
 
       <div content class="w-80 p-4">
         <!-- Settings with keyboard nav -->
         @for (level of permissionLevels; track level.id; let i = $index) {
-          <ptah-option [optionId]="'level-' + i" [value]="level" (selected)="selectLevel($event)">
-            {{ level.name }}
-          </ptah-option>
+        <ptah-option [optionId]="'level-' + i" [value]="level" (selected)="selectLevel($event)">
+          {{ level.name }}
+        </ptah-option>
         }
       </div>
     </ptah-popover>

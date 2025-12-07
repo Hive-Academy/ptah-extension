@@ -15,8 +15,44 @@
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 
-// SDK type - using resolution-mode for ESM import in CommonJS context
-import type { CanUseTool, PermissionResult } from '@anthropic-ai/claude-agent-sdk' with { 'resolution-mode': 'import' };
+/**
+ * SDK Types - Structural typing to avoid ESM/CommonJS import issues
+ *
+ * The SDK package is ESM-only ("type": "module"), but this library is CommonJS.
+ * We use structural typing to match the SDK's permission types without imports.
+ * These types are structurally compatible with @anthropic-ai/claude-agent-sdk/sdk.d.ts
+ */
+
+/**
+ * Permission result type (internal type hint)
+ */
+type PermissionResult =
+  | {
+      behavior: 'allow';
+      updatedInput: Record<string, unknown>;
+      updatedPermissions?: any[];
+      toolUseID?: string;
+    }
+  | {
+      behavior: 'deny';
+      message: string;
+      interrupt?: boolean;
+      toolUseID?: string;
+    };
+
+/**
+ * Callback type for permission checking
+ * Structurally matches SDK's CanUseTool type
+ * Return type uses 'any' to accept SDK's actual PermissionResult without type errors
+ */
+type CanUseTool = (
+  toolName: string,
+  input: Record<string, unknown>,
+  options: {
+    signal: AbortSignal;
+    suggestions?: any[];
+  }
+) => Promise<any>;
 
 /**
  * Permission request payload for RPC event
@@ -204,7 +240,9 @@ export class SdkPermissionHandler {
 
     // User denied
     this.logger.info(
-      `[SdkPermissionHandler] Permission request ${requestId} denied for tool ${toolName}: ${response.reason || 'No reason provided'}`
+      `[SdkPermissionHandler] Permission request ${requestId} denied for tool ${toolName}: ${
+        response.reason || 'No reason provided'
+      }`
     );
     return {
       behavior: 'deny' as const,
@@ -232,7 +270,9 @@ export class SdkPermissionHandler {
     pending.resolve(response);
 
     this.logger.debug(
-      `[SdkPermissionHandler] Handled response for request ${requestId}: ${response.approved ? 'approved' : 'denied'}`
+      `[SdkPermissionHandler] Handled response for request ${requestId}: ${
+        response.approved ? 'approved' : 'denied'
+      }`
     );
   }
 
@@ -275,21 +315,18 @@ export class SdkPermissionHandler {
 
     // Sanitize environment variables
     if (sanitized.env && typeof sanitized.env === 'object') {
-      sanitized.env = Object.keys(sanitized.env).reduce(
-        (acc, key) => {
-          // Redact keys that likely contain secrets
-          const isSecret =
-            key.toUpperCase().includes('KEY') ||
-            key.toUpperCase().includes('TOKEN') ||
-            key.toUpperCase().includes('SECRET') ||
-            key.toUpperCase().includes('PASSWORD') ||
-            key.toUpperCase().includes('API');
+      sanitized.env = Object.keys(sanitized.env).reduce((acc, key) => {
+        // Redact keys that likely contain secrets
+        const isSecret =
+          key.toUpperCase().includes('KEY') ||
+          key.toUpperCase().includes('TOKEN') ||
+          key.toUpperCase().includes('SECRET') ||
+          key.toUpperCase().includes('PASSWORD') ||
+          key.toUpperCase().includes('API');
 
-          acc[key] = isSecret ? '***REDACTED***' : sanitized.env[key];
-          return acc;
-        },
-        {} as Record<string, string>
-      );
+        acc[key] = isSecret ? '***REDACTED***' : sanitized.env[key];
+        return acc;
+      }, {} as Record<string, string>);
     }
 
     // Sanitize command strings that might contain secrets

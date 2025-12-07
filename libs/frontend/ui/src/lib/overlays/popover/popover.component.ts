@@ -1,15 +1,14 @@
+import { A11yModule, FocusTrap, FocusTrapFactory } from '@angular/cdk/a11y';
+import { ConnectedPosition, OverlayModule } from '@angular/cdk/overlay';
 import {
   Component,
-  input,
-  output,
-  ViewChild,
   ElementRef,
   inject,
-  AfterViewInit,
+  input,
   OnDestroy,
+  output,
+  ViewChild,
 } from '@angular/core';
-import { OverlayModule, ConnectedPosition } from '@angular/cdk/overlay';
-import { A11yModule, FocusTrap, FocusTrapFactory } from '@angular/cdk/a11y';
 import { POPOVER_POSITION_MAP } from '../shared/overlay-positions';
 
 /**
@@ -57,17 +56,20 @@ import { POPOVER_POSITION_MAP } from '../shared/overlay-positions';
       [cdkConnectedOverlayBackdropClass]="backdropClass()"
       (backdropClick)="handleBackdropClick()"
       (attach)="handleAttach()"
-      (detach)="handleDetach()">
+      (detach)="handleDetach()"
+    >
       <div
         #popoverContent
         class="popover-panel bg-base-200 border border-base-300 rounded-lg shadow-xl"
-        (keydown.escape)="handleEscape()">
+        tabindex="-1"
+        (keydown.escape)="handleEscape()"
+      >
         <ng-content select="[content]" />
       </div>
     </ng-template>
   `,
 })
-export class PopoverComponent implements AfterViewInit, OnDestroy {
+export class PopoverComponent implements OnDestroy {
   private readonly focusTrapFactory = inject(FocusTrapFactory);
   private focusTrap: FocusTrap | null = null;
 
@@ -83,11 +85,6 @@ export class PopoverComponent implements AfterViewInit, OnDestroy {
   readonly opened = output<void>();
   readonly closed = output<void>();
   readonly backdropClicked = output<void>();
-
-  ngAfterViewInit(): void {
-    // FocusTrap setup happens when overlay attaches (handleAttach)
-    // This lifecycle hook exists for potential future initialization needs
-  }
 
   ngOnDestroy(): void {
     // Clean up focus trap if component destroyed while popover is open

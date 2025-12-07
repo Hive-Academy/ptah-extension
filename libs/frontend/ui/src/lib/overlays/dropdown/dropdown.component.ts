@@ -47,8 +47,11 @@ import { DROPDOWN_POSITIONS } from '../shared/overlay-positions';
       [cdkConnectedOverlayBackdropClass]="backdropClass()"
       (backdropClick)="handleBackdropClick()"
       (attach)="opened.emit()"
-      (detach)="handleDetach()">
-      <div class="dropdown-panel bg-base-200 border border-base-300 rounded-lg shadow-lg">
+      (detach)="handleDetach()"
+    >
+      <div
+        class="dropdown-panel bg-base-200 border border-base-300 rounded-lg shadow-lg"
+      >
         <ng-content select="[content]" />
       </div>
     </ng-template>

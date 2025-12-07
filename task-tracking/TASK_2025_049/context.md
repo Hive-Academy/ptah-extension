@@ -18,20 +18,26 @@ TASK_2025_044 implemented a new `agent-sdk` library wrapping the official Claude
 From `claude-agent-sdk.md`:
 
 1. **Prompt can be AsyncIterable** (line 20):
+
    ```typescript
-   function query({ prompt, options }: {
-     prompt: string | AsyncIterable<SDKUserMessage>;  // We're not using AsyncIterable
-     options?: Options
+   function query({
+     prompt,
+     options,
+   }: {
+     prompt: string | AsyncIterable<SDKUserMessage>; // We're not using AsyncIterable
+     options?: Options;
    }): Query;
    ```
 
 2. **Resume/Fork Sessions** (lines 103-104):
+
    ```typescript
-   resume: string;  // Session ID to resume
-   forkSession: boolean;  // Fork to new session ID
+   resume: string; // Session ID to resume
+   forkSession: boolean; // Fork to new session ID
    ```
 
 3. **SDK Message Types** (lines 387-529):
+
    - `SDKAssistantMessage` - has `parent_tool_use_id` for linking
    - `SDKUserMessage` - has `parent_tool_use_id`
    - `SDKResultMessage` - final result with usage stats
@@ -39,6 +45,7 @@ From `claude-agent-sdk.md`:
    - `SDKPartialAssistantMessage` - streaming partial messages
 
 4. **Tool Types Already Defined** (lines 794-1186):
+
    - All tool input/output types are documented
    - We should use these, not reinvent them
 
@@ -69,12 +76,14 @@ Systematically review and fix the agent-sdk implementation to:
 ## Files to Review/Fix
 
 ### Core Implementation
+
 - `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts`
 - `libs/backend/agent-sdk/src/lib/sdk-message-transformer.ts`
 - `libs/backend/agent-sdk/src/lib/sdk-session-storage.ts`
 - `libs/backend/agent-sdk/src/lib/sdk-permission-handler.ts`
 
 ### Reference
+
 - `task-tracking/TASK_2025_044/claude-agent-sdk.md` - Official SDK documentation
 - `task-tracking/TASK_2025_044/implementation-plan.md` - Original plan (may need revision)
 

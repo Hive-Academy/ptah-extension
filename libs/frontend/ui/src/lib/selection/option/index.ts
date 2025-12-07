@@ -7,4 +7,4 @@
 export * from './option.component';
 
 // Re-export Highlightable for consumer convenience
-export { Highlightable } from '@angular/cdk/a11y';
+export type { Highlightable } from '@angular/cdk/a11y';

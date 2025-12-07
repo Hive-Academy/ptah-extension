@@ -54,17 +54,10 @@ export type {
   FileWatcherConfig,
 } from './api-wrappers';
 
-export { RpcHandler, RpcMethodRegistrationService, SdkRpcHandlers } from './messaging';
+// NOTE: RpcMethodRegistrationService moved to app layer (TASK_2025_051)
+// to break circular dependency between vscode-core and agent-sdk
+export { RpcHandler, SdkRpcHandlers } from './messaging';
 export type { RpcMessage, RpcResponse, RpcMethodHandler } from './messaging';
-
-// Session Discovery
-export { SessionDiscoveryService } from './services/session-discovery.service';
-export type {
-  SessionMetadata,
-  SessionSummary,
-  LinkedAgentSession,
-  SessionData,
-} from './services/session-discovery.service';
 
 // Agent Session Watcher (real-time summary streaming)
 export { AgentSessionWatcherService } from './services/agent-session-watcher.service';

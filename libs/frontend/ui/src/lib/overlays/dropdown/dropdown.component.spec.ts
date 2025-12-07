@@ -20,7 +20,8 @@ import { DROPDOWN_POSITIONS } from '../shared/overlay-positions';
       [closeOnBackdropClick]="closeOnBackdropClick()"
       (opened)="onOpened()"
       (closed)="onClosed()"
-      (backdropClicked)="onBackdropClicked()">
+      (backdropClicked)="onBackdropClicked()"
+    >
       <button trigger>Open Dropdown</button>
       <div content class="dropdown-panel">
         <div class="option">Option 1</div>

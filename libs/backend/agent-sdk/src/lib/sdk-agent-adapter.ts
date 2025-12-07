@@ -6,9 +6,6 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-// Dynamic import for ESM module in CommonJS context
-// Using resolution-mode for type-only ESM imports in CommonJS
-import type { Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk' with { 'resolution-mode': 'import' };
 import {
   IAIProvider,
   ProviderId,
@@ -28,6 +25,60 @@ import { SdkPermissionHandler } from './sdk-permission-handler';
 import { StoredSession, StoredSessionMessage } from './types/sdk-session.types';
 import { MessageId } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
+
+/**
+ * SDK Types - Structural typing to avoid ESM/CommonJS import issues
+ *
+ * The SDK package is ESM-only ("type": "module"), but this library is CommonJS.
+ * We use structural typing (duck typing) to accept SDK types without imports.
+ * These interfaces match the runtime shape of SDK types without requiring
+ * compile-time type compatibility with the ESM module.
+ *
+ * Dynamic import() is used at runtime (see line ~250 for query function).
+ */
+
+/**
+ * UUID type for SDK message identifiers
+ */
+type UUID = `${string}-${string}-${string}-${string}-${string}`;
+
+/**
+ * User message structure for SDK streaming input
+ * Structurally matches SDK's SDKUserMessage type
+ */
+type SDKUserMessage = {
+  type: 'user';
+  uuid: UUID;
+  session_id: string;
+  message: {
+    role: 'user';
+    content: string;
+  };
+  parent_tool_use_id: string | null;
+};
+
+/**
+ * Generic SDK message type for internal type hints
+ * Uses structural typing to accept any SDK message
+ */
+type SDKMessage = {
+  type: string;
+  [key: string]: any;
+};
+
+/**
+ * Query interface - matches SDK's Query runtime structure
+ * Uses structural typing for AsyncGenerator to accept SDK's actual Query type
+ */
+interface Query {
+  [Symbol.asyncIterator](): AsyncIterator<any, void>;
+  next(...args: any[]): Promise<IteratorResult<any, void>>;
+  return?(value?: any): Promise<IteratorResult<any, void>>;
+  throw?(e?: any): Promise<IteratorResult<any, void>>;
+  interrupt(): Promise<void>;
+  setPermissionMode(mode: string): Promise<void>;
+  setModel(model?: string): Promise<void>;
+}
 
 /**
  * Provider capabilities for SDK-based integration
@@ -63,22 +114,34 @@ const SDK_PROVIDER_INFO: ProviderInfo = {
 
 /**
  * Active session tracking
+ *
+ * SYNCHRONIZATION PROTOCOL:
+ * - messageQueue: Array of pending user messages
+ * - resolveNext: Callback set by generator when waiting for messages
+ * - The generator sets resolveNext when queue is empty
+ * - sendMessageToSession pushes to queue AND calls resolveNext if set
+ * - Abort signal resolves any pending Promise to prevent memory leaks
  */
 interface ActiveSession {
-  sessionId: SessionId;
-  query: Query;
-  config: AISessionConfig;
-  abortController: AbortController;
-  // Message queue for streaming input mode
+  readonly sessionId: SessionId;
+  readonly query: Query;
+  readonly config: AISessionConfig;
+  readonly abortController: AbortController;
+  // Mutable: Message queue for streaming input mode
   messageQueue: SDKUserMessage[];
+  // Mutable: Callback to wake iterator when message arrives
   resolveNext: (() => void) | null;
+  // Mutable: Current model (may differ from config.model after setModel())
+  currentModel: string;
 }
 
 /**
  * Helper function to get message role from SDK message type
  * Ensures type-safe role mapping for StoredSessionMessage
  */
-function getRoleFromSDKMessage(sdkMessage: SDKMessage): 'user' | 'assistant' | 'system' {
+function getRoleFromSDKMessage(
+  sdkMessage: SDKMessage
+): 'user' | 'assistant' | 'system' {
   switch (sdkMessage.type) {
     case 'user':
       return 'user';
@@ -122,7 +185,8 @@ export class SdkAgentAdapter implements IAIProvider {
   constructor(
     @inject(TOKENS.LOGGER) private logger: Logger,
     @inject('SdkSessionStorage') private storage: SdkSessionStorage,
-    @inject('SdkPermissionHandler') private permissionHandler: SdkPermissionHandler
+    @inject('SdkPermissionHandler')
+    private permissionHandler: SdkPermissionHandler
   ) {
     this.transformer = new SdkMessageTransformer(logger);
   }
@@ -147,7 +211,8 @@ export class SdkAgentAdapter implements IAIProvider {
       this.logger.info('[SdkAgentAdapter] Initialized successfully');
       return true;
     } catch (error) {
-      const errorObj = error instanceof Error ? error : new Error(String(error));
+      const errorObj =
+        error instanceof Error ? error : new Error(String(error));
       this.logger.error('[SdkAgentAdapter] Initialization failed', errorObj);
       this.health = {
         status: 'error' as ProviderStatus,
@@ -169,7 +234,10 @@ export class SdkAgentAdapter implements IAIProvider {
       this.logger.debug(`[SdkAgentAdapter] Ending session: ${sessionId}`);
       session.abortController.abort();
       session.query.interrupt().catch((err) => {
-        this.logger.warn(`[SdkAgentAdapter] Failed to interrupt session ${sessionId}`, err);
+        this.logger.warn(
+          `[SdkAgentAdapter] Failed to interrupt session ${sessionId}`,
+          err
+        );
       });
     }
 
@@ -213,13 +281,18 @@ export class SdkAgentAdapter implements IAIProvider {
     config?: AISessionConfig
   ): Promise<AsyncIterable<ExecutionNode>> {
     if (!this.initialized) {
-      throw new Error('SdkAgentAdapter not initialized. Call initialize() first.');
+      throw new Error(
+        'SdkAgentAdapter not initialized. Call initialize() first.'
+      );
     }
 
-    this.logger.info(`[SdkAgentAdapter] Starting chat session: ${sessionId}`, { config });
+    this.logger.info(`[SdkAgentAdapter] Starting chat session: ${sessionId}`, {
+      config,
+    });
 
     // Create session record in storage
-    const workspaceId = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || 'unknown';
+    const workspaceId =
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || 'unknown';
     const storedSession: StoredSession = {
       id: sessionId,
       workspaceId,
@@ -231,7 +304,9 @@ export class SdkAgentAdapter implements IAIProvider {
       totalCost: 0,
     };
     await this.storage.saveSession(storedSession);
-    this.logger.debug(`[SdkAgentAdapter] Created session storage for ${sessionId}`);
+    this.logger.debug(
+      `[SdkAgentAdapter] Created session storage for ${sessionId}`
+    );
 
     // Create abort controller for this session
     const abortController = new AbortController();
@@ -243,34 +318,104 @@ export class SdkAgentAdapter implements IAIProvider {
 
     // Create message queue for streaming input mode
     const messageQueue: SDKUserMessage[] = [];
-    let resolveNext: (() => void) | null = null;
 
     // Store references for closure in generator
     const activeSessions = this.activeSessions;
     const sessionIdStr = sessionId as string;
+    const logger = this.logger;
 
-    // Create async iterable for streaming user messages
+    /**
+     * AsyncIterable for streaming user messages to SDK.
+     *
+     * FIXES APPLIED:
+     * 1. Race condition: Check queue BEFORE waiting (handles messages sent before generator starts)
+     * 2. Queue draining: Process ALL queued messages before waiting again
+     * 3. Abort handling: Listen to abort signal to resolve pending Promise (prevents memory leak)
+     * 4. Timeout: 5-minute timeout on wait to detect stuck sessions
+     */
     const userMessageStream: AsyncIterable<SDKUserMessage> = {
       async *[Symbol.asyncIterator]() {
         while (!abortController.signal.aborted) {
-          // Wait for next message to be queued
-          if (messageQueue.length === 0) {
-            await new Promise<void>((resolve) => {
-              const session = activeSessions.get(sessionIdStr);
-              if (session) {
-                session.resolveNext = resolve;
-              }
-            });
+          // DRAIN ALL QUEUED MESSAGES before waiting
+          // This fixes: "only one message per wake" bug
+          while (messageQueue.length > 0) {
+            const message = messageQueue.shift();
+            if (message) {
+              logger.debug(
+                `[SdkAgentAdapter] Yielding message from queue (${messageQueue.length} remaining)`
+              );
+              yield message;
+            }
+
+            // Check abort between messages
+            if (abortController.signal.aborted) return;
           }
 
-          // Check abort again after waking up
-          if (abortController.signal.aborted) break;
+          // Queue is empty - wait for next message
+          // FIXES: Race condition by checking queue first, abort signal handling
+          const waitResult = await new Promise<
+            'message' | 'aborted' | 'timeout'
+          >((resolve) => {
+            // Set up abort listener BEFORE setting resolveNext
+            // This prevents the race where abort happens after resolveNext is set
+            const abortHandler = () => {
+              resolve('aborted');
+            };
+            abortController.signal.addEventListener('abort', abortHandler, {
+              once: true,
+            });
 
-          const message = messageQueue.shift();
-          if (!message) continue; // Handle spurious wakeups
+            // Timeout after 5 minutes to detect stuck sessions
+            const timeoutId = setTimeout(() => {
+              logger.warn(
+                `[SdkAgentAdapter] Message wait timeout after 5 minutes`
+              );
+              resolve('timeout');
+            }, 5 * 60 * 1000);
 
-          yield message;
+            // Check if messages arrived while we were setting up
+            if (messageQueue.length > 0) {
+              clearTimeout(timeoutId);
+              abortController.signal.removeEventListener('abort', abortHandler);
+              resolve('message');
+              return;
+            }
+
+            // Set resolveNext - sendMessageToSession will call this
+            const session = activeSessions.get(sessionIdStr);
+            if (session) {
+              session.resolveNext = () => {
+                clearTimeout(timeoutId);
+                abortController.signal.removeEventListener(
+                  'abort',
+                  abortHandler
+                );
+                resolve('message');
+              };
+            } else {
+              // Session was removed - exit
+              clearTimeout(timeoutId);
+              abortController.signal.removeEventListener('abort', abortHandler);
+              resolve('aborted');
+            }
+          });
+
+          // Handle wait result
+          if (waitResult === 'aborted') {
+            logger.info(`[SdkAgentAdapter] Message stream aborted`);
+            return;
+          }
+
+          if (waitResult === 'timeout') {
+            // Continue loop - will wait again if queue still empty
+            // This allows the session to stay alive for long-running tasks
+            continue;
+          }
+
+          // waitResult === 'message' - loop will drain queue on next iteration
         }
+
+        logger.info(`[SdkAgentAdapter] Message stream ended (abort signal)`);
       },
     };
 
@@ -282,7 +427,9 @@ export class SdkAgentAdapter implements IAIProvider {
         cwd: config?.projectPath || process.cwd(),
         model: config?.model || 'claude-sonnet-4.5-20250929',
         // Note: temperature is not supported in SDK Options type
-        maxTurns: config?.maxTokens ? Math.floor(config.maxTokens / 1000) : undefined,
+        maxTurns: config?.maxTokens
+          ? Math.floor(config.maxTokens / 1000)
+          : undefined,
         systemPrompt: config?.systemPrompt
           ? {
               type: 'preset' as const,
@@ -307,13 +454,16 @@ export class SdkAgentAdapter implements IAIProvider {
     });
 
     // Track active session
+    // Note: resolveNext starts as null, will be set by generator when waiting
+    const initialModel = config?.model || 'claude-sonnet-4.5-20250929';
     const activeSession: ActiveSession = {
       sessionId,
       query: sdkQuery,
       config: config || {},
       abortController,
       messageQueue,
-      resolveNext,
+      resolveNext: null,
+      currentModel: initialModel,
     };
     this.activeSessions.set(sessionId as string, activeSession);
 
@@ -334,31 +484,58 @@ export class SdkAgentAdapter implements IAIProvider {
 
               // Extract parent_tool_use_id from SDK message (if available)
               const parentToolUseId =
-                'parent_tool_use_id' in sdkMessage ? sdkMessage.parent_tool_use_id : null;
+                'parent_tool_use_id' in sdkMessage
+                  ? sdkMessage.parent_tool_use_id
+                  : null;
+
+              // Get current model from session (may have changed via setSessionModel)
+              const currentSession = activeSessions.get(sessionIdStr);
+              const currentModel =
+                currentSession?.currentModel ||
+                config?.model ||
+                'claude-sonnet-4.5-20250929';
 
               // Create stored message from ExecutionNode
               const storedMessage: StoredSessionMessage = {
                 id: messageId,
-                parentId: parentToolUseId ? MessageId.from(parentToolUseId) : null,
+                parentId: parentToolUseId
+                  ? MessageId.from(parentToolUseId)
+                  : null,
                 role: getRoleFromSDKMessage(sdkMessage),
                 content: [node],
                 timestamp: Date.now(),
-                model: config?.model || 'claude-sonnet-4.5-20250929',
+                model: currentModel,
                 tokens: node.tokenUsage,
-                // Note: ExecutionNode doesn't have cost field - calculate if needed
-                // cost: node.tokenUsage ? calculateCost(node.tokenUsage, model) : undefined,
               };
 
-              // Save to storage
-              await self.storage.addMessage(sessionId, storedMessage);
+              // Save to storage - log errors but don't block UI
+              // FIX: Previously silent failure - now logs warning
+              try {
+                await self.storage.addMessage(sessionId, storedMessage);
+              } catch (storageError) {
+                const errObj =
+                  storageError instanceof Error
+                    ? storageError
+                    : new Error(String(storageError));
+                self.logger.warn(
+                  `[SdkAgentAdapter] Failed to store message ${messageId}, continuing anyway`,
+                  errObj
+                );
+                // Continue - don't block UI just because storage failed
+                // TODO: Consider emitting storage error event to UI
+              }
 
               // Yield ExecutionNode for UI consumption
               yield node;
             }
           }
         } catch (error) {
-          const errorObj = error instanceof Error ? error : new Error(String(error));
-          self.logger.error(`[SdkAgentAdapter] Session ${sessionId} error`, errorObj);
+          const errorObj =
+            error instanceof Error ? error : new Error(String(error));
+          self.logger.error(
+            `[SdkAgentAdapter] Session ${sessionId} error`,
+            errorObj
+          );
           throw error;
         } finally {
           // Cleanup session on completion
@@ -386,7 +563,10 @@ export class SdkAgentAdapter implements IAIProvider {
     // Abort the session
     session.abortController.abort();
     session.query.interrupt().catch((err) => {
-      this.logger.warn(`[SdkAgentAdapter] Failed to interrupt session ${sessionId}`, err);
+      this.logger.warn(
+        `[SdkAgentAdapter] Failed to interrupt session ${sessionId}`,
+        err
+      );
     });
 
     this.activeSessions.delete(sessionId as string);
@@ -407,10 +587,13 @@ export class SdkAgentAdapter implements IAIProvider {
       throw new Error(`Session not found: ${sessionId}`);
     }
 
-    this.logger.info(`[SdkAgentAdapter] Sending message to session: ${sessionId}`, {
-      contentLength: content.length,
-      options,
-    });
+    this.logger.info(
+      `[SdkAgentAdapter] Sending message to session: ${sessionId}`,
+      {
+        contentLength: content.length,
+        options,
+      }
+    );
 
     // Generate message ID
     const messageId = MessageId.create();
@@ -444,7 +627,7 @@ export class SdkAgentAdapter implements IAIProvider {
         },
       ],
       timestamp: Date.now(),
-      model: session.config.model || 'claude-sonnet-4.5-20250929',
+      model: session.currentModel,
     };
 
     // Store for UI history
@@ -459,7 +642,9 @@ export class SdkAgentAdapter implements IAIProvider {
       session.resolveNext = null;
     }
 
-    this.logger.info(`[SdkAgentAdapter] Queued message for session: ${sessionId}`);
+    this.logger.info(
+      `[SdkAgentAdapter] Queued message for session: ${sessionId}`
+    );
   }
 
   /**
@@ -472,8 +657,18 @@ export class SdkAgentAdapter implements IAIProvider {
       throw new Error(`Session ${sessionId} not found or not active`);
     }
 
-    await session.query.interrupt();
-    this.logger.info(`[SdkAgentAdapter] Interrupted session: ${sessionId}`);
+    try {
+      await session.query.interrupt();
+      this.logger.info(`[SdkAgentAdapter] Interrupted session: ${sessionId}`);
+    } catch (error) {
+      const errorObj =
+        error instanceof Error ? error : new Error(String(error));
+      this.logger.error(
+        `[SdkAgentAdapter] Failed to interrupt session ${sessionId}`,
+        errorObj
+      );
+      throw errorObj;
+    }
   }
 
   /**
@@ -486,8 +681,22 @@ export class SdkAgentAdapter implements IAIProvider {
       throw new Error(`Session ${sessionId} not found or not active`);
     }
 
-    await session.query.setModel(model);
-    this.logger.info(`[SdkAgentAdapter] Changed model to ${model} for session: ${sessionId}`);
+    try {
+      await session.query.setModel(model);
+      // FIX: Sync model so storage uses correct model
+      session.currentModel = model;
+      this.logger.info(
+        `[SdkAgentAdapter] Changed model to ${model} for session: ${sessionId}`
+      );
+    } catch (error) {
+      const errorObj =
+        error instanceof Error ? error : new Error(String(error));
+      this.logger.error(
+        `[SdkAgentAdapter] Failed to set model for session ${sessionId}`,
+        errorObj
+      );
+      throw errorObj;
+    }
   }
 
   /**
@@ -503,8 +712,20 @@ export class SdkAgentAdapter implements IAIProvider {
       throw new Error(`Session ${sessionId} not found or not active`);
     }
 
-    await session.query.setPermissionMode(mode);
-    this.logger.info(`[SdkAgentAdapter] Changed permission mode to ${mode} for session: ${sessionId}`);
+    try {
+      await session.query.setPermissionMode(mode);
+      this.logger.info(
+        `[SdkAgentAdapter] Changed permission mode to ${mode} for session: ${sessionId}`
+      );
+    } catch (error) {
+      const errorObj =
+        error instanceof Error ? error : new Error(String(error));
+      this.logger.error(
+        `[SdkAgentAdapter] Failed to set permission mode for session ${sessionId}`,
+        errorObj
+      );
+      throw errorObj;
+    }
   }
 
   /**

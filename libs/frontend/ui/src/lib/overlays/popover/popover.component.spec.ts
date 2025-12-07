@@ -17,7 +17,8 @@ import { FocusTrapFactory } from '@angular/cdk/a11y';
       [backdropClass]="backdropClass()"
       (opened)="onOpened()"
       (closed)="onClosed()"
-      (backdropClicked)="onBackdropClicked()">
+      (backdropClicked)="onBackdropClicked()"
+    >
       <button trigger id="trigger-btn">Open Popover</button>
       <div content class="popover-content">
         <button id="first-btn">First Button</button>
@@ -186,7 +187,9 @@ describe('PopoverComponent', () => {
       await fixture.whenStable();
 
       const backdrop = document.querySelector('.cdk-overlay-backdrop');
-      expect(backdrop?.classList.contains('cdk-overlay-transparent-backdrop')).toBe(true);
+      expect(
+        backdrop?.classList.contains('cdk-overlay-transparent-backdrop')
+      ).toBe(true);
     });
 
     it('should apply dark backdrop class when specified', async () => {
@@ -196,7 +199,9 @@ describe('PopoverComponent', () => {
       await fixture.whenStable();
 
       const backdrop = document.querySelector('.cdk-overlay-backdrop');
-      expect(backdrop?.classList.contains('cdk-overlay-dark-backdrop')).toBe(true);
+      expect(backdrop?.classList.contains('cdk-overlay-dark-backdrop')).toBe(
+        true
+      );
     });
   });
 
@@ -209,7 +214,9 @@ describe('PopoverComponent', () => {
       expect(hostComponent.closedCount).toBe(0);
 
       // Find popover panel and dispatch Escape key event
-      const popoverPanel = document.querySelector('.popover-panel') as HTMLElement;
+      const popoverPanel = document.querySelector(
+        '.popover-panel'
+      ) as HTMLElement;
       expect(popoverPanel).toBeTruthy();
 
       const escapeEvent = new KeyboardEvent('keydown', { key: 'Escape' });

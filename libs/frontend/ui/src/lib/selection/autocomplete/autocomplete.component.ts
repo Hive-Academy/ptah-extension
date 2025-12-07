@@ -60,60 +60,62 @@ import { AUTOCOMPLETE_POSITIONS } from '../../overlays/shared/overlay-positions'
       [cdkConnectedOverlayOrigin]="inputOrigin"
       [cdkConnectedOverlayOpen]="isOpen()"
       [cdkConnectedOverlayPositions]="autocompletePositions"
-      [cdkConnectedOverlayWidth]="inputOrigin.elementRef.nativeElement.offsetWidth"
-      cdkConnectedOverlayPush>
+      [cdkConnectedOverlayWidth]="
+        inputOrigin.elementRef.nativeElement.offsetWidth
+      "
+      cdkConnectedOverlayPush
+    >
       <div
         class="suggestions-panel bg-base-200 border border-base-300 rounded-lg shadow-lg max-h-80 flex flex-col"
         role="listbox"
-        [attr.aria-label]="ariaLabel()">
+        [attr.aria-label]="ariaLabel()"
+      >
         <!-- Header -->
         @if (headerTitle()) {
-          <div class="px-3 py-2 border-b border-base-300">
-            <span
-              class="text-xs font-semibold text-base-content/70 uppercase tracking-wide">
-              {{ headerTitle() }}
-            </span>
-          </div>
+        <div class="px-3 py-2 border-b border-base-300">
+          <span
+            class="text-xs font-semibold text-base-content/70 uppercase tracking-wide"
+          >
+            {{ headerTitle() }}
+          </span>
+        </div>
         }
 
         <!-- Loading State -->
         @if (isLoading()) {
-          <div class="flex items-center justify-center gap-3 p-4">
-            <span class="loading loading-spinner loading-sm"></span>
-            <span class="text-sm text-base-content/70">Loading...</span>
-          </div>
+        <div class="flex items-center justify-center gap-3 p-4">
+          <span class="loading loading-spinner loading-sm"></span>
+          <span class="text-sm text-base-content/70">Loading...</span>
+        </div>
         }
 
         <!-- Empty State -->
         @else if (suggestions().length === 0) {
-          <div class="flex items-center justify-center p-4">
-            <span class="text-sm text-base-content/60">{{
-              emptyMessage()
-            }}</span>
-          </div>
+        <div class="flex items-center justify-center p-4">
+          <span class="text-sm text-base-content/60">{{ emptyMessage() }}</span>
+        </div>
         }
 
         <!-- Suggestions List -->
         @else {
-          <div class="flex flex-col overflow-y-auto overflow-x-hidden p-1">
-            @for (
-              suggestion of suggestions();
-              track trackBy()($index, suggestion);
-              let i = $index
-            ) {
-              <ptah-option
-                [optionId]="'suggestion-' + i"
-                [value]="suggestion"
-                (selected)="handleSelection($event)"
-                (hovered)="handleHover(i)">
-                <ng-container
-                  *ngTemplateOutlet="
-                    suggestionTemplate();
-                    context: { $implicit: suggestion }
-                  " />
-              </ptah-option>
-            }
-          </div>
+        <div class="flex flex-col overflow-y-auto overflow-x-hidden p-1">
+          @for ( suggestion of suggestions(); track trackBy()($index,
+          suggestion); let i = $index ) {
+          <ptah-option
+            [optionId]="'suggestion-' + i"
+            [value]="suggestion"
+            (selected)="handleSelection($event)"
+            (hovered)="handleHover(i)"
+          >
+            <ng-container
+              *ngTemplateOutlet="
+                suggestionTemplate();
+                context: { $implicit: suggestion }
+              "
+            />
+          </ptah-option>
+          }
+        </div>
         }
       </div>
     </ng-template>
@@ -213,9 +215,11 @@ export class AutocompleteComponent<T = unknown>
     this.updateActiveOptionId();
 
     // Subscribe to active item changes (auto-unsubscribes on component destroy)
-    this.keyManager.change.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
-      this.updateActiveOptionId();
-    });
+    this.keyManager.change
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        this.updateActiveOptionId();
+      });
   }
 
   /**

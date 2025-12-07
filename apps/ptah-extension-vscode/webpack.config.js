@@ -57,10 +57,6 @@ module.exports = {
         __dirname,
         '../../libs/backend/vscode-core/src'
       ),
-      '@ptah-extension/claude-domain': path.resolve(
-        __dirname,
-        '../../libs/backend/claude-domain/src'
-      ),
       '@ptah-extension/workspace-intelligence': path.resolve(
         __dirname,
         '../../libs/backend/workspace-intelligence/src'

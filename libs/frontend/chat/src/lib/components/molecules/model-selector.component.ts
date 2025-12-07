@@ -10,7 +10,12 @@
  * Keyboard Navigation: Handled by lib-option components (ArrowUp/Down/Enter/Escape)
  */
 
-import { Component, inject, signal, ChangeDetectionStrategy } from '@angular/core';
+import {
+  Component,
+  inject,
+  signal,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { LucideAngularModule, ChevronDown, Check } from 'lucide-angular';
 import {
   ModelStateService,
@@ -26,14 +31,15 @@ import { DropdownComponent, OptionComponent } from '@ptah-extension/ui';
       [isOpen]="isOpen()"
       [closeOnBackdropClick]="true"
       (closed)="closeDropdown()"
-      (backdropClicked)="closeDropdown()">
-
+      (backdropClicked)="closeDropdown()"
+    >
       <button
         trigger
         class="btn btn-ghost btn-sm gap-1 font-normal"
         type="button"
         (click)="toggleDropdown()"
-        [disabled]="modelState.isPending()">
+        [disabled]="modelState.isPending()"
+      >
         @if (modelState.isPending()) {
         <span class="loading loading-spinner loading-xs"></span>
         }
@@ -47,18 +53,23 @@ import { DropdownComponent, OptionComponent } from '@ptah-extension/ui';
         <!-- Header -->
         <div class="px-3 py-2 border-b border-base-300">
           <span
-            class="text-xs font-semibold text-base-content/70 uppercase tracking-wide">
+            class="text-xs font-semibold text-base-content/70 uppercase tracking-wide"
+          >
             Select Model
           </span>
         </div>
 
         <!-- Model List -->
-        <div class="flex flex-col overflow-y-auto overflow-x-hidden max-h-64 p-1">
-          @for (model of modelState.availableModels(); track model.id; let i = $index) {
+        <div
+          class="flex flex-col overflow-y-auto overflow-x-hidden max-h-64 p-1"
+        >
+          @for (model of modelState.availableModels(); track model.id; let i =
+          $index) {
           <ptah-option
             [optionId]="'model-' + i"
             [value]="model"
-            (selected)="selectModel($event.id)">
+            (selected)="selectModel($event.id)"
+          >
             <div class="flex items-start gap-3 py-0.5">
               <!-- Checkmark for selected -->
               <div class="w-4 h-4 mt-0.5 flex-shrink-0">

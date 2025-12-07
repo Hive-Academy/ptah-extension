@@ -59,7 +59,8 @@ export async function executePtahHelpTool(
 
       // Find matching lines (case-insensitive)
       const queryLower = query.toLowerCase();
-      const matches: Array<{ line: number; content: string; context: string }> = [];
+      const matches: Array<{ line: number; content: string; context: string }> =
+        [];
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
@@ -98,7 +99,10 @@ export async function executePtahHelpTool(
     }
 
     // Build formatted response
-    let responseText = `Found ${results.reduce((sum, r) => sum + r.excerpts.length, 0)} match(es) in ${results.length} file(s):\n\n`;
+    let responseText = `Found ${results.reduce(
+      (sum, r) => sum + r.excerpts.length,
+      0
+    )} match(es) in ${results.length} file(s):\n\n`;
 
     for (const result of results) {
       responseText += `## ${result.file}\n\n`;
@@ -109,7 +113,9 @@ export async function executePtahHelpTool(
       }
 
       if (result.excerpts.length > 3) {
-        responseText += `... and ${result.excerpts.length - 3} more match(es)\n\n`;
+        responseText += `... and ${
+          result.excerpts.length - 3
+        } more match(es)\n\n`;
       }
     }
 
@@ -126,7 +132,9 @@ export async function executePtahHelpTool(
       content: [
         {
           type: 'text',
-          text: `Error searching documentation: ${error instanceof Error ? error.message : String(error)}`,
+          text: `Error searching documentation: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
         },
       ],
       isError: true,

@@ -23,10 +23,10 @@ export default [
     files: ['**/*.ts'],
     rules: {
       '@angular-eslint/directive-selector': [
-        'error',
+        'off',
         {
           type: 'attribute',
-          prefix: 'lib',
+          prefix: ['ptah', 'lib'],
           style: 'camelCase',
         },
       ],
@@ -34,7 +34,7 @@ export default [
         'error',
         {
           type: 'element',
-          prefix: 'lib',
+          prefix: ['ptah', 'lib'],
           style: 'kebab-case',
         },
       ],

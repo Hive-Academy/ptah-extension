@@ -1,4 +1,5 @@
 import { Injectable, signal } from '@angular/core';
+import { ExecutionNode } from '@ptah-extension/shared';
 
 /**
  * Webview Configuration
@@ -169,11 +170,11 @@ export class VSCodeService {
         }
       }
 
-      // Route chat:chunk messages to ChatStore (TASK_2025_023)
+      // Route chat:chunk messages to ChatStore (SDK path only)
       if (message.type === 'chat:chunk') {
         if (message.payload && this.chatStore) {
-          const { sessionId, message: jsonlMessage } = message.payload;
-          this.chatStore.processJsonlChunk(jsonlMessage, sessionId);
+          const { sessionId, message: node } = message.payload;
+          this.chatStore.processExecutionNode(node as ExecutionNode, sessionId);
         } else if (!message.payload) {
           console.warn(
             '[VSCodeService] chat:chunk received but payload is undefined!'

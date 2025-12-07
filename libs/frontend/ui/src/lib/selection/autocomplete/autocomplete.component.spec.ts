@@ -23,7 +23,8 @@ interface TestSuggestion {
       [trackBy]="trackByFn"
       [suggestionTemplate]="suggestionTemplate"
       (suggestionSelected)="onSuggestionSelected($event)"
-      (closed)="onClosed()">
+      (closed)="onClosed()"
+    >
       <input type="text" autocompleteInput #input />
     </lib-autocomplete>
 
@@ -132,8 +133,9 @@ describe('AutocompleteComponent', () => {
 
       // Give CDK time to render overlay
       setTimeout(() => {
-        const overlayContainer =
-          document.querySelector('.cdk-overlay-container');
+        const overlayContainer = document.querySelector(
+          '.cdk-overlay-container'
+        );
         expect(overlayContainer).toBeTruthy();
 
         const suggestionsPanel =

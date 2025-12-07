@@ -31,10 +31,11 @@ import {
   StatusBarManager,
   FileSystemManager,
   RpcHandler,
-  RpcMethodRegistrationService,
-  SessionDiscoveryService,
   AgentSessionWatcherService,
 } from '@ptah-extension/vscode-core';
+
+// Import app-level RPC service (moved from vscode-core to break circular dependency)
+import { RpcMethodRegistrationService } from '../services/rpc-method-registration.service';
 
 // Import workspace-intelligence services
 import {
@@ -73,19 +74,6 @@ import {
 // Import agent-sdk services (TASK_2025_044 Batch 3)
 import { registerSdkServices } from '@ptah-extension/agent-sdk';
 import { SdkRpcHandlers } from '@ptah-extension/vscode-core';
-
-// Import claude-domain services
-import {
-  ClaudeCliDetector,
-  ProcessManager,
-  ClaudeCliService,
-  MCPConfigManagerService,
-  ClaudeProcess,
-  PricingService,
-  // DELETED in TASK_2025_023 purge: SessionManager, InteractiveSessionManager, ClaudeCliLauncher
-  // DELETED: PermissionService, InMemoryPermissionRulesStore (over-engineered, unused)
-  // DELETED in TASK_2025_025: MCPRegistrationService (replaced by MCPConfigManagerService)
-} from '@ptah-extension/claude-domain';
 
 // Import webview support services
 import { WebviewEventQueue } from '../services/webview-event-queue';
@@ -141,23 +129,11 @@ export class DIContainer {
       RpcMethodRegistrationService
     );
 
-    // Session Discovery Service (extracted from RpcMethodRegistrationService)
-    container.registerSingleton(
-      TOKENS.SESSION_DISCOVERY_SERVICE,
-      SessionDiscoveryService
-    );
-
     // Agent Session Watcher (real-time summary streaming during agent execution)
     container.registerSingleton(
       TOKENS.AGENT_SESSION_WATCHER_SERVICE,
       AgentSessionWatcherService
     );
-
-    // ClaudeProcess factory (Batch 4 - TASK_2025_023)
-    container.register('ClaudeProcessFactory', {
-      useValue: (cliPath: string, workspacePath: string) =>
-        new ClaudeProcess(cliPath, workspacePath),
-    });
 
     // ========================================
     // PHASE 2: Workspace Intelligence Services
@@ -298,23 +274,6 @@ export class DIContainer {
 
     // NOTE: CONFIGURATION_PROVIDER is NOW registered during Phase 1 (line 121)
     // It was moved from main.ts to fix dependency injection order issues.
-
-    // Core domain services
-    container.registerSingleton(TOKENS.CLAUDE_CLI_DETECTOR, ClaudeCliDetector);
-    container.registerSingleton(TOKENS.PROCESS_MANAGER, ProcessManager);
-    container.registerSingleton(TOKENS.CLAUDE_CLI_SERVICE, ClaudeCliService);
-    container.registerSingleton(
-      TOKENS.MCP_CONFIG_MANAGER_SERVICE,
-      MCPConfigManagerService
-    );
-
-    // Pricing service (fetches pricing from LiteLLM, caches in globalState)
-    container.registerSingleton(TOKENS.PRICING_SERVICE, PricingService);
-
-    // Session management - DELETED in TASK_2025_023 purge + cleanup
-    // SessionManager, InteractiveSessionManager, ClaudeCliLauncher removed
-    // New pattern: ClaudeProcess handles sessions directly via CLI --session-id flag
-    // Process lifecycle: ProcessManager tracks active processes by SessionId
 
     // ========================================
     // PHASE 4: Main App Services

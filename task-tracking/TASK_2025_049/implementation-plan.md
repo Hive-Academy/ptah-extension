@@ -17,6 +17,7 @@
 **File**: `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts`
 
 **Problem 1: Multi-Turn Broken** (Lines 224-254):
+
 ```typescript
 const sdkQuery = query({
   prompt: '', // ❌ Empty string - no conversation possible
@@ -25,16 +26,19 @@ const sdkQuery = query({
 ```
 
 **Problem 2: Role Assignment Bug** (Line 284):
+
 ```typescript
 role: node.type === 'message' ? 'assistant' : 'assistant', // ❌ Always 'assistant'!
 ```
 
 **Problem 3: Custom Parent Tracking** (Line 267):
+
 ```typescript
 let currentParentId: MessageId | null = null; // ❌ SDK provides parent_tool_use_id
 ```
 
 **Problem 4: sendMessageToSession() Stores But Never Sends** (Lines 347-398):
+
 ```typescript
 await this.storage.addMessage(sessionId, userMessage);
 // TODO: Implement streaming input mode for SDK
@@ -42,6 +46,7 @@ await this.storage.addMessage(sessionId, userMessage);
 ```
 
 **Problem 5: SDK Controls Not Exposed**:
+
 - `query.interrupt()` - exists but not exposed to UI
 - `query.setModel()` - exists but not exposed to UI
 - `query.setPermissionMode()` - exists but not exposed to UI
@@ -51,6 +56,7 @@ await this.storage.addMessage(sessionId, userMessage);
 **Source**: `task-tracking/TASK_2025_044/claude-agent-sdk.md`
 
 **Streaming Input Mode** (Lines 20-21):
+
 ```typescript
 function query({
   prompt: string | AsyncIterable<SDKUserMessage>, // ✅ AsyncIterable for multi-turn
@@ -59,6 +65,7 @@ function query({
 ```
 
 **Native Parent Linking** (Lines 405, 419):
+
 ```typescript
 SDKAssistantMessage {
   parent_tool_use_id: string | null; // ✅ SDK's native linking
@@ -70,11 +77,12 @@ SDKUserMessage {
 ```
 
 **Dynamic Controls** (Lines 117-121):
+
 ```typescript
 interface Query extends AsyncGenerator<SDKMessage, void> {
-  interrupt(): Promise<void>;           // ✅ Stop agent mid-execution
-  setPermissionMode(): Promise<void>;   // ✅ Change autopilot mode
-  setModel(): Promise<void>;            // ✅ Switch Claude model
+  interrupt(): Promise<void>; // ✅ Stop agent mid-execution
+  setPermissionMode(): Promise<void>; // ✅ Change autopilot mode
+  setModel(): Promise<void>; // ✅ Switch Claude model
 }
 ```
 
@@ -186,11 +194,13 @@ async sendMessageToSession(sessionId, content, options) {
 ```
 
 **Quality Requirements**:
+
 - **Functional**: User sends message → SDK receives it within 100ms
 - **Non-Functional**: Generator cleanup on session end (no memory leaks)
 - **Pattern Compliance**: Matches SDK AsyncIterable pattern (claude-agent-sdk.md:20-21)
 
 **Files Affected**:
+
 - `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts` (MODIFY)
 
 ---
@@ -233,10 +243,12 @@ role: getRoleFromSDKMessage(sdkMessage), // ✅ Type-safe role assignment
 ```
 
 **Quality Requirements**:
+
 - **Functional**: User messages have role='user', assistant messages have role='assistant'
 - **Pattern Compliance**: Matches SDK message types (claude-agent-sdk.md:399-421)
 
 **Files Affected**:
+
 - `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts` (MODIFY)
 
 ---
@@ -260,9 +272,7 @@ currentParentId = messageId; // ❌ Manual assignment
 
 const storedMessage: StoredSessionMessage = {
   id: messageId,
-  parentId: sdkMessage.parent_tool_use_id
-    ? MessageId.from(sdkMessage.parent_tool_use_id)
-    : null, // ✅ SDK's native linking
+  parentId: sdkMessage.parent_tool_use_id ? MessageId.from(sdkMessage.parent_tool_use_id) : null, // ✅ SDK's native linking
   role: getRoleFromSDKMessage(sdkMessage),
   content: [node],
   timestamp: Date.now(),
@@ -272,11 +282,13 @@ const storedMessage: StoredSessionMessage = {
 ```
 
 **Quality Requirements**:
+
 - **Functional**: Message parent-child relationships match SDK's native linking
 - **Code Quality**: Remove 30 lines of custom parent tracking logic
 - **Pattern Compliance**: Uses SDK's parent_tool_use_id (claude-agent-sdk.md:405, 419)
 
 **Files Affected**:
+
 - `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts` (MODIFY)
 
 ---
@@ -332,14 +344,17 @@ async setSessionPermissionMode(
 ```
 
 **Quality Requirements**:
+
 - **Functional**: UI can call interrupt/setModel/setPermissionMode and SDK responds
 - **Error Handling**: Throw clear errors if session not found or not in streaming mode
 - **Pattern Compliance**: Uses SDK Query methods (claude-agent-sdk.md:117-121)
 
 **Files Affected**:
+
 - `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts` (MODIFY)
 
 **Integration Points**:
+
 - Frontend will need to call these methods via RPC (out of scope for this task)
 - Methods are exposed via IAIProvider interface extension (optional - can add later)
 
@@ -362,12 +377,14 @@ async setSessionPermissionMode(
 **Description**: Change line 284 from `'assistant' : 'assistant'` to correct role logic.
 
 **Steps**:
+
 1. Open `sdk-agent-adapter.ts`
 2. Find line 284
 3. Change to: `role: sdkMessage.type === 'user' ? 'user' : 'assistant'`
 4. Test: Create session, send user message, verify role='user' in storage
 
 **Verification**:
+
 - User message has role='user' ✅
 - Assistant message has role='assistant' ✅
 
@@ -378,6 +395,7 @@ async setSessionPermissionMode(
 **Description**: Replace string prompt with AsyncIterable message generator.
 
 **Steps**:
+
 1. Update `ActiveSession` interface (add messageQueue, resolveNext)
 2. Create `userMessageStream` AsyncIterable generator in `startChatSession()`
 3. Pass generator to `query({ prompt: userMessageStream })`
@@ -385,6 +403,7 @@ async setSessionPermissionMode(
 5. Test: Send 3 messages in conversation, verify all received by SDK
 
 **Verification**:
+
 - User sends message 1 → SDK processes ✅
 - User sends message 2 → SDK processes (multi-turn works!) ✅
 - Generator cleans up on session end (no memory leak) ✅
@@ -396,12 +415,14 @@ async setSessionPermissionMode(
 **Description**: Remove custom parent tracking, use `parent_tool_use_id`.
 
 **Steps**:
+
 1. Delete `currentParentId` variable (line 267)
 2. Delete custom parent tracking logic (lines 267-297)
 3. Change line 283 to: `parentId: sdkMessage.parent_tool_use_id ? MessageId.from(sdkMessage.parent_tool_use_id) : null`
 4. Test: Verify message parent-child relationships in UI tree
 
 **Verification**:
+
 - Message parent links match SDK's `parent_tool_use_id` ✅
 - 30 lines of code removed ✅
 
@@ -412,12 +433,14 @@ async setSessionPermissionMode(
 **Description**: Add interrupt/setModel/setPermissionMode methods to adapter.
 
 **Steps**:
+
 1. Add `interruptSession()` method (after line 413)
 2. Add `setSessionModel()` method
 3. Add `setSessionPermissionMode()` method
 4. Test: Call each method, verify SDK responds
 
 **Verification**:
+
 - `interruptSession()` stops agent within 500ms ✅
 - `setSessionModel()` changes model for next message ✅
 - `setSessionPermissionMode()` updates permission mode ✅
@@ -431,11 +454,13 @@ async setSessionPermissionMode(
 **File**: `libs/backend/agent-sdk/src/lib/sdk-message-transformer.ts`
 
 **Steps**:
+
 1. Review transformer (already extracts `parent_tool_use_id`)
 2. No changes needed - transformer already correct!
 3. Verify: parent_tool_use_id flows through to ExecutionNode
 
 **Verification**:
+
 - Transformer extracts `parent_tool_use_id` from SDK messages ✅
 - No code changes required (already correct) ✅
 
@@ -448,6 +473,7 @@ async setSessionPermissionMode(
 **Probability**: High
 **Impact**: Medium
 **Mitigation**:
+
 - Reference SDK examples (claude-agent-sdk.md has AsyncIterable usage patterns)
 - Use simple generator pattern (no complex queue logic)
 - Test with 3-message conversation before multi-turn stress test
@@ -457,6 +483,7 @@ async setSessionPermissionMode(
 **Probability**: Medium
 **Impact**: High
 **Mitigation**:
+
 - Implement cleanup in `finally` block of generator
 - Use `abortController.signal.aborted` check in iterator loop
 - Add timeout to `resolveNext` promise (fallback to null message)
@@ -466,6 +493,7 @@ async setSessionPermissionMode(
 **Probability**: High
 **Impact**: Low
 **Mitigation**:
+
 - Acceptable for beta - existing sessions created with string mode cannot resume
 - Document in changelog: "Multi-turn conversation now works - old sessions incompatible"
 
@@ -474,6 +502,7 @@ async setSessionPermissionMode(
 **Probability**: Low
 **Impact**: Medium
 **Mitigation**:
+
 - Test against real SDK (not mocks)
 - Check SDK GitHub issues for AsyncIterable edge cases
 - Contact Anthropic support if unexpected behavior
@@ -489,23 +518,27 @@ Testing is handled by senior-tester after implementation.
 ### Manual Testing Checklist
 
 **Multi-Turn Conversation**:
+
 1. Start session, send "What is 2+2?"
 2. Send follow-up: "What about 3+3?"
 3. Verify both messages processed by SDK
 4. Check UI shows 2 user messages + 2 assistant responses
 
 **Role Assignment**:
+
 1. Send user message
 2. Verify `role='user'` in storage
 3. Receive assistant message
 4. Verify `role='assistant'` in storage
 
 **Parent Linking**:
+
 1. Send message that triggers tool use
 2. Verify tool_use node has `parent_tool_use_id`
 3. Verify UI tree shows correct parent-child relationship
 
 **SDK Controls**:
+
 1. Start long-running task
 2. Click interrupt button → verify agent stops
 3. Change model dropdown → verify next message uses new model
@@ -520,6 +553,7 @@ Testing is handled by senior-tester after implementation.
 **Recommended Developer**: backend-developer
 
 **Rationale**:
+
 - Pure TypeScript backend work (NestJS patterns, dependency injection)
 - No UI changes required (ExecutionNode format preserved)
 - SDK integration knowledge required
@@ -531,6 +565,7 @@ Testing is handled by senior-tester after implementation.
 **Estimated Effort**: 4-6 hours
 
 **Breakdown**:
+
 - Task 1 (Role fix): 5 minutes
 - Task 2 (Streaming input): 2-3 hours
 - Task 3 (Parent linking): 1 hour
@@ -541,9 +576,11 @@ Testing is handled by senior-tester after implementation.
 ### Files Affected Summary
 
 **MODIFY**:
+
 - `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts` (primary file - all 4 fixes)
 
 **READ-ONLY** (verification):
+
 - `libs/backend/agent-sdk/src/lib/sdk-message-transformer.ts` (confirm parent_tool_use_id extracted)
 - `task-tracking/TASK_2025_044/claude-agent-sdk.md` (SDK reference)
 
@@ -552,14 +589,17 @@ Testing is handled by senior-tester after implementation.
 **Before Implementation, Backend Developer Must Verify**:
 
 1. **SDK imports work**:
+
    - `import type { SDKUserMessage, Query } from '@anthropic-ai/claude-agent-sdk' with { 'resolution-mode': 'import' };`
    - Verified: claude-agent-sdk.md (ESM module in CommonJS context)
 
 2. **AsyncIterable pattern matches SDK**:
+
    - Reference: claude-agent-sdk.md:20-21
    - Pattern: `async *[Symbol.asyncIterator]() { yield message; }`
 
 3. **SDK Query methods exist**:
+
    - `query.interrupt()` - claude-agent-sdk.md:118
    - `query.setModel()` - claude-agent-sdk.md:120
    - `query.setPermissionMode()` - claude-agent-sdk.md:119
@@ -610,6 +650,7 @@ Testing is handled by senior-tester after implementation.
 ### Why Minimal Approach?
 
 We're NOT rewriting the entire SDK integration. We're fixing 5 specific bugs:
+
 1. String prompt → AsyncIterable (multi-turn fix)
 2. Role assignment logic error (1-line fix)
 3. Custom parent tracking → SDK's native field (delete custom code)

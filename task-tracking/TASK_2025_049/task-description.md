@@ -9,6 +9,7 @@ The Ptah extension implemented `libs/backend/agent-sdk` to integrate the officia
 **Root Cause**: The implementation **incorrectly mapped our backend ExecutionNode tree architecture onto the SDK** rather than understanding and using the SDK's native message model and session management.
 
 **Business Impact**:
+
 - Multi-turn conversation is completely broken (users can only send one message per session)
 - Message parent-child relationships use custom logic instead of SDK's native `parent_tool_use_id`
 - SDK's streaming input mode (AsyncIterable) is not used, preventing continuous conversation
@@ -17,6 +18,7 @@ The Ptah extension implemented `libs/backend/agent-sdk` to integrate the officia
 ### Value Proposition
 
 Fix critical SDK integration bugs by:
+
 1. Using SDK's native session management (resume, forkSession, continue options)
 2. Using SDK's streaming input mode for multi-turn conversation
 3. Preserving SDK's native parent linking via `parent_tool_use_id`
@@ -43,11 +45,13 @@ function query({
 ```
 
 **String Mode** (currently using - incorrect for multi-turn):
+
 - Single prompt string → SDK runs agent → returns result
 - No way to send additional messages after initial prompt
 - Session ends when result arrives
 
 **Streaming Input Mode** (should be using):
+
 - `AsyncIterable<SDKUserMessage>` → SDK continuously consumes user messages
 - Agent responds to each message
 - Session remains active until iterator completes
@@ -56,6 +60,7 @@ function query({
 #### 2. Session Management (Built into SDK)
 
 SDK provides native session management via Options:
+
 - `resume: string` - Resume existing session by session_id
 - `forkSession: boolean` - Fork to new session_id instead of continuing
 - `continue: boolean` - Continue most recent conversation
@@ -65,6 +70,7 @@ SDK provides native session management via Options:
 #### 3. Message Parent Linking (Native SDK Feature)
 
 Every SDK message has `parent_tool_use_id` field:
+
 ```typescript
 SDKAssistantMessage {
   parent_tool_use_id: string | null;  // SDK's native linking
@@ -81,9 +87,9 @@ SDKUserMessage {
 
 ```typescript
 interface Query extends AsyncGenerator<SDKMessage, void> {
-  interrupt(): Promise<void>;           // Stop agent mid-execution
-  setPermissionMode(): Promise<void>;   // Change autopilot mode
-  setModel(): Promise<void>;            // Switch Claude model
+  interrupt(): Promise<void>; // Stop agent mid-execution
+  setPermissionMode(): Promise<void>; // Change autopilot mode
+  setModel(): Promise<void>; // Switch Claude model
   setMaxThinkingTokens(): Promise<void>; // Adjust thinking budget
 }
 ```
@@ -93,6 +99,7 @@ interface Query extends AsyncGenerator<SDKMessage, void> {
 #### 5. Usage Statistics and Cost Tracking (Automatic)
 
 SDK automatically tracks and reports via SDKResultMessage:
+
 ```typescript
 SDKResultMessage {
   total_cost_usd: number;
@@ -112,6 +119,7 @@ SDKResultMessage {
 ### Gap 1: Multi-Turn Conversation Broken
 
 **Current Code** (sdk-agent-adapter.ts:224-254):
+
 ```typescript
 const sdkQuery = query({
   prompt: '', // ❌ Empty string - no way to send messages!
@@ -120,6 +128,7 @@ const sdkQuery = query({
 ```
 
 **sendMessageToSession()** (lines 347-398):
+
 ```typescript
 async sendMessageToSession(sessionId, content, options) {
   // ❌ Stores message but NEVER sends it to SDK!
@@ -135,9 +144,10 @@ async sendMessageToSession(sessionId, content, options) {
 ### Gap 2: Role Assignment Bug
 
 **Current Code** (sdk-agent-adapter.ts:284):
+
 ```typescript
 const storedMessage: StoredSessionMessage = {
-  role: node.type === 'message' ? 'assistant' : 'assistant',  // ❌ Always 'assistant'!
+  role: node.type === 'message' ? 'assistant' : 'assistant', // ❌ Always 'assistant'!
 };
 ```
 
@@ -153,6 +163,7 @@ const storedMessage: StoredSessionMessage = {
 ### Gap 4: SDK's Native Parent Linking Ignored
 
 **Current Code** (sdk-agent-adapter.ts:267-297):
+
 ```typescript
 let currentParentId: MessageId | null = null;
 // ... custom parent tracking logic
@@ -160,8 +171,9 @@ currentParentId = messageId; // ❌ Manual tracking
 ```
 
 **SDK Provides** (every SDKMessage has `parent_tool_use_id`):
+
 ```typescript
-sdkMessage.parent_tool_use_id // ✅ Native linking
+sdkMessage.parent_tool_use_id; // ✅ Native linking
 ```
 
 **Result**: Duplicate parent tracking, potential correlation bugs, ignoring SDK's built-in feature.
@@ -169,12 +181,14 @@ sdkMessage.parent_tool_use_id // ✅ Native linking
 ### Gap 5: SDK Session Management Not Used
 
 **Current Code**:
+
 - Created SdkSessionStorage (380 lines)
 - Manual session persistence to VS Code state
 - Custom compaction logic
 - In-memory fallback
 
 **SDK Provides**:
+
 - Native session management via `resume`, `forkSession`, `continue` options
 - Automatic session storage (where? needs investigation)
 
@@ -278,6 +292,7 @@ async sendMessageToSession(sessionId, content, options) {
 #### Implementation Approach
 
 **Remove custom parent tracking** (sdk-agent-adapter.ts:267):
+
 ```typescript
 // ❌ DELETE THIS
 let currentParentId: MessageId | null = null;
@@ -286,6 +301,7 @@ currentParentId = messageId;
 ```
 
 **Use SDK's native field**:
+
 ```typescript
 // ✅ Use SDK's parent_tool_use_id
 const nodes = self.transformer.transform(sdkMessage, sessionId);
@@ -295,9 +311,7 @@ for (const node of nodes) {
 
   const storedMessage: StoredSessionMessage = {
     id: messageId,
-    parentId: sdkMessage.parent_tool_use_id
-      ? MessageId.from(sdkMessage.parent_tool_use_id)
-      : null, // ✅ Use SDK's native linking
+    parentId: sdkMessage.parent_tool_use_id ? MessageId.from(sdkMessage.parent_tool_use_id) : null, // ✅ Use SDK's native linking
     role: sdkMessage.type === 'user' ? 'user' : 'assistant',
     content: [node],
     timestamp: Date.now(),
@@ -399,10 +413,7 @@ class SdkAgentAdapter implements IAIProvider {
    * Change permission mode (autopilot toggle)
    * Only available when using streaming input mode
    */
-  async setSessionPermissionMode(
-    sessionId: SessionId,
-    mode: PermissionMode
-  ): Promise<void> {
+  async setSessionPermissionMode(sessionId: SessionId, mode: PermissionMode): Promise<void> {
     const session = this.activeSessions.get(sessionId);
     if (!session) throw new Error('Session not found');
 
@@ -429,12 +440,14 @@ class SdkAgentAdapter implements IAIProvider {
 #### Implementation Approach
 
 **Option A: Minimal Storage (Recommended)**
+
 - Keep SdkSessionStorage only for UI-specific needs (session list, names, favorites)
 - Remove message storage (SDK handles this)
 - Remove token/cost tracking (SDK provides this)
 - Simplify to 50-100 lines (vs current 380 lines)
 
 **Option B: Remove Storage Completely**
+
 - Investigate where SDK stores sessions
 - Use SDK's session management exclusively
 - Add methods to SdkAgentAdapter to query SDK session list
@@ -513,18 +526,18 @@ class SdkSessionStorage {
 
 ### Primary Stakeholders
 
-| Stakeholder | Impact Level | Involvement | Success Criteria |
-|-------------|--------------|-------------|------------------|
-| End Users | High | Testing/Feedback | Multi-turn conversation works, can interrupt/change model |
-| Frontend Team | Medium | API Integration | ExecutionNode format unchanged, new features exposed via IAIProvider |
-| Backend Team | High | Implementation | Code reduced by 30%, SDK features fully utilized |
+| Stakeholder   | Impact Level | Involvement      | Success Criteria                                                     |
+| ------------- | ------------ | ---------------- | -------------------------------------------------------------------- |
+| End Users     | High         | Testing/Feedback | Multi-turn conversation works, can interrupt/change model            |
+| Frontend Team | Medium       | API Integration  | ExecutionNode format unchanged, new features exposed via IAIProvider |
+| Backend Team  | High         | Implementation   | Code reduced by 30%, SDK features fully utilized                     |
 
 ### Secondary Stakeholders
 
-| Stakeholder | Impact Level | Involvement | Success Criteria |
-|-------------|--------------|-------------|------------------|
-| QA Team | Medium | Testing | All multi-turn scenarios pass, no regressions |
-| DevOps | Low | Deployment | No infrastructure changes (SDK is in-process) |
+| Stakeholder | Impact Level | Involvement | Success Criteria                              |
+| ----------- | ------------ | ----------- | --------------------------------------------- |
+| QA Team     | Medium       | Testing     | All multi-turn scenarios pass, no regressions |
+| DevOps      | Low          | Deployment  | No infrastructure changes (SDK is in-process) |
 
 ---
 
@@ -532,19 +545,19 @@ class SdkSessionStorage {
 
 ### Technical Risks
 
-| Risk | Probability | Impact | Score | Mitigation Strategy |
-|------|-------------|--------|-------|---------------------|
-| AsyncIterable complexity | High | Medium | 6 | Reference SDK examples, use generator pattern |
-| Breaking existing sessions | High | Low | 3 | Document migration, acceptable for beta |
-| SDK session storage unclear | Medium | Medium | 4 | Investigate SDK source code, contact Anthropic support |
-| Iterator hang/deadlock | Medium | High | 6 | Implement timeout, cleanup on session end |
+| Risk                        | Probability | Impact | Score | Mitigation Strategy                                    |
+| --------------------------- | ----------- | ------ | ----- | ------------------------------------------------------ |
+| AsyncIterable complexity    | High        | Medium | 6     | Reference SDK examples, use generator pattern          |
+| Breaking existing sessions  | High        | Low    | 3     | Document migration, acceptable for beta                |
+| SDK session storage unclear | Medium      | Medium | 4     | Investigate SDK source code, contact Anthropic support |
+| Iterator hang/deadlock      | Medium      | High   | 6     | Implement timeout, cleanup on session end              |
 
 ### Business Risks
 
-| Risk | Probability | Impact | Score | Mitigation Strategy |
-|------|-------------|--------|-------|---------------------|
-| User confusion from breaking change | Low | Medium | 3 | Clear release notes, migration guide |
-| Feature parity with CLI | Low | Low | 1 | SDK has all CLI features + more |
+| Risk                                | Probability | Impact | Score | Mitigation Strategy                  |
+| ----------------------------------- | ----------- | ------ | ----- | ------------------------------------ |
+| User confusion from breaking change | Low         | Medium | 3     | Clear release notes, migration guide |
+| Feature parity with CLI             | Low         | Low    | 1     | SDK has all CLI features + more      |
 
 ---
 
@@ -601,24 +614,28 @@ class SdkSessionStorage {
 ## Implementation Phases
 
 ### Phase 1: Core Multi-Turn Fix
+
 1. Implement AsyncIterable<SDKUserMessage> generator
 2. Update sendMessageToSession() to queue messages
 3. Fix role assignment bug
 4. Test basic multi-turn conversation (3-5 messages)
 
 ### Phase 2: Native Parent Linking
+
 1. Remove custom parent tracking from sdk-agent-adapter.ts
 2. Update transformer to preserve `parent_tool_use_id`
 3. Update storage to use SDK's native field
 4. Test parent-child relationships in UI tree
 
 ### Phase 3: SDK Feature Exposure
+
 1. Add interruptSession() method
 2. Add setSessionModel() method
 3. Add setSessionPermissionMode() method
 4. Integrate with frontend UI controls
 
 ### Phase 4: Storage Simplification
+
 1. Remove message storage from SdkSessionStorage
 2. Remove token/cost tracking
 3. Simplify to UI metadata only

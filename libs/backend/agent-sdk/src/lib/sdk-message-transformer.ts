@@ -5,13 +5,6 @@
  * tree structure required by the Ptah UI layer.
  */
 
-import type {
-  SDKMessage,
-  SDKAssistantMessage,
-  SDKUserMessage,
-  SDKSystemMessage,
-  SDKResultMessage,
-} from '@anthropic-ai/claude-agent-sdk' with { 'resolution-mode': 'import' };
 import {
   ExecutionNode,
   ExecutionNodeType,
@@ -20,6 +13,56 @@ import {
   createExecutionNode,
 } from '@ptah-extension/shared';
 import { Logger } from '@ptah-extension/vscode-core';
+
+/**
+ * SDK Types - Manually defined to avoid ESM/CommonJS import issues
+ *
+ * The SDK package is ESM-only ("type": "module"), but this library is CommonJS.
+ * We manually define the types we need from the SDK to avoid TS1479 errors.
+ * These types are extracted from @anthropic-ai/claude-agent-sdk/sdk.d.ts
+ *
+ * Note: These types use structural typing to match SDK types without imports.
+ * We use `any` strategically in nested types to maintain compatibility while
+ * preserving type safety at the API boundary.
+ */
+
+/**
+ * Generic SDK message type - accepts any SDK message
+ * We perform runtime type checking via switch/case on the 'type' field
+ */
+type SDKMessage = {
+  type: string;
+  [key: string]: any;
+};
+
+/**
+ * Assistant message type (for internal type hints)
+ */
+type SDKAssistantMessage = SDKMessage & {
+  type: 'assistant';
+};
+
+/**
+ * User message type (for internal type hints)
+ */
+type SDKUserMessage = SDKMessage & {
+  type: 'user';
+};
+
+/**
+ * System message type (for internal type hints)
+ */
+type SDKSystemMessage = SDKMessage & {
+  type: 'system';
+  subtype: string;
+};
+
+/**
+ * Result message type (for internal type hints)
+ */
+type SDKResultMessage = SDKMessage & {
+  type: 'result';
+};
 
 /**
  * Content block types from Anthropic SDK
@@ -103,11 +146,12 @@ export class SdkMessageTransformer {
    * - SDKSystemMessage → system node
    * - SDKResultMessage → system node with result summary
    *
-   * @param sdkMessage - SDK message to transform
+   * @param sdkMessage - SDK message to transform (typed as 'any' because actual SDK types
+   *                     cannot be properly imported in CommonJS context without TS1479 errors)
    * @param sessionId - Optional session ID for node correlation
    * @returns Array of ExecutionNode (typically 1, but could be multiple for nested content)
    */
-  transform(sdkMessage: SDKMessage, sessionId?: SessionId): ExecutionNode[] {
+  transform(sdkMessage: any, sessionId?: SessionId): ExecutionNode[] {
     try {
       switch (sdkMessage.type) {
         case 'assistant':
@@ -119,7 +163,10 @@ export class SdkMessageTransformer {
         case 'system':
           // Only transform init system messages
           if ('subtype' in sdkMessage && sdkMessage.subtype === 'init') {
-            return this.transformSystemMessage(sdkMessage as SDKSystemMessage, sessionId);
+            return this.transformSystemMessage(
+              sdkMessage as SDKSystemMessage,
+              sessionId
+            );
           }
           return [];
 
@@ -132,12 +179,19 @@ export class SdkMessageTransformer {
           return [];
 
         default:
-          this.logger.warn('[SdkMessageTransformer] Unknown message type', sdkMessage);
+          this.logger.warn(
+            '[SdkMessageTransformer] Unknown message type',
+            sdkMessage
+          );
           return [];
       }
     } catch (error) {
-      const errorObj = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('[SdkMessageTransformer] Transformation failed', errorObj);
+      const errorObj =
+        error instanceof Error ? error : new Error(String(error));
+      this.logger.error(
+        '[SdkMessageTransformer] Transformation failed',
+        errorObj
+      );
       return [];
     }
   }
@@ -189,7 +243,9 @@ export class SdkMessageTransformer {
         children.push(
           createExecutionNode({
             id: block.id,
-            type: isTaskTool ? ('agent' as ExecutionNodeType) : ('tool' as ExecutionNodeType),
+            type: isTaskTool
+              ? ('agent' as ExecutionNodeType)
+              : ('tool' as ExecutionNodeType),
             status: 'pending' as ExecutionStatus, // Will be updated when tool_result arrives
             content: null,
             toolName: block.name,
@@ -207,7 +263,9 @@ export class SdkMessageTransformer {
 
     // Extract usage metrics if available
     const tokenUsage =
-      message.usage && 'input_tokens' in message.usage && 'output_tokens' in message.usage
+      message.usage &&
+      'input_tokens' in message.usage &&
+      'output_tokens' in message.usage
         ? {
             input: message.usage.input_tokens,
             output: message.usage.output_tokens,
@@ -268,7 +326,8 @@ export class SdkMessageTransformer {
     sdkMessage: SDKSystemMessage,
     sessionId?: SessionId
   ): ExecutionNode[] {
-    const { uuid, subtype, session_id, model, cwd, tools, mcp_servers } = sdkMessage;
+    const { uuid, subtype, session_id, model, cwd, tools, mcp_servers } =
+      sdkMessage;
 
     // Create system initialization message
     const systemContent = [
@@ -277,7 +336,9 @@ export class SdkMessageTransformer {
       `Working Directory: ${cwd}`,
       `Tools: ${tools.join(', ')}`,
       mcp_servers.length > 0
-        ? `MCP Servers: ${mcp_servers.map((s) => `${s.name} (${s.status})`).join(', ')}`
+        ? `MCP Servers: ${mcp_servers
+            .map((s: any) => `${s.name} (${s.status})`)
+            .join(', ')}`
         : null,
     ]
       .filter(Boolean)
@@ -300,12 +361,15 @@ export class SdkMessageTransformer {
     sdkMessage: SDKResultMessage,
     sessionId?: SessionId
   ): ExecutionNode[] {
-    const { uuid, subtype, duration_ms, total_cost_usd, usage, num_turns } = sdkMessage;
+    const { uuid, subtype, duration_ms, total_cost_usd, usage, num_turns } =
+      sdkMessage;
 
     // Check if error result
-    const isError = sdkMessage.subtype !== 'success';
+    const isError = sdkMessage['subtype'] !== 'success';
     const errorInfo =
-      isError && 'errors' in sdkMessage ? (sdkMessage as { errors: string[] }).errors.join('\n') : undefined;
+      isError && 'errors' in sdkMessage
+        ? (sdkMessage as unknown as { errors: string[] }).errors.join('\n')
+        : undefined;
 
     // Create result summary content
     const resultContent = [
@@ -322,7 +386,9 @@ export class SdkMessageTransformer {
     const resultNode = createExecutionNode({
       id: uuid,
       type: 'system' as ExecutionNodeType,
-      status: isError ? ('error' as ExecutionStatus) : ('complete' as ExecutionStatus),
+      status: isError
+        ? ('error' as ExecutionStatus)
+        : ('complete' as ExecutionStatus),
       content: resultContent,
       error: errorInfo,
       duration: duration_ms,
@@ -353,23 +419,31 @@ export class SdkMessageTransformer {
     const toolNode = this.findNodeById(toolUseId, nodes);
 
     if (!toolNode) {
-      this.logger.warn(`[SdkMessageTransformer] Tool node not found: ${toolUseId}`);
+      this.logger.warn(
+        `[SdkMessageTransformer] Tool node not found: ${toolUseId}`
+      );
       return;
     }
 
     // Update tool node with result
     // Note: ExecutionNode is readonly, so this is a conceptual update
     // In practice, the caller should recreate the node with updated fields
-    this.logger.debug(`[SdkMessageTransformer] Updating tool result for: ${toolUseId}`, {
-      isError,
-      output,
-    });
+    this.logger.debug(
+      `[SdkMessageTransformer] Updating tool result for: ${toolUseId}`,
+      {
+        isError,
+        output,
+      }
+    );
   }
 
   /**
    * Find node by ID in tree (recursive search)
    */
-  private findNodeById(id: string, nodes: readonly ExecutionNode[]): ExecutionNode | null {
+  private findNodeById(
+    id: string,
+    nodes: readonly ExecutionNode[]
+  ): ExecutionNode | null {
     for (const node of nodes) {
       if (node.id === id || node.toolCallId === id) {
         return node;

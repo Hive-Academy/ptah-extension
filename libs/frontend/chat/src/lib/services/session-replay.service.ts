@@ -26,7 +26,7 @@ import { AgentSessionData, NodeMaps } from './chat.types';
  * - Returns NodeMaps for bridging to streaming
  *
  * IMPORTANT: This service produces the SAME ExecutionNode structure as
- * JsonlMessageProcessor, ensuring visual consistency between loaded sessions
+ * the SDK streaming path, ensuring visual consistency between loaded sessions
  * and live streaming.
  *
  * Complexity Level: 3 (Complex - agent grouping, timestamp correlation, multi-pass processing)

@@ -24,7 +24,12 @@
 import { injectable, inject } from 'tsyringe';
 import { LOGGER } from '../di/tokens';
 import type { Logger } from '../logging/logger';
-import type { RpcMessage, RpcResponse, RpcMethodHandler } from './rpc-types';
+import type {
+  RpcMessage,
+  RpcResponse,
+  RpcMethodHandler,
+  BaseRpcMethodHandler,
+} from './rpc-types';
 
 /**
  * Allowed RPC method prefixes for security validation
@@ -51,7 +56,7 @@ const ALLOWED_METHOD_PREFIXES = [
  */
 @injectable()
 export class RpcHandler {
-  private handlers = new Map<string, RpcMethodHandler>();
+  private handlers = new Map<string, BaseRpcMethodHandler>();
 
   constructor(@inject(LOGGER) private readonly logger: Logger) {
     this.logger.debug('RpcHandler: Initialized');
@@ -63,21 +68,28 @@ export class RpcHandler {
    * Overwrites existing handler if method name already registered
    *
    * @param name - Method name (e.g., 'session:list', 'chat:sendMessage')
-   * @param handler - Async function to handle the method
+   * @param handler - Async function to handle the method (type-safe with generics)
    * @throws Error if method name doesn't match allowed prefixes
    *
    * @example
-   * // Valid - starts with allowed prefix
-   * rpcHandler.registerMethod('session:list', async (params) => {
-   *   const sessions = await sessionManager.listSessions();
-   *   return sessions;
-   * });
+   * // Type-safe handler with explicit types
+   * rpcHandler.registerMethod<SessionListParams, SessionListResult>(
+   *   'session:list',
+   *   async (params) => {
+   *     // params is typed as SessionListParams
+   *     const sessions = await sessionManager.listSessions(params.workspacePath);
+   *     return { sessions }; // must match SessionListResult
+   *   }
+   * );
    *
    * // Invalid - throws Error
    * rpcHandler.registerMethod('malicious:hack', async () => { ... });
    * // Error: Invalid method name "malicious:hack" - must start with allowed prefix
    */
-  registerMethod(name: string, handler: RpcMethodHandler): void {
+  registerMethod<TParams = unknown, TResult = unknown>(
+    name: string,
+    handler: RpcMethodHandler<TParams, TResult>
+  ): void {
     // Security validation: Check method name against whitelist
     if (!this.isValidMethodName(name)) {
       const error = `Invalid method name "${name}" - must start with allowed prefix: ${ALLOWED_METHOD_PREFIXES.join(
@@ -92,7 +104,8 @@ export class RpcHandler {
       this.logger.warn(`RpcHandler: Overwriting method "${name}"`);
     }
 
-    this.handlers.set(name, handler);
+    // Store as BaseRpcMethodHandler (type erasure at runtime, but compile-time type safety)
+    this.handlers.set(name, handler as BaseRpcMethodHandler);
     this.logger.debug(`RpcHandler: Registered method "${name}"`);
   }
 
