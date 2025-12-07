@@ -15,9 +15,9 @@ import {
   createExecutionChatMessage,
   calculateMessageCost,
 } from '@ptah-extension/shared';
-import { TabManagerService } from './tab-manager.service';
-import { SessionManager } from './session-manager.service';
-import { TabState } from './chat.types';
+import { TabManagerService } from '../tab-manager.service';
+import { SessionManager } from '../session-manager.service';
+import { TabState } from '../chat.types';
 
 @Injectable({ providedIn: 'root' })
 export class StreamingHandlerService {

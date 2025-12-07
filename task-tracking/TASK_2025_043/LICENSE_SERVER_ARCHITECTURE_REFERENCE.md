@@ -42,12 +42,6 @@
 │  │  • Device management (max 3)                        │    │
 │  └────────────────────────────────────────────────────┘    │
 │                                                               │
-│  ┌────────────────────────────────────────────────────┐    │
-│  │  OAuth Token Vault (AES-256-GCM)                    │    │
-│  │  • Store Claude OAuth tokens (encrypted)            │    │
-│  │  • Decrypt for SDK adapter                          │    │
-│  │  • Automatic rotation                               │    │
-│  └────────────────────────────────────────────────────┘    │
 └────────────────────────┬────────────────────────────────────┘
                          │
                          ▼
@@ -59,7 +53,6 @@
 │  • users                                                     │
 │  • subscriptions                                             │
 │  • licenses                                                  │
-│  • oauth_tokens (encrypted)                                 │
 │  • devices                                                   │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -119,21 +112,6 @@ CREATE TABLE licenses (
 CREATE INDEX idx_licenses_user_id ON licenses(user_id);
 CREATE INDEX idx_licenses_token_hash ON licenses(token_hash);
 CREATE INDEX idx_licenses_device_id ON licenses(device_id);
-
--- OAuth tokens table (encrypted Claude tokens)
-CREATE TABLE oauth_tokens (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-  encrypted_token TEXT NOT NULL, -- AES-256-GCM encrypted
-  iv VARCHAR(255) NOT NULL, -- Initialization vector (base64)
-  auth_tag VARCHAR(255) NOT NULL, -- Authentication tag (base64)
-  token_type VARCHAR(50) DEFAULT 'claude_oauth', -- Future: support other providers
-  expires_at TIMESTAMP,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE INDEX idx_oauth_tokens_user_id ON oauth_tokens(user_id);
 
 -- Devices table (track user devices for license limits)
 CREATE TABLE devices (
@@ -206,15 +184,6 @@ ptah-license-server/
 │   │   └── dto/
 │   │       ├── verify-license.dto.ts
 │   │       └── license-response.dto.ts
-│   │
-│   ├── oauth-tokens/                    # OAuth token vault
-│   │   ├── oauth-tokens.module.ts
-│   │   ├── oauth-tokens.controller.ts   # Store, retrieve endpoints
-│   │   ├── oauth-tokens.service.ts      # AES-256-GCM encryption
-│   │   ├── token-vault.ts               # Encryption/decryption logic
-│   │   └── dto/
-│   │       ├── store-token.dto.ts
-│   │       └── retrieve-token.dto.ts
 │   │
 │   ├── devices/                         # Device management
 │   │   ├── devices.module.ts

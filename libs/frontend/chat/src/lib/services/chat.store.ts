@@ -12,8 +12,8 @@ import {
 import { SessionReplayService } from './session-replay.service';
 import { SessionManager } from './session-manager.service';
 import { TabManagerService } from './tab-manager.service';
-import { StreamingHandlerService } from './streaming-handler.service';
-import { CompletionHandlerService } from './completion-handler.service';
+import { StreamingHandlerService } from './chat-store/streaming-handler.service';
+import { CompletionHandlerService } from './chat-store/completion-handler.service';
 import { TabState } from './chat.types';
 
 /**

@@ -10,10 +10,10 @@
  */
 
 import { Injectable, inject, signal } from '@angular/core';
-import { TabManagerService } from './tab-manager.service';
-import { SessionManager } from './session-manager.service';
+import { TabManagerService } from '../tab-manager.service';
+import { SessionManager } from '../session-manager.service';
 import { StreamingHandlerService } from './streaming-handler.service';
-import { TabState } from './chat.types';
+import { TabState } from '../chat.types';
 
 @Injectable({ providedIn: 'root' })
 export class CompletionHandlerService {
