@@ -12,7 +12,11 @@
 
 import { Injectable, signal, inject } from '@angular/core';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
-import { ChatSessionSummary, JSONLMessage } from '@ptah-extension/shared';
+import {
+  ChatSessionSummary,
+  JSONLMessage,
+  SessionId,
+} from '@ptah-extension/shared';
 import { SessionReplayService } from '../session-replay.service';
 import { SessionManager } from '../session-manager.service';
 import { TabManagerService } from '../tab-manager.service';
@@ -311,7 +315,8 @@ export class SessionLoaderService {
     });
 
     // Update SessionManager - use new confirmSessionId() API
-    this.sessionManager.confirmSessionId(actualSessionId as any);
+    // Type assertion safe here: actualSessionId is validated by backend and originates from Claude CLI
+    this.sessionManager.confirmSessionId(actualSessionId as SessionId);
 
     console.log('[SessionLoaderService] Session ID resolved for tab:', {
       tabId: targetTabId,

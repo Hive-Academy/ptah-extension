@@ -87,12 +87,9 @@ export class ChatStore {
       // Register ChatStore with VSCodeService for message routing
       this._vscodeService?.setChatStore(this);
 
-      // NOTE: Callback registrations REMOVED in TASK_2025_054 Batch 3
-      // MessageSenderService now provides direct message sending without callbacks
-      // CompletionHandler still uses callback temporarily (will be removed in future)
-      this.completionHandler.setContinueConversationCallback(
-        this.continueConversation.bind(this)
-      );
+      // NOTE: ALL callback registrations REMOVED in TASK_2025_054 Batch 3
+      // MessageSenderService provides direct message sending without callbacks
+      // CompletionHandlerService uses MessageSenderService directly for auto-send
 
       // Mark services as ready
       this._servicesReady.set(true);

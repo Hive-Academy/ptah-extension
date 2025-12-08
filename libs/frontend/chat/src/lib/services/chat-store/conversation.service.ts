@@ -289,7 +289,6 @@ export class ConversationService {
 
       // Update SessionManager state - use new state machine API
       this.sessionManager.setSessionId(sessionId, 'draft'); // Start in draft state
-      this.sessionManager.clearClaudeSessionId(); // Clear previous real ID
       this.sessionManager.setStatus('draft'); // Start in draft status (no real session ID yet)
 
       // Add user message immediately (with empty sessionId - will be updated when resolved)

@@ -32,9 +32,6 @@ export class SessionManager {
   private readonly _sessionId = signal<string | null>(null);
   private readonly _status = signal<SessionStatus>('fresh');
 
-  // Real Claude CLI UUID (null when draft/fresh)
-  private readonly _claudeSessionId = signal<string | null>(null);
-
   // Session state machine (draft → confirming → confirmed → failed)
   private readonly _sessionState = signal<SessionState>('draft');
 
@@ -44,7 +41,6 @@ export class SessionManager {
   // Public state
   readonly sessionId = this._sessionId.asReadonly();
   readonly status = this._status.asReadonly();
-  readonly claudeSessionId = this._claudeSessionId.asReadonly();
   readonly sessionState = this._sessionState.asReadonly();
   readonly draftId = this._draftId.asReadonly();
 
@@ -66,6 +62,14 @@ export class SessionManager {
    * @param state - Session state (defaults to 'draft')
    */
   setSessionId(sessionId: string | null, state: SessionState = 'draft'): void {
+    // Guard: Cannot transition from confirmed back to draft
+    if (this._sessionState() === 'confirmed' && state === 'draft') {
+      console.warn(
+        '[SessionManager] Invalid state transition: confirmed → draft (blocked)'
+      );
+      return;
+    }
+
     this._sessionId.set(sessionId);
     this._sessionState.set(state);
 
@@ -83,21 +87,8 @@ export class SessionManager {
   }
 
   /**
-   * Set the real Claude session ID (from session:id-resolved message)
-   * Transitions from draft to streaming when we get real ID
-   * @deprecated Use confirmSessionId() instead (part of new state machine API)
-   */
-  setClaudeSessionId(id: string): void {
-    this._claudeSessionId.set(id);
-    // Transition from draft to streaming when we get real ID
-    if (this._status() === 'draft') {
-      this._status.set('streaming');
-    }
-  }
-
-  /**
    * Confirm session ID (after backend resolves)
-   * Replaces setClaudeSessionId() in the new state machine API
+   * Transitions from draft state to confirmed state
    * @param realId - The confirmed session ID from backend
    */
   confirmSessionId(realId: SessionId): void {
@@ -109,7 +100,6 @@ export class SessionManager {
     }
 
     this._sessionId.set(realId);
-    this._claudeSessionId.set(realId);
     this._sessionState.set('confirmed');
 
     // Transition from draft to streaming when we get real ID
@@ -150,19 +140,11 @@ export class SessionManager {
   }
 
   /**
-   * Clear the real Claude session ID
-   */
-  clearClaudeSessionId(): void {
-    this._claudeSessionId.set(null);
-  }
-
-  /**
    * Clear session state (for new session)
    */
   clearSession(): void {
     this._sessionId.set(null);
     this._status.set('fresh');
-    this._claudeSessionId.set(null);
     this._sessionState.set('draft');
     this._draftId.set(null);
     this.clearNodeMaps();

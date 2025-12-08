@@ -103,13 +103,13 @@ export class MessageValidationService {
     }
 
     // Rule 5: Minimum meaningful content (alphanumeric required)
-    // Ensures message contains at least one letter or number
+    // Ensures message contains at least one letter or number in ANY language
     // Prevents purely punctuation-based messages
-    if (!/[a-zA-Z0-9]/.test(content)) {
+    // Uses Unicode property escapes to support ALL languages (Chinese, Arabic, Japanese, etc.)
+    if (!/[\p{L}\p{N}]/u.test(content)) {
       return {
         valid: false,
-        reason:
-          'Message content must contain at least one alphanumeric character',
+        reason: 'Message content must contain at least one letter or number',
       };
     }
 

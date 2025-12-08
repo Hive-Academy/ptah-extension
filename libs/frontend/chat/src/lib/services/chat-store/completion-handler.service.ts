@@ -31,24 +31,9 @@ export class CompletionHandlerService {
   // CALLBACK PATTERN REMOVED (TASK_2025_054 Batch 3)
   // ============================================================================
 
-  // NOTE: setContinueConversationCallback() and _continueConversationCallback REMOVED
+  // NOTE: ALL callback methods REMOVED
   // MessageSenderService now provides direct message sending without callbacks
   // This eliminates the callback indirection for auto-send
-
-  /**
-   * DEPRECATED: Set the continue conversation callback
-   * This method is kept temporarily for backward compatibility but does nothing
-   * MessageSenderService is now used directly for auto-send
-   * @deprecated Use MessageSenderService.send() directly instead
-   */
-  setContinueConversationCallback(
-    _callback: (content: string) => Promise<void>
-  ): void {
-    // No-op: Callback pattern removed, keeping for backward compatibility
-    console.log(
-      '[CompletionHandlerService] setContinueConversationCallback is deprecated, using MessageSenderService directly'
-    );
-  }
 
   /**
    * Handle chat completion signal from backend

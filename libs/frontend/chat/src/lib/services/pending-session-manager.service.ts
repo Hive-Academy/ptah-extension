@@ -45,10 +45,7 @@ export class PendingSessionManagerService {
    * Used to cleanup timeouts when sessions are resolved early
    * Using ReturnType<typeof setTimeout> for cross-environment compatibility
    */
-  private readonly timeouts = new Map<
-    string,
-    ReturnType<typeof setTimeout>
-  >();
+  private readonly timeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
   /**
    * Timeout duration in milliseconds (60 seconds)
