@@ -51,22 +51,12 @@ export class ConversationService {
   readonly queueRestoreSignal = this._queueRestoreSignal.asReadonly();
 
   // ============================================================================
-  // CALLBACK PATTERN (for ChatStore coordination)
+  // CALLBACK PATTERN REMOVED (TASK_2025_054 Batch 3)
   // ============================================================================
 
-  // Callback for sendMessage (set by ChatStore to avoid circular dependency)
-  private _sendMessageCallback:
-    | ((content: string, files?: string[]) => Promise<void>)
-    | null = null;
-
-  /**
-   * Set the send message callback (called by ChatStore during init)
-   */
-  setSendMessageCallback(
-    callback: (content: string, files?: string[]) => Promise<void>
-  ): void {
-    this._sendMessageCallback = callback;
-  }
+  // NOTE: setSendMessageCallback() and _sendMessageCallback REMOVED
+  // MessageSenderService now handles message sending directly without callbacks
+  // This eliminates the 3-level callback indirection
 
   // ============================================================================
   // HELPER METHODS

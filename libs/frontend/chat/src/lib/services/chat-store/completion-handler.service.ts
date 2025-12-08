@@ -13,6 +13,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
 import { StreamingHandlerService } from './streaming-handler.service';
+import { MessageSenderService } from '../message-sender.service';
 import { TabState } from '../chat.types';
 
 @Injectable({ providedIn: 'root' })
@@ -20,23 +21,33 @@ export class CompletionHandlerService {
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
   private readonly streamingHandler = inject(StreamingHandlerService);
+  private readonly messageSender = inject(MessageSenderService);
 
   // Guard signal for preventing recursive auto-send
   private readonly _isAutoSending = signal(false);
   readonly isAutoSending = this._isAutoSending.asReadonly();
 
-  // Callback for auto-send (set by ChatStore to avoid circular dependency)
-  private _continueConversationCallback:
-    | ((content: string) => Promise<void>)
-    | null = null;
+  // ============================================================================
+  // CALLBACK PATTERN REMOVED (TASK_2025_054 Batch 3)
+  // ============================================================================
+
+  // NOTE: setContinueConversationCallback() and _continueConversationCallback REMOVED
+  // MessageSenderService now provides direct message sending without callbacks
+  // This eliminates the callback indirection for auto-send
 
   /**
-   * Set the continue conversation callback (called by ChatStore during init)
+   * DEPRECATED: Set the continue conversation callback
+   * This method is kept temporarily for backward compatibility but does nothing
+   * MessageSenderService is now used directly for auto-send
+   * @deprecated Use MessageSenderService.send() directly instead
    */
   setContinueConversationCallback(
-    callback: (content: string) => Promise<void>
+    _callback: (content: string) => Promise<void>
   ): void {
-    this._continueConversationCallback = callback;
+    // No-op: Callback pattern removed, keeping for backward compatibility
+    console.log(
+      '[CompletionHandlerService] setContinueConversationCallback is deprecated, using MessageSenderService directly'
+    );
   }
 
   /**
@@ -173,6 +184,7 @@ export class CompletionHandlerService {
 
   /**
    * Handle auto-send of queued content after chat completion
+   * Uses MessageSenderService directly (TASK_2025_054 Batch 3 - eliminates callback indirection)
    */
   private handleAutoSendQueue(tabId: string, tab: TabState): void {
     // Guard against recursive auto-send
@@ -189,13 +201,6 @@ export class CompletionHandlerService {
       return;
     }
 
-    if (!this._continueConversationCallback) {
-      console.warn(
-        '[CompletionHandlerService] No continueConversation callback set, cannot auto-send'
-      );
-      return;
-    }
-
     console.log('[CompletionHandlerService] Auto-sending queued content', {
       tabId,
       length: queuedContent.length,
@@ -204,8 +209,9 @@ export class CompletionHandlerService {
     // Set auto-sending flag
     this._isAutoSending.set(true);
 
-    // Auto-send via continueConversation (async, don't await)
-    this._continueConversationCallback(queuedContent)
+    // Auto-send via MessageSenderService (direct call, no callback)
+    this.messageSender
+      .send(queuedContent)
       .then(() => {
         // Clear queue only after successful send start
         this.tabManager.updateTab(tabId, { queuedContent: null });

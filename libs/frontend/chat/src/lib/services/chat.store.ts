@@ -15,6 +15,7 @@ import { CompletionHandlerService } from './chat-store/completion-handler.servic
 import { SessionLoaderService } from './chat-store/session-loader.service';
 import { ConversationService } from './chat-store/conversation.service';
 import { PermissionHandlerService } from './chat-store/permission-handler.service';
+import { MessageSenderService } from './message-sender.service';
 import { TabState } from './chat.types';
 
 /**
@@ -64,6 +65,9 @@ export class ChatStore {
   private readonly conversation = inject(ConversationService);
   private readonly permissionHandler = inject(PermissionHandlerService);
 
+  // Message sending mediator (Phase 8 - TASK_2025_054 Batch 3)
+  private readonly messageSender = inject(MessageSenderService);
+
   // Signal to track service initialization state
   private readonly _servicesReady = signal(false);
   readonly servicesReady = this._servicesReady.asReadonly();
@@ -83,11 +87,12 @@ export class ChatStore {
       // Register ChatStore with VSCodeService for message routing
       this._vscodeService?.setChatStore(this);
 
-      // Register callbacks for service coordination
+      // NOTE: Callback registrations REMOVED in TASK_2025_054 Batch 3
+      // MessageSenderService now provides direct message sending without callbacks
+      // CompletionHandler still uses callback temporarily (will be removed in future)
       this.completionHandler.setContinueConversationCallback(
         this.continueConversation.bind(this)
       );
-      this.conversation.setSendMessageCallback(this.sendMessage.bind(this));
 
       // Mark services as ready
       this._servicesReady.set(true);
@@ -247,21 +252,35 @@ export class ChatStore {
 
   /**
    * Send a message - automatically determines whether to start new or continue
-   * Delegates to ConversationService
+   * Delegates to MessageSenderService (TASK_2025_054 Batch 3 - eliminates callback indirection)
    */
   async sendMessage(content: string, files?: string[]): Promise<void> {
-    return this.conversation.sendMessage(content, files);
+    return this.messageSender.send(content, files);
   }
 
   /**
    * Smart send or queue routing
-   * Delegates to ConversationService
+   * Delegates to MessageSenderService for streaming check, ConversationService for queue
+   * (TASK_2025_054 Batch 3 - eliminates callback indirection)
    */
   async sendOrQueueMessage(
     content: string,
     filePaths?: string[]
   ): Promise<void> {
-    return this.conversation.sendOrQueueMessage(content, filePaths);
+    // Check if streaming via active tab status
+    const activeTab = this.tabManager.activeTab();
+    const isStreaming =
+      activeTab?.status === 'streaming' || activeTab?.status === 'resuming';
+
+    if (isStreaming) {
+      // Queue the message via ConversationService
+      this.conversation.queueOrAppendMessage(content);
+      console.log('[ChatStore] Message queued during streaming');
+    } else {
+      // Send normally via MessageSender
+      await this.messageSender.send(content, filePaths);
+      console.log('[ChatStore] Message sent normally');
+    }
   }
 
   /**
