@@ -4,7 +4,8 @@
  */
 
 import { DependencyContainer } from 'tsyringe';
-import type { Logger } from '@ptah-extension/vscode-core';
+import type { Logger, ConfigManager } from '@ptah-extension/vscode-core';
+import { TOKENS } from '@ptah-extension/vscode-core';
 import { SdkAgentAdapter } from '../sdk-agent-adapter';
 import { SdkSessionStorage } from '../sdk-session-storage';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
@@ -41,17 +42,18 @@ export function registerSdkServices(
     },
   });
 
-  // Register adapter (depends on storage and permission handler)
+  // Register adapter (depends on ConfigManager, storage, and permission handler)
   container.register(SDK_TOKENS.SDK_AGENT_ADAPTER, {
     useFactory: () => {
       logger.debug('[AgentSDK] Creating SdkAgentAdapter');
+      const config = container.resolve<ConfigManager>(TOKENS.CONFIG_MANAGER);
       const storage = container.resolve<SdkSessionStorage>(
         SDK_TOKENS.SDK_SESSION_STORAGE
       );
       const permissionHandler = container.resolve<SdkPermissionHandler>(
         SDK_TOKENS.SDK_PERMISSION_HANDLER
       );
-      return new SdkAgentAdapter(logger, storage, permissionHandler);
+      return new SdkAgentAdapter(logger, config, storage, permissionHandler);
     },
   });
 

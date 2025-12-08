@@ -15,6 +15,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import { z } from 'zod';
 import {
   Logger,
   RpcHandler,
@@ -142,6 +143,7 @@ export class RpcMethodRegistrationService {
     this.registerAutocompleteMethods();
     this.registerFileMethods();
     this.registerModelAndAutopilotMethods();
+    this.registerAuthMethods();
 
     this.logger.info('RPC methods registered (SDK-only mode)', {
       methods: this.rpcHandler.getRegisteredMethods(),
@@ -774,6 +776,107 @@ export class RpcMethodRegistrationService {
         }
       }
     );
+  }
+
+  /**
+   * Authentication RPC methods (TASK_2025_057)
+   */
+  private registerAuthMethods(): void {
+    // auth:getHealth - Get SDK authentication health status
+    this.rpcHandler.registerMethod<void, { success: boolean; health: unknown }>(
+      'auth:getHealth',
+      async () => {
+        try {
+          this.logger.debug('RPC: auth:getHealth called');
+          const health = this.sdkAdapter.getHealth();
+          return { success: true, health };
+        } catch (error) {
+          this.logger.error(
+            'RPC: auth:getHealth failed',
+            error instanceof Error ? error : new Error(String(error))
+          );
+          throw error;
+        }
+      }
+    );
+
+    // auth:saveSettings - Save authentication settings to VS Code config
+    const AuthSettingsSchema = z.object({
+      authMethod: z.enum(['oauth', 'apiKey', 'auto']),
+      claudeOAuthToken: z.string().optional(),
+      anthropicApiKey: z.string().optional(),
+    });
+
+    this.rpcHandler.registerMethod<
+      unknown,
+      { success: boolean; error?: string }
+    >('auth:saveSettings', async (params: unknown) => {
+      try {
+        this.logger.debug('RPC: auth:saveSettings called', { params });
+
+        // Validate parameters with Zod
+        const validated = AuthSettingsSchema.parse(params);
+
+        // Save settings to VS Code configuration
+        await this.configManager.set('authMethod', validated.authMethod);
+        if (validated.claudeOAuthToken !== undefined) {
+          await this.configManager.set(
+            'claudeOAuthToken',
+            validated.claudeOAuthToken
+          );
+        }
+        if (validated.anthropicApiKey !== undefined) {
+          await this.configManager.set(
+            'anthropicApiKey',
+            validated.anthropicApiKey
+          );
+        }
+
+        this.logger.info('RPC: auth:saveSettings completed successfully');
+        return { success: true };
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : 'Validation failed';
+        this.logger.error('RPC: auth:saveSettings failed', {
+          error: errorMessage,
+        });
+        return {
+          success: false,
+          error: errorMessage,
+        };
+      }
+    });
+
+    // auth:testConnection - Test connection after settings save
+    this.rpcHandler.registerMethod<
+      void,
+      { success: boolean; health: unknown; errorMessage?: string }
+    >('auth:testConnection', async () => {
+      try {
+        this.logger.debug('RPC: auth:testConnection called');
+
+        // Brief delay to allow ConfigManager watcher to trigger re-init
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        const health = this.sdkAdapter.getHealth();
+
+        const success = health.status === 'available';
+        const result = {
+          success,
+          health,
+          errorMessage: health.errorMessage,
+        };
+
+        this.logger.info('RPC: auth:testConnection completed', { result });
+        return result;
+      } catch (error) {
+        this.logger.error(
+          'RPC: auth:testConnection failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        throw error;
+      }
+    });
   }
 
   /**

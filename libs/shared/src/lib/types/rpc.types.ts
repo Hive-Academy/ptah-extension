@@ -216,3 +216,51 @@ export interface ConfigAutopilotGetResult {
 export interface ConfigModelsListResult {
   models: (ModelInfo & { isSelected: boolean })[];
 }
+
+// ============================================================
+// Authentication RPC Types (TASK_2025_057)
+// ============================================================
+
+/** Parameters for auth:getHealth RPC method */
+export type AuthGetHealthParams = Record<string, never>;
+
+/** Response from auth:getHealth RPC method */
+export interface AuthGetHealthResponse {
+  success: boolean;
+  health: {
+    status: string;
+    lastCheck: number;
+    errorMessage?: string;
+    responseTime?: number;
+    uptime?: number;
+  };
+}
+
+/** Parameters for auth:saveSettings RPC method */
+export interface AuthSaveSettingsParams {
+  authMethod: 'oauth' | 'apiKey' | 'auto';
+  claudeOAuthToken?: string;
+  anthropicApiKey?: string;
+}
+
+/** Response from auth:saveSettings RPC method */
+export interface AuthSaveSettingsResponse {
+  success: boolean;
+  error?: string;
+}
+
+/** Parameters for auth:testConnection RPC method */
+export type AuthTestConnectionParams = Record<string, never>;
+
+/** Response from auth:testConnection RPC method */
+export interface AuthTestConnectionResponse {
+  success: boolean;
+  health: {
+    status: string;
+    lastCheck: number;
+    errorMessage?: string;
+    responseTime?: number;
+    uptime?: number;
+  };
+  errorMessage?: string;
+}

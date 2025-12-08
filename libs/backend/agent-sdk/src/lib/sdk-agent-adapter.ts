@@ -18,7 +18,7 @@ import {
   SessionId,
   ExecutionNode,
 } from '@ptah-extension/shared';
-import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import { Logger, TOKENS, ConfigManager } from '@ptah-extension/vscode-core';
 import { SdkMessageTransformer } from './sdk-message-transformer';
 import { SdkSessionStorage } from './sdk-session-storage';
 import { SdkPermissionHandler } from './sdk-permission-handler';
@@ -183,8 +183,19 @@ export class SdkAgentAdapter implements IAIProvider {
    */
   private transformer: SdkMessageTransformer;
 
+  /**
+   * Config watchers for automatic re-initialization on auth changes
+   */
+  private configWatchers: vscode.Disposable[] = [];
+
+  /**
+   * State machine flag to prevent concurrent re-initialization
+   */
+  private isReinitializing = false;
+
   constructor(
     @inject(TOKENS.LOGGER) private logger: Logger,
+    @inject(TOKENS.CONFIG_MANAGER) private config: ConfigManager,
     @inject('SdkSessionStorage') private storage: SdkSessionStorage,
     @inject('SdkPermissionHandler')
     private permissionHandler: SdkPermissionHandler
@@ -200,6 +211,61 @@ export class SdkAgentAdapter implements IAIProvider {
     try {
       this.logger.info('[SdkAgentAdapter] Initializing SDK adapter...');
 
+      // Configure authentication from settings or environment variables
+      // Priority: Settings > Environment Variables
+      const authMethod = this.config.get<string>('authMethod') || 'auto';
+      this.logger.debug(`[SdkAgentAdapter] Auth method: ${authMethod}`);
+
+      let authConfigured = false;
+
+      // Try OAuth token
+      if (authMethod === 'oauth' || authMethod === 'auto') {
+        const oauthToken = this.config.get<string>('claudeOAuthToken');
+        if (oauthToken?.trim()) {
+          process.env['CLAUDE_CODE_OAUTH_TOKEN'] = oauthToken.trim();
+          this.logger.info(
+            '[SdkAgentAdapter] Using Claude OAuth token from settings'
+          );
+          authConfigured = true;
+        } else if (process.env['CLAUDE_CODE_OAUTH_TOKEN']) {
+          this.logger.info(
+            '[SdkAgentAdapter] Using Claude OAuth token from environment'
+          );
+          authConfigured = true;
+        }
+      }
+
+      // Try API key
+      if (authMethod === 'apiKey' || authMethod === 'auto') {
+        const apiKey = this.config.get<string>('anthropicApiKey');
+        if (apiKey?.trim()) {
+          process.env['ANTHROPIC_API_KEY'] = apiKey.trim();
+          this.logger.info(
+            '[SdkAgentAdapter] Using Anthropic API key from settings'
+          );
+          authConfigured = true;
+        } else if (process.env['ANTHROPIC_API_KEY']) {
+          this.logger.info(
+            '[SdkAgentAdapter] Using Anthropic API key from environment'
+          );
+          authConfigured = true;
+        }
+      }
+
+      // Validate at least one auth method is available
+      if (!authConfigured) {
+        this.logger.error(
+          '[SdkAgentAdapter] No authentication configured. Please set ptah.claudeOAuthToken or ptah.anthropicApiKey in VS Code settings (Ctrl+,).'
+        );
+        this.health = {
+          status: 'error' as ProviderStatus,
+          lastCheck: Date.now(),
+          errorMessage:
+            'No authentication configured. Set ptah.claudeOAuthToken or ptah.anthropicApiKey in Settings.',
+        };
+        return false;
+      }
+
       // SDK requires no external dependencies - in-process execution
       this.initialized = true;
       this.health = {
@@ -208,6 +274,9 @@ export class SdkAgentAdapter implements IAIProvider {
         responseTime: 0,
         uptime: Date.now(),
       };
+
+      // Register config watchers for automatic re-initialization on auth changes
+      this.registerConfigWatchers();
 
       this.logger.info('[SdkAgentAdapter] Initialized successfully');
       return true;
@@ -225,10 +294,81 @@ export class SdkAgentAdapter implements IAIProvider {
   }
 
   /**
+   * Register ConfigManager watchers for automatic re-initialization
+   * Watches auth-related settings and triggers re-init on changes
+   */
+  private registerConfigWatchers(): void {
+    // Dispose existing watchers first (in case of re-initialization)
+    for (const watcher of this.configWatchers) {
+      watcher.dispose();
+    }
+    this.configWatchers = [];
+
+    const watchKeys = ['claudeOAuthToken', 'anthropicApiKey', 'authMethod'];
+
+    for (const key of watchKeys) {
+      const watcher = this.config.watch(key, async (value) => {
+        // Prevent concurrent re-initialization
+        if (this.isReinitializing) {
+          this.logger.debug(
+            `[SdkAgentAdapter] Skipping re-init, already in progress (${key} changed)`
+          );
+          return;
+        }
+
+        this.logger.info(
+          `[SdkAgentAdapter] Auth config changed (${key}), re-initializing...`
+        );
+        this.isReinitializing = true;
+
+        try {
+          // Gracefully abort active sessions before re-init
+          for (const [sessionId, session] of this.activeSessions.entries()) {
+            this.logger.debug(
+              `[SdkAgentAdapter] Aborting session ${sessionId} for re-init`
+            );
+            try {
+              await session.query.interrupt();
+            } catch (err) {
+              this.logger.warn(
+                `[SdkAgentAdapter] Failed to interrupt session ${sessionId} during re-init`,
+                err instanceof Error ? err : new Error(String(err))
+              );
+            }
+          }
+          this.activeSessions.clear();
+
+          // Re-initialize with new auth settings
+          await this.initialize();
+        } catch (error) {
+          this.logger.error(
+            '[SdkAgentAdapter] Re-initialization failed after config change',
+            error instanceof Error ? error : new Error(String(error))
+          );
+        } finally {
+          this.isReinitializing = false;
+        }
+      });
+
+      this.configWatchers.push(watcher);
+    }
+
+    this.logger.debug(
+      `[SdkAgentAdapter] Registered ${watchKeys.length} config watchers`
+    );
+  }
+
+  /**
    * Dispose all active sessions and cleanup
    */
   dispose(): void {
     this.logger.info('[SdkAgentAdapter] Disposing adapter...');
+
+    // Dispose config watchers
+    for (const watcher of this.configWatchers) {
+      watcher.dispose();
+    }
+    this.configWatchers = [];
 
     // End all active sessions
     for (const [sessionId, session] of this.activeSessions.entries()) {
