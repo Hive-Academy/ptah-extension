@@ -16,6 +16,7 @@ import { ChatSessionSummary, JSONLMessage } from '@ptah-extension/shared';
 import { SessionReplayService } from '../session-replay.service';
 import { SessionManager } from '../session-manager.service';
 import { TabManagerService } from '../tab-manager.service';
+import { PendingSessionManagerService } from '../pending-session-manager.service';
 
 @Injectable({ providedIn: 'root' })
 export class SessionLoaderService {
@@ -24,6 +25,7 @@ export class SessionLoaderService {
   private readonly sessionReplay = inject(SessionReplayService);
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
+  private readonly pendingSessionManager = inject(PendingSessionManagerService);
 
   // ============================================================================
   // STATE SIGNALS
@@ -34,10 +36,6 @@ export class SessionLoaderService {
   private readonly _totalSessions = signal(0);
   private readonly _sessionsOffset = signal(0);
   private readonly _isLoadingMoreSessions = signal(false);
-
-  // Track pending session ID resolutions: placeholder sessionId -> tabId
-  // This ensures session:id-resolved goes to the correct tab even if user switches tabs
-  readonly pendingSessionResolutions = new Map<string, string>();
 
   // Page size constant
   private static readonly SESSIONS_PAGE_SIZE = 10;
@@ -245,6 +243,9 @@ export class SessionLoaderService {
   /**
    * Handle session ID resolution from backend
    * Called when backend extracts real Claude CLI session UUID from JSONL stream
+   *
+   * Uses PendingSessionManagerService to find the correct tab for resolution.
+   * This ensures session:id-resolved goes to the correct tab even if user switches tabs.
    */
   handleSessionIdResolved(
     placeholderSessionId: string,
@@ -255,12 +256,12 @@ export class SessionLoaderService {
       actualSessionId,
     });
 
-    // Find the tab that initiated this conversation using the pending resolutions map
-    let targetTabId = this.pendingSessionResolutions.get(placeholderSessionId);
+    // Find the tab that initiated this conversation using the pending session manager
+    let targetTabId = this.pendingSessionManager.get(placeholderSessionId);
 
     if (targetTabId) {
-      // Remove from pending resolutions
-      this.pendingSessionResolutions.delete(placeholderSessionId);
+      // Remove from pending resolutions (clears timeout)
+      this.pendingSessionManager.remove(placeholderSessionId);
       console.log(
         '[SessionLoaderService] Found pending resolution for tab:',
         targetTabId

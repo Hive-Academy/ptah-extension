@@ -20,6 +20,7 @@ import {
 import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
 import { SessionLoaderService } from './session-loader.service';
+import { PendingSessionManagerService } from '../pending-session-manager.service';
 
 @Injectable({ providedIn: 'root' })
 export class ConversationService {
@@ -28,6 +29,7 @@ export class ConversationService {
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
   private readonly sessionLoader = inject(SessionLoaderService);
+  private readonly pendingSessionManager = inject(PendingSessionManagerService);
 
   // ============================================================================
   // STATE SIGNALS
@@ -306,9 +308,10 @@ export class ConversationService {
         currentMessageId: null, // Reset per-tab message ID for new conversation
       });
 
-      // Track this tab for session ID resolution
+      // Track this tab for session ID resolution using PendingSessionManager
       // When session:id-resolved arrives, we'll know which tab initiated this conversation
-      this.sessionLoader.pendingSessionResolutions.set(sessionId, activeTabId);
+      // This eliminates shared mutable state (no direct Map mutation on SessionLoader)
+      this.pendingSessionManager.add(sessionId, activeTabId);
 
       console.log('[ConversationService] Starting NEW conversation:', {
         sessionId,
@@ -331,8 +334,8 @@ export class ConversationService {
           '[ConversationService] Failed to start chat:',
           result.error
         );
-        // Clean up pending resolution since chat failed
-        this.sessionLoader.pendingSessionResolutions.delete(sessionId);
+        // Clean up pending resolution since chat failed (clears timeout)
+        this.pendingSessionManager.remove(sessionId);
         // Update tab status to loaded (failed)
         this.tabManager.updateTab(activeTabId, { status: 'loaded' });
       } else {

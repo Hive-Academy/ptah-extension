@@ -37,3 +37,6 @@ export {
   ConfirmationDialogService,
   type ConfirmationDialogOptions,
 } from './confirmation-dialog.service';
+
+// PendingSessionManagerService - Pending session resolution management (TASK_2025_054 Batch 1)
+export { PendingSessionManagerService } from './pending-session-manager.service';
