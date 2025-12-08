@@ -29,6 +29,7 @@ import { TabManagerService } from './tab-manager.service';
 import { SessionManager } from './session-manager.service';
 import { PendingSessionManagerService } from './pending-session-manager.service';
 import { SessionLoaderService } from './chat-store/session-loader.service';
+import { MessageValidationService } from './message-validation.service';
 
 /**
  * Centralized service for sending messages
@@ -48,6 +49,7 @@ export class MessageSenderService {
   private readonly sessionManager = inject(SessionManager);
   private readonly pendingSessionManager = inject(PendingSessionManagerService);
   private readonly sessionLoader = inject(SessionLoaderService);
+  private readonly validator = inject(MessageValidationService);
 
   // ============================================================================
   // HELPER METHODS
@@ -90,12 +92,24 @@ export class MessageSenderService {
    * Send a message - automatically routes to new or continue conversation
    *
    * This is the main entry point for sending messages.
-   * Checks if there's an existing session and routes accordingly.
+   * Validates content before sending, then checks if there's an existing session and routes accordingly.
    *
    * @param content - Message content
    * @param files - Optional file paths to include
    */
   async send(content: string, files?: string[]): Promise<void> {
+    // Validate content BEFORE any processing
+    const validation = this.validator.validate(content);
+    if (!validation.valid) {
+      console.warn(
+        `[MessageSender] Invalid message content: ${validation.reason}`
+      );
+      return;
+    }
+
+    // Sanitize content (trim whitespace)
+    const sanitized = this.validator.sanitize(content);
+
     const activeTab = this.tabManager.activeTab();
     if (!activeTab) {
       console.warn('[MessageSender] No active tab');
@@ -109,9 +123,9 @@ export class MessageSenderService {
       activeTab.status === 'loaded';
 
     if (hasExistingSession && sessionId) {
-      await this.continueConversation(content, sessionId as SessionId, files);
+      await this.continueConversation(sanitized, sessionId as SessionId, files);
     } else {
-      await this.startNewConversation(content, files);
+      await this.startNewConversation(sanitized, files);
     }
   }
 

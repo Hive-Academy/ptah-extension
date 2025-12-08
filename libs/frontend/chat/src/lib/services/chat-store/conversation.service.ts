@@ -21,6 +21,7 @@ import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
 import { SessionLoaderService } from './session-loader.service';
 import { PendingSessionManagerService } from '../pending-session-manager.service';
+import { MessageValidationService } from '../message-validation.service';
 
 @Injectable({ providedIn: 'root' })
 export class ConversationService {
@@ -30,6 +31,7 @@ export class ConversationService {
   private readonly sessionManager = inject(SessionManager);
   private readonly sessionLoader = inject(SessionLoaderService);
   private readonly pendingSessionManager = inject(PendingSessionManagerService);
+  private readonly validator = inject(MessageValidationService);
 
   // ============================================================================
   // STATE SIGNALS
@@ -128,14 +130,17 @@ export class ConversationService {
     const activeTabId = this.tabManager.activeTabId();
     if (!activeTabId) return;
 
-    // Trim and validate before storing
-    const trimmedContent = content.trim();
-    if (!trimmedContent) {
-      console.log(
-        '[ConversationService] Skipping whitespace-only queue content'
+    // Validate content using centralized validation service
+    const validation = this.validator.validate(content);
+    if (!validation.valid) {
+      console.warn(
+        `[ConversationService] Invalid queue content: ${validation.reason}`
       );
       return;
     }
+
+    // Sanitize content (trim whitespace)
+    const sanitized = this.validator.sanitize(content);
 
     const activeTab = this.tabManager.activeTab();
     const existingQueue = activeTab?.queuedContent?.trim() ?? '';
@@ -144,17 +149,17 @@ export class ConversationService {
 
     if (existingQueue) {
       // Append with newline separator
-      newQueuedContent = `${existingQueue}\n${trimmedContent}`;
+      newQueuedContent = `${existingQueue}\n${sanitized}`;
       console.log('[ConversationService] Appending to queue', {
         existingLength: existingQueue.length,
-        newLength: trimmedContent.length,
+        newLength: sanitized.length,
         totalLength: newQueuedContent.length,
       });
     } else {
       // First content in queue
-      newQueuedContent = trimmedContent;
+      newQueuedContent = sanitized;
       console.log('[ConversationService] Creating new queue', {
-        length: trimmedContent.length,
+        length: sanitized.length,
       });
     }
 

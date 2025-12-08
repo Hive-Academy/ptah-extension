@@ -43,3 +43,9 @@ export { PendingSessionManagerService } from './pending-session-manager.service'
 
 // MessageSenderService - Centralized message sending mediator (TASK_2025_054 Batch 3)
 export { MessageSenderService } from './message-sender.service';
+
+// MessageValidationService - Centralized message validation (TASK_2025_054 Batch 5)
+export {
+  MessageValidationService,
+  type ValidationResult,
+} from './message-validation.service';
