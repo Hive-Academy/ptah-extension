@@ -11,7 +11,7 @@ import {
   XCircle,
   Loader2,
 } from 'lucide-angular';
-import { VSCodeService } from '@ptah-extension/core';
+import { ClaudeRpcService, RpcResult } from '@ptah-extension/core';
 import type {
   AuthSaveSettingsParams,
   AuthSaveSettingsResponse,
@@ -33,7 +33,7 @@ import type {
  *
  * SOLID Principles:
  * - Single Responsibility: Authentication configuration only
- * - Dependency Inversion: Depends on VSCodeService abstraction for RPC
+ * - Dependency Inversion: Depends on ClaudeRpcService abstraction for RPC
  *
  * State Management:
  * - Signal-based reactive state for form inputs and connection status
@@ -52,7 +52,7 @@ import type {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AuthConfigComponent {
-  private readonly vscodeService = inject(VSCodeService);
+  private readonly rpcService = inject(ClaudeRpcService);
 
   // Lucide icons
   readonly CheckCircleIcon = CheckCircle;
@@ -129,16 +129,15 @@ export class AuthConfigComponent {
         anthropicApiKey: apiKeyValue || undefined,
       };
 
-      const saveResponse =
-        await this.vscodeService.sendMessage<AuthSaveSettingsResponse>({
-          type: 'auth:saveSettings',
-          params: saveParams,
-        });
+      const saveResult = await this.rpcService.call<AuthSaveSettingsResponse>(
+        'auth:saveSettings',
+        saveParams
+      );
 
-      if (!saveResponse.success) {
+      if (!saveResult.isSuccess()) {
         this.connectionStatus.set('error');
         this.errorMessage.set(
-          saveResponse.error || 'Failed to save authentication settings'
+          saveResult.error || 'Failed to save authentication settings'
         );
         return;
       }
@@ -147,27 +146,39 @@ export class AuthConfigComponent {
       this.connectionStatus.set('testing');
       this.successMessage.set('Settings saved. Testing connection...');
 
-      const testResponse =
-        await this.vscodeService.sendMessage<AuthTestConnectionResponse>({
-          type: 'auth:testConnection',
-        });
+      const testResult = await this.callWithTimeout<AuthTestConnectionResponse>(
+        'auth:testConnection',
+        {},
+        10000,
+        'Connection test timed out after 10 seconds'
+      );
 
-      if (testResponse.success && testResponse.health.status === 'available') {
-        // Success!
-        this.connectionStatus.set('success');
-        this.successMessage.set(
-          `✓ Connected successfully! (${Math.round(
-            testResponse.health.responseTime || 0
-          )}ms)`
-        );
-        this.errorMessage.set('');
+      if (testResult.isSuccess()) {
+        const testData = testResult.data!;
+        if (testData.success && testData.health.status === 'available') {
+          // Success!
+          this.connectionStatus.set('success');
+          this.successMessage.set(
+            `✓ Connected successfully! (${Math.round(
+              testData.health.responseTime || 0
+            )}ms)`
+          );
+          this.errorMessage.set('');
+        } else {
+          // Connection test failed
+          this.connectionStatus.set('error');
+          this.errorMessage.set(
+            testData.errorMessage ||
+              testData.health.errorMessage ||
+              'Connection test failed. Please check your credentials.'
+          );
+          this.successMessage.set('');
+        }
       } else {
-        // Connection test failed
+        // RPC call failed
         this.connectionStatus.set('error');
         this.errorMessage.set(
-          testResponse.errorMessage ||
-            testResponse.health.errorMessage ||
-            'Connection test failed. Please check your credentials.'
+          testResult.error || 'Connection test failed. Please try again.'
         );
         this.successMessage.set('');
       }
@@ -193,5 +204,27 @@ export class AuthConfigComponent {
     this.connectionStatus.set('idle');
     this.errorMessage.set('');
     this.successMessage.set('');
+  }
+
+  /**
+   * Call RPC method with timeout protection
+   * @param method - RPC method name
+   * @param params - RPC method parameters
+   * @param timeoutMs - Timeout in milliseconds
+   * @param errorMessage - Error message to show on timeout
+   * @returns RpcResult with success/error state
+   */
+  private async callWithTimeout<T>(
+    method: string,
+    params: unknown,
+    timeoutMs: number,
+    errorMessage: string
+  ): Promise<RpcResult<T>> {
+    return Promise.race([
+      this.rpcService.call<T>(method, params),
+      new Promise<RpcResult<T>>((_, reject) =>
+        setTimeout(() => reject(new Error(errorMessage)), timeoutMs)
+      ),
+    ]);
   }
 }
