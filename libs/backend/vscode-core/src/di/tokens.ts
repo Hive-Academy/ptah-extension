@@ -117,7 +117,7 @@ export const TEMPLATE_GENERATOR_SERVICE = Symbol.for(
 
 export const PTAH_API_BUILDER = Symbol.for('PtahAPIBuilder');
 export const CODE_EXECUTION_MCP = Symbol.for('CodeExecutionMCP');
-export const MCP_CONFIG_MANAGER_SERVICE = Symbol.for('MCPConfigManagerService');
+// MCP_CONFIG_MANAGER_SERVICE - DELETED (SDK tools are native, no .mcp.json needed)
 export const PERMISSION_PROMPT_SERVICE = Symbol.for('PermissionPromptService');
 
 // ========================================
@@ -264,9 +264,9 @@ export const TOKENS = {
   // ========================================
   // DELETED: ANALYZE_WORKSPACE_TOOL, SEARCH_FILES_TOOL, GET_RELEVANT_FILES_TOOL,
   // GET_DIAGNOSTICS_TOOL, FIND_SYMBOL_TOOL, GET_GIT_STATUS_TOOL, LM_TOOLS_REGISTRATION_SERVICE
+  // MCP_CONFIG_MANAGER_SERVICE - DELETED (SDK tools are native)
   PTAH_API_BUILDER,
   CODE_EXECUTION_MCP,
-  MCP_CONFIG_MANAGER_SERVICE,
   PERMISSION_PROMPT_SERVICE,
 
   // ========================================

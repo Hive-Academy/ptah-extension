@@ -105,38 +105,10 @@ export async function activate(
       `[Activate] Step 8: Code Execution MCP Server started (port ${mcpPort})`
     );
 
-    // Write Ptah MCP server to .mcp.json file
-    console.log('[Activate] Step 9: Writing MCP config to .mcp.json...');
-
-    try {
-      const mcpConfigManager = DIContainer.resolve(
-        TOKENS.MCP_CONFIG_MANAGER_SERVICE
-      );
-
-      await (
-        mcpConfigManager as {
-          ensurePtahMCPConfig: (port: number) => Promise<void>;
-        }
-      ).ensurePtahMCPConfig(mcpPort);
-
-      logger.info('MCP server registered in .mcp.json', {
-        context: 'Extension Activation',
-        status: 'registered',
-        port: mcpPort,
-        url: `http://localhost:${mcpPort}`,
-      });
-      console.log('[Activate] Step 9: MCP server registered in .mcp.json');
-    } catch (error) {
-      logger.error(
-        'Failed to write MCP config (non-blocking)',
-        error instanceof Error ? error : new Error(String(error))
-      );
-      console.warn(
-        '[Activate] Step 9: MCP config write failed (non-blocking)',
-        error
-      );
-      // Don't block extension activation if MCP config fails
-    }
+    // Note: MCP config (.mcp.json) writing removed - SDK tools are now native
+    // and don't require external MCP server registration. The Code Execution
+    // MCP server runs locally and Ptah tools (help, executeCode) are registered
+    // directly with the SDK via mcpServers option in SdkAgentAdapter.
 
     logger.info('Ptah extension activated successfully');
     console.log('===== PTAH ACTIVATION COMPLETE =====');
