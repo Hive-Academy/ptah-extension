@@ -310,8 +310,8 @@ export class SessionLoaderService {
       messages: updatedMessages,
     });
 
-    // Update SessionManager
-    this.sessionManager.setClaudeSessionId(actualSessionId);
+    // Update SessionManager - use new confirmSessionId() API
+    this.sessionManager.confirmSessionId(actualSessionId as any);
 
     console.log('[SessionLoaderService] Session ID resolved for tab:', {
       tabId: targetTabId,

@@ -1,6 +1,16 @@
 import { Injectable, signal, computed } from '@angular/core';
-import { ExecutionNode } from '@ptah-extension/shared';
-import { NodeMaps, SessionState, SessionStatus } from './chat.types';
+import { ExecutionNode, SessionId } from '@ptah-extension/shared';
+import {
+  NodeMaps,
+  SessionState as SessionStateInterface,
+  SessionStatus,
+} from './chat.types';
+
+/**
+ * Session state machine values
+ * Tracks lifecycle of session ID resolution from draft to confirmed
+ */
+export type SessionState = 'draft' | 'confirming' | 'confirmed' | 'failed';
 
 /**
  * SessionManager - Manages session lifecycle and node maps
@@ -25,15 +35,23 @@ export class SessionManager {
   // Real Claude CLI UUID (null when draft/fresh)
   private readonly _claudeSessionId = signal<string | null>(null);
 
+  // Session state machine (draft → confirming → confirmed → failed)
+  private readonly _sessionState = signal<SessionState>('draft');
+
+  // Store original draft ID for reference/debugging
+  private readonly _draftId = signal<SessionId | null>(null);
+
   // Public state
   readonly sessionId = this._sessionId.asReadonly();
   readonly status = this._status.asReadonly();
   readonly claudeSessionId = this._claudeSessionId.asReadonly();
+  readonly sessionState = this._sessionState.asReadonly();
+  readonly draftId = this._draftId.asReadonly();
 
   /**
    * Get current session state
    */
-  readonly state = computed<SessionState>(() => ({
+  readonly state = computed<SessionStateInterface>(() => ({
     status: this._status(),
     sessionId: this._sessionId(),
     isExistingSession:
@@ -43,10 +61,18 @@ export class SessionManager {
   // ============== Session Operations ==============
 
   /**
-   * Set the current session ID
+   * Set the current session ID with optional state
+   * @param sessionId - Session identifier (draft or confirmed)
+   * @param state - Session state (defaults to 'draft')
    */
-  setSessionId(sessionId: string | null): void {
+  setSessionId(sessionId: string | null, state: SessionState = 'draft'): void {
     this._sessionId.set(sessionId);
+    this._sessionState.set(state);
+
+    // Store draft ID when in draft state for reference
+    if (state === 'draft' && sessionId) {
+      this._draftId.set(sessionId as SessionId);
+    }
   }
 
   /**
@@ -59,6 +85,7 @@ export class SessionManager {
   /**
    * Set the real Claude session ID (from session:id-resolved message)
    * Transitions from draft to streaming when we get real ID
+   * @deprecated Use confirmSessionId() instead (part of new state machine API)
    */
   setClaudeSessionId(id: string): void {
     this._claudeSessionId.set(id);
@@ -66,6 +93,60 @@ export class SessionManager {
     if (this._status() === 'draft') {
       this._status.set('streaming');
     }
+  }
+
+  /**
+   * Confirm session ID (after backend resolves)
+   * Replaces setClaudeSessionId() in the new state machine API
+   * @param realId - The confirmed session ID from backend
+   */
+  confirmSessionId(realId: SessionId): void {
+    if (this._sessionState() === 'confirmed') {
+      console.warn(
+        '[SessionManager] Session already confirmed, ignoring duplicate confirmation'
+      );
+      return;
+    }
+
+    this._sessionId.set(realId);
+    this._claudeSessionId.set(realId);
+    this._sessionState.set('confirmed');
+
+    // Transition from draft to streaming when we get real ID
+    if (this._status() === 'draft') {
+      this._status.set('streaming');
+    }
+
+    console.log('[SessionManager] Session ID confirmed:', {
+      draftId: this._draftId(),
+      confirmedId: realId,
+    });
+  }
+
+  /**
+   * Mark session as failed
+   * Called when session creation fails or encounters error
+   */
+  failSession(): void {
+    this._sessionState.set('failed');
+    console.log('[SessionManager] Session marked as failed');
+  }
+
+  /**
+   * Check if session is confirmed (not draft)
+   * @returns true if session state is 'confirmed'
+   */
+  isSessionConfirmed(): boolean {
+    return this._sessionState() === 'confirmed';
+  }
+
+  /**
+   * Get current session ID (regardless of state)
+   * Replaces direct access to sessionId() or getClaudeSessionId()
+   * @returns Current session ID or null if no session
+   */
+  getCurrentSessionId(): SessionId | null {
+    return (this._sessionId() as SessionId) ?? null;
   }
 
   /**
@@ -82,6 +163,8 @@ export class SessionManager {
     this._sessionId.set(null);
     this._status.set('fresh');
     this._claudeSessionId.set(null);
+    this._sessionState.set('draft');
+    this._draftId.set(null);
     this.clearNodeMaps();
   }
 
