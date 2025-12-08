@@ -123,6 +123,31 @@
             "Full Auto (YOLO) - Skip ALL permission prompts (dangerous)"
           ],
           "markdownDescription": "Permission level when autopilot is enabled."
+        },
+        "ptah.authMethod": {
+          "type": "string",
+          "enum": [
+            "oauth",
+            "apiKey",
+            "auto"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "Use Claude Code OAuth token (recommended for free users)",
+            "Use Anthropic API key (pay-as-you-go)",
+            "Auto-detect: Try OAuth first, then API key"
+          ],
+          "markdownDescription": "Authentication method for Claude API.\n\n**OAuth Token**: Get from [Claude Code Setup](https://claude.com/claude-code)\n\n**API Key**: Get from [Anthropic Console](https://console.anthropic.com/)"
+        },
+        "ptah.claudeOAuthToken": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Claude Code OAuth token (starts with `sk-ant-oat01-`).\n\nLeave empty to use environment variable `CLAUDE_CODE_OAUTH_TOKEN`.\n\n**Get token**: [Claude Code Setup](https://claude.com/claude-code)"
+        },
+        "ptah.anthropicApiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Anthropic API key (starts with `sk-ant-api03-`).\n\nLeave empty to use environment variable `ANTHROPIC_API_KEY`.\n\n**Get API key**: [Anthropic Console](https://console.anthropic.com/)"
         }
       }
     }

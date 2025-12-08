@@ -136,6 +136,33 @@ export class PtahExtension implements vscode.Disposable {
   }
 
   /**
+   * Show onboarding notification when authentication is missing
+   * Guides users to configure authentication via Settings or OAuth token
+   * TASK_2025_057 Batch 1 - Task 1.3
+   */
+  async showAuthenticationOnboarding(): Promise<void> {
+    const message =
+      'Ptah requires authentication to use Claude Code. Please configure your OAuth token or API key to get started.';
+    const actions = ['Open Settings', 'Get OAuth Token', 'Dismiss'];
+
+    const selection = await vscode.window.showInformationMessage(
+      message,
+      ...actions
+    );
+
+    if (selection === 'Open Settings') {
+      await vscode.commands.executeCommand(
+        'workbench.action.openSettings',
+        'ptah'
+      );
+    } else if (selection === 'Get OAuth Token') {
+      await vscode.env.openExternal(
+        vscode.Uri.parse('https://docs.anthropic.com/en/docs/agents/quickstart')
+      );
+    }
+  }
+
+  /**
    * Dispose all resources
    */
   dispose(): void {

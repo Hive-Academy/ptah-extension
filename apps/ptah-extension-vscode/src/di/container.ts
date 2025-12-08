@@ -72,6 +72,7 @@ import {
 } from '@ptah-extension/vscode-lm-tools';
 
 // Import agent-sdk services (TASK_2025_044 Batch 3)
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import { registerSdkServices } from '@ptah-extension/agent-sdk';
 import { SdkRpcHandlers } from '@ptah-extension/vscode-core';
 
@@ -247,10 +248,21 @@ export class DIContainer {
 
     // Register Agent SDK services (adapter, storage, permission handler)
     const logger = container.resolve<Logger>(TOKENS.LOGGER);
+
     registerSdkServices(container, context, logger);
 
     // Register SDK RPC handlers
     container.registerSingleton(TOKENS.SDK_RPC_HANDLERS, SdkRpcHandlers);
+
+    // Register adapter with main TOKENS symbol (TASK_2025_057 Batch 1)
+    // This allows main.ts to resolve adapter using TOKENS.SDK_AGENT_ADAPTER
+    container.register(TOKENS.SDK_AGENT_ADAPTER, {
+      useFactory: () => {
+        // Resolve from SDK_TOKENS registration
+        const { SDK_TOKENS } = require('@ptah-extension/agent-sdk');
+        return container.resolve(SDK_TOKENS.SDK_AGENT_ADAPTER);
+      },
+    });
 
     // ========================================
     // PHASE 3: Claude Domain Services

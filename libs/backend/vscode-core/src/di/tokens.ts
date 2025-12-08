@@ -139,6 +139,9 @@ export const PRICING_SERVICE = Symbol.for('PricingService');
 
 // VS Code Memento for pricing cache
 export const GLOBAL_STATE = Symbol.for('GlobalState');
+
+// Agent SDK adapter token (TASK_2025_057 Batch 1)
+export const SDK_AGENT_ADAPTER = Symbol.for('SdkAgentAdapter');
 // PERMISSION_SERVICE - DELETED (over-engineered, unused)
 
 // DELETED tokens (TASK_2025_023 purge)
@@ -284,6 +287,7 @@ export const TOKENS = {
   GLOBAL_STATE,
   STORAGE_SERVICE,
   CONFIGURATION_PROVIDER,
+  SDK_AGENT_ADAPTER,
   // PERMISSION_SERVICE - DELETED (over-engineered, unused)
   // DELETED (TASK_2025_023 cleanup): SESSION_MANAGER, INTERACTIVE_SESSION_MANAGER,
   // SESSION_PROXY, CLAUDE_DOMAIN_EVENT_PUBLISHER, CHAT_ORCHESTRATION_SERVICE,

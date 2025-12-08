@@ -48,6 +48,22 @@ export async function activate(
     logger.info('Autocomplete discovery watchers initialized (2 services)');
     console.log('[Activate] Step 3.7: Autocomplete watchers initialized');
 
+    // Step 3.8: Initialize SDK authentication (TASK_2025_057 Batch 1)
+    console.log('[Activate] Step 3.8: Initializing SDK authentication...');
+    const sdkAdapter = DIContainer.resolve(TOKENS.SDK_AGENT_ADAPTER) as {
+      initialize: () => Promise<boolean>;
+    };
+    const authInitialized = await sdkAdapter.initialize();
+
+    if (!authInitialized) {
+      logger.warn('SDK authentication not configured - showing onboarding UI');
+    } else {
+      logger.info('SDK authentication initialized successfully');
+    }
+    console.log(
+      '[Activate] Step 3.8: SDK authentication initialization complete'
+    );
+
     // Initialize main extension controller
     console.log('[Activate] Step 4: Creating PtahExtension instance...');
     ptahExtension = new PtahExtension(context);
@@ -56,6 +72,13 @@ export async function activate(
     console.log('[Activate] Step 5: Calling ptahExtension.initialize()...');
     await ptahExtension.initialize();
     console.log('[Activate] Step 5: ptahExtension.initialize() complete');
+
+    // Show onboarding UI if authentication not configured (TASK_2025_057 Batch 1)
+    if (!authInitialized) {
+      console.log('[Activate] Step 5.5: Showing authentication onboarding...');
+      await ptahExtension.showAuthenticationOnboarding();
+      console.log('[Activate] Step 5.5: Authentication onboarding displayed');
+    }
 
     // Register late-binding adapters (require PtahExtension initialization)
     console.log('[Activate] Step 6: Registering late-binding adapters...');
