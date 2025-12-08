@@ -186,7 +186,9 @@ export class MessageSenderService {
       }
 
       if (!this.claudeRpcService || !this.vscodeService) {
-        console.error('[MessageSender] Services not available after initialization');
+        console.error(
+          '[MessageSender] Services not available after initialization'
+        );
         return;
       }
 
@@ -326,7 +328,9 @@ export class MessageSenderService {
       }
 
       if (!this.claudeRpcService || !this.vscodeService) {
-        console.error('[MessageSender] Services not available after initialization');
+        console.error(
+          '[MessageSender] Services not available after initialization'
+        );
         return;
       }
 
@@ -339,7 +343,9 @@ export class MessageSenderService {
       // Get active tab
       const activeTabId = this.tabManager.activeTabId();
       if (!activeTabId) {
-        console.warn('[MessageSender] No active tab for continuing conversation');
+        console.warn(
+          '[MessageSender] No active tab for continuing conversation'
+        );
         return;
       }
 

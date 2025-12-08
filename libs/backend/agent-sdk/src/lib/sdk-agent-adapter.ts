@@ -145,8 +145,9 @@ export class SdkAgentAdapter implements IAIProvider {
 
       // Delegate authentication to AuthManager
       const authMethod = this.config.get<string>('authMethod') || 'auto';
-      const authResult =
-        await this.authManager.configureAuthentication(authMethod);
+      const authResult = await this.authManager.configureAuthentication(
+        authMethod
+      );
 
       if (!authResult.configured) {
         this.health = {
@@ -251,7 +252,11 @@ export class SdkAgentAdapter implements IAIProvider {
       `[SdkAgentAdapter] Importing Claude Agent SDK for session ${sessionId}...`
     );
     this.logger.debug(
-      `[SdkAgentAdapter] Environment check: ANTHROPIC_API_KEY=${process.env['ANTHROPIC_API_KEY'] ? 'SET' : 'NOT SET'}, CLAUDE_CODE_OAUTH_TOKEN=${process.env['CLAUDE_CODE_OAUTH_TOKEN'] ? 'SET' : 'NOT SET'}`
+      `[SdkAgentAdapter] Environment check: ANTHROPIC_API_KEY=${
+        process.env['ANTHROPIC_API_KEY'] ? 'SET' : 'NOT SET'
+      }, CLAUDE_CODE_OAUTH_TOKEN=${
+        process.env['CLAUDE_CODE_OAUTH_TOKEN'] ? 'SET' : 'NOT SET'
+      }`
     );
 
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
@@ -475,7 +480,14 @@ export class SdkAgentAdapter implements IAIProvider {
               '[SdkAgentAdapter] OR OAuth token from "claude setup-token"'
             );
             this.logger.error(
-              `[SdkAgentAdapter] Current: ANTHROPIC_API_KEY=${process.env['ANTHROPIC_API_KEY'] ? `SET (${process.env['ANTHROPIC_API_KEY'].substring(0, 10)}...)` : 'NOT SET'}`
+              `[SdkAgentAdapter] Current: ANTHROPIC_API_KEY=${
+                process.env['ANTHROPIC_API_KEY']
+                  ? `SET (${process.env['ANTHROPIC_API_KEY'].substring(
+                      0,
+                      10
+                    )}...)`
+                  : 'NOT SET'
+              }`
             );
           }
 
@@ -593,7 +605,13 @@ export class SdkAgentAdapter implements IAIProvider {
    */
   async setSessionPermissionLevel(
     sessionId: SessionId,
-    level: 'ask' | 'auto-edit' | 'yolo' | 'default' | 'acceptEdits' | 'bypassPermissions'
+    level:
+      | 'ask'
+      | 'auto-edit'
+      | 'yolo'
+      | 'default'
+      | 'acceptEdits'
+      | 'bypassPermissions'
   ): Promise<void> {
     const session = this.sessionLifecycle.getActiveSession(sessionId);
     if (!session) {

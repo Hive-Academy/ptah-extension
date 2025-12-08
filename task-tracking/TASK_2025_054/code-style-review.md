@@ -2,14 +2,14 @@
 
 ## Review Summary
 
-| Metric          | Value |
-|-----------------|-------|
-| Overall Score   | 8.5/10 |
-| Assessment      | APPROVED |
-| Blocking Issues | 0 |
+| Metric          | Value         |
+| --------------- | ------------- |
+| Overall Score   | 8.5/10        |
+| Assessment      | APPROVED      |
+| Blocking Issues | 0             |
 | Serious Issues  | 0 (all fixed) |
-| Minor Issues    | 3 |
-| Files Reviewed  | 6 |
+| Minor Issues    | 3             |
+| Files Reviewed  | 6             |
 
 ## The 5 Critical Questions
 
@@ -26,9 +26,11 @@ The guard preventing `confirmed → draft` transitions is good, but there's no g
 ### 2. What would confuse a new team member?
 
 **Empty String as Sentinel Value (MessageSender.ts:122)**
+
 ```typescript
-sessionId !== ('' as SessionId)
+sessionId !== ('' as SessionId);
 ```
+
 The pattern of using `'' as SessionId` to represent "no session" is now consistent across files, but still lacks documentation at the type level. A new developer won't know this convention without reading implementation code.
 
 **Recommendation**: Add JSDoc to `SessionId` branded type explaining the empty string convention, or create a constant `NO_SESSION_ID = '' as SessionId`.
@@ -55,6 +57,7 @@ All callback methods (`setSendMessageCallback()`, `setContinueConversationCallba
 
 **Consistent Type Safety Improvements**
 The previous `as any` cast in `SessionLoader.ts:314` has been replaced with `as SessionId` with a justifying comment (line 318-319):
+
 ```typescript
 // Type assertion safe here: actualSessionId is validated by backend and originates from Claude CLI
 this.sessionManager.confirmSessionId(actualSessionId as SessionId);
@@ -64,6 +67,7 @@ This is a **significant improvement** - no more type safety bypasses.
 
 **Consistent Error Handling**
 `ConversationService.startNewConversation()` now has comprehensive error cleanup (lines 367-392) including:
+
 - Cleanup of `pendingSessionManager` on failure
 - Tab status reset
 - Proper error rethrow for propagation
@@ -77,6 +81,7 @@ This matches the error handling pattern in `MessageSender`, creating consistency
 
 **Add Session State Transition Guards**
 The current implementation guards against `confirmed → draft` but not `failed → confirmed`. I would add:
+
 ```typescript
 confirmSessionId(realId: SessionId): void {
   const currentState = this._sessionState();
@@ -94,16 +99,18 @@ confirmSessionId(realId: SessionId): void {
 
 **Create NO_SESSION_ID Constant**
 Instead of `'' as SessionId` scattered throughout code:
+
 ```typescript
 // shared library
 export const NO_SESSION_ID = '' as SessionId;
 
 // usage
-sessionId !== NO_SESSION_ID
+sessionId !== NO_SESSION_ID;
 ```
 
 **Extract ID Generation to Utility**
 The `generateId()` method is duplicated in `MessageSender` (line 61) and `Conversation` (line 70). Extract to shared utility:
+
 ```typescript
 // shared/src/lib/utils/id-generator.ts
 export function generateMessageId(): string {
@@ -122,11 +129,13 @@ export function generateMessageId(): string {
 **Previous Issue**: `/[a-zA-Z0-9]/` only matched ASCII, rejecting Chinese/Arabic/Japanese
 
 **Fix Applied**: Line 109 now uses `/[\p{L}\p{N}]/u`
+
 ```typescript
 if (!/[\p{L}\p{N}]/u.test(content)) {
 ```
 
 **Verification**:
+
 - `\p{L}` matches all Unicode letters (any language)
 - `\p{N}` matches all Unicode numbers
 - `u` flag enables Unicode mode
@@ -141,12 +150,14 @@ if (!/[\p{L}\p{N}]/u.test(content)) {
 **Previous Issue**: 3-level callback chain (`ChatStore → Conversation → CompletionHandler`)
 
 **Fix Applied**:
+
 - `ConversationService.ts:56-61` - Comments confirm callbacks REMOVED
 - `CompletionHandlerService.ts:31-36` - Comments confirm callbacks REMOVED
 - `CompletionHandler.ts:197-217` - Direct call to `messageSender.send()` (no callback)
 - `ChatStore.ts:90-92` - Comments confirm callback registrations REMOVED
 
 **Verification**:
+
 ```typescript
 // OLD (3 levels):
 this.conversation.setSendMessageCallback(this.sendMessage.bind(this)); // Level 1
@@ -166,16 +177,19 @@ this.messageSender.send(content); // Direct call
 **Previous Issue**: Maintained BOTH `_sessionId` AND `_claudeSessionId` (4 parallel properties)
 
 **Fix Applied**: `SessionManager.ts` - **NO MORE `_claudeSessionId` property**
+
 - Line 32: Only `_sessionId` (singular)
 - Line 36: Only `_sessionState`
 - Line 39: Only `_draftId`
 - **Total properties: 3** (down from 4)
 
 **Deprecated Method Status**:
+
 - `setClaudeSessionId()` - **COMPLETELY REMOVED** (not even deprecated, just gone)
 - Only `confirmSessionId()` exists (line 94-114)
 
 **Verification**:
+
 ```typescript
 // Previous review found 4 properties:
 private readonly _sessionId = signal<string | null>(null);        // ✓ Still exists
@@ -195,12 +209,14 @@ private readonly _draftId = signal<SessionId | null>(null);       // ✓ Still e
 **Previous Issue**: `SessionLoader.ts:314` used `as any` cast
 
 **Fix Applied**: Line 318-319 now uses `as SessionId` with justifying comment
+
 ```typescript
 // Type assertion safe here: actualSessionId is validated by backend and originates from Claude CLI
 this.sessionManager.confirmSessionId(actualSessionId as SessionId);
 ```
 
 **Verification**:
+
 - No `as any` casts found in SessionLoader
 - Explicit `as SessionId` cast is safe (backend validates)
 - Comment explains WHY cast is safe
@@ -214,27 +230,26 @@ this.sessionManager.confirmSessionId(actualSessionId as SessionId);
 **Previous Issue**: No guard against invalid state transitions
 
 **Fix Applied**: `SessionManager.ts:66-71` adds guard
+
 ```typescript
 // Guard: Cannot transition from confirmed back to draft
 if (this._sessionState() === 'confirmed' && state === 'draft') {
-  console.warn(
-    '[SessionManager] Invalid state transition: confirmed → draft (blocked)'
-  );
+  console.warn('[SessionManager] Invalid state transition: confirmed → draft (blocked)');
   return;
 }
 ```
 
 **Verification**:
+
 - Guard prevents `confirmed → draft` transition
 - Logs warning instead of allowing invalid transition
 - Returns early to prevent state mutation
 
 **Additional Guards in `confirmSessionId()`**: Lines 95-100
+
 ```typescript
 if (this._sessionState() === 'confirmed') {
-  console.warn(
-    '[SessionManager] Session already confirmed, ignoring duplicate confirmation'
-  );
+  console.warn('[SessionManager] Session already confirmed, ignoring duplicate confirmation');
   return;
 }
 ```
@@ -266,6 +281,7 @@ confirmSessionId(realId: SessionId): void {
 **Severity**: Minor (edge case, unlikely in practice)
 
 **Recommendation**: Add guard:
+
 ```typescript
 if (this._sessionState() === 'failed') {
   console.error('[SessionManager] Cannot confirm failed session');
@@ -351,6 +367,7 @@ private generateId(): string {
 Excellent validation service with Unicode support fully implemented. Rule 5 now correctly validates ALL languages using Unicode property escapes.
 
 **Strengths**:
+
 - ✅ **FIXED**: Unicode validation supports Chinese, Arabic, Japanese, emoji (line 109)
 - Single Responsibility: Only validates messages
 - Excellent JSDoc with clear examples
@@ -358,6 +375,7 @@ Excellent validation service with Unicode support fully implemented. Rule 5 now 
 - Sanitize method properly trims whitespace
 
 **Remaining Minor Issues**:
+
 1. Line 48: `MAX_LENGTH = 100000` - Magic number without justification
 2. Line 27-30: `ValidationResult` exported but only used internally
 
@@ -374,6 +392,7 @@ Excellent validation service with Unicode support fully implemented. Rule 5 now 
 Massive improvement. The dual session ID problem has been **completely eliminated**. Only 3 state properties remain (down from 4). Deprecated methods have been **fully removed** (not just marked deprecated).
 
 **Strengths**:
+
 - ✅ **FIXED**: No more `_claudeSessionId` property (completely removed)
 - ✅ **FIXED**: `setClaudeSessionId()` method completely removed (not deprecated)
 - ✅ **FIXED**: State transition guard prevents `confirmed → draft` (lines 66-71)
@@ -383,6 +402,7 @@ Massive improvement. The dual session ID problem has been **completely eliminate
 - Readonly public accessors
 
 **New Minor Issue**:
+
 1. Missing guard for `failed → confirmed` transition in `confirmSessionId()`
 
 **Verdict**: Excellent refactoring. The session state machine is now clean and maintainable.
@@ -398,6 +418,7 @@ Massive improvement. The dual session ID problem has been **completely eliminate
 Perfect type safety implementation. The `as any` cast has been **completely eliminated** and replaced with `as SessionId` with a clear justifying comment.
 
 **Strengths**:
+
 - ✅ **FIXED**: Type assertion changed from `as any` to `as SessionId` (line 319)
 - ✅ **FIXED**: Justifying comment explains why cast is safe (lines 318-319)
 - Uses `PendingSessionManagerService` for encapsulation (no direct Map access)
@@ -418,6 +439,7 @@ Perfect type safety implementation. The `as any` cast has been **completely elim
 Good refactoring. Callbacks completely removed (lines 56-61). Error handling significantly improved with pending session cleanup on ALL failure paths.
 
 **Strengths**:
+
 - ✅ **FIXED**: Callback pattern completely removed (no `setSendMessageCallback()`)
 - ✅ **FIXED**: Uses `MessageValidationService` for consistent validation (lines 134-143)
 - ✅ **FIXED**: Comprehensive error cleanup in `startNewConversation()` (lines 367-392)
@@ -425,6 +447,7 @@ Good refactoring. Callbacks completely removed (lines 56-61). Error handling sig
 - Good separation of concerns
 
 **Remaining Minor Issues**:
+
 1. Line 70-72: `generateId()` duplicated from MessageSender
 2. Line 79-94: `waitForServices()` duplicated from MessageSender
 
@@ -441,6 +464,7 @@ Good refactoring. Callbacks completely removed (lines 56-61). Error handling sig
 Perfect callback elimination. All deprecated callback methods **completely removed** (not just marked deprecated, but deleted from codebase).
 
 **Strengths**:
+
 - ✅ **FIXED**: Callback methods completely removed (lines 31-36 confirm)
 - ✅ **FIXED**: Uses `MessageSenderService` directly for auto-send (lines 197-217)
 - Proper multi-tab routing by sessionId
@@ -460,6 +484,7 @@ Perfect callback elimination. All deprecated callback methods **completely remov
 Excellent facade pattern. All callback registrations **completely removed** (lines 90-92 confirm).
 
 **Strengths**:
+
 - ✅ **FIXED**: Callback registrations completely removed
 - Perfect facade pattern delegation
 - 74% size reduction (1537 → 400 lines maintained)
@@ -479,12 +504,14 @@ Excellent facade pattern. All callback registrations **completely removed** (lin
 Good mediator pattern implementation. Uses `MessageValidationService` for validation before sending. No callback indirection.
 
 **Strengths**:
+
 - ✅ **FIXED**: Uses `MessageValidationService` for validation (lines 102-111)
 - Clean routing logic (new vs continue conversation)
 - Good error handling
 - No callback indirection
 
 **Remaining Minor Issues**:
+
 1. Line 61-63: `generateId()` duplicated from Conversation
 2. Line 70-85: `waitForServices()` duplicated from Conversation
 
@@ -494,23 +521,24 @@ Good mediator pattern implementation. Uses `MessageValidationService` for valida
 
 ## Pattern Compliance
 
-| Pattern            | Status | Concern |
-|--------------------|--------|---------|
-| Signal-based state | PASS   | All services use signals correctly |
-| Type safety        | PASS   | No `as any` casts, only justified `as SessionId` |
-| DI patterns        | PASS   | All services use inject() function |
-| Layer separation   | PASS   | Clean separation between services |
-| Single Responsibility | PASS | Each service has clear single responsibility |
-| DRY Principle      | PARTIAL | Two minor duplications (generateId, waitForServices) |
-| Encapsulation      | PASS   | Good use of private state with readonly public signals |
-| Unicode Support    | PASS   | Full Unicode validation with `\p{L}\p{N}` |
-| State Machine Integrity | PASS | Guards prevent invalid transitions |
+| Pattern                 | Status  | Concern                                                |
+| ----------------------- | ------- | ------------------------------------------------------ |
+| Signal-based state      | PASS    | All services use signals correctly                     |
+| Type safety             | PASS    | No `as any` casts, only justified `as SessionId`       |
+| DI patterns             | PASS    | All services use inject() function                     |
+| Layer separation        | PASS    | Clean separation between services                      |
+| Single Responsibility   | PASS    | Each service has clear single responsibility           |
+| DRY Principle           | PARTIAL | Two minor duplications (generateId, waitForServices)   |
+| Encapsulation           | PASS    | Good use of private state with readonly public signals |
+| Unicode Support         | PASS    | Full Unicode validation with `\p{L}\p{N}`              |
+| State Machine Integrity | PASS    | Guards prevent invalid transitions                     |
 
 ---
 
 ## Technical Debt Assessment
 
 **Previous Debt (from first review)**:
+
 1. ❌ 400+ lines of duplicated conversation logic
 2. ❌ 4 parallel session state properties
 3. ❌ Deprecated methods left functional
@@ -518,6 +546,7 @@ Good mediator pattern implementation. Uses `MessageValidationService` for valida
 5. ❌ Callback indirection
 
 **Debt ELIMINATED in Fixes** ✅:
+
 1. ✅ **FIXED**: Dual session ID eliminated (3 properties, not 4)
 2. ✅ **FIXED**: Deprecated methods completely removed (not just marked)
 3. ✅ **FIXED**: Type safety restored (`as SessionId` with justification)
@@ -525,6 +554,7 @@ Good mediator pattern implementation. Uses `MessageValidationService` for valida
 5. ✅ **FIXED**: Unicode validation supports all languages
 
 **New Minor Debt Introduced**:
+
 1. Missing `failed → confirmed` guard (edge case)
 2. `generateId()` duplication (30 lines total)
 3. `waitForServices()` duplication (30 lines total)
@@ -535,18 +565,18 @@ Good mediator pattern implementation. Uses `MessageValidationService` for valida
 
 ## Comparison: Before vs After Fixes
 
-| Metric | Previous Review (7.5/10) | After Fixes (8.5/10) |
-|--------|--------------------------|----------------------|
-| Blocking Issues | 0 | 0 |
-| Serious Issues | 5 | 0 ✅ |
-| Minor Issues | 8 | 3 |
-| Dual Session ID | 4 properties | 3 properties ✅ |
-| Deprecated Methods | Functional | Removed ✅ |
-| Type Safety Bypasses | 1 (`as any`) | 0 ✅ |
-| Callback Indirection | Present | Eliminated ✅ |
-| Unicode Support | ASCII only | Full Unicode ✅ |
-| State Transition Guards | None | 2 guards ✅ |
-| Code Duplication | 400+ lines | 60 lines |
+| Metric                  | Previous Review (7.5/10) | After Fixes (8.5/10) |
+| ----------------------- | ------------------------ | -------------------- |
+| Blocking Issues         | 0                        | 0                    |
+| Serious Issues          | 5                        | 0 ✅                 |
+| Minor Issues            | 8                        | 3                    |
+| Dual Session ID         | 4 properties             | 3 properties ✅      |
+| Deprecated Methods      | Functional               | Removed ✅           |
+| Type Safety Bypasses    | 1 (`as any`)             | 0 ✅                 |
+| Callback Indirection    | Present                  | Eliminated ✅        |
+| Unicode Support         | ASCII only               | Full Unicode ✅      |
+| State Transition Guards | None                     | 2 guards ✅          |
+| Code Duplication        | 400+ lines               | 60 lines             |
 
 ---
 
@@ -561,11 +591,13 @@ Good mediator pattern implementation. Uses `MessageValidationService` for valida
 The implementation is now at **8.5/10** (up from 7.5/10). To reach **10/10**, address these final items:
 
 1. **Extract Utility Functions** (1-2 hours)
+
    - Move `generateId()` to shared utility
    - Move `waitForServices()` to shared utility
    - **Impact**: Eliminate 60 lines of duplication
 
 2. **Add Missing State Guard** (15 minutes)
+
    ```typescript
    if (this._sessionState() === 'failed') {
      console.error('[SessionManager] Cannot confirm failed session');
@@ -574,6 +606,7 @@ The implementation is now at **8.5/10** (up from 7.5/10). To reach **10/10**, ad
    ```
 
 3. **Document Empty String Convention** (15 minutes)
+
    - Add JSDoc to `SessionId` branded type
    - Or create `NO_SESSION_ID` constant
 

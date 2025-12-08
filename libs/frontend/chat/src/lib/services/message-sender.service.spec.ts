@@ -20,7 +20,9 @@ describe('MessageSenderService', () => {
   let mockVSCodeService: jest.Mocked<Partial<VSCodeService>>;
   let mockTabManager: jest.Mocked<Partial<TabManagerService>>;
   let mockSessionManager: jest.Mocked<Partial<SessionManager>>;
-  let mockPendingSessionManager: jest.Mocked<Partial<PendingSessionManagerService>>;
+  let mockPendingSessionManager: jest.Mocked<
+    Partial<PendingSessionManagerService>
+  >;
   let mockSessionLoader: jest.Mocked<Partial<SessionLoaderService>>;
 
   beforeEach(() => {
@@ -93,8 +95,12 @@ describe('MessageSenderService', () => {
         status: 'loaded' as const,
         messages: [],
       };
-      (mockTabManager.activeTab as jest.Mock) = jest.fn().mockReturnValue(mockTab);
-      (mockTabManager.activeTabId as jest.Mock) = jest.fn().mockReturnValue('tab1');
+      (mockTabManager.activeTab as jest.Mock) = jest
+        .fn()
+        .mockReturnValue(mockTab);
+      (mockTabManager.activeTabId as jest.Mock) = jest
+        .fn()
+        .mockReturnValue('tab1');
       (mockClaudeRpc.call as jest.Mock) = jest.fn().mockResolvedValue({
         success: true,
         data: { sessionId: 'session123' },
@@ -118,13 +124,19 @@ describe('MessageSenderService', () => {
         status: 'loaded' as const,
         messages: [],
       };
-      (mockTabManager.activeTab as jest.Mock) = jest.fn().mockReturnValue(mockTab);
-      (mockTabManager.activeTabId as jest.Mock) = jest.fn().mockReturnValue('tab1');
+      (mockTabManager.activeTab as jest.Mock) = jest
+        .fn()
+        .mockReturnValue(mockTab);
+      (mockTabManager.activeTabId as jest.Mock) = jest
+        .fn()
+        .mockReturnValue('tab1');
       (mockClaudeRpc.call as jest.Mock) = jest.fn().mockResolvedValue({
         success: true,
         data: { sessionId: 'newSession' },
       });
-      (mockSessionLoader.loadSessions as jest.Mock) = jest.fn().mockResolvedValue(undefined);
+      (mockSessionLoader.loadSessions as jest.Mock) = jest
+        .fn()
+        .mockResolvedValue(undefined);
 
       // Act
       await service.send('Test message');
@@ -145,7 +157,9 @@ describe('MessageSenderService', () => {
       await service.send('Test message');
 
       // Assert
-      expect(consoleWarnSpy).toHaveBeenCalledWith('[MessageSender] No active tab');
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        '[MessageSender] No active tab'
+      );
       expect(mockClaudeRpc.call).not.toHaveBeenCalled();
 
       consoleWarnSpy.mockRestore();
@@ -160,7 +174,9 @@ describe('MessageSenderService', () => {
         status: 'streaming' as const,
         messages: [],
       };
-      (mockTabManager.activeTab as jest.Mock) = jest.fn().mockReturnValue(mockTab);
+      (mockTabManager.activeTab as jest.Mock) = jest
+        .fn()
+        .mockReturnValue(mockTab);
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
 
       // Act
@@ -183,8 +199,12 @@ describe('MessageSenderService', () => {
         status: 'loaded' as const,
         messages: [],
       };
-      (mockTabManager.activeTab as jest.Mock) = jest.fn().mockReturnValue(mockTab);
-      (mockTabManager.activeTabId as jest.Mock) = jest.fn().mockReturnValue('tab1');
+      (mockTabManager.activeTab as jest.Mock) = jest
+        .fn()
+        .mockReturnValue(mockTab);
+      (mockTabManager.activeTabId as jest.Mock) = jest
+        .fn()
+        .mockReturnValue('tab1');
       (mockClaudeRpc.call as jest.Mock) = jest.fn().mockResolvedValue({
         success: true,
         data: { sessionId: 'session123' },
@@ -204,13 +224,19 @@ describe('MessageSenderService', () => {
   describe('startNewConversation()', () => {
     beforeEach(() => {
       // Common setup for new conversation tests
-      (mockTabManager.activeTabId as jest.Mock) = jest.fn().mockReturnValue('tab1');
+      (mockTabManager.activeTabId as jest.Mock) = jest
+        .fn()
+        .mockReturnValue('tab1');
       const mockTab = {
         id: 'tab1',
         messages: [],
       };
-      (mockTabManager.activeTab as jest.Mock) = jest.fn().mockReturnValue(mockTab);
-      (mockSessionLoader.loadSessions as jest.Mock) = jest.fn().mockResolvedValue(undefined);
+      (mockTabManager.activeTab as jest.Mock) = jest
+        .fn()
+        .mockReturnValue(mockTab);
+      (mockSessionLoader.loadSessions as jest.Mock) = jest
+        .fn()
+        .mockResolvedValue(undefined);
     });
 
     it('should create new session and call chat:start RPC', async () => {
@@ -247,9 +273,7 @@ describe('MessageSenderService', () => {
         success: false,
         error: 'RPC failed',
       });
-      const consoleErrorSpy = jest
-        .spyOn(console, 'error')
-        .mockImplementation();
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
 
       // Act
       await service.send('Test message');
@@ -266,11 +290,13 @@ describe('MessageSenderService', () => {
 
     it('should cleanup pending resolution on exception', async () => {
       // Arrange
-      (mockClaudeRpc.call as jest.Mock) = jest.fn().mockRejectedValue(new Error('Network error'));
-      (mockSessionManager.getCurrentSessionId as jest.Mock) = jest.fn().mockReturnValue('placeholder123');
-      const consoleErrorSpy = jest
-        .spyOn(console, 'error')
-        .mockImplementation();
+      (mockClaudeRpc.call as jest.Mock) = jest
+        .fn()
+        .mockRejectedValue(new Error('Network error'));
+      (mockSessionManager.getCurrentSessionId as jest.Mock) = jest
+        .fn()
+        .mockReturnValue('placeholder123');
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
 
       // Act
       try {
@@ -299,8 +325,12 @@ describe('MessageSenderService', () => {
         status: 'loaded' as const,
         messages: [],
       };
-      (mockTabManager.activeTab as jest.Mock) = jest.fn().mockReturnValue(mockTab);
-      (mockTabManager.activeTabId as jest.Mock) = jest.fn().mockReturnValue('tab1');
+      (mockTabManager.activeTab as jest.Mock) = jest
+        .fn()
+        .mockReturnValue(mockTab);
+      (mockTabManager.activeTabId as jest.Mock) = jest
+        .fn()
+        .mockReturnValue('tab1');
     });
 
     it('should call chat:continue RPC with existing session ID', async () => {
@@ -332,9 +362,7 @@ describe('MessageSenderService', () => {
         success: false,
         error: 'RPC failed',
       });
-      const consoleErrorSpy = jest
-        .spyOn(console, 'error')
-        .mockImplementation();
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
 
       // Act
       await service.send('Test message');

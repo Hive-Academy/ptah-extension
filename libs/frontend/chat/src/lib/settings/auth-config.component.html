@@ -66,10 +66,13 @@
     />
     <div class="label flex-col items-start gap-1">
       <span class="label-text-alt opacity-70">
-        <strong>✅ For Claude Max/Pro subscription:</strong> Run <code class="text-xs bg-base-300 px-1 rounded">claude setup-token</code> in terminal and paste the token here.
+        <strong>✅ For Claude Max/Pro subscription:</strong> Run
+        <code class="text-xs bg-base-300 px-1 rounded">claude setup-token</code>
+        in terminal and paste the token here.
       </span>
       <span class="label-text-alt opacity-70">
-        OAuth tokens start with <code class="text-xs">sk-ant-oat01-</code> and use your subscription (no extra charges).
+        OAuth tokens start with <code class="text-xs">sk-ant-oat01-</code> and
+        use your subscription (no extra charges).
       </span>
     </div>
   </div>
@@ -104,7 +107,8 @@
         >
       </span>
       <span class="label-text-alt opacity-70">
-        API keys start with <code class="text-xs">sk-ant-api</code> and are billed separately (different from subscriptions).
+        API keys start with <code class="text-xs">sk-ant-api</code> and are
+        billed separately (different from subscriptions).
       </span>
     </div>
   </div>
@@ -145,19 +149,41 @@
   <div class="alert alert-error" role="alert" aria-live="assertive">
     <div class="flex flex-col gap-2 w-full">
       <div class="flex items-start gap-2">
-        <lucide-angular [img]="XCircleIcon" class="w-5 h-5 flex-shrink-0 mt-0.5" />
-        <span class="flex-1 whitespace-pre-wrap break-words">{{ errorMessage() }}</span>
+        <lucide-angular
+          [img]="XCircleIcon"
+          class="w-5 h-5 flex-shrink-0 mt-0.5"
+        />
+        <span class="flex-1 whitespace-pre-wrap break-words">{{
+          errorMessage()
+        }}</span>
       </div>
       @if (errorMessage().toLowerCase().includes('401') ||
-           errorMessage().toLowerCase().includes('unauthorized') ||
-           errorMessage().toLowerCase().includes('invalid') ||
-           errorMessage().toLowerCase().includes('authentication')) {
+      errorMessage().toLowerCase().includes('unauthorized') ||
+      errorMessage().toLowerCase().includes('invalid') ||
+      errorMessage().toLowerCase().includes('authentication')) {
       <div class="text-sm border-t border-error-content/20 pt-2 mt-1">
         <strong>💡 Authentication Tips:</strong>
         <ul class="list-disc list-inside mt-1 space-y-1 text-xs">
-          <li><strong>Option 1 (Subscription):</strong> Run <code class="text-xs bg-base-300 px-1 rounded">claude setup-token</code> and use OAuth token (starts with <code>sk-ant-oat01-</code>)</li>
-          <li><strong>Option 2 (Pay-per-token):</strong> Get API key from <a href="https://console.anthropic.com/settings/keys" target="_blank" class="link link-error font-semibold">console.anthropic.com</a> (starts with <code>sk-ant-api</code>)</li>
-          <li>Check the VS Code Output panel (select "Ptah") for detailed logs</li>
+          <li>
+            <strong>Option 1 (Subscription):</strong> Run
+            <code class="text-xs bg-base-300 px-1 rounded"
+              >claude setup-token</code
+            >
+            and use OAuth token (starts with <code>sk-ant-oat01-</code>)
+          </li>
+          <li>
+            <strong>Option 2 (Pay-per-token):</strong> Get API key from
+            <a
+              href="https://console.anthropic.com/settings/keys"
+              target="_blank"
+              class="link link-error font-semibold"
+              >console.anthropic.com</a
+            >
+            (starts with <code>sk-ant-api</code>)
+          </li>
+          <li>
+            Check the VS Code Output panel (select "Ptah") for detailed logs
+          </li>
         </ul>
       </div>
       }

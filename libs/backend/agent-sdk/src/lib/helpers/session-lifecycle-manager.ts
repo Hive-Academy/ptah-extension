@@ -68,10 +68,7 @@ export interface ActiveSession {
 export class SessionLifecycleManager {
   private activeSessions = new Map<string, ActiveSession>();
 
-  constructor(
-    private logger: Logger,
-    private storage: SdkSessionStorage
-  ) {}
+  constructor(private logger: Logger, private storage: SdkSessionStorage) {}
 
   /**
    * Create initial session record in storage
@@ -119,7 +116,9 @@ export class SessionLifecycleManager {
     };
 
     this.activeSessions.set(sessionId as string, session);
-    this.logger.info(`[SessionLifecycle] Registered active session: ${sessionId}`);
+    this.logger.info(
+      `[SessionLifecycle] Registered active session: ${sessionId}`
+    );
   }
 
   /**

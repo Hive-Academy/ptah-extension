@@ -24,10 +24,7 @@ export interface AuthConfig {
  * Manages SDK authentication setup and validation
  */
 export class AuthManager {
-  constructor(
-    private logger: Logger,
-    private config: ConfigManager
-  ) {}
+  constructor(private logger: Logger, private config: ConfigManager) {}
 
   /**
    * Configure authentication for SDK
@@ -135,7 +132,9 @@ export class AuthManager {
       );
 
       details.push(
-        `OAuth token from settings (subscription mode${!isOAuthFormat ? ', format may be invalid' : ''})`
+        `OAuth token from settings (subscription mode${
+          !isOAuthFormat ? ', format may be invalid' : ''
+        })`
       );
       return { configured: true, details };
     } else if (envOAuthToken) {
@@ -157,7 +156,9 @@ export class AuthManager {
       );
 
       details.push(
-        `OAuth token from environment (subscription mode${!isOAuthFormat ? ', format may be invalid' : ''})`
+        `OAuth token from environment (subscription mode${
+          !isOAuthFormat ? ', format may be invalid' : ''
+        })`
       );
       return { configured: true, details };
     } else {
@@ -196,7 +197,9 @@ export class AuthManager {
 
       process.env['ANTHROPIC_API_KEY'] = apiKey.trim();
       details.push(
-        `API key from settings (pay-per-token, format ${isValidFormat ? 'valid' : 'INVALID'})`
+        `API key from settings (pay-per-token, format ${
+          isValidFormat ? 'valid' : 'INVALID'
+        })`
       );
       return { configured: true, details };
     } else if (envApiKey) {
@@ -214,7 +217,9 @@ export class AuthManager {
       }
 
       details.push(
-        `API key from environment (pay-per-token, format ${isValidFormat ? 'valid' : 'INVALID'})`
+        `API key from environment (pay-per-token, format ${
+          isValidFormat ? 'valid' : 'INVALID'
+        })`
       );
       return { configured: true, details };
     } else {
@@ -231,6 +236,8 @@ export class AuthManager {
   clearAuthentication(): void {
     delete process.env['ANTHROPIC_API_KEY'];
     delete process.env['CLAUDE_CODE_OAUTH_TOKEN'];
-    this.logger.debug('[AuthManager] Cleared authentication environment variables');
+    this.logger.debug(
+      '[AuthManager] Cleared authentication environment variables'
+    );
   }
 }

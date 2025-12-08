@@ -20,10 +20,7 @@ export class ConfigWatcher {
   private watchers: vscode.Disposable[] = [];
   private isReinitializing = false;
 
-  constructor(
-    private logger: Logger,
-    private config: ConfigManager
-  ) {}
+  constructor(private logger: Logger, private config: ConfigManager) {}
 
   /**
    * Register config watchers for auth-related settings
