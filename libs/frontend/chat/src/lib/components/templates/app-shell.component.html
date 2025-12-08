@@ -116,18 +116,28 @@
 
       <!-- Header actions -->
       <div class="flex gap-1">
-        <button class="btn btn-square btn-ghost btn-sm" aria-label="Settings">
+        <button
+          class="btn btn-square btn-ghost btn-sm"
+          aria-label="Settings"
+          (click)="openSettings()"
+        >
           <lucide-angular [img]="SettingsIcon" class="w-4 h-4" />
         </button>
       </div>
     </div>
 
-    <!-- Tab bar at top -->
-    <ptah-tab-bar />
-
-    <!-- Chat View takes remaining space -->
+    <!-- Main content area - conditional view rendering -->
     <div class="flex-1 overflow-hidden">
-      <ptah-chat-view />
+      @if (currentView() === 'settings') {
+      <!-- Settings View -->
+      <ptah-settings />
+      } @else {
+      <!-- Chat View (default) -->
+      <ptah-tab-bar />
+      <div class="flex-1 overflow-hidden">
+        <ptah-chat-view />
+      </div>
+      }
     </div>
   </div>
 </div>

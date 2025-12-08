@@ -1,0 +1,158 @@
+<form class="space-y-6">
+  <!-- Auth Method Selection -->
+  <div class="form-control">
+    <div class="label">
+      <span class="label-text font-semibold">Authentication Method</span>
+    </div>
+    <div class="flex flex-wrap gap-4">
+      <label class="label cursor-pointer gap-2">
+        <input
+          type="radio"
+          name="authMethod"
+          value="oauth"
+          [checked]="authMethod() === 'oauth'"
+          (change)="onAuthMethodChange('oauth')"
+          class="radio radio-primary"
+        />
+        <span class="label-text">OAuth Token</span>
+      </label>
+      <label class="label cursor-pointer gap-2">
+        <input
+          type="radio"
+          name="authMethod"
+          value="apiKey"
+          [checked]="authMethod() === 'apiKey'"
+          (change)="onAuthMethodChange('apiKey')"
+          class="radio radio-primary"
+        />
+        <span class="label-text">API Key</span>
+      </label>
+      <label class="label cursor-pointer gap-2">
+        <input
+          type="radio"
+          name="authMethod"
+          value="auto"
+          [checked]="authMethod() === 'auto'"
+          (change)="onAuthMethodChange('auto')"
+          class="radio radio-primary"
+        />
+        <span class="label-text">Auto-detect</span>
+      </label>
+    </div>
+    <div class="label">
+      <span class="label-text-alt opacity-70">
+        Auto-detect will try OAuth token first, then fall back to API key
+      </span>
+    </div>
+  </div>
+
+  <!-- OAuth Token Input -->
+  @if (authMethod() === 'oauth' || authMethod() === 'auto') {
+  <div class="form-control">
+    <label class="label" for="oauthToken">
+      <span class="label-text font-semibold">Claude OAuth Token</span>
+      @if (authMethod() === 'auto') {
+      <span class="label-text-alt">(optional in auto-detect)</span>
+      }
+    </label>
+    <input
+      id="oauthToken"
+      type="password"
+      [(ngModel)]="oauthToken"
+      name="oauthToken"
+      class="input input-bordered w-full"
+      placeholder="Enter your OAuth token"
+      [attr.aria-required]="authMethod() === 'oauth'"
+    />
+    <div class="label">
+      <span class="label-text-alt opacity-70">
+        Get your OAuth token from the
+        <a
+          href="https://docs.anthropic.com/en/docs/agents/quickstart"
+          target="_blank"
+          class="link link-primary"
+          >Claude Code setup guide</a
+        >
+      </span>
+    </div>
+  </div>
+  }
+
+  <!-- API Key Input -->
+  @if (authMethod() === 'apiKey' || authMethod() === 'auto') {
+  <div class="form-control">
+    <label class="label" for="apiKey">
+      <span class="label-text font-semibold">Anthropic API Key</span>
+      @if (authMethod() === 'auto') {
+      <span class="label-text-alt">(optional in auto-detect)</span>
+      }
+    </label>
+    <input
+      id="apiKey"
+      type="password"
+      [(ngModel)]="apiKey"
+      name="apiKey"
+      class="input input-bordered w-full"
+      placeholder="Enter your API key"
+      [attr.aria-required]="authMethod() === 'apiKey'"
+    />
+    <div class="label">
+      <span class="label-text-alt opacity-70">
+        Get your API key from the
+        <a
+          href="https://console.anthropic.com/"
+          target="_blank"
+          class="link link-primary"
+          >Anthropic Console</a
+        >
+      </span>
+    </div>
+  </div>
+  }
+
+  <!-- Save & Test Button -->
+  <div class="form-control">
+    <button
+      type="button"
+      class="btn btn-primary gap-2"
+      (click)="saveAndTest()"
+      [disabled]="
+        connectionStatus() === 'saving' || connectionStatus() === 'testing'
+      "
+    >
+      @if (connectionStatus() === 'saving') {
+      <lucide-angular [img]="Loader2Icon" class="w-4 h-4 animate-spin" />
+      <span>Saving...</span>
+      } @else if (connectionStatus() === 'testing') {
+      <lucide-angular [img]="Loader2Icon" class="w-4 h-4 animate-spin" />
+      <span>Testing Connection...</span>
+      } @else {
+      <span>Save & Test Connection</span>
+      }
+    </button>
+  </div>
+
+  <!-- Success Message -->
+  @if (connectionStatus() === 'success' && successMessage()) {
+  <div class="alert alert-success" role="status" aria-live="polite">
+    <lucide-angular [img]="CheckCircleIcon" class="w-5 h-5" />
+    <span>{{ successMessage() }}</span>
+  </div>
+  }
+
+  <!-- Error Message -->
+  @if (connectionStatus() === 'error' && errorMessage()) {
+  <div class="alert alert-error" role="alert" aria-live="assertive">
+    <lucide-angular [img]="XCircleIcon" class="w-5 h-5" />
+    <span>{{ errorMessage() }}</span>
+  </div>
+  }
+
+  <!-- Testing In Progress (with success message from save) -->
+  @if (connectionStatus() === 'testing' && successMessage()) {
+  <div class="alert alert-info" role="status" aria-live="polite">
+    <lucide-angular [img]="Loader2Icon" class="w-5 h-5 animate-spin" />
+    <span>{{ successMessage() }}</span>
+  </div>
+  }
+</form>

@@ -1,0 +1,35 @@
+<div class="h-full overflow-y-auto bg-base-100">
+  <div class="p-4 space-y-6 max-w-4xl mx-auto">
+    <!-- Header with back button -->
+    <div class="flex items-center gap-4">
+      <button
+        class="btn btn-ghost btn-sm gap-2"
+        (click)="backToChat()"
+        aria-label="Back to Chat"
+      >
+        <lucide-angular [img]="ArrowLeftIcon" class="w-4 h-4" />
+        Back to Chat
+      </button>
+      <h1 class="text-2xl font-bold">Settings</h1>
+    </div>
+
+    <!-- Authentication Section -->
+    <div class="card bg-base-200">
+      <div class="card-body">
+        <h2 class="card-title flex items-center gap-2">
+          <span class="text-xl">🔐</span>
+          Authentication
+        </h2>
+        <p class="text-sm opacity-70 mb-4">
+          Configure your authentication method to connect with Claude Code. You
+          can use either an OAuth token or an API key.
+        </p>
+        <ptah-auth-config />
+      </div>
+    </div>
+
+    <!-- Future sections placeholder comments for expansion -->
+    <!-- Model Selection Section - TODO: Add ModelSelectorComponent -->
+    <!-- Autopilot Configuration Section - TODO: Add AutopilotConfigComponent -->
+  </div>
+</div>

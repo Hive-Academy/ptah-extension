@@ -417,12 +417,12 @@
 
 ---
 
-## Batch 3: Frontend Settings UI & Navigation ⏸️ PENDING
+## Batch 3: Frontend Settings UI & Navigation 🔄 IMPLEMENTED
 
 **Developer**: frontend-developer
 **Tasks**: 5 | **Dependencies**: Batch 2 (RPC methods must exist before frontend can call them)
 
-### Task 3.1: Create Settings Components in Chat Library ⏸️ PENDING
+### Task 3.1: Create Settings Components in Chat Library 🔄 IMPLEMENTED
 
 **Files**:
 
@@ -467,7 +467,7 @@
 
 ---
 
-### Task 3.2: Wire Settings Navigation in AppShellComponent ⏸️ PENDING
+### Task 3.2: Wire Settings Navigation in AppShellComponent 🔄 IMPLEMENTED
 
 **Files**:
 
@@ -531,7 +531,7 @@
 
 ---
 
-### Task 3.3: Export Settings Components from Chat Library ⏸️ PENDING
+### Task 3.3: Export Settings Components from Chat Library 🔄 IMPLEMENTED
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\index.ts (MODIFY)
 **Spec Reference**: implementation-plan-revised.md:136-137 (Component 5 exports)
@@ -558,7 +558,7 @@
 
 ---
 
-### Task 3.4: Create Settings Component Templates ⏸️ PENDING
+### Task 3.4: Create Settings Component Templates 🔄 IMPLEMENTED
 
 **Files**:
 
@@ -671,7 +671,7 @@
 
 ---
 
-### Task 3.5: Add Settings Barrel Export ⏸️ PENDING
+### Task 3.5: Add Settings Barrel Export 🔄 IMPLEMENTED
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\settings\index.ts (CREATE)
 **Spec Reference**: implementation-plan-revised.md:151 (Component 5 barrel export)

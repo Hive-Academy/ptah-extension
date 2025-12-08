@@ -16,9 +16,11 @@ import {
 import { ChatViewComponent } from './chat-view.component';
 import { TabBarComponent } from '../organisms/tab-bar.component';
 import { ConfirmationDialogComponent } from '../molecules/confirmation-dialog.component';
+import { SettingsComponent } from '../../settings/settings.component';
 import { ChatStore } from '../../services/chat.store';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
 import { TabManagerService } from '../../services/tab-manager.service';
+import { AppStateManager } from '@ptah-extension/core';
 import type { ChatSessionSummary } from '@ptah-extension/shared';
 
 /**
@@ -37,6 +39,7 @@ import type { ChatSessionSummary } from '@ptah-extension/shared';
   standalone: true,
   imports: [
     ChatViewComponent,
+    SettingsComponent,
     TabBarComponent,
     ConfirmationDialogComponent,
     DatePipe,
@@ -51,6 +54,10 @@ export class AppShellComponent {
 
   readonly chatStore = inject(ChatStore);
   private readonly tabManager = inject(TabManagerService);
+  private readonly appState = inject(AppStateManager);
+
+  // Expose currentView signal for template
+  readonly currentView = this.appState.currentView;
 
   // Sidebar state (default hidden for VS Code sidebar space efficiency)
   private readonly _sidebarOpen = signal(false);
@@ -68,6 +75,13 @@ export class AppShellComponent {
    */
   toggleSidebar(): void {
     this._sidebarOpen.update((open) => !open);
+  }
+
+  /**
+   * Navigate to settings view
+   */
+  openSettings(): void {
+    this.appState.setCurrentView('settings');
   }
 
   /**
