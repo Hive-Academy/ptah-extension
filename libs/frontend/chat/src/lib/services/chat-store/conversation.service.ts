@@ -110,11 +110,16 @@ export class ConversationService {
 
   /**
    * Check if there's an existing session in active tab
+   * Uses new state machine API to check if session is confirmed
    */
   private hasExistingSession(): boolean {
     const tab = this.tabManager.activeTab();
     // Has existing session if tab has a real Claude session ID and is in 'loaded' state
-    return !!(tab?.claudeSessionId && tab.status === 'loaded');
+    // OR if SessionManager confirms the session is in 'confirmed' state
+    return !!(
+      (tab?.claudeSessionId && tab.status === 'loaded') ||
+      this.sessionManager.isSessionConfirmed()
+    );
   }
 
   /**
@@ -287,10 +292,10 @@ export class ConversationService {
         isDirty: false,
       });
 
-      // Update SessionManager state
-      this.sessionManager.setSessionId(sessionId);
+      // Update SessionManager state - use new state machine API
+      this.sessionManager.setSessionId(sessionId, 'draft'); // Start in draft state
       this.sessionManager.clearClaudeSessionId(); // Clear previous real ID
-      this.sessionManager.setStatus('draft'); // Start in draft state (no real session ID yet)
+      this.sessionManager.setStatus('draft'); // Start in draft status (no real session ID yet)
 
       // Add user message immediately (with empty sessionId - will be updated when resolved)
       const userMessage = createExecutionChatMessage({
@@ -370,11 +375,26 @@ export class ConversationService {
         '[ConversationService] Failed to start new conversation:',
         error
       );
+
+      // CRITICAL: Clean up pending resolution to prevent memory leak
+      // This ensures pendingSessionManager.remove() is called on ALL failure paths
+      const placeholderSessionId = this.sessionManager.getCurrentSessionId();
+      if (placeholderSessionId) {
+        this.pendingSessionManager.remove(placeholderSessionId);
+        console.log(
+          '[ConversationService] Cleaned up pending resolution after error:',
+          placeholderSessionId
+        );
+      }
+
       // Update tab status to loaded (error)
       const activeTabId = this.tabManager.activeTabId();
       if (activeTabId) {
         this.tabManager.updateTab(activeTabId, { status: 'loaded' });
       }
+
+      // Rethrow error to preserve error propagation
+      throw error;
     }
   }
 
