@@ -1,0 +1,236 @@
+/**
+ * Authentication Manager - Handles SDK authentication configuration
+ *
+ * Responsibilities:
+ * - OAuth token and API key detection
+ * - Environment variable setup
+ * - Token format validation
+ * - Authentication priority logic
+ */
+
+import { Logger, ConfigManager } from '@ptah-extension/vscode-core';
+
+export interface AuthResult {
+  configured: boolean;
+  details: string[];
+  errorMessage?: string;
+}
+
+export interface AuthConfig {
+  method: 'oauth' | 'apiKey' | 'auto';
+}
+
+/**
+ * Manages SDK authentication setup and validation
+ */
+export class AuthManager {
+  constructor(
+    private logger: Logger,
+    private config: ConfigManager
+  ) {}
+
+  /**
+   * Configure authentication for SDK
+   * Returns auth status and details for logging
+   */
+  async configureAuthentication(authMethod: string): Promise<AuthResult> {
+    this.logger.debug(`[AuthManager] Configuring auth method: ${authMethod}`);
+
+    let authConfigured = false;
+    const authDetails: string[] = [];
+
+    // Try OAuth token (from Claude Max/Pro subscription)
+    // NOTE: As of SDK v0.1.8+, CLAUDE_CODE_OAUTH_TOKEN is supported and will use your subscription
+    // Get token via: claude setup-token
+    if (authMethod === 'oauth' || authMethod === 'auto') {
+      const oauthResult = this.configureOAuthToken();
+      if (oauthResult.configured) {
+        authConfigured = true;
+        authDetails.push(...oauthResult.details);
+      }
+    }
+
+    // Try API key (pay-per-token billing, separate from subscription)
+    // NOTE: API key takes precedence over OAuth token if both are set
+    // In 'auto' mode with OAuth token, we skip API key to use subscription
+    const hasOAuthToken = authDetails.some((d) => d.includes('OAuth token'));
+
+    if ((authMethod === 'apiKey' || authMethod === 'auto') && !hasOAuthToken) {
+      const apiKeyResult = this.configureAPIKey();
+      if (apiKeyResult.configured) {
+        authConfigured = true;
+        authDetails.push(...apiKeyResult.details);
+      }
+    } else if (hasOAuthToken && authMethod === 'auto') {
+      this.logger.info(
+        '[AuthManager] Skipping API key check - using OAuth token from subscription'
+      );
+    }
+
+    // Validate at least one auth method is available
+    if (!authConfigured) {
+      const errorMsg =
+        'No authentication configured. Set either: (1) OAuth token from "claude setup-token" for Claude Max/Pro subscription, OR (2) API key from console.anthropic.com for pay-per-token billing.';
+      this.logger.error(`[AuthManager] ${errorMsg}`);
+      this.logger.error(
+        '[AuthManager] Option 1 (Subscription): Run "claude setup-token" and paste the token'
+      );
+      this.logger.error(
+        '[AuthManager] Option 2 (API Key): Get from https://console.anthropic.com/settings/keys'
+      );
+      return {
+        configured: false,
+        details: [],
+        errorMessage: errorMsg,
+      };
+    }
+
+    // Log summary
+    this.logger.info(
+      `[AuthManager] Authentication configured: ${authDetails.join(', ')}`
+    );
+
+    return {
+      configured: true,
+      details: authDetails,
+    };
+  }
+
+  /**
+   * Configure OAuth token authentication
+   */
+  private configureOAuthToken(): AuthResult {
+    const oauthToken = this.config.get<string>('claudeOAuthToken');
+    const envOAuthToken = process.env['CLAUDE_CODE_OAUTH_TOKEN'];
+    const details: string[] = [];
+
+    if (oauthToken?.trim()) {
+      const tokenPrefix = oauthToken.substring(0, 15);
+      const tokenLength = oauthToken.length;
+      const isOAuthFormat = oauthToken.startsWith('sk-ant-oat01-');
+
+      this.logger.info(
+        `[AuthManager] Found OAuth token in settings (length: ${tokenLength}, prefix: ${tokenPrefix}..., OAuth format: ${isOAuthFormat})`
+      );
+
+      if (!isOAuthFormat) {
+        this.logger.warn(
+          '[AuthManager] WARNING: OAuth token does not start with "sk-ant-oat01-". Get token via: claude setup-token'
+        );
+      }
+
+      // CRITICAL: When using OAuth token, we must REMOVE ANTHROPIC_API_KEY
+      // The SDK prioritizes API key over OAuth token, so we need to clear it
+      // This forces the SDK to use subscription authentication
+      delete process.env['ANTHROPIC_API_KEY'];
+
+      // Set the OAuth token
+      process.env['CLAUDE_CODE_OAUTH_TOKEN'] = oauthToken.trim();
+
+      this.logger.info(
+        '[AuthManager] Using OAuth token from Claude Max/Pro subscription'
+      );
+      this.logger.info(
+        '[AuthManager] Removed ANTHROPIC_API_KEY to prioritize subscription auth'
+      );
+
+      details.push(
+        `OAuth token from settings (subscription mode${!isOAuthFormat ? ', format may be invalid' : ''})`
+      );
+      return { configured: true, details };
+    } else if (envOAuthToken) {
+      const tokenLength = envOAuthToken.length;
+      const isOAuthFormat = envOAuthToken.startsWith('sk-ant-oat01-');
+
+      this.logger.info(
+        `[AuthManager] Found OAuth token in environment (length: ${tokenLength}, OAuth format: ${isOAuthFormat})`
+      );
+
+      // Remove API key to prioritize OAuth token
+      delete process.env['ANTHROPIC_API_KEY'];
+
+      this.logger.info(
+        '[AuthManager] Using OAuth token from environment (subscription mode)'
+      );
+      this.logger.info(
+        '[AuthManager] Removed ANTHROPIC_API_KEY to prioritize subscription auth'
+      );
+
+      details.push(
+        `OAuth token from environment (subscription mode${!isOAuthFormat ? ', format may be invalid' : ''})`
+      );
+      return { configured: true, details };
+    } else {
+      this.logger.debug(
+        '[AuthManager] No OAuth token found in settings or environment'
+      );
+      return { configured: false, details: [] };
+    }
+  }
+
+  /**
+   * Configure API key authentication
+   */
+  private configureAPIKey(): AuthResult {
+    const apiKey = this.config.get<string>('anthropicApiKey');
+    const envApiKey = process.env['ANTHROPIC_API_KEY'];
+    const details: string[] = [];
+
+    if (apiKey?.trim()) {
+      const keyPrefix = apiKey.substring(0, 10);
+      const keyLength = apiKey.length;
+      const isValidFormat = apiKey.startsWith('sk-ant-api');
+
+      this.logger.info(
+        `[AuthManager] Found API key in settings (length: ${keyLength}, prefix: ${keyPrefix}..., valid format: ${isValidFormat})`
+      );
+
+      if (!isValidFormat) {
+        this.logger.warn(
+          '[AuthManager] WARNING: API key does not start with "sk-ant-api". Expected format: sk-ant-api03-...'
+        );
+        this.logger.warn(
+          '[AuthManager] Get valid API keys from: https://console.anthropic.com/settings/keys'
+        );
+      }
+
+      process.env['ANTHROPIC_API_KEY'] = apiKey.trim();
+      details.push(
+        `API key from settings (pay-per-token, format ${isValidFormat ? 'valid' : 'INVALID'})`
+      );
+      return { configured: true, details };
+    } else if (envApiKey) {
+      const keyLength = envApiKey.length;
+      const isValidFormat = envApiKey.startsWith('sk-ant-api');
+
+      this.logger.info(
+        `[AuthManager] Found API key in environment (length: ${keyLength}, valid format: ${isValidFormat})`
+      );
+
+      if (!isValidFormat) {
+        this.logger.warn(
+          '[AuthManager] WARNING: Environment API key format may be invalid'
+        );
+      }
+
+      details.push(
+        `API key from environment (pay-per-token, format ${isValidFormat ? 'valid' : 'INVALID'})`
+      );
+      return { configured: true, details };
+    } else {
+      this.logger.debug(
+        '[AuthManager] No API key found in settings or environment'
+      );
+      return { configured: false, details: [] };
+    }
+  }
+
+  /**
+   * Clear all authentication environment variables
+   */
+  clearAuthentication(): void {
+    delete process.env['ANTHROPIC_API_KEY'];
+    delete process.env['CLAUDE_CODE_OAUTH_TOKEN'];
+    this.logger.debug('[AuthManager] Cleared authentication environment variables');
+  }
+}

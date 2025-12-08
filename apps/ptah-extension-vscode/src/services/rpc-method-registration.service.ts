@@ -689,7 +689,7 @@ export class RpcMethodRegistrationService {
         if (sessionId && enabled) {
           try {
             const sdkMode = this.mapPermissionToSdkMode(permissionLevel);
-            await this.sdkAdapter.setSessionPermissionMode(sessionId, sdkMode);
+            await this.sdkAdapter.setSessionPermissionLevel(sessionId, sdkMode);
             this.logger.debug('Permission mode synced to active session', {
               sessionId,
               sdkMode,
@@ -812,7 +812,28 @@ export class RpcMethodRegistrationService {
       { success: boolean; error?: string }
     >('auth:saveSettings', async (params: unknown) => {
       try {
-        this.logger.debug('RPC: auth:saveSettings called', { params });
+        // SECURITY: Sanitize params before logging (mask credentials)
+        const sanitizedParams =
+          typeof params === 'object' && params !== null
+            ? {
+                ...params,
+                claudeOAuthToken:
+                  'claudeOAuthToken' in params &&
+                  typeof params.claudeOAuthToken === 'string' &&
+                  params.claudeOAuthToken
+                    ? `***${params.claudeOAuthToken.slice(-4)}`
+                    : undefined,
+                anthropicApiKey:
+                  'anthropicApiKey' in params &&
+                  typeof params.anthropicApiKey === 'string' &&
+                  params.anthropicApiKey
+                    ? `***${params.anthropicApiKey.slice(-4)}`
+                    : undefined,
+              }
+            : params;
+        this.logger.debug('RPC: auth:saveSettings called', {
+          params: sanitizedParams,
+        });
 
         // Validate parameters with Zod
         const validated = AuthSettingsSchema.parse(params);
