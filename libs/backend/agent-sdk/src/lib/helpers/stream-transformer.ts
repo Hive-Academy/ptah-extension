@@ -31,6 +31,16 @@ export type SessionIdResolvedCallback = (
 ) => void;
 
 /**
+ * Callback type for notifying when result message with stats is received
+ */
+export type ResultStatsCallback = (stats: {
+  sessionId: SessionId;
+  cost: number;
+  tokens: { input: number; output: number };
+  duration: number;
+}) => void;
+
+/**
  * Configuration for stream transformation
  */
 export interface StreamTransformConfig {
@@ -38,6 +48,7 @@ export interface StreamTransformConfig {
   sessionId: SessionId;
   initialModel: string;
   onSessionIdResolved?: SessionIdResolvedCallback;
+  onResultStats?: ResultStatsCallback;
 }
 
 /**
@@ -84,7 +95,13 @@ export class StreamTransformer {
    * Create a transformed ExecutionNode stream from SDK messages
    */
   transform(config: StreamTransformConfig): AsyncIterable<ExecutionNode> {
-    const { sdkQuery, sessionId, initialModel, onSessionIdResolved } = config;
+    const {
+      sdkQuery,
+      sessionId,
+      initialModel,
+      onSessionIdResolved,
+      onResultStats,
+    } = config;
 
     // Capture references for use in generator
     const logger = this.logger;
@@ -142,6 +159,39 @@ export class StreamTransformer {
                     : new Error(String(storageError))
                 );
               }
+            }
+
+            // Extract stats from result message and notify via callback
+            if (
+              sdkMessage.type === 'result' &&
+              onResultStats &&
+              'total_cost_usd' in sdkMessage &&
+              'usage' in sdkMessage &&
+              'duration_ms' in sdkMessage
+            ) {
+              const usage = sdkMessage['usage'] as {
+                input_tokens?: number;
+                output_tokens?: number;
+              };
+              logger.debug(
+                `[StreamTransformer] Result message received for ${sessionId}`,
+                {
+                  cost: sdkMessage['total_cost_usd'],
+                  duration: sdkMessage['duration_ms'],
+                  tokens: usage,
+                }
+              );
+
+              // Notify via callback with stats
+              onResultStats({
+                sessionId,
+                cost: (sdkMessage['total_cost_usd'] as number) || 0,
+                tokens: {
+                  input: usage.input_tokens || 0,
+                  output: usage.output_tokens || 0,
+                },
+                duration: (sdkMessage['duration_ms'] as number) || 0,
+              });
             }
 
             const nodes = messageTransformer.transform(sdkMessage, sessionId);

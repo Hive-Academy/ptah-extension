@@ -115,6 +115,10 @@ export class RpcMethodRegistrationService {
     // Setup session ID resolution callback
     // This sends 'session:id-resolved' event to frontend when SDK returns real Claude UUID
     this.setupSessionIdResolvedCallback();
+
+    // Setup result stats callback
+    // This sends 'session:stats' event to frontend when SDK result message is received
+    this.setupResultStatsCallback();
   }
 
   /**
@@ -141,6 +145,34 @@ export class RpcMethodRegistrationService {
           });
       }
     );
+  }
+
+  /**
+   * Setup callback to notify frontend when result message with stats is received
+   * This sends session:stats event to webview when streaming completes
+   */
+  private setupResultStatsCallback(): void {
+    this.sdkAdapter.setResultStatsCallback((stats) => {
+      this.logger.info(`[RPC] Session stats received: ${stats.sessionId}`, {
+        cost: stats.cost,
+        tokens: stats.tokens,
+        duration: stats.duration,
+      });
+
+      this.webviewManager
+        .sendMessage('ptah.main', 'session:stats', {
+          sessionId: stats.sessionId,
+          cost: stats.cost,
+          tokens: stats.tokens,
+          duration: stats.duration,
+        })
+        .catch((error) => {
+          this.logger.error(
+            'Failed to send session:stats to webview',
+            error instanceof Error ? error : new Error(String(error))
+          );
+        });
+    });
   }
 
   /**

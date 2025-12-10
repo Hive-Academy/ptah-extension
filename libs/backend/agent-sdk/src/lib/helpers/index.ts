@@ -27,5 +27,6 @@ export { UserMessageStreamFactory } from './user-message-stream-factory';
 export {
   StreamTransformer,
   type SessionIdResolvedCallback,
+  type ResultStatsCallback,
   type StreamTransformConfig,
 } from './stream-transformer';

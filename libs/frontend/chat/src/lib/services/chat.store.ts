@@ -654,6 +654,25 @@ export class ChatStore {
   }
 
   // ============================================================================
+  // SESSION STATS HANDLING
+  // ============================================================================
+
+  /**
+   * Handle session stats update from backend
+   * Delegates to StreamingHandlerService
+   *
+   * @param stats - Session statistics (cost, tokens, duration)
+   */
+  handleSessionStats(stats: {
+    sessionId: string;
+    cost: number;
+    tokens: { input: number; output: number };
+    duration: number;
+  }): void {
+    this.streamingHandler.handleSessionStats(stats);
+  }
+
+  // ============================================================================
   // CHAT COMPLETION HANDLING
   // ============================================================================
 

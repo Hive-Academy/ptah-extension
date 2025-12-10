@@ -38,6 +38,7 @@ import {
   StreamTransformer,
   type SDKUserMessage,
   type SessionIdResolvedCallback,
+  type ResultStatsCallback,
 } from './helpers';
 import {
   ClaudeCliDetector,
@@ -45,7 +46,7 @@ import {
 } from './detector/claude-cli-detector';
 
 // Re-export for external consumers
-export type { SessionIdResolvedCallback } from './helpers';
+export type { SessionIdResolvedCallback, ResultStatsCallback } from './helpers';
 
 /**
  * Provider capabilities for SDK-based integration
@@ -107,6 +108,12 @@ export class SdkAgentAdapter implements IAIProvider {
    * Set by RpcMethodRegistrationService to send session:id-resolved events
    */
   private sessionIdResolvedCallback: SessionIdResolvedCallback | null = null;
+
+  /**
+   * Callback to notify when result message with stats is received
+   * Set by RpcMethodRegistrationService to send session:stats events
+   */
+  private resultStatsCallback: ResultStatsCallback | null = null;
 
   /**
    * Create SDK Agent Adapter with all dependencies injected
@@ -349,6 +356,7 @@ export class SdkAgentAdapter implements IAIProvider {
       sessionId,
       initialModel,
       onSessionIdResolved: this.sessionIdResolvedCallback || undefined,
+      onResultStats: this.resultStatsCallback || undefined,
     });
   }
 
@@ -471,6 +479,7 @@ export class SdkAgentAdapter implements IAIProvider {
       sessionId,
       initialModel,
       onSessionIdResolved: this.sessionIdResolvedCallback || undefined,
+      onResultStats: this.resultStatsCallback || undefined,
     });
   }
 
@@ -487,6 +496,14 @@ export class SdkAgentAdapter implements IAIProvider {
    */
   setSessionIdResolvedCallback(callback: SessionIdResolvedCallback): void {
     this.sessionIdResolvedCallback = callback;
+  }
+
+  /**
+   * Set callback for when result message with stats is received
+   * Called by RpcMethodRegistrationService to send session:stats events to webview
+   */
+  setResultStatsCallback(callback: ResultStatsCallback): void {
+    this.resultStatsCallback = callback;
   }
 
   /**

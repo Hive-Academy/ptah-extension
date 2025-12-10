@@ -279,6 +279,21 @@ export class VSCodeService {
           );
         }
       }
+
+      // Handle session stats (cost/token data after completion)
+      if (message.type === 'session:stats') {
+        if (message.payload && this.chatStore) {
+          this.chatStore.handleSessionStats(message.payload);
+        } else if (!message.payload) {
+          console.warn(
+            '[VSCodeService] session:stats received but payload is undefined!'
+          );
+        } else {
+          console.warn(
+            '[VSCodeService] session:stats received but ChatStore not registered!'
+          );
+        }
+      }
     });
   }
 }

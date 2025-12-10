@@ -253,4 +253,77 @@ export class StreamingHandlerService {
     // Update SessionManager status
     this.sessionManager.setStatus('loaded');
   }
+
+  /**
+   * Handle session stats update from backend
+   *
+   * Updates the most recent assistant message with cost/token/duration data.
+   * Called when backend sends `session:stats` message after completion.
+   *
+   * @param stats - Session statistics from backend
+   */
+  handleSessionStats(stats: {
+    sessionId: string;
+    cost: number;
+    tokens: { input: number; output: number };
+    duration: number;
+  }): void {
+    console.log('[StreamingHandlerService] Received session stats:', stats);
+
+    // Find the target tab by session ID
+    const targetTab = this.tabManager.findTabBySessionId(stats.sessionId);
+    if (!targetTab) {
+      console.warn(
+        '[StreamingHandlerService] No tab found for session:',
+        stats.sessionId
+      );
+      return;
+    }
+
+    // Find the last assistant message in the tab
+    const messages = targetTab.messages;
+    if (messages.length === 0) {
+      console.warn(
+        '[StreamingHandlerService] No messages found in tab for stats update'
+      );
+      return;
+    }
+
+    // Find the last assistant message (iterate backwards)
+    let lastAssistantIndex = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant') {
+        lastAssistantIndex = i;
+        break;
+      }
+    }
+
+    if (lastAssistantIndex === -1) {
+      console.warn(
+        '[StreamingHandlerService] No assistant message found for stats update'
+      );
+      return;
+    }
+
+    // Update the assistant message with stats
+    const updatedMessages = [...messages];
+    updatedMessages[lastAssistantIndex] = {
+      ...messages[lastAssistantIndex],
+      tokens: stats.tokens,
+      cost: stats.cost,
+      duration: stats.duration,
+    };
+
+    // Update the tab with the new messages array
+    this.tabManager.updateTab(targetTab.id, {
+      messages: updatedMessages,
+    });
+
+    console.log('[StreamingHandlerService] Updated message with stats:', {
+      messageIndex: lastAssistantIndex,
+      tokens: stats.tokens,
+      cost: stats.cost,
+      duration: stats.duration,
+    });
+  }
 }
