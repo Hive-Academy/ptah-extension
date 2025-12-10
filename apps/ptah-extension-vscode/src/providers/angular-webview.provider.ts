@@ -321,7 +321,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         return;
       }
 
-      // TASK_2025_026 Batch 4: Handle permission:response messages
+      // TASK_2025_026 Batch 4: Handle permission:response messages (MCP approval_prompt)
       if (message.type === 'permission:response') {
         try {
           // Service injection pending Batch 5 DI registration
@@ -348,6 +348,49 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         } catch (error) {
           this.logger.error(
             'Failed to process permission response',
+            error instanceof Error ? error : new Error(String(error))
+          );
+        }
+        return;
+      }
+
+      // Handle SDK permission responses (from chat UI)
+      if (message.type === 'chat:permission-response') {
+        try {
+          const { container } = await import('tsyringe');
+          const SDK_PERMISSION_HANDLER = 'SdkPermissionHandler';
+
+          if (container.isRegistered(SDK_PERMISSION_HANDLER)) {
+            const permissionHandler = container.resolve<any>(
+              SDK_PERMISSION_HANDLER
+            );
+            const payload = message.payload || message.response;
+
+            // Map decision to approved boolean for backend handler
+            const approved =
+              payload?.decision === 'allow' ||
+              payload?.decision === 'always_allow';
+
+            permissionHandler.handleResponse(payload?.id, {
+              approved,
+              modifiedInput: payload?.modifiedInput,
+              reason: payload?.reason,
+            });
+
+            this.logger.info('SDK Permission response processed', {
+              requestId: payload?.id,
+              decision: payload?.decision,
+              approved,
+            });
+          } else {
+            this.logger.warn(
+              'SdkPermissionHandler not registered - cannot process response',
+              { payload: message.payload }
+            );
+          }
+        } catch (error) {
+          this.logger.error(
+            'Failed to process SDK permission response',
             error instanceof Error ? error : new Error(String(error))
           );
         }

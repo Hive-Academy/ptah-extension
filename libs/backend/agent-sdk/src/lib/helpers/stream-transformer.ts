@@ -294,8 +294,10 @@ export class StreamTransformer {
 
             // Store messages and yield nodes
             for (const node of nodes) {
-              // Create MessageId from node.id string
-              const messageId = MessageId.from(node.id);
+              // Try to parse node.id as MessageId, or create a new one if it's not a valid UUID
+              // (e.g., Anthropic tool_use IDs like "toolu_01Xsdsrk5VAepjhuwFGEGzZV" are not UUIDs)
+              const messageId =
+                MessageId.safeParse(node.id) ?? MessageId.create();
 
               // Extract parent_tool_use_id from SDK message
               const parentToolUseId =
@@ -308,13 +310,16 @@ export class StreamTransformer {
                 sessionLifecycle.getActiveSession(sessionId);
               const currentModel = currentSession?.currentModel || initialModel;
 
+              // For parentId, also use safeParse since tool_use_ids from Anthropic are not UUIDs
+              const parentId =
+                parentToolUseId && typeof parentToolUseId === 'string'
+                  ? MessageId.safeParse(parentToolUseId)
+                  : null;
+
               // Create stored message from ExecutionNode
               const storedMessage: StoredSessionMessage = {
                 id: messageId,
-                parentId:
-                  parentToolUseId && typeof parentToolUseId === 'string'
-                    ? MessageId.from(parentToolUseId)
-                    : null,
+                parentId,
                 role: getRoleFromSDKMessage(sdkMessage),
                 content: [node],
                 timestamp: Date.now(),
@@ -350,13 +355,17 @@ export class StreamTransformer {
           );
 
           // Check for auth errors and provide helpful logging
-          if (
+          // Be specific to avoid false positives (e.g., "Invalid MessageId format" is not an auth error)
+          const lowerMessage = errorObj.message.toLowerCase();
+          const isAuthError =
             errorObj.message.includes('401') ||
-            errorObj.message.toLowerCase().includes('unauthorized') ||
-            errorObj.message.toLowerCase().includes('authentication') ||
-            errorObj.message.toLowerCase().includes('invalid') ||
-            errorObj.message.toLowerCase().includes('api key')
-          ) {
+            lowerMessage.includes('unauthorized') ||
+            lowerMessage.includes('authentication failed') ||
+            lowerMessage.includes('invalid api key') ||
+            lowerMessage.includes('invalid token') ||
+            lowerMessage.includes('api_key');
+
+          if (isAuthError) {
             logger.error('[StreamTransformer] AUTHENTICATION ERROR!');
             logger.error(
               '[StreamTransformer] SDK requires valid API key from console.anthropic.com'

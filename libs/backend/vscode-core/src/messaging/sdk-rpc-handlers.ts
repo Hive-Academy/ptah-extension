@@ -41,6 +41,7 @@ interface SdkPermissionHandler {
       reason?: string;
     }
   ): void;
+  setEventEmitter(emitter: (event: string, payload: any) => void): void;
 }
 
 // Webview manager interface
@@ -68,7 +69,43 @@ export class SdkRpcHandlers {
     @inject('SdkAgentAdapter') private readonly sdkAdapter: SdkAgentAdapter,
     @inject('SdkPermissionHandler')
     private readonly permissionHandler: SdkPermissionHandler
-  ) {}
+  ) {
+    // Wire up permission handler to send events to webview
+    this.initializePermissionEmitter();
+  }
+
+  /**
+   * Initialize permission event emitter
+   * Connects SdkPermissionHandler to webview messaging
+   */
+  private initializePermissionEmitter(): void {
+    this.logger.info(
+      '[SdkRpcHandlers] Initializing permission event emitter...'
+    );
+
+    // Create emitter that sends permission requests to webview
+    const emitter = (event: string, payload: any): void => {
+      this.logger.debug(`[SdkRpcHandlers] Permission event: ${event}`, {
+        payload,
+      });
+
+      // Send to webview - fire and forget (async but we don't await)
+      this.webviewManager
+        .sendMessage('ptah.main', event, payload)
+        .catch((error) => {
+          this.logger.error(
+            `[SdkRpcHandlers] Failed to send permission event: ${event}`,
+            { error }
+          );
+        });
+    };
+
+    // Wire up the permission handler
+    this.permissionHandler.setEventEmitter(emitter);
+    this.logger.info(
+      '[SdkRpcHandlers] Permission event emitter initialized successfully'
+    );
+  }
 
   /**
    * RPC: sdk:startSession

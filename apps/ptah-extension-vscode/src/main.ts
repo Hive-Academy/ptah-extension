@@ -64,6 +64,12 @@ export async function activate(
       '[Activate] Step 3.8: SDK authentication initialization complete'
     );
 
+    // Step 3.9: Initialize SDK RPC handlers (wires up permission event emitter)
+    console.log('[Activate] Step 3.9: Initializing SDK RPC handlers...');
+    DIContainer.resolve(TOKENS.SDK_RPC_HANDLERS);
+    logger.info('SDK RPC handlers initialized');
+    console.log('[Activate] Step 3.9: SDK RPC handlers initialized');
+
     // Initialize main extension controller
     console.log('[Activate] Step 4: Creating PtahExtension instance...');
     ptahExtension = new PtahExtension(context);

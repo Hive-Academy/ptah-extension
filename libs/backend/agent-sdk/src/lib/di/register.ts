@@ -26,7 +26,7 @@ import {
   SdkQueryBuilder,
   UserMessageStreamFactory,
   StreamTransformer,
-  ImageConverterService,
+  AttachmentProcessorService,
 } from '../helpers';
 import { SDK_TOKENS } from './tokens';
 import * as vscode from 'vscode';
@@ -128,10 +128,10 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton }
   );
 
-  // Image converter - depends on Logger
+  // Attachment processor (images + text) - depends on Logger
   container.register(
-    SDK_TOKENS.SDK_IMAGE_CONVERTER,
-    { useClass: ImageConverterService },
+    SDK_TOKENS.SDK_ATTACHMENT_PROCESSOR,
+    { useClass: AttachmentProcessorService },
     { lifecycle: Lifecycle.Singleton }
   );
 

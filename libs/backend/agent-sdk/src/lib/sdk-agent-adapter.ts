@@ -36,7 +36,7 @@ import {
   SdkQueryBuilder,
   UserMessageStreamFactory,
   StreamTransformer,
-  ImageConverterService,
+  AttachmentProcessorService,
   type SDKUserMessage,
   type SessionIdResolvedCallback,
   type ResultStatsCallback,
@@ -60,7 +60,7 @@ const SDK_CAPABILITIES: ProviderCapabilities = {
   sessionPersistence: true,
   multiTurn: true,
   codeGeneration: true,
-  imageAnalysis: false,
+  imageAnalysis: true,
   functionCalling: true,
 };
 
@@ -156,8 +156,8 @@ export class SdkAgentAdapter implements IAIProvider {
     private readonly messageStreamFactory: UserMessageStreamFactory,
     @inject(SDK_TOKENS.SDK_STREAM_TRANSFORMER)
     private readonly streamTransformer: StreamTransformer,
-    @inject(SDK_TOKENS.SDK_IMAGE_CONVERTER)
-    private readonly imageConverter: ImageConverterService
+    @inject(SDK_TOKENS.SDK_ATTACHMENT_PROCESSOR)
+    private readonly attachmentProcessor: AttachmentProcessorService
   ) {}
 
   /**
@@ -632,18 +632,21 @@ export class SdkAgentAdapter implements IAIProvider {
       fileCount: options?.files?.length || 0,
     });
 
-    // Check for images and convert if necessary
+    // Check for attachments (files & images)
     const files = options?.files || [];
     let messageContent: string | ContentBlock[] = content;
 
-    if (this.imageConverter.hasImages(files)) {
+    if (files.length > 0) {
       this.logger.debug(
-        `[SdkAgentAdapter] Processing ${files.length} files for images`
+        `[SdkAgentAdapter] Processing ${files.length} attachments`
       );
-      messageContent = await this.imageConverter.convertToContentBlocks(
-        content,
-        files
-      );
+
+      const attachmentBlocks =
+        await this.attachmentProcessor.processAttachments(files);
+
+      if (attachmentBlocks.length > 0) {
+        messageContent = [{ type: 'text', text: content }, ...attachmentBlocks];
+      }
     }
 
     // Generate message ID for UI storage

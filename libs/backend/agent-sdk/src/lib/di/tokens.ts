@@ -22,7 +22,7 @@ export const SDK_TOKENS = {
   SDK_USER_MESSAGE_STREAM_FACTORY: 'SdkUserMessageStreamFactory',
   SDK_STREAM_TRANSFORMER: 'SdkStreamTransformer',
   SDK_CLI_DETECTOR: 'SdkCliDetector',
-  SDK_IMAGE_CONVERTER: 'SdkImageConverter',
+  SDK_ATTACHMENT_PROCESSOR: Symbol('SdkAttachmentProcessor'),
 } as const;
 
 /**

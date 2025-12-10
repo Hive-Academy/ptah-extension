@@ -31,4 +31,4 @@ export {
   type ResultStatsCallback,
   type StreamTransformConfig,
 } from './stream-transformer';
-export { ImageConverterService } from './image-converter.service';
+export * from './attachment-processor.service';

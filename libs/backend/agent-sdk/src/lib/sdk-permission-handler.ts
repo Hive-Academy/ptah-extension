@@ -56,12 +56,20 @@ type CanUseTool = (
 
 /**
  * Permission request payload for RPC event
+ * Matches shared/permission.types.ts PermissionRequest interface
  */
 interface PermissionRequest {
-  requestId: string;
+  /** Unique request ID - matches shared type's 'id' field */
+  id: string;
   toolName: string;
   toolInput: any;
+  /** Claude's tool_use_id for correlation with ExecutionNode.toolCallId */
+  toolUseId?: string;
   timestamp: number;
+  /** Human-readable description of the permission request */
+  description: string;
+  /** Timeout deadline (Unix epoch milliseconds) - auto-deny after this time */
+  timeoutAt: number;
 }
 
 /**
@@ -188,12 +196,22 @@ export class SdkPermissionHandler {
     // Sanitize tool input before sending to UI
     const sanitizedInput = this.sanitizeToolInput(input);
 
+    // Calculate timeout deadline (30 seconds from now)
+    const now = Date.now();
+    const timeoutAt = now + PERMISSION_TIMEOUT_MS;
+
+    // Generate human-readable description based on tool type
+    const description = this.generateDescription(toolName, sanitizedInput);
+
     // Emit permission request event
+    // Note: All fields match shared/permission.types.ts PermissionRequest interface
     const request: PermissionRequest = {
-      requestId,
+      id: requestId,
       toolName,
       toolInput: sanitizedInput,
-      timestamp: Date.now(),
+      timestamp: now,
+      description,
+      timeoutAt,
     };
 
     if (!this.eventEmitter) {
@@ -207,7 +225,8 @@ export class SdkPermissionHandler {
     }
 
     // Emit event (webview will listen and show permission prompt)
-    this.eventEmitter('claude:permissionRequest', request);
+    // Uses 'permission:request' to match shared/message.types.ts and VSCodeService handler
+    this.eventEmitter('permission:request', request);
 
     this.logger.debug(
       `[SdkPermissionHandler] Emitted permission request ${requestId} for tool ${toolName}`
@@ -350,6 +369,78 @@ export class SdkPermissionHandler {
    */
   private generateRequestId(): string {
     return `perm_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  }
+
+  /**
+   * Generate human-readable description for permission request
+   *
+   * Creates a meaningful description based on tool type and input parameters.
+   * Used in the webview permission UI to help users understand what's being requested.
+   */
+  private generateDescription(toolName: string, input: any): string {
+    switch (toolName) {
+      case 'Bash': {
+        const command = input?.command;
+        if (command) {
+          // Truncate long commands
+          const truncated =
+            command.length > 100 ? `${command.substring(0, 100)}...` : command;
+          return `Execute bash command: ${truncated}`;
+        }
+        return 'Execute a bash command';
+      }
+
+      case 'Write': {
+        const filePath = input?.file_path;
+        if (filePath) {
+          return `Write to file: ${filePath}`;
+        }
+        return 'Write to a file';
+      }
+
+      case 'Edit': {
+        const filePath = input?.file_path;
+        if (filePath) {
+          return `Edit file: ${filePath}`;
+        }
+        return 'Edit a file';
+      }
+
+      case 'NotebookEdit': {
+        const notebookPath = input?.notebook_path;
+        if (notebookPath) {
+          return `Edit notebook: ${notebookPath}`;
+        }
+        return 'Edit a Jupyter notebook';
+      }
+
+      case 'Read': {
+        const filePath = input?.file_path;
+        if (filePath) {
+          return `Read file: ${filePath}`;
+        }
+        return 'Read a file';
+      }
+
+      case 'Grep': {
+        const pattern = input?.pattern;
+        if (pattern) {
+          return `Search for pattern: ${pattern}`;
+        }
+        return 'Search file contents';
+      }
+
+      case 'Glob': {
+        const pattern = input?.pattern;
+        if (pattern) {
+          return `Find files matching: ${pattern}`;
+        }
+        return 'Find files';
+      }
+
+      default:
+        return `Execute tool: ${toolName}`;
+    }
   }
 
   /**

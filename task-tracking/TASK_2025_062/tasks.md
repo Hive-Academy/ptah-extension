@@ -173,32 +173,31 @@
 **Dependencies**: Batch 2 complete
 **Estimated Commits**: 1
 
-### Task 3.1: Create Image Converter Service ✅ COMPLETE
+### Task 3.1: Create Attachment Processor Service ✅ COMPLETE
 
-**File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\helpers\image-converter.service.ts` [NEW]
+**File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\helpers\attachment-processor.service.ts` [NEW]
 
 **Changes Required**:
 
-1. Create injectable service with `convertToContentBlocks(text, files)` method
-2. Detect image files by extension (.png, .jpg, .jpeg, .gif, .webp)
-3. Read image, convert to base64, wrap in ContentBlock
-4. Handle read errors gracefully (skip failed images, log warning)
-5. Add size validation (max 5MB per image)
+1.  Create injectable service with `processAttachments(files)` method
+2.  **Images**: Detect extension, convert to base64 `ImageBlock` (max 5MB)
+3.  **Files**: Detect text files, read content, wrap in XML `<document>` tags (max 1MB)
+4.  Handle errors and binary files gracefully
 
 **Pattern to Follow**: `auth-manager.ts` for injectable service structure
 
 ---
 
-### Task 3.2: Integrate Image Converter in SDK Adapter ✅ COMPLETE
+### Task 3.2: Integrate Attachment Processor in SDK Adapter ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\sdk-agent-adapter.ts`
 
 **Changes Required**:
 
-1. Inject `ImageConverterService`
-2. In `sendMessageToSession()`: Check if files contain images
-3. If images present: Use `ContentBlock[]` for message content
-4. If no images: Use plain string (existing behavior)
+1.  Inject `AttachmentProcessorService`
+2.  In `sendMessageToSession()`: Process attachments via processor
+3.  Merge user prompt (string) with file/image `ContentBlocks`
+4.  Enable `imageAnalysis: true` in provider capabilities
 
 ---
 

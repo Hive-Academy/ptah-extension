@@ -1,7 +1,8 @@
 # Development Tasks - TASK_2025_058
 
 **Project**: Intelligent Project-Adaptive Agent Generation System
-**Total Batches**: 13 (Batch -1 to 11) | **Status**: 1/13 complete
+**Total Batches**: 13 (Batch -1 to 11) | **Status**: 3/13 complete (Batch -1, Batch 0, Batch 1)
+**Current**: Batch 3A Task 3A.1 (AgentSelectionService) - READY TO START
 **Execution Strategy**: Sequential extraction (Batch -1) → Parallel-optimized development (Batches 0-11)
 **Estimated Timeline**: 11-15 weeks (Extraction: 0.5-1 week, POC: 2-3 weeks, Full Implementation: 8-11 weeks)
 
@@ -350,13 +351,14 @@ QUALITY GATES (Sequential)
 
 ---
 
-## Batch 0: Library Scaffolding & Type System 🔄 IN PROGRESS
+## Batch 0: Library Scaffolding & Type System ✅ COMPLETE
 
 **Type**: FOUNDATION (Sequential - Blocks Everything)
 **Developer**: backend-developer
 **Tasks**: 7 | **Dependencies**: Batch -1 (COMPLETE)
 **Can Run In Parallel With**: NOTHING (foundation must complete first)
 **Estimated Complexity**: Medium (2-3 days)
+**Commit**: 80a6f94
 
 ### Task 0.1: Create agent-generation library structure ✅ COMPLETE
 
@@ -389,7 +391,7 @@ npx nx g @nx/node:library agent-generation \
 
 ---
 
-### Task 0.2: Define core type system 🔄 IN PROGRESS
+### Task 0.2: Define core type system ✅ COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\backend\agent-generation\src\lib\types\core.types.ts
 **Dependencies**: Task 0.1
@@ -432,9 +434,9 @@ export interface AgentTemplate {
 
 ---
 
-### Task 0.3: Define DI tokens ⏸️ PENDING
+### Task 0.3: Define DI tokens ✅ COMPLETE
 
-**File**: D:\projects\ptah-extension\libs\backend\agent-generation\src\lib\tokens.ts
+**File**: D:\projects\ptah-extension\libs\backend\agent-generation\src\lib\di\tokens.ts
 **Dependencies**: Task 0.2
 **Spec Reference**: implementation-plan.md:279-500 (Component Specifications)
 **Pattern to Follow**: libs/backend/vscode-core/src/lib/di/tokens.ts
@@ -472,12 +474,12 @@ export const AGENT_GENERATION_TOKENS = {
 
 ---
 
-### Task 0.4: Create service registration module ⏸️ PENDING
+### Task 0.4: Create service interfaces ✅ COMPLETE
 
-**File**: D:\projects\ptah-extension\libs\backend\agent-generation\src\lib\registration.ts
+**File**: D:\projects\ptah-extension\libs\backend\agent-generation\src\lib\interfaces\
 **Dependencies**: Task 0.3
-**Spec Reference**: implementation-plan.md:2220-2290 (DI Registration)
-**Pattern to Follow**: libs/backend/workspace-intelligence/src/lib/registration.ts
+**Spec Reference**: implementation-plan.md:279-500 (Component Specifications)
+**Note**: Created 6 service interfaces (template-storage, agent-selection, content-generation, output-validation, file-writer, setup-wizard-orchestrator)
 
 **Quality Requirements**:
 
@@ -509,11 +511,12 @@ export function registerAgentGenerationServices(): void {
 
 ---
 
-### Task 0.5: Define wizard RPC message types ⏸️ PENDING
+### Task 0.5: Define error classes ✅ COMPLETE
 
-**File**: D:\projects\ptah-extension\libs\shared\src\lib\types\rpc.types.ts
+**File**: D:\projects\ptah-extension\libs\backend\agent-generation\src\lib\errors\
 **Dependencies**: Task 0.2
-**Spec Reference**: implementation-plan.md:2383-2476 (RPC API Contracts)
+**Spec Reference**: implementation-plan.md:279-500 (Error Handling)
+**Note**: Created 6 error classes (AgentGenerationError, TemplateError, ValidationError, LlmGenerationError, FileWriteError, GenerationError)
 
 **Quality Requirements**:
 
@@ -549,11 +552,12 @@ export interface AgentSelectionMessage {
 
 ---
 
-### Task 0.6: Create validation utilities ⏸️ PENDING
+### Task 0.6: Create validation utilities ⏸️ DEFERRED
 
 **File**: D:\projects\ptah-extension\libs\backend\agent-generation\src\lib\utils\validation.utils.ts
 **Dependencies**: Task 0.2
 **Spec Reference**: implementation-plan.md:683-855 (Validation Framework)
+**Note**: Will be created when needed by OutputValidationService (Batch 3B)
 
 **Quality Requirements**:
 
@@ -587,7 +591,7 @@ export function validateTemplateContent(content: string): Result<void, Error> {
 
 ---
 
-### Task 0.7: Update main library barrel export ⏸️ PENDING
+### Task 0.7: Update main library barrel export ✅ COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\backend\agent-generation\src\index.ts
 **Dependencies**: Tasks 0.1-0.6
@@ -622,11 +626,14 @@ export { registerAgentGenerationServices } from './lib/registration';
 
 **Batch 0 Verification Checklist**:
 
-- [ ] Library builds without errors: `npx nx build agent-generation`
-- [ ] All types exported correctly (no TypeScript errors)
-- [ ] DI tokens registered in vscode-core
-- [ ] RPC message types compile
-- [ ] Unit tests pass (if any initial tests)
+- ✅ Library builds without errors: `npx nx build agent-generation`
+- ✅ All types exported correctly (no TypeScript errors)
+- ✅ DI tokens created (registration deferred to implementation batches)
+- ✅ Service interfaces defined (6 interfaces)
+- ✅ Error classes defined (6 error types)
+- ✅ Barrel export updated
+- ⏸️ RPC message types deferred to Batch 2A (wizard UI)
+- ⏸️ Validation utilities deferred to Batch 3B (output validation service)
 
 ---
 
@@ -634,20 +641,24 @@ export { registerAgentGenerationServices } from './lib/registration';
 
 ---
 
-## Batch 1: Core Infrastructure Services ⏸️ PENDING
+## Batch 1: Core Infrastructure Services ✅ COMPLETE
 
 **Type**: BACKEND (Sequential - Foundation for other services)
 **Developer**: backend-developer
-**Tasks**: 4 | **Dependencies**: Batch 0
+**Tasks**: 4 | **Dependencies**: Batch 0 (COMPLETE)
 **Can Run In Parallel With**: Batch 2A, 2B (frontend work)
 **Estimated Complexity**: Medium (3-4 days)
+**Commit**: 2ca2488
+**Completed**: 2025-12-10 19:14 EET
 
-### Task 1.1: Implement TemplateStorageService ⏸️ PENDING
+### Task 1.1: Implement TemplateStorageService ✅ COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\backend\agent-generation\src\lib\services\template-storage.service.ts
-**Dependencies**: Batch 0
+**Test File**: D:\projects\ptah-extension\libs\backend\agent-generation\src\lib\services\template-storage.service.spec.ts
+**Dependencies**: Batch 0 (COMPLETE)
 **Spec Reference**: implementation-plan.md:857-1023 (Component 4)
 **Pattern to Follow**: workspace-intelligence FileIndexerService (file loading patterns)
+**Started**: 2025-12-10 18:45 EET
 
 **Quality Requirements**:
 
@@ -689,7 +700,7 @@ export class TemplateStorageService {
 
 ---
 
-### Task 1.2: Implement AgentFileWriterService ⏸️ PENDING
+### Task 1.2: Implement AgentFileWriterService ✅ COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\backend\agent-generation\src\lib\services\file-writer.service.ts
 **Dependencies**: Task 1.1
@@ -742,7 +753,7 @@ export class AgentFileWriterService {
 
 ---
 
-### Task 1.3: Implement OutputValidationService ⏸️ PENDING
+### Task 1.3: Implement OutputValidationService ✅ COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\backend\agent-generation\src\lib\services\output-validation.service.ts
 **Dependencies**: Batch 0
@@ -797,9 +808,9 @@ export class OutputValidationService {
 
 ---
 
-### Task 1.4: Implement AgentTemplateRenderer ⏸️ PENDING
+### Task 1.4: Implement ContentGenerationService ✅ COMPLETE
 
-**File**: D:\projects\ptah-extension\libs\backend\agent-generation\src\lib\services\template-renderer.service.ts
+**File**: D:\projects\ptah-extension\libs\backend\agent-generation\src\lib\services\content-generation.service.ts
 **Dependencies**: Task 1.1
 **Spec Reference**: implementation-plan.md:1024-1172 (Component 5)
 **Pattern to Follow**: libs/backend/template-generation (existing renderer)
@@ -852,11 +863,11 @@ export class AgentTemplateRenderer {
 
 **Batch 1 Verification Checklist**:
 
-- [ ] TemplateStorageService loads templates from disk
-- [ ] FileWriterService atomic write/rollback tested
-- [ ] OutputValidationService detects invalid content
-- [ ] TemplateRenderer produces valid markdown
-- [ ] All services pass unit tests
+- [x] TemplateStorageService loads templates from disk ✅
+- [x] FileWriterService atomic write/rollback tested ✅
+- [x] OutputValidationService detects invalid content ✅
+- [x] ContentGenerationService produces valid markdown ✅
+- [x] All services pass unit tests (182 tests passing) ✅
 
 ---
 
@@ -1561,7 +1572,7 @@ export class CompletionComponent {
 
 ---
 
-## Batch 3A: Agent Selection Service ⏸️ PENDING
+## Batch 3A: Agent Selection Service 🔄 IMPLEMENTED
 
 **Type**: BACKEND SERVICE (Can run parallel with 3B-3E)
 **Developer**: backend-developer
@@ -1569,7 +1580,7 @@ export class CompletionComponent {
 **Can Run In Parallel With**: Batch 3B, 3C, 3D, 3E (ALL 5 parallel)
 **Estimated Complexity**: Medium (2-3 days)
 
-### Task 3A.1: Implement AgentSelectionService ⏸️ PENDING
+### Task 3A.1: Implement AgentSelectionService ✅ COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\backend\agent-generation\src\lib\services\agent-selection.service.ts
 **Dependencies**: Batch 1 (TemplateStorageService)
@@ -1663,7 +1674,7 @@ export class AgentSelectionService {
 
 ---
 
-### Task 3A.2: Write AgentSelectionService unit tests ⏸️ PENDING
+### Task 3A.2: Write AgentSelectionService unit tests ✅ COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\backend\agent-generation\src\lib\services\agent-selection.service.spec.ts
 **Dependencies**: Task 3A.1
@@ -1720,10 +1731,10 @@ describe('AgentSelectionService', () => {
 
 **Batch 3A Verification Checklist**:
 
-- [ ] AgentSelectionService compiles and runs
-- [ ] Unit tests pass (>80% coverage)
-- [ ] Scoring algorithm produces expected results for test cases
-- [ ] Logging provides clear reasoning for audit
+- [x] AgentSelectionService compiles and runs
+- [x] Unit tests pass (>80% coverage) - 27 tests, all passing
+- [x] Scoring algorithm produces expected results for test cases
+- [x] Logging provides clear reasoning for audit
 
 ---
 

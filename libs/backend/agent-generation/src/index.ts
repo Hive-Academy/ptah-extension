@@ -29,3 +29,10 @@ export * from './lib/utils/content-processor';
 
 // Orchestration patterns (Task -1.3)
 export * from './lib/patterns';
+
+// Services (Batch 1, Batch 3A)
+export { TemplateStorageService } from './lib/services/template-storage.service';
+export { ContentGenerationService } from './lib/services/content-generation.service';
+export { OutputValidationService } from './lib/services/output-validation.service';
+export { AgentFileWriterService } from './lib/services/file-writer.service';
+export { AgentSelectionService } from './lib/services/agent-selection.service';
