@@ -19,7 +19,11 @@
  */
 
 import { Injectable, inject } from '@angular/core';
-import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import {
+  ClaudeRpcService,
+  VSCodeService,
+  ModelStateService,
+} from '@ptah-extension/core';
 import {
   ChatSessionSummary,
   createExecutionChatMessage,
@@ -50,6 +54,7 @@ export class MessageSenderService {
   private readonly pendingSessionManager = inject(PendingSessionManagerService);
   private readonly sessionLoader = inject(SessionLoaderService);
   private readonly validator = inject(MessageValidationService);
+  private readonly modelState = inject(ModelStateService);
 
   // ============================================================================
   // HELPER METHODS
@@ -255,7 +260,10 @@ export class MessageSenderService {
           prompt: content,
           sessionId,
           workspacePath,
-          options: files ? { files } : undefined,
+          options: {
+            model: this.modelState.currentModel(),
+            ...(files ? { files } : {}),
+          },
         }
       );
 
@@ -382,6 +390,7 @@ export class MessageSenderService {
           prompt: content,
           sessionId,
           workspacePath,
+          model: this.modelState.currentModel(),
         }
       );
 

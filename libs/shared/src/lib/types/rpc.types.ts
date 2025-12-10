@@ -45,6 +45,8 @@ export interface ChatContinueParams {
   sessionId: SessionId;
   /** Workspace path (needed for session resumption if session is not active) */
   workspacePath?: string;
+  /** Model to use (if different from current session model) */
+  model?: string;
 }
 
 /** Response from chat:continue RPC method */
@@ -176,20 +178,20 @@ export interface FileOpenResult {
 
 /** Parameters for config:model-switch RPC method */
 export interface ConfigModelSwitchParams {
-  /** Model to switch to */
-  model: ClaudeModel;
+  /** Model API name to switch to (e.g., 'claude-sonnet-4-20250514') */
+  model: string;
   /** Active session ID for live SDK sync (optional) */
   sessionId?: SessionId | null;
 }
 
 /** Response from config:model-switch RPC method */
 export interface ConfigModelSwitchResult {
-  model: ClaudeModel;
+  model: string;
 }
 
 /** Response from config:model-get RPC method */
 export interface ConfigModelGetResult {
-  model: ClaudeModel;
+  model: string;
 }
 
 /** Parameters for config:autopilot-toggle RPC method */
@@ -214,9 +216,19 @@ export interface ConfigAutopilotGetResult {
   permissionLevel: PermissionLevel;
 }
 
+/** Model information from SDK for config:models-list response */
+export interface SdkModelInfo {
+  id: string; // Full API name (e.g., 'claude-sonnet-4-20250514')
+  name: string; // Display name (e.g., 'Claude Sonnet 4')
+  description: string; // Model description
+  apiName: string; // Same as id (for compatibility)
+  isSelected: boolean; // Whether this model is currently selected
+  isRecommended?: boolean; // Whether this model is recommended
+}
+
 /** Response from config:models-list RPC method */
 export interface ConfigModelsListResult {
-  models: (ModelInfo & { isSelected: boolean })[];
+  models: SdkModelInfo[];
 }
 
 // ============================================================

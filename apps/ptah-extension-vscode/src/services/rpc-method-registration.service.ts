@@ -29,8 +29,6 @@ import { SdkAgentAdapter, SdkSessionStorage } from '@ptah-extension/agent-sdk';
 import {
   ClaudeModel,
   PermissionLevel,
-  AVAILABLE_MODELS,
-  ModelInfo,
   SessionId,
   ExecutionNode,
   // RPC Types - Type-safe params and results
@@ -263,10 +261,18 @@ export class RpcMethodRegistrationService {
             workspacePath,
           });
 
+          // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
+          const currentModel =
+            options?.model ||
+            this.configManager.getWithDefault<string>(
+              'model.selected',
+              'claude-sonnet-4-20250514'
+            );
+
           // Start SDK session with streaming ExecutionNode output
           const stream = await this.sdkAdapter.startChatSession(sessionId, {
             workspaceId: workspacePath,
-            model: options?.model || 'claude-sonnet-4-20250514',
+            model: options?.model || currentModel,
             systemPrompt: options?.systemPrompt,
             projectPath: workspacePath,
           });
@@ -307,9 +313,18 @@ export class RpcMethodRegistrationService {
               `[RPC] Session ${sessionId} not active, attempting resume...`
             );
 
+            // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
+            const currentModel =
+              params.model ||
+              this.configManager.getWithDefault<string>(
+                'model.selected',
+                'claude-sonnet-4-20250514'
+              );
+
             // Resume the session to reconnect to Claude's conversation context
             const stream = await this.sdkAdapter.resumeSession(sessionId, {
               projectPath: workspacePath,
+              model: currentModel,
             });
 
             // Start streaming responses to webview (background - don't await)
