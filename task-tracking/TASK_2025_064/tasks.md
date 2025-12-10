@@ -57,24 +57,24 @@ feat(agent-generation): batch 3A - agent selection service
 
 ---
 
-## Batch 3B: VsCodeLmService ⏸️ PENDING
+## Batch 3B: VsCodeLmService ✅ COMPLETE
 
 **Type**: BACKEND SERVICE  
 **Developer**: backend-developer
 **Tasks**: 2 | **Dependencies**: Batch 1 (COMPLETE)
 **Can Run In Parallel With**: Batch 3A, 3C, 3D, 3E
-**Estimated Complexity**: High (4-5 days) - NEW VS Code LM API integration
+**Estimated Complexity**: Medium (2-3 days) - Thin wrapper around VsCodeLmProvider (REVISED)
 **Full Spec**: task-tracking/TASK_2025_058/tasks.md:1741-1985
 
-### Task 3B.1: Implement VsCodeLmService ⏸️ PENDING
+### Task 3B.1: Implement VsCodeLmService ✅ COMPLETE
 
 **File**: `libs/backend/agent-generation/src/lib/services/vscode-lm.service.ts`
-**Pattern**: NEW - VS Code LM API wrapper
-**Spec Reference**: implementation-plan.md:1024-1172
+**Pattern**: Thin wrapper around VsCodeLmProvider (llm-abstraction)
+**Spec Reference**: implementation-plan.md (REVISED Option 1)
 
-**Implementation**: VS Code LM API integration (`vscode.lm.sendRequest()`), retry logic (3 attempts, exponential backoff), timeout protection (30s), batch processing (5 concurrent), validation integration
+**Implementation**: Delegates to VsCodeLmProvider, adds retry logic (3 attempts, exponential backoff 5s→10s→20s), batch processing (5 concurrent), OutputValidationService integration
 
-### Task 3B.2: Write VsCodeLmService integration tests ⏸️ PENDING
+### Task 3B.2: Write VsCodeLmService integration tests ✅ COMPLETE
 
 **File**: `libs/backend/agent-generation/src/lib/services/vscode-lm.service.spec.ts`
 **Test Cases**: Mock VS Code LM API, retry logic, timeout handling, validation failures, batch concurrency
@@ -84,8 +84,9 @@ feat(agent-generation): batch 3A - agent selection service
 ```
 feat(agent-generation): batch 3B - vscode lm service
 
-- Integrate VS Code LM API with retry/timeout logic
-- Add integration tests with mocked vscode.lm API
+- Implement thin wrapper around VsCodeLmProvider
+- Add retry logic, batch processing, validation integration
+- Add comprehensive unit tests (15 test cases, all passing)
 ```
 
 ---

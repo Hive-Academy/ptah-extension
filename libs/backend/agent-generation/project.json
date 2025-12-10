@@ -3,7 +3,7 @@
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/backend/agent-generation/src",
   "projectType": "library",
-  "tags": [],
+  "tags": ["scope:extension", "type:feature"],
   "targets": {
     "build": {
       "executor": "@nx/esbuild:esbuild",
@@ -12,7 +12,10 @@
         "outputPath": "dist/libs/backend/agent-generation",
         "main": "libs/backend/agent-generation/src/index.ts",
         "tsConfig": "libs/backend/agent-generation/tsconfig.lib.json",
-        "assets": ["libs/backend/agent-generation/*.md"],
+        "assets": [
+          "libs/backend/agent-generation/*.md",
+          "libs/backend/agent-generation/templates/**/*.template.md"
+        ],
         "format": ["cjs"]
       }
     },

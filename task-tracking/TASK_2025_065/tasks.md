@@ -26,44 +26,55 @@ This task implements the **frontend wizard UI and template assets** for the inte
 ## Batch 2A: Template Assets Creation ✅ COMPLETE
 
 **Type**: CONTENT (Template Conversion)
-**Developer**: backend-developer
-**Tasks**: 2/2 ✅ | **Dependencies**: Batch 0 (COMPLETE)
+**Developer**: backend-developer (manual) + automated script
+**Tasks**: 16/16 ✅ | **Dependencies**: Batch 0 (COMPLETE)
 **Can Run In Parallel With**: Backend batches 3A-3E
-**Estimated Complexity**: Medium (2-3 days)
+**Estimated Complexity**: Medium (completed in automated batch)
 **Full Spec**: task-tracking/TASK_2025_058/tasks.md:874-1021
 
-### Task 2A.1: Convert backend-developer to template ✅ COMPLETE
+### Templates Created (11 Agents + 5 Commands)
 
-**File**: `extension/templates/agents/backend-developer.template.md` (725 lines)
-**Pattern**: Hybrid syntax (HTML comments + Handlebars)
-**Spec Reference**: research-report.md:128-232
+**Agents** (11):
 
-**Implementation**: Converted `.claude/agents/backend-developer.md` (999 lines) to template format with:
+1. ✅ backend-developer.template.md (725 lines)
+2. ✅ frontend-developer.template.md (655 lines)
+3. ✅ project-manager.template.md (420 lines)
+4. ✅ software-architect.template.md (33,697 bytes)
+5. ✅ team-leader.template.md (18,187 bytes)
+6. ✅ senior-tester.template.md (32,187 bytes)
+7. ✅ code-logic-reviewer.template.md (14,410 bytes)
+8. ✅ code-style-reviewer.template.md (11,262 bytes)
+9. ✅ researcher-expert.template.md (11,394 bytes)
+10. ✅ modernization-detector.template.md (10,750 bytes)
+11. ✅ ui-ux-designer.template.md (49,293 bytes)
 
-- YAML frontmatter with applicabilityRules for Node/Python/Java/Go/DotNet/PHP/Ruby
-- 8 STATIC sections (core principles, protocols, rules)
-- 3 LLM sections (framework specifics, architecture, conventions)
-- 1 VAR section (project context with conditional monorepo support)
+**Commands** (5): 12. ✅ orchestrate.template.md (14,203 bytes) 13. ✅ orchestrate-help.template.md (3,959 bytes) 14. ✅ review-code.template.md (8,793 bytes) 15. ✅ review-logic.template.md (12,205 bytes) 16. ✅ review-security.template.md (12,334 bytes)
 
-### Task 2A.2: Convert frontend-developer to template ✅ COMPLETE
+**Template Features** (All 16):
 
-**File**: `extension/templates/agents/frontend-developer.template.md` (655 lines)
-**Pattern**: Same hybrid syntax as backend-developer
+- YAML frontmatter with applicabilityRules
+- Generated agent/command frontmatter with variables
+- STATIC:FILE_PATH_WARNING section
+- STATIC:MAIN_CONTENT section
+- Handlebars variable syntax ready
 
-**Implementation**: Converted `.claude/agents/frontend-developer.md` (1051 lines) to template format with:
+**Implementation Method**:
 
-- YAML frontmatter with applicabilityRules for React/Angular/Vue/Svelte
-- 8 STATIC sections (UI principles, accessibility, quality standards)
-- 3 LLM sections (framework specifics, UI patterns, styling)
-- 1 VAR section (project context with design system support)
+- First 3 templates: Manual conversion
+- Remaining 13: Automated via `convert-templates.js` script
 
 **Batch 2A Commit Format**:
 
 ```
-feat(agent-generation): batch 2A - template assets
+feat(vscode): batch 2A - complete template system
 
-- Convert backend-developer and frontend-developer to template format
+- Convert all 11 agent definitions to template format
+- Convert all 5 command definitions to template format
 - Add YAML frontmatter with applicability rules
+- Implement hybrid syntax (HTML comments + Handlebars)
+- Add automated conversion script
+
+Templates: backend-developer, frontend-developer, project-manager, software-architect, team-leader, senior-tester, code-logic-reviewer, code-style-reviewer, researcher-expert, modernization-detector, ui-ux-designer, orchestrate, orchestrate-help, review-code, review-logic, review-security
 ```
 
 ---
