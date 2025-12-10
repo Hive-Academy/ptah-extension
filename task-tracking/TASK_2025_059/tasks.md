@@ -4,7 +4,7 @@
 **Total Tasks**: 5
 **Total Batches**: 2
 **Batching Strategy**: Section-based (Streaming Fix → Pricing/Tokens)
-**Status**: 0/2 batches complete (0%)
+**Status**: 2/2 batches complete (100%)
 
 ---
 
@@ -32,14 +32,14 @@
 
 ---
 
-## Batch 1: Streaming Fix 🔄 IN PROGRESS
+## Batch 1: Streaming Fix ✅ COMPLETE
 
 **Assigned To**: backend-developer (Task 1.1) + frontend-developer (Task 1.2)
 **Tasks in Batch**: 2
 **Dependencies**: None
-**Estimated Commits**: 1 (one commit per batch)
+**Commit**: c593edb
 
-### Task 1.1: Use `stop_reason` for Per-Message Completion 🔄 IN PROGRESS
+### Task 1.1: Use `stop_reason` for Per-Message Completion ✅ COMPLETE
 
 **File(s)**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\sdk-message-transformer.ts`
 **Specification Reference**: streaming-redesign-plan.md:27-40
@@ -67,7 +67,7 @@ const status: ExecutionStatus = isMessageComplete ? 'complete' : 'streaming';
 
 ---
 
-### Task 1.2: Always Render Markdown (Remove Streaming Conditional) 🔄 IN PROGRESS
+### Task 1.2: Always Render Markdown (Remove Streaming Conditional) ✅ COMPLETE
 
 **File(s)**: `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\organisms\execution-node.component.ts`
 **Specification Reference**: streaming-redesign-plan.md:42-48
@@ -111,16 +111,22 @@ const status: ExecutionStatus = isMessageComplete ? 'complete' : 'streaming';
 
 ---
 
-## Batch 2: Pricing & Token Display ⏸️ PENDING
+## Batch 2: Pricing & Token Display ✅ COMPLETE
 
 **Assigned To**: backend-developer (Task 2.1) + frontend-developer (Tasks 2.2, 2.3)
 **Tasks in Batch**: 3
 **Dependencies**: Batch 1 must complete first (streaming must work)
-**Estimated Commits**: 1
+**Commit**: 1eeb6bd
 
-### Task 2.1: Send `session:stats` Message from Backend ⏸️ PENDING
+### Task 2.1: Send `session:stats` Message from Backend ✅ COMPLETE
 
-**File(s)**: `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\services\rpc-method-registration.service.ts`
+**File(s)**:
+
+- `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\services\rpc-method-registration.service.ts` (modified)
+- `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\helpers\stream-transformer.ts` (modified)
+- `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\helpers\index.ts` (modified)
+- `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\sdk-agent-adapter.ts` (modified)
+
 **Specification Reference**: streaming-redesign-plan.md:69-81
 **Pattern to Follow**: `streamExecutionNodesToWebview()` at line 295
 
@@ -130,23 +136,19 @@ const status: ExecutionStatus = isMessageComplete ? 'complete' : 'streaming';
 - ✅ Send `session:stats` message to webview via `webviewManager.sendMessage()`
 - ✅ Include: `sessionId`, `cost`, `tokens: {input, output}`, `duration`
 
-**Implementation Details**:
+**Implementation Summary**:
 
-```typescript
-// After streaming completes, send stats:
-await this.webviewManager.sendMessage('ptah.main', 'session:stats', {
-  sessionId,
-  cost: sdkMessage.total_cost_usd,
-  tokens: { input: sdkMessage.usage.input_tokens, output: sdkMessage.usage.output_tokens },
-  duration: sdkMessage.duration_ms,
-});
-```
+1. Added `ResultStatsCallback` type to `stream-transformer.ts`
+2. Modified `StreamTransformer.transform()` to detect result messages and invoke callback
+3. Added `setResultStatsCallback()` method to `SdkAgentAdapter`
+4. Added `setupResultStatsCallback()` method to `RpcMethodRegistrationService`
+5. Stats are extracted from SDK result messages and sent to webview as `session:stats` events
 
-**Note**: This requires hooking into the result message processing or adding a post-stream callback.
+**Files staged with git add** ✅
 
 ---
 
-### Task 2.2: Handle `session:stats` Message in VSCodeService ⏸️ PENDING
+### Task 2.2: Handle `session:stats` Message in VSCodeService ✅ COMPLETE
 
 **File(s)**: `D:\projects\ptah-extension\libs\frontend\core\src\lib\services\vscode.service.ts`
 **Specification Reference**: streaming-redesign-plan.md:83-86
@@ -170,7 +172,7 @@ case 'session:stats':
 
 ---
 
-### Task 2.3: Store Stats in StreamingHandlerService ⏸️ PENDING
+### Task 2.3: Store Stats in StreamingHandlerService ✅ COMPLETE
 
 **File(s)**: `D:\projects\ptah-extension\libs\frontend\chat\src\lib\services\chat-store\streaming-handler.service.ts`
 **Specification Reference**: streaming-redesign-plan.md:87-90
