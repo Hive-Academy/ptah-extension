@@ -9,6 +9,7 @@ import { AnthropicProvider } from '../providers/anthropic.provider';
 import { OpenAIProvider } from '../providers/openai.provider';
 import { GoogleGenAIProvider } from '../providers/google-genai.provider';
 import { OpenRouterProvider } from '../providers/openrouter.provider';
+import { VsCodeLmProvider } from '../providers/vscode-lm.provider';
 
 /**
  * Registry to manage LLM provider factories.
@@ -19,6 +20,7 @@ import { OpenRouterProvider } from '../providers/openrouter.provider';
  * - openai (GPT-4, GPT-3.5-turbo)
  * - google-genai (Gemini)
  * - openrouter (Multi-provider access)
+ * - vscode-lm (VS Code Language Model API)
  */
 @injectable()
 export class ProviderRegistry {
@@ -32,20 +34,24 @@ export class ProviderRegistry {
     this.providerFactories.set('openai', this.createOpenAIProvider);
     this.providerFactories.set('google-genai', this.createGoogleGenAIProvider);
     this.providerFactories.set('openrouter', this.createOpenRouterProvider);
+    this.providerFactories.set('vscode-lm', this.createVsCodeLmProvider);
   }
 
   /**
    * Create a provider instance for the given provider name.
-   * @param providerName Name of the provider (anthropic, openai, google-genai, openrouter)
-   * @param apiKey API key for the provider
+   * Can return Promise for async factories (e.g., vscode-lm).
+   * @param providerName Name of the provider (anthropic, openai, google-genai, openrouter, vscode-lm)
+   * @param apiKey API key for the provider (may be empty for vscode-lm)
    * @param model Model name to use
-   * @returns Result containing provider instance or error
+   * @returns Result containing provider instance or error (or Promise for async factories)
    */
   public createProvider(
     providerName: string,
     apiKey: string,
     model: string
-  ): Result<ILlmProvider, LlmProviderError> {
+  ):
+    | Result<ILlmProvider, LlmProviderError>
+    | Promise<Result<ILlmProvider, LlmProviderError>> {
     const factory = this.providerFactories.get(providerName.toLowerCase());
     if (!factory) {
       const message = `LLM provider '${providerName}' not found. Available: ${Array.from(
@@ -188,6 +194,43 @@ export class ProviderRegistry {
       return Result.ok(provider);
     } catch (error) {
       return Result.err(LlmProviderError.fromError(error, 'openrouter'));
+    }
+  }
+
+  /**
+   * Factory function for VS Code LM provider.
+   * Note: VS Code LM provider doesn't require API key, uses VS Code's native LM API.
+   * @private
+   */
+  private async createVsCodeLmProvider(
+    apiKey: string,
+    model: string
+  ): Promise<Result<ILlmProvider, LlmProviderError>> {
+    try {
+      // Parse model string as vendor/family format (e.g., "copilot/gpt-4o")
+      let vendor: string | undefined;
+      let family: string | undefined;
+
+      if (model && model.includes('/')) {
+        const parts = model.split('/');
+        vendor = parts[0];
+        family = parts[1];
+      } else if (model) {
+        // Assume model is just the family
+        family = model;
+      }
+
+      const provider = new VsCodeLmProvider({ vendor, family });
+
+      // Initialize provider (select model)
+      const initResult = await provider.initialize();
+      if (initResult.isErr()) {
+        return Result.err(initResult.error!);
+      }
+
+      return Result.ok(provider);
+    } catch (error) {
+      return Result.err(LlmProviderError.fromError(error, 'vscode-lm'));
     }
   }
 }

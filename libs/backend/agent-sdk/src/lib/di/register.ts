@@ -26,6 +26,7 @@ import {
   SdkQueryBuilder,
   UserMessageStreamFactory,
   StreamTransformer,
+  ImageConverterService,
 } from '../helpers';
 import { SDK_TOKENS } from './tokens';
 import * as vscode from 'vscode';
@@ -124,6 +125,13 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_STREAM_TRANSFORMER,
     { useClass: StreamTransformer },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Image converter - depends on Logger
+  container.register(
+    SDK_TOKENS.SDK_IMAGE_CONVERTER,
+    { useClass: ImageConverterService },
     { lifecycle: Lifecycle.Singleton }
   );
 

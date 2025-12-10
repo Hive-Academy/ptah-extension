@@ -277,9 +277,21 @@ export class RpcMethodRegistrationService {
             projectPath: workspacePath,
           });
 
+          // Log files received for debugging (Phase 2)
+          const files = options?.files ?? [];
+          if (files.length > 0) {
+            this.logger.debug('RPC: chat:start received files', {
+              sessionId,
+              fileCount: files.length,
+              files,
+            });
+          }
+
           // Send initial prompt if provided
           if (prompt) {
-            await this.sdkAdapter.sendMessageToSession(sessionId, prompt);
+            await this.sdkAdapter.sendMessageToSession(sessionId, prompt, {
+              files,
+            });
           }
 
           // Stream ExecutionNodes to webview (background - don't await)
@@ -333,8 +345,20 @@ export class RpcMethodRegistrationService {
             this.logger.info(`[RPC] Session ${sessionId} resumed successfully`);
           }
 
+          // Extract files from params for debugging (Phase 2)
+          const files = params.files ?? [];
+          if (files.length > 0) {
+            this.logger.debug('RPC: chat:continue received files', {
+              sessionId,
+              fileCount: files.length,
+              files,
+            });
+          }
+
           // Now send the message to the (now active) session
-          await this.sdkAdapter.sendMessageToSession(sessionId, prompt);
+          await this.sdkAdapter.sendMessageToSession(sessionId, prompt, {
+            files,
+          });
 
           return { success: true, sessionId };
         } catch (error) {

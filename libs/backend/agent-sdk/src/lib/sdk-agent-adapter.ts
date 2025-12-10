@@ -36,9 +36,11 @@ import {
   SdkQueryBuilder,
   UserMessageStreamFactory,
   StreamTransformer,
+  ImageConverterService,
   type SDKUserMessage,
   type SessionIdResolvedCallback,
   type ResultStatsCallback,
+  type ContentBlock,
 } from './helpers';
 import {
   ClaudeCliDetector,
@@ -73,11 +75,7 @@ const SDK_PROVIDER_INFO: ProviderInfo = {
   vendor: 'Anthropic',
   capabilities: SDK_CAPABILITIES,
   maxContextTokens: 200000,
-  supportedModels: [
-    'claude-sonnet-4.5-20250929',
-    'claude-opus-4.5-20251101',
-    'claude-haiku-4.0-20250107',
-  ],
+  supportedModels: [], // Dynamically populated via getSupportedModels()
 };
 
 /**
@@ -116,6 +114,16 @@ export class SdkAgentAdapter implements IAIProvider {
   private resultStatsCallback: ResultStatsCallback | null = null;
 
   /**
+   * Cached models from SDK's supportedModels() API
+   * Populated on first call to getSupportedModels()
+   */
+  private cachedSupportedModels: Array<{
+    value: string;
+    displayName: string;
+    description: string;
+  }> = [];
+
+  /**
    * Create SDK Agent Adapter with all dependencies injected
    *
    * @param logger - Logger instance
@@ -147,7 +155,9 @@ export class SdkAgentAdapter implements IAIProvider {
     @inject(SDK_TOKENS.SDK_USER_MESSAGE_STREAM_FACTORY)
     private readonly messageStreamFactory: UserMessageStreamFactory,
     @inject(SDK_TOKENS.SDK_STREAM_TRANSFORMER)
-    private readonly streamTransformer: StreamTransformer
+    private readonly streamTransformer: StreamTransformer,
+    @inject(SDK_TOKENS.SDK_IMAGE_CONVERTER)
+    private readonly imageConverter: ImageConverterService
   ) {}
 
   /**
@@ -223,6 +233,26 @@ export class SdkAgentAdapter implements IAIProvider {
         uptime: Date.now(),
       };
 
+      // Step 4: Initialize default model from SDK if not already configured
+      try {
+        const savedModel = this.config.get<string>('model.selected');
+        if (!savedModel) {
+          const defaultModel = await this.getDefaultModel();
+          await this.config.set('model.selected', defaultModel);
+          this.logger.info('[SdkAgentAdapter] Set default model from SDK', {
+            model: defaultModel,
+          });
+        }
+      } catch (modelError) {
+        // Non-fatal - continue initialization even if model setup fails
+        this.logger.warn(
+          '[SdkAgentAdapter] Failed to set default model',
+          modelError instanceof Error
+            ? modelError
+            : new Error(String(modelError))
+        );
+      }
+
       this.logger.info('[SdkAgentAdapter] Initialized successfully');
       return true;
     } catch (error) {
@@ -262,6 +292,83 @@ export class SdkAgentAdapter implements IAIProvider {
    */
   getHealth(): ProviderHealth {
     return { ...this.health };
+  }
+
+  /**
+   * Get supported models from SDK's native API
+   * Fetches once and caches for subsequent calls
+   *
+   * @returns Array of model info with value (API ID), displayName, and description
+   */
+  async getSupportedModels(): Promise<
+    Array<{ value: string; displayName: string; description: string }>
+  > {
+    // Return cached if available
+    if (this.cachedSupportedModels.length > 0) {
+      return this.cachedSupportedModels;
+    }
+
+    try {
+      // Import SDK and create temporary query to fetch models
+      const { query } = await import('@anthropic-ai/claude-agent-sdk');
+
+      // Create a minimal query just to access supportedModels()
+      // We use an async generator that yields nothing
+      const emptyPrompt = (async function* () {
+        // Don't yield anything - we just need to call supportedModels()
+      })();
+
+      const tempQuery = query({
+        prompt: emptyPrompt,
+        options: {
+          cwd: process.cwd(),
+        },
+      });
+
+      // Fetch supported models from SDK
+      const models = await tempQuery.supportedModels();
+      this.logger.info('[SdkAgentAdapter] Fetched supported models from SDK', {
+        count: models.length,
+        models: models.map((m) => m.value),
+      });
+
+      this.cachedSupportedModels = models;
+      return models;
+    } catch (error) {
+      this.logger.error(
+        '[SdkAgentAdapter] Failed to fetch supported models',
+        error instanceof Error ? error : new Error(String(error))
+      );
+
+      // Fallback to safe defaults if SDK call fails
+      const fallback = [
+        {
+          value: 'claude-sonnet-4-20250514',
+          displayName: 'Claude Sonnet 4',
+          description: 'Best for everyday tasks',
+        },
+        {
+          value: 'claude-opus-4-20250514',
+          displayName: 'Claude Opus 4',
+          description: 'Most capable for complex work',
+        },
+        {
+          value: 'claude-haiku-3-20240307',
+          displayName: 'Claude Haiku 3',
+          description: 'Fastest for quick answers',
+        },
+      ];
+      this.cachedSupportedModels = fallback;
+      return fallback;
+    }
+  }
+
+  /**
+   * Get default model - first from supported models
+   */
+  async getDefaultModel(): Promise<string> {
+    const models = await this.getSupportedModels();
+    return models[0]?.value || 'claude-sonnet-4-20250514';
   }
 
   /**
@@ -345,7 +452,7 @@ export class SdkAgentAdapter implements IAIProvider {
 
     // Start SDK query
     const sdkQuery = query(queryOptions);
-    const initialModel = config?.model || 'claude-sonnet-4.5-20250929';
+    const initialModel = queryOptions.options.model;
 
     // Set the SDK query on the pre-registered session
     this.sessionLifecycle.setSessionQuery(sessionId, sdkQuery);
@@ -462,7 +569,7 @@ export class SdkAgentAdapter implements IAIProvider {
 
     // Start SDK query
     const sdkQuery = query(queryOptions);
-    const initialModel = config?.model || 'claude-sonnet-4.5-20250929';
+    const initialModel = queryOptions.options.model;
 
     // Set the SDK query on the pre-registered session
     this.sessionLifecycle.setSessionQuery(sessionId, sdkQuery);
@@ -513,8 +620,7 @@ export class SdkAgentAdapter implements IAIProvider {
   async sendMessageToSession(
     sessionId: SessionId,
     content: string,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options?: AIMessageOptions
+    options?: AIMessageOptions
   ): Promise<void> {
     const session = this.sessionLifecycle.getActiveSession(sessionId);
     if (!session) {
@@ -523,7 +629,22 @@ export class SdkAgentAdapter implements IAIProvider {
 
     this.logger.info(`[SdkAgentAdapter] Sending message to ${sessionId}`, {
       contentLength: content.length,
+      fileCount: options?.files?.length || 0,
     });
+
+    // Check for images and convert if necessary
+    const files = options?.files || [];
+    let messageContent: string | ContentBlock[] = content;
+
+    if (this.imageConverter.hasImages(files)) {
+      this.logger.debug(
+        `[SdkAgentAdapter] Processing ${files.length} files for images`
+      );
+      messageContent = await this.imageConverter.convertToContentBlocks(
+        content,
+        files
+      );
+    }
 
     // Generate message ID for UI storage
     const messageId = MessageId.create();
@@ -536,7 +657,7 @@ export class SdkAgentAdapter implements IAIProvider {
       session_id: sessionId as string,
       message: {
         role: 'user',
-        content: content,
+        content: messageContent,
       },
       parent_tool_use_id: null,
     };

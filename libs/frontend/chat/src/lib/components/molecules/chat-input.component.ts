@@ -8,7 +8,7 @@ import {
   viewChild,
   ElementRef,
 } from '@angular/core';
-import { LucideAngularModule, Send, Zap } from 'lucide-angular';
+import { LucideAngularModule, Send, Zap, Square, Clock } from 'lucide-angular';
 import { ChatStore } from '../../services/chat.store';
 import {
   AutopilotStateService,
@@ -112,20 +112,39 @@ import { AgentSelectorComponent } from './agent-selector.component';
           }
         </div>
 
-        <!-- Send Button -->
+        <!-- Send/Stop Button (toggle based on streaming state) -->
+        @if (chatStore.isStreaming()) {
+        <!-- Stop Button (during streaming) -->
+        <button
+          class="btn btn-error"
+          (click)="handleStop()"
+          title="Stop generating"
+          type="button"
+        >
+          <lucide-angular [img]="SquareIcon" class="w-5 h-5" />
+        </button>
+        } @else {
+        <!-- Send Button (when idle) -->
         <button
           class="btn btn-primary"
           [disabled]="!canSend()"
           (click)="handleSend()"
           type="button"
         >
-          @if (chatStore.isStreaming()) {
-          <span class="loading loading-spinner loading-sm"></span>
-          } @else {
           <lucide-angular [img]="SendIcon" class="w-5 h-5" />
-          }
         </button>
+        }
       </div>
+
+      <!-- Queued Message Indicator -->
+      @if (hasQueuedContent()) {
+      <div
+        class="flex items-center gap-2 px-2 py-1 bg-warning/10 rounded-lg text-warning text-xs"
+      >
+        <lucide-angular [img]="ClockIcon" class="w-3 h-3" />
+        <span>Message queued - will send when response completes</span>
+      </div>
+      }
 
       <!-- Bottom Controls Row -->
       <div class="flex items-center justify-between text-sm">
@@ -182,6 +201,8 @@ export class ChatInputComponent {
   // Lucide icons
   readonly SendIcon = Send;
   readonly ZapIcon = Zap;
+  readonly SquareIcon = Square;
+  readonly ClockIcon = Clock;
 
   // Local state
   private readonly _currentMessage = signal('');
@@ -204,6 +225,12 @@ export class ChatInputComponent {
 
   // Computed
   readonly canSend = computed(() => this.currentMessage().trim().length > 0);
+
+  // Check if there's queued content waiting to be sent
+  readonly hasQueuedContent = computed(() => {
+    const tab = this.chatStore.activeTab();
+    return !!tab?.queuedContent?.trim();
+  });
 
   // Computed signals for autocomplete - now returns ALL suggestions (no filtering)
   readonly allSuggestions = computed(() => {
@@ -508,6 +535,19 @@ export class ChatInputComponent {
       }
     } catch (error) {
       console.error('[ChatInputComponent] Failed to send message:', error);
+    }
+  }
+
+  /**
+   * Stop streaming (abort current response)
+   * Calls ChatStore.abortCurrentMessage() which invokes SDK's interrupt()
+   */
+  async handleStop(): Promise<void> {
+    try {
+      await this.chatStore.abortCurrentMessage();
+      console.log('[ChatInputComponent] Stopped streaming');
+    } catch (error) {
+      console.error('[ChatInputComponent] Failed to stop streaming:', error);
     }
   }
 

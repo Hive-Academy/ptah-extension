@@ -94,7 +94,11 @@ export class SdkQueryBuilder {
       resumeSessionId,
     } = config;
 
-    const model = sessionConfig?.model || 'claude-sonnet-4.5-20250929';
+    // Model is required - SDK sets default in config at startup
+    if (!sessionConfig?.model) {
+      throw new Error('Model not provided - ensure SDK is initialized');
+    }
+    const model = sessionConfig.model;
     const cwd = sessionConfig?.projectPath || process.cwd();
 
     // Build system prompt configuration

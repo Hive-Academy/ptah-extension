@@ -12,25 +12,12 @@
 
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { ClaudeRpcService, RpcResult } from './claude-rpc.service';
-import {
-  ClaudeModel,
-  ModelInfo,
-  AVAILABLE_MODELS,
-  isSelectableClaudeModel,
-  SessionId,
-} from '@ptah-extension/shared';
+import { SessionId, SdkModelInfo } from '@ptah-extension/shared';
 
 /**
- * Type alias for selectable models (excludes 'default')
+ * Extended SdkModelInfo with selection state (from backend)
  */
-export type SelectableClaudeModel = Exclude<ClaudeModel, 'default'>;
-
-/**
- * Extended ModelInfo with selection state
- */
-export interface ModelInfoWithSelection extends ModelInfo {
-  isSelected: boolean;
-}
+export type ModelInfoWithSelection = SdkModelInfo;
 
 /**
  * Model State Service - Signal-based model selection state
@@ -61,21 +48,15 @@ export interface ModelInfoWithSelection extends ModelInfo {
 export class ModelStateService {
   private readonly rpc = inject(ClaudeRpcService);
 
-  // Private mutable signals
-  private readonly _currentModel = signal<SelectableClaudeModel>('sonnet');
-  private readonly _availableModels = signal<ModelInfoWithSelection[]>(
-    // Initialize with static list, will be updated from RPC
-    AVAILABLE_MODELS.map((m) => ({
-      ...m,
-      isSelected: m.id === 'sonnet',
-    }))
-  );
+  // Private mutable signals - now using full API model names
+  private readonly _currentModel = signal<string>(''); // Populated from backend RPC
+  private readonly _availableModels = signal<ModelInfoWithSelection[]>([]);
   private readonly _isPending = signal(false);
   private readonly _isLoaded = signal(false);
 
   // Public readonly signals
   /**
-   * Current selected model (opus | sonnet | haiku)
+   * Current selected model (full API name, e.g., 'claude-sonnet-4-20250514')
    * Read-only signal, updates reactively when model changes
    */
   readonly currentModel = this._currentModel.asReadonly();
@@ -135,16 +116,16 @@ export class ModelStateService {
    * 3. Persist to backend via RPC
    * 4. Rollback on RPC failure (restore previous state)
    *
-   * @param model - Model to switch to (opus | sonnet | haiku)
+   * @param model - Model API name to switch to (e.g., 'claude-sonnet-4-20250514')
    * @param sessionId - Optional active session ID for live SDK sync
    * @returns Promise that resolves when RPC call completes
    *
    * @example
-   * await modelState.switchModel('opus');
+   * await modelState.switchModel('claude-sonnet-4-20250514');
    * // UI updates immediately, persists to backend asynchronously
    */
   async switchModel(
-    model: SelectableClaudeModel,
+    model: string,
     sessionId?: SessionId | null
   ): Promise<void> {
     // Prevent concurrent model switches (race condition protection)
@@ -167,8 +148,8 @@ export class ModelStateService {
       this.updateSelectionState(model);
 
       // Persist to backend via RPC (with sessionId for live SDK sync)
-      const result: RpcResult<{ model: ClaudeModel }> = await this.rpc.call<{
-        model: ClaudeModel;
+      const result: RpcResult<{ model: string }> = await this.rpc.call<{
+        model: string;
       }>('config:model-switch', { model, sessionId: sessionId ?? null });
 
       if (!result.isSuccess()) {
@@ -213,7 +194,7 @@ export class ModelStateService {
 
         // Find and set the selected model
         const selected = models.find((m) => m.isSelected);
-        if (selected && isSelectableClaudeModel(selected.id)) {
+        if (selected) {
           this._currentModel.set(selected.id);
         }
 
@@ -237,7 +218,7 @@ export class ModelStateService {
    *
    * @private
    */
-  private updateSelectionState(selectedId: SelectableClaudeModel): void {
+  private updateSelectionState(selectedId: string): void {
     const models = this._availableModels();
     this._availableModels.set(
       models.map((m) => ({

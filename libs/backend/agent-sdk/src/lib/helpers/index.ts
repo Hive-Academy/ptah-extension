@@ -16,6 +16,7 @@ export {
   type ActiveSession,
   type SDKUserMessage,
   type Query,
+  type ContentBlock,
 } from './session-lifecycle-manager';
 export { ConfigWatcher, type ReinitCallback } from './config-watcher';
 export {
@@ -30,3 +31,4 @@ export {
   type ResultStatsCallback,
   type StreamTransformConfig,
 } from './stream-transformer';
+export { ImageConverterService } from './image-converter.service';

@@ -51,21 +51,26 @@ export class LlmService implements ILlmService {
   /**
    * Set the current LLM provider.
    * Call this before using other methods.
-   * @param providerName Provider name (anthropic, openai, google-genai, openrouter)
-   * @param apiKey API key for the provider
+   * @param providerName Provider name (anthropic, openai, google-genai, openrouter, vscode-lm)
+   * @param apiKey API key for the provider (may be empty for vscode-lm)
    * @param model Model name to use
-   * @returns Result indicating success or error
+   * @returns Promise of Result indicating success or error (async for vscode-lm provider)
    */
-  public setProvider(
+  public async setProvider(
     providerName: string,
     apiKey: string,
     model: string
-  ): Result<void, LlmProviderError> {
-    const result = this.providerRegistry.createProvider(
+  ): Promise<Result<void, LlmProviderError>> {
+    const factoryResult = this.providerRegistry.createProvider(
       providerName,
       apiKey,
       model
     );
+
+    // Handle both sync and async factory results
+    const result =
+      factoryResult instanceof Promise ? await factoryResult : factoryResult;
+
     if (result.isErr()) {
       this.logger.error(
         `Failed to set LLM provider '${providerName}': ${result.error!.message}`

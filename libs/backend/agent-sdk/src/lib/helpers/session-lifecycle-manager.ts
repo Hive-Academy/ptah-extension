@@ -143,7 +143,7 @@ export class SessionLifecycleManager {
       abortController,
       messageQueue: [],
       resolveNext: null,
-      currentModel: config.model || 'claude-sonnet-4.5-20250929',
+      currentModel: config.model || '', // Set from SDK via RPC layer
     };
 
     this.activeSessions.set(sessionId as string, session);
@@ -184,7 +184,7 @@ export class SessionLifecycleManager {
       abortController,
       messageQueue: [],
       resolveNext: null,
-      currentModel: config.model || 'claude-sonnet-4.5-20250929',
+      currentModel: config.model || '', // Set from SDK via RPC layer
     };
 
     this.activeSessions.set(sessionId as string, session);

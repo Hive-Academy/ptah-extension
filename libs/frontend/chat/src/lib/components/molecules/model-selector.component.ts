@@ -17,10 +17,7 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { LucideAngularModule, ChevronDown, Check } from 'lucide-angular';
-import {
-  ModelStateService,
-  type SelectableClaudeModel,
-} from '@ptah-extension/core';
+import { ModelStateService } from '@ptah-extension/core';
 import { DropdownComponent, OptionComponent } from '@ptah-extension/ui';
 import { ChatStore } from '../../services/chat.store';
 import { SessionId } from '@ptah-extension/shared';
@@ -135,9 +132,9 @@ export class ModelSelectorComponent {
    * Race condition protection is handled by ModelStateService.
    * Called by lib-option (selected) output.
    *
-   * @param model - The model to switch to ('opus', 'sonnet', or 'haiku')
+   * @param model - The model ID to switch to (API name like 'claude-sonnet-4-20250514')
    */
-  selectModel(model: SelectableClaudeModel): void {
+  selectModel(model: string): void {
     this.closeDropdown();
 
     // Pass sessionId for live SDK sync (cast to SessionId as it's actually a branded type from backend)

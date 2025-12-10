@@ -16,6 +16,10 @@ export { AnthropicProvider } from './lib/providers/anthropic.provider';
 export { OpenAIProvider } from './lib/providers/openai.provider';
 export { GoogleGenAIProvider } from './lib/providers/google-genai.provider';
 export { OpenRouterProvider } from './lib/providers/openrouter.provider';
+export {
+  VsCodeLmProvider,
+  type VsCodeModelSelector,
+} from './lib/providers/vscode-lm.provider';
 
 // ========================================
 // Registry

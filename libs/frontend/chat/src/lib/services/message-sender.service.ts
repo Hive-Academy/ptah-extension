@@ -24,11 +24,7 @@ import {
   VSCodeService,
   ModelStateService,
 } from '@ptah-extension/core';
-import {
-  ChatSessionSummary,
-  createExecutionChatMessage,
-  SessionId,
-} from '@ptah-extension/shared';
+import { createExecutionChatMessage, SessionId } from '@ptah-extension/shared';
 import { TabManagerService } from './tab-manager.service';
 import { SessionManager } from './session-manager.service';
 import { PendingSessionManagerService } from './pending-session-manager.service';
@@ -391,6 +387,7 @@ export class MessageSenderService {
           sessionId,
           workspacePath,
           model: this.modelState.currentModel(),
+          files: files ?? [],
         }
       );
 

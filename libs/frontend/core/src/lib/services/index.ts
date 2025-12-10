@@ -16,7 +16,6 @@ export * from './webview-navigation.service';
 // Model & Autopilot State Services (TASK_2025_035)
 export {
   ModelStateService,
-  type SelectableClaudeModel,
   type ModelInfoWithSelection,
 } from './model-state.service';
 export { AutopilotStateService } from './autopilot-state.service';

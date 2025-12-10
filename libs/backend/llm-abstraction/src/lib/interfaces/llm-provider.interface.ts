@@ -127,11 +127,14 @@ export interface ILlmService {
 
 /**
  * Factory function type for creating LLM providers.
- * @param apiKey API key for the provider
+ * Can be synchronous or asynchronous (e.g., VS Code LM provider requires async initialization).
+ * @param apiKey API key for the provider (may be empty for providers that don't need it)
  * @param model Model name to use
- * @returns Result containing provider instance or error
+ * @returns Result containing provider instance or error (or Promise of Result for async factories)
  */
 export type LlmProviderFactory = (
   apiKey: string,
   model: string
-) => Result<ILlmProvider, LlmProviderError>;
+) =>
+  | Result<ILlmProvider, LlmProviderError>
+  | Promise<Result<ILlmProvider, LlmProviderError>>;

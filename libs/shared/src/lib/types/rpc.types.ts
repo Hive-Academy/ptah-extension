@@ -8,8 +8,7 @@
  */
 
 import type { SessionId } from './branded.types';
-import type { ClaudeModel } from './claude-domain.types';
-import type { PermissionLevel, ModelInfo } from './model-autopilot.types';
+import type { PermissionLevel } from './model-autopilot.types';
 
 // ============================================================
 // Chat RPC Types
@@ -27,6 +26,7 @@ export interface ChatStartParams {
   options?: {
     model?: string;
     systemPrompt?: string;
+    files?: string[];
   };
 }
 
@@ -47,6 +47,8 @@ export interface ChatContinueParams {
   workspacePath?: string;
   /** Model to use (if different from current session model) */
   model?: string;
+  /** File paths to include with the message */
+  files?: string[];
 }
 
 /** Response from chat:continue RPC method */
