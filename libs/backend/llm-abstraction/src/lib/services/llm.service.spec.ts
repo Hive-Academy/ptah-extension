@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import { LlmService } from './llm.service';
 import { ProviderRegistry } from '../registry/provider-registry';
 import { Logger } from '@ptah-extension/vscode-core';
@@ -40,12 +41,12 @@ describe('LlmService', () => {
   });
 
   describe('setProvider', () => {
-    it('should set provider successfully', () => {
+    it('should set provider successfully', async () => {
       mockProviderRegistry.createProvider.mockReturnValue(
         Result.ok(mockProvider)
       );
 
-      const result = service.setProvider(
+      const result = await service.setProvider(
         'anthropic',
         'test-api-key',
         'claude-3-5-sonnet-20241022'
@@ -62,7 +63,7 @@ describe('LlmService', () => {
       );
     });
 
-    it('should return error when provider creation fails', () => {
+    it('should return error when provider creation fails', async () => {
       const error = new LlmProviderError(
         'Provider not found',
         'PROVIDER_NOT_FOUND',
@@ -70,7 +71,7 @@ describe('LlmService', () => {
       );
       mockProviderRegistry.createProvider.mockReturnValue(Result.err(error));
 
-      const result = service.setProvider(
+      const result = await service.setProvider(
         'invalid',
         'test-api-key',
         'test-model'
@@ -83,11 +84,11 @@ describe('LlmService', () => {
   });
 
   describe('getCompletion', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
       mockProviderRegistry.createProvider.mockReturnValue(
         Result.ok(mockProvider)
       );
-      service.setProvider(
+      await service.setProvider(
         'anthropic',
         'test-api-key',
         'claude-3-5-sonnet-20241022'
@@ -131,7 +132,11 @@ describe('LlmService', () => {
     });
 
     it('should return error when completion fails', async () => {
-      const error = new LlmProviderError('API error', 'API_ERROR', 'anthropic');
+      const error = new LlmProviderError(
+        'API error',
+        'UNKNOWN_ERROR',
+        'anthropic'
+      );
       mockProvider.getCompletion.mockResolvedValue(Result.err(error));
 
       const result = await service.getCompletion('system', 'user');
@@ -142,11 +147,11 @@ describe('LlmService', () => {
   });
 
   describe('getStructuredCompletion', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
       mockProviderRegistry.createProvider.mockReturnValue(
         Result.ok(mockProvider)
       );
-      service.setProvider(
+      await service.setProvider(
         'anthropic',
         'test-api-key',
         'claude-3-5-sonnet-20241022'
@@ -190,11 +195,11 @@ describe('LlmService', () => {
   });
 
   describe('getModelContextWindow', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
       mockProviderRegistry.createProvider.mockReturnValue(
         Result.ok(mockProvider)
       );
-      service.setProvider(
+      await service.setProvider(
         'anthropic',
         'test-api-key',
         'claude-3-5-sonnet-20241022'
@@ -222,11 +227,11 @@ describe('LlmService', () => {
   });
 
   describe('countTokens', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
       mockProviderRegistry.createProvider.mockReturnValue(
         Result.ok(mockProvider)
       );
-      service.setProvider(
+      await service.setProvider(
         'anthropic',
         'test-api-key',
         'claude-3-5-sonnet-20241022'

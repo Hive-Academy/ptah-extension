@@ -1,19 +1,18 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { z } from 'zod';
 import { VsCodeLmProvider } from './vscode-lm.provider';
 
 // Mock VS Code API
-vi.mock('vscode', () => ({
+jest.mock('vscode', () => ({
   lm: {
-    selectChatModels: vi.fn(),
+    selectChatModels: jest.fn(),
   },
   LanguageModelChatMessage: {
-    User: vi.fn((content) => ({ role: 'user', content })),
+    User: jest.fn((content: string) => ({ role: 'user', content })),
   },
-  CancellationTokenSource: vi.fn().mockImplementation(() => ({
+  CancellationTokenSource: jest.fn().mockImplementation(() => ({
     token: { isCancellationRequested: false },
-    dispose: vi.fn(),
+    dispose: jest.fn(),
   })),
 }));
 
@@ -22,7 +21,7 @@ describe('VsCodeLmProvider', () => {
   let mockModel: any;
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
 
     // Create mock model
     mockModel = {
@@ -30,14 +29,14 @@ describe('VsCodeLmProvider', () => {
       family: 'gpt-4o',
       version: '1.0',
       maxInputTokens: 128000,
-      sendRequest: vi.fn(),
-      countTokens: vi.fn(),
+      sendRequest: jest.fn(),
+      countTokens: jest.fn(),
     };
   });
 
   describe('initialization', () => {
     it('should initialize successfully when models are available', async () => {
-      (vscode.lm.selectChatModels as any).mockResolvedValue([mockModel]);
+      (vscode.lm.selectChatModels as jest.Mock).mockResolvedValue([mockModel]);
 
       provider = new VsCodeLmProvider({ vendor: 'copilot' });
       const result = await provider.initialize();
@@ -49,7 +48,7 @@ describe('VsCodeLmProvider', () => {
     });
 
     it('should return error when no models are available', async () => {
-      (vscode.lm.selectChatModels as any).mockResolvedValue([]);
+      (vscode.lm.selectChatModels as jest.Mock).mockResolvedValue([]);
 
       provider = new VsCodeLmProvider({ vendor: 'copilot' });
       const result = await provider.initialize();
@@ -60,7 +59,7 @@ describe('VsCodeLmProvider', () => {
     });
 
     it('should handle selectChatModels errors', async () => {
-      (vscode.lm.selectChatModels as any).mockRejectedValue(
+      (vscode.lm.selectChatModels as jest.Mock).mockRejectedValue(
         new Error('API error')
       );
 
@@ -74,7 +73,7 @@ describe('VsCodeLmProvider', () => {
 
   describe('getCompletion', () => {
     beforeEach(async () => {
-      (vscode.lm.selectChatModels as any).mockResolvedValue([mockModel]);
+      (vscode.lm.selectChatModels as jest.Mock).mockResolvedValue([mockModel]);
       provider = new VsCodeLmProvider({ vendor: 'copilot' });
       await provider.initialize();
     });
@@ -176,7 +175,7 @@ describe('VsCodeLmProvider', () => {
     });
 
     beforeEach(async () => {
-      (vscode.lm.selectChatModels as any).mockResolvedValue([mockModel]);
+      (vscode.lm.selectChatModels as jest.Mock).mockResolvedValue([mockModel]);
       provider = new VsCodeLmProvider({ vendor: 'copilot' });
       await provider.initialize();
     });
@@ -323,7 +322,7 @@ describe('VsCodeLmProvider', () => {
 
   describe('getContextWindowSize', () => {
     it('should return model maxInputTokens when available', async () => {
-      (vscode.lm.selectChatModels as any).mockResolvedValue([mockModel]);
+      (vscode.lm.selectChatModels as jest.Mock).mockResolvedValue([mockModel]);
       provider = new VsCodeLmProvider();
       await provider.initialize();
 
@@ -334,7 +333,7 @@ describe('VsCodeLmProvider', () => {
 
     it('should return default when model has no maxInputTokens', async () => {
       mockModel.maxInputTokens = undefined;
-      (vscode.lm.selectChatModels as any).mockResolvedValue([mockModel]);
+      (vscode.lm.selectChatModels as jest.Mock).mockResolvedValue([mockModel]);
       provider = new VsCodeLmProvider();
       await provider.initialize();
 
@@ -354,7 +353,7 @@ describe('VsCodeLmProvider', () => {
 
   describe('countTokens', () => {
     beforeEach(async () => {
-      (vscode.lm.selectChatModels as any).mockResolvedValue([mockModel]);
+      (vscode.lm.selectChatModels as jest.Mock).mockResolvedValue([mockModel]);
       provider = new VsCodeLmProvider();
       await provider.initialize();
     });
@@ -391,7 +390,7 @@ describe('VsCodeLmProvider', () => {
         { vendor: 'copilot', family: 'gpt-4o', version: '1.0' },
         { vendor: 'copilot', family: 'gpt-4o-mini', version: undefined },
       ];
-      (vscode.lm.selectChatModels as any).mockResolvedValue(models);
+      (vscode.lm.selectChatModels as jest.Mock).mockResolvedValue(models);
 
       provider = new VsCodeLmProvider({ vendor: 'copilot' });
       const result = await provider.listModels();
@@ -404,7 +403,7 @@ describe('VsCodeLmProvider', () => {
     });
 
     it('should handle selectChatModels errors', async () => {
-      (vscode.lm.selectChatModels as any).mockRejectedValue(
+      (vscode.lm.selectChatModels as jest.Mock).mockRejectedValue(
         new Error('API error')
       );
 
