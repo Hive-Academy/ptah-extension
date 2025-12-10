@@ -290,7 +290,10 @@ export class VSCodeService {
           );
         } else {
           console.warn(
-            '[VSCodeService] session:stats received but ChatStore not registered!'
+            '[VSCodeService] session:stats received but ChatStore not registered!',
+            {
+              sessionId: message.payload?.sessionId,
+            }
           );
         }
       }

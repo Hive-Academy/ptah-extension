@@ -273,10 +273,9 @@ export class StreamingHandlerService {
     // Find the target tab by session ID
     const targetTab = this.tabManager.findTabBySessionId(stats.sessionId);
     if (!targetTab) {
-      console.warn(
-        '[StreamingHandlerService] No tab found for session:',
-        stats.sessionId
-      );
+      console.warn('[StreamingHandlerService] No tab found for session', {
+        sessionId: stats.sessionId,
+      });
       return;
     }
 
@@ -284,11 +283,17 @@ export class StreamingHandlerService {
     const messages = targetTab.messages;
     if (messages.length === 0) {
       console.warn(
-        '[StreamingHandlerService] No messages found in tab for stats update'
+        '[StreamingHandlerService] No messages in tab for stats update',
+        {
+          sessionId: stats.sessionId,
+          tabId: targetTab.id,
+        }
       );
       return;
     }
 
+    // ASSUMPTION: Stats correspond to the most recent assistant response
+    // This assumes single-threaded conversation flow (one message at a time)
     // Find the last assistant message (iterate backwards)
     let lastAssistantIndex = -1;
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -300,10 +305,22 @@ export class StreamingHandlerService {
 
     if (lastAssistantIndex === -1) {
       console.warn(
-        '[StreamingHandlerService] No assistant message found for stats update'
+        '[StreamingHandlerService] No assistant message found for stats update',
+        {
+          sessionId: stats.sessionId,
+          tabId: targetTab.id,
+          messageCount: messages.length,
+          lastMessageRole: messages[messages.length - 1]?.role,
+        }
       );
       return;
     }
+
+    console.log('[StreamingHandlerService] Found target message for stats', {
+      sessionId: stats.sessionId,
+      messageIndex: lastAssistantIndex,
+      messageCount: messages.length,
+    });
 
     // Update the assistant message with stats
     const updatedMessages = [...messages];
