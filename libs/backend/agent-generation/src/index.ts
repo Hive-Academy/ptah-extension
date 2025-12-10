@@ -7,9 +7,22 @@
  * - Content processing and transformation
  * - Orchestration pattern execution
  * - Agent prompt generation
+ * - Type system for templates, generation, and validation
  *
  * @see README.md for development status and extraction tasks
  */
+
+// DI tokens (Task 0.3)
+export * from './lib/di';
+
+// Type system (Task 0.2)
+export * from './lib/types';
+
+// Service interfaces (Task 0.4)
+export * from './lib/interfaces';
+
+// Error classes (Task 0.5)
+export * from './lib/errors';
 
 // Content processing utilities (Task -1.2)
 export * from './lib/utils/content-processor';

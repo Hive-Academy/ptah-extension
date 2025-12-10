@@ -7,7 +7,7 @@ import { Result } from '@ptah-extension/shared';
  *
  * @template TPhase - String literal type for phase names (e.g., 'template-processing' | 'content-generation')
  */
-export interface GenerationError<TPhase extends string = string> {
+export interface GenerationErrorDetails<TPhase extends string = string> {
   /** The item that failed (e.g., agent name, template name, file path) */
   item: string;
   /** The error that occurred */
@@ -29,7 +29,7 @@ export interface PartialSuccessResult<T, TPhase extends string = string> {
   /** Successfully generated items */
   successful: T[];
   /** Failed items with error details */
-  errors: GenerationError<TPhase>[];
+  errors: GenerationErrorDetails<TPhase>[];
   /** Whether all items succeeded */
   isComplete: boolean;
 }
@@ -103,7 +103,7 @@ export async function generateWithPartialSuccess<
   generateFn: (item: string) => Promise<Result<T, Error>>,
   phase: TPhase
 ): Promise<PartialSuccessResult<T, TPhase>> {
-  const errors: GenerationError<TPhase>[] = [];
+  const errors: GenerationErrorDetails<TPhase>[] = [];
   const successful: T[] = [];
 
   for (const item of items) {
