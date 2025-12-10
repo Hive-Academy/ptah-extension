@@ -214,17 +214,24 @@ export class SdkMessageTransformer {
     // Extract content blocks from Anthropic SDK message
     const content = message.content || [];
 
+    // Determine completion status from stop_reason
+    // If stop_reason exists, message is complete; otherwise still streaming
+    const isMessageComplete = !!message.stop_reason;
+    const messageStatus: ExecutionStatus = isMessageComplete
+      ? 'complete'
+      : 'streaming';
+
     // Create child nodes from content blocks
     const children: ExecutionNode[] = [];
 
     for (const block of content) {
       if (isTextBlock(block)) {
-        // Text content block
+        // Text content block - use dynamic status based on stop_reason
         children.push(
           createExecutionNode({
             id: `${uuid}-text-${children.length}`,
             type: 'text' as ExecutionNodeType,
-            status: 'complete' as ExecutionStatus,
+            status: messageStatus,
             content: block.text,
           })
         );
@@ -280,11 +287,11 @@ export class SdkMessageTransformer {
       ? calculateMessageCost(message.model || '', tokenUsage)
       : undefined;
 
-    // Create message node
+    // Create message node - use dynamic status based on stop_reason
     const messageNode = createExecutionNode({
       id: uuid,
       type: 'message' as ExecutionNodeType,
-      status: 'complete' as ExecutionStatus,
+      status: messageStatus,
       content: null, // Content is in children
       children,
       tokenUsage,

@@ -11,7 +11,6 @@ import { InlineAgentBubbleComponent } from './inline-agent-bubble.component';
 import { AgentSummaryComponent } from '../molecules/agent-summary.component';
 import { ThinkingBlockComponent } from '../molecules/thinking-block.component';
 import { ToolCallItemComponent } from '../molecules/tool-call-item.component';
-import { StreamingTextRevealComponent } from '../atoms/streaming-text-reveal.component';
 import type {
   ExecutionNode,
   PermissionRequest,
@@ -46,7 +45,6 @@ import type {
     AgentSummaryComponent,
     ThinkingBlockComponent,
     ToolCallItemComponent,
-    StreamingTextRevealComponent,
   ],
   template: `
     @switch (node().type) { @case ('text') { @if (isAgentSummaryContent()) {
@@ -55,26 +53,15 @@ import type {
       [content]="node().content || ''"
       [class.animate-pulse]="isStreaming()"
     />
-    } @else { @if (isStreaming()) {
-    <!-- DUAL-PHASE: Phase 1 - Typewriter effect with progressive character reveal -->
-    <div
-      class="prose prose-sm prose-invert max-w-none my-2 transition-opacity duration-300"
-    >
-      <ptah-streaming-text-reveal
-        [content]="node().content || ''"
-        [isStreaming]="isStreaming()"
-        [revealSpeed]="18"
-        cursorColor="text-neutral-content/70"
-      />
-    </div>
     } @else {
-    <!-- DUAL-PHASE: Phase 2 - Full markdown after completion -->
+    <!-- Always render markdown for text nodes (live updates like ChatGPT/Claude web) -->
     <div
       class="prose prose-sm prose-invert max-w-none my-2 transition-opacity duration-300"
+      [class.animate-pulse]="isStreaming()"
     >
       <markdown [data]="node().content || ''" />
     </div>
-    } } } @case ('thinking') {
+    } } @case ('thinking') {
     <ptah-thinking-block [node]="node()" />
     } @case ('tool') {
     <ptah-tool-call-item
