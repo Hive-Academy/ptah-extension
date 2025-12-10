@@ -11,5 +11,8 @@
  * @see README.md for development status and extraction tasks
  */
 
-// Placeholder exports - will be populated by Tasks -1.1, -1.2, -1.3
-export {};
+// Content processing utilities (Task -1.2)
+export * from './lib/utils/content-processor';
+
+// Orchestration patterns (Task -1.3)
+export * from './lib/patterns';
