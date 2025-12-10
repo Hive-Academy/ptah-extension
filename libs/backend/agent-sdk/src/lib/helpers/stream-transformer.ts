@@ -8,7 +8,10 @@
 import { injectable, inject } from 'tsyringe';
 import { SessionId, ExecutionNode, MessageId } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import { SdkMessageTransformer } from '../sdk-message-transformer';
+import {
+  SdkMessageTransformer,
+  isSDKResultMessage,
+} from '../sdk-message-transformer';
 import { SdkSessionStorage } from '../sdk-session-storage';
 import { StoredSessionMessage } from '../types/sdk-session.types';
 import { SDK_TOKENS } from '../di/tokens';
@@ -68,6 +71,82 @@ function getRoleFromSDKMessage(
     default:
       return 'assistant';
   }
+}
+
+/**
+ * Validated stats interface
+ */
+interface ValidatedStats {
+  sessionId: SessionId;
+  cost: number;
+  tokens: { input: number; output: number };
+  duration: number;
+}
+
+/**
+ * Validate stats from SDK result message
+ * Ensures all numeric values are within expected bounds to catch SDK bugs
+ *
+ * @param stats - Raw stats extracted from SDK result message
+ * @param logger - Logger instance for validation warnings
+ * @returns Validated stats or null if validation fails
+ */
+function validateStats(
+  stats: {
+    sessionId: SessionId;
+    cost: number;
+    tokens: { input: number; output: number };
+    duration: number;
+  },
+  logger: Logger
+): ValidatedStats | null {
+  // Validate cost (max $100 catches billing bugs)
+  if (
+    stats.cost < 0 ||
+    stats.cost > 100 ||
+    isNaN(stats.cost) ||
+    !isFinite(stats.cost)
+  ) {
+    logger.warn('[StreamTransformer] Invalid cost value from SDK:', {
+      cost: stats.cost,
+      sessionId: stats.sessionId,
+    });
+    return null;
+  }
+
+  // Validate tokens (max 1M catches overflow)
+  if (
+    stats.tokens.input < 0 ||
+    stats.tokens.input > 1000000 ||
+    isNaN(stats.tokens.input) ||
+    !isFinite(stats.tokens.input) ||
+    stats.tokens.output < 0 ||
+    stats.tokens.output > 1000000 ||
+    isNaN(stats.tokens.output) ||
+    !isFinite(stats.tokens.output)
+  ) {
+    logger.warn('[StreamTransformer] Invalid token values from SDK:', {
+      tokens: stats.tokens,
+      sessionId: stats.sessionId,
+    });
+    return null;
+  }
+
+  // Validate duration (max 1 hour = 3,600,000ms)
+  if (
+    stats.duration < 0 ||
+    stats.duration > 3600000 ||
+    isNaN(stats.duration) ||
+    !isFinite(stats.duration)
+  ) {
+    logger.warn('[StreamTransformer] Invalid duration value from SDK:', {
+      duration: stats.duration,
+      sessionId: stats.sessionId,
+    });
+    return null;
+  }
+
+  return stats; // All validations passed
 }
 
 /**
@@ -162,36 +241,53 @@ export class StreamTransformer {
             }
 
             // Extract stats from result message and notify via callback
-            if (
-              sdkMessage.type === 'result' &&
-              onResultStats &&
-              'total_cost_usd' in sdkMessage &&
-              'usage' in sdkMessage &&
-              'duration_ms' in sdkMessage
-            ) {
-              const usage = sdkMessage['usage'] as {
-                input_tokens?: number;
-                output_tokens?: number;
-              };
-              logger.debug(
-                `[StreamTransformer] Result message received for ${sessionId}`,
-                {
-                  cost: sdkMessage['total_cost_usd'],
-                  duration: sdkMessage['duration_ms'],
-                  tokens: usage,
-                }
-              );
+            if (sdkMessage.type === 'result') {
+              // Check callback is set
+              if (!onResultStats) {
+                logger.error(
+                  '[StreamTransformer] Result stats callback not set - stats will be lost!',
+                  { sessionId }
+                );
+                // Continue processing (don't throw) - stats are non-critical
+              } else {
+                // Type guard for result message structure
+                if (!isSDKResultMessage(sdkMessage)) {
+                  logger.warn(
+                    '[StreamTransformer] Result message missing required fields',
+                    {
+                      sessionId,
+                      messageType: sdkMessage.type,
+                    }
+                  );
+                } else {
+                  // Extract stats
+                  const rawStats = {
+                    sessionId,
+                    cost: sdkMessage.total_cost_usd,
+                    tokens: {
+                      input: sdkMessage.usage.input_tokens,
+                      output: sdkMessage.usage.output_tokens,
+                    },
+                    duration: sdkMessage.duration_ms,
+                  };
 
-              // Notify via callback with stats
-              onResultStats({
-                sessionId,
-                cost: (sdkMessage['total_cost_usd'] as number) || 0,
-                tokens: {
-                  input: usage.input_tokens || 0,
-                  output: usage.output_tokens || 0,
-                },
-                duration: (sdkMessage['duration_ms'] as number) || 0,
-              });
+                  logger.debug(
+                    `[StreamTransformer] Result message received for ${sessionId}`,
+                    {
+                      cost: rawStats.cost,
+                      duration: rawStats.duration,
+                      tokens: rawStats.tokens,
+                    }
+                  );
+
+                  // Validate and notify
+                  const validatedStats = validateStats(rawStats, logger);
+                  if (validatedStats) {
+                    onResultStats(validatedStats);
+                  }
+                  // If validation fails, validateStats already logged warning
+                }
+              }
             }
 
             const nodes = messageTransformer.transform(sdkMessage, sessionId);

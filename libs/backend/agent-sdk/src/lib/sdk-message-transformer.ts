@@ -61,9 +61,16 @@ type SDKSystemMessage = SDKMessage & {
 
 /**
  * Result message type (for internal type hints)
+ * Strict type with all required stats fields
  */
 type SDKResultMessage = SDKMessage & {
   type: 'result';
+  total_cost_usd: number;
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+  };
+  duration_ms: number;
 };
 
 /**
@@ -131,6 +138,31 @@ function isToolResultBlock(block: unknown): block is ToolResultBlockParam {
 }
 
 /**
+ * Type guard for SDKResultMessage
+ * Validates that result message has all required stats fields
+ */
+function isSDKResultMessage(msg: SDKMessage): msg is SDKResultMessage {
+  return (
+    msg.type === 'result' &&
+    typeof (msg as Record<string, unknown>)['total_cost_usd'] === 'number' &&
+    typeof (msg as Record<string, unknown>)['usage'] === 'object' &&
+    (msg as Record<string, unknown>)['usage'] !== null &&
+    typeof (
+      (msg as Record<string, unknown>)['usage'] as Record<string, unknown>
+    )['input_tokens'] === 'number' &&
+    typeof (
+      (msg as Record<string, unknown>)['usage'] as Record<string, unknown>
+    )['output_tokens'] === 'number' &&
+    typeof (msg as Record<string, unknown>)['duration_ms'] === 'number'
+  );
+}
+
+/**
+ * Export type guard for external use
+ */
+export { isSDKResultMessage };
+
+/**
  * SdkMessageTransformer - Transforms SDK messages to ExecutionNode hierarchy
  *
  * Handles message transformation with proper parent-child relationships,
@@ -149,19 +181,24 @@ export class SdkMessageTransformer {
    * - SDKSystemMessage → system node
    * - SDKResultMessage → system node with result summary
    *
-   * @param sdkMessage - SDK message to transform (typed as 'any' because actual SDK types
-   *                     cannot be properly imported in CommonJS context without TS1479 errors)
+   * @param sdkMessage - SDK message to transform (uses structural typing to match SDK types)
    * @param sessionId - Optional session ID for node correlation
    * @returns Array of ExecutionNode (typically 1, but could be multiple for nested content)
    */
-  transform(sdkMessage: any, sessionId?: SessionId): ExecutionNode[] {
+  transform(sdkMessage: SDKMessage, sessionId?: SessionId): ExecutionNode[] {
     try {
       switch (sdkMessage.type) {
         case 'assistant':
-          return this.transformAssistantMessage(sdkMessage, sessionId);
+          return this.transformAssistantMessage(
+            sdkMessage as SDKAssistantMessage,
+            sessionId
+          );
 
         case 'user':
-          return this.transformUserMessage(sdkMessage, sessionId);
+          return this.transformUserMessage(
+            sdkMessage as SDKUserMessage,
+            sessionId
+          );
 
         case 'system':
           // Skip system messages (init, etc.) - they contain metadata

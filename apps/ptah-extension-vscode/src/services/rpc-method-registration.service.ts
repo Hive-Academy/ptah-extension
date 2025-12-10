@@ -148,30 +148,77 @@ export class RpcMethodRegistrationService {
   }
 
   /**
+   * Send session stats to webview with retry logic
+   * Retries up to 3 times with exponential backoff to handle IPC errors
+   */
+  private async sendStatsWithRetry(
+    stats: {
+      sessionId: string;
+      cost: number;
+      tokens: { input: number; output: number };
+      duration: number;
+    },
+    maxRetries = 3
+  ): Promise<void> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await this.webviewManager.sendMessage('ptah.main', 'session:stats', {
+          sessionId: stats.sessionId,
+          cost: stats.cost,
+          tokens: stats.tokens,
+          duration: stats.duration,
+        });
+
+        // Success - log if retry was needed
+        if (attempt > 1) {
+          this.logger.info(
+            `[RPC] Session stats sent after ${attempt} attempts`,
+            {
+              sessionId: stats.sessionId,
+            }
+          );
+        }
+        return; // Success - exit
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        this.logger.warn(
+          `[RPC] Failed to send session:stats (attempt ${attempt}/${maxRetries})`,
+          {
+            sessionId: stats.sessionId,
+            error: lastError.message,
+          }
+        );
+
+        // Wait before retry (exponential backoff: 1s, 2s, 4s)
+        if (attempt < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+        }
+      }
+    }
+
+    // All retries failed - log error and give up
+    this.logger.error(
+      '[RPC] Failed to send session:stats after all retries',
+      lastError || new Error('Unknown error')
+    );
+    // Stats lost - graceful degradation (don't crash)
+  }
+
+  /**
    * Setup callback to notify frontend when result message with stats is received
    * This sends session:stats event to webview when streaming completes
    */
   private setupResultStatsCallback(): void {
-    this.sdkAdapter.setResultStatsCallback((stats) => {
+    this.sdkAdapter.setResultStatsCallback(async (stats) => {
       this.logger.info(`[RPC] Session stats received: ${stats.sessionId}`, {
         cost: stats.cost,
         tokens: stats.tokens,
         duration: stats.duration,
       });
 
-      this.webviewManager
-        .sendMessage('ptah.main', 'session:stats', {
-          sessionId: stats.sessionId,
-          cost: stats.cost,
-          tokens: stats.tokens,
-          duration: stats.duration,
-        })
-        .catch((error) => {
-          this.logger.error(
-            'Failed to send session:stats to webview',
-            error instanceof Error ? error : new Error(String(error))
-          );
-        });
+      await this.sendStatsWithRetry(stats);
     });
   }
 
