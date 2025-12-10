@@ -139,21 +139,32 @@ function isToolResultBlock(block: unknown): block is ToolResultBlockParam {
 
 /**
  * Type guard for SDKResultMessage
- * Validates that result message has all required stats fields
+ * Validates that result message has all required stats fields.
+ * Uses bracket notation for index signature compatibility (TS4111).
  */
 function isSDKResultMessage(msg: SDKMessage): msg is SDKResultMessage {
+  if (msg.type !== 'result') return false;
+
+  // Check top-level required fields exist and have correct types
+  if (
+    !('total_cost_usd' in msg) ||
+    !('usage' in msg) ||
+    !('duration_ms' in msg) ||
+    typeof msg['total_cost_usd'] !== 'number' ||
+    typeof msg['duration_ms'] !== 'number'
+  ) {
+    return false;
+  }
+
+  // Validate nested usage object
+  const usage = msg['usage'];
+  if (typeof usage !== 'object' || usage === null) return false;
+
   return (
-    msg.type === 'result' &&
-    typeof (msg as Record<string, unknown>)['total_cost_usd'] === 'number' &&
-    typeof (msg as Record<string, unknown>)['usage'] === 'object' &&
-    (msg as Record<string, unknown>)['usage'] !== null &&
-    typeof (
-      (msg as Record<string, unknown>)['usage'] as Record<string, unknown>
-    )['input_tokens'] === 'number' &&
-    typeof (
-      (msg as Record<string, unknown>)['usage'] as Record<string, unknown>
-    )['output_tokens'] === 'number' &&
-    typeof (msg as Record<string, unknown>)['duration_ms'] === 'number'
+    'input_tokens' in usage &&
+    'output_tokens' in usage &&
+    typeof usage.input_tokens === 'number' &&
+    typeof usage.output_tokens === 'number'
   );
 }
 

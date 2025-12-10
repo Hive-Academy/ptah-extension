@@ -57,6 +57,7 @@ import {
   ConfigAutopilotToggleResult,
   ConfigAutopilotGetResult,
   ConfigModelsListResult,
+  retryWithBackoff,
 } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
 
@@ -148,62 +149,50 @@ export class RpcMethodRegistrationService {
   }
 
   /**
-   * Send session stats to webview with retry logic
-   * Retries up to 3 times with exponential backoff to handle IPC errors
+   * Send session stats to webview with retry logic using shared utility.
+   * Uses retryWithBackoff for exponential backoff + jitter to handle IPC errors.
+   * Stats are non-critical - gracefully degrade on failure (no crash).
    */
-  private async sendStatsWithRetry(
-    stats: {
-      sessionId: string;
-      cost: number;
-      tokens: { input: number; output: number };
-      duration: number;
-    },
-    maxRetries = 3
-  ): Promise<void> {
-    let lastError: Error | null = null;
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        await this.webviewManager.sendMessage('ptah.main', 'session:stats', {
-          sessionId: stats.sessionId,
-          cost: stats.cost,
-          tokens: stats.tokens,
-          duration: stats.duration,
-        });
-
-        // Success - log if retry was needed
-        if (attempt > 1) {
-          this.logger.info(
-            `[RPC] Session stats sent after ${attempt} attempts`,
-            {
-              sessionId: stats.sessionId,
-            }
-          );
-        }
-        return; // Success - exit
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-        this.logger.warn(
-          `[RPC] Failed to send session:stats (attempt ${attempt}/${maxRetries})`,
-          {
+  private async sendStatsWithRetry(stats: {
+    sessionId: string;
+    cost: number;
+    tokens: { input: number; output: number };
+    duration: number;
+  }): Promise<void> {
+    try {
+      await retryWithBackoff(
+        () =>
+          this.webviewManager.sendMessage('ptah.main', 'session:stats', {
             sessionId: stats.sessionId,
-            error: lastError.message,
-          }
-        );
-
-        // Wait before retry (exponential backoff: 1s, 2s, 4s)
-        if (attempt < maxRetries) {
-          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+            cost: stats.cost,
+            tokens: stats.tokens,
+            duration: stats.duration,
+          }),
+        {
+          retries: 3,
+          initialDelay: 1000,
+          // Retry on IPC/channel errors (transient), not on validation errors
+          shouldRetry: (error: unknown): boolean => {
+            const message =
+              error instanceof Error ? error.message.toLowerCase() : '';
+            // Retry on channel/IPC errors that might be transient
+            return (
+              message.includes('channel') ||
+              message.includes('disposed') ||
+              message.includes('closed') ||
+              message.includes('timeout')
+            );
+          },
         }
-      }
+      );
+    } catch (error) {
+      // All retries exhausted or non-retriable error - log and give up
+      this.logger.error(
+        '[RPC] Failed to send session:stats after all retries',
+        error instanceof Error ? error : new Error(String(error))
+      );
+      // Stats lost - graceful degradation (don't crash)
     }
-
-    // All retries failed - log error and give up
-    this.logger.error(
-      '[RPC] Failed to send session:stats after all retries',
-      lastError || new Error('Unknown error')
-    );
-    // Stats lost - graceful degradation (don't crash)
   }
 
   /**
@@ -681,7 +670,7 @@ export class RpcMethodRegistrationService {
    * Handles model selection and autopilot configuration persistence
    */
   private registerModelAndAutopilotMethods(): void {
-    // config:model-switch - Switch AI model
+    // config:model-switch - Switch AI model (accepts full API model name)
     this.rpcHandler.registerMethod<
       ConfigModelSwitchParams,
       ConfigModelSwitchResult
@@ -689,19 +678,12 @@ export class RpcMethodRegistrationService {
       try {
         const { model, sessionId } = params;
 
-        // Validate model (already typed, but runtime check for safety)
-        const validModels = ['opus', 'sonnet', 'haiku'] as const;
-        if (!validModels.includes(model as (typeof validModels)[number])) {
-          throw new Error(
-            `Invalid model: ${model}. Must be one of: ${validModels.join(', ')}`
-          );
-        }
-
         this.logger.debug('RPC: config:model-switch called', {
           model,
           sessionId,
         });
 
+        // Save the model (now using full API name)
         await this.configManager.set('model.selected', model, {
           target: vscode.ConfigurationTarget.Workspace,
         });
@@ -709,18 +691,12 @@ export class RpcMethodRegistrationService {
         // Sync to active SDK session if provided
         if (sessionId) {
           try {
-            const modelInfo = AVAILABLE_MODELS.find((m) => m.id === model);
-            if (modelInfo) {
-              await this.sdkAdapter.setSessionModel(
-                sessionId,
-                modelInfo.apiName
-              );
-              this.logger.debug('Model synced to active session', {
-                sessionId,
-                model,
-                apiName: modelInfo.apiName,
-              });
-            }
+            // Model is already the full API name, pass directly to SDK
+            await this.sdkAdapter.setSessionModel(sessionId, model);
+            this.logger.debug('Model synced to active session', {
+              sessionId,
+              model,
+            });
           } catch (syncError) {
             this.logger.warn(
               'Failed to sync model to active session (config saved)',
@@ -875,23 +851,35 @@ export class RpcMethodRegistrationService {
       }
     );
 
-    // config:models-list - Get available models with metadata
+    // config:models-list - Get available models with metadata (from SDK)
     this.rpcHandler.registerMethod<void, ConfigModelsListResult>(
       'config:models-list',
       async () => {
         try {
           this.logger.debug('RPC: config:models-list called');
 
-          const selectedModel = this.configManager.getWithDefault<ClaudeModel>(
+          // Get saved model preference
+          const savedModel = this.configManager.getWithDefault<string>(
             'model.selected',
-            'sonnet'
+            'claude-sonnet-4-20250514'
           );
 
-          const models: (ModelInfo & { isSelected: boolean })[] =
-            AVAILABLE_MODELS.map((model) => ({
-              ...model,
-              isSelected: model.id === selectedModel,
-            }));
+          // Fetch models dynamically from SDK
+          const sdkModels = await this.sdkAdapter.getSupportedModels();
+
+          // Transform to frontend format
+          const models = sdkModels.map((m) => ({
+            id: m.value, // API name (e.g., 'claude-sonnet-4-20250514')
+            name: m.displayName, // Display name (e.g., 'Claude Sonnet 4')
+            description: m.description,
+            apiName: m.value,
+            isSelected: m.value === savedModel,
+            isRecommended: m.value.includes('sonnet'),
+          }));
+
+          this.logger.debug('RPC: config:models-list fetched from SDK', {
+            count: models.length,
+          });
 
           return { models };
         } catch (error) {
