@@ -5,7 +5,7 @@
  * ChatStore delegates to these services for specialized responsibilities.
  *
  * Architecture:
- * - StreamingHandlerService: JSONL streaming and execution tree building
+ * - StreamingHandlerService: Execution tree building
  * - CompletionHandlerService: Chat completion handling and auto-send
  * - SessionLoaderService: Session loading, pagination, switching, ID resolution
  * - ConversationService: New/continue conversation, message sending, abort

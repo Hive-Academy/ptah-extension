@@ -111,6 +111,36 @@ export class RpcMethodRegistrationService {
   ) {
     // Setup agent watcher summary chunk listener
     this.setupAgentWatcherListeners();
+
+    // Setup session ID resolution callback
+    // This sends 'session:id-resolved' event to frontend when SDK returns real Claude UUID
+    this.setupSessionIdResolvedCallback();
+  }
+
+  /**
+   * Setup callback to notify frontend when real Claude session ID is resolved
+   * This bridges the gap between placeholder IDs and real Claude UUIDs
+   */
+  private setupSessionIdResolvedCallback(): void {
+    this.sdkAdapter.setSessionIdResolvedCallback(
+      (placeholderId: SessionId, realClaudeSessionId: string) => {
+        this.logger.info(
+          `[RPC] Session ID resolved: ${placeholderId} -> ${realClaudeSessionId}`
+        );
+
+        this.webviewManager
+          .sendMessage('ptah.main', 'session:id-resolved', {
+            sessionId: placeholderId,
+            realSessionId: realClaudeSessionId,
+          })
+          .catch((error) => {
+            this.logger.error(
+              'Failed to send session:id-resolved to webview',
+              error instanceof Error ? error : new Error(String(error))
+            );
+          });
+      }
+    );
   }
 
   /**
@@ -195,14 +225,32 @@ export class RpcMethodRegistrationService {
       }
     );
 
-    // chat:continue - Send message to existing session
+    // chat:continue - Send message to existing session (with auto-resume)
     this.rpcHandler.registerMethod<ChatContinueParams, ChatContinueResult>(
       'chat:continue',
       async (params) => {
         try {
-          const { prompt, sessionId } = params;
+          const { prompt, sessionId, workspacePath } = params;
           this.logger.debug('RPC: chat:continue called', { sessionId });
 
+          // Check if session is active in memory
+          if (!this.sdkAdapter.isSessionActive(sessionId)) {
+            this.logger.info(
+              `[RPC] Session ${sessionId} not active, attempting resume...`
+            );
+
+            // Resume the session to reconnect to Claude's conversation context
+            const stream = await this.sdkAdapter.resumeSession(sessionId, {
+              projectPath: workspacePath,
+            });
+
+            // Start streaming responses to webview (background - don't await)
+            this.streamExecutionNodesToWebview(sessionId, stream);
+
+            this.logger.info(`[RPC] Session ${sessionId} resumed successfully`);
+          }
+
+          // Now send the message to the (now active) session
           await this.sdkAdapter.sendMessageToSession(sessionId, prompt);
 
           return { success: true, sessionId };

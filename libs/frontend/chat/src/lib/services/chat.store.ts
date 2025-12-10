@@ -7,7 +7,6 @@ import {
   calculateMessageCost,
   createExecutionChatMessage,
 } from '@ptah-extension/shared';
-import { SessionReplayService } from './session-replay.service';
 import { SessionManager } from './session-manager.service';
 import { TabManagerService } from './tab-manager.service';
 import { StreamingHandlerService } from './chat-store/streaming-handler.service';
@@ -26,7 +25,7 @@ import { TabState } from './chat.types';
  * This maintains backward compatibility while achieving separation of concerns.
  *
  * Child Services (5):
- * 1. StreamingHandlerService - JSONL streaming and execution tree building
+ * 1. StreamingHandlerService - Execution tree building
  * 2. CompletionHandlerService - Chat completion handling and auto-send
  * 3. SessionLoaderService - Session loading, pagination, switching, ID resolution
  * 4. ConversationService - New/continue conversation, message sending, abort
@@ -54,7 +53,6 @@ export class ChatStore {
   private readonly _claudeRpcService = inject(ClaudeRpcService);
 
   // Extracted services (Phase 6)
-  private readonly sessionReplay = inject(SessionReplayService);
   private readonly sessionManager = inject(SessionManager);
   private readonly tabManager = inject(TabManagerService);
 

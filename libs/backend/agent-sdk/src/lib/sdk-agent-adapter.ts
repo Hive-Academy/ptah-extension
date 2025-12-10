@@ -2,10 +2,13 @@
  * SDK Agent Adapter - IAIProvider implementation using official Claude Agent SDK
  *
  * This adapter provides direct in-process SDK communication with 10x performance
- * improvements over CLI-based integration. Responsibilities are delegated to:
+ * improvements over CLI-based integration. All dependencies are injected via DI:
  * - AuthManager: Authentication setup and validation
  * - SessionLifecycleManager: Session tracking and cleanup
  * - ConfigWatcher: Config change detection and re-initialization
+ * - SdkQueryBuilder: SDK query options construction
+ * - UserMessageStreamFactory: Async message stream creation
+ * - StreamTransformer: SDK message to ExecutionNode transformation
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -22,26 +25,27 @@ import {
   ExecutionNode,
   MessageId,
 } from '@ptah-extension/shared';
-import { Logger, TOKENS, ConfigManager } from '@ptah-extension/vscode-core';
-import { SdkMessageTransformer } from './sdk-message-transformer';
+import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import { SdkSessionStorage } from './sdk-session-storage';
-import { SdkPermissionHandler } from './sdk-permission-handler';
 import { StoredSessionMessage } from './types/sdk-session.types';
-import { createPtahTools } from './ptah-tools-server';
+import { SDK_TOKENS } from './di/tokens';
 import {
   AuthManager,
   SessionLifecycleManager,
   ConfigWatcher,
+  SdkQueryBuilder,
+  UserMessageStreamFactory,
+  StreamTransformer,
   type SDKUserMessage,
+  type SessionIdResolvedCallback,
 } from './helpers';
+import {
+  ClaudeCliDetector,
+  ClaudeInstallation,
+} from './detector/claude-cli-detector';
 
-/**
- * Generic SDK message type for internal type hints
- */
-type SDKMessage = {
-  type: string;
-  [key: string]: unknown;
-};
+// Re-export for external consumers
+export type { SessionIdResolvedCallback } from './helpers';
 
 /**
  * Provider capabilities for SDK-based integration
@@ -76,29 +80,11 @@ const SDK_PROVIDER_INFO: ProviderInfo = {
 };
 
 /**
- * Helper function to get message role from SDK message type
- */
-function getRoleFromSDKMessage(
-  sdkMessage: SDKMessage
-): 'user' | 'assistant' | 'system' {
-  switch (sdkMessage.type) {
-    case 'user':
-      return 'user';
-    case 'assistant':
-      return 'assistant';
-    case 'system':
-    case 'result':
-      return 'system';
-    default:
-      return 'assistant';
-  }
-}
-
-/**
  * SdkAgentAdapter - Core SDK wrapper implementing IAIProvider
  *
- * Architecture: Thin orchestration layer that delegates to helper services.
- * Main responsibilities: API surface, message transformation, SDK invocation.
+ * Architecture: Thin orchestration layer that delegates to injected helper services.
+ * All dependencies are provided via constructor injection from the DI container.
+ * Main responsibilities: API surface, session coordination, SDK invocation.
  */
 @injectable()
 export class SdkAgentAdapter implements IAIProvider {
@@ -112,29 +98,50 @@ export class SdkAgentAdapter implements IAIProvider {
   };
 
   /**
-   * Message transformer for SDK → ExecutionNode conversion
+   * Cached CLI installation info - resolved during initialization
    */
-  private transformer: SdkMessageTransformer;
+  private cliInstallation: ClaudeInstallation | null = null;
 
   /**
-   * Helper Services - Extracted for maintainability
+   * Callback to notify when real Claude session ID is resolved
+   * Set by RpcMethodRegistrationService to send session:id-resolved events
    */
-  private authManager: AuthManager;
-  private sessionLifecycle: SessionLifecycleManager;
-  private configWatcher: ConfigWatcher;
+  private sessionIdResolvedCallback: SessionIdResolvedCallback | null = null;
 
+  /**
+   * Create SDK Agent Adapter with all dependencies injected
+   *
+   * @param logger - Logger instance
+   * @param config - Configuration manager
+   * @param storage - Session storage service
+   * @param authManager - Authentication manager
+   * @param sessionLifecycle - Session lifecycle manager
+   * @param configWatcher - Configuration change watcher
+   * @param cliDetector - Claude CLI detector
+   * @param queryBuilder - SDK query options builder
+   * @param messageStreamFactory - User message stream factory
+   * @param streamTransformer - SDK to ExecutionNode transformer
+   */
   constructor(
-    @inject(TOKENS.LOGGER) private logger: Logger,
-    @inject(TOKENS.CONFIG_MANAGER) private config: ConfigManager,
-    @inject('SdkSessionStorage') private storage: SdkSessionStorage,
-    @inject('SdkPermissionHandler')
-    private permissionHandler: SdkPermissionHandler
-  ) {
-    this.transformer = new SdkMessageTransformer(logger);
-    this.authManager = new AuthManager(logger, config);
-    this.sessionLifecycle = new SessionLifecycleManager(logger, storage);
-    this.configWatcher = new ConfigWatcher(logger, config);
-  }
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
+    @inject(SDK_TOKENS.SDK_SESSION_STORAGE)
+    private readonly storage: SdkSessionStorage,
+    @inject(SDK_TOKENS.SDK_AUTH_MANAGER)
+    private readonly authManager: AuthManager,
+    @inject(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER)
+    private readonly sessionLifecycle: SessionLifecycleManager,
+    @inject(SDK_TOKENS.SDK_CONFIG_WATCHER)
+    private readonly configWatcher: ConfigWatcher,
+    @inject(SDK_TOKENS.SDK_CLI_DETECTOR)
+    private readonly cliDetector: ClaudeCliDetector,
+    @inject(SDK_TOKENS.SDK_QUERY_BUILDER)
+    private readonly queryBuilder: SdkQueryBuilder,
+    @inject(SDK_TOKENS.SDK_USER_MESSAGE_STREAM_FACTORY)
+    private readonly messageStreamFactory: UserMessageStreamFactory,
+    @inject(SDK_TOKENS.SDK_STREAM_TRANSFORMER)
+    private readonly streamTransformer: StreamTransformer
+  ) {}
 
   /**
    * Initialize the SDK adapter
@@ -143,7 +150,49 @@ export class SdkAgentAdapter implements IAIProvider {
     try {
       this.logger.info('[SdkAgentAdapter] Initializing SDK adapter...');
 
-      // Delegate authentication to AuthManager
+      // Step 0: Register config watchers EARLY (before auth check)
+      // This ensures token changes are detected even when initial auth fails
+      this.configWatcher.registerWatchers(async () => {
+        this.logger.info(
+          '[SdkAgentAdapter] Config change detected, re-initializing...'
+        );
+        this.sessionLifecycle.disposeAllSessions();
+        this.cliDetector.clearCache();
+        this.cliInstallation = null;
+        await this.initialize();
+      });
+
+      // Step 1: Detect Claude CLI installation
+      this.logger.info(
+        '[SdkAgentAdapter] Detecting Claude CLI installation...'
+      );
+      const configuredPath = this.config.get<string>('claudeCliPath');
+      if (configuredPath) {
+        this.cliDetector.configure({ configuredPath });
+      }
+
+      this.cliInstallation = await this.cliDetector.findExecutable();
+
+      if (!this.cliInstallation) {
+        const errorMessage =
+          'Claude CLI not found. Please install it via: npm install -g @anthropic-ai/claude-code';
+        this.logger.error(`[SdkAgentAdapter] ${errorMessage}`);
+        this.health = {
+          status: 'error' as ProviderStatus,
+          lastCheck: Date.now(),
+          errorMessage,
+        };
+        return false;
+      }
+
+      this.logger.info('[SdkAgentAdapter] Claude CLI found', {
+        path: this.cliInstallation.path,
+        source: this.cliInstallation.source,
+        cliJsPath: this.cliInstallation.cliJsPath,
+        useDirectExecution: this.cliInstallation.useDirectExecution,
+      });
+
+      // Step 2: Configure authentication
       const authMethod = this.config.get<string>('authMethod') || 'auto';
       const authResult = await this.authManager.configureAuthentication(
         authMethod
@@ -158,7 +207,7 @@ export class SdkAgentAdapter implements IAIProvider {
         return false;
       }
 
-      // SDK requires no external dependencies - in-process execution
+      // Step 3: Mark as initialized
       this.initialized = true;
       this.health = {
         status: 'available' as ProviderStatus,
@@ -166,13 +215,6 @@ export class SdkAgentAdapter implements IAIProvider {
         responseTime: 0,
         uptime: Date.now(),
       };
-
-      // Register config watchers for automatic re-initialization
-      this.configWatcher.registerWatchers(async () => {
-        // Gracefully dispose active sessions before re-init
-        this.sessionLifecycle.disposeAllSessions();
-        await this.initialize();
-      });
 
       this.logger.info('[SdkAgentAdapter] Initialized successfully');
       return true;
@@ -241,11 +283,19 @@ export class SdkAgentAdapter implements IAIProvider {
       config,
     });
 
-    // Create session record via SessionLifecycleManager
-    await this.sessionLifecycle.createSessionRecord(sessionId);
-
-    // Create abort controller
+    // Create abort controller FIRST
     const abortController = new AbortController();
+
+    // PRE-REGISTER session BEFORE creating message stream
+    // This fixes race condition where UserMessageStreamFactory couldn't find session
+    this.sessionLifecycle.preRegisterActiveSession(
+      sessionId,
+      config || {},
+      abortController
+    );
+
+    // Create session record in storage (for persistence)
+    await this.sessionLifecycle.createSessionRecord(sessionId);
 
     // Import SDK dynamically (ESM in CommonJS context)
     this.logger.info(
@@ -262,242 +312,44 @@ export class SdkAgentAdapter implements IAIProvider {
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
     this.logger.info('[SdkAgentAdapter] SDK imported successfully');
 
-    const ptahTools = await createPtahTools();
-    this.logger.debug('[SdkAgentAdapter] Ptah tools created');
-
-    // Store references for closure
-    const sessionLifecycle = this.sessionLifecycle;
-    const logger = this.logger;
-
-    // Create user message stream for SDK
-    const userMessageStream: AsyncIterable<SDKUserMessage> = {
-      async *[Symbol.asyncIterator]() {
-        while (!abortController.signal.aborted) {
-          const session = sessionLifecycle.getActiveSession(sessionId);
-          if (!session) {
-            logger.warn(
-              `[SdkAgentAdapter] Session ${sessionId} not found - ending stream`
-            );
-            return;
-          }
-
-          // Drain all queued messages
-          while (session.messageQueue.length > 0) {
-            const message = session.messageQueue.shift();
-            if (message) {
-              logger.debug(
-                `[SdkAgentAdapter] Yielding message (${session.messageQueue.length} remaining)`
-              );
-              yield message;
-            }
-            if (abortController.signal.aborted) return;
-          }
-
-          // Wait for next message
-          const waitResult = await new Promise<
-            'message' | 'aborted' | 'timeout'
-          >((resolve) => {
-            const abortHandler = () => resolve('aborted');
-            abortController.signal.addEventListener('abort', abortHandler);
-
-            const currentSession = sessionLifecycle.getActiveSession(sessionId);
-            if (!currentSession) {
-              resolve('aborted');
-              return;
-            }
-
-            // Check queue again before waiting
-            if (currentSession.messageQueue.length > 0) {
-              abortController.signal.removeEventListener('abort', abortHandler);
-              resolve('message');
-              return;
-            }
-
-            // Set timeout (5 minutes)
-            const timeoutId = setTimeout(() => {
-              logger.warn(`[SdkAgentAdapter] Session ${sessionId} timeout`);
-              abortController.signal.removeEventListener('abort', abortHandler);
-              resolve('timeout');
-            }, 5 * 60 * 1000);
-
-            // Set wake callback
-            currentSession.resolveNext = () => {
-              clearTimeout(timeoutId);
-              abortController.signal.removeEventListener('abort', abortHandler);
-              resolve('message');
-            };
-
-            logger.debug(
-              `[SdkAgentAdapter] Waiting for message (${sessionId})...`
-            );
-          });
-
-          if (waitResult === 'aborted' || waitResult === 'timeout') {
-            logger.debug(`[SdkAgentAdapter] Stream ended: ${waitResult}`);
-            return;
-          }
-        }
-      },
-    };
-
-    // Start SDK query
-    const initialModel = config?.model || 'claude-sonnet-4.5-20250929';
-    const sdkQuery = query({
-      prompt: userMessageStream,
-      options: {
-        abortController,
-        cwd: config?.projectPath || process.cwd(),
-        model: initialModel,
-        maxTurns: config?.maxTokens
-          ? Math.floor(config.maxTokens / 1000)
-          : undefined,
-        systemPrompt: config?.systemPrompt
-          ? {
-              type: 'preset' as const,
-              preset: 'claude_code' as const,
-              append: config.systemPrompt,
-            }
-          : {
-              type: 'preset' as const,
-              preset: 'claude_code' as const,
-            },
-        tools: {
-          type: 'preset' as const,
-          preset: 'claude_code' as const,
-        },
-        mcpServers: {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          ptah: ptahTools as any, // SDK requires any type for custom MCP tools
-        },
-        permissionMode: 'default',
-        canUseTool: this.permissionHandler.createCallback(),
-        includePartialMessages: true,
-      },
-    });
-
-    // Register session
-    this.sessionLifecycle.registerActiveSession(
+    // Create user message stream (session is now pre-registered, so it can be found)
+    const userMessageStream = this.messageStreamFactory.create(
       sessionId,
-      sdkQuery,
-      config || {},
       abortController
     );
 
+    // Log that we're using SDK's built-in CLI
+    this.logger.info('[SdkAgentAdapter] Using SDK built-in Claude Code CLI', {
+      sdkDetectedCli: this.cliInstallation?.path,
+      usingBuiltIn: true,
+    });
+
+    const queryOptions = await this.queryBuilder.build({
+      userMessageStream,
+      abortController,
+      sessionConfig: config,
+    });
+
+    this.logger.info('[SdkAgentAdapter] Starting SDK query with options', {
+      model: queryOptions.options.model,
+      cwd: queryOptions.options.cwd,
+      permissionMode: queryOptions.options.permissionMode,
+    });
+
+    // Start SDK query
+    const sdkQuery = query(queryOptions);
+    const initialModel = config?.model || 'claude-sonnet-4.5-20250929';
+
+    // Set the SDK query on the pre-registered session
+    this.sessionLifecycle.setSessionQuery(sessionId, sdkQuery);
+
     // Return transformed stream
-    return this.createTransformedStream(sdkQuery, sessionId, initialModel);
-  }
-
-  /**
-   * Create transformed stream that converts SDK messages to ExecutionNodes
-   * Private helper to avoid 'this' aliasing in generator functions
-   */
-  private createTransformedStream(
-    sdkQuery: AsyncIterable<SDKMessage>,
-    sessionId: SessionId,
-    initialModel: string
-  ): AsyncIterable<ExecutionNode> {
-    // Use arrow function to preserve 'this' context
-    return {
-      [Symbol.asyncIterator]: async function* (this: SdkAgentAdapter) {
-        try {
-          this.logger.info(
-            `[SdkAgentAdapter] Starting message stream for ${sessionId}`
-          );
-
-          for await (const sdkMessage of sdkQuery) {
-            const nodes = this.transformer.transform(sdkMessage, sessionId);
-
-            // Store messages and yield nodes
-            for (const node of nodes) {
-              // Create MessageId from node.id string
-              const messageId = MessageId.from(node.id);
-
-              // Extract parent_tool_use_id from SDK message
-              const parentToolUseId =
-                'parent_tool_use_id' in sdkMessage
-                  ? sdkMessage['parent_tool_use_id']
-                  : null;
-
-              // Get current model from session
-              const currentSession =
-                this.sessionLifecycle.getActiveSession(sessionId);
-              const currentModel = currentSession?.currentModel || initialModel;
-
-              // Create stored message from ExecutionNode
-              const storedMessage: StoredSessionMessage = {
-                id: messageId,
-                parentId:
-                  parentToolUseId && typeof parentToolUseId === 'string'
-                    ? MessageId.from(parentToolUseId)
-                    : null,
-                role: getRoleFromSDKMessage(sdkMessage),
-                content: [node],
-                timestamp: Date.now(),
-                model: currentModel,
-                tokens: node.tokenUsage,
-              };
-
-              // Save to storage - log errors but don't block UI
-              try {
-                await this.storage.addMessage(sessionId, storedMessage);
-              } catch (storageError) {
-                const errObj =
-                  storageError instanceof Error
-                    ? storageError
-                    : new Error(String(storageError));
-                this.logger.warn(
-                  `[SdkAgentAdapter] Failed to store message ${messageId}, continuing anyway`,
-                  errObj
-                );
-              }
-
-              // Yield ExecutionNode for UI consumption
-              yield node;
-            }
-          }
-        } catch (error) {
-          const errorObj =
-            error instanceof Error ? error : new Error(String(error));
-
-          this.logger.error(
-            `[SdkAgentAdapter] Session ${sessionId} error: ${errorObj.message}`,
-            errorObj
-          );
-
-          // Check for auth errors
-          if (
-            errorObj.message.includes('401') ||
-            errorObj.message.toLowerCase().includes('unauthorized') ||
-            errorObj.message.toLowerCase().includes('authentication') ||
-            errorObj.message.toLowerCase().includes('invalid') ||
-            errorObj.message.toLowerCase().includes('api key')
-          ) {
-            this.logger.error('[SdkAgentAdapter] AUTHENTICATION ERROR!');
-            this.logger.error(
-              '[SdkAgentAdapter] SDK requires valid API key from console.anthropic.com'
-            );
-            this.logger.error(
-              '[SdkAgentAdapter] OR OAuth token from "claude setup-token"'
-            );
-            this.logger.error(
-              `[SdkAgentAdapter] Current: ANTHROPIC_API_KEY=${
-                process.env['ANTHROPIC_API_KEY']
-                  ? `SET (${process.env['ANTHROPIC_API_KEY'].substring(
-                      0,
-                      10
-                    )}...)`
-                  : 'NOT SET'
-              }`
-            );
-          }
-
-          throw error;
-        } finally {
-          this.sessionLifecycle.getActiveSession(sessionId); // Cleanup handled by endSession
-          this.logger.info(`[SdkAgentAdapter] Session ${sessionId} ended`);
-        }
-      }.bind(this),
-    };
+    return this.streamTransformer.transform({
+      sdkQuery,
+      sessionId,
+      initialModel,
+      onSessionIdResolved: this.sessionIdResolvedCallback || undefined,
+    });
   }
 
   /**
@@ -508,13 +360,144 @@ export class SdkAgentAdapter implements IAIProvider {
   }
 
   /**
-   * Send a message to an active session
+   * Resume a previously persisted session using SDK's resume option.
+   * This reconnects to Claude's conversation context without replaying history.
+   *
+   * @param sessionId - The session ID to resume (must exist in storage)
+   * @param config - Optional session configuration overrides
+   * @returns AsyncIterable<ExecutionNode> for streaming new responses
+   */
+  async resumeSession(
+    sessionId: SessionId,
+    config?: AISessionConfig
+  ): Promise<AsyncIterable<ExecutionNode>> {
+    if (!this.initialized) {
+      throw new Error(
+        'SdkAgentAdapter not initialized. Call initialize() first.'
+      );
+    }
+
+    // Check if session already active AND fully initialized (has query)
+    const existingSession = this.sessionLifecycle.getActiveSession(sessionId);
+    if (existingSession && existingSession.query) {
+      this.logger.info(
+        `[SdkAgentAdapter] Session ${sessionId} already active, returning existing stream`
+      );
+      return this.streamTransformer.transform({
+        sdkQuery: existingSession.query,
+        sessionId,
+        initialModel: existingSession.currentModel,
+        onSessionIdResolved: this.sessionIdResolvedCallback || undefined,
+      });
+    }
+
+    // Verify session exists in storage
+    const storedSession = await this.storage.getSession(sessionId);
+    if (!storedSession) {
+      throw new Error(
+        `Cannot resume session ${sessionId}: not found in storage`
+      );
+    }
+
+    this.logger.info(`[SdkAgentAdapter] Resuming session: ${sessionId}`, {
+      config,
+      storedMessages: storedSession.messages?.length || 0,
+    });
+
+    // CRITICAL: Use real Claude session ID for resumption
+    const resumeId = storedSession.claudeSessionId;
+
+    // Create abort controller FIRST
+    const abortController = new AbortController();
+
+    // PRE-REGISTER session BEFORE creating message stream
+    // This fixes race condition where UserMessageStreamFactory couldn't find session
+    this.sessionLifecycle.preRegisterActiveSession(
+      sessionId,
+      config || {},
+      abortController
+    );
+
+    // Import SDK dynamically
+    const { query } = await import('@anthropic-ai/claude-agent-sdk');
+    this.logger.info('[SdkAgentAdapter] SDK imported for session resume');
+
+    // Create user message stream (session is now pre-registered, so it can be found)
+    const userMessageStream = this.messageStreamFactory.create(
+      sessionId,
+      abortController
+    );
+
+    // If no claudeSessionId, start fresh but keep session record (preserves UI history)
+    if (!resumeId) {
+      this.logger.warn(
+        `[SdkAgentAdapter] Session ${sessionId} has no claudeSessionId - starting fresh SDK conversation (UI history preserved)`
+      );
+    }
+
+    const queryOptions = await this.queryBuilder.build({
+      userMessageStream,
+      abortController,
+      sessionConfig: config,
+      // Only pass resumeSessionId if we have the real Claude ID
+      resumeSessionId: resumeId || undefined,
+    });
+
+    this.logger.debug('[SdkAgentAdapter] SDK query options', {
+      usingBuiltInCli: true,
+      cwd: config?.projectPath || process.cwd(),
+      model: queryOptions.options.model,
+      internalSessionId: sessionId,
+      realClaudeSessionId: resumeId || 'N/A (fresh start)',
+      isResume: !!resumeId,
+    });
+
+    // Start SDK query
+    const sdkQuery = query(queryOptions);
+    const initialModel = config?.model || 'claude-sonnet-4.5-20250929';
+
+    // Set the SDK query on the pre-registered session
+    this.sessionLifecycle.setSessionQuery(sessionId, sdkQuery);
+
+    this.logger.info(
+      `[SdkAgentAdapter] Session ${
+        resumeId ? 'resumed' : 'started fresh'
+      }: ${sessionId}`
+    );
+
+    // Return transformed stream
+    return this.streamTransformer.transform({
+      sdkQuery,
+      sessionId,
+      initialModel,
+      onSessionIdResolved: this.sessionIdResolvedCallback || undefined,
+    });
+  }
+
+  /**
+   * Check if a session is currently active in memory
+   */
+  isSessionActive(sessionId: SessionId): boolean {
+    return this.sessionLifecycle.getActiveSession(sessionId) !== undefined;
+  }
+
+  /**
+   * Set callback for when real Claude session ID is resolved
+   * Called by RpcMethodRegistrationService to send session:id-resolved events to webview
+   */
+  setSessionIdResolvedCallback(callback: SessionIdResolvedCallback): void {
+    this.sessionIdResolvedCallback = callback;
+  }
+
+  /**
+   * Send a message to an active session.
+   * If session exists in storage but not active, caller should resume first.
    */
   async sendMessageToSession(
     sessionId: SessionId,
     content: string,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options?: AIMessageOptions // Reserved for future use
+    _options?: AIMessageOptions
   ): Promise<void> {
     const session = this.sessionLifecycle.getActiveSession(sessionId);
     if (!session) {
@@ -525,11 +508,11 @@ export class SdkAgentAdapter implements IAIProvider {
       contentLength: content.length,
     });
 
-    // Generate message ID
+    // Generate message ID for UI storage
     const messageId = MessageId.create();
     const messageIdStr = messageId.toString();
 
-    // Create SDK user message
+    // Create SDK user message (matches official SDK type from sdk.d.ts)
     const sdkUserMessage: SDKUserMessage = {
       type: 'user',
       uuid: messageIdStr as `${string}-${string}-${string}-${string}-${string}`,
@@ -588,6 +571,13 @@ export class SdkAgentAdapter implements IAIProvider {
 
     this.logger.info(`[SdkAgentAdapter] Interrupting session: ${sessionId}`);
 
+    if (!session.query) {
+      this.logger.warn(
+        `[SdkAgentAdapter] Cannot interrupt - session query not initialized: ${sessionId}`
+      );
+      return;
+    }
+
     try {
       await session.query.interrupt();
       this.logger.info(`[SdkAgentAdapter] Session interrupted: ${sessionId}`);
@@ -616,6 +606,10 @@ export class SdkAgentAdapter implements IAIProvider {
     const session = this.sessionLifecycle.getActiveSession(sessionId);
     if (!session) {
       throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    if (!session.query) {
+      throw new Error(`Session query not initialized: ${sessionId}`);
     }
 
     this.logger.info(
@@ -655,6 +649,10 @@ export class SdkAgentAdapter implements IAIProvider {
     const session = this.sessionLifecycle.getActiveSession(sessionId);
     if (!session) {
       throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    if (!session.query) {
+      throw new Error(`Session query not initialized: ${sessionId}`);
     }
 
     this.logger.info(

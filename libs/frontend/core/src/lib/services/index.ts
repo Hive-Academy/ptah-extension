@@ -28,9 +28,6 @@ export {
   type RpcCallOptions,
 } from './claude-rpc.service';
 
-// File Services (Phase 2 - TASK_2025_021)
-export { ClaudeFileService, type SessionFileInfo } from './claude-file.service';
-
 // Discovery Facades (Phase 2 - TASK_2025_019)
 export {
   AgentDiscoveryFacade,

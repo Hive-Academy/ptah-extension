@@ -30,9 +30,6 @@
     "anthropic",
     "cli-gui"
   ],
-  "extensionDependencies": [
-    "anthropic.claude-code"
-  ],
   "activationEvents": [
     "*"
   ],

@@ -53,13 +53,17 @@ export class TabManagerService {
   // ============================================================================
 
   /**
-   * Find a tab by its Claude session ID
-   * @param claudeSessionId - The Claude CLI session UUID
+   * Find a tab by its session ID (real Claude ID or placeholder)
+   * @param sessionId - Either the real Claude CLI session UUID or placeholder ID
    * @returns Tab state if found, null otherwise
    */
-  findTabBySessionId(claudeSessionId: string): TabState | null {
+  findTabBySessionId(sessionId: string): TabState | null {
     return (
-      this._tabs().find((t) => t.claudeSessionId === claudeSessionId) ?? null
+      this._tabs().find(
+        (t) =>
+          t.claudeSessionId === sessionId ||
+          t.placeholderSessionId === sessionId
+      ) ?? null
     );
   }
 

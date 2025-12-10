@@ -7,6 +7,7 @@
 
 // Core adapter exports
 export { SdkAgentAdapter } from './lib/sdk-agent-adapter';
+export type { SessionIdResolvedCallback } from './lib/sdk-agent-adapter';
 
 // Message transformation exports
 export { SdkMessageTransformer } from './lib/sdk-message-transformer';
@@ -21,18 +22,7 @@ export type {
 // Permission handler exports
 export { SdkPermissionHandler } from './lib/sdk-permission-handler';
 
-// Custom tools exports (TASK_2025_044 Batch 3)
-export { createPtahTools } from './lib/ptah-tools-server';
-export {
-  executePtahHelpTool,
-  ptahHelpToolDefinition,
-} from './lib/tools/ptah-help-tool';
-export {
-  executePtahExecuteCodeTool,
-  ptahExecuteCodeToolDefinition,
-} from './lib/tools/ptah-execute-code-tool';
-
-// DI registration exports (TASK_2025_044 Batch 3)
+// DI registration exports
 export { registerSdkServices } from './lib/di/register';
 export { SDK_TOKENS } from './lib/di/tokens';
 export type { SdkDIToken } from './lib/di/tokens';

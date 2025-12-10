@@ -5,6 +5,7 @@
  * tree structure required by the Ptah UI layer.
  */
 
+import { injectable, inject } from 'tsyringe';
 import {
   ExecutionNode,
   ExecutionNodeType,
@@ -13,7 +14,7 @@ import {
   createExecutionNode,
   calculateMessageCost,
 } from '@ptah-extension/shared';
-import { Logger } from '@ptah-extension/vscode-core';
+import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 
 /**
  * SDK Types - Manually defined to avoid ESM/CommonJS import issues
@@ -135,8 +136,9 @@ function isToolResultBlock(block: unknown): block is ToolResultBlockParam {
  * Handles message transformation with proper parent-child relationships,
  * agent detection (Task tool), and metadata preservation.
  */
+@injectable()
 export class SdkMessageTransformer {
-  constructor(private logger: Logger) {}
+  constructor(@inject(TOKENS.LOGGER) private logger: Logger) {}
 
   /**
    * Transform SDK message to ExecutionNode array
@@ -162,21 +164,21 @@ export class SdkMessageTransformer {
           return this.transformUserMessage(sdkMessage, sessionId);
 
         case 'system':
-          // Only transform init system messages
-          if ('subtype' in sdkMessage && sdkMessage.subtype === 'init') {
-            return this.transformSystemMessage(
-              sdkMessage as SDKSystemMessage,
-              sessionId
-            );
-          }
+          // Skip system messages (init, etc.) - they contain metadata
+          // that shouldn't be displayed as chat messages in the UI.
+          // Session info can be shown in a separate UI element if needed.
           return [];
 
         case 'result':
-          return this.transformResultMessage(sdkMessage, sessionId);
+          // Skip result messages - they contain session summary metadata
+          // (cost, duration, tokens) that shouldn't appear as chat bubbles.
+          // This data can be shown in a session info panel if needed.
+          return [];
 
         case 'stream_event':
-          // Partial streaming events - handled separately if needed
-          // For now, skip these as we process complete messages
+          // Skip partial streaming events - the complete 'assistant' message
+          // will contain all accumulated text. Processing stream_events causes
+          // duplicate messages (each chunk + the final complete message).
           return [];
 
         default:
@@ -406,6 +408,65 @@ export class SdkMessageTransformer {
     });
 
     return [resultNode];
+  }
+
+  /**
+   * Transform SDK stream_event (partial assistant message) to ExecutionNode
+   *
+   * stream_event messages contain real-time streaming content from the API.
+   * The event field contains RawMessageStreamEvent with various event types:
+   * - content_block_start: New content block beginning
+   * - content_block_delta: Partial text or other content
+   * - content_block_stop: Content block finished
+   * - message_start/message_delta/message_stop: Message lifecycle events
+   */
+  private transformStreamEvent(
+    sdkMessage: SDKMessage,
+    sessionId?: SessionId
+  ): ExecutionNode[] {
+    const { uuid, event } = sdkMessage;
+
+    // Skip non-content events
+    if (!event || typeof event !== 'object') {
+      return [];
+    }
+
+    const eventType = (event as { type?: string }).type;
+
+    // Handle content_block_delta events - these contain streaming text
+    if (eventType === 'content_block_delta') {
+      const delta = (event as { delta?: { type?: string; text?: string } })
+        .delta;
+      if (delta?.type === 'text_delta' && delta.text) {
+        // Create a text node with streaming status
+        const textNode = createExecutionNode({
+          id: uuid || `stream-${Date.now()}`,
+          type: 'text' as ExecutionNodeType,
+          status: 'streaming' as ExecutionStatus,
+          content: delta.text,
+        });
+        return [textNode];
+      }
+    }
+
+    // Handle content_block_start for new content blocks
+    if (eventType === 'content_block_start') {
+      const contentBlock = (
+        event as { content_block?: { type?: string; text?: string } }
+      ).content_block;
+      if (contentBlock?.type === 'text' && contentBlock.text) {
+        const textNode = createExecutionNode({
+          id: uuid || `stream-start-${Date.now()}`,
+          type: 'text' as ExecutionNodeType,
+          status: 'streaming' as ExecutionStatus,
+          content: contentBlock.text,
+        });
+        return [textNode];
+      }
+    }
+
+    // Other event types (message_start, message_stop, etc.) don't need nodes
+    return [];
   }
 
   /**

@@ -23,7 +23,7 @@ export interface AgentSpawnInfo {
  *
  * Does NOT handle:
  * - State management (signals)
- * - JSONL parsing/routing
+ * - Message parsing/routing
  * - Node map management (toolNodeMap, agentNodeMap)
  *
  * Architecture Pattern: Stateless Service
@@ -196,7 +196,7 @@ export class ExecutionTreeBuilder {
    * They are collapsed by default and marked as 'pending' until results arrive.
    *
    * @param tree - Current execution tree
-   * @param block - Tool use block from JSONL (contains id, name, input)
+   * @param block - Tool use block (contains id, name, input)
    * @returns New tree with tool node appended (immutable)
    *
    * @example

@@ -8,7 +8,8 @@
  * - Cleanup watchers on dispose
  */
 
-import { Logger, ConfigManager } from '@ptah-extension/vscode-core';
+import { injectable, inject } from 'tsyringe';
+import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import * as vscode from 'vscode';
 
 export type ReinitCallback = () => Promise<void>;
@@ -16,11 +17,15 @@ export type ReinitCallback = () => Promise<void>;
 /**
  * Manages configuration watchers for automatic re-initialization
  */
+@injectable()
 export class ConfigWatcher {
   private watchers: vscode.Disposable[] = [];
   private isReinitializing = false;
 
-  constructor(private logger: Logger, private config: ConfigManager) {}
+  constructor(
+    @inject(TOKENS.LOGGER) private logger: Logger,
+    @inject(TOKENS.CONFIG_MANAGER) private config: ConfigManager
+  ) {}
 
   /**
    * Register config watchers for auth-related settings

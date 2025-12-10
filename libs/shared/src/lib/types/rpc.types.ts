@@ -43,6 +43,8 @@ export interface ChatContinueParams {
   prompt: string;
   /** Session ID to continue */
   sessionId: SessionId;
+  /** Workspace path (needed for session resumption if session is not active) */
+  workspacePath?: string;
 }
 
 /** Response from chat:continue RPC method */

@@ -226,6 +226,76 @@ export class SdkSessionStorage {
   }
 
   /**
+   * Update session's real Claude session ID
+   * Called when SDK returns the real session UUID in system message.
+   */
+  async updateClaudeSessionId(
+    sessionId: SessionId,
+    claudeSessionId: string
+  ): Promise<void> {
+    const session = await this.getSession(sessionId);
+    if (!session) {
+      this.logger.warn(
+        `[SdkSessionStorage] Cannot update claudeSessionId - session not found: ${sessionId}`
+      );
+      return;
+    }
+
+    const updatedSession: StoredSession = {
+      ...session,
+      claudeSessionId,
+    };
+
+    await this.saveSession(updatedSession);
+    this.logger.info(
+      `[SdkSessionStorage] Updated session ${sessionId} with Claude session ID: ${claudeSessionId}`
+    );
+  }
+
+  /**
+   * Get session by Claude session ID (for resumption)
+   * Searches for the real Claude UUID, not our internal ID.
+   */
+  async getSessionByClaudeId(
+    claudeSessionId: string
+  ): Promise<StoredSession | null> {
+    try {
+      if (this.useInMemoryFallback) {
+        for (const session of this.inMemoryFallback.values()) {
+          if (session.claudeSessionId === claudeSessionId) {
+            return session;
+          }
+        }
+        return null;
+      }
+
+      // Search all workspaces
+      const allKeys = this.storage.keys();
+      for (const key of allKeys) {
+        if (!key.startsWith(STORAGE_KEY_PREFIX)) {
+          continue;
+        }
+
+        const sessions = (await this.storage.get<StoredSession[]>(key)) || [];
+        const session = sessions.find(
+          (s) => s.claudeSessionId === claudeSessionId
+        );
+        if (session) {
+          return session;
+        }
+      }
+
+      return null;
+    } catch (error) {
+      this.logger.error(
+        `[SdkSessionStorage] Failed to get session by Claude ID ${claudeSessionId}`,
+        error instanceof Error ? error : new Error(String(error))
+      );
+      return null;
+    }
+  }
+
+  /**
    * Delete session
    */
   async deleteSession(sessionId: SessionId): Promise<void> {

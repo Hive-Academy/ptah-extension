@@ -8,7 +8,8 @@
  * - Authentication priority logic
  */
 
-import { Logger, ConfigManager } from '@ptah-extension/vscode-core';
+import { injectable, inject } from 'tsyringe';
+import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 
 export interface AuthResult {
   configured: boolean;
@@ -23,8 +24,12 @@ export interface AuthConfig {
 /**
  * Manages SDK authentication setup and validation
  */
+@injectable()
 export class AuthManager {
-  constructor(private logger: Logger, private config: ConfigManager) {}
+  constructor(
+    @inject(TOKENS.LOGGER) private logger: Logger,
+    @inject(TOKENS.CONFIG_MANAGER) private config: ConfigManager
+  ) {}
 
   /**
    * Configure authentication for SDK

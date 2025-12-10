@@ -14,9 +14,6 @@ export {
   type AgentSpawnInfo,
 } from './tree-builder.service';
 
-// SessionReplayService - Session reconstruction from JSONL (TASK_2025_023 Phase 3)
-export { SessionReplayService } from './session-replay.service';
-
 // SessionManager - Session lifecycle and node map management (TASK_2025_023 Phase 4)
 export { SessionManager } from './session-manager.service';
 
@@ -26,10 +23,6 @@ export type {
   SessionStatus,
   SessionState,
   SessionLoadResult,
-  AgentSessionData,
-  ClassifiedAgentMessages,
-  ProcessedChunkType,
-  ProcessedChunk,
 } from './chat.types';
 
 // ConfirmationDialogService - Custom confirmation dialog for VS Code webview

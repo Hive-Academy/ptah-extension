@@ -132,10 +132,12 @@
       <!-- Settings View -->
       <ptah-settings />
       } @else {
-      <!-- Chat View (default) -->
-      <ptah-tab-bar />
-      <div class="flex-1 overflow-hidden">
-        <ptah-chat-view />
+      <!-- Chat View (default) - Proper flex column for tab bar + chat -->
+      <div class="flex flex-col h-full">
+        <ptah-tab-bar />
+        <div class="flex-1 overflow-hidden">
+          <ptah-chat-view />
+        </div>
       </div>
       }
     </div>

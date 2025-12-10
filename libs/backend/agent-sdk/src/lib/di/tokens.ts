@@ -8,9 +8,20 @@
  * Use string tokens to avoid Symbol conflicts with main DI container
  */
 export const SDK_TOKENS = {
+  // Core services
   SDK_AGENT_ADAPTER: 'SdkAgentAdapter',
   SDK_SESSION_STORAGE: 'SdkSessionStorage',
   SDK_PERMISSION_HANDLER: 'SdkPermissionHandler',
+  SDK_MESSAGE_TRANSFORMER: 'SdkMessageTransformer',
+
+  // Helper services
+  SDK_AUTH_MANAGER: 'SdkAuthManager',
+  SDK_SESSION_LIFECYCLE_MANAGER: 'SdkSessionLifecycleManager',
+  SDK_CONFIG_WATCHER: 'SdkConfigWatcher',
+  SDK_QUERY_BUILDER: 'SdkQueryBuilder',
+  SDK_USER_MESSAGE_STREAM_FACTORY: 'SdkUserMessageStreamFactory',
+  SDK_STREAM_TRANSFORMER: 'SdkStreamTransformer',
+  SDK_CLI_DETECTOR: 'SdkCliDetector',
 } as const;
 
 /**
