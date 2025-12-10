@@ -1,17 +1,18 @@
 # Development Tasks - TASK_2025_058
 
 **Project**: Intelligent Project-Adaptive Agent Generation System
-**Total Batches**: 13 (Batch -1 to 11) | **Status**: 0/13 complete
+**Total Batches**: 13 (Batch -1 to 11) | **Status**: 1/13 complete
 **Execution Strategy**: Sequential extraction (Batch -1) → Parallel-optimized development (Batches 0-11)
 **Estimated Timeline**: 11-15 weeks (Extraction: 0.5-1 week, POC: 2-3 weeks, Full Implementation: 8-11 weeks)
 
 ---
 
-## 🚨 CRITICAL: Batch -1 - Pre-Implementation Extraction
+## 🚨 CRITICAL: Batch -1 - Pre-Implementation Extraction ✅ COMPLETE
 
 **Purpose**: Extract code from roocode-generator to Ptah BEFORE development
 **Strategy**: Copy first → Wire later (NOT simultaneously)
 **Key Insight**: VS Code LM API is the INITIAL ROLE PLAYER
+**Commits**: 74e7630, d60c0c1, 92136d5
 
 ### Extraction Tasks Overview
 
@@ -26,7 +27,7 @@
 
 ---
 
-### Task -1.4: Scaffold agent-generation library 🔄 IN PROGRESS
+### Task -1.4: Scaffold agent-generation library ✅ COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\backend\agent-generation\
 **Spec Reference**: extraction-plan.md:249-292
@@ -73,7 +74,7 @@ libs/backend/agent-generation/
 
 ---
 
-### Task -1.1: Create VS Code LM API Provider ⏸️ PENDING
+### Task -1.1: Create VS Code LM API Provider ✅ COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\backend\llm-abstraction\src\lib\providers\vscode-lm.provider.ts
 **Dependencies**: Task -1.4 (for llm-abstraction structure)
@@ -210,7 +211,7 @@ export function stripMarkdownCodeBlock(content: string): Result<string, Error> {
 
 ---
 
-### Task -1.3: Extract orchestration patterns ⏸️ PENDING
+### Task -1.3: Extract orchestration patterns ✅ COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\backend\agent-generation\src\lib\patterns\
 **Dependencies**: Task -1.4
@@ -349,19 +350,20 @@ QUALITY GATES (Sequential)
 
 ---
 
-## Batch 0: Library Scaffolding & Type System ⏸️ PENDING
+## Batch 0: Library Scaffolding & Type System 🔄 IN PROGRESS
 
 **Type**: FOUNDATION (Sequential - Blocks Everything)
 **Developer**: backend-developer
-**Tasks**: 7 | **Dependencies**: None
+**Tasks**: 7 | **Dependencies**: Batch -1 (COMPLETE)
 **Can Run In Parallel With**: NOTHING (foundation must complete first)
 **Estimated Complexity**: Medium (2-3 days)
 
-### Task 0.1: Create agent-generation library structure ⏸️ PENDING
+### Task 0.1: Create agent-generation library structure ✅ COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\backend\agent-generation\
 **Spec Reference**: implementation-plan.md:148-275 (Architecture Design)
 **Pattern to Follow**: libs/backend/workspace-intelligence/ (library structure)
+**Note**: Completed in Batch -1 Task -1.4
 
 **Quality Requirements**:
 
@@ -382,12 +384,12 @@ npx nx g @nx/node:library agent-generation \
 
 **Validation**:
 
-- Library builds successfully: `npx nx build agent-generation`
-- Path alias resolves: `@ptah-extension/agent-generation`
+- ✅ Library builds successfully: `npx nx build agent-generation`
+- ✅ Path alias resolves: `@ptah-extension/agent-generation`
 
 ---
 
-### Task 0.2: Define core type system ⏸️ PENDING
+### Task 0.2: Define core type system 🔄 IN PROGRESS
 
 **File**: D:\projects\ptah-extension\libs\backend\agent-generation\src\lib\types\core.types.ts
 **Dependencies**: Task 0.1
