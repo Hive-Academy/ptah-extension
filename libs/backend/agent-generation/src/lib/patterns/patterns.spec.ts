@@ -1,7 +1,7 @@
 import { Result } from '@ptah-extension/shared';
 import {
   generateWithPartialSuccess,
-  GenerationError,
+  GenerationErrorDetails,
   PartialSuccessResult,
 } from './error-accumulation';
 import { GenerationPipeline, PipelineResult } from './generation-pipeline';

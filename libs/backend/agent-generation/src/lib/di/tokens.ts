@@ -57,6 +57,14 @@ export const AGENT_SELECTION_SERVICE = Symbol.for('AgentSelectionService');
 // ========================================
 
 /**
+ * ContentGenerationService - Template rendering with variable substitution
+ * Responsibilities: Substitute variables, inject LLM sections, process conditionals, preserve static sections
+ */
+export const CONTENT_GENERATION_SERVICE = Symbol.for(
+  'ContentGenerationService'
+);
+
+/**
  * AgentCustomizationService - LLM-based content customization
  * Responsibilities: Customize agent sections, validate outputs, batch customize, wrap ptah.ai
  */
@@ -111,6 +119,7 @@ export const AGENT_GENERATION_TOKENS = {
   AGENT_SELECTION_SERVICE,
 
   // Content Generation
+  CONTENT_GENERATION_SERVICE,
   AGENT_CUSTOMIZATION_SERVICE,
   OUTPUT_VALIDATION_SERVICE,
 
