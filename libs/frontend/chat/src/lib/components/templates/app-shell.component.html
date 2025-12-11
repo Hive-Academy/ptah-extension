@@ -10,14 +10,25 @@
     [class.w-52]="sidebarOpen()"
     [class.overflow-hidden]="!sidebarOpen()"
   >
-    <!-- Sidebar header -->
-    <div class="p-2 border-b border-base-300">
+    <!-- Sidebar header with Ptah icon and new session button -->
+    <div class="p-2 border-b border-base-300 flex items-center gap-2">
+      <!-- Ptah icon -->
+      <img
+        [ngSrc]="ptahIconUri"
+        alt="Ptah"
+        class="w-6 h-6 flex-shrink-0"
+        width="24"
+        height="24"
+      />
+
+      <!-- New session icon button -->
       <button
-        class="btn btn-primary btn-sm w-full gap-1"
+        class="btn btn-primary btn-sm btn-square flex-shrink-0"
         (click)="createNewSession()"
+        aria-label="New Session"
+        title="New Session"
       >
         <lucide-angular [img]="PlusIcon" class="w-3.5 h-3.5" />
-        New Session
       </button>
     </div>
 
@@ -109,9 +120,9 @@
         />
       </button>
 
-      <!-- Title -->
-      <div class="flex-1">
-        <span class="text-lg font-bold">Ptah</span>
+      <!-- Tab bar (relocated from below) -->
+      <div class="flex-1 min-w-0">
+        <ptah-tab-bar />
       </div>
 
       <!-- Header actions -->
@@ -132,13 +143,8 @@
       <!-- Settings View -->
       <ptah-settings />
       } @else {
-      <!-- Chat View (default) - Proper flex column for tab bar + chat -->
-      <div class="flex flex-col h-full">
-        <ptah-tab-bar />
-        <div class="flex-1 overflow-hidden">
-          <ptah-chat-view />
-        </div>
-      </div>
+      <!-- Chat View (default) -->
+      <ptah-chat-view />
       }
     </div>
   </div>

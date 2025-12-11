@@ -4,7 +4,7 @@ import {
   signal,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { DatePipe } from '@angular/common';
+import { DatePipe, NgOptimizedImage } from '@angular/common';
 import {
   LucideAngularModule,
   Settings,
@@ -43,6 +43,7 @@ import type { ChatSessionSummary } from '@ptah-extension/shared';
     TabBarComponent,
     ConfirmationDialogComponent,
     DatePipe,
+    NgOptimizedImage,
     LucideAngularModule,
   ],
   templateUrl: './app-shell.component.html',
