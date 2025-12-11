@@ -1,26 +1,26 @@
+import { A11yModule, ActiveDescendantKeyManager } from '@angular/cdk/a11y';
 import {
+  CdkOverlayOrigin,
+  ConnectedPosition,
+  OverlayModule,
+} from '@angular/cdk/overlay';
+import {
+  AfterViewInit,
+  ChangeDetectionStrategy,
   Component,
-  input,
-  output,
-  signal,
   computed,
+  DestroyRef,
   effect,
-  viewChildren,
-  viewChild,
   ElementRef,
   inject,
-  ChangeDetectionStrategy,
-  AfterViewInit,
+  input,
   OnDestroy,
-  DestroyRef,
+  output,
+  signal,
+  viewChild,
+  viewChildren,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActiveDescendantKeyManager } from '@angular/cdk/a11y';
-import {
-  OverlayModule,
-  ConnectedPosition,
-  CdkOverlayOrigin,
-} from '@angular/cdk/overlay';
 import { AUTOCOMPLETE_POSITIONS } from '@ptah-extension/ui';
 import {
   SuggestionOptionComponent,
@@ -62,9 +62,9 @@ export type { SuggestionItem } from './suggestion-option.component';
 @Component({
   selector: 'ptah-unified-suggestions-dropdown',
   standalone: true,
-  imports: [OverlayModule, SuggestionOptionComponent],
+  imports: [OverlayModule, A11yModule, SuggestionOptionComponent],
   template: `
-    <!-- Portal-rendered dropdown (rendered in cdk-overlay-container at body level) -->
+    <!--Portal-rendered dropdown (rendered in cdk-overlay-container at body level) -->
     <!-- Origin is passed from parent component's textarea element -->
     <ng-template
       cdkConnectedOverlay
@@ -78,6 +78,8 @@ export type { SuggestionItem } from './suggestion-option.component';
       (attached)="handleAttached()"
     >
       <div
+        cdkTrapFocus
+        [cdkTrapFocusAutoCapture]="true"
         class="suggestions-panel flex flex-col max-h-96 shadow-lg bg-base-200 rounded-lg border border-base-300 z-50 overflow-hidden"
         role="listbox"
         [attr.aria-label]="getHeaderTitle()"
@@ -95,6 +97,7 @@ export type { SuggestionItem } from './suggestion-option.component';
         <div class="px-2 py-1.5 border-b border-base-300">
           <input
             #filterInput
+            cdkFocusInitial
             type="text"
             class="input input-sm input-bordered w-full text-xs"
             placeholder="Type to filter..."
@@ -102,6 +105,7 @@ export type { SuggestionItem } from './suggestion-option.component';
             (input)="onFilterInput($event)"
             (keydown)="onKeyDown($event)"
             aria-label="Filter suggestions"
+            [attr.aria-activedescendant]="activeOptionId()"
           />
         </div>
 
@@ -278,11 +282,29 @@ export class UnifiedSuggestionsDropdownComponent
   }
 
   /**
-   * Handle overlay attached - auto-focus filter input
-   * Using 'attached' event instead of 'attach' for reliable DOM access
+   * Handle overlay attached - auto-focus filter input with retry
+   * Using 'attached' event for reliable DOM access
    */
   handleAttached(): void {
-    // Auto-focus filter input when dropdown is fully attached
+    // Try immediate focus
+    this.focusFilterInput();
+
+    // Retry after a small delay if initial focus failed (safety net)
+    setTimeout(() => {
+      const filterInput = this.filterInputRef()?.nativeElement;
+      if (filterInput && document.activeElement !== filterInput) {
+        console.warn(
+          '[UnifiedSuggestionsDropdown] Initial focus failed, retrying...'
+        );
+        this.focusFilterInput();
+      }
+    }, 50);
+  }
+
+  /**
+   * Focus the filter input element
+   */
+  private focusFilterInput(): void {
     const filterInput = this.filterInputRef()?.nativeElement;
     if (filterInput) {
       filterInput.focus();

@@ -18,9 +18,7 @@ import { TabManagerService } from '../../services/tab-manager.service';
   standalone: true,
   imports: [TabItemComponent, LucideAngularModule],
   template: `
-    <div
-      class="flex items-center bg-base-200 border-b border-base-300 h-10 px-1 overflow-x-auto"
-    >
+    <div class="flex items-center h-full px-1 overflow-x-auto gap-1">
       <!-- Tab items -->
       @for (tab of tabs(); track tab.id) {
       <ptah-tab-item
@@ -33,7 +31,7 @@ import { TabManagerService } from '../../services/tab-manager.service';
 
       <!-- New tab button -->
       <button
-        class="btn btn-ghost btn-sm btn-square ml-1 flex-shrink-0"
+        class="btn btn-ghost btn-sm btn-square flex-shrink-0"
         (click)="onCreateTab()"
         [title]="'New chat (Ctrl+T)'"
       >

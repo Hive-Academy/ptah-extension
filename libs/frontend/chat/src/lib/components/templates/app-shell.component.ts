@@ -20,7 +20,7 @@ import { SettingsComponent } from '../../settings/settings.component';
 import { ChatStore } from '../../services/chat.store';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
 import { TabManagerService } from '../../services/tab-manager.service';
-import { AppStateManager } from '@ptah-extension/core';
+import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import type { ChatSessionSummary } from '@ptah-extension/shared';
 
 /**
@@ -55,6 +55,7 @@ export class AppShellComponent {
   readonly chatStore = inject(ChatStore);
   private readonly tabManager = inject(TabManagerService);
   private readonly appState = inject(AppStateManager);
+  private readonly vscodeService = inject(VSCodeService);
 
   // Expose currentView signal for template
   readonly currentView = this.appState.currentView;
@@ -69,6 +70,9 @@ export class AppShellComponent {
   readonly PanelLeftCloseIcon = PanelLeftClose;
   readonly PanelLeftOpenIcon = PanelLeftOpen;
   readonly ChevronDownIcon = ChevronDown;
+
+  // Ptah icon URI
+  readonly ptahIconUri = this.vscodeService.getPtahIconUri();
 
   /**
    * Toggle sidebar visibility

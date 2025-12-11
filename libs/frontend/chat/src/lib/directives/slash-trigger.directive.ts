@@ -2,8 +2,8 @@ import {
   Directive,
   ElementRef,
   inject,
-  input,
   output,
+  input,
   OnInit,
   DestroyRef,
 } from '@angular/core';
@@ -71,6 +71,7 @@ export class SlashTriggerDirective implements OnInit {
 
   // Inputs
   readonly enabled = input(true);
+  readonly slashDropdownOpen = input(false); // NEW: Signal to pause directive when dropdown is open
 
   // Convert signal to observable in injection context (field initializer)
   // CRITICAL: toObservable() uses inject() internally, must be called here, not in ngOnInit
@@ -135,9 +136,13 @@ export class SlashTriggerDirective implements OnInit {
       } as TriggerState)
     );
 
-    // Combined stream that respects enabled state
-    const triggerState$ = combineLatest([inputState$, this.enabled$]).pipe(
-      filter(([, enabled]) => enabled),
+    // Combined stream that respects enabled state AND dropdown open state
+    const triggerState$ = combineLatest([
+      inputState$,
+      this.enabled$,
+      toObservable(this.slashDropdownOpen), // NEW: Listen to dropdown state
+    ]).pipe(
+      filter(([, enabled, dropdownOpen]) => enabled && !dropdownOpen), // PAUSE when dropdown is open
       map(([state]) => state),
       takeUntilDestroyed(this.destroyRef)
     );

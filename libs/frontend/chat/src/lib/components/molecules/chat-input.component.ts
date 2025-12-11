@@ -97,9 +97,11 @@ import { AgentSelectorComponent } from './agent-selector.component';
             (keydown)="handleKeyDown($event)"
             rows="1"
             ptahAtTrigger
+            [dropdownOpen]="dropdownOpen()"
             (atTriggered)="handleAtTriggered($event)"
             (atClosed)="handleAtClosed()"
             ptahSlashTrigger
+            [slashDropdownOpen]="dropdownOpen()"
             (slashTriggered)="handleSlashTriggered($event)"
             (slashClosed)="handleSlashClosed()"
           ></textarea>
@@ -213,8 +215,14 @@ export class ChatInputComponent {
   // Local state
   private readonly _currentMessage = signal('');
 
-  // Autocomplete state signals
+  // Suggestion dropdown state (for @file and /command triggers)
   private readonly _showSuggestions = signal(false);
+  readonly showSuggestions = this._showSuggestions.asReadonly();
+
+  // NEW: Track if dropdown is currently open (for directive pausing)
+  private readonly _dropdownOpen = signal(false);
+  readonly dropdownOpen = this._dropdownOpen.asReadonly();
+
   private readonly _suggestionMode = signal<
     'at-trigger' | 'slash-trigger' | null
   >(null);
@@ -224,7 +232,6 @@ export class ChatInputComponent {
 
   // Public signals
   readonly currentMessage = this._currentMessage.asReadonly();
-  readonly showSuggestions = this._showSuggestions.asReadonly();
   readonly suggestionMode = this._suggestionMode.asReadonly();
   readonly selectedFiles = this._selectedFiles.asReadonly();
   readonly isLoadingSuggestions = this._isLoadingSuggestions.asReadonly();
@@ -298,6 +305,7 @@ export class ChatInputComponent {
     this._suggestionMode.set('at-trigger');
     this._triggerPosition.set(event.triggerPosition);
     this._showSuggestions.set(true);
+    this._dropdownOpen.set(true); // ← NEW: Signal dropdown is open
     this.fetchAtSuggestions();
   }
 
@@ -319,6 +327,7 @@ export class ChatInputComponent {
     this._suggestionMode.set('slash-trigger');
     this._triggerPosition.set(0); // Slash always starts at position 0
     this._showSuggestions.set(true);
+    this._dropdownOpen.set(true); // ← NEW: Signal dropdown is open
     this.fetchCommandSuggestions();
   }
 
@@ -492,7 +501,13 @@ export class ChatInputComponent {
    */
   closeSuggestions(): void {
     this._showSuggestions.set(false);
+    this._dropdownOpen.set(false); // ← NEW: Signal dropdown is closed
     this._suggestionMode.set(null);
+
+    // Return focus to textarea after dropdown closes
+    setTimeout(() => {
+      this.textareaRef()?.nativeElement.focus();
+    }, 0);
   }
 
   /**

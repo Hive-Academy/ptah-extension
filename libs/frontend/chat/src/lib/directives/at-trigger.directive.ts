@@ -74,10 +74,12 @@ export class AtTriggerDirective implements OnInit {
   private readonly elementRef = inject(ElementRef<HTMLTextAreaElement>);
   private readonly destroyRef = inject(DestroyRef);
 
+  // Inputs
   /**
    * Enable/disable the directive
    */
   readonly enabled = input(true);
+  readonly dropdownOpen = input(false); // NEW: Signal to pause directive when dropdown is open
 
   // Convert signal to observable in injection context (field initializer)
   // CRITICAL: toObservable() uses inject() internally, must be called here, not in ngOnInit
@@ -127,9 +129,13 @@ export class AtTriggerDirective implements OnInit {
       } as AtTriggerState)
     );
 
-    // Combined stream that respects enabled state
-    const triggerState$ = combineLatest([inputState$, this.enabled$]).pipe(
-      filter(([, enabled]) => enabled),
+    // Combined stream that respects enabled state AND dropdown open state
+    const triggerState$ = combineLatest([
+      inputState$,
+      this.enabled$,
+      toObservable(this.dropdownOpen), // NEW: Listen to dropdown state
+    ]).pipe(
+      filter(([, enabled, dropdownOpen]) => enabled && !dropdownOpen), // PAUSE when dropdown is open
       map(([state]) => state),
       takeUntilDestroyed(this.destroyRef)
     );
