@@ -21,25 +21,12 @@ import { Result } from '@ptah-extension/shared';
 import { PtahAPIBuilder } from '@ptah-extension/vscode-lm-tools';
 import { IOutputValidationService } from '../interfaces/output-validation.interface';
 import { ITemplateStorageService } from '../interfaces/template-storage.interface';
+import {
+  IAgentCustomizationService,
+  CustomizationRequest,
+} from '../interfaces/agent-customization.interface';
 import { AgentProjectContext } from '../types/core.types';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
-
-/**
- * Section customization request for batch processing
- */
-export interface CustomizationRequest {
-  /** Unique identifier for tracking this request */
-  sectionId: string;
-
-  /** Topic/section name (e.g., 'Best Practices', 'Tech Stack', 'Architecture Patterns') */
-  sectionTopic: string;
-
-  /** Template identifier (e.g., 'backend-developer', 'frontend-developer') */
-  templateId: string;
-
-  /** Project context for customization and validation */
-  projectContext: AgentProjectContext;
-}
 
 /**
  * Agent Customization Service
@@ -82,7 +69,7 @@ export interface CustomizationRequest {
  * ```
  */
 @injectable()
-export class AgentCustomizationService {
+export class AgentCustomizationService implements IAgentCustomizationService {
   private readonly MAX_RETRIES = 2; // 2 retries = 3 total attempts
   private readonly BACKOFF_BASE_MS = 3000; // 3s → 6s exponential backoff
   private readonly DEFAULT_MODEL = 'gpt-4o-mini'; // 150x cheaper than GPT-4

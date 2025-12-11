@@ -18,6 +18,7 @@ import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import type * as vscode from 'vscode';
+import { ProjectType } from '@ptah-extension/workspace-intelligence';
 import { IAgentSelectionService } from '../interfaces/agent-selection.interface';
 import { ITemplateStorageService } from '../interfaces/template-storage.interface';
 import { IContentGenerationService } from '../interfaces/content-generation.interface';
@@ -28,10 +29,8 @@ import {
   GenerationSummary,
 } from '../types/core.types';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
-import {
-  VsCodeLmService,
-  SectionCustomizationRequest,
-} from './vscode-lm.service';
+import { VsCodeLmService } from './vscode-lm.service';
+import { SectionCustomizationRequest } from '../interfaces/vscode-lm.interface';
 
 /**
  * Generation options for orchestrator.
@@ -131,6 +130,7 @@ export class AgentGenerationOrchestratorService {
     private readonly agentSelector: IAgentSelectionService,
     @inject(AGENT_GENERATION_TOKENS.TEMPLATE_STORAGE_SERVICE)
     private readonly templateStorage: ITemplateStorageService,
+    @inject(AGENT_GENERATION_TOKENS.VSCODE_LM_SERVICE)
     private readonly llmService: VsCodeLmService,
     @inject(AGENT_GENERATION_TOKENS.CONTENT_GENERATION_SERVICE)
     private readonly contentGenerator: IContentGenerationService,
@@ -255,7 +255,9 @@ export class AgentGenerationOrchestratorService {
         );
       }
 
-      const customizations = customizationsResult.value ?? new Map();
+      const customizations = customizationsResult.isOk()
+        ? customizationsResult.value!
+        : new Map();
 
       // Phase 4: Template Rendering (80% → 95%)
       this.logger.info('Phase 4: Rendering templates');
@@ -358,8 +360,9 @@ export class AgentGenerationOrchestratorService {
       });
 
       // Simulate workspace analysis
+      // TODO: Replace with WorkspaceAnalyzerService in Integration Batch
       const context: AgentProjectContext = {
-        projectType: 'Node' as any, // Simplified for now
+        projectType: ProjectType.Node, // Temporary placeholder
         frameworks: [],
         monorepoType: undefined,
         rootPath: workspaceUri.fsPath,

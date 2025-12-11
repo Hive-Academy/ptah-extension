@@ -24,6 +24,19 @@ import {
   AgentSelectionUpdate,
   ResumeWizardRequest,
 } from '../types/wizard.types';
+import { AgentProjectContext, GenerationSummary } from '../types/core.types';
+
+/**
+ * Discriminated union type for step-specific data.
+ * Ensures type-safe access to step data based on current wizard step.
+ */
+type StepData =
+  | { step: 'welcome' }
+  | { step: 'scan'; projectContext: AgentProjectContext }
+  | { step: 'review' }
+  | { step: 'select'; selectedAgentIds: string[] }
+  | { step: 'generate'; generationSummary: GenerationSummary }
+  | { step: 'complete' };
 
 /**
  * Setup Wizard Service - Backend orchestration for agent generation wizard
@@ -230,11 +243,18 @@ export class SetupWizardService implements ISetupWizardService {
         case 'scan':
           // Scan → Review
           // Analysis complete, show results
-          // Project context should be in stepData
-          if (stepData['projectContext']) {
-            this.currentSession.projectContext = stepData[
+          // Validate and extract project context (type-safe access via bracket notation)
+          if ('projectContext' in stepData && stepData['projectContext']) {
+            const fullContext = stepData[
               'projectContext'
-            ] as WizardSession['projectContext'];
+            ] as AgentProjectContext;
+            // Convert AgentProjectContext to WizardSession.projectContext (simplified format)
+            this.currentSession.projectContext = {
+              projectType: fullContext.projectType.toString(),
+              frameworks: fullContext.frameworks.map((f) => f.toString()),
+              monorepoType: fullContext.monorepoType?.toString(),
+              techStack: fullContext.techStack.frameworks,
+            };
           }
           nextStep = 'review';
           break;
@@ -248,7 +268,8 @@ export class SetupWizardService implements ISetupWizardService {
         case 'select':
           // Select → Generate
           // User confirmed agent selection, start generation
-          if (stepData['selectedAgentIds']) {
+          // Validate and extract selected agent IDs (type-safe access via bracket notation)
+          if ('selectedAgentIds' in stepData && stepData['selectedAgentIds']) {
             this.currentSession.selectedAgentIds = stepData[
               'selectedAgentIds'
             ] as string[];
@@ -259,10 +280,22 @@ export class SetupWizardService implements ISetupWizardService {
         case 'generate':
           // Generate → Complete
           // Generation complete, show summary
-          if (stepData['generationSummary']) {
-            this.currentSession.generationSummary = stepData[
+          // Validate and extract generation summary (type-safe access via bracket notation)
+          if (
+            'generationSummary' in stepData &&
+            stepData['generationSummary']
+          ) {
+            const fullSummary = stepData[
               'generationSummary'
-            ] as WizardSession['generationSummary'];
+            ] as GenerationSummary;
+            // Convert GenerationSummary to WizardSession.generationSummary (simplified format)
+            this.currentSession.generationSummary = {
+              totalAgents: fullSummary.totalAgents,
+              successful: fullSummary.successful,
+              failed: fullSummary.failed,
+              durationMs: fullSummary.durationMs,
+              warnings: fullSummary.warnings,
+            };
           }
           nextStep = 'complete';
           break;
@@ -410,11 +443,6 @@ export class SetupWizardService implements ISetupWizardService {
         sessionId: this.currentSession.id,
         step: this.currentSession.currentStep,
       });
-
-      // Explicit null check (should never happen since we just assigned currentSession above)
-      if (!this.currentSession) {
-        return Result.err(new Error('Session restoration failed'));
-      }
 
       return Result.ok(this.currentSession);
     } catch (error) {

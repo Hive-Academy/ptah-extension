@@ -17,22 +17,12 @@ import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import { VsCodeLmProvider } from '@ptah-extension/llm-abstraction';
 import { IOutputValidationService } from '../interfaces/output-validation.interface';
+import {
+  IVsCodeLmService,
+  SectionCustomizationRequest,
+} from '../interfaces/vscode-lm.interface';
 import { AgentProjectContext } from '../types/core.types';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
-
-/**
- * Section customization request structure for batch processing
- */
-export interface SectionCustomizationRequest {
-  /** Unique identifier for the section */
-  id: string;
-  /** Topic/section name (e.g., 'TECH_STACK', 'BEST_PRACTICES') */
-  topic: string;
-  /** Project context for validation and prompt building */
-  projectContext: AgentProjectContext;
-  /** Sample file contents for reference in prompt */
-  fileSamples: string[];
-}
 
 /**
  * VS Code LM Service - Orchestration layer for agent customization
@@ -56,10 +46,10 @@ export interface SectionCustomizationRequest {
  * ```
  */
 @injectable()
-export class VsCodeLmService {
+export class VsCodeLmService implements IVsCodeLmService {
   private readonly MAX_RETRIES = 3;
   private readonly BACKOFF_BASE_MS = 5000; // 5s → 10s → 20s exponential
-  private readonly provider: VsCodeLmProvider;
+  private provider?: VsCodeLmProvider;
 
   constructor(
     @inject(AGENT_GENERATION_TOKENS.OUTPUT_VALIDATION_SERVICE)
@@ -67,9 +57,7 @@ export class VsCodeLmService {
     @inject(TOKENS.LOGGER)
     private readonly logger: Logger
   ) {
-    // Initialize VsCodeLmProvider with default model family
-    this.provider = new VsCodeLmProvider({ family: 'gpt-4o' });
-    this.logger.debug('VsCodeLmService created with gpt-4o model family');
+    this.logger.debug('VsCodeLmService created (provider not initialized)');
   }
 
   /**
@@ -79,7 +67,16 @@ export class VsCodeLmService {
    * @returns Result indicating success or initialization error
    */
   async initialize(): Promise<Result<void, Error>> {
+    // Check if already initialized
+    if (this.provider) {
+      this.logger.debug('VsCodeLmService already initialized');
+      return Result.ok(undefined);
+    }
+
     this.logger.debug('Initializing VsCodeLmService');
+
+    // Create provider with default model family
+    this.provider = new VsCodeLmProvider({ family: 'gpt-4o' });
 
     const initResult = await this.provider.initialize();
 
@@ -121,6 +118,15 @@ export class VsCodeLmService {
     projectContext: AgentProjectContext,
     fileSamples: string[]
   ): Promise<Result<string, Error>> {
+    // Ensure provider is initialized before use
+    if (!this.provider) {
+      return Result.err(
+        new Error(
+          'VsCodeLmService not initialized. Call initialize() before using.'
+        )
+      );
+    }
+
     const prompt = this.buildPrompt(sectionTopic, projectContext, fileSamples);
 
     // Retry loop with exponential backoff

@@ -73,6 +73,12 @@ export const AGENT_CUSTOMIZATION_SERVICE = Symbol.for(
 );
 
 /**
+ * VsCodeLmService - VS Code LM API integration with retry and validation
+ * Responsibilities: Wrap VsCodeLmProvider, add retry logic, integrate OutputValidationService
+ */
+export const VSCODE_LM_SERVICE = Symbol.for('VsCodeLmService');
+
+/**
  * OutputValidationService - Multi-stage output validation
  * Responsibilities: Validate schema, safety, factual accuracy for LLM outputs
  */
@@ -121,6 +127,7 @@ export const AGENT_GENERATION_TOKENS = {
   // Content Generation
   CONTENT_GENERATION_SERVICE,
   AGENT_CUSTOMIZATION_SERVICE,
+  VSCODE_LM_SERVICE,
   OUTPUT_VALIDATION_SERVICE,
 
   // File Operations
