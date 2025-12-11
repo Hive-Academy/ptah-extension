@@ -34,6 +34,30 @@ import { SetupStatusWidgetComponent } from './setup-status-widget.component';
   imports: [SetupStatusWidgetComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <!--
+    ChatEmptyStateComponent Template Structure (161 lines):
+
+    1. Egyptian Header (lines 42-76)
+       - Hieroglyphic borders (top)
+       - Ptah icon with golden glow
+       - Title and subtitle (Cinzel font)
+
+    2. Setup Widget Integration (lines 78-81)
+       - Embedded ptah-setup-status-widget component
+
+    3. Capabilities Grid (lines 83-157)
+       - Ankh symbol header
+       - 2-column grid of AI powers (6 items)
+       - Egyptian hieroglyphic bullets
+
+    4. Getting Started Guide (lines 159-185)
+       - Papyrus scroll metaphor
+       - /orchestrate command invocation
+
+    5. Footer Border (lines 187-197)
+       - Hieroglyphic borders (bottom, mirrors top)
+  -->
+
     <!-- Egyptian Artifact Container -->
     <div
       class="flex flex-col items-center justify-center h-full text-center px-6 py-8"
