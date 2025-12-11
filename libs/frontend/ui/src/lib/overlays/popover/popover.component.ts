@@ -78,6 +78,7 @@ export class PopoverComponent implements OnDestroy {
   // Inputs
   readonly isOpen = input.required<boolean>();
   readonly position = input<'above' | 'below' | 'before' | 'after'>('below');
+  readonly positions = input<ConnectedPosition[]>(); // Custom positions override
   readonly hasBackdrop = input(true);
   readonly backdropClass = input('cdk-overlay-transparent-backdrop');
 
@@ -96,9 +97,17 @@ export class PopoverComponent implements OnDestroy {
 
   /**
    * Returns position configurations for the popover based on the selected position input.
-   * Defaults to 'below' position if invalid position provided.
+   * If custom positions are provided via input, uses those instead.
+   * Defaults to 'below' position if invalid position provided and no custom positions.
    */
   getPositions(): ConnectedPosition[] {
+    // Use custom positions if provided
+    const customPositions = this.positions();
+    if (customPositions && customPositions.length > 0) {
+      return customPositions;
+    }
+
+    // Otherwise use position map
     const position = this.position();
     return POPOVER_POSITION_MAP[position] || POPOVER_POSITION_MAP['below'];
   }

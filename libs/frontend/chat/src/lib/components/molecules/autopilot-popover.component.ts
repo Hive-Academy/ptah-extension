@@ -26,7 +26,11 @@ import {
 } from 'lucide-angular';
 import { AutopilotStateService } from '@ptah-extension/core';
 import { type PermissionLevel } from '@ptah-extension/shared';
-import { PopoverComponent, OptionComponent } from '@ptah-extension/ui';
+import {
+  PopoverComponent,
+  OptionComponent,
+  POPOVER_POSITION_END_MAP,
+} from '@ptah-extension/ui';
 
 @Component({
   selector: 'ptah-autopilot-popover',
@@ -35,6 +39,7 @@ import { PopoverComponent, OptionComponent } from '@ptah-extension/ui';
     <ptah-popover
       [isOpen]="isOpen()"
       [position]="'above'"
+      [positions]="popoverPositions"
       [hasBackdrop]="true"
       [backdropClass]="'cdk-overlay-dark-backdrop'"
       (closed)="closePopover()"
@@ -43,6 +48,8 @@ import { PopoverComponent, OptionComponent } from '@ptah-extension/ui';
       <button
         trigger
         class="btn btn-ghost btn-sm gap-1.5 font-normal"
+        [class.ring-2]="isOpen()"
+        [class.ring-warning]="isOpen()"
         type="button"
         (click)="togglePopover()"
         [disabled]="autopilotState.isPending()"
@@ -61,15 +68,15 @@ import { PopoverComponent, OptionComponent } from '@ptah-extension/ui';
 
       <div content class="w-80">
         <!-- Header -->
-        <div class="px-4 py-3 border-b border-base-300 flex items-center gap-2">
+        <div class="px-3 py-2 border-b border-base-300 flex items-center gap-2">
           <lucide-angular
             [img]="autopilotState.enabled() ? ZapIcon : ZapOffIcon"
-            class="w-5 h-5"
+            class="w-4 h-4"
             [class.text-warning]="autopilotState.enabled()"
           />
-          <span class="font-semibold">Autopilot Mode</span>
+          <span class="font-semibold text-sm">Autopilot Mode</span>
           @if (autopilotState.enabled()) {
-          <span class="badge badge-warning badge-sm ml-auto">Active</span>
+          <span class="badge badge-warning badge-xs ml-auto">Active</span>
           }
         </div>
 
@@ -98,8 +105,8 @@ import { PopoverComponent, OptionComponent } from '@ptah-extension/ui';
               >
                 <div class="flex items-start gap-2 py-0.5">
                   <div class="flex flex-col items-start flex-1 min-w-0">
-                    <span class="font-medium text-sm">{{ level.name }}</span>
-                    <span class="text-xs text-base-content/60">{{
+                    <span class="font-medium text-xs">{{ level.name }}</span>
+                    <span class="text-[11px] text-base-content/60">{{
                       level.description
                     }}</span>
                   </div>
@@ -117,8 +124,8 @@ import { PopoverComponent, OptionComponent } from '@ptah-extension/ui';
           <!-- Warning for YOLO mode -->
           @if (selectedLevel() === 'yolo') {
           <div class="alert alert-warning mb-4 py-2">
-            <lucide-angular [img]="AlertTriangleIcon" class="w-4 h-4" />
-            <span class="text-xs"
+            <lucide-angular [img]="AlertTriangleIcon" class="w-3 h-3" />
+            <span class="text-[11px]"
               >Full Auto skips ALL permission prompts. Use with caution!</span
             >
           </div>
@@ -127,49 +134,49 @@ import { PopoverComponent, OptionComponent } from '@ptah-extension/ui';
           <!-- Error Display -->
           @if (errorMessage()) {
           <div class="alert alert-error mb-4 py-2">
-            <lucide-angular [img]="AlertTriangleIcon" class="w-4 h-4" />
-            <span class="text-xs">{{ errorMessage() }}</span>
+            <lucide-angular [img]="AlertTriangleIcon" class="w-3 h-3" />
+            <span class="text-[11px]">{{ errorMessage() }}</span>
           </div>
           }
 
           <!-- Enable Button -->
           <button
-            class="btn btn-warning btn-sm w-full gap-2"
+            class="btn btn-warning btn-sm w-full gap-1.5"
             [disabled]="autopilotState.isPending()"
             (click)="enableAutopilot()"
           >
             @if (autopilotState.isPending()) {
             <span class="loading loading-spinner loading-xs"></span>
             } @else {
-            <lucide-angular [img]="ZapIcon" class="w-4 h-4" />
+            <lucide-angular [img]="ZapIcon" class="w-3 h-3" />
             } Enable Autopilot
           </button>
           } @else {
           <!-- Disable Autopilot View -->
           <div class="text-center">
             <div class="flex items-center justify-center gap-2 mb-3">
-              <lucide-angular [img]="ZapIcon" class="w-6 h-6 text-warning" />
-              <span class="font-medium">Autopilot is Active</span>
+              <lucide-angular [img]="ZapIcon" class="w-5 h-5 text-warning" />
+              <span class="font-medium text-sm">Autopilot is Active</span>
             </div>
-            <p class="text-sm text-base-content/70 mb-2">
+            <p class="text-xs text-base-content/70 mb-2">
               Current mode:
               <span class="font-medium">{{ autopilotState.statusText() }}</span>
             </p>
-            <p class="text-xs text-base-content/50 mb-4">
+            <p class="text-[11px] text-base-content/50 mb-4">
               Claude is automatically approving actions based on your permission
               level.
             </p>
 
             <!-- Disable Button -->
             <button
-              class="btn btn-ghost btn-sm w-full gap-2"
+              class="btn btn-ghost btn-sm w-full gap-1.5"
               [disabled]="autopilotState.isPending()"
               (click)="disableAutopilot()"
             >
               @if (autopilotState.isPending()) {
               <span class="loading loading-spinner loading-xs"></span>
               } @else {
-              <lucide-angular [img]="ZapOffIcon" class="w-4 h-4" />
+              <lucide-angular [img]="ZapOffIcon" class="w-3 h-3" />
               } Disable Autopilot
             </button>
           </div>
@@ -188,6 +195,9 @@ export class AutopilotPopoverComponent {
   readonly ZapOffIcon = ZapOff;
   readonly ChevronDownIcon = ChevronDown;
   readonly AlertTriangleIcon = AlertTriangle;
+
+  // Popover positions (right-aligned for sidebar)
+  readonly popoverPositions = POPOVER_POSITION_END_MAP['above'];
 
   // Local state for popover visibility
   private readonly _isOpen = signal(false);

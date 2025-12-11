@@ -390,7 +390,7 @@ describe('VsCodeLmService', () => {
       ]);
 
       expect(prompt).toContain(context.projectType);
-      expect(prompt).toContain('Express');
+      expect(prompt).toContain('express'); // Framework enum values are lowercase
       expect(prompt).toContain('TypeScript');
       expect(prompt).toContain('TECH_STACK');
       expect(prompt).toContain('sample code');

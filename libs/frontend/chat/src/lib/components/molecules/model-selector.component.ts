@@ -18,7 +18,11 @@ import {
 } from '@angular/core';
 import { LucideAngularModule, ChevronDown, Check } from 'lucide-angular';
 import { ModelStateService } from '@ptah-extension/core';
-import { DropdownComponent, OptionComponent } from '@ptah-extension/ui';
+import {
+  DropdownComponent,
+  OptionComponent,
+  DROPDOWN_POSITIONS_END,
+} from '@ptah-extension/ui';
 import { ChatStore } from '../../services/chat.store';
 import { SessionId } from '@ptah-extension/shared';
 
@@ -28,6 +32,7 @@ import { SessionId } from '@ptah-extension/shared';
   template: `
     <ptah-dropdown
       [isOpen]="isOpen()"
+      [positions]="dropdownPositions"
       [closeOnBackdropClick]="true"
       (closed)="closeDropdown()"
       (backdropClicked)="closeDropdown()"
@@ -35,6 +40,8 @@ import { SessionId } from '@ptah-extension/shared';
       <button
         trigger
         class="btn btn-ghost btn-sm gap-1 font-normal"
+        [class.ring-2]="isOpen()"
+        [class.ring-primary]="isOpen()"
         type="button"
         (click)="toggleDropdown()"
         [disabled]="modelState.isPending()"
@@ -50,9 +57,9 @@ import { SessionId } from '@ptah-extension/shared';
 
       <div content class="w-72 max-h-80 flex flex-col">
         <!-- Header -->
-        <div class="px-3 py-2 border-b border-base-300">
+        <div class="px-2 py-1.5 border-b border-base-300">
           <span
-            class="text-xs font-semibold text-base-content/70 uppercase tracking-wide"
+            class="text-[11px] font-semibold text-base-content/70 uppercase tracking-wide"
           >
             Select Model
           </span>
@@ -80,14 +87,14 @@ import { SessionId } from '@ptah-extension/shared';
               <!-- Model Info -->
               <div class="flex flex-col items-start flex-1 min-w-0">
                 <div class="flex items-center gap-2">
-                  <span class="font-medium text-sm">{{ model.name }}</span>
+                  <span class="font-medium text-xs">{{ model.name }}</span>
                   @if (model.isRecommended) {
                   <span class="badge badge-xs badge-primary">
                     Recommended
                   </span>
                   }
                 </div>
-                <span class="text-xs mt-0.5 text-base-content/60">
+                <span class="text-[11px] mt-0.5 text-base-content/60">
                   {{ model.description }}
                 </span>
               </div>
@@ -107,6 +114,9 @@ export class ModelSelectorComponent {
   // Lucide icons
   readonly ChevronDownIcon = ChevronDown;
   readonly CheckIcon = Check;
+
+  // Dropdown positions (right-aligned for sidebar)
+  readonly dropdownPositions = DROPDOWN_POSITIONS_END;
 
   // Local state for dropdown visibility
   private readonly _isOpen = signal(false);

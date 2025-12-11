@@ -6,7 +6,7 @@ Egyptian-Inspired Theme with DaisyUI v4 + Tailwind CSS v3.4
 /* Google Fonts */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Cinzel:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
-/* Angular CDK Overlay Prebuilt Styles */
+/* Angular CDK Overlay Prebuilt Styles - MUST come before Tailwind directives */
 @import '@angular/cdk/overlay-prebuilt.css';
 
 /* Tailwind CSS v3.4.x directives */
@@ -548,46 +548,7 @@ MARKDOWN CONTENT STYLING (for ngx-markdown) - Anubis Theme
 UTILITY CLASSES
 ============================================================================ */
 
-/* Truncate text with ellipsis */
-.truncate {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Smooth transitions */
-.transition-colors {
-  transition-property: color, background-color, border-color;
-  transition-duration: 200ms;
-  transition-timing-function: ease-in-out;
-}
-
-.transition-shadow {
-  transition-property: box-shadow;
-  transition-duration: 200ms;
-  transition-timing-function: ease-in-out;
-}
-
-.transition-opacity {
-  transition-property: opacity;
-  transition-duration: 200ms;
-  transition-timing-function: ease-in-out;
-}
-
-/* Flexbox helpers */
-.flex-center {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.flex-between {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-/* Egyptian-themed text utilities */
+/* Egyptian-themed text utilities (custom theme-specific classes) */
 .text-divine {
   background: var(--gradient-divine);
   -webkit-background-clip: text;

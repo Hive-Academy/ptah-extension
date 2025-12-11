@@ -16,7 +16,11 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActiveDescendantKeyManager } from '@angular/cdk/a11y';
-import { OverlayModule, ConnectedPosition } from '@angular/cdk/overlay';
+import {
+  OverlayModule,
+  ConnectedPosition,
+  CdkOverlayOrigin,
+} from '@angular/cdk/overlay';
 import { AUTOCOMPLETE_POSITIONS } from '@ptah-extension/ui';
 import {
   SuggestionOptionComponent,
@@ -60,21 +64,18 @@ export type { SuggestionItem } from './suggestion-option.component';
   standalone: true,
   imports: [OverlayModule, SuggestionOptionComponent],
   template: `
-    <!-- Overlay origin - attach to parent's textarea via host element -->
-    <div
-      cdkOverlayOrigin
-      #overlayOrigin="cdkOverlayOrigin"
-      class="hidden"
-    ></div>
-
     <!-- Portal-rendered dropdown (rendered in cdk-overlay-container at body level) -->
+    <!-- Origin is passed from parent component's textarea element -->
     <ng-template
       cdkConnectedOverlay
-      [cdkConnectedOverlayOrigin]="overlayOrigin"
+      [cdkConnectedOverlayOrigin]="overlayOrigin()"
       [cdkConnectedOverlayOpen]="true"
       [cdkConnectedOverlayPositions]="dropdownPositions"
+      [cdkConnectedOverlayHasBackdrop]="true"
+      [cdkConnectedOverlayBackdropClass]="'cdk-overlay-transparent-backdrop'"
       cdkConnectedOverlayPush
-      (attach)="handleAttach()"
+      (backdropClick)="handleBackdropClick()"
+      (attached)="handleAttached()"
     >
       <div
         class="suggestions-panel flex flex-col max-h-96 shadow-lg bg-base-200 rounded-lg border border-base-300 z-50 overflow-hidden"
@@ -82,20 +83,20 @@ export type { SuggestionItem } from './suggestion-option.component';
         [attr.aria-label]="getHeaderTitle()"
       >
         <!-- Header -->
-        <div class="px-3 py-2 border-b border-base-300">
+        <div class="px-2 py-1.5 border-b border-base-300">
           <span
-            class="text-xs font-semibold text-base-content/70 uppercase tracking-wide"
+            class="text-[11px] font-semibold text-base-content/70 uppercase tracking-wide"
           >
             {{ getHeaderTitle() }}
           </span>
         </div>
 
         <!-- Filter Input -->
-        <div class="px-2 py-2 border-b border-base-300">
+        <div class="px-2 py-1.5 border-b border-base-300">
           <input
             #filterInput
             type="text"
-            class="input input-sm input-bordered w-full"
+            class="input input-sm input-bordered w-full text-xs"
             placeholder="Type to filter..."
             [value]="filterQuery()"
             (input)="onFilterInput($event)"
@@ -106,16 +107,16 @@ export type { SuggestionItem } from './suggestion-option.component';
 
         <!-- Loading State -->
         @if (isLoading()) {
-        <div class="flex items-center justify-center gap-3 p-4">
-          <span class="loading loading-spinner loading-sm"></span>
-          <span class="text-sm text-base-content/70">Loading...</span>
+        <div class="flex items-center justify-center gap-2 p-3">
+          <span class="loading loading-spinner loading-xs"></span>
+          <span class="text-xs text-base-content/70">Loading...</span>
         </div>
         }
 
         <!-- Empty State -->
         @else if (filteredSuggestions().length === 0) {
-        <div class="flex items-center justify-center p-4">
-          <span class="text-sm text-base-content/60">No matches found</span>
+        <div class="flex items-center justify-center p-3">
+          <span class="text-xs text-base-content/60">No matches found</span>
         </div>
         }
 
@@ -147,6 +148,7 @@ export class UnifiedSuggestionsDropdownComponent
   private readonly destroyRef = inject(DestroyRef);
 
   // Inputs
+  readonly overlayOrigin = input.required<CdkOverlayOrigin>(); // Origin element (textarea) from parent
   readonly suggestions = input.required<SuggestionItem[]>();
   readonly isLoading = input(false);
 
@@ -276,13 +278,24 @@ export class UnifiedSuggestionsDropdownComponent
   }
 
   /**
-   * Handle overlay attach - auto-focus filter input
+   * Handle overlay attached - auto-focus filter input
+   * Using 'attached' event instead of 'attach' for reliable DOM access
    */
-  handleAttach(): void {
-    // Auto-focus filter input when dropdown opens
-    setTimeout(() => {
-      this.filterInputRef()?.nativeElement.focus();
-    }, 0);
+  handleAttached(): void {
+    // Auto-focus filter input when dropdown is fully attached
+    const filterInput = this.filterInputRef()?.nativeElement;
+    if (filterInput) {
+      filterInput.focus();
+      console.log('[UnifiedSuggestionsDropdown] Filter input focused');
+    }
+  }
+
+  /**
+   * Handle backdrop click - close dropdown
+   */
+  handleBackdropClick(): void {
+    console.log('[UnifiedSuggestionsDropdown] Backdrop clicked, closing');
+    this.closed.emit();
   }
 
   /**

@@ -38,7 +38,7 @@ export type SuggestionItem =
   template: `
     <div
       [id]="optionId()"
-      class="flex items-start gap-3 px-3 py-2 rounded-md cursor-pointer transition-colors"
+      class="flex items-start gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors"
       [class.bg-primary]="isActive"
       [class.text-primary-content]="isActive"
       [class.hover:bg-base-300]="!isActive"
@@ -48,7 +48,7 @@ export type SuggestionItem =
       [attr.aria-selected]="isActive"
     >
       <!-- Icon -->
-      <span class="shrink-0 w-5 h-5 flex items-center justify-center text-base">
+      <span class="shrink-0 w-4 h-4 flex items-center justify-center text-sm">
         {{ suggestion().icon }}
       </span>
 
@@ -56,23 +56,23 @@ export type SuggestionItem =
       <div class="flex-1 min-w-0 flex flex-col gap-0.5">
         @if (suggestion().type === 'file') {
         <!-- Files/Folders: Name prominent, directory secondary -->
-        <span class="font-medium text-sm truncate">{{
+        <span class="font-medium text-xs truncate">{{
           suggestion().name
         }}</span>
-        <span class="text-xs opacity-70 truncate">{{
+        <span class="text-[11px] opacity-70 truncate">{{
           suggestion().description
         }}</span>
         } @else if (suggestion().type === 'command') {
         <!-- Commands: Name with badge styling -->
         <div class="flex items-center gap-2">
-          <span class="font-medium text-sm truncate">{{
+          <span class="font-medium text-xs truncate">{{
             suggestion().name
           }}</span>
           @if (isBuiltinCommand()) {
           <span class="badge badge-accent badge-xs">Built-in</span>
           }
         </div>
-        <span class="text-xs opacity-70 truncate">{{
+        <span class="text-[11px] opacity-70 truncate">{{
           suggestion().description
         }}</span>
         }

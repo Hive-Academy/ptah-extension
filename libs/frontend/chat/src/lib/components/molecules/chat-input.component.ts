@@ -9,6 +9,7 @@ import {
   ElementRef,
 } from '@angular/core';
 import { LucideAngularModule, Send, Zap, Square, Clock } from 'lucide-angular';
+import { CdkOverlayOrigin } from '@angular/cdk/overlay';
 import { ChatStore } from '../../services/chat.store';
 import {
   AutopilotStateService,
@@ -59,6 +60,7 @@ import { AgentSelectorComponent } from './agent-selector.component';
   selector: 'ptah-chat-input',
   imports: [
     LucideAngularModule,
+    CdkOverlayOrigin,
     ModelSelectorComponent,
     AutopilotPopoverComponent,
     UnifiedSuggestionsDropdownComponent,
@@ -84,6 +86,8 @@ import { AgentSelectorComponent } from './agent-selector.component';
         <div class="relative flex-1">
           <textarea
             #inputElement
+            cdkOverlayOrigin
+            #textareaOrigin="cdkOverlayOrigin"
             class="textarea textarea-bordered flex-1 min-h-[2.5rem] max-h-[10rem] resize-none transition-colors w-full"
             [class.border-warning]="autopilotState.enabled()"
             [class.border-2]="autopilotState.enabled()"
@@ -101,9 +105,10 @@ import { AgentSelectorComponent } from './agent-selector.component';
           ></textarea>
 
           <!-- File/Folder Suggestions Dropdown - positioned above textarea -->
-          @if (showSuggestions()) {
+          @if (showSuggestions() && textareaOriginRef()) {
           <ptah-unified-suggestions-dropdown
             #suggestionsDropdown
+            [overlayOrigin]="textareaOriginRef()!"
             [suggestions]="allSuggestions()"
             [isLoading]="isLoadingSuggestions()"
             (suggestionSelected)="handleSuggestionSelected($event)"
@@ -194,6 +199,7 @@ export class ChatInputComponent {
   // Signal-based viewChild references (Angular 20+ pattern)
   private readonly textareaRef =
     viewChild<ElementRef<HTMLTextAreaElement>>('inputElement');
+  readonly textareaOriginRef = viewChild<CdkOverlayOrigin>('textareaOrigin');
   private readonly dropdownRef = viewChild<UnifiedSuggestionsDropdownComponent>(
     'suggestionsDropdown'
   );
