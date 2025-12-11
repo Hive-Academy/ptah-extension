@@ -43,6 +43,7 @@ import { SetupStatusWidgetComponent } from './setup-status-widget.component';
         <!-- Hieroglyphic Border Top -->
         <div
           class="flex items-center justify-center gap-2 mb-4 text-secondary opacity-60"
+          aria-hidden="true"
         >
           <span class="text-2xl">𓀀</span>
           <span class="text-xl">𓂀</span>
@@ -94,15 +95,30 @@ import { SetupStatusWidgetComponent } from './setup-status-widget.component';
           <!-- Left Column -->
           <div class="space-y-2">
             <div class="flex items-start gap-2">
-              <span class="text-secondary mt-0.5">𓂀</span>
+              <span
+                class="text-secondary mt-0.5"
+                role="presentation"
+                aria-hidden="true"
+                >𓂀</span
+              >
               <span>Orchestrate multi-agent workflows</span>
             </div>
             <div class="flex items-start gap-2">
-              <span class="text-secondary mt-0.5">𓁹</span>
+              <span
+                class="text-secondary mt-0.5"
+                role="presentation"
+                aria-hidden="true"
+                >𓁹</span
+              >
               <span>Architect complex systems</span>
             </div>
             <div class="flex items-start gap-2">
-              <span class="text-secondary mt-0.5">𓃀</span>
+              <span
+                class="text-secondary mt-0.5"
+                role="presentation"
+                aria-hidden="true"
+                >𓃀</span
+              >
               <span>Generate production code</span>
             </div>
           </div>
@@ -110,15 +126,30 @@ import { SetupStatusWidgetComponent } from './setup-status-widget.component';
           <!-- Right Column -->
           <div class="space-y-2">
             <div class="flex items-start gap-2">
-              <span class="text-secondary mt-0.5">𓅓</span>
+              <span
+                class="text-secondary mt-0.5"
+                role="presentation"
+                aria-hidden="true"
+                >𓅓</span
+              >
               <span>Review with divine precision</span>
             </div>
             <div class="flex items-start gap-2">
-              <span class="text-secondary mt-0.5">𓆣</span>
+              <span
+                class="text-secondary mt-0.5"
+                role="presentation"
+                aria-hidden="true"
+                >𓆣</span
+              >
               <span>Test with sacred rigor</span>
             </div>
             <div class="flex items-start gap-2">
-              <span class="text-secondary mt-0.5">𓋹</span>
+              <span
+                class="text-secondary mt-0.5"
+                role="presentation"
+                aria-hidden="true"
+                >𓋹</span
+              >
               <span>Modernize ancient codebases</span>
             </div>
           </div>
@@ -156,6 +187,7 @@ import { SetupStatusWidgetComponent } from './setup-status-widget.component';
       <!-- Hieroglyphic Border Bottom -->
       <div
         class="flex items-center justify-center gap-2 mt-6 text-secondary opacity-60"
+        aria-hidden="true"
       >
         <span class="text-2xl">𓀀</span>
         <span class="text-xl">𓂀</span>
