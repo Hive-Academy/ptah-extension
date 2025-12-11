@@ -25,6 +25,8 @@ import {
   ResumeWizardRequest,
 } from '../types/wizard.types';
 import { AgentProjectContext, GenerationSummary } from '../types/core.types';
+import { AGENT_GENERATION_TOKENS } from '../di/tokens';
+import { AgentGenerationOrchestratorService } from './orchestrator.service';
 
 /**
  * Discriminated union type for step-specific data.
@@ -92,8 +94,8 @@ export class SetupWizardService implements ISetupWizardService {
     private readonly webviewManager: WebviewManager,
     @inject(TOKENS.EXTENSION_CONTEXT)
     private readonly context: vscode.ExtensionContext,
-    // Note: Orchestrator will be injected when implementing integration batches
-    // For now, service is self-contained for unit testing
+    @inject(AGENT_GENERATION_TOKENS.AGENT_GENERATION_ORCHESTRATOR)
+    private readonly orchestrator: AgentGenerationOrchestratorService,
     @inject(TOKENS.LOGGER)
     private readonly logger: Logger
   ) {
@@ -185,10 +187,24 @@ export class SetupWizardService implements ISetupWizardService {
         );
       }
 
-      // Register RPC handlers via webview's onDidReceiveMessage
-      // The WebviewManager already sets up the message listener
-      // We just need to handle messages sent to our view type
-      // This will be implemented in integration batches when wiring to RPC system
+      // Register RPC message handlers
+      panel.webview.onDidReceiveMessage(async (message: any) => {
+        switch (message.type) {
+          case 'setup-wizard:start':
+            await this.handleStartMessage(panel, message);
+            break;
+          case 'setup-wizard:submit-selection':
+            await this.handleSelectionMessage(panel, message);
+            break;
+          case 'setup-wizard:cancel':
+            await this.handleCancelMessage(panel, message);
+            break;
+          default:
+            this.logger.warn('Unknown wizard message type', {
+              type: message.type,
+            });
+        }
+      });
 
       this.logger.info('Wizard launched successfully', {
         sessionId: this.currentSession.id,
@@ -623,5 +639,356 @@ export class SetupWizardService implements ISetupWizardService {
 
     // Session is valid
     return true;
+  }
+
+  /**
+   * Send RPC response to webview.
+   * Implements the RPC protocol expected by frontend WizardRpcService.
+   *
+   * @param panel - Webview panel to send response to
+   * @param messageId - Original message ID for correlation
+   * @param payload - Success payload (if any)
+   * @param error - Error message (if any)
+   * @private
+   */
+  private async sendResponse(
+    panel: vscode.WebviewPanel,
+    messageId: string,
+    payload?: unknown,
+    error?: string
+  ): Promise<void> {
+    try {
+      await panel.webview.postMessage({
+        type: 'rpc:response',
+        messageId,
+        payload,
+        error,
+      });
+    } catch (err) {
+      this.logger.error('Failed to send RPC response', {
+        error: err,
+        messageId,
+        hasError: !!error,
+      });
+    }
+  }
+
+  /**
+   * Emit progress event to webview.
+   * Sends progress updates during long-running operations.
+   *
+   * @param panel - Webview panel to send progress to (null-safe)
+   * @param eventType - Event type identifier
+   * @param data - Event data payload
+   * @private
+   */
+  private async emitProgress(
+    panel: vscode.WebviewPanel | null,
+    eventType: string,
+    data: unknown
+  ): Promise<void> {
+    if (!panel) {
+      this.logger.warn('Cannot emit progress: panel is null', { eventType });
+      return;
+    }
+
+    try {
+      await panel.webview.postMessage({
+        type: eventType,
+        data,
+      });
+    } catch (error) {
+      this.logger.error('Failed to emit progress event', {
+        error,
+        eventType,
+      });
+    }
+  }
+
+  /**
+   * Map frontend ProjectContext to backend AgentProjectContext.
+   * Handles type differences between frontend and backend representations.
+   *
+   * @param frontendContext - Project context from frontend
+   * @returns Backend AgentProjectContext
+   * @private
+   */
+  private mapToAgentProjectContext(frontendContext: any): AgentProjectContext {
+    // Frontend sends simplified ProjectContext, map to full AgentProjectContext
+    return {
+      rootPath: frontendContext.rootPath || frontendContext.workspacePath || '',
+      projectType: frontendContext.projectType,
+      frameworks: frontendContext.frameworks || [],
+      monorepoType: frontendContext.monorepoType,
+      relevantFiles: frontendContext.relevantFiles || [],
+      techStack: {
+        languages: frontendContext.techStack?.languages || [],
+        frameworks: frontendContext.techStack?.frameworks || [],
+        buildTools: frontendContext.techStack?.buildTools || [],
+        testingFrameworks: frontendContext.techStack?.testingFrameworks || [],
+        packageManager: frontendContext.techStack?.packageManager || 'npm',
+      },
+      codeConventions: frontendContext.codeConventions || {
+        indentation: 'spaces',
+        indentSize: 2,
+        quoteStyle: 'single',
+        semicolons: true,
+        trailingComma: 'es5',
+      },
+    };
+  }
+
+  /**
+   * Handle 'setup-wizard:start' RPC message.
+   * Initiates workspace scanning and agent detection (Phase 1).
+   *
+   * @param panel - Webview panel
+   * @param message - RPC message with messageId and payload
+   * @private
+   */
+  private async handleStartMessage(
+    panel: vscode.WebviewPanel,
+    message: any
+  ): Promise<void> {
+    const { messageId, payload } = message;
+
+    try {
+      this.logger.info('Handling setup-wizard:start', { messageId });
+
+      // Validate payload
+      if (!payload?.projectContext) {
+        await this.sendResponse(
+          panel,
+          messageId,
+          undefined,
+          'Missing project context in request'
+        );
+        return;
+      }
+
+      // Map frontend context to backend format
+      const context = this.mapToAgentProjectContext(payload.projectContext);
+
+      // Execute Phase 1: Workspace analysis with progress callbacks
+      const result = await this.orchestrator.generateAgents(
+        {
+          workspaceUri: { fsPath: context.rootPath } as vscode.Uri,
+          threshold: payload.threshold || 50,
+        },
+        async (progress) => {
+          // Forward orchestrator progress to webview
+          if (progress.phase === 'analysis') {
+            await this.emitProgress(panel, 'setup-wizard:scan-progress', {
+              filesScanned: progress.agentsProcessed || 0,
+              totalFiles: progress.totalAgents || 0,
+              detections: progress.detectedCharacteristics || [],
+            });
+          } else if (
+            progress.phase === 'customization' ||
+            progress.phase === 'rendering' ||
+            progress.phase === 'writing'
+          ) {
+            await this.emitProgress(panel, 'setup-wizard:generation-progress', {
+              phase: progress.phase,
+              percent: progress.percentComplete,
+              currentAgent: progress.currentOperation,
+            });
+          }
+        }
+      );
+
+      // Send response
+      if (result.isErr()) {
+        await this.sendResponse(
+          panel,
+          messageId,
+          undefined,
+          result.error!.message
+        );
+      } else {
+        await this.sendResponse(panel, messageId, {
+          agents: result.value!.agents.map((agent) => ({
+            id: agent.sourceTemplateId,
+            name: agent.sourceTemplateId,
+            version: agent.sourceTemplateVersion,
+          })),
+          summary: {
+            totalAgents: result.value!.totalAgents,
+            successful: result.value!.successful,
+            failed: result.value!.failed,
+            durationMs: result.value!.durationMs,
+            warnings: result.value!.warnings,
+          },
+        });
+      }
+    } catch (error) {
+      this.logger.error('Error in handleStartMessage', error as Error);
+      await this.sendResponse(
+        panel,
+        messageId,
+        undefined,
+        (error as Error).message
+      );
+    }
+  }
+
+  /**
+   * Handle 'setup-wizard:submit-selection' RPC message.
+   * Processes user's agent selection and initiates generation (Phase 2-5).
+   *
+   * @param panel - Webview panel
+   * @param message - RPC message with messageId and payload
+   * @private
+   */
+  private async handleSelectionMessage(
+    panel: vscode.WebviewPanel,
+    message: any
+  ): Promise<void> {
+    const { messageId, payload } = message;
+
+    try {
+      this.logger.info('Handling setup-wizard:submit-selection', {
+        messageId,
+      });
+
+      // Validate payload
+      if (
+        !payload?.selectedAgentIds ||
+        !Array.isArray(payload.selectedAgentIds)
+      ) {
+        await this.sendResponse(
+          panel,
+          messageId,
+          undefined,
+          'Missing or invalid selected agent IDs'
+        );
+        return;
+      }
+
+      // Validate session
+      if (!this.currentSession) {
+        await this.sendResponse(
+          panel,
+          messageId,
+          undefined,
+          'No active wizard session'
+        );
+        return;
+      }
+
+      // Update session with selection
+      this.currentSession.selectedAgentIds = payload.selectedAgentIds;
+
+      // Execute Phase 2-5: Generate selected agents with progress
+      const result = await this.orchestrator.generateAgents(
+        {
+          workspaceUri: {
+            fsPath: this.currentSession.workspaceRoot,
+          } as vscode.Uri,
+          userOverrides: payload.selectedAgentIds,
+          threshold: payload.threshold || 50,
+          variableOverrides: payload.variableOverrides,
+        },
+        async (progress) => {
+          // Forward generation progress to webview
+          await this.emitProgress(panel, 'setup-wizard:generation-progress', {
+            phase: progress.phase,
+            percent: progress.percentComplete,
+            currentAgent: progress.currentOperation,
+          });
+        }
+      );
+
+      // Send response
+      if (result.isErr()) {
+        await this.sendResponse(
+          panel,
+          messageId,
+          undefined,
+          result.error!.message
+        );
+      } else {
+        // Update session with generation summary
+        this.currentSession.generationSummary = {
+          totalAgents: result.value!.totalAgents,
+          successful: result.value!.successful,
+          failed: result.value!.failed,
+          durationMs: result.value!.durationMs,
+          warnings: result.value!.warnings,
+        };
+
+        await this.sendResponse(panel, messageId, {
+          summary: this.currentSession.generationSummary,
+        });
+      }
+    } catch (error) {
+      this.logger.error('Error in handleSelectionMessage', error as Error);
+      await this.sendResponse(
+        panel,
+        messageId,
+        undefined,
+        (error as Error).message
+      );
+    }
+  }
+
+  /**
+   * Handle 'setup-wizard:cancel' RPC message.
+   * Cancels the wizard and optionally saves progress.
+   *
+   * @param panel - Webview panel
+   * @param message - RPC message with messageId and payload
+   * @private
+   */
+  private async handleCancelMessage(
+    panel: vscode.WebviewPanel,
+    message: any
+  ): Promise<void> {
+    const { messageId, payload } = message;
+
+    try {
+      this.logger.info('Handling setup-wizard:cancel', { messageId });
+
+      // Validate session
+      if (!this.currentSession) {
+        await this.sendResponse(
+          panel,
+          messageId,
+          undefined,
+          'No active wizard session to cancel'
+        );
+        return;
+      }
+
+      const sessionId = this.currentSession.id;
+      const saveProgress = payload?.saveProgress ?? false;
+
+      // Cancel wizard
+      const result = await this.cancelWizard(sessionId, saveProgress);
+
+      // Send response
+      if (result.isErr()) {
+        await this.sendResponse(
+          panel,
+          messageId,
+          undefined,
+          result.error!.message
+        );
+      } else {
+        await this.sendResponse(panel, messageId, {
+          cancelled: true,
+          sessionId,
+          progressSaved: saveProgress,
+        });
+      }
+    } catch (error) {
+      this.logger.error('Error in handleCancelMessage', error as Error);
+      await this.sendResponse(
+        panel,
+        messageId,
+        undefined,
+        (error as Error).message
+      );
+    }
   }
 }
