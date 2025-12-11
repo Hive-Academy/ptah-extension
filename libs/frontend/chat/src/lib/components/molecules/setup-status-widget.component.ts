@@ -58,7 +58,7 @@ export interface SetupStatus {
           <div class="skeleton h-8 w-24"></div>
         </div>
         } @else if (error()) {
-        <!-- Error state -->
+        <!-- Error state with retry button -->
         <div class="alert alert-error">
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -73,7 +73,17 @@ export interface SetupStatus {
               d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
             />
           </svg>
-          <span>{{ error() }}</span>
+          <div class="flex-1">
+            <span>{{ error() }}</span>
+          </div>
+          <button
+            class="btn btn-sm"
+            (click)="fetchStatus()"
+            type="button"
+            aria-label="Retry fetching setup status"
+          >
+            Retry
+          </button>
         </div>
         } @else if (status()) {
         <!-- Agent Status Display -->
@@ -176,8 +186,9 @@ export class SetupStatusWidgetComponent implements OnInit, OnDestroy {
 
   /**
    * Fetch agent setup status from backend
+   * Public to allow template retry button access
    */
-  private fetchStatus(): void {
+  fetchStatus(): void {
     this.isLoading.set(true);
     this.error.set(null);
 
