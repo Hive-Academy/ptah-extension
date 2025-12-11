@@ -32,7 +32,6 @@ import { VSCodeService } from '@ptah-extension/core';
  */
 @Component({
   selector: 'ptah-chat-empty-state',
-  standalone: true,
   imports: [SetupStatusWidgetComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
