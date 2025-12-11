@@ -1,297 +1,298 @@
 ---
-description: Review phase - Code Reviewer persona performs comprehensive code quality review with actionable feedback
+description: Dual-reviewer code review with code-style-reviewer and code-logic-reviewer
 ---
 
-# Phase 9: Code Review - Code Reviewer Edition
+# Phase 9: Code Review - Dual Reviewer Edition
 
-> **⚠️ CRITICAL - READ FIRST**: Before executing this workflow, you MUST read and fully impersonate the agent system prompt at `.claude/agents/code-reviewer.md`. Internalize the persona, operating principles, and critical mandates defined there. This workflow provides execution steps; the agent file defines WHO you are.
-
-> **Agent Persona**: code-reviewer  
-> **Core Mission**: Comprehensive code quality review with actionable feedback  
-> **Quality Standard**: SOLID principles, best practices, security compliance
+> **Agent Coordination**: Invoke **code-style-reviewer** + **code-logic-reviewer** in sequence, then synthesize findings
 
 ---
 
-## 🎯 PERSONA & OPERATING PRINCIPLES
+## 🎯 DUAL-REVIEWER APPROACH
 
-### Core Identity
+**Why Two Reviewers?**
 
-You are an **Elite Code Reviewer** who evaluates code quality, architecture, security, and maintainability. You provide actionable feedback with specific file:line citations.
-
-### Critical Mandates
-
-- 🔴 **CITE EVERYTHING**: Every issue must cite file:line
-- 🔴 **ACTIONABLE FEEDBACK**: Provide specific fixes, not vague suggestions
-- 🔴 **SECURITY FIRST**: Check for security vulnerabilities
-- 🔴 **BEST PRACTICES**: Enforce SOLID, DRY, KISS principles
+- **Style**: Pattern compliance, maintainability, technical debt
+- **Logic**: Business logic correctness, failure modes, edge cases
+- **Result**: Comprehensive adversarial analysis
 
 ---
 
-## 📋 EXECUTION PROTOCOL
+## 📋 EXECUTION STEPS
 
-### Prerequisites Check
+### Step 1: Read Task Context
 
 ```bash
-# Verify implementation complete
-[ ] task-tracking/{TASK_ID}/tasks.md exists
-[ ] All tasks marked COMPLETE
-[ ] Build passes
-[ ] Tests pass (if testing phase completed)
-```
-
----
-
-### Step 1: Read All Changed Files
-
-**Objective**: Review all implemented code
-
-**Instructions**:
-
-```bash
-# Read tasks.md to get file list
+Read(task-tracking/{TASK_ID}/context.md)
+Read(task-tracking/{TASK_ID}/implementation-plan.md)
 Read(task-tracking/{TASK_ID}/tasks.md)
-
-# Read each file
-FOR each file in tasks:
-  Read([file-path])
-  # Review for:
-  # - Code quality
-  # - Best practices
-  # - Security issues
-  # - Performance concerns
 ```
 
-**Quality Gates**:
-
-- ✅ All files read
-- ✅ Code quality assessed
-- ✅ Issues identified
+Extract: requirements, file list, expected behavior
 
 ---
 
-### Step 2: Evaluate Code Quality
+### Step 2: Invoke Code Style Reviewer
 
-**Objective**: Check against quality standards
+**Prompt Template**:
 
-**Instructions**:
+```
+Review TASK_{TASK_ID} for code style, patterns, and maintainability.
+
+See .claude/agents/code-style-reviewer.md for full mandate.
+
+CRITICAL:
+- Find ≥3 issues (even for excellent code)
+- Answer 5 critical questions explicitly
+- Use realistic scoring (5-6/10 acceptable)
+- Provide file:line citations
+
+THE 5 CRITICAL QUESTIONS:
+1. What could break in 6 months?
+2. What would confuse a new team member?
+3. What's the hidden complexity cost?
+4. What pattern inconsistencies exist?
+5. What would I do differently?
+
+OUTPUT FORMAT:
+# Code Style Review - TASK_{TASK_ID}
+## Review Summary
+| Metric | Value |
+|--------|-------|
+| Overall Score | X/10 |
+| Assessment | APPROVED/NEEDS_REVISION/REJECTED |
+| Blocking Issues | X |
+| Serious Issues | X |
+| Minor Issues | X |
+
+## The 5 Critical Questions
+[Answer each with file:line references]
+
+## Blocking Issues
+### Issue 1: [Title]
+- File: [path:line]
+- Problem: [Description]
+- Impact: [What breaks]
+- Fix: [Solution]
+
+## Serious Issues
+[Same format]
+
+## Technical Debt Assessment
+Introduced: [New debt]
+Net Impact: [Direction]
+
+## Verdict
+Recommendation: [APPROVE/REVISE/REJECT]
+Key Concern: [Biggest issue]
+```
+
+---
+
+### Step 3: Invoke Code Logic Reviewer
+
+**Prompt Template**:
+
+```
+Review TASK_{TASK_ID} for business logic correctness and failure modes.
+
+See .claude/agents/code-logic-reviewer.md for full mandate.
+
+CRITICAL:
+- Find ≥3 failure modes
+- Answer 5 paranoid questions explicitly
+- Trace complete data flows
+- Question requirements themselves
+
+THE 5 PARANOID QUESTIONS:
+1. How does this fail silently?
+2. What user action causes unexpected behavior?
+3. What data makes this produce wrong results?
+4. What happens when dependencies fail?
+5. What's missing that requirements didn't mention?
+
+OUTPUT FORMAT:
+# Code Logic Review - TASK_{TASK_ID}
+## Review Summary
+| Metric | Value |
+|--------|-------|
+| Overall Score | X/10 |
+| Assessment | APPROVED/NEEDS_REVISION/REJECTED |
+| Critical Issues | X |
+| Serious Issues | X |
+| Failure Modes Found | X |
+
+## The 5 Paranoid Questions
+[Answer each with scenarios]
+
+## Failure Mode Analysis
+### Failure Mode 1: [Name]
+- Trigger: [What causes this]
+- Impact: [Severity]
+- Current Handling: [How code handles]
+- Recommendation: [Fix]
+
+[≥3 failure modes required]
+
+## Critical Issues
+[Same format as style review]
+
+## Edge Case Analysis
+| Edge Case | Handled | Concern |
+|-----------|---------|---------|
+| Null input | YES/NO | [Issues] |
+| Rapid clicks | YES/NO | [Issues] |
+
+## Verdict
+Recommendation: [APPROVE/REVISE/REJECT]
+Top Risk: [Biggest concern]
+```
+
+---
+
+### Step 4: Synthesize Findings
 
 ```markdown
-# Review Checklist
+# Combine issues by severity
 
-## Architecture
+Blocking = StyleReview.Blocking + LogicReview.Critical
+Serious = StyleReview.Serious + LogicReview.Serious
+Minor = StyleReview.Minor + LogicReview.Moderate
 
-- [ ] Follows repository pattern
-- [ ] Proper dependency injection
-- [ ] Separation of concerns
-- [ ] No circular dependencies
+# Determine verdict
 
-## Code Quality
-
-- [ ] SOLID principles followed
-- [ ] DRY (no code duplication)
-- [ ] KISS (simple, not complex)
-- [ ] Proper error handling
-- [ ] Comprehensive logging
-
-## Security
-
-- [ ] No SQL/Cypher injection vulnerabilities
-- [ ] Input validation present
-- [ ] Authentication/authorization correct
-- [ ] Sensitive data protected
-
-## Performance
-
-- [ ] No N+1 queries
-- [ ] Proper indexing (database)
-- [ ] Efficient algorithms
-- [ ] No memory leaks
-
-## Testing
-
-- [ ] Unit tests present
-- [ ] Integration tests (if needed)
-- [ ] Test coverage ≥80%
-
-## Documentation
-
-- [ ] JSDoc comments
-- [ ] README updated (if needed)
-- [ ] API documentation
+IF Blocking > 0: "❌ CHANGES REQUIRED"
+ELSE IF Serious ≥ 3: "⚠️ APPROVED WITH RECOMMENDATIONS"
+ELSE: "✅ APPROVED"
 ```
-
-**Quality Gates**:
-
-- ✅ All criteria evaluated
-- ✅ Issues documented with file:line
 
 ---
 
-### Step 3: Create code-review.md
+### Step 5: Create code-review.md
 
-**Objective**: Document review findings
-
-**Instructions**:
-
-````markdown
+```markdown
 # Code Review - {TASK_ID}
 
-## Review Summary
+**Reviewers**: code-style-reviewer + code-logic-reviewer
+**Status**: {VERDICT}
 
-**Status**: ✅ APPROVED (or ⚠️ APPROVED WITH COMMENTS or ❌ CHANGES REQUIRED)
-**Reviewer**: code-reviewer
-**Files Reviewed**: {N}
-**Issues Found**: {M}
+## Executive Summary
 
-## Positive Highlights
+| Category        | Count |
+| --------------- | ----- |
+| Blocking Issues | X     |
+| Serious Issues  | X     |
+| Minor Issues    | X     |
+| Failure Modes   | X     |
 
-1. ✅ [Good practice observed] - [file:line]
-2. ✅ [Another positive finding]
+**Key Strengths**: [Top 3 positives]
+**Key Concerns**: [Top 3 issues]
+
+---
+
+## The 10 Critical Questions
+
+### Style Questions (Maintainability)
+
+1. **6-month breakage**: {Answer}
+2. **New member confusion**: {Answer}
+3. **Hidden complexity**: {Answer}
+4. **Pattern inconsistencies**: {Answer}
+5. **Alternative approaches**: {Answer}
+
+### Logic Questions (Correctness)
+
+1. **Silent failures**: {Answer}
+2. **Unexpected behavior**: {Answer}
+3. **Wrong results**: {Answer}
+4. **Dependency failures**: {Answer}
+5. **Missing requirements**: {Answer}
+
+---
 
 ## Issues & Recommendations
 
-### Critical Issues (Must Fix)
+### Blocking Issues
 
-**Issue 1**: [Description]
+[Combined from both reviews]
 
-- **File**: [file-path:line]
-- **Problem**: [Specific issue]
-- **Fix**: [Exact code change needed]
-- **Example**:
+**Issue 1**: {Title}
 
-  ```typescript
-  // ❌ Current (problematic)
-  [current code]
+- File: {path:line}
+- Category: {Style|Logic}
+- Problem: {Description}
+- Fix: {Solution}
 
-  // ✅ Recommended
-  [fixed code]
-  ```
-````
+### Serious Issues
 
-### High Priority (Should Fix)
+[Same format]
 
-**Issue 2**: [Description]
-[Similar structure]
+### Minor Issues
 
-### Medium Priority (Nice to Have)
-
-**Issue 3**: [Description]
-[Similar structure]
-
-## Security Review
-
-- ✅ No SQL/Cypher injection vulnerabilities
-- ✅ Input validation present
-- ✅ Authentication/authorization correct
-- ✅ Sensitive data protected
-
-## Performance Review
-
-- ✅ No N+1 queries
-- ✅ Efficient algorithms
-- ⚠️ [Performance concern if any]
-
-## Best Practices Compliance
-
-- ✅ SOLID principles followed
-- ✅ DRY (no duplication)
-- ✅ KISS (simple design)
-- ✅ Proper error handling
-
-## Overall Assessment
-
-[Summary paragraph of code quality]
-
-## Approval Status
-
-**Decision**: ✅ APPROVED
-**Conditions**: [None | Fix critical issues]
-
-```
-
-**Quality Gates**:
-- ✅ code-review.md created
-- ✅ All issues documented with file:line
-- ✅ Actionable fixes provided
+[Brief list]
 
 ---
 
-## 🚀 INTELLIGENT NEXT STEP
+## Failure Mode Analysis
 
-```
-
-✅ Phase 9 Complete: Code Review
-
-**Deliverables Created**:
-
-- code-review.md - Comprehensive quality review ({N} files reviewed)
-
-**Quality Verification**: Code approved ✅
+{LogicReview.FailureModes}
 
 ---
 
-## 📍 Next Phase: Modernization Analysis
+## Pattern Compliance
 
-**Command**:
+| Pattern | Status   | Style Concern | Logic Concern |
+| ------- | -------- | ------------- | ------------- |
+| Signals | ✅/⚠️/❌ | {Concern}     | {Concern}     |
+| Types   | ✅/⚠️/❌ | {Concern}     | {Concern}     |
+| Errors  | ✅/⚠️/❌ | {Concern}     | {Concern}     |
 
-```
-/phase-10-modernization {TASK_ID}
-```
+---
 
-**Context Summary**:
+## Technical Debt
 
-- Files reviewed: {N}
-- Issues found: {M} (severity breakdown)
-- Approval status: ✅ APPROVED
+Introduced: {List}
+Net Impact: {POSITIVE|NEUTRAL|NEGATIVE}
 
-**What to Expect**:
+---
 
-- **Agent**: modernization-detector
-- **Deliverable**: future-enhancements.md
-- **Duration**: 30 minutes
+## Overall Verdict
 
+**Recommendation**: {APPROVE|APPROVE WITH RECOMMENDATIONS|CHANGES REQUIRED}
+**Confidence**: {HIGH|MEDIUM|LOW}
+**Conditions**: [If any blocking issues]
+
+---
+
+**Signatures**: code-style-reviewer + code-logic-reviewer
+**Date**: {DATE}
 ```
 
 ---
 
-## 🔗 INTEGRATION POINTS
+## ✅ COMPLETION
 
-### Inputs from Previous Phase
-- **Artifact**: Implemented code + test-report.md (if testing completed)
-- **Content**: All files/components
-- **Validation**: All tasks complete, tests pass
+Present to user:
 
-### Outputs to Next Phase
-- **Artifact**: code-review.md
-- **Content**: Quality assessment and recommendations
-- **Handoff Protocol**: Modernization detector uses review for enhancement ideas
-
-### User Validation Checkpoint
-**Required**: No
-**Timing**: N/A
-
----
-
-## ✅ COMPLETION CRITERIA
-
-### Phase Success Indicators
-- [ ] All files reviewed
-- [ ] Code quality evaluated
-- [ ] Security checked
-- [ ] Performance assessed
-- [ ] code-review.md created
-- [ ] Approval decision made
-
-### Next Phase Trigger
-**Command**: `/phase-10-modernization {TASK_ID}`
-
----
-
-## 💡 PRO TIPS
-
-1. **Cite Everything**: Every issue needs file:line reference
-2. **Be Specific**: Provide exact code fixes, not vague suggestions
-3. **Security First**: Always check for vulnerabilities
-4. **Positive Feedback**: Highlight good practices too
-5. **Actionable**: Make recommendations implementable
 ```
+✅ Phase 9 Complete: Dual Code Review
+
+Deliverable: code-review.md
+Files Reviewed: {N}
+Issues: {X} blocking, {Y} serious, {Z} minor
+Verdict: {FINAL_VERDICT}
+
+Next: /phase-10-modernization {TASK_ID}
+```
+
+---
+
+## 💡 KEY POINTS
+
+1. **Two reviewers** = Comprehensive coverage
+2. **10 questions** = Adversarial analysis
+3. **File:line citations** = Actionable feedback
+4. **Honest scoring** = Realistic expectations
+5. **Combined verdict** = Clear decision
+
+**Goal**: Find problems before production, not approve code.

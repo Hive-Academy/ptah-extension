@@ -1149,84 +1149,93 @@ export class RpcMethodRegistrationService {
    */
   private registerSetupStatusHandlers(): void {
     // setup-status:get-status - Get agent configuration status
-    this.rpcHandler.registerMethod<
-      void,
-      | {
-          isConfigured: boolean;
-          agentCount: number;
-          lastModified: string | null;
-          projectAgents: string[];
-          userAgents: string[];
-        }
-      | { error: string }
-    >('setup-status:get-status', async () => {
-      try {
-        this.logger.debug('RPC: setup-status:get-status called');
+    this.rpcHandler.registerMethod<void, void>(
+      'setup-status:get-status',
+      async () => {
+        try {
+          this.logger.debug('RPC: setup-status:get-status called');
 
-        // Get workspace folder
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-          return {
-            error: 'No workspace open',
-            isConfigured: false,
-            agentCount: 0,
-            lastModified: null,
-            projectAgents: [],
-            userAgents: [],
+          // Get workspace folder
+          const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+          if (!workspaceFolder) {
+            // Send error response to webview
+            await this.webviewManager.sendMessage(
+              'ptah.main',
+              'setup-status:response',
+              {
+                error:
+                  'No workspace folder open. Please open a folder to configure agents.',
+              }
+            );
+            return;
+          }
+
+          // Dynamically import agent-generation library (lazy loading)
+          const { AGENT_GENERATION_TOKENS } = await import(
+            '@ptah-extension/agent-generation'
+          );
+
+          // Resolve SetupStatusService from DI container
+          const setupStatusService = this.container.resolve(
+            AGENT_GENERATION_TOKENS.SETUP_STATUS_SERVICE
+          ) as {
+            getStatus: (uri: vscode.Uri) => Promise<{
+              isErr: () => boolean;
+              value?: any;
+              error?: Error;
+            }>;
           };
+
+          // Get status
+          const result = await setupStatusService.getStatus(
+            workspaceFolder.uri
+          );
+
+          // Handle error result
+          if (result.isErr()) {
+            this.logger.error('Failed to get setup status', result.error);
+            await this.webviewManager.sendMessage(
+              'ptah.main',
+              'setup-status:response',
+              {
+                error:
+                  result.error?.message ||
+                  'Failed to retrieve agent setup status',
+              }
+            );
+            return;
+          }
+
+          // Send success response to webview
+          await this.webviewManager.sendMessage(
+            'ptah.main',
+            'setup-status:response',
+            {
+              payload: result.value,
+            }
+          );
+        } catch (error) {
+          this.logger.error(
+            'RPC: setup-status:get-status failed',
+            error instanceof Error ? error : new Error(String(error))
+          );
+          // Send error response to webview
+          await this.webviewManager.sendMessage(
+            'ptah.main',
+            'setup-status:response',
+            {
+              error:
+                error instanceof Error
+                  ? error.message
+                  : 'Unexpected error occurred while retrieving agent status',
+            }
+          );
         }
-
-        // Dynamically import agent-generation library (lazy loading)
-        const { AGENT_GENERATION_TOKENS } = await import(
-          '@ptah-extension/agent-generation'
-        );
-
-        // Resolve SetupStatusService from DI container
-        const setupStatusService = this.container.resolve(
-          AGENT_GENERATION_TOKENS.SETUP_STATUS_SERVICE
-        ) as {
-          getStatus: (uri: vscode.Uri) => Promise<{
-            isErr: () => boolean;
-            value?: any;
-            error?: Error;
-          }>;
-        };
-
-        // Get status
-        const result = await setupStatusService.getStatus(workspaceFolder.uri);
-
-        // Handle error result
-        if (result.isErr()) {
-          this.logger.error('Failed to get setup status', result.error);
-          return {
-            error: result.error?.message || 'Unknown error',
-            isConfigured: false,
-            agentCount: 0,
-            lastModified: null,
-            projectAgents: [],
-            userAgents: [],
-          };
-        }
-
-        return result.value;
-      } catch (error) {
-        this.logger.error(
-          'RPC: setup-status:get-status failed',
-          error instanceof Error ? error : new Error(String(error))
-        );
-        return {
-          error: error instanceof Error ? error.message : 'Unknown error',
-          isConfigured: false,
-          agentCount: 0,
-          lastModified: null,
-          projectAgents: [],
-          userAgents: [],
-        };
       }
-    });
+    );
 
     // setup-wizard:launch - Launch setup wizard webview
-    this.rpcHandler.registerMethod<void, { success: boolean; error?: string }>(
+    this.rpcHandler.registerMethod<void, void>(
       'setup-wizard:launch',
       async () => {
         try {
@@ -1235,10 +1244,16 @@ export class RpcMethodRegistrationService {
           // Get workspace folder
           const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
           if (!workspaceFolder) {
-            return {
-              success: false,
-              error: 'No workspace open',
-            };
+            // Send error response to webview
+            await this.webviewManager.sendMessage(
+              'ptah.main',
+              'setup-wizard:launch-response',
+              {
+                success: false,
+                error: 'No workspace folder open. Please open a folder first.',
+              }
+            );
+            return;
           }
 
           // Dynamically import agent-generation library (lazy loading)
@@ -1264,22 +1279,42 @@ export class RpcMethodRegistrationService {
           // Handle error result
           if (result.isErr()) {
             this.logger.error('Failed to launch setup wizard', result.error);
-            return {
-              success: false,
-              error: result.error?.message || 'Unknown error',
-            };
+            await this.webviewManager.sendMessage(
+              'ptah.main',
+              'setup-wizard:launch-response',
+              {
+                success: false,
+                error: result.error?.message || 'Failed to launch setup wizard',
+              }
+            );
+            return;
           }
 
-          return { success: true };
+          // Send success response to webview
+          await this.webviewManager.sendMessage(
+            'ptah.main',
+            'setup-wizard:launch-response',
+            {
+              success: true,
+            }
+          );
         } catch (error) {
           this.logger.error(
             'RPC: setup-wizard:launch failed',
             error instanceof Error ? error : new Error(String(error))
           );
-          return {
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error',
-          };
+          // Send error response to webview
+          await this.webviewManager.sendMessage(
+            'ptah.main',
+            'setup-wizard:launch-response',
+            {
+              success: false,
+              error:
+                error instanceof Error
+                  ? error.message
+                  : 'Unexpected error occurred while launching wizard',
+            }
+          );
         }
       }
     );

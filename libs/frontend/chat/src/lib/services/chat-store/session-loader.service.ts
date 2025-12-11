@@ -338,8 +338,8 @@ export class SessionLoaderService {
    * Handle session ID resolution from backend
    * Called when backend resolves the real Claude session UUID from SDK streaming
    *
-   * Uses PendingSessionManagerService to find the correct tab for resolution.
-   * This ensures session:id-resolved goes to the correct tab even if user switches tabs.
+   * Uses atomic resolution via TabManager.resolveSessionId to prevent race conditions.
+   * Implements backward compatibility by validating UUID v4 format.
    */
   handleSessionIdResolved(
     placeholderSessionId: string,
@@ -350,71 +350,36 @@ export class SessionLoaderService {
       actualSessionId,
     });
 
-    // Find the tab that initiated this conversation using the pending session manager
-    let targetTabId = this.pendingSessionManager.get(placeholderSessionId);
+    // Backward compatibility: Ignore legacy non-UUID placeholders (msg_* format)
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(placeholderSessionId)) {
+      console.warn('[SessionLoaderService] Skipping legacy placeholder ID', {
+        placeholderSessionId,
+        format: 'non-UUID (legacy msg_* format)',
+      });
+      return;
+    }
 
+    // ✅ Atomic resolution via TabManager (uses placeholder-based lookup)
+    // This prevents race conditions during tab switching
+    this.tabManager.resolveSessionId(placeholderSessionId, actualSessionId);
+
+    // Clean up pending resolution tracking
+    const targetTabId = this.pendingSessionManager.get(placeholderSessionId);
     if (targetTabId) {
-      // Remove from pending resolutions (clears timeout)
       this.pendingSessionManager.remove(placeholderSessionId);
       console.log(
-        '[SessionLoaderService] Found pending resolution for tab:',
-        targetTabId
-      );
-    } else {
-      // Fall back to active tab (for backwards compatibility)
-      targetTabId = this.tabManager.activeTabId() ?? undefined;
-      console.log(
-        '[SessionLoaderService] No pending resolution found, using active tab:',
+        '[SessionLoaderService] Cleaned up pending resolution for tab:',
         targetTabId
       );
     }
-
-    if (!targetTabId) {
-      console.warn(
-        '[SessionLoaderService] No target tab for session ID resolution'
-      );
-      return;
-    }
-
-    // Get the target tab
-    const targetTab = this.tabManager.tabs().find((t) => t.id === targetTabId);
-    if (!targetTab) {
-      console.warn('[SessionLoaderService] Target tab not found:', targetTabId);
-      return;
-    }
-
-    if (targetTab.status !== 'draft') {
-      console.warn(
-        '[SessionLoaderService] Ignoring session ID resolution for non-draft tab',
-        { tabId: targetTabId, status: targetTab.status }
-      );
-      return;
-    }
-
-    // Update tab with real session ID AND store placeholder for chunk routing
-    this.tabManager.resolveSessionId(targetTabId, actualSessionId);
-
-    // Store placeholder session ID so chunks can still be matched during streaming
-    this.tabManager.updateTab(targetTabId, {
-      placeholderSessionId: placeholderSessionId,
-    });
-
-    // Update messages with real session ID
-    const updatedMessages = targetTab.messages.map((msg) => ({
-      ...msg,
-      sessionId: msg.sessionId === null ? actualSessionId : msg.sessionId,
-    }));
-
-    this.tabManager.updateTab(targetTabId, {
-      messages: updatedMessages,
-    });
 
     // Update SessionManager - use new confirmSessionId() API
     // Type assertion safe here: actualSessionId is validated by backend and originates from Claude CLI
     this.sessionManager.confirmSessionId(actualSessionId as SessionId);
 
-    console.log('[SessionLoaderService] Session ID resolved for tab:', {
-      tabId: targetTabId,
+    console.log('[SessionLoaderService] Session ID resolved atomically:', {
       placeholderSessionId,
       actualSessionId,
     });

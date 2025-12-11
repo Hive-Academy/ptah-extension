@@ -49,6 +49,8 @@ const ALLOWED_METHOD_PREFIXES = [
   'autocomplete:',
   'permission:',
   'auth:',
+  'setup-status:',
+  'setup-wizard:',
 ] as const;
 
 /**

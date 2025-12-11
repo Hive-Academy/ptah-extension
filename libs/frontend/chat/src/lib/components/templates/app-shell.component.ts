@@ -2,9 +2,13 @@ import {
   Component,
   inject,
   signal,
+  effect,
+  ViewChild,
+  ElementRef,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { DatePipe, NgOptimizedImage } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import {
   LucideAngularModule,
   Settings,
@@ -12,11 +16,14 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   ChevronDown,
+  Check,
+  X,
 } from 'lucide-angular';
 import { ChatViewComponent } from './chat-view.component';
 import { TabBarComponent } from '../organisms/tab-bar.component';
 import { ConfirmationDialogComponent } from '../molecules/confirmation-dialog.component';
 import { SettingsComponent } from '../../settings/settings.component';
+import { PopoverComponent } from '@ptah-extension/ui';
 import { ChatStore } from '../../services/chat.store';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
 import { TabManagerService } from '../../services/tab-manager.service';
@@ -45,6 +52,8 @@ import type { ChatSessionSummary } from '@ptah-extension/shared';
     DatePipe,
     NgOptimizedImage,
     LucideAngularModule,
+    FormsModule,
+    PopoverComponent,
   ],
   templateUrl: './app-shell.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -68,12 +77,35 @@ export class AppShellComponent {
   // Lucide icons
   readonly SettingsIcon = Settings;
   readonly PlusIcon = Plus;
+  readonly CheckIcon = Check;
+  readonly XIcon = X;
   readonly PanelLeftCloseIcon = PanelLeftClose;
   readonly PanelLeftOpenIcon = PanelLeftOpen;
   readonly ChevronDownIcon = ChevronDown;
 
   // Ptah icon URI
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
+
+  // Session name popover state
+  private readonly _sessionNamePopoverOpen = signal(false);
+  readonly sessionNamePopoverOpen = this._sessionNamePopoverOpen.asReadonly();
+  readonly sessionNameInput = signal('');
+
+  // ViewChild for session name input (programmatic focus)
+  @ViewChild('sessionNameInput')
+  sessionNameInputElement?: ElementRef<HTMLInputElement>;
+
+  constructor() {
+    // Focus input when popover opens
+    effect(() => {
+      if (this.sessionNamePopoverOpen()) {
+        // Wait for next tick to ensure popover is rendered
+        setTimeout(() => {
+          this.sessionNameInputElement?.nativeElement.focus();
+        }, 0);
+      }
+    });
+  }
 
   /**
    * Toggle sidebar visibility
@@ -90,12 +122,49 @@ export class AppShellComponent {
   }
 
   /**
-   * Create a new chat session
+   * Generate slugified default session name from current timestamp
+   * Format: session-MM-DD-HH-mm (e.g., "session-12-11-14-45")
+   */
+  private generateDefaultSessionName(): string {
+    const now = new Date();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    return `session-${month}-${day}-${hours}-${minutes}`;
+  }
+
+  /**
+   * Open session name popover
    */
   createNewSession(): void {
-    // Clear current session to start fresh
-    // The ChatStore will create a new session on first message
+    this.sessionNameInput.set('');
+    this._sessionNamePopoverOpen.set(true);
+  }
+
+  /**
+   * Handle session creation from popover
+   */
+  handleCreateSession(): void {
+    const name = this.sessionNameInput().trim();
+    const sessionName = name || this.generateDefaultSessionName();
+
+    // Create new tab with name
+    this.tabManager.createTab(sessionName);
+
+    // Clear current session (activates new tab)
     this.chatStore.clearCurrentSession();
+
+    // Close popover
+    this._sessionNamePopoverOpen.set(false);
+  }
+
+  /**
+   * Handle popover close (backdrop click or ESC)
+   */
+  handleCancelSession(): void {
+    this._sessionNamePopoverOpen.set(false);
+    this.sessionNameInput.set('');
   }
 
   /**

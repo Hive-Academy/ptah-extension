@@ -16,7 +16,7 @@ import type {
 export interface SetupStatus {
   readonly isConfigured: boolean; // True if any agents exist
   readonly agentCount: number; // Total project + user agents
-  readonly lastModified: Date | null; // Last modification date of .claude/agents/
+  readonly lastModified: string | null; // ISO 8601 timestamp of last .claude/agents/ modification
   readonly projectAgents: string[]; // Agent names from .claude/agents/
   readonly userAgents: string[]; // Agent names from ~/.claude/agents/
 }
@@ -115,9 +115,11 @@ export class SetupStatusService {
         return Result.err(new Error(errorMessage));
       }
 
-      // Filter out built-in agents and group by scope
+      // Filter to only user-created agents using whitelist approach (excludes builtin/system/undefined)
       const agents = discoveryResult.agents.filter(
-        (agent) => agent.scope !== 'builtin'
+        (agent) =>
+          (agent.scope === 'project' || agent.scope === 'user') &&
+          agent.name?.trim()
       );
 
       const projectAgents = agents
@@ -137,7 +139,7 @@ export class SetupStatusService {
       const status: SetupStatus = {
         isConfigured,
         agentCount,
-        lastModified,
+        lastModified: lastModified ? lastModified.toISOString() : null,
         projectAgents,
         userAgents,
       };

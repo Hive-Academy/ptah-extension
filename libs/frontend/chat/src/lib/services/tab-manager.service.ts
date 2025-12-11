@@ -1,4 +1,5 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
+import { v4 as uuidv4 } from 'uuid';
 import { TabState } from './chat.types';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 
@@ -111,6 +112,8 @@ export class TabManagerService {
     const newTab: TabState = {
       id,
       claudeSessionId,
+      placeholderSessionId: null, // No placeholder for existing session
+      name: title || claudeSessionId.substring(0, 50),
       title: title || claudeSessionId.substring(0, 50),
       order: this._tabs().length,
       status: 'loaded',
@@ -135,15 +138,20 @@ export class TabManagerService {
 
   /**
    * Create a new tab
-   * @param title - Optional tab title (defaults to "New Chat")
+   * @param name - Optional session name (defaults to slugified timestamp via AppShell)
    * @returns Tab ID
    */
-  createTab(title?: string): string {
+  createTab(name?: string): string {
     const id = this.generateTabId();
+    const placeholderId = uuidv4(); // ✅ Proper UUID v4 instead of msg_${Date.now()}
+    const sessionName = name || `New Chat`;
+
     const newTab: TabState = {
       id,
       claudeSessionId: null,
-      title: title || 'New Chat',
+      placeholderSessionId: placeholderId, // Valid UUID v4
+      name: sessionName,
+      title: sessionName,
       order: this._tabs().length,
       status: 'fresh',
       isDirty: false,
@@ -156,7 +164,12 @@ export class TabManagerService {
     this._activeTabId.set(id);
     this.saveTabState();
 
-    console.log('[TabManager] Tab created:', id, title);
+    console.log(
+      '[TabManager] Tab created with UUID placeholder:',
+      id,
+      sessionName,
+      placeholderId
+    );
     return id;
   }
 
@@ -263,19 +276,29 @@ export class TabManagerService {
   }
 
   /**
-   * Resolve real Claude session ID for a tab
-   * Called when backend responds with real UUID
-   * @param tabId - Tab ID
+   * Atomically resolve placeholder session ID to real Claude session ID.
+   * Prevents race conditions during tab switching by using placeholder ID for lookup.
+   * @param placeholderId - Placeholder session ID (UUID v4)
    * @param claudeSessionId - Real Claude CLI session UUID
    */
-  resolveSessionId(tabId: string, claudeSessionId: string): void {
-    this.updateTab(tabId, {
-      claudeSessionId,
-      status: 'streaming',
-    });
+  resolveSessionId(placeholderId: string, claudeSessionId: string): void {
+    this._tabs.update((tabs) =>
+      tabs.map((tab) =>
+        tab.placeholderSessionId === placeholderId
+          ? {
+              ...tab,
+              claudeSessionId,
+              placeholderSessionId: null, // ✅ Clear after resolution
+              status: 'streaming' as const,
+            }
+          : tab
+      )
+    );
+    this.saveTabState();
     console.log(
-      '[TabManager] Session ID resolved for tab:',
-      tabId,
+      '[TabManager] Session ID resolved (atomic):',
+      placeholderId,
+      '->',
       claudeSessionId
     );
   }
@@ -320,6 +343,7 @@ export class TabManagerService {
     const duplicatedTab: TabState = {
       ...tab,
       id: newTabId,
+      name: `${tab.name} (Copy)`,
       title: `${tab.title} (Copy)`,
       order: this._tabs().length,
       status: 'loaded', // Duplicated tab is loaded (not streaming)

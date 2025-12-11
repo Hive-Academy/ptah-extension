@@ -147,6 +147,10 @@ export class SetupStatusWidgetComponent implements OnInit, OnDestroy {
   // Message listener cleanup
   private messageListener: ((event: MessageEvent) => void) | null = null;
 
+  // Timeout management
+  private statusTimeoutId: number | null = null;
+  private launchTimeoutId: number | null = null;
+
   ngOnInit(): void {
     this.setupMessageListener();
     this.fetchStatus();
@@ -158,6 +162,16 @@ export class SetupStatusWidgetComponent implements OnInit, OnDestroy {
       window.removeEventListener('message', this.messageListener);
       this.messageListener = null;
     }
+
+    // Clear any pending timeouts
+    if (this.statusTimeoutId) {
+      clearTimeout(this.statusTimeoutId);
+      this.statusTimeoutId = null;
+    }
+    if (this.launchTimeoutId) {
+      clearTimeout(this.launchTimeoutId);
+      this.launchTimeoutId = null;
+    }
   }
 
   /**
@@ -167,11 +181,28 @@ export class SetupStatusWidgetComponent implements OnInit, OnDestroy {
     this.isLoading.set(true);
     this.error.set(null);
 
+    // Set 10-second timeout for status request
+    this.statusTimeoutId = window.setTimeout(() => {
+      if (this.isLoading()) {
+        this.error.set(
+          'Request timed out. Please try again or check your connection.'
+        );
+        this.isLoading.set(false);
+      }
+      this.statusTimeoutId = null;
+    }, 10000);
+
     try {
       this.vscodeService.postMessage({
         type: 'setup-status:get-status',
       });
     } catch (err) {
+      // Clear timeout on error
+      if (this.statusTimeoutId) {
+        clearTimeout(this.statusTimeoutId);
+        this.statusTimeoutId = null;
+      }
+
       const errorMessage =
         err instanceof Error ? err.message : 'Failed to fetch status';
       this.error.set(errorMessage);
@@ -188,6 +219,12 @@ export class SetupStatusWidgetComponent implements OnInit, OnDestroy {
 
       // Handle setup-status:response messages
       if (message.type === 'setup-status:response') {
+        // Clear timeout since we received a response
+        if (this.statusTimeoutId) {
+          clearTimeout(this.statusTimeoutId);
+          this.statusTimeoutId = null;
+        }
+
         this.isLoading.set(false);
 
         if (message.error) {
@@ -201,6 +238,25 @@ export class SetupStatusWidgetComponent implements OnInit, OnDestroy {
           this.error.set('Invalid response from backend');
         }
       }
+
+      // Handle setup-wizard:launch-response messages
+      if (message.type === 'setup-wizard:launch-response') {
+        // Clear timeout since we received a response
+        if (this.launchTimeoutId) {
+          clearTimeout(this.launchTimeoutId);
+          this.launchTimeoutId = null;
+        }
+
+        this.launching.set(false);
+
+        if (message.error || !message.success) {
+          // Show error notification
+          this.error.set(
+            message.error || 'Failed to launch wizard. Please try again.'
+          );
+        }
+        // If success, wizard is already open - no action needed
+      }
     };
 
     window.addEventListener('message', this.messageListener);
@@ -211,18 +267,29 @@ export class SetupStatusWidgetComponent implements OnInit, OnDestroy {
    */
   launchWizard(): void {
     this.launching.set(true);
+    this.error.set(null); // Clear any previous errors
+
+    // Set 2-second timeout as fallback (wizard should respond faster)
+    this.launchTimeoutId = window.setTimeout(() => {
+      if (this.launching()) {
+        // Assume success if no error response within 2 seconds
+        // Wizard webview panel might have opened but didn't send response
+        this.launching.set(false);
+      }
+      this.launchTimeoutId = null;
+    }, 2000);
 
     try {
       this.vscodeService.postMessage({
         type: 'setup-wizard:launch',
       });
-
-      // Reset launching state after a brief delay
-      // The wizard opens in a separate webview panel, no response needed
-      setTimeout(() => {
-        this.launching.set(false);
-      }, 500);
     } catch (err) {
+      // Clear timeout on error
+      if (this.launchTimeoutId) {
+        clearTimeout(this.launchTimeoutId);
+        this.launchTimeoutId = null;
+      }
+
       const errorMessage =
         err instanceof Error ? err.message : 'Failed to launch wizard';
       this.error.set(errorMessage);

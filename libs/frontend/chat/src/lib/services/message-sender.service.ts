@@ -249,12 +249,13 @@ export class MessageSenderService {
         tabId: activeTabId,
       });
 
-      // Call RPC to start NEW chat
+      // Call RPC to start NEW chat (using activeTab from line 236)
       const result = await this.claudeRpcService.call<{ sessionId: string }>(
         'chat:start',
         {
           prompt: content,
           sessionId,
+          name: activeTab?.name, // ✅ Send session name to backend
           workspacePath,
           options: {
             model: this.modelState.currentModel(),
@@ -385,6 +386,7 @@ export class MessageSenderService {
         {
           prompt: content,
           sessionId,
+          name: activeTab?.name, // ✅ Send session name (support late naming)
           workspacePath,
           model: this.modelState.currentModel(),
           files: files ?? [],
