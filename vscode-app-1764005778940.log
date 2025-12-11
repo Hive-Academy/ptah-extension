@@ -1,63 +1,63 @@
-workbench.desktop.main.js:2797  WARN Via 'product.json#extensionEnabledApiProposals' extension 'ms-vscode.vscode-selfhost-test-provider' wants API proposal 'attributableCoverage' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
+  WARN Via 'product.json#extensionEnabledApiProposals' extension 'ms-vscode.vscode-selfhost-test-provider' wants API proposal 'attributableCoverage' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
 warn @ workbench.desktop.main.js:2797
-workbench.desktop.main.js:2797  WARN Via 'product.json#extensionEnabledApiProposals' extension 'ms-vsliveshare.vsliveshare' wants API proposal 'notebookCellExecutionState' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
+  WARN Via 'product.json#extensionEnabledApiProposals' extension 'ms-vsliveshare.vsliveshare' wants API proposal 'notebookCellExecutionState' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
 warn @ workbench.desktop.main.js:2797
-workbench.desktop.main.js:2797  WARN Via 'product.json#extensionEnabledApiProposals' extension 'ms-python.python' wants API proposal 'contribIssueReporter' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
+  WARN Via 'product.json#extensionEnabledApiProposals' extension 'ms-python.python' wants API proposal 'contribIssueReporter' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
 warn @ workbench.desktop.main.js:2797
-workbench.desktop.main.js:2797  WARN Via 'product.json#extensionEnabledApiProposals' extension 'github.vscode-pull-request-github' wants API proposal 'fileComments' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
+  WARN Via 'product.json#extensionEnabledApiProposals' extension 'github.vscode-pull-request-github' wants API proposal 'fileComments' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
 warn @ workbench.desktop.main.js:2797
-workbench.desktop.main.js:2797  WARN Via 'product.json#extensionEnabledApiProposals' extension 'github.copilot-chat' wants API proposal 'chatVariableResolver' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
+  WARN Via 'product.json#extensionEnabledApiProposals' extension 'github.copilot-chat' wants API proposal 'chatVariableResolver' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
 warn @ workbench.desktop.main.js:2797
-workbench.desktop.main.js:2797  WARN Via 'product.json#extensionEnabledApiProposals' extension 'github.copilot-chat' wants API proposal 'lmTools' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
+  WARN Via 'product.json#extensionEnabledApiProposals' extension 'github.copilot-chat' wants API proposal 'lmTools' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
 warn @ workbench.desktop.main.js:2797
-workbench.desktop.main.js:2797  WARN Via 'product.json#extensionEnabledApiProposals' extension 'ms-python.gather' wants API proposal 'notebookCellExecutionState' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
+  WARN Via 'product.json#extensionEnabledApiProposals' extension 'ms-python.gather' wants API proposal 'notebookCellExecutionState' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
 warn @ workbench.desktop.main.js:2797
-workbench.desktop.main.js:2797  WARN Via 'product.json#extensionEnabledApiProposals' extension 'ms-python.vscode-pylance' wants API proposal 'notebookCellExecutionState' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
+  WARN Via 'product.json#extensionEnabledApiProposals' extension 'ms-python.vscode-pylance' wants API proposal 'notebookCellExecutionState' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
 warn @ workbench.desktop.main.js:2797
-workbench.desktop.main.js:2797  WARN Via 'product.json#extensionEnabledApiProposals' extension 'ms-python.debugpy' wants API proposal 'contribIssueReporter' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
+  WARN Via 'product.json#extensionEnabledApiProposals' extension 'ms-python.debugpy' wants API proposal 'contribIssueReporter' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
 warn @ workbench.desktop.main.js:2797
-workbench.desktop.main.js:2797  WARN Via 'product.json#extensionEnabledApiProposals' extension 'ms-toolsai.jupyter' wants API proposal 'notebookCellExecutionState' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
+  WARN Via 'product.json#extensionEnabledApiProposals' extension 'ms-toolsai.jupyter' wants API proposal 'notebookCellExecutionState' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
 warn @ workbench.desktop.main.js:2797
-workbench.desktop.main.js:2797  WARN Via 'product.json#extensionEnabledApiProposals' extension 'dbaeumer.vscode-eslint' wants API proposal 'notebookCellExecutionState' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
+  WARN Via 'product.json#extensionEnabledApiProposals' extension 'dbaeumer.vscode-eslint' wants API proposal 'notebookCellExecutionState' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
 warn @ workbench.desktop.main.js:2797
-workbench.desktop.main.js:2797  WARN Via 'product.json#extensionEnabledApiProposals' extension 'ms-azuretools.vscode-azure-github-copilot' wants API proposal 'lmTools' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
+  WARN Via 'product.json#extensionEnabledApiProposals' extension 'ms-azuretools.vscode-azure-github-copilot' wants API proposal 'lmTools' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
 warn @ workbench.desktop.main.js:2797
-workbench.desktop.main.js:2797  WARN Via 'product.json#extensionEnabledApiProposals' extension 'ms-vscode.cpptools' wants API proposal 'lmTools' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
+  WARN Via 'product.json#extensionEnabledApiProposals' extension 'ms-vscode.cpptools' wants API proposal 'lmTools' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
 warn @ workbench.desktop.main.js:2797
-workbench.desktop.main.js:2797  WARN Via 'product.json#extensionEnabledApiProposals' extension 'redhat.java' wants API proposal 'documentPaste' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
+  WARN Via 'product.json#extensionEnabledApiProposals' extension 'redhat.java' wants API proposal 'documentPaste' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
 warn @ workbench.desktop.main.js:2797
-workbench.desktop.main.js:2797  WARN Via 'product.json#extensionEnabledApiProposals' extension 'vscjava.vscode-java-pack' wants API proposal 'lmTools' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
+  WARN Via 'product.json#extensionEnabledApiProposals' extension 'vscjava.vscode-java-pack' wants API proposal 'lmTools' but that proposal DOES NOT EXIST. Likely, the proposal has been finalized (check 'vscode.d.ts') or was abandoned.
 warn @ workbench.desktop.main.js:2797
-workbench.desktop.main.js:6842 [Extension Host] STOPPED on first line for debugging on port 53025
+ [Extension Host] STOPPED on first line for debugging on port 53803
 F @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:2797  INFO Loading development extension at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode
-workbench.desktop.main.js:2797   ERR Extension 'ms-azuretools.vscode-containers CANNOT USE these API proposals 'authenticationChallenges'. You MUST start in extension development mode or use the --enable-proposed-api command line flag
+  INFO Loading development extension at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode
+   ERR Extension 'ms-azuretools.vscode-containers CANNOT USE these API proposals 'authenticationChallenges'. You MUST start in extension development mode or use the --enable-proposed-api command line flag
 error @ workbench.desktop.main.js:2797
-workbench.desktop.main.js:3544 Overwriting extension <<copilot-instructions.md>> to now point to mime <<text/x-instructions>>
+ Overwriting extension <<copilot-instructions.md>> to now point to mime <<text/x-instructions>>
 (anonymous) @ workbench.desktop.main.js:3544
-workbench.desktop.main.js:3544 Overwriting extension <<.hbs>> to now point to mime <<text/x-handlebars>>
+ Overwriting extension <<.hbs>> to now point to mime <<text/x-handlebars>>
 (anonymous) @ workbench.desktop.main.js:3544
-workbench.desktop.main.js:3544 Overwriting extension <<.handlebars>> to now point to mime <<text/x-handlebars>>
+ Overwriting extension <<.handlebars>> to now point to mime <<text/x-handlebars>>
 (anonymous) @ workbench.desktop.main.js:3544
-workbench.desktop.main.js:2797   ERR [vscode.git]: property `title` is mandatory and must be of type `string` or `object`
+   ERR [vscode.git]: property `title` is mandatory and must be of type `string` or `object`
 error @ workbench.desktop.main.js:2797
-workbench.desktop.main.js:2797   ERR [vscode.git]: property `title` is mandatory and must be of type `string` or `object`
+   ERR [vscode.git]: property `title` is mandatory and must be of type `string` or `object`
 error @ workbench.desktop.main.js:2797
-workbench.desktop.main.js:2797   ERR [google.antigravity]: Menu item references a command `antigravity.importAntigravitySettings` which is not defined in the 'commands' section.
+   ERR [google.antigravity]: Menu item references a command `antigravity.importAntigravitySettings` which is not defined in the 'commands' section.
 error @ workbench.desktop.main.js:2797
-workbench.desktop.main.js:2797   ERR [google.antigravity]: Menu item references a command `antigravity.importAntigravityExtensions` which is not defined in the 'commands' section.
+   ERR [google.antigravity]: Menu item references a command `antigravity.importAntigravityExtensions` which is not defined in the 'commands' section.
 error @ workbench.desktop.main.js:2797
-workbench.desktop.main.js:7012 An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing.
+ An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing.
 mountTo @ workbench.desktop.main.js:7012
+  INFO Started local extension host with pid 24608.
 open-vsx.org/vscode/gallery/vscode/ptah-extensions/ptah-extension-vscode/latest:1  Failed to load resource: the server responded with a status of 404 ()
-workbench.desktop.main.js:2797  INFO Started local extension host with pid 29948.
-workbench.desktop.main.js:2797  INFO [perf] Render performance baseline is 19ms
-workbench.desktop.main.js:6842 Extension Host
-workbench.desktop.main.js:6842 Debugger attached.
-workbench.desktop.main.js:6842 Extension Host
-workbench.desktop.main.js:6842 Set default auto-select family attempt timeout to 1000ms
+  INFO [perf] Render performance baseline is 21ms
+ Extension Host
+ Debugger attached.
+ Extension Host
+ Set default auto-select family attempt timeout to 1000ms
 
-workbench.desktop.main.js:3338 [Extension Host] ===== PTAH ACTIVATION START ===== (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+ [Extension Host] ===== PTAH ACTIVATION START ===== (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [Activate] Step 1: Setting up DI Container... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] [AgentSDK] Registering SDK services... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] [AgentSDK] SDK services registered successfully Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
@@ -67,6 +67,8 @@ workbench.desktop.main.js:3338 [Extension Host] [INFO] Activating Ptah extension
 workbench.desktop.main.js:3338 [Extension Host] [Activate] Step 2: Logger resolved (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [Activate] Step 3.6: Registering RPC methods... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] Loaded context state: 0 included, 0 excluded (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [INFO] Setup agents command registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [INFO] Setup status RPC handlers registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] RPC methods registered (SDK-only mode) Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [Activate] Step 3.6: RPC methods registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [Activate] Step 3.7: Initializing autocomplete watchers... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
@@ -81,6 +83,12 @@ workbench.desktop.main.js:3338 [Extension Host] [INFO] [SessionLifecycle] All se
 workbench.desktop.main.js:3338 [Extension Host] [INFO] [SdkAgentAdapter] Initializing SDK adapter... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] [SdkAgentAdapter] Detecting Claude CLI installation... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] [SdkAgentAdapter] Detecting Claude CLI installation... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:2797   ERR [Extension Host] (node:24608) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `Antigravity --trace-deprecation ...` to show where the warning was created)
+error @ workbench.desktop.main.js:2797
+workbench.desktop.main.js:3338 [Extension Host] (node:24608) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `Antigravity --trace-deprecation ...` to show where the warning was created) (at file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553)
+rJa @ workbench.desktop.main.js:3338
 workbench.desktop.main.js:2797   ERR [Extension Host] Failed to update user status Error: LanguageServerClient must be initialized first!
 	at B.getInstance (c:\Users\abdal\AppData\Local\Programs\Antigravity\resources\app\extensions\antigravity\dist\extension.js:2:214787)
 	at a.updateUserStatus (c:\Users\abdal\AppData\Local\Programs\Antigravity\resources\app\extensions\antigravity\dist\extension.js:2:1241852)
@@ -99,12 +107,6 @@ workbench.desktop.main.js:3338 [Extension Host] Failed to update user status Err
 	at async Ny.m (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:113:14069)
 	at async Ny.l (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:113:13525) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 rJa @ workbench.desktop.main.js:3338
-workbench.desktop.main.js:3338 [Extension Host] (Antigravity) 2025-12-10 18:22:06 [INFO]: Language server started (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:6842 Extension Host
-workbench.desktop.main.js:6842 (Antigravity) 2025-12-10 18:22:06 [INFO]: Language server started
-
-workbench.desktop.main.js:3338 [Extension Host] (Antigravity) 2025-12-10 18:22:07 [INFO]: LS lspClient started successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3607 [AntigravityUnleashService] client ready
 workbench.desktop.main.js:3338 [Extension Host] [INFO] [SdkAgentAdapter] Claude CLI found Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] [AuthManager] Found OAuth token in settings (length: 108, prefix: sk-ant-oat01-HJ..., OAuth format: true) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] [AuthManager] Using OAuth token from Claude Max/Pro subscription (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
@@ -113,15 +115,17 @@ workbench.desktop.main.js:3338 [Extension Host] [INFO] [AuthManager] Authenticat
 workbench.desktop.main.js:3338 [Extension Host] [INFO] [SdkAgentAdapter] Initialized successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] SDK authentication initialized successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [Activate] Step 3.8: SDK authentication initialization complete (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [Activate] Step 3.9: Initializing SDK RPC handlers... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [INFO] [SdkRpcHandlers] Initializing permission event emitter... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [INFO] [SdkRpcHandlers] Permission event emitter initialized successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [INFO] SDK RPC handlers initialized (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [Activate] Step 3.9: SDK RPC handlers initialized (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [Activate] Step 4: Creating PtahExtension instance... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [Activate] Step 4: PtahExtension instance created (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [Activate] Step 5: Calling ptahExtension.initialize()... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] Initializing Ptah extension... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] WebviewEventQueue initialized (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] Development file watcher initialized for hot reload (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:6842 Extension Host
-workbench.desktop.main.js:6842 (Antigravity) 2025-12-10 18:22:07 [INFO]: LS lspClient started successfully
-
 workbench.desktop.main.js:3338 [Extension Host] [INFO] AngularWebviewProvider initialized - message forwarding handled by WebviewMessageBridge (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] Registering webview providers... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] Webview providers registered (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
@@ -142,20 +146,6 @@ workbench.desktop.main.js:3338 [Extension Host] [INFO] Code Execution MCP Server
 workbench.desktop.main.js:3338 [Extension Host] [Activate] Step 8: Code Execution MCP Server started (port 51820) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] Ptah extension activated successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] ===== PTAH ACTIVATION COMPLETE ===== (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [WebviewManager] Registering WebviewView: ptah.main (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [WebviewManager] WebviewView registered successfully: ptah.main (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [WebviewManager] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [INFO] Webview registered with WebviewManager as "ptah.main" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [WebviewHtmlGenerator] Transforming href="favicon.ico" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/favicon.ico" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [WebviewHtmlGenerator] Transforming href="styles.css" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/styles.css" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [WebviewHtmlGenerator] Transforming href="chunk-JWX5TK7U.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-JWX5TK7U.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [WebviewHtmlGenerator] Transforming href="chunk-PULQJNNA.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-PULQJNNA.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [WebviewHtmlGenerator] Transforming href="chunk-JKOY2XUY.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-JKOY2XUY.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [WebviewHtmlGenerator] Transforming src="polyfills.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/polyfills.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [WebviewHtmlGenerator] Transforming src="scripts.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/scripts.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [WebviewHtmlGenerator] Transforming src="main.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/main.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [WebviewHtmlGenerator] Base URI set to: https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [WebviewHtmlGenerator] All assets transformed to webview URIs (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] [SdkAgentAdapter] Claude CLI found Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] [AuthManager] Found OAuth token in settings (length: 108, prefix: sk-ant-oat01-HJ..., OAuth format: true) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] [AuthManager] Using OAuth token from Claude Max/Pro subscription (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
@@ -163,12 +153,30 @@ workbench.desktop.main.js:3338 [Extension Host] [INFO] [AuthManager] Removed ANT
 workbench.desktop.main.js:3338 [Extension Host] [INFO] [AuthManager] Authentication configured: OAuth token from settings (subscription mode) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] [SdkAgentAdapter] Initialized successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] [ConfigWatcher] Re-initialization complete after config change (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-VM9:40 Ptah WebView: VS Code API initialized Object
-index.html?id=e7d4b843-975b-48f0-bc87-2a35f8129122&parentId=3&origin=938a5e7d-5586-4f0e-b9b9-73787f8dd362&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:4 ===================================================
-index.html?id=e7d4b843-975b-48f0-bc87-2a35f8129122&parentId=3&origin=938a5e7d-5586-4f0e-b9b9-73787f8dd362&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:5 PTAH STARTUP SCRIPT EXECUTING
-index.html?id=e7d4b843-975b-48f0-bc87-2a35f8129122&parentId=3&origin=938a5e7d-5586-4f0e-b9b9-73787f8dd362&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:6 window.vscode exists: true
-index.html?id=e7d4b843-975b-48f0-bc87-2a35f8129122&parentId=3&origin=938a5e7d-5586-4f0e-b9b9-73787f8dd362&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:7 window.ptahConfig exists: true
-index.html?id=e7d4b843-975b-48f0-bc87-2a35f8129122&parentId=3&origin=938a5e7d-5586-4f0e-b9b9-73787f8dd362&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:8 ===================================================
+workbench.desktop.main.js:3338 [Extension Host] [WebviewManager] Registering WebviewView: ptah.main (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [WebviewManager] WebviewView registered successfully: ptah.main (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [WebviewManager] Active webviews: Array(1) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [INFO] Webview registered with WebviewManager as "ptah.main" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [WebviewHtmlGenerator] Transforming href="favicon.ico" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/favicon.ico" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [WebviewHtmlGenerator] Transforming href="styles.css" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/styles.css" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [WebviewHtmlGenerator] Transforming href="chunk-QCLEBTAJ.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-QCLEBTAJ.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [WebviewHtmlGenerator] Transforming href="chunk-PULQJNNA.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-PULQJNNA.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [WebviewHtmlGenerator] Transforming href="chunk-JKOY2XUY.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-JKOY2XUY.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [WebviewHtmlGenerator] Transforming src="polyfills.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/polyfills.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [WebviewHtmlGenerator] Transforming src="scripts.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/scripts.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [WebviewHtmlGenerator] Transforming src="main.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/main.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [WebviewHtmlGenerator] Base URI set to: https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [WebviewHtmlGenerator] All assets transformed to webview URIs (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] (Antigravity) 2025-12-11 17:42:40 [INFO]: Language server started (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:6842 Extension Host
+workbench.desktop.main.js:6842 (Antigravity) 2025-12-11 17:42:40 [INFO]: Language server started
+
+VM12:40 Ptah WebView: VS Code API initialized Object
+index.html?id=bcc91ce5-059f-4430-9de1-0df62797e24e&parentId=5&origin=938a5e7d-5586-4f0e-b9b9-73787f8dd362&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:4 ===================================================
+index.html?id=bcc91ce5-059f-4430-9de1-0df62797e24e&parentId=5&origin=938a5e7d-5586-4f0e-b9b9-73787f8dd362&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:5 PTAH STARTUP SCRIPT EXECUTING
+index.html?id=bcc91ce5-059f-4430-9de1-0df62797e24e&parentId=5&origin=938a5e7d-5586-4f0e-b9b9-73787f8dd362&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:6 window.vscode exists: true
+index.html?id=bcc91ce5-059f-4430-9de1-0df62797e24e&parentId=5&origin=938a5e7d-5586-4f0e-b9b9-73787f8dd362&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:7 window.ptahConfig exists: true
+index.html?id=bcc91ce5-059f-4430-9de1-0df62797e24e&parentId=5&origin=938a5e7d-5586-4f0e-b9b9-73787f8dd362&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:8 ===================================================
 main.js:7 === PTAH WEBVIEW BOOTSTRAP STARTING ===
 main.js:7 Window globals: Object
 main.js:7 =================================================
@@ -177,512 +185,82 @@ main.js:7 =================================================
 main.js:7 Setting up initial view with pure signal navigation
 main.js:7 🔍 [App] isReady computed: Object
 main.js:7 🔍 [App] isReady computed: Object
-main.js:2 [TabManager] Loaded tab state from localStorage: 2 tabs
+main.js:3 [TabManager] Loaded tab state from localStorage: 2 tabs
 main.js:7 [KeyboardShortcuts] Global shortcuts initialized
-chunk-JWX5TK7U.js:66 [VSCodeService] RPC service registered for response routing
-chunk-JWX5TK7U.js:88 [ClaudeRpcService] Registered with VSCodeService for RPC routing
-main.js:4 [ChatStore] Initializing...
-chunk-JWX5TK7U.js:66 [VSCodeService] ChatStore registered for message routing
-main.js:4 [ChatStore] Services initialized and ready
-workbench.desktop.main.js:3338 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-chunk-JWX5TK7U.js:88 [CommandDiscoveryFacade] Cache cleared
+chunk-QCLEBTAJ.js:66 [VSCodeService] RPC service registered for response routing
+chunk-QCLEBTAJ.js:88 [ClaudeRpcService] Registered with VSCodeService for RPC routing
+main.js:5 [ChatStore] Initializing...
+chunk-QCLEBTAJ.js:66 [VSCodeService] ChatStore registered for message routing
+main.js:5 [ChatStore] Services initialized and ready
+chunk-QCLEBTAJ.js:88 [CommandDiscoveryFacade] Cache cleared
 main.js:7 [ChatInputComponent] Session changed, cache cleared Object
-chunk-JWX5TK7U.js:88 [AgentDiscoveryFacade] fetchAgents called
+workbench.desktop.main.js:3338 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+main.js:2 Angular Error: A: NG0203
+    at s8 (https://file+.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-QCLEBTAJ.js:4:2815)
+    at W (https://file+.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-QCLEBTAJ.js:4:2983)
+    at w (https://file+.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-QCLEBTAJ.js:4:3016)
+    at BG (https://file+.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-QCLEBTAJ.js:4:166648)
+    at i.setupInputPipeline (https://file+.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/main.js:7:1209)
+    at i.ngOnInit (https://file+.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/main.js:7:992)
+    at sk (https://file+.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-QCLEBTAJ.js:4:22128)
+    at z8 (https://file+.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-QCLEBTAJ.js:4:22274)
+    at Yk (https://file+.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-QCLEBTAJ.js:4:22035)
+    at _c (https://file+.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-QCLEBTAJ.js:4:21763)
+handleError @ main.js:2
 main.js:7 === PTAH WEBVIEW BOOTSTRAP COMPLETE ===
+main.js:2 Angular Error: A: NG0203
+    at s8 (https://file+.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-QCLEBTAJ.js:4:2815)
+    at W (https://file+.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-QCLEBTAJ.js:4:2983)
+    at w (https://file+.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-QCLEBTAJ.js:4:3016)
+    at BG (https://file+.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-QCLEBTAJ.js:4:166648)
+    at i.setupInputPipeline (https://file+.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/main.js:7:2883)
+    at i.ngOnInit (https://file+.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/main.js:7:2462)
+    at sk (https://file+.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-QCLEBTAJ.js:4:22128)
+    at z8 (https://file+.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-QCLEBTAJ.js:4:22274)
+    at Yk (https://file+.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-QCLEBTAJ.js:4:22035)
+    at _c (https://file+.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/chunk-QCLEBTAJ.js:4:21763)
+handleError @ main.js:2
 workbench.desktop.main.js:3338 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+127.0.0.1:58201/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories:1  Failed to load resource: net::ERR_CERT_AUTHORITY_INVALID
+chunk-QCLEBTAJ.js:88 [AgentDiscoveryFacade] fetchAgents called
+index.html?id=bcc91ce5-059f-4430-9de1-0df62797e24e&parentId=5&origin=938a5e7d-5586-4f0e-b9b9-73787f8dd362&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:13 Sending webview-ready message to extension...
+chunk-QCLEBTAJ.js:66 [VSCodeService] Received RPC response: Object
+main.js:3 [SessionLoaderService] Loaded sessions: 4 of 4
 workbench.desktop.main.js:3338 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-index.html?id=e7d4b843-975b-48f0-bc87-2a35f8129122&parentId=3&origin=938a5e7d-5586-4f0e-b9b9-73787f8dd362&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:13 Sending webview-ready message to extension...
+chunk-QCLEBTAJ.js:66 [VSCodeService] Received RPC response: Object
 workbench.desktop.main.js:3338 [Extension Host] [AngularWebviewProvider] Received message from webview: webview-ready (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [AngularWebviewProvider] Webview ready signal received! (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] Webview ready signal received - flushing event queue (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] WebviewEventQueue: Marked as ready (0 events queued) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [AngularWebviewProvider] markWebviewReady() completed (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-chunk-JWX5TK7U.js:66 [VSCodeService] Received RPC response: Object
-main.js:2 [SessionLoaderService] Loaded sessions: 4 of 4
-chunk-JWX5TK7U.js:66 [VSCodeService] Received RPC response: Object
-chunk-JWX5TK7U.js:66 [VSCodeService] Received RPC response: Object
-chunk-JWX5TK7U.js:88 [AgentDiscoveryFacade] searchAgents called Object
-chunk-JWX5TK7U.js:88 [AgentDiscoveryFacade] Returning all agents Object
+workbench.desktop.main.js:3607 [AntigravityUnleashService] client ready
+workbench.desktop.main.js:3338 [Extension Host] (Antigravity) 2025-12-11 17:42:40 [INFO]: LS lspClient started successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:6842 Extension Host
+workbench.desktop.main.js:6842 (Antigravity) 2025-12-11 17:42:40 [INFO]: LS lspClient started successfully
+
+chunk-QCLEBTAJ.js:66 [VSCodeService] Received RPC response: Object
+chunk-QCLEBTAJ.js:88 [AgentDiscoveryFacade] searchAgents called Object
+chunk-QCLEBTAJ.js:88 [AgentDiscoveryFacade] Returning all agents Object
+workbench.desktop.main.js:3338 [Extension Host] Workspace analyzed: anubis (angular) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] Workspace analyzed: anubis (angular) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] [SdkAgentAdapter] Fetched supported models from SDK Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-chunk-JWX5TK7U.js:66 [VSCodeService] Received RPC response: Object
-workbench.desktop.main.js:3338 [Extension Host] Workspace analyzed: anubis (angular) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] Workspace analyzed: anubis (angular) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-main.js:2 [TabManager] Tab state saved to localStorage
-main.js:2 [TabManager] Tab closed: tab_1765374476859_ldfwhle
-chunk-JWX5TK7U.js:88 [CommandDiscoveryFacade] Cache cleared
+chunk-QCLEBTAJ.js:66 [VSCodeService] Received RPC response: Object
+main.js:3 [TabManager] Tab state saved to localStorage
+main.js:3 [TabManager] Switched to tab: tab_1765374338931_2pzjl0q
+chunk-QCLEBTAJ.js:88 [CommandDiscoveryFacade] Cache cleared
 main.js:7 [ChatInputComponent] Session changed, cache cleared Object
-workbench.desktop.main.js:3338 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
+workbench.desktop.main.js:3338 [Extension Host] [AngularWebviewProvider] Received message from webview: setup-status:get-status (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 workbench.desktop.main.js:3338 [Extension Host] [INFO] [AngularWebviewProvider] Processing message Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [AngularWebviewProvider] RPC call: Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-chunk-JWX5TK7U.js:66 [VSCodeService] Received RPC response: Object
-main.js:2 [SessionLoaderService] Loaded session: 4 messages
-main.js:2 [TabManager] Tab state saved to localStorage
-main.js:2 [TabManager] Created new tab for session: msg_1765225400663_gkyhuq3 -> tab_1765383740076_j0963x2
-main.js:2 [TabManager] Tab state saved to localStorage
-main.js:2 [SessionLoaderService] Loaded 4 chat messages
-chunk-JWX5TK7U.js:88 [CommandDiscoveryFacade] Cache cleared
-main.js:7 [ChatInputComponent] Session changed, cache cleared Object
-workbench.desktop.main.js:2797   ERR [Extension Host] (node:29948) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
-(Use `Antigravity --trace-deprecation ...` to show where the warning was created)
-error @ workbench.desktop.main.js:2797
-workbench.desktop.main.js:3338 [Extension Host] (node:29948) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
-(Use `Antigravity --trace-deprecation ...` to show where the warning was created) (at file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553)
+workbench.desktop.main.js:3338 [Extension Host] [WARN] Unhandled webview message type Object (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
 rJa @ workbench.desktop.main.js:3338
 workbench.desktop.main.js:7012 Using standard dev tools to debug iframe based webview
-main.js:2 [TabManager] Tab state saved to localStorage
-main.js:2 [TabManager] Tab state saved to localStorage
-main.js:3 [MessageSender] Continuing EXISTING session: {sessionId: 'msg_1765225400663_gkyhuq3'}
-chunk-JWX5TK7U.js:88 [CommandDiscoveryFacade] Cache cleared
-main.js:7 [ChatInputComponent] Session changed, cache cleared {sessionId: 'tab_1765383740076_j0963x2'}
-workbench.desktop.main.js:3338 [Extension Host] [AngularWebviewProvider] Received message from webview: rpc:call (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [INFO] [AngularWebviewProvider] Processing message {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [AngularWebviewProvider] RPC call: {method: 'chat:continue', params: {…}, correlationId: '6e695cfd-c808-4469-9299-12d1b666ccf1'} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [INFO] [RPC] Session msg_1765225400663_gkyhuq3 not active, attempting resume... (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [INFO] [SdkAgentAdapter] Resuming session: msg_1765225400663_gkyhuq3 {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [INFO] [SessionLifecycle] Pre-registered active session: msg_1765225400663_gkyhuq3 (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [INFO] [SdkAgentAdapter] SDK imported for session resume (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:2797   ERR [Extension Host] [ERROR] [SdkQueryBuilder] CLI stderr: Spawning Claude Code process: node D:\projects\ptah-extension\node_modules\@anthropic-ai\claude-agent-sdk\cli.js --output-format stream-json --verbose --input-format stream-json --model opus --permission-prompt-tool stdio --resume d4a615f7-636d-4729-8d7a-16ab2edade67 --tools default --mcp-config {"mcpServers":{"ptah":{"type":"http","url":"http://localhost:51820"}}} --setting-sources user,project,local --permission-mode default --include-partial-messages 
-error @ workbench.desktop.main.js:2797
-error @ workbench.desktop.main.js:2797
-error @ workbench.desktop.main.js:6787
-aJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:3338 [Extension Host] [ERROR] [SdkQueryBuilder] CLI stderr: Spawning Claude Code process: node D:\projects\ptah-extension\node_modules\@anthropic-ai\claude-agent-sdk\cli.js --output-format stream-json --verbose --input-format stream-json --model opus --permission-prompt-tool stdio --resume d4a615f7-636d-4729-8d7a-16ab2edade67 --tools default --mcp-config {"mcpServers":{"ptah":{"type":"http","url":"http://localhost:51820"}}} --setting-sources user,project,local --permission-mode default --include-partial-messages  (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-rJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:3338 [Extension Host] [INFO] [SdkAgentAdapter] Session resumed: msg_1765225400663_gkyhuq3 (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [INFO] [StreamTransformer] Starting message stream for msg_1765225400663_gkyhuq3 (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [INFO] [RPC] Session msg_1765225400663_gkyhuq3 resumed successfully (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [INFO] [SdkAgentAdapter] Sending message to msg_1765225400663_gkyhuq3 {arg0: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [INFO] [SdkAgentAdapter] Message queued for msg_1765225400663_gkyhuq3 (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-chunk-JWX5TK7U.js:66 [VSCodeService] Received RPC response: {type: 'rpc:response', requestId: '6e695cfd-c808-4469-9299-12d1b666ccf1', correlationId: '6e695cfd-c808-4469-9299-12d1b666ccf1', success: true, data: {…}, …}
-main.js:3 [MessageSender] Conversation continued: {success: true, sessionId: 'msg_1765225400663_gkyhuq3'}
-main.js:2 [TabManager] Tab state saved to localStorage
-main.js:4 [ChatStore] Message sent normally
-chunk-JWX5TK7U.js:88 [CommandDiscoveryFacade] Cache cleared
-main.js:7 [ChatInputComponent] Session changed, cache cleared {sessionId: 'tab_1765383740076_j0963x2'}
-workbench.desktop.main.js:3338 [Extension Host] [INFO] MCP Request: initialize {arg0: 'CodeExecutionMCP', arg1: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [INFO] MCP initialize request received {arg0: 'CodeExecutionMCP', arg1: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [INFO] MCP Request: notifications/initialized {arg0: 'CodeExecutionMCP', arg1: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [INFO] MCP Request: tools/list {arg0: 'CodeExecutionMCP', arg1: {…}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [INFO] [StreamTransformer] Captured real Claude session ID: d4a615f7-636d-4729-8d7a-16ab2edade67 (placeholder: msg_1765225400663_gkyhuq3) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [INFO] [SdkSessionStorage] Updated session msg_1765225400663_gkyhuq3 with Claude session ID: d4a615f7-636d-4729-8d7a-16ab2edade67 (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [INFO] [RPC] Session ID resolved: msg_1765225400663_gkyhuq3 -> d4a615f7-636d-4729-8d7a-16ab2edade67 (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'session:id-resolved', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-main.js:3 [SessionLoaderService] Session ID resolved: {placeholderSessionId: 'msg_1765225400663_gkyhuq3', actualSessionId: 'd4a615f7-636d-4729-8d7a-16ab2edade67'}
-main.js:3 [SessionLoaderService] No pending resolution found, using active tab: tab_1765383740076_j0963x2
-main.js:3 [SessionLoaderService] Ignoring session ID resolution for non-draft tab {tabId: 'tab_1765383740076_j0963x2', status: 'streaming'}
-handleSessionIdResolved @ main.js:3
-handleSessionIdResolved @ main.js:4
-(anonymous) @ chunk-JWX5TK7U.js:66
-invokeTask @ polyfills.js:1
-onInvokeTask @ chunk-JWX5TK7U.js:4
-invokeTask @ polyfills.js:1
-runTask @ polyfills.js:1
-invokeTask @ polyfills.js:1
-L @ polyfills.js:1
-H @ polyfills.js:1
-z @ polyfills.js:1
-postMessage
-(anonymous) @ index.html?id=e7d4b843-975b-48f0-bc87-2a35f8129122&parentId=3&origin=938a5e7d-5586-4f0e-b9b9-73787f8dd362&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:1282
-HostMessaging.channel.port1.onmessage @ index.html?id=e7d4b843-975b-48f0-bc87-2a35f8129122&parentId=3&origin=938a5e7d-5586-4f0e-b9b9-73787f8dd362&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:342
-workbench.desktop.main.js:3338 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-main.js:2 [TabManager] Tab state saved to localStorage
-main.js:2 [TabManager] Tab state saved to localStorage
-chunk-JWX5TK7U.js:88 [CommandDiscoveryFacade] Cache cleared
-main.js:7 [ChatInputComponent] Session changed, cache cleared {sessionId: 'tab_1765383740076_j0963x2'}
-workbench.desktop.main.js:3338 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:chunk', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:3338 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-main.js:2 [TabManager] Tab state saved to localStorage
-chunk-JWX5TK7U.js:88 [CommandDiscoveryFacade] Cache cleared
-main.js:7 [ChatInputComponent] Session changed, cache cleared {sessionId: 'tab_1765383740076_j0963x2'}
-workbench.desktop.main.js:2797   ERR [Extension Host] [ERROR] [StreamTransformer] Session msg_1765225400663_gkyhuq3 error: Invalid MessageId format: toolu_01Xsdsrk5VAepjhuwFGEGzZV TypeError: Invalid MessageId format: toolu_01Xsdsrk5VAepjhuwFGEGzZV
-	at Object.from (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:21353:19)
-	at Object._a (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:4069:66)
-	at _a.next (<anonymous>)
-	at resume (d:\projects\ptah-extension\node_modules\tslib\tslib.js:283:48)
-	at fulfill (d:\projects\ptah-extension\node_modules\tslib\tslib.js:285:35)
-	at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
-error @ workbench.desktop.main.js:2797
-error @ workbench.desktop.main.js:2797
-error @ workbench.desktop.main.js:6787
-aJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:3338 [Extension Host] [ERROR] [StreamTransformer] Session msg_1765225400663_gkyhuq3 error: Invalid MessageId format: toolu_01Xsdsrk5VAepjhuwFGEGzZV TypeError: Invalid MessageId format: toolu_01Xsdsrk5VAepjhuwFGEGzZV
-	at Object.from (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:21353:19)
-	at Object._a (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:4069:66)
-	at _a.next (<anonymous>)
-	at resume (d:\projects\ptah-extension\node_modules\tslib\tslib.js:283:48)
-	at fulfill (d:\projects\ptah-extension\node_modules\tslib\tslib.js:285:35)
-	at process.processTicksAndRejections (node:internal/process/task_queues:105:5) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-rJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:2797   ERR [Extension Host] [ERROR] [StreamTransformer] AUTHENTICATION ERROR! 
-error @ workbench.desktop.main.js:2797
-error @ workbench.desktop.main.js:2797
-error @ workbench.desktop.main.js:6787
-aJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:3338 [Extension Host] [ERROR] [StreamTransformer] AUTHENTICATION ERROR!  (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-rJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:2797   ERR [Extension Host] [ERROR] [StreamTransformer] SDK requires valid API key from console.anthropic.com 
-error @ workbench.desktop.main.js:2797
-error @ workbench.desktop.main.js:2797
-error @ workbench.desktop.main.js:6787
-aJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:3338 [Extension Host] [ERROR] [StreamTransformer] SDK requires valid API key from console.anthropic.com  (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-rJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:2797   ERR [Extension Host] [ERROR] [StreamTransformer] OR OAuth token from "claude setup-token" 
-error @ workbench.desktop.main.js:2797
-error @ workbench.desktop.main.js:2797
-error @ workbench.desktop.main.js:6787
-aJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:3338 [Extension Host] [ERROR] [StreamTransformer] OR OAuth token from "claude setup-token"  (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-rJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:2797   ERR [Extension Host] [ERROR] [StreamTransformer] Current: ANTHROPIC_API_KEY=NOT SET 
-error @ workbench.desktop.main.js:2797
-error @ workbench.desktop.main.js:2797
-error @ workbench.desktop.main.js:6787
-aJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:3338 [Extension Host] [ERROR] [StreamTransformer] Current: ANTHROPIC_API_KEY=NOT SET  (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-rJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:3338 [Extension Host] [INFO] [StreamTransformer] Session msg_1765225400663_gkyhuq3 ended (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:2797   ERR [Extension Host] [ERROR] [RPC] Error streaming ExecutionNodes for session msg_1765225400663_gkyhuq3 TypeError: Invalid MessageId format: toolu_01Xsdsrk5VAepjhuwFGEGzZV
-	at Object.from (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:21353:19)
-	at Object._a (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:4069:66)
-	at _a.next (<anonymous>)
-	at resume (d:\projects\ptah-extension\node_modules\tslib\tslib.js:283:48)
-	at fulfill (d:\projects\ptah-extension\node_modules\tslib\tslib.js:285:35)
-	at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
-error @ workbench.desktop.main.js:2797
-error @ workbench.desktop.main.js:2797
-error @ workbench.desktop.main.js:6787
-aJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:3338 [Extension Host] [ERROR] [RPC] Error streaming ExecutionNodes for session msg_1765225400663_gkyhuq3 TypeError: Invalid MessageId format: toolu_01Xsdsrk5VAepjhuwFGEGzZV
-	at Object.from (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:21353:19)
-	at Object._a (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:4069:66)
-	at _a.next (<anonymous>)
-	at resume (d:\projects\ptah-extension\node_modules\tslib\tslib.js:283:48)
-	at fulfill (d:\projects\ptah-extension\node_modules\tslib\tslib.js:285:35)
-	at process.processTicksAndRejections (node:internal/process/task_queues:105:5) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-rJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:3338 [Extension Host] [WebviewManager] Calling webview.postMessage(): {viewType: 'ptah.main', type: 'chat:error', payloadKeys: Array(2)} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-chunk-JWX5TK7U.js:66 [VSCodeService] Chat error: {sessionId: 'msg_1765225400663_gkyhuq3', error: 'Invalid MessageId format: toolu_01Xsdsrk5VAepjhuwFGEGzZV'}
-(anonymous) @ chunk-JWX5TK7U.js:66
-invokeTask @ polyfills.js:1
-onInvokeTask @ chunk-JWX5TK7U.js:4
-invokeTask @ polyfills.js:1
-runTask @ polyfills.js:1
-invokeTask @ polyfills.js:1
-L @ polyfills.js:1
-H @ polyfills.js:1
-z @ polyfills.js:1
-postMessage
-(anonymous) @ index.html?id=e7d4b843-975b-48f0-bc87-2a35f8129122&parentId=3&origin=938a5e7d-5586-4f0e-b9b9-73787f8dd362&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:1282
-HostMessaging.channel.port1.onmessage @ index.html?id=e7d4b843-975b-48f0-bc87-2a35f8129122&parentId=3&origin=938a5e7d-5586-4f0e-b9b9-73787f8dd362&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:342
-main.js:4 [ChatStore] Chat error: {sessionId: 'msg_1765225400663_gkyhuq3', error: 'Invalid MessageId format: toolu_01Xsdsrk5VAepjhuwFGEGzZV'}
-handleChatError @ main.js:4
-(anonymous) @ chunk-JWX5TK7U.js:66
-invokeTask @ polyfills.js:1
-onInvokeTask @ chunk-JWX5TK7U.js:4
-invokeTask @ polyfills.js:1
-runTask @ polyfills.js:1
-invokeTask @ polyfills.js:1
-L @ polyfills.js:1
-H @ polyfills.js:1
-z @ polyfills.js:1
-postMessage
-(anonymous) @ index.html?id=e7d4b843-975b-48f0-bc87-2a35f8129122&parentId=3&origin=938a5e7d-5586-4f0e-b9b9-73787f8dd362&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:1282
-HostMessaging.channel.port1.onmessage @ index.html?id=e7d4b843-975b-48f0-bc87-2a35f8129122&parentId=3&origin=938a5e7d-5586-4f0e-b9b9-73787f8dd362&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:342
-workbench.desktop.main.js:3338 [Extension Host] [WebviewManager] postMessage() returned: true (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-main.js:2 [TabManager] Tab state saved to localStorage
-main.js:4 [ChatStore] Chat state reset due to error for tab tab_1765383740076_j0963x2
-chunk-JWX5TK7U.js:88 [CommandDiscoveryFacade] Cache cleared
-main.js:7 [ChatInputComponent] Session changed, cache cleared {sessionId: 'tab_1765383740076_j0963x2'}
-workbench.desktop.main.js:3338 [Extension Host] [WARN] [SdkPermissionHandler] Unknown tool denied: WebSearch (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-rJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:3338 [Extension Host] [WARN] [SdkPermissionHandler] Unknown tool denied: WebSearch (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-rJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:3338 [Extension Host] [WARN] [SdkPermissionHandler] Unknown tool denied: WebSearch (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-rJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:3338 [Extension Host] [WARN] [SdkPermissionHandler] Unknown tool denied: WebSearch (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-rJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:3338 [Extension Host] [WARN] [SdkPermissionHandler] Unknown tool denied: WebFetch (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-rJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:3338 [Extension Host] [WARN] [SdkPermissionHandler] Unknown tool denied: WebFetch (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-rJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:3338 [Extension Host] [WARN] [SdkPermissionHandler] Unknown tool denied: WebFetch (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-rJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:3338 [Extension Host] [INFO] [SdkPermissionHandler] Requesting user permission for dangerous tool: Bash (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:2797   ERR [Extension Host] [ERROR] [SdkPermissionHandler] Event emitter not set - cannot request permission 
-error @ workbench.desktop.main.js:2797
-error @ workbench.desktop.main.js:2797
-error @ workbench.desktop.main.js:6787
-aJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:3338 [Extension Host] [ERROR] [SdkPermissionHandler] Event emitter not set - cannot request permission  (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-rJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:3338 [Extension Host] [INFO] [SdkPermissionHandler] Requesting user permission for dangerous tool: Bash (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-workbench.desktop.main.js:2797   ERR [Extension Host] [ERROR] [SdkPermissionHandler] Event emitter not set - cannot request permission 
-error @ workbench.desktop.main.js:2797
-error @ workbench.desktop.main.js:2797
-error @ workbench.desktop.main.js:6787
-aJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
-workbench.desktop.main.js:3338 [Extension Host] [ERROR] [SdkPermissionHandler] Event emitter not set - cannot request permission  (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Antigravity/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:203:32553))
-rJa @ workbench.desktop.main.js:3338
-$logExtensionHostMessage @ workbench.desktop.main.js:3338
-S @ workbench.desktop.main.js:6831
-Q @ workbench.desktop.main.js:6831
-M @ workbench.desktop.main.js:6831
-L @ workbench.desktop.main.js:6831
-(anonymous) @ workbench.desktop.main.js:6831
-C @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:2792
-fire @ workbench.desktop.main.js:3528
-l.onmessage @ workbench.desktop.main.js:6842
