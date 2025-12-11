@@ -1,6 +1,5 @@
-import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { SetupStatusWidgetComponent } from './setup-status-widget.component';
-import { VSCodeService } from '@ptah-extension/core';
 
 /**
  * ChatEmptyStateComponent - Egyptian-themed empty state for chat view
@@ -197,5 +196,5 @@ import { VSCodeService } from '@ptah-extension/core';
   ],
 })
 export class ChatEmptyStateComponent {
-  private readonly vscodeService = inject(VSCodeService);
+  // Empty class body - component logic is in template
 }
