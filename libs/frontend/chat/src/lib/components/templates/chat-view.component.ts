@@ -13,21 +13,22 @@ import { LucideAngularModule, Square } from 'lucide-angular';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { ChatInputComponent } from '../molecules/chat-input.component';
 import { PermissionRequestCardComponent } from '../molecules/permission-request-card.component';
-import { SetupStatusWidgetComponent } from '../molecules/setup-status-widget.component';
+import { ChatEmptyStateComponent } from '../molecules/chat-empty-state.component';
 import { ChatStore } from '../../services/chat.store';
 import { VSCodeService } from '@ptah-extension/core';
 import { createExecutionChatMessage } from '@ptah-extension/shared';
 
 /**
- * ChatViewComponent - Main chat view with message list and welcome screen
+ * ChatViewComponent - Main chat view with message list and Egyptian themed welcome
  *
- * Complexity Level: 2 (Template with auto-scroll and mode selection)
+ * Complexity Level: 2 (Template with auto-scroll and empty state composition)
  * Patterns: Signal-based state, Auto-scroll behavior, Composition
  *
  * Features:
  * - Scrollable message list with smart auto-scroll
- * - "Let's build" welcome screen with Vibe/Spec mode selection
- * - Mode selection state management
+ * - Egyptian themed empty state (ChatEmptyStateComponent)
+ * - Permission request handling
+ * - Queued content indicator
  *
  * Auto-scroll behavior:
  * - Scrolls to bottom when new messages arrive
@@ -36,8 +37,8 @@ import { createExecutionChatMessage } from '@ptah-extension/shared';
  * - Re-enables when user scrolls back to bottom
  *
  * SOLID Principles:
- * - Single Responsibility: Chat view display and mode selection
- * - Composition: Uses MessageBubble and ChatInput components
+ * - Single Responsibility: Chat view display and message orchestration
+ * - Composition: Uses MessageBubble, ChatInput, and ChatEmptyState components
  */
 @Component({
   selector: 'ptah-chat-view',
@@ -48,7 +49,7 @@ import { createExecutionChatMessage } from '@ptah-extension/shared';
     MessageBubbleComponent,
     ChatInputComponent,
     PermissionRequestCardComponent,
-    SetupStatusWidgetComponent,
+    ChatEmptyStateComponent,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
@@ -65,10 +66,6 @@ export class ChatViewComponent {
 
   // Auto-scroll is enabled by default, disabled when user scrolls up
   private userScrolledUp = false;
-
-  // Welcome screen mode selection (Vibe/Spec)
-  private readonly _selectedMode = signal<'vibe' | 'spec'>('vibe');
-  readonly selectedMode = this._selectedMode.asReadonly();
 
   /**
    * Ptah icon URI for skeleton avatar placeholder
@@ -129,10 +126,6 @@ export class ChatViewComponent {
     // If user scrolled up, disable auto-scroll
     // If user scrolled back to bottom, re-enable auto-scroll
     this.userScrolledUp = !isNearBottom;
-  }
-
-  selectMode(mode: 'vibe' | 'spec'): void {
-    this._selectedMode.set(mode);
   }
 
   /**
