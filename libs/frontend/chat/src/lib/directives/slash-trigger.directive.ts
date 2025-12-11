@@ -76,6 +76,7 @@ export class SlashTriggerDirective implements OnInit {
   // Convert signal to observable in injection context (field initializer)
   // CRITICAL: toObservable() uses inject() internally, must be called here, not in ngOnInit
   private readonly enabled$ = toObservable(this.enabled);
+  private readonly slashDropdownOpen$ = toObservable(this.slashDropdownOpen);
 
   // Outputs (prefixed with 'slash' to avoid conflicts with other trigger directives)
   readonly slashTriggered = output<SlashTriggerEvent>();
@@ -140,7 +141,7 @@ export class SlashTriggerDirective implements OnInit {
     const triggerState$ = combineLatest([
       inputState$,
       this.enabled$,
-      toObservable(this.slashDropdownOpen), // NEW: Listen to dropdown state
+      this.slashDropdownOpen$, // NEW: Listen to dropdown state
     ]).pipe(
       filter(([, enabled, dropdownOpen]) => enabled && !dropdownOpen), // PAUSE when dropdown is open
       map(([state]) => state),

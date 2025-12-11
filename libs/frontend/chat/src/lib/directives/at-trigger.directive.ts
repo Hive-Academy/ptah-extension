@@ -84,6 +84,7 @@ export class AtTriggerDirective implements OnInit {
   // Convert signal to observable in injection context (field initializer)
   // CRITICAL: toObservable() uses inject() internally, must be called here, not in ngOnInit
   private readonly enabled$ = toObservable(this.enabled);
+  private readonly dropdownOpen$ = toObservable(this.dropdownOpen);
 
   /**
    * Emitted when @ trigger is detected with valid query
@@ -133,7 +134,7 @@ export class AtTriggerDirective implements OnInit {
     const triggerState$ = combineLatest([
       inputState$,
       this.enabled$,
-      toObservable(this.dropdownOpen), // NEW: Listen to dropdown state
+      this.dropdownOpen$, // NEW: Listen to dropdown state
     ]).pipe(
       filter(([, enabled, dropdownOpen]) => enabled && !dropdownOpen), // PAUSE when dropdown is open
       map(([state]) => state),
