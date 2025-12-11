@@ -50,8 +50,8 @@
     } }
 
     <!-- Empty state - Egyptian themed welcome -->
-    @if (chatStore.messages().length === 0) {
-      <ptah-chat-empty-state />
+    @if (chatStore.messages().length === 0 && !chatStore.isStreaming()) {
+    <ptah-chat-empty-state />
     }
   </div>
 
