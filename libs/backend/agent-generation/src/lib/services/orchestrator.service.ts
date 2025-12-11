@@ -18,7 +18,14 @@ import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import type * as vscode from 'vscode';
-import { ProjectType } from '@ptah-extension/workspace-intelligence';
+import {
+  ProjectType,
+  WorkspaceAnalyzerService,
+  ProjectDetectorService,
+  FrameworkDetectorService,
+  MonorepoDetectorService,
+  ProjectInfo,
+} from '@ptah-extension/workspace-intelligence';
 import { IAgentSelectionService } from '../interfaces/agent-selection.interface';
 import { ITemplateStorageService } from '../interfaces/template-storage.interface';
 import { IContentGenerationService } from '../interfaces/content-generation.interface';
@@ -146,7 +153,15 @@ export class AgentGenerationOrchestratorService {
     @inject(AGENT_GENERATION_TOKENS.AGENT_FILE_WRITER_SERVICE)
     private readonly fileWriter: IAgentFileWriterService,
     @inject(TOKENS.LOGGER)
-    private readonly logger: Logger
+    private readonly logger: Logger,
+    @inject(TOKENS.WORKSPACE_ANALYZER_SERVICE)
+    private readonly workspaceAnalyzer: WorkspaceAnalyzerService,
+    @inject(TOKENS.PROJECT_DETECTOR_SERVICE)
+    private readonly projectDetector: ProjectDetectorService,
+    @inject(TOKENS.FRAMEWORK_DETECTOR_SERVICE)
+    private readonly frameworkDetector: FrameworkDetectorService,
+    @inject(TOKENS.MONOREPO_DETECTOR_SERVICE)
+    private readonly monorepoDetector: MonorepoDetectorService
   ) {
     this.logger.debug('AgentGenerationOrchestratorService initialized');
   }
@@ -351,8 +366,8 @@ export class AgentGenerationOrchestratorService {
   /**
    * Phase 1: Analyze workspace to build project context.
    *
-   * Note: For now, this creates a simplified context.
-   * In future integration batches, this will delegate to WorkspaceAnalyzerService.
+   * Integrates with workspace-intelligence library to perform real workspace analysis.
+   * Detects project type, frameworks, monorepo configuration, and tech stack.
    *
    * @param workspaceUri - Workspace URI to analyze
    * @param progressCallback - Progress callback for updates
@@ -364,29 +379,67 @@ export class AgentGenerationOrchestratorService {
     progressCallback?: (progress: GenerationProgress) => void
   ): Promise<Result<AgentProjectContext, Error>> {
     try {
-      // TODO: Integration with WorkspaceAnalyzerService (future batch)
-      // For now, create basic context for testing
-
-      progressCallback?.({
-        phase: 'analysis',
-        percentComplete: 10,
-        currentOperation: 'Scanning workspace files',
+      this.logger.debug('Starting workspace analysis', {
+        workspace: workspaceUri.fsPath,
       });
 
-      // Simulate workspace analysis
-      // TODO: Replace with WorkspaceAnalyzerService in Integration Batch
+      // Get comprehensive project info from workspace-intelligence
+      const projectInfo = await this.workspaceAnalyzer.getProjectInfo();
+
+      if (!projectInfo) {
+        return Result.err(
+          new Error('Could not analyze workspace - no project info available')
+        );
+      }
+
+      // Get monorepo detection
+      const monorepoResult = await this.monorepoDetector.detectMonorepo(
+        workspaceUri
+      );
+
+      // Get framework detection (from project type)
+      const detectedFramework = await this.frameworkDetector.detectFramework(
+        workspaceUri,
+        projectInfo.type
+      );
+
+      // Convert framework enum to arrays (Framework[] for context, string[] for techStack)
+      const frameworksEnum = detectedFramework ? [detectedFramework] : [];
+      const frameworksString = detectedFramework
+        ? [detectedFramework as string]
+        : [];
+
+      // Report progress
+      progressCallback?.({
+        phase: 'analysis',
+        percentComplete: 50,
+        currentOperation: 'Detecting project type and frameworks',
+        detectedCharacteristics: [
+          `Project Type: ${projectInfo.type}`,
+          `Frameworks: ${frameworksString.join(', ') || 'None'}`,
+          monorepoResult.isMonorepo
+            ? `Monorepo: ${monorepoResult.type}`
+            : 'Single package',
+        ],
+      });
+
+      // Map ProjectInfo to AgentProjectContext
       const context: AgentProjectContext = {
-        projectType: ProjectType.Node, // Temporary placeholder
-        frameworks: [],
-        monorepoType: undefined,
-        rootPath: workspaceUri.fsPath,
-        relevantFiles: [],
+        rootPath: projectInfo.path,
+        projectType: projectInfo.type, // Already correct ProjectType enum
+        frameworks: frameworksEnum,
+        monorepoType: monorepoResult.isMonorepo
+          ? monorepoResult.type
+          : undefined,
+        relevantFiles: [], // Can be populated by FileRelevanceScorerService if needed
         techStack: {
-          languages: ['TypeScript'],
-          frameworks: [],
-          buildTools: [],
-          testingFrameworks: [],
-          packageManager: 'npm',
+          languages: this.detectLanguagesFromProjectType(projectInfo.type),
+          frameworks: frameworksString,
+          buildTools: this.detectBuildTools(projectInfo),
+          testingFrameworks: this.detectTestingFrameworks(
+            projectInfo.devDependencies
+          ),
+          packageManager: this.detectPackageManager(projectInfo.path),
         },
         codeConventions: {
           indentation: 'spaces',
@@ -397,17 +450,15 @@ export class AgentGenerationOrchestratorService {
         },
       };
 
-      progressCallback?.({
-        phase: 'analysis',
-        percentComplete: 20,
-        detectedCharacteristics: [
-          `Detected ${context.projectType}`,
-          `Primary language: ${context.techStack.languages[0]}`,
-        ],
+      this.logger.info('Workspace analysis complete', {
+        projectType: context.projectType,
+        frameworks: context.frameworks,
+        isMonorepo: !!context.monorepoType,
       });
 
       return Result.ok(context);
     } catch (error) {
+      this.logger.error('Workspace analysis failed', error as Error);
       return Result.err(
         new Error(`Workspace analysis failed: ${(error as Error).message}`)
       );
@@ -702,6 +753,121 @@ export class AgentGenerationOrchestratorService {
     // TODO: Implement intelligent file selection based on topic
     // For now, return empty array (generic customization)
     return [];
+  }
+
+  /**
+   * Detect primary languages from project type
+   * @private
+   */
+  private detectLanguagesFromProjectType(projectType: ProjectType): string[] {
+    const languageMap: Record<ProjectType, string[]> = {
+      [ProjectType.Node]: ['JavaScript', 'TypeScript'],
+      [ProjectType.React]: ['JavaScript', 'TypeScript', 'JSX', 'TSX'],
+      [ProjectType.Angular]: ['TypeScript'],
+      [ProjectType.Vue]: ['JavaScript', 'TypeScript', 'Vue'],
+      [ProjectType.NextJS]: ['JavaScript', 'TypeScript', 'JSX', 'TSX'],
+      [ProjectType.Python]: ['Python'],
+      [ProjectType.Java]: ['Java'],
+      [ProjectType.Rust]: ['Rust'],
+      [ProjectType.Go]: ['Go'],
+      [ProjectType.DotNet]: ['C#', 'F#'],
+      [ProjectType.PHP]: ['PHP'],
+      [ProjectType.Ruby]: ['Ruby'],
+      [ProjectType.General]: ['Unknown'],
+    };
+
+    return languageMap[projectType] || ['Unknown'];
+  }
+
+  /**
+   * Detect build tools from project info
+   * @private
+   */
+  private detectBuildTools(projectInfo: ProjectInfo): string[] {
+    const buildTools: string[] = [];
+    const deps = [...projectInfo.dependencies, ...projectInfo.devDependencies];
+
+    if (deps.includes('webpack')) buildTools.push('Webpack');
+    if (deps.includes('vite')) buildTools.push('Vite');
+    if (deps.includes('esbuild')) buildTools.push('esbuild');
+    if (deps.includes('rollup')) buildTools.push('Rollup');
+    if (deps.includes('parcel')) buildTools.push('Parcel');
+    if (deps.includes('turbopack')) buildTools.push('Turbopack');
+    if (deps.includes('@nx/devkit')) buildTools.push('Nx');
+    if (deps.includes('gradle')) buildTools.push('Gradle');
+    if (deps.includes('maven')) buildTools.push('Maven');
+    if (deps.includes('cargo')) buildTools.push('Cargo');
+    if (deps.includes('go')) buildTools.push('Go Build');
+    if (deps.includes('setuptools')) buildTools.push('setuptools');
+
+    // Fallback based on project type
+    if (buildTools.length === 0) {
+      if (projectInfo.type === ProjectType.Node) buildTools.push('npm/tsc');
+      if (projectInfo.type === ProjectType.Python) buildTools.push('pip');
+      if (projectInfo.type === ProjectType.Java)
+        buildTools.push('Maven/Gradle');
+      if (projectInfo.type === ProjectType.Rust) buildTools.push('Cargo');
+      if (projectInfo.type === ProjectType.Go) buildTools.push('Go Build');
+    }
+
+    return buildTools;
+  }
+
+  /**
+   * Detect testing frameworks from dependencies
+   * @private
+   */
+  private detectTestingFrameworks(devDependencies: string[]): string[] {
+    const frameworks: string[] = [];
+
+    if (devDependencies.includes('jest')) frameworks.push('Jest');
+    if (devDependencies.includes('vitest')) frameworks.push('Vitest');
+    if (devDependencies.includes('mocha')) frameworks.push('Mocha');
+    if (devDependencies.includes('jasmine')) frameworks.push('Jasmine');
+    if (devDependencies.includes('karma')) frameworks.push('Karma');
+    if (devDependencies.includes('cypress')) frameworks.push('Cypress');
+    if (devDependencies.includes('playwright')) frameworks.push('Playwright');
+    if (devDependencies.includes('@testing-library/react'))
+      frameworks.push('React Testing Library');
+    if (devDependencies.includes('@testing-library/angular'))
+      frameworks.push('Angular Testing Library');
+    if (devDependencies.includes('pytest')) frameworks.push('pytest');
+    if (devDependencies.includes('unittest')) frameworks.push('unittest');
+    if (devDependencies.includes('junit')) frameworks.push('JUnit');
+    if (devDependencies.includes('cargo-test')) frameworks.push('Cargo Test');
+
+    return frameworks;
+  }
+
+  /**
+   * Detect package manager from workspace
+   * @private
+   */
+  private detectPackageManager(workspacePath: string): string {
+    const fs = require('fs');
+    const path = require('path');
+
+    // Check for lock files
+    if (fs.existsSync(path.join(workspacePath, 'pnpm-lock.yaml')))
+      return 'pnpm';
+    if (fs.existsSync(path.join(workspacePath, 'yarn.lock'))) return 'yarn';
+    if (fs.existsSync(path.join(workspacePath, 'package-lock.json')))
+      return 'npm';
+    if (fs.existsSync(path.join(workspacePath, 'bun.lockb'))) return 'bun';
+
+    // Fallbacks based on project type
+    if (fs.existsSync(path.join(workspacePath, 'requirements.txt')))
+      return 'pip';
+    if (fs.existsSync(path.join(workspacePath, 'Cargo.toml'))) return 'cargo';
+    if (fs.existsSync(path.join(workspacePath, 'go.mod'))) return 'go mod';
+    if (fs.existsSync(path.join(workspacePath, 'pom.xml'))) return 'maven';
+    if (fs.existsSync(path.join(workspacePath, 'build.gradle')))
+      return 'gradle';
+    if (fs.existsSync(path.join(workspacePath, 'Gemfile'))) return 'bundler';
+    if (fs.existsSync(path.join(workspacePath, 'composer.json')))
+      return 'composer';
+
+    return 'npm'; // Default fallback
   }
 
   /**
