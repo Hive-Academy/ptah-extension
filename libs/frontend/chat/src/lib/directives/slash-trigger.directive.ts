@@ -73,8 +73,11 @@ export class SlashTriggerDirective implements OnInit {
   readonly enabled = input(true);
   readonly slashDropdownOpen = input(false); // NEW: Signal to pause directive when dropdown is open
 
-  // Convert signal to observable in injection context (field initializer)
-  // CRITICAL: toObservable() uses inject() internally, must be called here, not in ngOnInit
+  // CRITICAL: Field initializer pattern for toObservable() call
+  // Why: toObservable() uses inject() internally, which requires injection context
+  // Injection context: Only available during class construction (field initializers, constructor)
+  // Violation: Calling toObservable() in ngOnInit causes NG0203 "inject() must be called from injection context"
+  // Reference: https://angular.dev/guide/signals/inputs#reading-input-values-in-ngOnInit
   private readonly enabled$ = toObservable(this.enabled);
   private readonly slashDropdownOpen$ = toObservable(this.slashDropdownOpen);
 
