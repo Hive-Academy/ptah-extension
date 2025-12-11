@@ -303,6 +303,12 @@ export class SetupStatusWidgetComponent implements OnInit, OnDestroy {
    */
   formatRelativeTime(isoString: string): string {
     const date = new Date(isoString);
+
+    // Validate date before calculations to prevent NaN in template
+    if (isNaN(date.getTime())) {
+      return 'unknown'; // Graceful fallback for invalid dates
+    }
+
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffSeconds = Math.floor(diffMs / 1000);
