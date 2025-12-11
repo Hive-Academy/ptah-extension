@@ -29,6 +29,21 @@ import { AgentProjectContext } from '../types/core.types';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
 
 /**
+ * Custom error for LLM validation fallback scenarios.
+ * Indicates that all retry attempts failed validation, caller should use generic content.
+ */
+export class AgentCustomizationFallbackError extends Error {
+  constructor(
+    message: string,
+    public readonly attempts: number,
+    public readonly lastValidationScore?: number
+  ) {
+    super(message);
+    this.name = 'AgentCustomizationFallbackError';
+  }
+}
+
+/**
  * Agent Customization Service
  *
  * Facade service for LLM-powered template section customization.
@@ -191,27 +206,40 @@ export class AgentCustomizationService implements IAgentCustomizationService {
         });
 
         // Validate LLM output (3-tier: schema, safety, factual)
-        const validationResult = await this.validator.validate(
-          response,
-          projectContext
-        );
-
-        if (validationResult.isErr()) {
-          this.logger.warn('Validation service error', validationResult.error!);
-          // Continue to retry on validation service errors
-          if (attempt < this.MAX_RETRIES) {
-            await this.delay(this.calculateBackoff(attempt));
-            continue;
-          } else {
-            // Max retries exhausted - fallback to empty string
-            this.logger.warn(
-              'Max retries exhausted after validation service errors',
-              { sectionTopic }
-            );
-            return Result.ok(''); // Fallback to generic content
-          }
+        // CRITICAL: Distinguish infrastructure errors from content validation failures
+        let validationResult;
+        try {
+          validationResult = await this.validator.validate(
+            response,
+            projectContext
+          );
+        } catch (error) {
+          // Unexpected error in validation service (infrastructure failure)
+          this.logger.error(
+            'Validation service threw unexpected error',
+            error as Error
+          );
+          return Result.err(
+            new Error(`Validation service error: ${(error as Error).message}`)
+          );
         }
 
+        // Check if validation service returned an error (infrastructure failure)
+        if (validationResult.isErr()) {
+          this.logger.error(
+            'Validation service unavailable',
+            validationResult.error!
+          );
+          return Result.err(
+            new Error(
+              `Validation service unavailable: ${
+                validationResult.error!.message
+              }`
+            )
+          );
+        }
+
+        // Validation service succeeded, check content quality
         const validation = validationResult.value!;
 
         if (validation.isValid && validation.score >= 70) {
@@ -222,7 +250,8 @@ export class AgentCustomizationService implements IAgentCustomizationService {
           });
           return Result.ok(response);
         } else {
-          this.logger.warn('Validation failed', {
+          // Content validation failed (not infrastructure failure) - retry is appropriate
+          this.logger.warn('Content validation failed', {
             sectionTopic,
             attempt: attempt + 1,
             score: validation.score,
@@ -237,12 +266,20 @@ export class AgentCustomizationService implements IAgentCustomizationService {
             await this.delay(backoffMs);
             continue;
           } else {
-            // Max retries exhausted - fallback to empty string
-            this.logger.warn('Max retries exhausted - validation failed', {
+            // Max retries exhausted - return fallback error
+            this.logger.error('Max retries exhausted - validation failed', {
               sectionTopic,
               finalScore: validation.score,
             });
-            return Result.ok(''); // Fallback to generic content
+            return Result.err(
+              new AgentCustomizationFallbackError(
+                `All ${
+                  this.MAX_RETRIES + 1
+                } validation attempts failed. Caller should use generic content.`,
+                this.MAX_RETRIES + 1,
+                validation.score
+              )
+            );
           }
         }
       } catch (error) {
@@ -271,10 +308,16 @@ export class AgentCustomizationService implements IAgentCustomizationService {
     }
 
     // Should not reach here, but safety net
-    this.logger.warn('Unexpected retry loop exit - returning empty fallback', {
-      sectionTopic,
-    });
-    return Result.ok('');
+    this.logger.error(
+      'Unexpected: reached end of retry loop without returning',
+      { sectionTopic }
+    );
+    return Result.err(
+      new AgentCustomizationFallbackError(
+        `Unexpected retry loop exit. Caller should use generic content.`,
+        this.MAX_RETRIES + 1
+      )
+    );
   }
 
   /**

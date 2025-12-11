@@ -6,11 +6,11 @@
  */
 
 import 'reflect-metadata';
+import { VsCodeLmService } from './vscode-lm.service';
 import {
-  VsCodeLmService,
+  IOutputValidationService,
   SectionCustomizationRequest,
-} from './vscode-lm.service';
-import { IOutputValidationService } from '../interfaces/output-validation.interface';
+} from '../interfaces';
 import { Logger } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import {

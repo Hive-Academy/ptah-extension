@@ -29,7 +29,10 @@ import {
   GenerationSummary,
 } from '../types/core.types';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
-import { VsCodeLmService } from './vscode-lm.service';
+import {
+  VsCodeLmService,
+  LlmValidationFallbackError,
+} from './vscode-lm.service';
 import { SectionCustomizationRequest } from '../interfaces/vscode-lm.interface';
 
 /**
@@ -125,6 +128,12 @@ export interface GenerationProgress {
  */
 @injectable()
 export class AgentGenerationOrchestratorService {
+  /**
+   * Phase 3 timeout limit in milliseconds (5 minutes).
+   * Prevents wizard from appearing frozen during long LLM operations.
+   */
+  private readonly PHASE_3_TIMEOUT_MS = 5 * 60 * 1000;
+
   constructor(
     @inject(AGENT_GENERATION_TOKENS.AGENT_SELECTION_SERVICE)
     private readonly agentSelector: IAgentSelectionService,
@@ -228,7 +237,7 @@ export class AgentGenerationOrchestratorService {
         });
       }
 
-      // Phase 3: LLM Customization (30% → 80%)
+      // Phase 3: LLM Customization (30% → 80%) with timeout protection
       this.logger.info(`Phase 3: Customizing ${selections.length} agents`);
       progressCallback?.({
         phase: 'customization',
@@ -238,10 +247,15 @@ export class AgentGenerationOrchestratorService {
         agentsProcessed: 0,
       });
 
-      const customizationsResult = await this.customizeAgents(
-        selections.map((s) => s.template.id),
-        projectContext,
-        progressCallback
+      // Wrap Phase 3 with timeout to prevent indefinite waiting
+      const customizationsResult = await this.executeWithTimeout(
+        this.customizeAgents(
+          selections.map((s) => s.template.id),
+          projectContext,
+          progressCallback
+        ),
+        this.PHASE_3_TIMEOUT_MS,
+        'Phase 3 (LLM Customization)'
       );
 
       if (customizationsResult.isErr()) {
@@ -530,11 +544,24 @@ export class AgentGenerationOrchestratorService {
           if (result.isOk()) {
             agentCustomizations.set(sectionId, result.value!);
           } else {
-            // Fallback to empty (generic content)
-            this.logger.warn(
-              `LLM customization failed for section ${sectionId}, using fallback`
-            );
-            agentCustomizations.set(sectionId, '');
+            // Check if error is fallback error (validation failed) vs real error
+            if (result.error instanceof LlmValidationFallbackError) {
+              this.logger.warn(
+                `LLM customization validation failed for section ${sectionId}, using generic content`,
+                {
+                  attempts: result.error.attempts,
+                  lastScore: result.error.lastValidationScore,
+                }
+              );
+              agentCustomizations.set(sectionId, ''); // Fallback to generic content
+            } else {
+              // Real error (infrastructure, API failure) - still fallback but log as error
+              this.logger.error(
+                `LLM customization error for section ${sectionId}, using generic content`,
+                result.error!
+              );
+              agentCustomizations.set(sectionId, ''); // Fallback to generic content
+            }
           }
         }
 
@@ -675,5 +702,41 @@ export class AgentGenerationOrchestratorService {
     // TODO: Implement intelligent file selection based on topic
     // For now, return empty array (generic customization)
     return [];
+  }
+
+  /**
+   * Execute a promise with a timeout.
+   * Races the promise against a timeout, returning an error if timeout is reached.
+   *
+   * @param promise - Promise to execute
+   * @param timeoutMs - Timeout in milliseconds
+   * @param phaseName - Human-readable phase name for error messages
+   * @returns Result from promise or timeout error
+   * @private
+   */
+  private async executeWithTimeout<T>(
+    promise: Promise<Result<T, Error>>,
+    timeoutMs: number,
+    phaseName: string
+  ): Promise<Result<T, Error>> {
+    const timeoutPromise = new Promise<Result<T, Error>>((resolve) => {
+      setTimeout(() => {
+        this.logger.error(`${phaseName} timeout exceeded`, {
+          timeoutMs,
+          timeoutMinutes: (timeoutMs / 1000 / 60).toFixed(1),
+        });
+        resolve(
+          Result.err(
+            new Error(
+              `${phaseName} timeout exceeded (${(timeoutMs / 1000 / 60).toFixed(
+                1
+              )} minutes). Please try again with fewer agents.`
+            )
+          )
+        );
+      }, timeoutMs);
+    });
+
+    return Promise.race([promise, timeoutPromise]);
   }
 }

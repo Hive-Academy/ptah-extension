@@ -25,6 +25,21 @@ import { AgentProjectContext } from '../types/core.types';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
 
 /**
+ * Custom error for LLM validation fallback scenarios.
+ * Indicates that all retry attempts failed validation, caller should use generic content.
+ */
+export class LlmValidationFallbackError extends Error {
+  constructor(
+    message: string,
+    public readonly attempts: number,
+    public readonly lastValidationScore?: number
+  ) {
+    super(message);
+    this.name = 'LlmValidationFallbackError';
+  }
+}
+
+/**
  * VS Code LM Service - Orchestration layer for agent customization
  *
  * This service wraps VsCodeLmProvider to add reliability and validation:
@@ -146,21 +161,53 @@ export class VsCodeLmService implements IVsCodeLmService {
         const response = completionResult.value!;
 
         // Validate response with OutputValidationService
-        const validationResult = await this.validation.validate(
-          response,
-          projectContext
-        );
+        // CRITICAL: Distinguish infrastructure errors from content validation failures
+        let validationResult;
+        try {
+          validationResult = await this.validation.validate(
+            response,
+            projectContext
+          );
+        } catch (error) {
+          // Unexpected error in validation service (infrastructure failure)
+          this.logger.error(
+            'Validation service threw unexpected error',
+            error as Error
+          );
+          return Result.err(
+            new Error(`Validation service error: ${(error as Error).message}`)
+          );
+        }
 
-        if (validationResult.isOk() && validationResult.value!.isValid) {
+        // Check if validation service returned an error (infrastructure failure)
+        if (validationResult.isErr()) {
+          this.logger.error(
+            'Validation service unavailable',
+            validationResult.error!
+          );
+          return Result.err(
+            new Error(
+              `Validation service unavailable: ${
+                validationResult.error!.message
+              }`
+            )
+          );
+        }
+
+        // Validation service succeeded, check content quality
+        const validation = validationResult.value!;
+
+        if (validation.isValid) {
           this.logger.info(`Section customized successfully: ${sectionTopic}`, {
             attempt,
-            score: validationResult.value!.score,
+            score: validation.score,
           });
           return Result.ok(response);
         } else {
-          this.logger.warn(`Validation failed (attempt ${attempt})`, {
-            score: validationResult.value?.score,
-            issueCount: validationResult.value?.issues.length,
+          // Content validation failed (not infrastructure failure) - retry is appropriate
+          this.logger.warn(`Content validation failed (attempt ${attempt})`, {
+            score: validation.score,
+            issueCount: validation.issues.length,
           });
 
           if (attempt < this.MAX_RETRIES) {
@@ -170,11 +217,17 @@ export class VsCodeLmService implements IVsCodeLmService {
             await this.delay(backoffMs);
             continue;
           } else {
-            // Max retries exhausted - use fallback
+            // Max retries exhausted - return fallback error
             this.logger.error(
               `Max retries exhausted for section: ${sectionTopic}`
             );
-            return Result.ok(''); // Empty string signals fallback to generic content
+            return Result.err(
+              new LlmValidationFallbackError(
+                `All ${this.MAX_RETRIES} validation attempts failed. Caller should use generic content.`,
+                this.MAX_RETRIES,
+                validation.score
+              )
+            );
           }
         }
       } catch (error) {
@@ -194,7 +247,16 @@ export class VsCodeLmService implements IVsCodeLmService {
     }
 
     // Fallback if all retries fail (should not reach here, but safety net)
-    return Result.ok('');
+    this.logger.error(
+      'Unexpected: reached end of retry loop without returning',
+      { sectionTopic }
+    );
+    return Result.err(
+      new LlmValidationFallbackError(
+        `Unexpected retry loop exit. Caller should use generic content.`,
+        this.MAX_RETRIES
+      )
+    );
   }
 
   /**

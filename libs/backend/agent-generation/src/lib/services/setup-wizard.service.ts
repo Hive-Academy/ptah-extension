@@ -66,6 +66,12 @@ export class SetupWizardService implements ISetupWizardService {
   private currentSession: WizardSession | null = null;
 
   /**
+   * State transition lock to prevent concurrent step transitions.
+   * Protects against race conditions from rapid user clicks.
+   */
+  private transitionLock = false;
+
+  /**
    * Webview panel view type identifier.
    * Must match the viewType registered in package.json.
    */
@@ -156,8 +162,8 @@ export class SetupWizardService implements ISetupWizardService {
         workspace: this.currentSession.workspaceRoot,
       });
 
-      // Create webview panel
-      void this.webviewManager.createWebviewPanel({
+      // Create webview panel and verify creation succeeded
+      const panel = await this.webviewManager.createWebviewPanel({
         viewType: this.WIZARD_VIEW_TYPE,
         title: 'Ptah Setup Wizard',
         showOptions: {
@@ -169,6 +175,15 @@ export class SetupWizardService implements ISetupWizardService {
           retainContextWhenHidden: true,
         },
       });
+
+      // Verify panel was created successfully
+      if (!panel) {
+        this.logger.error('Failed to create wizard webview panel');
+        this.currentSession = null; // Clean up failed session
+        return Result.err(
+          new Error('Failed to create wizard webview panel. Please try again.')
+        );
+      }
 
       // Register RPC handlers via webview's onDidReceiveMessage
       // The WebviewManager already sets up the message listener
@@ -210,6 +225,18 @@ export class SetupWizardService implements ISetupWizardService {
     currentStep: WizardStep,
     stepData: Record<string, unknown>
   ): Promise<Result<WizardStep, Error>> {
+    // Acquire state transition lock
+    if (this.transitionLock) {
+      this.logger.warn(
+        'Step transition already in progress, rejecting request'
+      );
+      return Result.err(
+        new Error('Step transition already in progress. Please wait.')
+      );
+    }
+
+    this.transitionLock = true;
+
     try {
       // Validate session
       if (!this.currentSession || this.currentSession.id !== sessionId) {
@@ -325,6 +352,9 @@ export class SetupWizardService implements ISetupWizardService {
       return Result.err(
         new Error(`Step transition failed: ${(error as Error).message}`)
       );
+    } finally {
+      // Always release lock, even if error occurs
+      this.transitionLock = false;
     }
   }
 
@@ -425,8 +455,8 @@ export class SetupWizardService implements ISetupWizardService {
         selectedAgentIds: savedState.selectedAgentIds,
       };
 
-      // Re-launch webview at saved step
-      void this.webviewManager.createWebviewPanel({
+      // Re-launch webview at saved step and verify creation succeeded
+      const panel = await this.webviewManager.createWebviewPanel({
         viewType: this.WIZARD_VIEW_TYPE,
         title: 'Ptah Setup Wizard (Resumed)',
         showOptions: {
@@ -438,6 +468,15 @@ export class SetupWizardService implements ISetupWizardService {
           retainContextWhenHidden: true,
         },
       });
+
+      // Verify panel was created successfully
+      if (!panel) {
+        this.logger.error('Failed to create wizard webview panel for resume');
+        this.currentSession = null; // Clean up failed session
+        return Result.err(
+          new Error('Failed to create wizard webview panel. Please try again.')
+        );
+      }
 
       this.logger.info('Wizard resumed successfully', {
         sessionId: this.currentSession.id,
