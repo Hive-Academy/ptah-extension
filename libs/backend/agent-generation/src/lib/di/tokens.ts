@@ -19,6 +19,12 @@
 export const SETUP_WIZARD_SERVICE = Symbol.for('SetupWizardService');
 
 /**
+ * SetupStatusService - Agent configuration status detection
+ * Responsibilities: Check agent existence, count agents, return last modified timestamp
+ */
+export const SETUP_STATUS_SERVICE = Symbol.for('SetupStatusService');
+
+/**
  * AgentGenerationOrchestratorService - End-to-end generation coordinator
  * Responsibilities: Coordinate 5-phase workflow (Analysis → Selection → Customization → Rendering → Writing)
  */
@@ -115,6 +121,7 @@ export const MIGRATION_SERVICE = Symbol.for('MigrationService');
 export const AGENT_GENERATION_TOKENS = {
   // Core Orchestration
   SETUP_WIZARD_SERVICE,
+  SETUP_STATUS_SERVICE,
   AGENT_GENERATION_ORCHESTRATOR,
 
   // Template Management

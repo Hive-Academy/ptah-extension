@@ -95,7 +95,7 @@ import { AgentSelectorComponent } from './agent-selector.component';
             [value]="currentMessage()"
             (input)="handleInput($event)"
             (keydown)="handleKeyDown($event)"
-            rows="1"
+            rows="4"
             ptahAtTrigger
             [dropdownOpen]="dropdownOpen()"
             (atTriggered)="handleAtTriggered($event)"

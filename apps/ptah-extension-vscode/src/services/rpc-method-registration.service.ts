@@ -14,7 +14,7 @@
  * - session:list, session:load
  */
 
-import { injectable, inject } from 'tsyringe';
+import { injectable, inject, DependencyContainer } from 'tsyringe';
 import { z } from 'zod';
 import {
   Logger,
@@ -23,6 +23,7 @@ import {
   AgentSummaryChunk,
   TOKENS,
   ConfigManager,
+  CommandManager,
 } from '@ptah-extension/vscode-core';
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { SdkAgentAdapter, SdkSessionStorage } from '@ptah-extension/agent-sdk';
@@ -105,8 +106,11 @@ export class RpcMethodRegistrationService {
     private readonly agentWatcher: AgentSessionWatcherService,
     @inject(TOKENS.CONFIG_MANAGER)
     private readonly configManager: ConfigManager,
+    @inject(TOKENS.COMMAND_MANAGER)
+    private readonly commandManager: CommandManager,
     @inject('SdkAgentAdapter') private readonly sdkAdapter: SdkAgentAdapter,
-    @inject('SdkSessionStorage') private readonly sdkStorage: SdkSessionStorage
+    @inject('SdkSessionStorage') private readonly sdkStorage: SdkSessionStorage,
+    private readonly container: DependencyContainer
   ) {
     // Setup agent watcher summary chunk listener
     this.setupAgentWatcherListeners();
@@ -118,6 +122,9 @@ export class RpcMethodRegistrationService {
     // Setup result stats callback
     // This sends 'session:stats' event to frontend when SDK result message is received
     this.setupResultStatsCallback();
+
+    // Register VS Code commands
+    this.registerSetupAgentsCommand();
   }
 
   /**
@@ -240,10 +247,70 @@ export class RpcMethodRegistrationService {
     this.registerFileMethods();
     this.registerModelAndAutopilotMethods();
     this.registerAuthMethods();
+    this.registerSetupStatusHandlers();
 
     this.logger.info('RPC methods registered (SDK-only mode)', {
       methods: this.rpcHandler.getRegisteredMethods(),
     });
+  }
+
+  /**
+   * Register VS Code command for launching setup wizard
+   * TASK_2025_069 Batch 2 - Task 2.2
+   */
+  private registerSetupAgentsCommand(): void {
+    this.commandManager.registerCommand({
+      id: 'ptah.setupAgents',
+      title: 'Setup Ptah Agents',
+      category: 'Ptah',
+      handler: async () => {
+        // Get workspace folder
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+
+        if (!workspaceFolder) {
+          vscode.window.showErrorMessage(
+            'No workspace open. Please open a folder first.'
+          );
+          return;
+        }
+
+        try {
+          // Dynamically import agent-generation library (lazy loading)
+          const { AGENT_GENERATION_TOKENS } = await import(
+            '@ptah-extension/agent-generation'
+          );
+
+          // Resolve SetupWizardService from DI container
+          const setupWizardService = this.container.resolve(
+            AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE
+          ) as { launchWizard: (uri: vscode.Uri) => Promise<any> };
+
+          // Launch wizard
+          const result = await setupWizardService.launchWizard(
+            workspaceFolder.uri
+          );
+
+          // Handle error result
+          if (result.isErr && result.isErr()) {
+            vscode.window.showErrorMessage(
+              `Failed to launch setup wizard: ${result.error.message}`
+            );
+          }
+        } catch (error) {
+          this.logger.error(
+            'Failed to launch setup wizard',
+            error instanceof Error ? error : new Error(String(error))
+          );
+          vscode.window.showErrorMessage(
+            `Failed to launch setup wizard: ${
+              error instanceof Error ? error.message : 'Unknown error'
+            }`
+          );
+        }
+      },
+    });
+
+    this.logger.info('Setup agents command registered');
   }
 
   /**
@@ -255,10 +322,11 @@ export class RpcMethodRegistrationService {
       'chat:start',
       async (params) => {
         try {
-          const { prompt, sessionId, workspacePath, options } = params;
+          const { prompt, sessionId, workspacePath, options, name } = params;
           this.logger.debug('RPC: chat:start called', {
             sessionId,
             workspacePath,
+            sessionName: name,
           });
 
           // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
@@ -275,6 +343,7 @@ export class RpcMethodRegistrationService {
             model: options?.model || currentModel,
             systemPrompt: options?.systemPrompt,
             projectPath: workspacePath,
+            name, // Pass session name to backend
           });
 
           // Log files received for debugging (Phase 2)
@@ -316,8 +385,11 @@ export class RpcMethodRegistrationService {
       'chat:continue',
       async (params) => {
         try {
-          const { prompt, sessionId, workspacePath } = params;
-          this.logger.debug('RPC: chat:continue called', { sessionId });
+          const { prompt, sessionId, workspacePath, name } = params;
+          this.logger.debug('RPC: chat:continue called', {
+            sessionId,
+            sessionName: name,
+          });
 
           // Check if session is active in memory
           if (!this.sdkAdapter.isSessionActive(sessionId)) {
@@ -1069,5 +1141,149 @@ export class RpcMethodRegistrationService {
       yolo: 'bypassPermissions',
     };
     return modeMap[level];
+  }
+
+  /**
+   * Register RPC handlers for setup status and wizard launch
+   * TASK_2025_069 Batch 4 - Task 4.3
+   */
+  private registerSetupStatusHandlers(): void {
+    // setup-status:get-status - Get agent configuration status
+    this.rpcHandler.registerMethod<
+      void,
+      | {
+          isConfigured: boolean;
+          agentCount: number;
+          lastModified: string | null;
+          projectAgents: string[];
+          userAgents: string[];
+        }
+      | { error: string }
+    >('setup-status:get-status', async () => {
+      try {
+        this.logger.debug('RPC: setup-status:get-status called');
+
+        // Get workspace folder
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+          return {
+            error: 'No workspace open',
+            isConfigured: false,
+            agentCount: 0,
+            lastModified: null,
+            projectAgents: [],
+            userAgents: [],
+          };
+        }
+
+        // Dynamically import agent-generation library (lazy loading)
+        const { AGENT_GENERATION_TOKENS } = await import(
+          '@ptah-extension/agent-generation'
+        );
+
+        // Resolve SetupStatusService from DI container
+        const setupStatusService = this.container.resolve(
+          AGENT_GENERATION_TOKENS.SETUP_STATUS_SERVICE
+        ) as {
+          getStatus: (uri: vscode.Uri) => Promise<{
+            isErr: () => boolean;
+            value?: any;
+            error?: Error;
+          }>;
+        };
+
+        // Get status
+        const result = await setupStatusService.getStatus(workspaceFolder.uri);
+
+        // Handle error result
+        if (result.isErr()) {
+          this.logger.error('Failed to get setup status', result.error);
+          return {
+            error: result.error?.message || 'Unknown error',
+            isConfigured: false,
+            agentCount: 0,
+            lastModified: null,
+            projectAgents: [],
+            userAgents: [],
+          };
+        }
+
+        return result.value;
+      } catch (error) {
+        this.logger.error(
+          'RPC: setup-status:get-status failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        return {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          isConfigured: false,
+          agentCount: 0,
+          lastModified: null,
+          projectAgents: [],
+          userAgents: [],
+        };
+      }
+    });
+
+    // setup-wizard:launch - Launch setup wizard webview
+    this.rpcHandler.registerMethod<void, { success: boolean; error?: string }>(
+      'setup-wizard:launch',
+      async () => {
+        try {
+          this.logger.debug('RPC: setup-wizard:launch called');
+
+          // Get workspace folder
+          const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+          if (!workspaceFolder) {
+            return {
+              success: false,
+              error: 'No workspace open',
+            };
+          }
+
+          // Dynamically import agent-generation library (lazy loading)
+          const { AGENT_GENERATION_TOKENS } = await import(
+            '@ptah-extension/agent-generation'
+          );
+
+          // Resolve SetupWizardService from DI container
+          const setupWizardService = this.container.resolve(
+            AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE
+          ) as {
+            launchWizard: (uri: vscode.Uri) => Promise<{
+              isErr: () => boolean;
+              error?: Error;
+            }>;
+          };
+
+          // Launch wizard
+          const result = await setupWizardService.launchWizard(
+            workspaceFolder.uri
+          );
+
+          // Handle error result
+          if (result.isErr()) {
+            this.logger.error('Failed to launch setup wizard', result.error);
+            return {
+              success: false,
+              error: result.error?.message || 'Unknown error',
+            };
+          }
+
+          return { success: true };
+        } catch (error) {
+          this.logger.error(
+            'RPC: setup-wizard:launch failed',
+            error instanceof Error ? error : new Error(String(error))
+          );
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          };
+        }
+      }
+    );
+
+    this.logger.info('Setup status RPC handlers registered');
   }
 }

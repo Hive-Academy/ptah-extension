@@ -3,9 +3,10 @@ import {
   inject,
   ChangeDetectionStrategy,
   computed,
+  ViewChild,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
+import { ConfirmationModalComponent } from './confirmation-modal.component';
 
 /**
  * AnalysisResultsComponent - Display detected project characteristics
@@ -29,7 +30,7 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
 @Component({
   selector: 'ptah-analysis-results',
   standalone: true,
-  imports: [CommonModule],
+  imports: [ConfirmationModalComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="container mx-auto px-6 py-12 max-w-3xl">
@@ -144,10 +145,29 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
       </div>
       }
     </div>
+
+    <!-- Alert Modal for Future Enhancement -->
+    <ptah-confirmation-modal
+      #alertModal
+      [title]="'Manual Adjustment Coming Soon'"
+      [message]="
+        'Manual adjustment is coming soon!
+
+For now, you can:
+1. Continue with detected settings
+2. Cancel and manually configure your .claude folder
+3. Contact support for custom configuration help'
+      "
+      [mode]="'alert'"
+      [confirmText]="'OK'"
+      (confirmed)="onAlertOk()"
+    />
   `,
 })
 export class AnalysisResultsComponent {
   private readonly wizardState = inject(SetupWizardStateService);
+
+  @ViewChild('alertModal') alertModal!: ConfirmationModalComponent;
 
   /**
    * Reactive project context from state service
@@ -168,27 +188,18 @@ export class AnalysisResultsComponent {
 
   /**
    * Handle "No, Let Me Adjust" button click
-   * - Show future enhancement alert
-   * - Manual adjustment UI not yet implemented
+   * - Show DaisyUI modal for future enhancement notice
    */
   protected onManualAdjust(): void {
-    // Future enhancement: Show modal for manual context editing
-    // For now, show alert that feature is coming soon
-    this.showFutureEnhancementAlert();
+    // Show modal that manual adjustment is coming soon
+    this.alertModal.show();
   }
 
   /**
-   * Show alert that manual adjustment is a future enhancement
-   * Note: Can be replaced with DaisyUI modal for better UX
+   * Handle alert modal OK button
+   * - Modal auto-closes
    */
-  private showFutureEnhancementAlert(): void {
-    // TODO: Replace with DaisyUI modal for better UX
-    alert(
-      'Manual adjustment is coming soon!\n\n' +
-        'For now, you can:\n' +
-        '1. Continue with detected settings\n' +
-        '2. Cancel and manually configure your .claude folder\n' +
-        '3. Contact support for custom configuration help'
-    );
+  protected onAlertOk(): void {
+    // Modal auto-closes, no action needed
   }
 }

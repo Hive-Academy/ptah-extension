@@ -16,7 +16,8 @@
           "libs/backend/agent-generation/*.md",
           "libs/backend/agent-generation/templates/**/*.template.md"
         ],
-        "format": ["cjs"]
+        "format": ["cjs"],
+        "external": ["vscode", "tsyringe", "eventemitter3", "rxjs"]
       }
     },
     "test": {

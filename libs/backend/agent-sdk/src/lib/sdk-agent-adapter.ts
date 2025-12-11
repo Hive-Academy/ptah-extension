@@ -385,7 +385,7 @@ export class SdkAgentAdapter implements IAIProvider {
    */
   async startChatSession(
     sessionId: SessionId,
-    config?: AISessionConfig
+    config?: AISessionConfig & { name?: string }
   ): Promise<AsyncIterable<ExecutionNode>> {
     if (!this.initialized) {
       throw new Error(
@@ -409,7 +409,7 @@ export class SdkAgentAdapter implements IAIProvider {
     );
 
     // Create session record in storage (for persistence)
-    await this.sessionLifecycle.createSessionRecord(sessionId);
+    await this.sessionLifecycle.createSessionRecord(sessionId, config?.name);
 
     // Import SDK dynamically (ESM in CommonJS context)
     this.logger.info(

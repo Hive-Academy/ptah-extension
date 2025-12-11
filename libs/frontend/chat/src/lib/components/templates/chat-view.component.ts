@@ -13,6 +13,7 @@ import { LucideAngularModule, Square } from 'lucide-angular';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { ChatInputComponent } from '../molecules/chat-input.component';
 import { PermissionRequestCardComponent } from '../molecules/permission-request-card.component';
+import { SetupStatusWidgetComponent } from '../molecules/setup-status-widget.component';
 import { ChatStore } from '../../services/chat.store';
 import { VSCodeService } from '@ptah-extension/core';
 import { createExecutionChatMessage } from '@ptah-extension/shared';
@@ -47,6 +48,7 @@ import { createExecutionChatMessage } from '@ptah-extension/shared';
     MessageBubbleComponent,
     ChatInputComponent,
     PermissionRequestCardComponent,
+    SetupStatusWidgetComponent,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',

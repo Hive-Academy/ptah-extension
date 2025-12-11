@@ -1,10 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
-import {
-  AgentSelection,
-  ProjectContext,
-  GenerationProgress,
-} from './setup-wizard-state.service';
+import { AgentSelection } from './setup-wizard-state.service';
 
 /**
  * RPC message types for setup wizard communication
@@ -24,34 +20,6 @@ interface SubmitAgentSelectionMessage {
 interface CancelWizardMessage {
   type: 'setup-wizard:cancel';
   saveProgress: boolean;
-}
-
-/**
- * RPC response payloads
- */
-
-interface ScanProgressPayload {
-  filesScanned: number;
-  totalFiles: number;
-  detections: string[];
-}
-
-interface AnalysisCompletePayload {
-  projectContext: ProjectContext;
-}
-
-interface AvailableAgentsPayload {
-  agents: AgentSelection[];
-}
-
-interface GenerationProgressPayload {
-  progress: GenerationProgress;
-}
-
-interface GenerationCompletePayload {
-  success: boolean;
-  generatedCount: number;
-  errors?: string[];
 }
 
 /**
@@ -147,8 +115,21 @@ export class WizardRpcService {
         timeoutId,
       });
 
-      // Send message via VSCodeService
-      this.vscodeService.postMessage(messageWithId);
+      // Send message via VSCodeService with error handling
+      try {
+        this.vscodeService.postMessage(messageWithId);
+      } catch (error) {
+        // Clean up on send failure
+        this.pendingResponses.delete(messageId);
+        clearTimeout(timeoutId);
+        reject(
+          new Error(
+            `Failed to send RPC message: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          )
+        );
+      }
     });
   }
 

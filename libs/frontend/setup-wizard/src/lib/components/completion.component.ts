@@ -4,7 +4,6 @@ import {
   ChangeDetectionStrategy,
   computed,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { VSCodeService } from '@ptah-extension/core';
 
@@ -32,7 +31,7 @@ import { VSCodeService } from '@ptah-extension/core';
 @Component({
   selector: 'ptah-completion',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="hero min-h-screen bg-base-200">
@@ -95,7 +94,10 @@ import { VSCodeService } from '@ptah-extension/core';
 
           <!-- Action buttons -->
           <div class="flex flex-col sm:flex-row gap-4 justify-center mb-8">
-            <button class="btn btn-primary btn-lg" (click)="onOpenAgentsFolder()">
+            <button
+              class="btn btn-primary btn-lg"
+              (click)="onOpenAgentsFolder()"
+            >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 class="h-5 w-5"
@@ -181,10 +183,13 @@ export class CompletionComponent {
 
   /**
    * Format total generation time
+   * Handles negative values gracefully (edge case: timing errors)
    */
   protected formatTotalTime(): string {
     const ms = this.totalDuration();
-    const seconds = Math.floor(ms / 1000);
+    // Ensure non-negative duration
+    const safeMs = Math.max(0, ms);
+    const seconds = Math.floor(safeMs / 1000);
 
     if (seconds < 60) {
       return `${seconds}s`;

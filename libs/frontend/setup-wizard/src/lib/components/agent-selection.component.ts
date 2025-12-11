@@ -3,8 +3,8 @@ import {
   inject,
   ChangeDetectionStrategy,
   computed,
+  signal,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
 
@@ -33,7 +33,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
 @Component({
   selector: 'ptah-agent-selection',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="container mx-auto px-4 py-8">
@@ -45,6 +45,25 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
             which ones you'd like to generate.
           </p>
         </div>
+
+        @if (errorMessage(); as error) {
+        <div class="alert alert-error mb-4" role="alert">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-6 w-6 shrink-0 stroke-current"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+          <span>{{ error }}</span>
+        </div>
+        }
 
         <div class="card bg-base-100 shadow-xl">
           <div class="card-body">
@@ -85,7 +104,10 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                 <tbody>
                   @if (agents().length === 0) {
                   <tr>
-                    <td colspan="4" class="text-center text-base-content/60 py-8">
+                    <td
+                      colspan="4"
+                      class="text-center text-base-content/60 py-8"
+                    >
                       No agents available. Please restart the wizard.
                     </td>
                   </tr>
@@ -96,6 +118,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                         type="checkbox"
                         class="checkbox checkbox-primary"
                         [checked]="agent.selected"
+                        [attr.aria-label]="'Select ' + agent.name + ' agent'"
                         (change)="onToggleAgent(agent.id)"
                       />
                     </td>
@@ -134,13 +157,22 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
             <div class="card-actions justify-end mt-6">
               <button
                 class="btn btn-primary"
-                [class.btn-disabled]="!canProceed()"
-                [disabled]="!canProceed()"
+                [class.btn-disabled]="isGenerating() || !canProceed()"
+                [disabled]="isGenerating() || !canProceed()"
+                [attr.aria-busy]="isGenerating()"
+                [attr.aria-label]="
+                  isGenerating()
+                    ? 'Generating agents...'
+                    : 'Generate selected agents'
+                "
                 (click)="onGenerateAgents()"
               >
-                Generate {{ selectedCount() }} Agent{{
+                @if (isGenerating()) {
+                <span class="loading loading-spinner"></span>
+                Generating... } @else { Generate {{ selectedCount() }} Agent{{
                   selectedCount() === 1 ? '' : 's'
                 }}
+                }
               </button>
             </div>
           </div>
@@ -157,6 +189,10 @@ export class AgentSelectionComponent {
   protected readonly agents = this.wizardState.availableAgents;
   protected readonly selectedCount = this.wizardState.selectedCount;
   protected readonly canProceed = this.wizardState.canProceed;
+
+  // Component-local loading and error state
+  protected readonly isGenerating = signal(false);
+  protected readonly errorMessage = signal<string | null>(null);
 
   // Computed signals for UI state
   protected readonly totalCount = computed(() => this.agents().length);
@@ -198,22 +234,37 @@ export class AgentSelectionComponent {
 
   /**
    * Submit selected agents and transition to generation step
+   * - Show loading state during RPC call
+   * - Display user-facing error message on failure
+   * - Always reset loading state in finally block
    */
   protected async onGenerateAgents(): Promise<void> {
-    if (!this.canProceed()) {
-      return;
+    if (this.isGenerating() || !this.canProceed()) {
+      return; // Prevent double-click
     }
 
-    const selectedAgents = this.agents().filter((a) => a.selected);
+    this.isGenerating.set(true);
+    this.errorMessage.set(null);
 
     try {
+      const selectedAgents = this.agents().filter((a) => a.selected);
+
       // Submit selection to backend via RPC
       await this.wizardRpc.submitAgentSelection(selectedAgents);
 
-      // Transition to generation step
+      // Transition to generation step (state will update via message listener)
       this.wizardState.setCurrentStep('generation');
     } catch (error) {
-      console.error('Failed to submit agent selection:', error);
+      // Handle RPC error with user-facing message
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Failed to generate agents. Please try again.';
+      this.errorMessage.set(message);
+      console.error('Agent generation failed:', error);
+    } finally {
+      // Always reset loading state
+      this.isGenerating.set(false);
     }
   }
 }

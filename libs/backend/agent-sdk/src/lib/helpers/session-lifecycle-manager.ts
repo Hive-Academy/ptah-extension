@@ -102,15 +102,23 @@ export class SessionLifecycleManager {
 
   /**
    * Create initial session record in storage
+   * @param sessionId Session identifier
+   * @param name Optional user-provided session name
    */
-  async createSessionRecord(sessionId: SessionId): Promise<StoredSession> {
+  async createSessionRecord(
+    sessionId: SessionId,
+    name?: string
+  ): Promise<StoredSession> {
     const workspaceId =
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || 'unknown';
+
+    // Generate default name if not provided
+    const sessionName = name || `Session ${new Date().toLocaleString()}`;
 
     const storedSession: StoredSession = {
       id: sessionId,
       workspaceId,
-      name: `Session ${new Date().toLocaleString()}`,
+      name: sessionName,
       createdAt: Date.now(),
       lastActiveAt: Date.now(),
       messages: [],
@@ -120,7 +128,7 @@ export class SessionLifecycleManager {
 
     await this.storage.saveSession(storedSession);
     this.logger.debug(
-      `[SessionLifecycle] Created session record: ${sessionId}`
+      `[SessionLifecycle] Created session record: ${sessionId} (name: "${sessionName}")`
     );
 
     return storedSession;

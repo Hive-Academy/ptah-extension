@@ -4,7 +4,6 @@ import {
   ChangeDetectionStrategy,
   computed,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 
 /**
@@ -33,7 +32,7 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
 @Component({
   selector: 'ptah-generation-progress',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="container mx-auto px-4 py-8">
@@ -46,20 +45,29 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
         </div>
 
         <!-- Overall progress bar -->
-        @if (progress()) {
+        @if (progress(); as prog) {
         <div class="mb-8">
           <div class="flex justify-between items-center mb-2">
             <span class="text-sm font-semibold text-base-content/80">
               Overall Progress
             </span>
             <span class="text-sm text-base-content/60">
-              {{ progress()!.percentComplete }}%
+              {{ prog.percentComplete }}%
             </span>
           </div>
           <progress
             class="progress progress-primary w-full"
-            [value]="progress()!.percentComplete"
+            [value]="prog.percentComplete"
             max="100"
+            role="progressbar"
+            [attr.aria-valuenow]="prog.percentComplete"
+            [attr.aria-valuemin]="0"
+            [attr.aria-valuemax]="100"
+            [attr.aria-label]="
+              'Agent generation progress: ' +
+              prog.percentComplete +
+              ' percent complete'
+            "
           ></progress>
         </div>
 
@@ -181,12 +189,17 @@ export class GenerationProgressComponent {
 
   /**
    * Format duration from milliseconds to human-readable string
+   * Handles negative values gracefully (edge case: timing errors)
    */
   protected formatDuration(ms: number): string {
-    const seconds = Math.floor(ms / 1000);
+    // Ensure non-negative duration
+    const safeMs = Math.max(0, ms);
+    const seconds = Math.floor(safeMs / 1000);
+
     if (seconds < 60) {
       return `${seconds}s`;
     }
+
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
     return `${minutes}m ${remainingSeconds}s`;

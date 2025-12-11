@@ -125,10 +125,25 @@ export class DIContainer {
     container.registerSingleton(TOKENS.RPC_HANDLER, RpcHandler);
 
     // RPC Method Registration Service (Phase 2 - Clean separation)
-    container.registerSingleton(
-      TOKENS.RPC_METHOD_REGISTRATION_SERVICE,
-      RpcMethodRegistrationService
-    );
+    // Use factory to pass container instance (fixes circular dependency in TASK_2025_069)
+    container.register(TOKENS.RPC_METHOD_REGISTRATION_SERVICE, {
+      useFactory: (c) => {
+        return new RpcMethodRegistrationService(
+          c.resolve(TOKENS.LOGGER),
+          c.resolve(TOKENS.RPC_HANDLER),
+          c.resolve(TOKENS.CONTEXT_ORCHESTRATION_SERVICE),
+          c.resolve(TOKENS.AGENT_DISCOVERY_SERVICE),
+          c.resolve(TOKENS.COMMAND_DISCOVERY_SERVICE),
+          c.resolve(TOKENS.WEBVIEW_MANAGER),
+          c.resolve(TOKENS.AGENT_SESSION_WATCHER_SERVICE),
+          c.resolve(TOKENS.CONFIG_MANAGER),
+          c.resolve(TOKENS.COMMAND_MANAGER),
+          c.resolve('SdkAgentAdapter'),
+          c.resolve('SdkSessionStorage'),
+          c // Pass container instance
+        );
+      },
+    });
 
     // Agent Session Watcher (real-time summary streaming during agent execution)
     container.registerSingleton(

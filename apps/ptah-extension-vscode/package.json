@@ -62,10 +62,20 @@
         "title": "Open Full Ptah Panel",
         "category": "Ptah",
         "icon": "$(split-horizontal)"
+      },
+      {
+        "command": "ptah.setupAgents",
+        "title": "Setup Ptah Agents",
+        "category": "Ptah",
+        "icon": "$(tools)"
       }
     ],
     "menus": {
-      "commandPalette": [],
+      "commandPalette": [
+        {
+          "command": "ptah.setupAgents"
+        }
+      ],
       "editor/context": [],
       "view/title": [
         {

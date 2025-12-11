@@ -12,6 +12,9 @@ export { AgentSelectionComponent } from './lib/components/agent-selection.compon
 export { GenerationProgressComponent } from './lib/components/generation-progress.component';
 export { CompletionComponent } from './lib/components/completion.component';
 
+// Utility Components
+export { ConfirmationModalComponent } from './lib/components/confirmation-modal.component';
+
 // Wizard Types
 export type {
   WizardStep,
@@ -19,4 +22,8 @@ export type {
   AgentSelection,
   GenerationProgress,
   AgentProgress,
+  ScanProgress,
+  AnalysisResults,
+  CompletionData,
+  ErrorState,
 } from './lib/services/setup-wizard-state.service';

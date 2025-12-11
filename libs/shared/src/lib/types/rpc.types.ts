@@ -14,12 +14,13 @@ import type { PermissionLevel } from './model-autopilot.types';
 // Chat RPC Types
 // ============================================================
 
-/** Parameters for chat:start RPC method */
 export interface ChatStartParams {
   /** Initial prompt to send (optional) */
   prompt?: string;
   /** Session ID for the chat */
   sessionId: SessionId;
+  /** User-provided session name (optional) */
+  name?: string;
   /** Workspace path for context */
   workspacePath?: string;
   /** Additional options */
@@ -37,12 +38,13 @@ export interface ChatStartResult {
   error?: string;
 }
 
-/** Parameters for chat:continue RPC method */
 export interface ChatContinueParams {
   /** Message content to send */
   prompt: string;
   /** Session ID to continue */
   sessionId: SessionId;
+  /** User-provided session name (optional - for late naming) */
+  name?: string;
   /** Workspace path (needed for session resumption if session is not active) */
   workspacePath?: string;
   /** Model to use (if different from current session model) */

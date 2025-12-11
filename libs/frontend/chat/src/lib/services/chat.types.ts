@@ -57,10 +57,19 @@ export interface TabState {
   /** Real Claude CLI session UUID (null if draft) */
   claudeSessionId: string | null;
 
-  /** Placeholder session ID used during streaming before real ID resolved */
-  placeholderSessionId?: string | null;
+  /**
+   * Placeholder session ID (proper UUID v4) used temporarily before Claude SDK resolves real ID.
+   * Generated via uuid.v4() at tab creation.
+   * Cleared after session:id-resolved event updates claudeSessionId.
+   *
+   * @example "550e8400-e29b-41d4-a716-446655440000"
+   */
+  placeholderSessionId: string | null;
 
-  /** Display title for the tab */
+  /** User-provided or auto-generated session name */
+  name: string;
+
+  /** Display title for the tab (deprecated - use name instead) */
   title: string;
 
   /** Tab order position */

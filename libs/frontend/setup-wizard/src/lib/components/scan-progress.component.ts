@@ -4,10 +4,11 @@ import {
   ChangeDetectionStrategy,
   computed,
   signal,
+  ViewChild,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
+import { ConfirmationModalComponent } from './confirmation-modal.component';
 
 /**
  * ScanProgressComponent - Real-time workspace scan progress display
@@ -31,13 +32,30 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
 @Component({
   selector: 'ptah-scan-progress',
   standalone: true,
-  imports: [CommonModule],
+  imports: [ConfirmationModalComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="container mx-auto px-6 py-12 max-w-3xl">
       <h2 class="text-4xl font-bold text-center mb-8">Analyzing Workspace</h2>
 
-      @if (progress(); as progressData) {
+      @if (errorMessage(); as error) {
+      <div class="alert alert-error mb-4" role="alert">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="h-6 w-6 shrink-0 stroke-current"
+          fill="none"
+          viewBox="0 0 24 24"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
+          />
+        </svg>
+        <span>{{ error }}</span>
+      </div>
+      } @if (progress(); as progressData) {
       <!-- Progress Bar -->
       <div class="mb-6">
         <div class="flex justify-between mb-2">
@@ -53,6 +71,15 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
           class="progress progress-primary w-full h-3"
           [value]="progressPercentage()"
           max="100"
+          role="progressbar"
+          [attr.aria-valuenow]="progressPercentage()"
+          [attr.aria-valuemin]="0"
+          [attr.aria-valuemax]="100"
+          [attr.aria-label]="
+            'Workspace scan progress: ' +
+            progressPercentage() +
+            ' percent complete'
+          "
         ></progress>
       </div>
 
@@ -97,27 +124,46 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
           class="btn btn-ghost"
           [class.btn-disabled]="isCanceling()"
           [disabled]="isCanceling()"
+          [attr.aria-busy]="isCanceling()"
+          [attr.aria-label]="
+            isCanceling() ? 'Canceling scan...' : 'Cancel scan'
+          "
           (click)="onCancel()"
         >
           @if (isCanceling()) {
           <span class="loading loading-spinner"></span>
-          Canceling... } @else { Cancel Scan }
+          Canceling... } @else if (errorMessage()) { Retry Cancel } @else {
+          Cancel Scan }
         </button>
       </div>
     </div>
+
+    <!-- Confirmation Modal -->
+    <ptah-confirmation-modal
+      #confirmModal
+      [title]="'Cancel Scan?'"
+      [message]="
+        'Are you sure you want to cancel the scan? Progress will be lost.'
+      "
+      [confirmText]="'Yes, Cancel Scan'"
+      [cancelText]="'No, Continue'"
+      [confirmClass]="'btn-error'"
+      (confirmed)="onConfirmCancellation()"
+      (cancelled)="onDeclineCancellation()"
+    />
   `,
 })
 export class ScanProgressComponent {
   private readonly wizardState = inject(SetupWizardStateService);
   private readonly wizardRpc = inject(WizardRpcService);
 
+  @ViewChild('confirmModal') confirmModal!: ConfirmationModalComponent;
+
   /**
    * Reactive progress data from state service
-   * Computed signal automatically updates when generationProgress changes
+   * Direct signal reference for optimal performance
    */
-  protected readonly progress = computed(() => {
-    return this.wizardState.generationProgress();
-  });
+  protected readonly progress = this.wizardState.generationProgress;
 
   /**
    * Calculated progress percentage (0-100)
@@ -132,56 +178,63 @@ export class ScanProgressComponent {
     return Math.round((scanned / progressData.totalFiles) * 100);
   });
 
-  // Component-local cancellation state
+  // Component-local cancellation state and error state
   protected readonly isCanceling = signal(false);
+  protected readonly errorMessage = signal<string | null>(null);
 
   /**
    * Handle cancel button click
-   * - Show confirmation (user might lose progress)
-   * - Trigger RPC cancel call
-   * - Reset wizard state on success
+   * - Show DaisyUI confirmation modal
    */
   protected async onCancel(): Promise<void> {
     if (this.isCanceling()) {
       return; // Prevent double-click
     }
 
-    // Confirmation check
-    const confirmed = await this.confirmCancel();
-    if (!confirmed) {
-      return;
-    }
+    // Show confirmation modal
+    this.confirmModal.show();
+  }
 
+  /**
+   * Handle modal confirmation (user confirmed cancellation)
+   * - Trigger RPC cancel call
+   * - Reset wizard state ONLY on success
+   * - Show error message on failure (allow retry)
+   */
+  protected async onConfirmCancellation(): Promise<void> {
     this.isCanceling.set(true);
+    this.errorMessage.set(null);
 
     try {
       // Trigger RPC cancel (saveProgress = false for scan step)
       await this.wizardRpc.cancelWizard(false);
 
-      // Reset wizard state to welcome
+      // Success - reset wizard state to welcome
       this.wizardState.reset();
     } catch (error) {
-      // Handle RPC error silently (user already saw confirmation)
-      console.error('Failed to cancel wizard:', error);
-      // Even if RPC fails, reset local state
-      this.wizardState.reset();
+      // Handle RPC error - show user-facing message, DON'T reset state
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Failed to cancel scan. Please try again.';
+      this.errorMessage.set(message);
+      console.error('Scan cancellation failed:', error);
     } finally {
-      this.isCanceling.set(false);
+      // Only reset isCanceling if no error occurred
+      if (!this.errorMessage()) {
+        this.isCanceling.set(false);
+      } else {
+        // On error, allow user to retry - reset loading state
+        this.isCanceling.set(false);
+      }
     }
   }
 
   /**
-   * Show native confirmation dialog
-   * Note: In VS Code webview, this might need ConfirmationDialogService
-   * For now, using basic confirm() - can be replaced with DaisyUI modal
+   * Handle modal cancellation (user declined cancellation)
+   * - Do nothing, modal auto-closes
    */
-  private async confirmCancel(): Promise<boolean> {
-    // TODO: Replace with ConfirmationDialogService for VS Code webview compatibility
-    return new Promise((resolve) => {
-      const result = window.confirm(
-        'Are you sure you want to cancel the scan? Progress will be lost.'
-      );
-      resolve(result);
-    });
+  protected onDeclineCancellation(): void {
+    // Modal auto-closes, no action needed
   }
 }

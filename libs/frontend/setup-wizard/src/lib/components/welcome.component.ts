@@ -4,7 +4,6 @@ import {
   ChangeDetectionStrategy,
   signal,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
 
@@ -31,7 +30,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
 @Component({
   selector: 'ptah-welcome',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="hero min-h-screen bg-base-200">
@@ -71,6 +70,10 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
             class="btn btn-primary btn-lg"
             [class.btn-disabled]="isStarting()"
             [disabled]="isStarting()"
+            [attr.aria-busy]="isStarting()"
+            [attr.aria-label]="
+              isStarting() ? 'Starting wizard setup...' : 'Start wizard setup'
+            "
             (click)="onStartSetup()"
           >
             @if (isStarting()) {
