@@ -22,7 +22,7 @@ This guide helps you discover your unique visual aesthetic through structured ex
 | **Gaming**          | Dynamic, bold, neon accents, animated                                | Discord, Epic, Steam            |
 | **Health/Wellness** | Calm, organic, soft colors, nature imagery                           | Calm, Headspace, Hims           |
 
-**Your answer**: ******\_\_\_******
+**Your answer**: **\*\***\_\_\_**\*\***
 
 ---
 
@@ -54,7 +54,7 @@ This guide helps you discover your unique visual aesthetic through structured ex
 - [ ] Established / Trustworthy / Proven
 - [ ] Balanced (innovative but reliable)
 
-**Your 3 adjectives**: ******\_\_\_******, ******\_\_\_******, ******\_\_\_******
+**Your 3 adjectives**: **\*\***\_\_\_**\*\***, **\*\***\_\_\_**\*\***, **\*\***\_\_\_**\*\***
 
 ---
 
@@ -89,9 +89,9 @@ reference_analysis:
     - '[what makes this site distinctive]'
 ```
 
-**Reference 1**: ******\_\_\_******
-**Reference 2**: ******\_\_\_******
-**Reference 3**: ******\_\_\_******
+**Reference 1**: **\*\***\_\_\_**\*\***
+**Reference 2**: **\*\***\_\_\_**\*\***
+**Reference 3**: **\*\***\_\_\_**\*\***
 
 ---
 
@@ -158,7 +158,7 @@ This is where your brand becomes memorable. Examples:
 - Any cultural references that resonate?
 - What would your product look like as a physical object?
 
-**Your unique element**: ******\_\_\_******
+**Your unique element**: **\*\***\_\_\_**\*\***
 
 ---
 

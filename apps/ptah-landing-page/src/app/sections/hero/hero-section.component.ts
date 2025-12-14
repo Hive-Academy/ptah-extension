@@ -63,29 +63,16 @@ gsap.registerPlugin(ScrollTrigger);
       <div
         class="hero-text-content relative z-10 container mx-auto px-6 text-center flex flex-col items-center"
       >
-        <!-- Headline - Shiny black with golden emerald outline -->
+        <!-- Headline - Dramatic gold gradient (Task 3.1: Enhanced typography) -->
         <h1
-          class="hero-headline font-display font-bold text-5xl md:text-6xl lg:text-7xl mb-6"
-          style="
-            color: #1a1a1a;
-            text-shadow:
-              0 0 2px #d4af37,
-              0 0 4px #d4af37,
-              0 2px 4px rgba(0,0,0,0.8),
-              0 4px 8px rgba(0,0,0,0.6),
-              1px 1px 0 #d4af37,
-              -1px -1px 0 #10b981,
-              2px 2px 0 #d4af37;
-            -webkit-text-stroke: 1px #d4af37;
-            paint-order: stroke fill;
-          "
+          class="hero-headline font-display font-bold text-6xl md:text-7xl lg:text-8xl mb-6 gradient-text-gold"
         >
-          Ptah Extension
+          Ancient Wisdom for Modern AI
         </h1>
 
         <!-- Tagline - White with dark shadow for contrast -->
         <p
-          class="hero-tagline text-xl md:text-2xl mb-4 font-semibold"
+          class="hero-tagline text-xl md:text-2xl mb-12 max-w-3xl mx-auto font-medium"
           style="
             color: #ffffff;
             text-shadow:
@@ -94,26 +81,15 @@ gsap.registerPlugin(ScrollTrigger);
               0 0 20px rgba(0,0,0,0.5);
           "
         >
-          Ancient Wisdom for Modern AI
-        </p>
-
-        <!-- Subtext - Light with strong shadow -->
-        <p
-          class="hero-subtext text-base mb-12 max-w-2xl mx-auto font-medium"
-          style="
-            color: rgba(255,255,255,0.9);
-            text-shadow:
-              0 2px 4px rgba(0,0,0,0.9),
-              0 4px 8px rgba(0,0,0,0.7);
-          "
-        >
-          Enhance Claude Code with Egyptian-themed power-ups for your VS Code
-          experience
+          Transform Claude Code CLI into a native VS Code experience. Built by
+          architects who understand your craft.
         </p>
 
         <!-- CTA Buttons -->
-        <div class="hero-ctas flex flex-col sm:flex-row gap-4 justify-center">
-          <!-- Primary CTA: Install Now -->
+        <div
+          class="hero-ctas flex flex-col sm:flex-row gap-4 justify-center items-center"
+        >
+          <!-- Primary CTA: Install Free -->
           <a
             href="https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code"
             target="_blank"
@@ -121,16 +97,17 @@ gsap.registerPlugin(ScrollTrigger);
             class="bg-gradient-to-r from-secondary to-accent text-secondary-content px-8 py-4 rounded-xl text-lg font-semibold shadow-[0_0_40px_rgba(212,175,55,0.4)] hover:scale-105 hover:shadow-[0_0_60px_rgba(212,175,55,0.5)] transition-all"
             aria-label="Install Ptah Extension from VS Code Marketplace"
           >
-            ⬇ Install Now
+            Install Free
           </a>
 
-          <!-- Secondary CTA: View Demo -->
+          <!-- Secondary CTA: Scroll indicator -->
           <a
             href="#demo"
-            class="border-2 border-secondary/50 text-base-content px-8 py-4 rounded-xl text-lg font-medium hover:border-accent hover:bg-secondary/10 transition-all"
+            class="text-secondary hover:text-accent transition-colors flex items-center gap-2"
             aria-label="Scroll to view demo section"
           >
-            View Demo ↓
+            <span>See what it builds</span>
+            <span class="animate-bounce">↓</span>
           </a>
         </div>
       </div>
@@ -172,7 +149,11 @@ export class HeroSectionComponent {
   }
 
   /**
-   * Initialize GSAP scroll animations with reduced-motion support
+   * Initialize GSAP animations with reduced-motion support
+   *
+   * Entry Animation (Task 3.2):
+   * - Runs once on page load (headline → tagline → CTA sequence)
+   * - Creates dramatic reveal effect with blur-to-clear fade-up
    *
    * Scroll Animation:
    * - As user scrolls down, content fades out and moves up
@@ -188,7 +169,39 @@ export class HeroSectionComponent {
 
     // Create GSAP context scoped to this section for automatic cleanup
     this.gsapContext = gsap.context(() => {
-      // Scroll-triggered fade out and move up animation
+      // NEW: Entry animation timeline (runs once on load)
+      const entryTl = gsap.timeline({ delay: 0.3 });
+      entryTl
+        .from('.hero-headline', {
+          y: 30,
+          opacity: 0,
+          filter: 'blur(10px)',
+          duration: 0.8,
+          ease: 'power3.out',
+        })
+        .from(
+          '.hero-tagline',
+          {
+            y: 20,
+            opacity: 0,
+            duration: 0.6,
+            ease: 'power2.out',
+          },
+          '-=0.3'
+        )
+        .from(
+          '.hero-ctas',
+          {
+            y: 15,
+            opacity: 0,
+            scale: 0.95,
+            duration: 0.5,
+            ease: 'back.out(1.7)',
+          },
+          '-=0.2'
+        );
+
+      // KEEP: Scroll-triggered fade out and move up animation
       // Animations complete within a short scroll distance (first 20% of viewport)
       // Each element animates with staggered timing for a cascading effect
       gsap.to('.hero-headline', {
@@ -211,18 +224,6 @@ export class HeroSectionComponent {
           trigger: this.sectionRef().nativeElement,
           start: '2% top',
           end: '17% top',
-          scrub: 0.5,
-        },
-      });
-
-      gsap.to('.hero-subtext', {
-        y: -30,
-        opacity: 0,
-        ease: 'power2.in',
-        scrollTrigger: {
-          trigger: this.sectionRef().nativeElement,
-          start: '4% top',
-          end: '19% top',
           scrub: 0.5,
         },
       });

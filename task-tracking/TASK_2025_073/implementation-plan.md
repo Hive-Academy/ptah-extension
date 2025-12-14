@@ -8,14 +8,14 @@ This plan addresses critical findings from code reviews and completes Phase 5 (R
 
 ## Batch Structure
 
-| Batch | Focus | Priority | Estimated Effort |
-|-------|-------|----------|------------------|
-| 1 | Type Centralization & Package Exports | CRITICAL | 2 hours |
-| 2 | Race Condition & State Management | CRITICAL | 3 hours |
-| 3 | Error Handling & Timeouts | SERIOUS | 2 hours |
-| 4 | Logging & Code Consistency | SERIOUS | 1.5 hours |
-| 5 | Phase 5: RPC Handlers | NEW FEATURE | 3 hours |
-| 6 | Integration Testing & Verification | VERIFICATION | 1.5 hours |
+| Batch | Focus                                 | Priority     | Estimated Effort |
+| ----- | ------------------------------------- | ------------ | ---------------- |
+| 1     | Type Centralization & Package Exports | CRITICAL     | 2 hours          |
+| 2     | Race Condition & State Management     | CRITICAL     | 3 hours          |
+| 3     | Error Handling & Timeouts             | SERIOUS      | 2 hours          |
+| 4     | Logging & Code Consistency            | SERIOUS      | 1.5 hours        |
+| 5     | Phase 5: RPC Handlers                 | NEW FEATURE  | 3 hours          |
+| 6     | Integration Testing & Verification    | VERIFICATION | 1.5 hours        |
 
 **Total Estimated Effort**: 13 hours
 
@@ -24,9 +24,11 @@ This plan addresses critical findings from code reviews and completes Phase 5 (R
 ## Batch 1: Type Centralization & Package Exports (CRITICAL)
 
 ### Purpose
+
 Resolve type coupling issues and verify dynamic import paths have proper package.json exports.
 
 ### Issue References
+
 - Style Review: Blocking Issue #3 - Type definition coupling
 - Logic Review: Critical Issue #2 - Dynamic import export paths unverified
 
@@ -37,6 +39,7 @@ Resolve type coupling issues and verify dynamic import paths have proper package
 **File**: `libs/backend/llm-abstraction/src/lib/types/provider-types.ts` (CREATE)
 
 **Implementation**:
+
 ```typescript
 /**
  * Centralized LLM Provider Type Definitions
@@ -48,32 +51,21 @@ Resolve type coupling issues and verify dynamic import paths have proper package
 /**
  * Supported LLM provider identifiers
  */
-export type LlmProviderName =
-  | 'anthropic'
-  | 'openai'
-  | 'google-genai'
-  | 'openrouter'
-  | 'vscode-lm';
+export type LlmProviderName = 'anthropic' | 'openai' | 'google-genai' | 'openrouter' | 'vscode-lm';
 
 /**
  * List of all supported providers (for validation)
  */
-export const SUPPORTED_PROVIDERS: readonly LlmProviderName[] = [
-  'anthropic',
-  'openai',
-  'google-genai',
-  'openrouter',
-  'vscode-lm',
-] as const;
+export const SUPPORTED_PROVIDERS: readonly LlmProviderName[] = ['anthropic', 'openai', 'google-genai', 'openrouter', 'vscode-lm'] as const;
 
 /**
  * Provider display names for UI
  */
 export const PROVIDER_DISPLAY_NAMES: Record<LlmProviderName, string> = {
-  'anthropic': 'Anthropic (Claude)',
-  'openai': 'OpenAI (GPT)',
+  anthropic: 'Anthropic (Claude)',
+  openai: 'OpenAI (GPT)',
   'google-genai': 'Google (Gemini)',
-  'openrouter': 'OpenRouter',
+  openrouter: 'OpenRouter',
   'vscode-lm': 'VS Code Language Model',
 } as const;
 
@@ -81,10 +73,10 @@ export const PROVIDER_DISPLAY_NAMES: Record<LlmProviderName, string> = {
  * Default models per provider
  */
 export const DEFAULT_MODELS: Record<LlmProviderName, string> = {
-  'anthropic': 'claude-sonnet-4-20250514',
-  'openai': 'gpt-4o',
+  anthropic: 'claude-sonnet-4-20250514',
+  openai: 'gpt-4o',
   'google-genai': 'gemini-1.5-pro',
-  'openrouter': 'anthropic/claude-sonnet-4',
+  openrouter: 'anthropic/claude-sonnet-4',
   'vscode-lm': 'copilot-gpt-4o',
 } as const;
 
@@ -99,12 +91,14 @@ export function isValidProviderName(name: string): name is LlmProviderName {
 #### Task 1.2: Update Imports Across Services
 
 **Files to Update**:
+
 - `libs/backend/llm-abstraction/src/lib/services/llm-secrets.service.ts`
 - `libs/backend/llm-abstraction/src/lib/services/llm-configuration.service.ts`
 - `libs/backend/llm-abstraction/src/lib/services/llm.service.ts`
 - `libs/backend/llm-abstraction/src/lib/registry/provider-registry.ts`
 
 **Pattern**:
+
 ```typescript
 // BEFORE (scattered definitions):
 export type LlmProviderName = 'anthropic' | 'openai' | ...;
@@ -122,6 +116,7 @@ import {
 **File**: `libs/backend/llm-abstraction/package.json`
 
 **Implementation**:
+
 ```json
 {
   "name": "@ptah-extension/llm-abstraction",
@@ -143,6 +138,7 @@ import {
 **Purpose**: Replace string literal imports with type-checked import map
 
 **Implementation**:
+
 ```typescript
 /**
  * Type-Safe Provider Import Map
@@ -168,15 +164,12 @@ interface ProviderModule {
  * Import map for provider modules
  * Each entry is a lazy loader function that returns the factory
  */
-export const PROVIDER_IMPORT_MAP: Record<
-  LlmProviderName,
-  () => Promise<LlmProviderFactory>
-> = {
-  'anthropic': async () => {
+export const PROVIDER_IMPORT_MAP: Record<LlmProviderName, () => Promise<LlmProviderFactory>> = {
+  anthropic: async () => {
     const module = await import('@ptah-extension/llm-abstraction/anthropic');
     return module.createAnthropicProvider;
   },
-  'openai': async () => {
+  openai: async () => {
     const module = await import('@ptah-extension/llm-abstraction/openai');
     return module.createOpenAIProvider;
   },
@@ -184,7 +177,7 @@ export const PROVIDER_IMPORT_MAP: Record<
     const module = await import('@ptah-extension/llm-abstraction/google');
     return module.createGoogleProvider;
   },
-  'openrouter': async () => {
+  openrouter: async () => {
     const module = await import('@ptah-extension/llm-abstraction/openrouter');
     return module.createOpenRouterProvider;
   },
@@ -196,6 +189,7 @@ export const PROVIDER_IMPORT_MAP: Record<
 ```
 
 ### Verification
+
 - [ ] Type definitions centralized in single file
 - [ ] All services import from centralized types
 - [ ] Package.json exports all secondary entry points
@@ -207,9 +201,11 @@ export const PROVIDER_IMPORT_MAP: Record<
 ## Batch 2: Race Condition & State Management (CRITICAL)
 
 ### Purpose
+
 Fix provider switching race condition and nullable state management issues.
 
 ### Issue References
+
 - Logic Review: Critical Issue #1 - Provider switching race condition
 - Style Review: Blocking Issue #2 - Nullable currentProvider state
 - Logic Review: Serious Issue #1 - No provider cleanup on error
@@ -221,6 +217,7 @@ Fix provider switching race condition and nullable state management issues.
 **File**: `libs/backend/llm-abstraction/src/lib/services/llm.service.ts`
 
 **Implementation**:
+
 ```typescript
 import { Mutex } from 'async-mutex';
 
@@ -235,10 +232,7 @@ export class LlmService implements ILlmService {
    * Uses mutex to prevent race conditions during provider switching.
    * Preserves previous provider on error for recovery.
    */
-  public async setProvider(
-    providerName: LlmProviderName,
-    model: string
-  ): Promise<Result<void, LlmProviderError>> {
+  public async setProvider(providerName: LlmProviderName, model: string): Promise<Result<void, LlmProviderError>> {
     // Acquire lock to prevent concurrent provider switching
     return this.providerMutex.runExclusive(async () => {
       const previousProvider = this.currentProvider;
@@ -246,7 +240,7 @@ export class LlmService implements ILlmService {
       this.logger.debug('[LlmService] setProvider - acquiring lock', {
         providerName,
         model,
-        hasPrevious: !!previousProvider
+        hasPrevious: !!previousProvider,
       });
 
       const result = await this.providerRegistry.createProvider(providerName, model);
@@ -280,6 +274,7 @@ export class LlmService implements ILlmService {
 **File**: `package.json` (root)
 
 **Implementation**:
+
 ```bash
 npm install async-mutex
 ```
@@ -291,6 +286,7 @@ npm install async-mutex
 **Purpose**: Make currentProvider non-nullable by eager initialization
 
 **Implementation**:
+
 ```typescript
 @injectable()
 export class LlmService implements ILlmService {
@@ -348,18 +344,13 @@ export class LlmService implements ILlmService {
       return Result.ok(this.currentProvider);
     }
 
-    return Result.err(
-      new LlmProviderError(
-        'No LLM provider configured. Call setProvider() first or configure API keys.',
-        'PROVIDER_NOT_INITIALIZED',
-        'LlmService'
-      )
-    );
+    return Result.err(new LlmProviderError('No LLM provider configured. Call setProvider() first or configure API keys.', 'PROVIDER_NOT_INITIALIZED', 'LlmService'));
   }
 }
 ```
 
 ### Verification
+
 - [ ] async-mutex installed
 - [ ] Provider switching uses mutex lock
 - [ ] Previous provider preserved on error
@@ -372,9 +363,11 @@ export class LlmService implements ILlmService {
 ## Batch 3: Error Handling & Timeouts (SERIOUS)
 
 ### Purpose
+
 Add timeout protection and fix error handling inconsistencies.
 
 ### Issue References
+
 - Logic Review: Serious Issue #3 - No timeout for provider creation
 - Logic Review: Serious Issue #4 - getProvider() error code inconsistency
 - Style Review: Serious Issue #4 - Inconsistent error handling
@@ -386,6 +379,7 @@ Add timeout protection and fix error handling inconsistencies.
 **File**: `libs/backend/llm-abstraction/src/lib/registry/provider-registry.ts`
 
 **Implementation**:
+
 ```typescript
 /**
  * Default timeout for provider creation (30 seconds)
@@ -437,22 +431,25 @@ private async createProviderInternal(
 **File**: `libs/backend/llm-abstraction/src/lib/services/llm.service.ts`
 
 **Pattern**:
+
 ```typescript
 // BEFORE (misleading):
-new LlmProviderError(message, 'PROVIDER_NOT_FOUND', 'LlmService')
+new LlmProviderError(message, 'PROVIDER_NOT_FOUND', 'LlmService');
 
 // AFTER (accurate):
-new LlmProviderError(message, 'PROVIDER_NOT_INITIALIZED', 'LlmService')
+new LlmProviderError(message, 'PROVIDER_NOT_INITIALIZED', 'LlmService');
 ```
 
 #### Task 3.3: Standardize Error Handling Strategy
 
 **Document and enforce**:
+
 - Public API methods: Always return `Result<T, LlmProviderError>`
 - Internal methods: Can throw (caught at public boundary)
 - Never mix throw/Result in same method
 
 ### Verification
+
 - [ ] Provider creation has 30s timeout
 - [ ] Error codes are accurate and descriptive
 - [ ] Error handling is consistent across all methods
@@ -463,9 +460,11 @@ new LlmProviderError(message, 'PROVIDER_NOT_INITIALIZED', 'LlmService')
 ## Batch 4: Logging & Code Consistency (SERIOUS)
 
 ### Purpose
+
 Standardize logging patterns and fix minor code inconsistencies.
 
 ### Issue References
+
 - Style Review: Serious Issue #10 - Logging inconsistency
 - Style Review: Serious Issue #5 - Magic string proliferation
 
@@ -476,6 +475,7 @@ Standardize logging patterns and fix minor code inconsistencies.
 **Pattern**: `[ServiceName.methodName]` with structured params
 
 **Example**:
+
 ```typescript
 // BEFORE (inconsistent):
 this.logger.debug('[LlmService] setProvider', { providerName });
@@ -495,12 +495,14 @@ Already addressed in Batch 1 with `PROVIDER_DISPLAY_NAMES` and `DEFAULT_MODELS`.
 #### Task 4.3: Add JSDoc to All Public Methods
 
 Ensure all public methods have:
+
 - Purpose description
 - @param documentation
 - @returns documentation
 - @throws documentation (if applicable)
 
 ### Verification
+
 - [ ] All logging uses `[ServiceName.methodName]` format
 - [ ] Magic strings extracted to constants
 - [ ] All public methods have JSDoc
@@ -511,9 +513,11 @@ Ensure all public methods have:
 ## Batch 5: Phase 5 - RPC Handlers (NEW FEATURE)
 
 ### Purpose
+
 Implement RPC handlers for webview API key management.
 
 ### Feature Requirements
+
 - Get/set API keys for each provider via RPC
 - List configured providers
 - Validate API key format
@@ -526,6 +530,7 @@ Implement RPC handlers for webview API key management.
 **File**: `libs/backend/vscode-core/src/rpc/llm-rpc-handlers.ts` (CREATE)
 
 **Implementation**:
+
 ```typescript
 /**
  * LLM RPC Handlers
@@ -577,7 +582,7 @@ export class LlmRpcHandlers {
 
     const providers = await this.configService.getAvailableProviders();
 
-    return providers.map(p => ({
+    return providers.map((p) => ({
       provider: p.provider,
       displayName: p.displayName,
       isConfigured: p.isConfigured,
@@ -590,7 +595,7 @@ export class LlmRpcHandlers {
    */
   async setApiKey(request: SetApiKeyRequest): Promise<SetApiKeyResponse> {
     this.logger.debug('[LlmRpcHandlers.setApiKey] Setting API key', {
-      provider: request.provider
+      provider: request.provider,
     });
 
     try {
@@ -660,6 +665,7 @@ export class LlmRpcHandlers {
 **File**: `libs/backend/vscode-core/src/di/register.ts`
 
 **Add**:
+
 ```typescript
 import { LlmRpcHandlers } from '../rpc/llm-rpc-handlers';
 
@@ -672,6 +678,7 @@ container.registerSingleton(TOKENS.LLM_RPC_HANDLERS, LlmRpcHandlers);
 **File**: `libs/backend/vscode-core/src/di/tokens.ts`
 
 **Add**:
+
 ```typescript
 export const TOKENS = {
   // ... existing tokens ...
@@ -684,6 +691,7 @@ export const TOKENS = {
 **File**: `apps/ptah-extension-vscode/src/services/rpc-method-registration.service.ts`
 
 **Add RPC method registrations**:
+
 ```typescript
 // LLM Provider Management (TASK_2025_073)
 this.rpcHandler.registerMethod('llm.getProviderStatus', async () => {
@@ -713,6 +721,7 @@ this.rpcHandler.registerMethod('llm.validateApiKeyFormat', async (params: { prov
 ```
 
 ### Verification
+
 - [ ] LlmRpcHandlers class created
 - [ ] TOKENS.LLM_RPC_HANDLERS added
 - [ ] RPC handlers registered in DI
@@ -726,6 +735,7 @@ this.rpcHandler.registerMethod('llm.validateApiKeyFormat', async (params: { prov
 ## Batch 6: Integration Testing & Verification
 
 ### Purpose
+
 Verify all changes work correctly end-to-end.
 
 ### Tasks
@@ -754,11 +764,13 @@ npm run lint:all
 #### Task 6.4: Manual Testing
 
 1. **Provider Switching**:
+
    - Open extension
    - Switch between providers
    - Verify no race conditions
 
 2. **API Key Management**:
+
    - Test RPC: `llm.getProviderStatus`
    - Test RPC: `llm.setApiKey`
    - Test RPC: `llm.removeApiKey`
@@ -770,16 +782,17 @@ npm run lint:all
 
 #### Task 6.5: Verify Code Review Issues Resolved
 
-| Issue | Status | Verification |
-|-------|--------|--------------|
-| Type coupling | [ ] | Types in provider-types.ts |
-| Race condition | [ ] | async-mutex used |
-| No timeout | [ ] | 30s timeout added |
-| Error codes wrong | [ ] | Codes updated |
-| Logging inconsistent | [ ] | Format standardized |
-| Package exports | [ ] | exports in package.json |
+| Issue                | Status | Verification               |
+| -------------------- | ------ | -------------------------- |
+| Type coupling        | [ ]    | Types in provider-types.ts |
+| Race condition       | [ ]    | async-mutex used           |
+| No timeout           | [ ]    | 30s timeout added          |
+| Error codes wrong    | [ ]    | Codes updated              |
+| Logging inconsistent | [ ]    | Format standardized        |
+| Package exports      | [ ]    | exports in package.json    |
 
 ### Verification
+
 - [ ] All builds pass
 - [ ] Type checking passes
 - [ ] Linting passes
@@ -791,6 +804,7 @@ npm run lint:all
 ## Definition of Done
 
 ### Required (MUST)
+
 - [ ] All critical issues from code reviews resolved
 - [ ] All serious issues from code reviews resolved
 - [ ] Phase 5 RPC handlers implemented
@@ -798,11 +812,13 @@ npm run lint:all
 - [ ] Extension activates without errors
 
 ### Desired (SHOULD)
+
 - [ ] Minor issues addressed where practical
 - [ ] Documentation updated
 - [ ] No new warnings introduced
 
 ### Optional (NICE TO HAVE)
+
 - [ ] Unit tests for new code
 - [ ] Integration tests for RPC handlers
 
@@ -810,18 +826,19 @@ npm run lint:all
 
 ## Risk Assessment
 
-| Risk | Probability | Impact | Mitigation |
-|------|-------------|--------|------------|
-| async-mutex breaks other code | LOW | HIGH | Test thoroughly, mutex only on provider switching |
-| Package.json exports break webpack | MEDIUM | HIGH | Verify webpack aliases still work |
-| RPC handlers break webview | LOW | MEDIUM | Manual testing before merge |
-| Type centralization breaks imports | MEDIUM | MEDIUM | Update all imports in same batch |
+| Risk                               | Probability | Impact | Mitigation                                        |
+| ---------------------------------- | ----------- | ------ | ------------------------------------------------- |
+| async-mutex breaks other code      | LOW         | HIGH   | Test thoroughly, mutex only on provider switching |
+| Package.json exports break webpack | MEDIUM      | HIGH   | Verify webpack aliases still work                 |
+| RPC handlers break webview         | LOW         | MEDIUM | Manual testing before merge                       |
+| Type centralization breaks imports | MEDIUM      | MEDIUM | Update all imports in same batch                  |
 
 ---
 
 ## Rollback Strategy
 
 If issues arise:
+
 1. Git revert batch commits individually
 2. Each batch is independent and can be reverted separately
 3. Phase 5 (RPC handlers) can be reverted without affecting remediation work
