@@ -10,18 +10,22 @@ import {
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 
 /**
- * HeroSceneComponent - Egyptian Island 3D Scene
+ * HeroSceneComponent - Golden Ankh 3D Scene with Particle Halo
  *
- * COMPLEXITY LEVEL: 3 (Complex - GLTF model loading, lighting, controls)
+ * COMPLEXITY LEVEL: 3 (Complex - Post-processing, procedural geometry, 500 particles)
  *
  * Features:
- * - Loads Egyptian island GLTF model with textures
- * - Ambient + directional + point lighting for dramatic effect
+ * - Loads Golden Ankh GLTF model with procedural fallback
+ * - 500-particle spherical halo with additive blending
+ * - UnrealBloomPass post-processing for golden glow
+ * - Radial gradient background (obsidian → gold)
  * - OrbitControls for user interaction (auto-rotate enabled)
  * - Mouse parallax for subtle camera movement
- * - Gradient background matching theme
  * - Proper WebGL resource disposal
  *
  * Accessibility:
@@ -29,8 +33,9 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
  * - Canvas is decorative (aria-hidden handled by parent)
  *
  * Performance:
+ * - 500 particles optimized with BufferGeometry
  * - Pixel ratio capped at 2x
- * - Damping on controls for smooth interaction
+ * - Post-processing with optimized bloom settings
  * - RAF animation loop with proper cleanup
  */
 @Component({
@@ -58,9 +63,10 @@ export class HeroSceneComponent {
   private scene?: THREE.Scene;
   private camera?: THREE.PerspectiveCamera;
   private controls?: OrbitControls;
-  private model?: THREE.Group;
+  private ankhModel?: THREE.Object3D;
+  private particles?: THREE.Points;
+  private composer?: EffectComposer;
   private animationId?: number;
-  private mixer?: THREE.AnimationMixer;
   private clock = new THREE.Clock();
 
   // Mouse parallax state
@@ -95,25 +101,22 @@ export class HeroSceneComponent {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.2;
 
-    // Setup scene with gradient background
+    // Setup scene with radial gradient background
     this.scene = new THREE.Scene();
 
-    // Create gradient background (dark brown/bronze theme)
-    const bgColor1 = new THREE.Color(0x1a1410); // Dark brown (bottom)
-    const bgColor2 = new THREE.Color(0x3d2d24); // Medium brown (top)
-    this.scene.background = this.createGradientTexture(bgColor1, bgColor2);
+    // Create radial gradient background (obsidian → gold glow)
+    this.scene.background = this.createRadialGradientTexture();
 
-    // Setup camera - positioned for dramatic wide-angle background view
-    // Island fills viewport as an immersive background
+    // Setup camera - positioned for Golden Ankh focal point
     this.camera = new THREE.PerspectiveCamera(
-      65, // Wider FOV for more dramatic effect
+      65, // Wider FOV for dramatic effect
       canvas.clientWidth / canvas.clientHeight,
       0.1,
       1000
     );
-    // Camera positioned closer and lower for immersive background feel
-    this.camera.position.set(0, 6, 10);
-    this.camera.lookAt(0, 2, 0);
+    // Camera positioned to showcase Ankh and particle halo
+    this.camera.position.set(0, 3, 8);
+    this.camera.lookAt(0, 0, 0);
 
     // Setup OrbitControls for user interaction
     this.controls = new OrbitControls(this.camera, canvas);
@@ -122,20 +125,23 @@ export class HeroSceneComponent {
     this.controls.enableZoom = false; // Disable zoom for landing page
     this.controls.enablePan = false; // Disable pan
     this.controls.autoRotate = !prefersReducedMotion; // Auto-rotate unless reduced motion
-    this.controls.autoRotateSpeed = 0.3; // Slower rotation for background
+    this.controls.autoRotateSpeed = 0.5; // Rotation speed for Ankh showcase
     this.controls.minPolarAngle = Math.PI / 4; // Limit vertical rotation
     this.controls.maxPolarAngle = Math.PI / 2.2;
-    // Target center of island for smooth rotation
-    this.controls.target.set(0, 2, 0);
+    // Target center of Ankh
+    this.controls.target.set(0, 0, 0);
 
     // Add lighting
     this.setupLighting();
 
-    // Load the GLTF model
-    await this.loadModel();
+    // Load the Golden Ankh model
+    await this.loadAnkhModel();
 
-    // Add floating particles for mystical atmosphere
-    this.addParticles();
+    // Add spherical particle halo (500 particles)
+    this.addAnkhParticleHalo();
+
+    // Setup post-processing bloom effect
+    this.setupBloomEffect();
 
     // Event listeners
     window.addEventListener('mousemove', this.onMouseMove);
@@ -152,6 +158,7 @@ export class HeroSceneComponent {
       window.removeEventListener('mousemove', this.onMouseMove);
       window.removeEventListener('resize', this.onResize);
       this.controls?.dispose();
+      this.composer?.dispose();
       this.renderer?.dispose();
       // Dispose scene resources
       this.scene?.traverse((object) => {
@@ -168,23 +175,22 @@ export class HeroSceneComponent {
   }
 
   /**
-   * Create gradient texture for background
+   * Create radial gradient texture for background (obsidian → gold glow)
    */
-  private createGradientTexture(
-    color1: THREE.Color,
-    color2: THREE.Color
-  ): THREE.Texture {
+  private createRadialGradientTexture(): THREE.Texture {
     const canvas = document.createElement('canvas');
-    canvas.width = 2;
+    canvas.width = 512;
     canvas.height = 512;
     const ctx = canvas.getContext('2d')!;
 
-    const gradient = ctx.createLinearGradient(0, 0, 0, 512);
-    gradient.addColorStop(0, `#${color2.getHexString()}`);
-    gradient.addColorStop(1, `#${color1.getHexString()}`);
+    // Radial gradient: gold glow center → dark fade → obsidian edge
+    const gradient = ctx.createRadialGradient(256, 358, 0, 256, 358, 512);
+    gradient.addColorStop(0, 'rgba(212, 175, 55, 0.15)'); // Gold glow center
+    gradient.addColorStop(0.5, 'rgba(26, 26, 26, 1)'); // Dark fade
+    gradient.addColorStop(1, 'rgba(10, 10, 10, 1)'); // Obsidian edge
 
     ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, 2, 512);
+    ctx.fillRect(0, 0, 512, 512);
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.needsUpdate = true;
@@ -192,144 +198,171 @@ export class HeroSceneComponent {
   }
 
   /**
-   * Setup dramatic lighting for the Egyptian scene (large background)
+   * Setup dramatic lighting for the Golden Ankh scene
    */
   private setupLighting(): void {
     if (!this.scene) return;
 
-    // Ambient light for base illumination - stronger for larger scene
-    const ambientLight = new THREE.AmbientLight(0xffeedd, 0.6);
+    // Ambient light for base illumination
+    const ambientLight = new THREE.AmbientLight(0xffeedd, 0.5);
     this.scene.add(ambientLight);
 
-    // Main directional light (sun) - warm golden light
-    const sunLight = new THREE.DirectionalLight(0xffd89b, 2.0);
-    sunLight.position.set(15, 30, 15);
+    // Main directional light - warm golden light from above
+    const sunLight = new THREE.DirectionalLight(0xd4af37, 1.8);
+    sunLight.position.set(10, 15, 10);
     sunLight.castShadow = true;
     sunLight.shadow.mapSize.width = 2048;
     sunLight.shadow.mapSize.height = 2048;
-    sunLight.shadow.camera.near = 0.5;
-    sunLight.shadow.camera.far = 100;
-    sunLight.shadow.camera.left = -40;
-    sunLight.shadow.camera.right = 40;
-    sunLight.shadow.camera.top = 40;
-    sunLight.shadow.camera.bottom = -40;
     this.scene.add(sunLight);
 
-    // Torch lights - orange/fire glow (scaled for larger model)
-    const torchPositions = [
-      { x: -8, y: 10, z: 4 },
-      { x: 8, y: 10, z: 4 },
-      { x: -6, y: 10, z: -6 },
-      { x: 6, y: 10, z: -6 },
-    ];
+    // Key light from front-left for Ankh highlight
+    const keyLight = new THREE.DirectionalLight(0xfbbf24, 1.2);
+    keyLight.position.set(-8, 8, 12);
+    this.scene.add(keyLight);
 
-    torchPositions.forEach((pos) => {
-      const torchLight = new THREE.PointLight(0xff6b35, 3, 20);
-      torchLight.position.set(pos.x, pos.y, pos.z);
-      this.scene!.add(torchLight);
-    });
-
-    // Rim light from behind for dramatic effect
-    const rimLight = new THREE.DirectionalLight(0x4fc3f7, 0.8);
-    rimLight.position.set(-10, 10, -20);
+    // Rim light from behind for golden edge glow
+    const rimLight = new THREE.DirectionalLight(0xd4af37, 1.0);
+    rimLight.position.set(-5, 5, -10);
     this.scene.add(rimLight);
 
-    // Water reflection light (blue tint from below)
-    const waterLight = new THREE.PointLight(0x4dd0e1, 1.2, 30);
-    waterLight.position.set(0, -5, 0);
-    this.scene.add(waterLight);
+    // Point light at Ankh center for inner glow (enhances bloom)
+    const centerGlow = new THREE.PointLight(0xd4af37, 2.0, 10);
+    centerGlow.position.set(0, 0, 0);
+    this.scene.add(centerGlow);
 
-    // Additional fill light from front to brighten the scene
-    const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
-    fillLight.position.set(0, 5, 20);
+    // Fill light from below for particle illumination
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
+    fillLight.position.set(0, -5, 8);
     this.scene.add(fillLight);
   }
 
   /**
-   * Load the Egyptian island GLTF model
+   * Load the Golden Ankh GLTF model with procedural fallback
    */
-  private async loadModel(): Promise<void> {
+  private async loadAnkhModel(): Promise<void> {
     const loader = new GLTFLoader();
 
     try {
-      const gltf = await loader.loadAsync('/assets/3d-models/scene.gltf');
-      this.model = gltf.scene;
+      // Attempt to load Ankh GLTF model
+      const gltf = await loader.loadAsync('/assets/3d-models/ankh.gltf');
+      const ankh = gltf.scene;
 
-      // Scale and position the model - massive scale for background effect
-      this.model.scale.set(4.5, 4.5, 4.5);
-      // Position to fill the viewport as immersive background
-      this.model.position.set(0, -2, -3);
-
-      // Enable shadows for all meshes
-      this.model.traverse((child) => {
+      // Apply golden material to all meshes
+      ankh.traverse((child) => {
         if (child instanceof THREE.Mesh) {
+          child.material = new THREE.MeshStandardMaterial({
+            color: 0xd4af37,
+            metalness: 1.0,
+            roughness: 0.2,
+          });
           child.castShadow = true;
           child.receiveShadow = true;
         }
       });
 
-      this.scene?.add(this.model);
+      // Scale and position the Ankh
+      ankh.scale.setScalar(2.5);
+      ankh.position.set(0, 0, 0);
+      this.scene!.add(ankh);
+      this.ankhModel = ankh;
 
-      // Setup animations if any
-      if (gltf.animations.length > 0) {
-        this.mixer = new THREE.AnimationMixer(this.model);
-        gltf.animations.forEach((clip) => {
-          this.mixer?.clipAction(clip).play();
-        });
-      }
+      console.log('[HeroScene] Golden Ankh model loaded successfully');
     } catch (error) {
-      console.error('[HeroScene] Failed to load 3D model:', error);
-      // Fallback: show a simple placeholder if model fails to load
-      this.addFallbackPyramid();
+      console.warn(
+        '[HeroScene] Ankh model not found, using procedural fallback',
+        error
+      );
+      // Fallback to procedural golden pyramid
+      this.createProceduralAnkh();
     }
   }
 
   /**
-   * Fallback pyramid if GLTF fails to load
+   * Create procedural Golden Ankh geometry (fallback if GLTF fails)
    */
-  private addFallbackPyramid(): void {
+  private createProceduralAnkh(): void {
     if (!this.scene) return;
 
-    const geometry = new THREE.ConeGeometry(3, 4, 4);
+    // Simplified Ankh representation using golden pyramid
+    const geometry = new THREE.ConeGeometry(1.5, 3, 4);
     const material = new THREE.MeshStandardMaterial({
       color: 0xd4af37,
-      metalness: 0.6,
-      roughness: 0.4,
+      metalness: 1.0,
+      roughness: 0.2,
     });
     const pyramid = new THREE.Mesh(geometry, material);
-    pyramid.position.y = 2;
+    pyramid.rotation.y = Math.PI / 4; // Rotate 45 degrees for diamond shape
     pyramid.castShadow = true;
+    pyramid.receiveShadow = true;
     this.scene.add(pyramid);
+    this.ankhModel = pyramid;
+
+    console.log('[HeroScene] Using procedural golden pyramid fallback');
   }
 
   /**
-   * Add floating golden particles for mystical atmosphere (scaled for large background)
+   * Add spherical particle halo around the Golden Ankh (500 particles)
    */
-  private addParticles(): void {
+  private addAnkhParticleHalo(): void {
     if (!this.scene) return;
 
-    const particleCount = 200;
-    const geometry = new THREE.BufferGeometry();
+    const particleCount = 500;
     const positions = new Float32Array(particleCount * 3);
 
-    for (let i = 0; i < particleCount * 3; i += 3) {
-      positions[i] = (Math.random() - 0.5) * 60;
-      positions[i + 1] = Math.random() * 25 + 2;
-      positions[i + 2] = (Math.random() - 0.5) * 60;
+    // Spherical distribution using spherical coordinates
+    for (let i = 0; i < particleCount; i++) {
+      // Random spherical coordinates
+      const theta = Math.random() * Math.PI * 2; // Azimuthal angle (0 to 2π)
+      const phi = Math.acos(2 * Math.random() - 1); // Polar angle (0 to π)
+      const radius = 3 + Math.random() * 2; // Radius 3-5 units
+
+      // Convert spherical to Cartesian coordinates
+      positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta); // x
+      positions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta); // y
+      positions[i * 3 + 2] = radius * Math.cos(phi); // z
     }
 
+    const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
     const material = new THREE.PointsMaterial({
-      color: 0xffd700,
-      size: 0.12,
+      color: 0xd4af37, // Golden color
+      size: 0.05,
       transparent: true,
-      opacity: 0.7,
-      blending: THREE.AdditiveBlending,
+      opacity: 0.8,
+      blending: THREE.AdditiveBlending, // Additive blending for glow effect
+      sizeAttenuation: true,
     });
 
-    const particles = new THREE.Points(geometry, material);
-    this.scene.add(particles);
+    this.particles = new THREE.Points(geometry, material);
+    this.scene.add(this.particles);
+
+    console.log('[HeroScene] 500-particle spherical halo created');
+  }
+
+  /**
+   * Setup UnrealBloomPass post-processing for golden glow
+   */
+  private setupBloomEffect(): void {
+    if (!this.renderer || !this.scene || !this.camera) return;
+
+    // Create EffectComposer
+    this.composer = new EffectComposer(this.renderer);
+
+    // Add RenderPass (renders the scene)
+    const renderPass = new RenderPass(this.scene, this.camera);
+    this.composer.addPass(renderPass);
+
+    // Add UnrealBloomPass for glow effect
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      1.5, // strength - intensity of bloom
+      0.4, // radius - spread of glow
+      0.85 // threshold - brightness threshold for bloom
+    );
+    this.composer.addPass(bloomPass);
+
+    console.log('[HeroScene] UnrealBloomPass post-processing enabled');
   }
 
   /**
@@ -358,19 +391,21 @@ export class HeroSceneComponent {
   private animate = (): void => {
     this.animationId = requestAnimationFrame(this.animate);
 
-    const delta = this.clock.getDelta();
-
-    // Update animation mixer
-    if (this.mixer) {
-      this.mixer.update(delta);
+    // Particle rotation and subtle emanation
+    if (this.particles) {
+      this.particles.rotation.y += 0.001; // Slow rotation
+      // Optional: Add subtle pulsing effect to particle scale
+      const time = Date.now() * 0.0005;
+      const scale = 1.0 + Math.sin(time) * 0.05;
+      this.particles.scale.setScalar(scale);
     }
 
-    // Very subtle camera parallax based on mouse position (slowed down)
+    // Very subtle camera parallax based on mouse position
     this.targetCameraX = this.mouseX * 0.8;
     this.targetCameraY = this.mouseY * 0.4;
 
     if (this.controls) {
-      // Add very subtle offset to camera based on mouse (much slower lerp)
+      // Add very subtle offset to camera based on mouse
       this.controls.target.x +=
         (this.targetCameraX * 0.3 - this.controls.target.x) * 0.005;
 
@@ -378,8 +413,10 @@ export class HeroSceneComponent {
       this.controls.update();
     }
 
-    // Render
-    if (this.renderer && this.scene && this.camera) {
+    // Render using composer (with bloom) or fallback to direct render
+    if (this.composer) {
+      this.composer.render();
+    } else if (this.renderer && this.scene && this.camera) {
       this.renderer.render(this.scene, this.camera);
     }
   };

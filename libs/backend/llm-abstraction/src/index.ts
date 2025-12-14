@@ -1,3 +1,37 @@
+/**
+ * LLM Abstraction Library - Main Entry Point
+ *
+ * @packageDocumentation
+ *
+ * This is the core entry point for the LLM abstraction library.
+ * It exports interfaces, errors, base classes, services, and DI registration.
+ *
+ * **IMPORTANT**: Individual providers are NOT exported here to enable tree-shaking.
+ * Use secondary entry points for specific providers:
+ *
+ * - `@ptah-extension/llm-abstraction/vscode-lm` - VS Code LM (no Langchain deps)
+ * - `@ptah-extension/llm-abstraction/anthropic` - Anthropic Claude
+ * - `@ptah-extension/llm-abstraction/openai` - OpenAI GPT
+ * - `@ptah-extension/llm-abstraction/google` - Google Gemini
+ * - `@ptah-extension/llm-abstraction/openrouter` - OpenRouter
+ *
+ * @example
+ * ```typescript
+ * // Core imports (always safe, no heavy deps)
+ * import {
+ *   LlmService,
+ *   ProviderRegistry,
+ *   LlmSecretsService,
+ *   LlmConfigurationService,
+ *   registerLlmAbstractionServices
+ * } from '@ptah-extension/llm-abstraction';
+ *
+ * // Provider imports (only loads that provider's deps)
+ * import { createAnthropicProvider } from '@ptah-extension/llm-abstraction/anthropic';
+ * import { createVsCodeLmProvider } from '@ptah-extension/llm-abstraction/vscode-lm';
+ * ```
+ */
+
 // ========================================
 // Interfaces
 // ========================================
@@ -9,17 +43,9 @@ export * from './lib/interfaces/llm-provider.interface';
 export * from './lib/errors/llm-provider.error';
 
 // ========================================
-// Providers
+// Base Provider (for extension only)
 // ========================================
 export { BaseLlmProvider } from './lib/providers/base-llm.provider';
-export { AnthropicProvider } from './lib/providers/anthropic.provider';
-export { OpenAIProvider } from './lib/providers/openai.provider';
-export { GoogleGenAIProvider } from './lib/providers/google-genai.provider';
-export { OpenRouterProvider } from './lib/providers/openrouter.provider';
-export {
-  VsCodeLmProvider,
-  type VsCodeModelSelector,
-} from './lib/providers/vscode-lm.provider';
 
 // ========================================
 // Registry
@@ -30,8 +56,31 @@ export { ProviderRegistry } from './lib/registry/provider-registry';
 // Services
 // ========================================
 export { LlmService } from './lib/services/llm.service';
+export {
+  LlmSecretsService,
+  type LlmProviderName,
+  type ILlmSecretsService,
+  API_KEY_PROVIDERS,
+} from './lib/services/llm-secrets.service';
+export {
+  LlmConfigurationService,
+  type LlmProviderConfig,
+  type LlmConfiguration,
+} from './lib/services/llm-configuration.service';
 
 // ========================================
 // DI Registration
 // ========================================
 export { registerLlmAbstractionServices } from './lib/di';
+
+// ========================================
+// PROVIDERS - Use secondary entry points instead!
+// ========================================
+// Providers are intentionally NOT exported here to enable tree-shaking.
+// Import from secondary entry points:
+//
+// import { VsCodeLmProvider, createVsCodeLmProvider } from '@ptah-extension/llm-abstraction/vscode-lm';
+// import { AnthropicProvider, createAnthropicProvider } from '@ptah-extension/llm-abstraction/anthropic';
+// import { OpenAIProvider, createOpenAIProvider } from '@ptah-extension/llm-abstraction/openai';
+// import { GoogleGenAIProvider, createGoogleProvider } from '@ptah-extension/llm-abstraction/google';
+// import { OpenRouterProvider, createOpenRouterProvider } from '@ptah-extension/llm-abstraction/openrouter';

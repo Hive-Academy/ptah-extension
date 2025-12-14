@@ -10,14 +10,25 @@ import {
 } from '../interfaces/llm-provider.interface';
 import { LlmProviderError } from '../errors/llm-provider.error';
 import { ProviderRegistry } from '../registry/provider-registry';
+import { LlmConfigurationService } from './llm-configuration.service';
+import { LlmProviderName } from './llm-secrets.service';
 
 /**
  * Main LLM service for Ptah.
  * Orchestrates provider selection and LLM operations.
  *
+ * API keys are managed via LlmSecretsService (VS Code SecretStorage).
+ * Model defaults are configured via VS Code settings.
+ *
  * Usage:
  * ```typescript
  * const llmService = container.resolve<LlmService>(TOKENS.LLM_SERVICE);
+ *
+ * // Set provider with default model
+ * await llmService.setProviderByName('anthropic');
+ *
+ * // Or specify model explicitly
+ * await llmService.setProvider('anthropic', 'claude-3-5-sonnet-20241022');
  *
  * // Simple completion
  * const result = await llmService.getCompletion(
@@ -43,46 +54,85 @@ export class LlmService implements ILlmService {
   constructor(
     @inject(TOKENS.PROVIDER_REGISTRY)
     private readonly providerRegistry: ProviderRegistry,
+    @inject(TOKENS.LLM_CONFIGURATION_SERVICE)
+    private readonly configService: LlmConfigurationService,
     @inject(TOKENS.LOGGER) private readonly logger: Logger
   ) {
     this.logger.info('LlmService initialized');
   }
 
   /**
-   * Set the current LLM provider.
-   * Call this before using other methods.
+   * Set the current LLM provider with a specific model.
+   * API key is retrieved automatically from SecretStorage.
+   *
    * @param providerName Provider name (anthropic, openai, google-genai, openrouter, vscode-lm)
-   * @param apiKey API key for the provider (may be empty for vscode-lm)
    * @param model Model name to use
-   * @returns Promise of Result indicating success or error (async for vscode-lm provider)
+   * @returns Promise of Result indicating success or error
    */
   public async setProvider(
-    providerName: string,
-    apiKey: string,
+    providerName: LlmProviderName,
     model: string
   ): Promise<Result<void, LlmProviderError>> {
-    const factoryResult = this.providerRegistry.createProvider(
+    this.logger.debug('[LlmService] setProvider', { providerName, model });
+
+    const result = await this.providerRegistry.createProvider(
       providerName,
-      apiKey,
       model
     );
 
-    // Handle both sync and async factory results
-    const result =
-      factoryResult instanceof Promise ? await factoryResult : factoryResult;
-
     if (result.isErr()) {
       this.logger.error(
-        `Failed to set LLM provider '${providerName}': ${result.error!.message}`
+        `[LlmService] Failed to set provider '${providerName}': ${
+          result.error!.message
+        }`
       );
       return Result.err(result.error!);
     }
 
     this.currentProvider = result.value!;
     this.logger.info(
-      `LLM provider set to '${providerName}' with model '${model}'`
+      `[LlmService] Provider set to '${providerName}' with model '${model}'`
     );
     return Result.ok(undefined);
+  }
+
+  /**
+   * Set the current LLM provider using default model from settings.
+   * This is a convenience method that uses LlmConfigurationService for model lookup.
+   *
+   * @param providerName Provider name (anthropic, openai, google-genai, openrouter, vscode-lm)
+   * @returns Promise of Result indicating success or error
+   */
+  public async setProviderByName(
+    providerName: LlmProviderName
+  ): Promise<Result<void, LlmProviderError>> {
+    const model = this.configService.getDefaultModel(providerName);
+    this.logger.debug('[LlmService] setProviderByName', {
+      providerName,
+      model,
+    });
+    return this.setProvider(providerName, model);
+  }
+
+  /**
+   * Initialize with the default provider from settings.
+   * Uses the default provider and model from VS Code settings.
+   *
+   * @returns Promise of Result indicating success or error
+   */
+  public async initializeDefault(): Promise<Result<void, LlmProviderError>> {
+    const defaultProvider = this.configService.getDefaultProvider();
+    this.logger.debug('[LlmService] initializeDefault', {
+      provider: defaultProvider,
+    });
+    return this.setProviderByName(defaultProvider);
+  }
+
+  /**
+   * Check if a provider is currently set.
+   */
+  public hasProvider(): boolean {
+    return this.currentProvider !== null;
   }
 
   /**

@@ -1,46 +1,46 @@
-<form class="space-y-6">
+<form class="space-y-2.5">
   <!-- Auth Method Selection -->
   <div class="form-control">
-    <div class="label">
-      <span class="label-text font-semibold">Authentication Method</span>
+    <div class="label py-1">
+      <span class="label-text text-xs font-medium">Authentication Method</span>
     </div>
-    <div class="flex flex-wrap gap-4">
-      <label class="label cursor-pointer gap-2">
+    <div class="flex flex-wrap gap-3">
+      <label class="label cursor-pointer gap-1.5 p-0">
         <input
           type="radio"
           name="authMethod"
           value="oauth"
           [checked]="authMethod() === 'oauth'"
           (change)="onAuthMethodChange('oauth')"
-          class="radio radio-primary"
+          class="radio radio-primary radio-xs"
         />
-        <span class="label-text">OAuth Token</span>
+        <span class="label-text text-xs">OAuth Token</span>
       </label>
-      <label class="label cursor-pointer gap-2">
+      <label class="label cursor-pointer gap-1.5 p-0">
         <input
           type="radio"
           name="authMethod"
           value="apiKey"
           [checked]="authMethod() === 'apiKey'"
           (change)="onAuthMethodChange('apiKey')"
-          class="radio radio-primary"
+          class="radio radio-primary radio-xs"
         />
-        <span class="label-text">API Key</span>
+        <span class="label-text text-xs">API Key</span>
       </label>
-      <label class="label cursor-pointer gap-2">
+      <label class="label cursor-pointer gap-1.5 p-0">
         <input
           type="radio"
           name="authMethod"
           value="auto"
           [checked]="authMethod() === 'auto'"
           (change)="onAuthMethodChange('auto')"
-          class="radio radio-primary"
+          class="radio radio-primary radio-xs"
         />
-        <span class="label-text">Auto-detect</span>
+        <span class="label-text text-xs">Auto-detect</span>
       </label>
     </div>
-    <div class="label">
-      <span class="label-text-alt opacity-70">
+    <div class="label py-0.5">
+      <span class="label-text-alt text-[10px] opacity-70">
         Auto-detect will try OAuth token first, then fall back to API key
       </span>
     </div>
@@ -49,10 +49,10 @@
   <!-- OAuth Token Input -->
   @if (authMethod() === 'oauth' || authMethod() === 'auto') {
   <div class="form-control">
-    <label class="label" for="oauthToken">
-      <span class="label-text font-semibold">Claude OAuth Token</span>
+    <label class="label py-1" for="oauthToken">
+      <span class="label-text text-xs font-medium">Claude OAuth Token</span>
       @if (authMethod() === 'auto') {
-      <span class="label-text-alt">(optional in auto-detect)</span>
+      <span class="label-text-alt text-[10px]">(optional)</span>
       }
     </label>
     <input
@@ -60,19 +60,20 @@
       type="password"
       [(ngModel)]="oauthToken"
       name="oauthToken"
-      class="input input-bordered w-full"
+      class="input input-bordered input-sm w-full text-xs"
       placeholder="Enter your OAuth token"
       [attr.aria-required]="authMethod() === 'oauth'"
     />
-    <div class="label flex-col items-start gap-1">
-      <span class="label-text-alt opacity-70">
-        <strong>✅ For Claude Max/Pro subscription:</strong> Run
-        <code class="text-xs bg-base-300 px-1 rounded">claude setup-token</code>
-        in terminal and paste the token here.
+    <div class="label flex-col items-start gap-0.5 py-1">
+      <span class="label-text-alt text-[10px] opacity-70">
+        <strong>✅ Claude Max/Pro:</strong> Run
+        <code class="text-[10px] bg-base-300 px-0.5 rounded"
+          >claude setup-token</code
+        >
+        and paste here.
       </span>
-      <span class="label-text-alt opacity-70">
-        OAuth tokens start with <code class="text-xs">sk-ant-oat01-</code> and
-        use your subscription (no extra charges).
+      <span class="label-text-alt text-[10px] opacity-70">
+        Tokens start with <code class="text-[10px]">sk-ant-oat01-</code>
       </span>
     </div>
   </div>
@@ -81,10 +82,10 @@
   <!-- API Key Input -->
   @if (authMethod() === 'apiKey' || authMethod() === 'auto') {
   <div class="form-control">
-    <label class="label" for="apiKey">
-      <span class="label-text font-semibold">Anthropic API Key</span>
+    <label class="label py-1" for="apiKey">
+      <span class="label-text text-xs font-medium">Anthropic API Key</span>
       @if (authMethod() === 'auto') {
-      <span class="label-text-alt">(optional in auto-detect)</span>
+      <span class="label-text-alt text-[10px]">(optional)</span>
       }
     </label>
     <input
@@ -92,44 +93,43 @@
       type="password"
       [(ngModel)]="apiKey"
       name="apiKey"
-      class="input input-bordered w-full"
+      class="input input-bordered input-sm w-full text-xs"
       placeholder="sk-ant-api03-..."
       [attr.aria-required]="authMethod() === 'apiKey'"
     />
-    <div class="label flex-col items-start gap-1">
-      <span class="label-text-alt opacity-70">
-        <strong>💳 For pay-per-token billing:</strong> Get your API key from
+    <div class="label flex-col items-start gap-0.5 py-1">
+      <span class="label-text-alt text-[10px] opacity-70">
+        <strong>💳 Pay-per-token:</strong> Get API key from
         <a
           href="https://console.anthropic.com/settings/keys"
           target="_blank"
           class="link link-primary font-semibold"
-          >Anthropic Console → API Keys</a
+          >Anthropic Console</a
         >
       </span>
-      <span class="label-text-alt opacity-70">
-        API keys start with <code class="text-xs">sk-ant-api</code> and are
-        billed separately (different from subscriptions).
+      <span class="label-text-alt text-[10px] opacity-70">
+        Keys start with <code class="text-[10px]">sk-ant-api</code>
       </span>
     </div>
   </div>
   }
 
   <!-- Save & Test Button -->
-  <div class="form-control">
+  <div class="form-control pt-1">
     <button
       type="button"
-      class="btn btn-primary gap-2"
+      class="btn btn-primary btn-sm gap-1.5 text-xs"
       (click)="saveAndTest()"
       [disabled]="
         connectionStatus() === 'saving' || connectionStatus() === 'testing'
       "
     >
       @if (connectionStatus() === 'saving') {
-      <lucide-angular [img]="Loader2Icon" class="w-4 h-4 animate-spin" />
+      <lucide-angular [img]="Loader2Icon" class="w-3.5 h-3.5 animate-spin" />
       <span>Saving...</span>
       } @else if (connectionStatus() === 'testing') {
-      <lucide-angular [img]="Loader2Icon" class="w-4 h-4 animate-spin" />
-      <span>Testing Connection...</span>
+      <lucide-angular [img]="Loader2Icon" class="w-3.5 h-3.5 animate-spin" />
+      <span>Testing...</span>
       } @else {
       <span>Save & Test Connection</span>
       }
@@ -138,22 +138,22 @@
 
   <!-- Success Message -->
   @if (connectionStatus() === 'success' && successMessage()) {
-  <div class="alert alert-success" role="status" aria-live="polite">
-    <lucide-angular [img]="CheckCircleIcon" class="w-5 h-5" />
-    <span>{{ successMessage() }}</span>
+  <div class="alert alert-success py-2 px-3" role="status" aria-live="polite">
+    <lucide-angular [img]="CheckCircleIcon" class="w-4 h-4" />
+    <span class="text-xs">{{ successMessage() }}</span>
   </div>
   }
 
   <!-- Error Message -->
   @if (connectionStatus() === 'error' && errorMessage()) {
-  <div class="alert alert-error" role="alert" aria-live="assertive">
-    <div class="flex flex-col gap-2 w-full">
-      <div class="flex items-start gap-2">
+  <div class="alert alert-error py-2 px-3" role="alert" aria-live="assertive">
+    <div class="flex flex-col gap-1.5 w-full">
+      <div class="flex items-start gap-1.5">
         <lucide-angular
           [img]="XCircleIcon"
-          class="w-5 h-5 flex-shrink-0 mt-0.5"
+          class="w-4 h-4 flex-shrink-0 mt-0.5"
         />
-        <span class="flex-1 whitespace-pre-wrap break-words">{{
+        <span class="flex-1 whitespace-pre-wrap break-words text-xs">{{
           errorMessage()
         }}</span>
       </div>
@@ -161,28 +161,21 @@
       errorMessage().toLowerCase().includes('unauthorized') ||
       errorMessage().toLowerCase().includes('invalid') ||
       errorMessage().toLowerCase().includes('authentication')) {
-      <div class="text-sm border-t border-error-content/20 pt-2 mt-1">
-        <strong>💡 Authentication Tips:</strong>
-        <ul class="list-disc list-inside mt-1 space-y-1 text-xs">
+      <div class="text-[10px] border-t border-error-content/20 pt-1.5 mt-0.5">
+        <strong>💡 Tips:</strong>
+        <ul class="list-disc list-inside mt-0.5 space-y-0.5">
           <li>
-            <strong>Option 1 (Subscription):</strong> Run
-            <code class="text-xs bg-base-300 px-1 rounded"
-              >claude setup-token</code
-            >
-            and use OAuth token (starts with <code>sk-ant-oat01-</code>)
+            <strong>Subscription:</strong> Run
+            <code class="bg-base-300 px-0.5 rounded">claude setup-token</code>
           </li>
           <li>
-            <strong>Option 2 (Pay-per-token):</strong> Get API key from
+            <strong>Pay-per-token:</strong> Get key from
             <a
               href="https://console.anthropic.com/settings/keys"
               target="_blank"
               class="link link-error font-semibold"
               >console.anthropic.com</a
             >
-            (starts with <code>sk-ant-api</code>)
-          </li>
-          <li>
-            Check the VS Code Output panel (select "Ptah") for detailed logs
           </li>
         </ul>
       </div>
@@ -193,9 +186,9 @@
 
   <!-- Testing In Progress (with success message from save) -->
   @if (connectionStatus() === 'testing' && successMessage()) {
-  <div class="alert alert-info" role="status" aria-live="polite">
-    <lucide-angular [img]="Loader2Icon" class="w-5 h-5 animate-spin" />
-    <span>{{ successMessage() }}</span>
+  <div class="alert alert-info py-2 px-3" role="status" aria-live="polite">
+    <lucide-angular [img]="Loader2Icon" class="w-4 h-4 animate-spin" />
+    <span class="text-xs">{{ successMessage() }}</span>
   </div>
   }
 </form>

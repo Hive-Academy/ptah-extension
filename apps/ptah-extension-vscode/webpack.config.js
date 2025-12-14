@@ -32,17 +32,47 @@ module.exports = {
     {
       vscode: 'commonjs vscode', // Don't bundle VS Code API, it's provided by the host
     },
-    // Bundle reflect-metadata and tsyringe for DI to work properly
+    // Custom externals function for LLM provider tree-shaking
     function ({ context, request }, callback) {
+      // === BUNDLE THESE (critical for extension to work) ===
+
       // Bundle reflect-metadata and tsyringe (required for DI)
       if (request === 'reflect-metadata' || request === 'tsyringe') {
         return callback(); // null means "bundle this"
       }
-      // Externalize all other node_modules
+
+      // Bundle all @ptah-extension/* packages (our internal libraries)
+      // This includes dynamic imports like @ptah-extension/llm-abstraction/anthropic
+      if (request.startsWith('@ptah-extension/')) {
+        return callback(); // Bundle it
+      }
+
+      // === EXTERNALIZE THESE (loaded at runtime from node_modules) ===
+
+      // Externalize Langchain packages - these are loaded dynamically
+      // by ProviderRegistry when a specific provider is requested
+      if (
+        request.startsWith('@langchain/') ||
+        request === 'langchain' ||
+        request === 'openai' ||
+        request === '@google/generative-ai'
+      ) {
+        return callback(null, 'commonjs ' + request);
+      }
+
+      // Externalize other scoped packages (@anthropic-ai/*, etc.)
+      // These are loaded dynamically by agent-sdk
+      if (request.startsWith('@')) {
+        return callback(null, 'commonjs ' + request);
+      }
+
+      // Externalize other node_modules (lowercase packages like zod, uuid, etc.)
       if (/^[a-z\-0-9]+/.test(request)) {
         return callback(null, 'commonjs ' + request);
       }
-      callback(); // Bundle project files
+
+      // Bundle everything else (relative imports, project files)
+      callback();
     },
   ],
 
@@ -68,6 +98,40 @@ module.exports = {
       '@ptah-extension/agent-sdk': path.resolve(
         __dirname,
         '../../libs/backend/agent-sdk/src'
+      ),
+      '@ptah-extension/agent-generation': path.resolve(
+        __dirname,
+        '../../libs/backend/agent-generation/src'
+      ),
+      '@ptah-extension/template-generation': path.resolve(
+        __dirname,
+        '../../libs/backend/template-generation/src'
+      ),
+      // Main llm-abstraction entry point
+      '@ptah-extension/llm-abstraction': path.resolve(
+        __dirname,
+        '../../libs/backend/llm-abstraction/src'
+      ),
+      // Secondary entry points for tree-shaking (dynamic imports)
+      '@ptah-extension/llm-abstraction/vscode-lm': path.resolve(
+        __dirname,
+        '../../libs/backend/llm-abstraction/src/vscode-lm.ts'
+      ),
+      '@ptah-extension/llm-abstraction/anthropic': path.resolve(
+        __dirname,
+        '../../libs/backend/llm-abstraction/src/anthropic.ts'
+      ),
+      '@ptah-extension/llm-abstraction/openai': path.resolve(
+        __dirname,
+        '../../libs/backend/llm-abstraction/src/openai.ts'
+      ),
+      '@ptah-extension/llm-abstraction/google': path.resolve(
+        __dirname,
+        '../../libs/backend/llm-abstraction/src/google.ts'
+      ),
+      '@ptah-extension/llm-abstraction/openrouter': path.resolve(
+        __dirname,
+        '../../libs/backend/llm-abstraction/src/openrouter.ts'
       ),
     },
   },

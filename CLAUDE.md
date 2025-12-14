@@ -1,7 +1,5 @@
 # 📜 PTAH PROJECT SPECIFICS
 
-## **IMPORTANT**: There's a file modification bug in Claude Code. The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Always use full paths for all of our Read/Write/Modify operations
-
 ## 🎯 ORCHESTRATION & WORKFLOW
 
 **For complete orchestration workflow, task management, and git commit standards, see:**
@@ -195,3 +193,5 @@ For detailed information about any library:
 - **Message Types**: 94 distinct message types
 
 For workspace-wide operations, consult the [Nx CLI documentation](#general-guidelines-for-working-with-nx) above.
+
+## **IMPORTANT**: There's a file modification bug in Claude Code. The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Always use full paths for all of our Read/Write/Modify operations

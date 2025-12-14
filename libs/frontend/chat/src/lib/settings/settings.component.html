@@ -1,28 +1,39 @@
+<!--
+  SettingsComponent - Compact VS Code Sidebar Design
+  
+  Follows VS Code UX Guidelines:
+  - Icons: 16-20px (was 24px+)
+  - Headings: 14-16px (text-sm)
+  - Padding: 12-16px (px-3, py-3)
+  - Compact spacing: space-y-3, gap-2
+-->
+
 <div class="h-full overflow-y-auto bg-base-100">
-  <div class="p-4 space-y-6 max-w-4xl mx-auto">
-    <!-- Header with back button -->
-    <div class="flex items-center gap-4">
+  <div class="px-3 py-3 space-y-3">
+    <!-- Compact Header with back button -->
+    <div class="flex items-center gap-2">
       <button
-        class="btn btn-ghost btn-sm gap-2"
+        class="btn btn-ghost btn-xs gap-1.5"
         (click)="backToChat()"
         aria-label="Back to Chat"
       >
-        <lucide-angular [img]="ArrowLeftIcon" class="w-4 h-4" />
-        Back to Chat
+        <lucide-angular [img]="ArrowLeftIcon" class="w-3.5 h-3.5" />
+        <span class="text-xs">Back</span>
       </button>
-      <h1 class="text-2xl font-bold">Settings</h1>
+      <h1 class="text-sm font-semibold">Settings</h1>
     </div>
 
-    <!-- Authentication Section -->
-    <div class="card bg-base-200">
-      <div class="card-body">
-        <h2 class="card-title flex items-center gap-2">
-          <span class="text-xl">🔐</span>
-          Authentication
-        </h2>
-        <p class="text-sm opacity-70 mb-4">
-          Configure your authentication method to connect with Claude Code. You
-          can use either an OAuth token or an API key.
+    <!-- Authentication Section - Compact Card -->
+    <div class="border border-base-300 rounded-md bg-base-200/50">
+      <div class="p-3">
+        <div class="flex items-center gap-1.5 mb-2">
+          <span class="text-sm">🔐</span>
+          <h2 class="text-xs font-medium uppercase tracking-wide">
+            Authentication
+          </h2>
+        </div>
+        <p class="text-xs text-base-content/70 mb-3">
+          Configure your authentication method to connect with Claude Code.
         </p>
         <ptah-auth-config />
       </div>

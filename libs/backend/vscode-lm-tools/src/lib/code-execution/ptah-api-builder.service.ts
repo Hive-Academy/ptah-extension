@@ -68,7 +68,14 @@ import {
   buildAstNamespace,
   // IDE namespace builder (TASK_2025_039)
   buildIDENamespace,
+  // LLM namespace builder (Langchain abstraction)
+  buildLLMNamespace,
 } from './namespace-builders';
+import {
+  LlmService,
+  LlmConfigurationService,
+  ILlmSecretsService,
+} from '@ptah-extension/llm-abstraction';
 
 @injectable()
 export class PtahAPIBuilder {
@@ -115,13 +122,23 @@ export class PtahAPIBuilder {
     private readonly treeSitterParser: TreeSitterParserService,
 
     @inject(TOKENS.AST_ANALYSIS_SERVICE)
-    private readonly astAnalysis: AstAnalysisService
+    private readonly astAnalysis: AstAnalysisService,
+
+    // LLM services (Langchain abstraction)
+    @inject(TOKENS.LLM_SERVICE)
+    private readonly llmService: LlmService,
+
+    @inject(TOKENS.LLM_CONFIGURATION_SERVICE)
+    private readonly llmConfigService: LlmConfigurationService,
+
+    @inject(TOKENS.LLM_SECRETS_SERVICE)
+    private readonly llmSecretsService: ILlmSecretsService
   ) {
-    this.logger.info('PtahAPIBuilder initialized with 12 namespaces');
+    this.logger.info('PtahAPIBuilder initialized with 14 namespaces');
   }
 
   /**
-   * Build the complete Ptah API object with all 12 namespaces
+   * Build the complete Ptah API object with all 14 namespaces
    */
   build(): PtahAPI {
     this.logger.debug('Building Ptah API with all namespaces');
@@ -154,6 +171,12 @@ export class PtahAPIBuilder {
       fileSystemManager: this.fileSystemManager,
     };
 
+    const llmDeps = {
+      llmService: this.llmService,
+      configService: this.llmConfigService,
+      secretsService: this.llmSecretsService,
+    };
+
     return {
       // Core namespaces (workspace discovery)
       workspace: buildWorkspaceNamespace(coreDeps),
@@ -175,8 +198,11 @@ export class PtahAPIBuilder {
       // AST namespace (code structure)
       ast: buildAstNamespace(astDeps),
 
-      // IDE namespace (TASK_2025_039 - Phase 4: LSP implemented, Phase 5-7: stubs)
+      // IDE namespace (TASK_2025_039 - LSP, editor, actions, testing)
       ide: buildIDENamespace(),
+
+      // LLM namespace (Langchain provider abstraction)
+      llm: buildLLMNamespace(llmDeps),
 
       // Help method at root level (ptah.help())
       help: buildHelpMethod(),

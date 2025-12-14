@@ -43,98 +43,87 @@ export interface SetupStatus {
   imports: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="card bg-base-200 border border-base-300 mb-4">
-      <div class="card-body p-4">
-        @if (isLoading()) {
-        <!-- Loading skeleton -->
-        <div class="flex items-center justify-between gap-4">
-          <div class="flex items-center gap-3 flex-1">
-            <div class="skeleton w-10 h-10 rounded-full shrink-0"></div>
-            <div class="flex-1">
-              <div class="skeleton h-4 w-32 mb-2"></div>
-              <div class="skeleton h-3 w-48"></div>
-            </div>
-          </div>
-          <div class="skeleton h-8 w-24"></div>
-        </div>
-        } @else if (error()) {
-        <!-- Error state with retry button -->
-        <div class="alert alert-error">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="stroke-current shrink-0 h-6 w-6"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
+    <div class="border border-base-300 rounded-md bg-base-200/50 p-2.5">
+      @if (isLoading()) {
+      <!-- Compact loading skeleton -->
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2 flex-1">
+          <div class="skeleton w-6 h-6 rounded-full shrink-0"></div>
           <div class="flex-1">
-            <span>{{ error() }}</span>
+            <div class="skeleton h-3 w-20 mb-1"></div>
+            <div class="skeleton h-2 w-28"></div>
           </div>
-          <button
-            class="btn btn-sm"
-            (click)="fetchStatus()"
-            type="button"
-            aria-label="Retry fetching setup status"
-          >
-            Retry
-          </button>
         </div>
-        } @else if (status()) {
-        <!-- Agent Status Display -->
-        <div class="flex items-center justify-between gap-4">
-          <div class="flex items-center gap-3">
-            <div class="avatar placeholder">
-              <div class="bg-primary text-primary-content rounded-full w-10">
-                <span class="text-lg">🤖</span>
-              </div>
-            </div>
-            <div>
-              <h4 class="font-semibold text-sm">Claude Agents</h4>
-              @if (status()!.isConfigured) {
-              <p class="text-xs text-base-content/70">
-                {{ status()!.agentCount }} agent{{
-                  status()!.agentCount !== 1 ? 's' : ''
-                }}
-                configured @if (status()!.lastModified) {
-                <span>
-                  • Updated
-                  {{ formatRelativeTime(status()!.lastModified!) }}</span
-                >
-                }
-              </p>
-              } @else {
-              <p class="text-xs text-base-content/70">
-                No agents configured yet
-              </p>
-              }
-            </div>
-          </div>
-          <button
-            class="btn btn-primary btn-sm"
-            [disabled]="launching()"
-            (click)="launchWizard()"
-            type="button"
-          >
-            @if (launching()) {
-            <span class="loading loading-spinner loading-xs"></span>
-            <span>Launching...</span>
-            } @else {
-            <span>{{
-              status()!.isConfigured
-                ? 'Update Configuration'
-                : 'Configure Agents'
-            }}</span>
-            }
-          </button>
-        </div>
-        }
+        <div class="skeleton h-6 w-16"></div>
       </div>
+      } @else if (error()) {
+      <!-- Compact error state -->
+      <div class="flex items-center gap-2 text-error">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="shrink-0 w-4 h-4"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
+          />
+        </svg>
+        <span class="text-xs flex-1 truncate">{{ error() }}</span>
+        <button
+          class="btn btn-xs btn-ghost"
+          (click)="fetchStatus()"
+          type="button"
+          aria-label="Retry"
+        >
+          Retry
+        </button>
+      </div>
+      } @else if (status()) {
+      <!-- Compact agent status -->
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2">
+          <div
+            class="w-6 h-6 rounded-full bg-primary flex items-center justify-center shrink-0"
+          >
+            <span class="text-xs">🤖</span>
+          </div>
+          <div>
+            <h4 class="text-xs font-medium leading-tight">Claude Agents</h4>
+            @if (status()!.isConfigured) {
+            <p class="text-[10px] text-base-content/60 leading-tight">
+              {{ status()!.agentCount }} agent{{
+                status()!.agentCount !== 1 ? 's' : ''
+              }}
+              @if (status()!.lastModified) { •
+              {{ formatRelativeTime(status()!.lastModified!) }}
+              }
+            </p>
+            } @else {
+            <p class="text-[10px] text-base-content/60 leading-tight">
+              Not configured
+            </p>
+            }
+          </div>
+        </div>
+        <button
+          class="btn btn-primary btn-xs"
+          [disabled]="launching()"
+          (click)="launchWizard()"
+          type="button"
+        >
+          @if (launching()) {
+          <span class="loading loading-spinner loading-xs"></span>
+          } @else {
+          <span>{{ status()!.isConfigured ? 'Update' : 'Configure' }}</span>
+          }
+        </button>
+      </div>
+      }
     </div>
   `,
   styles: [

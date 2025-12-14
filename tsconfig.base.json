@@ -10,7 +10,10 @@
     "importHelpers": true,
     "target": "es2015",
     "module": "esnext",
-    "lib": ["es2020", "dom"],
+    "lib": [
+      "es2020",
+      "dom"
+    ],
     "skipLibCheck": true,
     "skipDefaultLibCheck": true,
     "esModuleInterop": true,
@@ -20,23 +23,54 @@
       "@ptah-extension/agent-generation": [
         "libs/backend/agent-generation/src/index.ts"
       ],
-      "@ptah-extension/agent-sdk": ["libs/backend/agent-sdk/src/index.ts"],
-      "@ptah-extension/chat": ["libs/frontend/chat/src/index.ts"],
-      "@ptah-extension/core": ["libs/frontend/core/src/index.ts"],
-      "@ptah-extension/dashboard": ["libs/frontend/dashboard/src/index.ts"],
+      "@ptah-extension/agent-sdk": [
+        "libs/backend/agent-sdk/src/index.ts"
+      ],
+      "@ptah-extension/chat": [
+        "libs/frontend/chat/src/index.ts"
+      ],
+      "@ptah-extension/core": [
+        "libs/frontend/core/src/index.ts"
+      ],
+      "@ptah-extension/dashboard": [
+        "libs/frontend/dashboard/src/index.ts"
+      ],
       "@ptah-extension/llm-abstraction": [
         "libs/backend/llm-abstraction/src/index.ts"
       ],
-      "@ptah-extension/providers": ["libs/frontend/providers/src/index.ts"],
+      "@ptah-extension/llm-abstraction/anthropic": [
+        "libs/backend/llm-abstraction/src/anthropic.ts"
+      ],
+      "@ptah-extension/llm-abstraction/google": [
+        "libs/backend/llm-abstraction/src/google.ts"
+      ],
+      "@ptah-extension/llm-abstraction/openai": [
+        "libs/backend/llm-abstraction/src/openai.ts"
+      ],
+      "@ptah-extension/llm-abstraction/openrouter": [
+        "libs/backend/llm-abstraction/src/openrouter.ts"
+      ],
+      "@ptah-extension/llm-abstraction/vscode-lm": [
+        "libs/backend/llm-abstraction/src/vscode-lm.ts"
+      ],
+      "@ptah-extension/providers": [
+        "libs/frontend/providers/src/index.ts"
+      ],
       "@ptah-extension/setup-wizard": [
         "libs/frontend/setup-wizard/src/index.ts"
       ],
-      "@ptah-extension/shared": ["libs/shared/src/index.ts"],
+      "@ptah-extension/shared": [
+        "libs/shared/src/index.ts"
+      ],
       "@ptah-extension/template-generation": [
         "libs/backend/template-generation/src/index.ts"
       ],
-      "@ptah-extension/ui": ["libs/frontend/ui/src/index.ts"],
-      "@ptah-extension/vscode-core": ["libs/backend/vscode-core/src/index.ts"],
+      "@ptah-extension/ui": [
+        "libs/frontend/ui/src/index.ts"
+      ],
+      "@ptah-extension/vscode-core": [
+        "libs/backend/vscode-core/src/index.ts"
+      ],
       "@ptah-extension/vscode-lm-tools": [
         "libs/backend/vscode-lm-tools/src/index.ts"
       ],
@@ -45,5 +79,8 @@
       ]
     }
   },
-  "exclude": ["node_modules", "tmp"]
+  "exclude": [
+    "node_modules",
+    "tmp"
+  ]
 }

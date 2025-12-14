@@ -40,6 +40,9 @@ export interface PtahAPI {
   // IDE superpowers namespace (TASK_2025_039)
   ide: IDENamespace;
 
+  // LLM provider namespace (Langchain abstraction)
+  llm: LLMNamespace;
+
   /**
    * Get help documentation for Ptah API namespaces
    * @param topic Optional topic (e.g., 'ai', 'workspace', 'ai.ide.lsp'). Omit for overview.
@@ -1380,4 +1383,124 @@ export interface CoverageInfo {
 
   /** Branch coverage */
   branches: { covered: number; total: number };
+}
+
+// ========================================
+// LLM Namespace (Langchain Abstraction)
+// ========================================
+
+/**
+ * LLM provider namespace
+ * Enables Claude CLI to delegate tasks to other AI models via Langchain.
+ * Providers: Anthropic, OpenAI, Google Gemini, OpenRouter, VS Code LM.
+ */
+export interface LLMNamespace {
+  /** Anthropic Claude provider */
+  anthropic: LLMProviderNamespace;
+
+  /** OpenAI GPT provider */
+  openai: LLMProviderNamespace;
+
+  /** Google Gemini provider */
+  google: LLMProviderNamespace;
+
+  /** OpenRouter multi-provider */
+  openrouter: LLMProviderNamespace;
+
+  /** VS Code Language Model API (always available) */
+  vscodeLm: LLMProviderNamespace;
+
+  /**
+   * Chat with the default configured provider
+   * @param message - User message to send
+   * @param options - Optional chat configuration
+   * @returns Complete model response text
+   */
+  chat: (message: string, options?: LLMChatOptions) => Promise<string>;
+
+  /**
+   * Get list of configured providers (those with API keys)
+   * @returns Array of configured provider info
+   */
+  getConfiguredProviders: () => Promise<LLMConfiguredProvider[]>;
+
+  /**
+   * Get the default provider name from settings
+   * @returns Default provider identifier
+   */
+  getDefaultProvider: () => string;
+
+  /**
+   * Get full configuration state for all providers
+   * @returns Configuration including default provider and all provider configs
+   */
+  getConfiguration: () => Promise<{
+    defaultProvider: string;
+    providers: LLMConfiguredProvider[];
+  }>;
+}
+
+/**
+ * Provider-specific namespace (e.g., ptah.llm.anthropic)
+ */
+export interface LLMProviderNamespace {
+  /**
+   * Send a chat message to this provider
+   * @param message - User message to send
+   * @param options - Optional chat configuration
+   * @returns Complete model response text
+   */
+  chat: (message: string, options?: LLMChatOptions) => Promise<string>;
+
+  /**
+   * Check if this provider is available (has API key configured)
+   * @returns true if provider can be used
+   */
+  isAvailable: () => Promise<boolean>;
+
+  /**
+   * Get the default model for this provider
+   * @returns Default model identifier
+   */
+  getDefaultModel: () => string;
+
+  /**
+   * Get display name for this provider
+   * @returns Human-readable provider name
+   */
+  getDisplayName: () => string;
+}
+
+/**
+ * Options for LLM chat requests
+ */
+export interface LLMChatOptions {
+  /** Specific model to use (overrides default) */
+  model?: string;
+
+  /** System prompt to use (overrides default) */
+  systemPrompt?: string;
+
+  /** Temperature for response generation (0-1) */
+  temperature?: number;
+
+  /** Maximum tokens in response */
+  maxTokens?: number;
+}
+
+/**
+ * Information about a configured LLM provider
+ */
+export interface LLMConfiguredProvider {
+  /** Provider identifier (anthropic, openai, etc.) */
+  name: string;
+
+  /** Human-readable display name */
+  displayName: string;
+
+  /** Default model for this provider */
+  defaultModel: string;
+
+  /** Whether provider has API key configured */
+  isConfigured: boolean;
 }

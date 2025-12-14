@@ -1,7 +1,8 @@
 # Development Tasks - TASK_2025_072
+
 ## Landing Page Rich Content Enhancement
 
-**Total Tasks**: 19 | **Batches**: 6 | **Status**: 0/6 complete
+**Total Tasks**: 19 | **Batches**: 6 | **Status**: 1/6 complete
 
 ---
 
@@ -19,12 +20,12 @@
 
 ### Risks Identified
 
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| Three.js post-processing (UnrealBloomPass) is new to codebase | MEDIUM | Add fallback without bloom, test performance on low-end devices |
-| Ankh 3D model may not be available | MEDIUM | Implement procedural geometry fallback (golden pyramid already exists) |
-| Glassmorphism backdrop-filter not supported in older browsers | LOW | Progressive enhancement with solid fallback (@supports query) |
-| 500 particles may impact 60fps performance target | MEDIUM | Add performance monitoring, reduce to 300 if FPS drops |
+| Risk                                                          | Severity | Mitigation                                                             |
+| ------------------------------------------------------------- | -------- | ---------------------------------------------------------------------- |
+| Three.js post-processing (UnrealBloomPass) is new to codebase | MEDIUM   | Add fallback without bloom, test performance on low-end devices        |
+| Ankh 3D model may not be available                            | MEDIUM   | Implement procedural geometry fallback (golden pyramid already exists) |
+| Glassmorphism backdrop-filter not supported in older browsers | LOW      | Progressive enhancement with solid fallback (@supports query)          |
+| 500 particles may impact 60fps performance target             | MEDIUM   | Add performance monitoring, reduce to 300 if FPS drops                 |
 
 ### Edge Cases to Handle
 
@@ -36,13 +37,14 @@
 
 ---
 
-## Batch 1: Foundation - Tailwind Config & Global Styles 🔄 IN PROGRESS
+## Batch 1: Foundation - Tailwind Config & Global Styles ✅ COMPLETE
 
 **Developer**: frontend-developer
 **Tasks**: 2 | **Dependencies**: None
 **Duration**: 1-2 hours
+**Commit**: 28d9d01
 
-### Task 1.1: Extend Tailwind Config with New Utilities 🔄 IMPLEMENTED
+### Task 1.1: Extend Tailwind Config with New Utilities ✅ COMPLETE
 
 **File**: D:\projects\ptah-extension\apps\ptah-landing-page\tailwind.config.js
 **Type**: MODIFY
@@ -50,16 +52,19 @@
 **Pattern to Follow**: tailwind.config.js:10-17 (existing theme.extend)
 
 **Quality Requirements**:
+
 - Add fontSize extensions (8xl, 9xl) for hero typography
 - Add animation keyframes (glow-pulse, pulse-ring, divider-draw)
 - Add boxShadow utilities (glow-gold, glow-gold-lg)
 - Ensure new classes are not purged by production build
 
 **Validation Notes**:
+
 - No risks - configuration changes only
 - Test by building: `npx nx build ptah-landing-page`
 
 **Implementation Details**:
+
 ```javascript
 // ADD to theme.extend (after line 16):
 extend: {
@@ -99,7 +104,7 @@ extend: {
 
 ---
 
-### Task 1.2: Add Global CSS Utility Classes 🔄 IMPLEMENTED
+### Task 1.2: Add Global CSS Utility Classes ✅ COMPLETE
 
 **File**: D:\projects\ptah-extension\apps\ptah-landing-page\src\styles.css
 **Type**: MODIFY
@@ -108,16 +113,19 @@ extend: {
 **Pattern to Follow**: styles.css:6-26 (existing CSS custom properties)
 
 **Quality Requirements**:
+
 - Add glassmorphism utility class for demo window chrome
 - Add gradient-text-gold utility for hero/CTA headlines
 - Add CSS custom properties for reusable values
 - Include fallback for browsers without backdrop-filter
 
 **Validation Notes**:
+
 - Risk: backdrop-filter not supported in older browsers
 - Mitigation: @supports query with solid fallback
 
 **Implementation Details**:
+
 ```css
 /* ADD after line 25 (:root closing) */
 :root {
@@ -162,21 +170,22 @@ extend: {
 ---
 
 **Batch 1 Verification**:
-- [ ] Build completes: `npx nx build ptah-landing-page`
-- [ ] No Tailwind purge warnings in console
-- [ ] New utility classes available in components
-- [ ] CSS variables defined in :root
+
+- [x] Build completes: `npx nx build ptah-landing-page`
+- [x] No Tailwind purge warnings in console
+- [x] New utility classes available in components
+- [x] CSS variables defined in :root
 
 ---
 
-## Batch 2: Hero 3D Scene - Golden Ankh + Particle Halo ⏸️ PENDING
+## Batch 2: Hero 3D Scene - Golden Ankh + Particle Halo 🔄 IMPLEMENTED
 
 **Developer**: frontend-developer
 **Tasks**: 3 | **Dependencies**: Batch 1 complete
 **Duration**: 4-6 hours
 **Critical Path**: YES (longest duration, highest visual impact)
 
-### Task 2.1: Replace Island with Golden Ankh Geometry ⏸️ PENDING
+### Task 2.1: Replace Island with Golden Ankh Geometry 🔄 IMPLEMENTED
 
 **File**: D:\projects\ptah-extension\apps\ptah-landing-page\src\app\sections\hero\hero-scene.component.ts
 **Type**: REWRITE (major changes to initScene method)
@@ -184,6 +193,7 @@ extend: {
 **Pattern to Follow**: hero-scene.component.ts:51-168 (existing Three.js structure)
 
 **Quality Requirements**:
+
 - Remove existing GLTF island loader (line 255 reference)
 - Implement TWO approaches: (A) Load ankh.gltf if available, (B) Procedural geometry fallback
 - Use MeshStandardMaterial with metalness: 1.0, roughness: 0.2, color: 0xd4af37
@@ -191,11 +201,13 @@ extend: {
 - Proper resource disposal on component destroy
 
 **Validation Notes**:
+
 - Risk: Ankh 3D model may not exist
 - Mitigation: Procedural fallback MUST be implemented (use existing pyramid code as reference)
 - Edge case: Model load failure → fallback must trigger automatically
 
 **Implementation Details**:
+
 ```typescript
 // REPLACE loadModel() method:
 private async loadAnkhModel(): Promise<void> {
@@ -240,7 +252,7 @@ private createProceduralAnkh(): void {
 
 ---
 
-### Task 2.2: Enhance Particle System (500 particles, spherical distribution) ⏸️ PENDING
+### Task 2.2: Enhance Particle System (500 particles, spherical distribution) 🔄 IMPLEMENTED
 
 **File**: D:\projects\ptah-extension\apps\ptah-landing-page\src\app\sections\hero\hero-scene.component.ts
 **Type**: MODIFY
@@ -249,6 +261,7 @@ private createProceduralAnkh(): void {
 **Pattern to Follow**: hero-scene.component.ts:311 (existing particle system)
 
 **Quality Requirements**:
+
 - Increase particle count: 200 → 500 particles
 - Arrange particles in spherical distribution (radius 3-5 units around Ankh)
 - Add slow rotation animation + outward emanation effect
@@ -256,11 +269,13 @@ private createProceduralAnkh(): void {
 - Monitor performance: if FPS < 60, reduce to 300 particles
 
 **Validation Notes**:
+
 - Risk: 500 particles may drop FPS below 60
 - Mitigation: Add FPS monitoring, reduce count if needed
 - Edge case: Low-end devices → reduce particles based on performance
 
 **Implementation Details**:
+
 ```typescript
 // REPLACE addParticles() method:
 private addAnkhParticleHalo(): void {
@@ -310,7 +325,7 @@ private animate = (): void => {
 
 ---
 
-### Task 2.3: Change Background & Add Post-Processing Bloom ⏸️ PENDING
+### Task 2.3: Change Background & Add Post-Processing Bloom 🔄 IMPLEMENTED
 
 **File**: D:\projects\ptah-extension\apps\ptah-landing-page\src\app\sections\hero\hero-scene.component.ts
 **Type**: MODIFY
@@ -319,6 +334,7 @@ private animate = (): void => {
 **Pattern to Follow**: hero-scene.component.ts:102-104 (existing background)
 
 **Quality Requirements**:
+
 - Change background from linear brown gradient to radial obsidian→gold glow
 - Add UnrealBloomPass for glow effect (requires EffectComposer)
 - Add imports from three/examples/jsm/postprocessing/
@@ -326,11 +342,13 @@ private animate = (): void => {
 - Fallback: If bloom impacts performance, make it optional
 
 **Validation Notes**:
+
 - Risk: UnrealBloomPass is NEW to codebase (not used before)
 - Mitigation: Add fallback path without bloom if performance drops
 - Edge case: WebGL context lost → gracefully handle
 
 **Implementation Details**:
+
 ```typescript
 // ADD imports at top:
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer';
@@ -412,6 +430,7 @@ private cleanup(): void {
 ---
 
 **Batch 2 Verification**:
+
 - [ ] Golden Ankh visible (either GLTF or procedural fallback)
 - [ ] 500 particles in spherical halo around Ankh
 - [ ] Radial gradient background (gold glow center)
@@ -435,6 +454,7 @@ private cleanup(): void {
 **Pattern to Follow**: hero-section.component.ts:68-98 (existing template)
 
 **Quality Requirements**:
+
 - Increase headline size: text-5xl md:text-6xl lg:text-7xl → text-6xl md:text-7xl lg:text-8xl
 - Replace solid gold color with gradient-text-gold utility class (from Batch 1)
 - Apply copy from landing-page-copy.md:38-40 ("Ancient Wisdom for Modern AI")
@@ -442,22 +462,20 @@ private cleanup(): void {
 - Test responsive breakpoints (mobile 375px, tablet 768px, desktop 1920px)
 
 **Validation Notes**:
+
 - No risks - CSS changes only
 - Edge case: Font loading delay → ensure fallback serif visible
 
 **Implementation Details**:
+
 ```html
 <!-- MODIFY template (lines 68-98): -->
 <div class="hero-content text-center max-w-4xl mx-auto">
   <!-- Headline with gold gradient -->
-  <h1 class="hero-headline text-6xl md:text-7xl lg:text-8xl font-display font-bold mb-6 gradient-text-gold">
-    Ancient Wisdom for Modern AI
-  </h1>
+  <h1 class="hero-headline text-6xl md:text-7xl lg:text-8xl font-display font-bold mb-6 gradient-text-gold">Ancient Wisdom for Modern AI</h1>
 
   <!-- Tagline from landing-page-copy.md:47-50 -->
-  <p class="hero-tagline text-xl md:text-2xl text-base-content/80 mb-8 max-w-3xl mx-auto">
-    Transform Claude Code CLI into a native VS Code experience. Built by architects who understand your craft.
-  </p>
+  <p class="hero-tagline text-xl md:text-2xl text-base-content/80 mb-8 max-w-3xl mx-auto">Transform Claude Code CLI into a native VS Code experience. Built by architects who understand your craft.</p>
 
   <!-- CTA buttons -->
   <div class="hero-ctas flex gap-4 justify-center">
@@ -478,6 +496,7 @@ private cleanup(): void {
 **Pattern to Follow**: hero-section.component.ts:162-262 (existing GSAP pattern)
 
 **Quality Requirements**:
+
 - Add NEW entry animation timeline (runs once on page load)
 - Sequence: headline fade-up (900ms) → tagline fade-up (1200ms) → CTA bounce (1500ms)
 - KEEP existing scroll-out animations (lines 194-252)
@@ -485,10 +504,12 @@ private cleanup(): void {
 - Ensure timeline doesn't conflict with existing ScrollTrigger animations
 
 **Validation Notes**:
+
 - Assumption: Entry animation should complete within 1.5s (Lighthouse FCP requirement)
 - Edge case: prefers-reduced-motion → skip ALL animations
 
 **Implementation Details**:
+
 ```typescript
 // MODIFY initAnimations() method:
 private initAnimations(): void {
@@ -551,6 +572,7 @@ private initAnimations(): void {
 **Pattern to Follow**: Existing section component structure
 
 **Quality Requirements**:
+
 - Increase headline to text-7xl with gradient-text-gold class
 - Apply copy from landing-page-copy.md:313-315 ("Ready to Build Smarter?")
 - Add large CTA button (64px height) with golden gradient background
@@ -558,39 +580,37 @@ private initAnimations(): void {
 - Add subheadline with friction-removal copy
 
 **Validation Notes**:
+
 - No risks - template and CSS changes
 - Animation is continuous (not triggered) - ensure performance acceptable
 
 **Implementation Details**:
+
 ```html
 <!-- REWRITE template: -->
 <section id="cta" class="py-32 bg-base-100">
   <div class="container mx-auto px-6 text-center">
     <!-- Headline with gradient -->
-    <h2 class="text-7xl font-display font-bold mb-6 gradient-text-gold">
-      Ready to Build Smarter?
-    </h2>
+    <h2 class="text-7xl font-display font-bold mb-6 gradient-text-gold">Ready to Build Smarter?</h2>
 
     <!-- Subheadline from landing-page-copy.md:321-323 -->
-    <p class="text-xl text-base-content/70 mb-12 max-w-2xl mx-auto">
-      Free to install. No configuration needed. Works with your existing Claude Code setup.
-    </p>
+    <p class="text-xl text-base-content/70 mb-12 max-w-2xl mx-auto">Free to install. No configuration needed. Works with your existing Claude Code setup.</p>
 
     <!-- CTA Button with pulse -->
-    <a href="vscode:extension/your-publisher.ptah-extension"
-       class="cta-button inline-block px-12 py-6 text-xl font-bold rounded-xl
+    <a
+      href="vscode:extension/your-publisher.ptah-extension"
+      class="cta-button inline-block px-12 py-6 text-xl font-bold rounded-xl
               bg-gradient-to-r from-secondary to-accent
               text-base-100 shadow-glow-gold
               hover:scale-110 hover:shadow-glow-gold-lg
-              transition-all duration-300 animate-pulse-ring">
+              transition-all duration-300 animate-pulse-ring"
+    >
       Install Ptah Extension
     </a>
 
     <!-- Secondary link -->
     <div class="mt-8">
-      <a href="#" class="text-secondary hover:text-accent transition-colors">
-        Read the Documentation →
-      </a>
+      <a href="#" class="text-secondary hover:text-accent transition-colors"> Read the Documentation → </a>
     </div>
 
     <!-- Divider (for Task 3.4) -->
@@ -612,6 +632,7 @@ private initAnimations(): void {
 **Pattern to Follow**: hero-section.component.ts:162-262 (GSAP context pattern)
 
 **Quality Requirements**:
+
 - Add GSAP animation to draw golden divider on scroll-in
 - Use divider-draw animation (from Tailwind config Batch 1)
 - Trigger at 85% viewport entry
@@ -619,10 +640,12 @@ private initAnimations(): void {
 - Add component lifecycle (afterNextRender + DestroyRef cleanup)
 
 **Validation Notes**:
+
 - This section currently has NO GSAP animations (unlike hero/features)
 - Must add full GSAP lifecycle pattern
 
 **Implementation Details**:
+
 ```typescript
 // ADD to component class:
 import { Component, ChangeDetectionStrategy, viewChild, ElementRef, inject, DestroyRef, afterNextRender } from '@angular/core';
@@ -656,12 +679,12 @@ export class CTASectionComponent {
           trigger: '.divider-container',
           start: 'top 85%',
           toggleActions: 'play none none reverse',
-        }
+        },
       });
     }, this.sectionRef().nativeElement);
 
     this.destroyRef.onDestroy(() => {
-      ScrollTrigger.getAll().forEach(trigger => trigger.kill());
+      ScrollTrigger.getAll().forEach((trigger) => trigger.kill());
       this.gsapContext?.revert();
     });
   }
@@ -671,6 +694,7 @@ export class CTASectionComponent {
 ---
 
 **Batch 3 Verification**:
+
 - [ ] Hero headline uses text-8xl with gold gradient
 - [ ] Hero entry animation sequence (headline → tagline → CTA) works
 - [ ] CTA headline text-7xl with gold gradient
@@ -695,6 +719,7 @@ export class CTASectionComponent {
 **Pattern to Follow**: Existing FeatureCardComponent
 
 **Quality Requirements**:
+
 - Add min-h-[400px] for visual weight
 - Create 80px icon container with gradient background circle
 - Add hover transform: translateY(-8px) + rotate(1deg)
@@ -703,10 +728,12 @@ export class CTASectionComponent {
 - Apply copy from landing-page-copy.md:136-234 (4 feature cards)
 
 **Validation Notes**:
+
 - Hover effects are GPU accelerated (CSS transforms)
 - No accessibility impact (hover is decorative)
 
 **Implementation Details**:
+
 ```typescript
 // MODIFY template:
 @Component({
@@ -714,11 +741,12 @@ export class CTASectionComponent {
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="feature-card min-h-[400px] bg-base-200 border border-base-300 rounded-2xl p-8
-                transition-all duration-300 hover:border-secondary">
+    <div
+      class="feature-card min-h-[400px] bg-base-200 border border-base-300 rounded-2xl p-8
+                transition-all duration-300 hover:border-secondary"
+    >
       <!-- Icon with gradient background circle -->
-      <div class="icon-container w-20 h-20 rounded-full flex items-center justify-center mb-6"
-           style="background: radial-gradient(circle, rgba(212,175,55,0.2), transparent);">
+      <div class="icon-container w-20 h-20 rounded-full flex items-center justify-center mb-6" style="background: radial-gradient(circle, rgba(212,175,55,0.2), transparent);">
         <span class="text-6xl">{{ iconEmoji }}</span>
       </div>
 
@@ -728,17 +756,19 @@ export class CTASectionComponent {
       <!-- Capability pills (replace bullet list) -->
       <div class="flex flex-wrap gap-2">
         @for (cap of capabilities; track cap) {
-          <span class="badge badge-secondary badge-outline">{{ cap }}</span>
+        <span class="badge badge-secondary badge-outline">{{ cap }}</span>
         }
       </div>
     </div>
   `,
-  styles: [`
-    .feature-card:hover {
-      transform: translateY(-8px) rotate(1deg);
-      box-shadow: 0 0 60px rgba(212, 175, 55, 0.3);
-    }
-  `],
+  styles: [
+    `
+      .feature-card:hover {
+        transform: translateY(-8px) rotate(1deg);
+        box-shadow: 0 0 60px rgba(212, 175, 55, 0.3);
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FeatureCardComponent {
@@ -760,16 +790,19 @@ export class FeatureCardComponent {
 **Pattern to Follow**: features-section.component.ts:45-135
 
 **Quality Requirements**:
+
 - Update grid gap: gap-8 → gap-12 (48px breathing room)
 - Adjust GSAP stagger delay: 0.2s → 0.15s
 - Apply section content from landing-page-copy.md:117-234
 - Update feature card data with new copy (4 cards: Visual Interface, SDK Performance, Workspace Intelligence, Multi-Provider)
 
 **Validation Notes**:
+
 - No risks - layout and content changes
 - Ensure stagger animation still visible (0.15s may be faster but should work)
 
 **Implementation Details**:
+
 ```typescript
 // MODIFY template grid:
 <div class="grid md:grid-cols-2 gap-12">
@@ -834,6 +867,7 @@ gsap.from('.feature-card', {
 **Pattern to Follow**: demo-section.component.ts:42-138
 
 **Quality Requirements**:
+
 - Add glassmorphism utility class (from Batch 1) to demo window
 - Add gradient header bar (gold-to-transparent)
 - Add border pulse animation on hover (using glow-pulse from Tailwind config)
@@ -841,32 +875,30 @@ gsap.from('.feature-card', {
 - Add GSAP scroll animation (scale 0.95 → 1.0 on viewport entry)
 
 **Validation Notes**:
+
 - Risk: backdrop-filter not supported in older browsers
 - Mitigation: @supports fallback in global styles (from Batch 1) handles this
 - Edge case: Mobile devices may not show blur - acceptable graceful degradation
 
 **Implementation Details**:
+
 ```html
 <!-- MODIFY template: -->
 <section #sectionRef id="demo" class="py-32 bg-base-200">
   <div class="container mx-auto px-6">
     <!-- Section label -->
-    <p class="text-sm tracking-widest text-secondary uppercase text-center mb-4">
-      SEE IT IN ACTION
-    </p>
+    <p class="text-sm tracking-widest text-secondary uppercase text-center mb-4">SEE IT IN ACTION</p>
 
-    <h2 class="text-5xl md:text-6xl font-display font-bold text-center mb-16">
-      Watch Your Codebase Come Alive
-    </h2>
+    <h2 class="text-5xl md:text-6xl font-display font-bold text-center mb-16">Watch Your Codebase Come Alive</h2>
 
     <!-- Demo window with glassmorphism -->
     <div class="demo-container max-w-4xl mx-auto">
-      <div class="demo-window glassmorphism rounded-2xl overflow-hidden border border-secondary/20
-                  hover:animate-glow-pulse transition-all">
-
+      <div
+        class="demo-window glassmorphism rounded-2xl overflow-hidden border border-secondary/20
+                  hover:animate-glow-pulse transition-all"
+      >
         <!-- Gradient header bar -->
-        <div class="header-gradient h-10 flex items-center px-4"
-             style="background: linear-gradient(90deg, rgba(212,175,55,0.1) 0%, transparent 50%, rgba(212,175,55,0.1) 100%);">
+        <div class="header-gradient h-10 flex items-center px-4" style="background: linear-gradient(90deg, rgba(212,175,55,0.1) 0%, transparent 50%, rgba(212,175,55,0.1) 100%);">
           <!-- Traffic light dots -->
           <div class="flex gap-2">
             <div class="w-3 h-3 rounded-full bg-error"></div>
@@ -922,28 +954,27 @@ private initAnimations(): void {
 **Spec Reference**: landing-page-copy.md:117-134
 
 **Quality Requirements**:
+
 - Add eyebrow label "SUPERPOWERS" above section headline
 - Update section headline to "Everything You Need to Master Claude Code"
 - Apply consistent section header styling (eyebrow: text-sm tracking-widest gold)
 - Ensure spacing matches design spec
 
 **Validation Notes**:
+
 - No risks - content and styling only
 
 **Implementation Details**:
+
 ```html
 <!-- ADD to features-section template: -->
 <section #sectionRef id="features" class="py-32 bg-base-100">
   <div class="container mx-auto px-6">
     <!-- Eyebrow label -->
-    <p class="text-sm tracking-widest text-secondary uppercase text-center mb-4">
-      SUPERPOWERS
-    </p>
+    <p class="text-sm tracking-widest text-secondary uppercase text-center mb-4">SUPERPOWERS</p>
 
     <!-- Section headline -->
-    <h2 class="text-5xl md:text-6xl font-display font-bold text-center mb-16">
-      Everything You Need to Master Claude Code
-    </h2>
+    <h2 class="text-5xl md:text-6xl font-display font-bold text-center mb-16">Everything You Need to Master Claude Code</h2>
 
     <!-- Features grid (existing) -->
     <div class="grid md:grid-cols-2 gap-12">
@@ -956,6 +987,7 @@ private initAnimations(): void {
 ---
 
 **Batch 4 Verification**:
+
 - [ ] Feature cards min-height 400px with hover lift effect
 - [ ] Feature card icons in gradient circles
 - [ ] Capability pills (not bullet lists)
@@ -982,6 +1014,7 @@ private initAnimations(): void {
 **Pattern to Follow**: comparison-section.component.ts:16-138
 
 **Quality Requirements**:
+
 - Replace simple text arrow (→) with SVG arrow
 - SVG should have gradient (gray → gold) and glow filter
 - Position absolutely between Before/After cards
@@ -990,10 +1023,12 @@ private initAnimations(): void {
 - Ensure aria-hidden="true" (decorative element)
 
 **Validation Notes**:
+
 - SVG is decorative - no accessibility impact
 - Animation uses CSS stroke-dashoffset (not GSAP DrawSVG plugin - licensing)
 
 **Implementation Details**:
+
 ```html
 <!-- REPLACE arrow in template: -->
 <div class="relative grid md:grid-cols-2 gap-8">
@@ -1011,21 +1046,14 @@ private initAnimations(): void {
           <stop offset="100%" stop-color="#d4af37" />
         </linearGradient>
         <filter id="glow">
-          <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+          <feGaussianBlur stdDeviation="3" result="coloredBlur" />
           <feMerge>
-            <feMergeNode in="coloredBlur"/>
-            <feMergeNode in="SourceGraphic"/>
+            <feMergeNode in="coloredBlur" />
+            <feMergeNode in="SourceGraphic" />
           </feMerge>
         </filter>
       </defs>
-      <path d="M 10 60 L 70 60 M 55 45 L 70 60 L 55 75"
-            stroke="url(#arrowGradient)"
-            stroke-width="4"
-            fill="none"
-            filter="url(#glow)"
-            stroke-dasharray="100"
-            stroke-dashoffset="100"
-            class="arrow-path" />
+      <path d="M 10 60 L 70 60 M 55 45 L 70 60 L 55 75" stroke="url(#arrowGradient)" stroke-width="4" fill="none" filter="url(#glow)" stroke-dasharray="100" stroke-dashoffset="100" class="arrow-path" />
     </svg>
   </div>
 
@@ -1047,6 +1075,7 @@ private initAnimations(): void {
 **Pattern to Follow**: comparison-section.component.ts:16-138 (add GSAP context if missing)
 
 **Quality Requirements**:
+
 - Animate SVG arrow draw (stroke-dashoffset 100 → 0) on scroll-in
 - Add Before card shake animation (gentle horizontal shake)
 - Add After card scale animation (0.9 → 1.0 with bounce)
@@ -1055,10 +1084,12 @@ private initAnimations(): void {
 - Apply comparison copy from landing-page-copy.md:240-304
 
 **Validation Notes**:
+
 - Assumption: Section already has GSAP context (verify first)
 - If no GSAP context, add full lifecycle pattern
 
 **Implementation Details**:
+
 ```typescript
 // ADD or MODIFY initAnimations():
 private initAnimations(): void {
@@ -1128,6 +1159,7 @@ afterPoints = [
 ---
 
 **Batch 5 Verification**:
+
 - [ ] SVG arrow visible between cards (desktop only)
 - [ ] Arrow draws from left to right on scroll-in
 - [ ] Arrow has gradient (gray → gold) and glow effect
@@ -1152,6 +1184,7 @@ afterPoints = [
 **Spec Reference**: landing-page-copy.md:28-72
 
 **Quality Requirements**:
+
 - Verify headline: "Ancient Wisdom for Modern AI" (already applied in Batch 3.1)
 - Verify tagline: "Transform Claude Code CLI..." (already applied in Batch 3.1)
 - Update primary CTA text: "Install Free"
@@ -1159,21 +1192,19 @@ afterPoints = [
 - Ensure all text has proper contrast (WCAG AA)
 
 **Validation Notes**:
+
 - Most copy already applied in Batch 3
 - This task verifies completeness and adds scroll indicator
 
 **Implementation Details**:
+
 ```html
 <!-- VERIFY/UPDATE hero CTAs: -->
 <div class="hero-ctas flex flex-col sm:flex-row gap-4 justify-center items-center">
-  <a href="vscode:extension/your-publisher.ptah-extension"
-     class="btn btn-secondary btn-lg px-8">
-    Install Free
-  </a>
+  <a href="vscode:extension/your-publisher.ptah-extension" class="btn btn-secondary btn-lg px-8"> Install Free </a>
 
   <!-- Secondary scroll indicator -->
-  <a href="#demo"
-     class="text-secondary hover:text-accent transition-colors flex items-center gap-2">
+  <a href="#demo" class="text-secondary hover:text-accent transition-colors flex items-center gap-2">
     <span>See what it builds</span>
     <span class="animate-bounce">↓</span>
   </a>
@@ -1189,6 +1220,7 @@ afterPoints = [
 **Spec Reference**: landing-page-copy.md:75-113
 
 **Quality Requirements**:
+
 - Add section label: "SEE IT IN ACTION" (already added in Batch 4.3)
 - Verify section headline: "Watch Your Codebase Come Alive"
 - Add 3 callout annotations if using video demo:
@@ -1198,10 +1230,12 @@ afterPoints = [
 - If using static screenshot, add caption with key benefits
 
 **Validation Notes**:
+
 - Demo implementation (video vs screenshot) may vary
 - Callouts are optional but enhance understanding
 
 **Implementation Details**:
+
 ```html
 <!-- ADD demo callouts (if using video): -->
 <div class="demo-content relative">
@@ -1234,6 +1268,7 @@ afterPoints = [
 **Spec Reference**: landing-page-copy.md:352-380
 
 **Quality Requirements**:
+
 - Add brand tagline: "Ptah - Craftsman of AI Development"
 - Add navigation links: Documentation | GitHub | Marketplace | Community
 - Add social links: Twitter/X | Discord | GitHub
@@ -1242,10 +1277,12 @@ afterPoints = [
 - Ensure links have hover states (cream → gold color shift)
 
 **Validation Notes**:
+
 - Links may not have destinations yet (use # placeholders)
 - MIT License link can point to GitHub repo
 
 **Implementation Details**:
+
 ```html
 <!-- ADD below CTA section or create separate component: -->
 <footer class="bg-base-100 border-t border-secondary/20 py-12">
@@ -1279,9 +1316,8 @@ afterPoints = [
 
     <!-- Legal -->
     <div class="text-center text-sm text-base-content/50">
-      <p>© 2025 Ptah Extension |
-        <a href="#" class="hover:text-secondary transition-colors">MIT License</a> |
-        <a href="#" class="hover:text-secondary transition-colors">Privacy</a> |
+      <p>
+        © 2025 Ptah Extension | <a href="#" class="hover:text-secondary transition-colors">MIT License</a> | <a href="#" class="hover:text-secondary transition-colors">Privacy</a> |
         <a href="#" class="hover:text-secondary transition-colors">Terms</a>
       </p>
     </div>
@@ -1292,6 +1328,7 @@ afterPoints = [
 ---
 
 **Batch 6 Verification**:
+
 - [ ] All copy from landing-page-copy.md applied
 - [ ] Hero CTAs use correct text ("Install Free", scroll indicator)
 - [ ] Demo section has callouts (if using video)
@@ -1305,6 +1342,7 @@ afterPoints = [
 ## Final Quality Gates
 
 ### Build Verification
+
 ```bash
 # Production build must succeed
 npx nx build ptah-landing-page
@@ -1314,6 +1352,7 @@ npx nx build ptah-landing-page
 ```
 
 ### Visual Verification (Manual Testing)
+
 - [ ] Hero section has dramatic impact (large headline + 3D Ankh + glow)
 - [ ] All animations smooth at 60fps (no jank during scroll)
 - [ ] Glassmorphism effect visible in demo window
@@ -1323,12 +1362,14 @@ npx nx build ptah-landing-page
 - [ ] Golden divider draws on scroll-in
 
 ### Performance Verification (Lighthouse)
+
 - [ ] Performance score > 90
 - [ ] First Contentful Paint < 1.5s
 - [ ] Cumulative Layout Shift < 0.1
 - [ ] No layout shifts during animations
 
 ### Accessibility Verification
+
 - [ ] All animations disabled when prefers-reduced-motion is set
 - [ ] All text meets WCAG AA contrast ratios (4.5:1 minimum)
 - [ ] All interactive elements keyboard accessible (Tab navigation)
@@ -1336,11 +1377,13 @@ npx nx build ptah-landing-page
 - [ ] Screen reader announces sections correctly
 
 ### Responsive Verification
+
 - [ ] Mobile (375px): Cards stack, animations scale, arrow hidden
 - [ ] Tablet (768px): 2-column grid works, arrow visible
 - [ ] Desktop (1920px): Full layout, optimal spacing
 
 ### Cross-Browser Verification
+
 - [ ] Chrome/Edge (latest): Full experience with bloom effect
 - [ ] Firefox (latest): Full experience
 - [ ] Safari (latest): Glassmorphism works, backdrop-filter supported
@@ -1351,6 +1394,7 @@ npx nx build ptah-landing-page
 ## Success Criteria Summary
 
 **Implementation Complete When**:
+
 1. All 6 batches marked ✅ COMPLETE
 2. All 19 tasks verified and committed
 3. Build succeeds with no warnings
@@ -1361,6 +1405,7 @@ npx nx build ptah-landing-page
 8. All content from landing-page-copy.md integrated
 
 **Deliverables**:
+
 - Enhanced landing page with nano banana aesthetic
 - Golden Ankh 3D scene with particle halo and bloom
 - Smooth GSAP scroll animations throughout

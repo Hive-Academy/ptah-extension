@@ -15,7 +15,8 @@
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
-import { VsCodeLmProvider } from '@ptah-extension/llm-abstraction';
+// Import from secondary entry point for tree-shaking (no Langchain deps loaded)
+import { VsCodeLmProvider } from '@ptah-extension/llm-abstraction/vscode-lm';
 import { IOutputValidationService } from '../interfaces/output-validation.interface';
 import {
   IVsCodeLmService,

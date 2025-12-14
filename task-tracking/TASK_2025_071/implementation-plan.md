@@ -1563,31 +1563,324 @@ git stash pop
 
 ---
 
-## ✅ Definition of Done
+---
 
-**This task is DONE when:**
+## 🔍 Code Review Findings & Remediation (Post-Implementation)
 
-1. ✅ All 7 registration functions created/refactored with correct signatures
-2. ✅ All registration functions exported from library index.ts
-3. ✅ container.ts refactored to call only registration functions
-4. ✅ All direct service registrations removed (except app-level)
-5. ✅ All 19 affected files updated
-6. ✅ All unit tests pass (7 registration function test suites)
-7. ✅ All integration tests pass (container.ts test suite)
-8. ✅ Extension activates successfully in Extension Development Host
-9. ✅ All commands registered and functional
-10. ✅ All features smoke-tested (chat, setup wizard, workspace analysis, etc.)
-11. ✅ Performance metrics met (<100ms registration, <2s activation)
-12. ✅ No console errors in extension host
-13. ✅ Code review completed
-14. ✅ Documentation updated (code comments, CLAUDE.md files)
-15. ✅ Git commits follow conventional commit format
-16. ✅ Post-mortem document created in task folder
+### Review Summary
 
-**Acceptance Criteria:**
+After initial implementation (Batches 1-4), code style and logic reviews identified the following issues requiring remediation:
+
+### CRITICAL Issues (Must Fix)
+
+1. **TOKENS.FILE_SYSTEM_SERVICE Collision**
+   - **Problem**: workspace-intelligence registers `FileSystemService` at Phase 2, template-generation registers `FileSystemAdapter` at Phase 2.10
+   - **Impact**: Last registration wins, workspace-intelligence may use wrong implementation
+   - **Location**: `libs/backend/workspace-intelligence/src/di/register.ts:87` and `libs/backend/template-generation/src/lib/di/register.ts:47`
+   - **Remediation**: Batch 5
+
+### BLOCKING Issues (Should Fix)
+
+2. **Missing File Headers** - 3 of 5 registration files lack TASK_2025_071 context headers
+
+   - **Files**: llm-abstraction, template-generation, vscode-lm-tools register.ts files
+   - **Impact**: Future maintainers lack context about why file was created/modified
+   - **Remediation**: Batch 6
+
+3. **vscode-core Exports TOKENS from di/index.ts** - Breaks pattern
+
+   - **Problem**: Other libraries only export registration function, vscode-core also exports TOKENS
+   - **Location**: `libs/backend/vscode-core/src/di/index.ts:2`
+   - **Impact**: Pattern inconsistency, potential circular dependency
+   - **Remediation**: Batch 6
+
+4. **Missing Dependency Validation** - No runtime checks for prerequisites
+   - **Problem**: Registration functions don't validate dependencies are satisfied
+   - **Examples**: RpcMethodRegistrationService factory has no validation, workspace-intelligence 7-tier hierarchy not enforced
+   - **Impact**: Silent failures possible if registration order changes
+   - **Remediation**: Batch 7 (optional enhancement)
+
+### SERIOUS Issues (Nice to Fix)
+
+5. **Inconsistent JSDoc Quality** - vscode-core has minimal JSDoc vs excellent in others
+6. **Phase Numbering Fragile** - container.ts uses 2.9, 2.10 (confusing decimal system)
+7. **No Idempotency Guards** - Registration functions can be called twice without warning
+8. **Logger Not Validated** - Functions use logger.info() without checking logger is valid
+
+---
+
+## Component 7: TOKENS.FILE_SYSTEM_SERVICE Collision Fix (Batch 5)
+
+**Purpose**: Resolve token collision between workspace-intelligence and template-generation
+
+**Root Cause Analysis**:
+
+- workspace-intelligence registers `FileSystemService` (full VS Code FileSystem wrapper)
+- template-generation registers `FileSystemAdapter` (simple file I/O adapter)
+- Both use TOKENS.FILE_SYSTEM_SERVICE
+- Registration order: workspace-intelligence (Phase 2) → template-generation (Phase 2.10)
+- Last registration wins → template-generation overwrites workspace-intelligence registration
+
+**Solution Options**:
+
+**Option A: Introduce Separate Token** (RECOMMENDED)
+
+- Create new token: TOKENS.TEMPLATE_FILE_SYSTEM_ADAPTER
+- Update template-generation to use new token
+- Preserve workspace-intelligence using TOKENS.FILE_SYSTEM_SERVICE
+- PRO: No breaking changes to workspace-intelligence
+- CON: More tokens to maintain
+
+**Option B: Share Single Implementation**
+
+- Remove FileSystemAdapter from template-generation
+- Make template-generation depend on workspace-intelligence FileSystemService
+- PRO: Single source of truth
+- CON: Creates cross-library dependency (workspace-intelligence → template-generation)
+
+**Option C: Consolidate into vscode-core**
+
+- Move FileSystemAdapter to vscode-core as TOKENS.FILE_ADAPTER
+- Keep FileSystemService in workspace-intelligence as TOKENS.FILE_SYSTEM_SERVICE
+- Both libraries depend on vscode-core
+- PRO: Clean separation, no collision
+- CON: Requires vscode-core changes
+
+**Chosen Solution: Option A** (Least disruptive, fastest fix)
+
+**Implementation Pattern**:
+
+```typescript
+// libs/backend/vscode-core/src/di/tokens.ts
+export const TOKENS = {
+  // ... existing tokens ...
+  FILE_SYSTEM_SERVICE: Symbol.for('FileSystemService'), // Used by workspace-intelligence
+  TEMPLATE_FILE_SYSTEM_ADAPTER: Symbol.for('TemplateFileSystemAdapter'), // NEW - for template-generation
+  // ...
+};
+
+// libs/backend/template-generation/src/lib/di/register.ts
+export function registerTemplateGenerationServices(container: DependencyContainer, logger: Logger): void {
+  logger.info('[Template Generation] Registering services...');
+
+  // CHANGED: Use new token to avoid collision with workspace-intelligence
+  container.registerSingleton(TOKENS.TEMPLATE_FILE_SYSTEM_ADAPTER, FileSystemAdapter);
+
+  // ... rest of registrations unchanged ...
+}
+```
+
+**Quality Requirements**:
+
+- **Functional**: Both services must coexist without collision
+- **Non-functional**: Zero breaking changes to workspace-intelligence
+- **Pattern Compliance**: New token follows existing naming convention
+
+**Files Affected**:
+
+- `libs/backend/vscode-core/src/di/tokens.ts` (ADD new token)
+- `libs/backend/template-generation/src/lib/di/register.ts` (UPDATE to use new token)
+- `libs/backend/template-generation/src/lib/adapters/file-system.adapter.ts` (UPDATE @inject decorator if used)
+- Any services in template-generation that inject FILE_SYSTEM_SERVICE (UPDATE imports)
+
+---
+
+## Component 8: File Headers & Pattern Consistency (Batch 6)
+
+**Purpose**: Add missing file headers and fix vscode-core export pattern inconsistency
+
+### Sub-Component 8A: Add TASK_2025_071 Context Headers
+
+**Files Requiring Headers**:
+
+1. `libs/backend/llm-abstraction/src/lib/di/register.ts`
+2. `libs/backend/template-generation/src/lib/di/register.ts`
+3. `libs/backend/vscode-lm-tools/src/lib/di/register.ts`
+
+**Header Template** (verified from agent-generation/di/register.ts):
+
+```typescript
+/**
+ * DI Registration for [Library Name]
+ *
+ * TASK_2025_071: DI Registration Standardization
+ * Created: 2025-12-14
+ *
+ * This file centralizes all service registrations for the [library-name] library.
+ * Following the standardized registration pattern established in agent-sdk and agent-generation.
+ *
+ * Pattern:
+ * - Function signature: register[LibraryName]Services(container, logger)
+ * - Uses injected container (no global import)
+ * - Uses injected logger (no console.log)
+ * - Logs registration start and completion
+ *
+ * @see libs/backend/agent-sdk/src/lib/di/register.ts - Pattern reference
+ * @see apps/ptah-extension-vscode/src/di/container.ts - Orchestration point
+ */
+```
+
+**Quality Requirements**:
+
+- **Functional**: Headers must accurately describe purpose and context
+- **Non-functional**: Consistent format across all 3 files
+- **Pattern Compliance**: Match agent-sdk/agent-generation header style
+
+### Sub-Component 8B: Fix vscode-core di/index.ts Export Pattern
+
+**Problem**: `libs/backend/vscode-core/src/di/index.ts` exports both TOKENS and registration function
+
+```typescript
+// CURRENT (INCONSISTENT):
+export * from './tokens';
+export { registerVsCodeCoreServices } from './register';
+```
+
+**Expected Pattern** (from other libraries):
+
+```typescript
+// CORRECT PATTERN:
+export { registerVsCodeCoreServices } from './register';
+// TOKENS should only be exported from vscode-core/src/di/tokens.ts
+// Main index.ts (vscode-core/src/index.ts) exports di/ and tokens separately
+```
+
+**Verification**:
+
+- agent-sdk/src/lib/di/index.ts: Only exports `registerSdkServices`
+- agent-generation/src/lib/di/index.ts: Only exports `registerAgentGenerationServices`
+- workspace-intelligence/src/di/index.ts: Only exports `registerWorkspaceIntelligenceServices`
+
+**Implementation**:
+
+```typescript
+// libs/backend/vscode-core/src/di/index.ts
+// REMOVE: export * from './tokens';
+export { registerVsCodeCoreServices } from './register';
+
+// Verify main index.ts still exports TOKENS:
+// libs/backend/vscode-core/src/index.ts should have:
+// export * from './di/tokens';
+// export { registerVsCodeCoreServices } from './di';
+```
+
+**Quality Requirements**:
+
+- **Functional**: TOKENS still accessible via `@ptah-extension/vscode-core` import
+- **Non-functional**: Pattern consistent with other libraries
+- **Pattern Compliance**: di/index.ts only exports registration function
+
+**Files Affected**:
+
+- `libs/backend/vscode-core/src/di/index.ts` (REMOVE tokens export)
+- `libs/backend/vscode-core/src/index.ts` (VERIFY tokens still exported)
+
+---
+
+## Component 9: Runtime Dependency Validation (Batch 7 - Optional)
+
+**Purpose**: Add runtime guards to detect registration order violations
+
+**Problem**: No validation that prerequisites are satisfied before registration
+
+**Examples of Missing Validation**:
+
+1. registerVsCodeCoreServices expects Logger already registered - no check
+2. workspace-intelligence 7-tier hierarchy has no enforcement
+3. RpcMethodRegistrationService factory has no dependency checks
+
+**Solution: Add Validation Guards**
+
+**Implementation Pattern**:
+
+```typescript
+/**
+ * Register vscode-core infrastructure services in DI container
+ *
+ * DEPENDENCIES (MUST BE REGISTERED FIRST):
+ * - TOKENS.LOGGER (registered in container.ts before calling this function)
+ * - TOKENS.EXTENSION_CONTEXT (registered in container.ts PHASE 0)
+ *
+ * @param container - TSyringe DI container
+ * @param context - VS Code extension context
+ * @param logger - Logger instance (already registered)
+ */
+export function registerVsCodeCoreServices(container: DependencyContainer, context: vscode.ExtensionContext, logger: Logger): void {
+  // VALIDATION: Check prerequisites
+  if (!container.isRegistered(TOKENS.LOGGER)) {
+    throw new Error('[VS Code Core] DEPENDENCY ERROR: TOKENS.LOGGER must be registered before calling registerVsCodeCoreServices');
+  }
+
+  if (!container.isRegistered(TOKENS.EXTENSION_CONTEXT)) {
+    throw new Error('[VS Code Core] DEPENDENCY ERROR: TOKENS.EXTENSION_CONTEXT must be registered before calling registerVsCodeCoreServices');
+  }
+
+  logger.info('[VS Code Core] Registering infrastructure services...');
+
+  // ... rest of registrations ...
+}
+```
+
+**Quality Requirements**:
+
+- **Functional**: Fail-fast on dependency violations
+- **Non-functional**: Clear error messages identifying missing prerequisite
+- **Pattern Compliance**: Add to ALL registration functions
+
+**Scope Decision**:
+
+- CRITICAL: Add to registerVsCodeCoreServices (requires Logger first)
+- HIGH: Add to workspace-intelligence (complex 7-tier dependencies)
+- MEDIUM: Add to other libraries (simpler dependencies)
+
+**Files Affected**:
+
+- All 7 registration functions (add validation guards)
+
+**Estimated Effort**: 2-3 hours (add guards to all functions + test failure paths)
+
+**Priority**: NICE TO HAVE (Batch 7 optional - can defer to future task)
+
+---
+
+## ✅ Updated Definition of Done
+
+**Original Implementation (Batches 1-4): COMPLETE ✅**
+
+**Code Review Remediation (Batches 5-7):**
+
+**Batch 5 - CRITICAL FIX** (MUST DO):
+
+- [ ] TOKENS.FILE_SYSTEM_SERVICE collision resolved
+- [ ] New token TOKENS.TEMPLATE_FILE_SYSTEM_ADAPTER created
+- [ ] template-generation updated to use new token
+- [ ] workspace-intelligence unchanged (preserves FileSystemService)
+- [ ] Both services coexist without collision
+- [ ] Build passes, extension activates
+
+**Batch 6 - BLOCKING FIXES** (SHOULD DO):
+
+- [ ] File headers added to 3 registration files
+- [ ] Headers include TASK_2025_071 context, creation date, pattern reference
+- [ ] vscode-core di/index.ts export pattern fixed
+- [ ] TOKENS export removed from di/index.ts
+- [ ] TOKENS still accessible via main index.ts
+- [ ] Pattern consistent with other libraries
+
+**Batch 7 - NICE TO HAVE** (OPTIONAL):
+
+- [ ] Dependency validation guards added to registration functions
+- [ ] registerVsCodeCoreServices validates Logger registered first
+- [ ] workspace-intelligence validates base services before mid-tier
+- [ ] Clear error messages on prerequisite violations
+- [ ] Fail-fast behavior on registration order errors
+
+**Final Acceptance Criteria:**
 
 - Extension works identically to before refactor
-- All services resolve correctly
+- All services resolve correctly (no collisions)
 - All features functional
 - Code quality improved (reduced duplication, better separation of concerns)
-- Tests provide confidence in future changes
+- Code review issues addressed (CRITICAL + BLOCKING minimum)
+- Pattern consistency across all libraries
+- Clear documentation for future maintainers

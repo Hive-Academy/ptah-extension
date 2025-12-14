@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2025_071: DI Registration Standardization
 
-**Total Tasks**: 21 | **Batches**: 7 | **Status**: 7/7 complete ✅
+**Total Tasks**: 30 | **Batches**: 9 | **Status**: 4/9 complete (Batches 1-4 ✅, Batches 5-7 pending review fixes)
 
 ---
 
@@ -996,28 +996,490 @@ registerTemplateGenerationServices(container, logger);
 
 ---
 
-## Definition of Done
+---
 
-**This task is DONE when:**
+## Batch 5: CRITICAL FIX - TOKENS.FILE_SYSTEM_SERVICE Collision Resolution ⏸️ PENDING
 
-1. All 7 registration functions created/refactored with correct signatures
-2. All registration functions exported from library index.ts
-3. container.ts refactored to call only registration functions
-4. All direct service registrations removed (except app-level)
-5. All 19 affected files updated
-6. Extension activates successfully in Extension Development Host
-7. All commands registered and functional
-8. All features smoke-tested (chat, setup wizard, workspace analysis, LLM)
-9. Performance metrics met (<100ms registration, <2s activation)
-10. No console errors in extension host
-11. LlmService error FIXED (registerLlmAbstractionServices now called)
-12. Git commits follow conventional commit format
+**Developer**: backend-developer
+**Tasks**: 4 | **Dependencies**: Batch 4 complete (code review identified this issue)
 
-**Acceptance Criteria**:
+### Task 5.1: Add TOKENS.TEMPLATE_FILE_SYSTEM_ADAPTER to vscode-core ⏸️ PENDING
+
+**File**: D:\projects\ptah-extension\libs\backend\vscode-core\src\di\tokens.ts
+**Spec Reference**: implementation-plan.md:1610-1677
+**Pattern to Follow**: Existing token definitions in tokens.ts
+
+**Quality Requirements**:
+
+- Add new token following naming convention
+- Add comment explaining purpose (avoid collision)
+- Token symbol follows pattern: Symbol.for('TemplateFileSystemAdapter')
+
+**Validation Notes**:
+
+- CRITICAL: workspace-intelligence uses TOKENS.FILE_SYSTEM_SERVICE for FileSystemService
+- CRITICAL: template-generation ALSO uses TOKENS.FILE_SYSTEM_SERVICE for FileSystemAdapter
+- Last registration wins → workspace-intelligence loses its FileSystemService
+- This is a RUNTIME BUG waiting to happen
+
+**Implementation Details**:
+
+```typescript
+// libs/backend/vscode-core/src/di/tokens.ts
+export const TOKENS = {
+  // ... existing tokens ...
+
+  // File System Services
+  FILE_SYSTEM_SERVICE: Symbol.for('FileSystemService'), // Used by workspace-intelligence
+  TEMPLATE_FILE_SYSTEM_ADAPTER: Symbol.for('TemplateFileSystemAdapter'), // NEW - Used by template-generation (TASK_2025_071 Batch 5)
+  FILE_SYSTEM_MANAGER: Symbol.for('FileSystemManager'),
+
+  // ... rest of tokens ...
+};
+```
+
+---
+
+### Task 5.2: Update template-generation register.ts to use new token ⏸️ PENDING
+
+**File**: D:\projects\ptah-extension\libs\backend\template-generation\src\lib\di\register.ts
+**Dependencies**: Task 5.1
+**Spec Reference**: implementation-plan.md:1656-1664
+
+**Quality Requirements**:
+
+- Change TOKENS.FILE_SYSTEM_SERVICE → TOKENS.TEMPLATE_FILE_SYSTEM_ADAPTER
+- Add comment explaining token change
+- Preserve all other registrations unchanged
+
+**Implementation Details**:
+
+```typescript
+export function registerTemplateGenerationServices(container: DependencyContainer, logger: Logger): void {
+  logger.info('[Template Generation] Registering services...');
+
+  // CHANGED (TASK_2025_071 Batch 5): Use dedicated token to avoid collision with workspace-intelligence
+  // workspace-intelligence uses TOKENS.FILE_SYSTEM_SERVICE for its FileSystemService
+  // template-generation uses TOKENS.TEMPLATE_FILE_SYSTEM_ADAPTER for its FileSystemAdapter
+  container.registerSingleton(TOKENS.TEMPLATE_FILE_SYSTEM_ADAPTER, FileSystemAdapter);
+
+  container.registerSingleton(TOKENS.TEMPLATE_MANAGER, TemplateManagerService);
+  // ... rest unchanged ...
+}
+```
+
+---
+
+### Task 5.3: Update FileSystemAdapter class if it uses @inject decorator ⏸️ PENDING
+
+**File**: D:\projects\ptah-extension\libs\backend\template-generation\src\lib\adapters\file-system.adapter.ts
+**Dependencies**: Task 5.2
+**Spec Reference**: implementation-plan.md:1672-1676
+
+**Quality Requirements**:
+
+- Check if class uses @inject(TOKENS.FILE_SYSTEM_SERVICE) decorator
+- If yes, update to @inject(TOKENS.TEMPLATE_FILE_SYSTEM_ADAPTER)
+- If no decorator, no changes needed
+
+**Validation Notes**:
+
+- FileSystemAdapter is a simple adapter class
+- Likely does NOT have @inject decorators (it's registered, not injected)
+- Verify by reading the file
+
+**Implementation Details**:
+
+```bash
+# First, read the file to check for @inject usage
+Read(D:\projects\ptah-extension\libs\backend\template-generation\src\lib\adapters\file-system.adapter.ts)
+
+# If @inject decorator exists, update it
+# If no decorator, skip this task
+```
+
+---
+
+### Task 5.4: Update any services in template-generation that inject FILE_SYSTEM_SERVICE ⏸️ PENDING
+
+**Files**: All services in libs/backend/template-generation/src/lib/services/
+**Dependencies**: Task 5.3
+**Spec Reference**: implementation-plan.md:1672-1676
+
+**Quality Requirements**:
+
+- Search for all usages of @inject(TOKENS.FILE_SYSTEM_SERVICE) in template-generation
+- Update to @inject(TOKENS.TEMPLATE_FILE_SYSTEM_ADAPTER)
+- Verify no other libraries are affected (this is template-generation only)
+
+**Validation Notes**:
+
+- Need to grep through template-generation services
+- Likely affected: TemplateManagerService, TemplateFileManagerService
+- NO changes to workspace-intelligence (it keeps using FILE_SYSTEM_SERVICE)
+
+**Implementation Details**:
+
+```bash
+# Search for FILE_SYSTEM_SERVICE usage in template-generation
+Grep(pattern='TOKENS.FILE_SYSTEM_SERVICE', path='libs/backend/template-generation', output_mode='content')
+
+# Update each file found with new token
+```
+
+---
+
+**Batch 5 Verification**:
+
+- [ ] New token TOKENS.TEMPLATE_FILE_SYSTEM_ADAPTER added to vscode-core tokens.ts
+- [ ] template-generation register.ts updated to use new token
+- [ ] FileSystemAdapter class checked (and updated if needed)
+- [ ] All services in template-generation updated to use new token
+- [ ] workspace-intelligence UNCHANGED (still uses FILE_SYSTEM_SERVICE)
+- [ ] Build passes: `npx nx build template-generation`
+- [ ] Build passes: `npx nx build workspace-intelligence`
+- [ ] Build passes: `npx nx build ptah-extension-vscode`
+- [ ] Extension activates without errors
+- [ ] CRITICAL: Both FileSystemService AND FileSystemAdapter resolve correctly (no collision)
+
+---
+
+## Batch 6: BLOCKING FIXES - File Headers & Pattern Consistency ⏸️ PENDING
+
+**Developer**: backend-developer
+**Tasks**: 4 | **Dependencies**: Batch 5 complete
+
+### Task 6.1: Add TASK_2025_071 header to llm-abstraction register.ts ⏸️ PENDING
+
+**File**: D:\projects\ptah-extension\libs\backend\llm-abstraction\src\lib\di\register.ts
+**Spec Reference**: implementation-plan.md:1680-1717
+**Pattern to Follow**: agent-generation/src/lib/di/register.ts:1-15 (header format)
+
+**Quality Requirements**:
+
+- Add file header at top of file (before imports)
+- Include TASK_2025_071 context
+- Include creation date
+- Include pattern explanation
+- Include references to agent-sdk and container.ts
+
+**Implementation Details**:
+
+```typescript
+/**
+ * DI Registration for LLM Abstraction
+ *
+ * TASK_2025_071: DI Registration Standardization
+ * Created: 2025-12-14
+ *
+ * This file centralizes all service registrations for the llm-abstraction library.
+ * Following the standardized registration pattern established in agent-sdk and agent-generation.
+ *
+ * Pattern:
+ * - Function signature: registerLlmAbstractionServices(container, logger)
+ * - Uses injected container (no global import)
+ * - Uses injected logger (no console.log)
+ * - Logs registration start and completion
+ *
+ * @see libs/backend/agent-sdk/src/lib/di/register.ts - Pattern reference
+ * @see apps/ptah-extension-vscode/src/di/container.ts - Orchestration point
+ */
+
+import { DependencyContainer } from 'tsyringe';
+// ... rest of file ...
+```
+
+---
+
+### Task 6.2: Add TASK_2025_071 header to template-generation register.ts ⏸️ PENDING
+
+**File**: D:\projects\ptah-extension\libs\backend\template-generation\src\lib\di\register.ts
+**Dependencies**: Task 6.1
+**Spec Reference**: implementation-plan.md:1680-1717
+
+**Quality Requirements**:
+
+- Same header format as Task 6.1
+- Update library name to "Template Generation"
+
+**Implementation Details**:
+
+```typescript
+/**
+ * DI Registration for Template Generation
+ *
+ * TASK_2025_071: DI Registration Standardization
+ * Created: 2025-12-14
+ *
+ * This file centralizes all service registrations for the template-generation library.
+ * Following the standardized registration pattern established in agent-sdk and agent-generation.
+ *
+ * Pattern:
+ * - Function signature: registerTemplateGenerationServices(container, logger)
+ * - Uses injected container (no global import)
+ * - Uses injected logger (no console.log)
+ * - Logs registration start and completion
+ *
+ * @see libs/backend/agent-sdk/src/lib/di/register.ts - Pattern reference
+ * @see apps/ptah-extension-vscode/src/di/container.ts - Orchestration point
+ */
+```
+
+---
+
+### Task 6.3: Add TASK_2025_071 header to vscode-lm-tools register.ts ⏸️ PENDING
+
+**File**: D:\projects\ptah-extension\libs\backend\vscode-lm-tools\src\lib\di\register.ts
+**Dependencies**: Task 6.2
+**Spec Reference**: implementation-plan.md:1680-1717
+
+**Quality Requirements**:
+
+- Same header format as Task 6.1
+- Update library name to "VS Code LM Tools"
+
+**Implementation Details**:
+
+```typescript
+/**
+ * DI Registration for VS Code LM Tools
+ *
+ * TASK_2025_071: DI Registration Standardization
+ * Created: 2025-12-14
+ *
+ * This file centralizes all service registrations for the vscode-lm-tools library.
+ * Following the standardized registration pattern established in agent-sdk and agent-generation.
+ *
+ * Pattern:
+ * - Function signature: registerVsCodeLmToolsServices(container, logger)
+ * - Uses injected container (no global import)
+ * - Uses injected logger (no console.log)
+ * - Logs registration start and completion
+ *
+ * @see libs/backend/agent-sdk/src/lib/di/register.ts - Pattern reference
+ * @see apps/ptah-extension-vscode/src/di/container.ts - Orchestration point
+ */
+```
+
+---
+
+### Task 6.4: Fix vscode-core di/index.ts export pattern ⏸️ PENDING
+
+**File**: D:\projects\ptah-extension\libs\backend\vscode-core\src\di\index.ts
+**Dependencies**: Task 6.3
+**Spec Reference**: implementation-plan.md:1719-1762
+
+**Quality Requirements**:
+
+- Remove TOKENS export from di/index.ts
+- Keep only registration function export
+- Verify TOKENS still exported from main index.ts
+- Pattern consistent with other libraries
+
+**Validation Notes**:
+
+- CURRENT: di/index.ts exports both TOKENS and registerVsCodeCoreServices
+- EXPECTED: di/index.ts exports ONLY registerVsCodeCoreServices
+- TOKENS should be exported from vscode-core/src/index.ts (main barrel)
+
+**Implementation Details**:
+
+```typescript
+// libs/backend/vscode-core/src/di/index.ts
+// BEFORE (INCONSISTENT):
+// export * from './tokens';
+// export { registerVsCodeCoreServices } from './register';
+
+// AFTER (CONSISTENT):
+export { registerVsCodeCoreServices } from './register';
+
+// Verify main index.ts still exports TOKENS:
+// libs/backend/vscode-core/src/index.ts should have:
+// export * from './di/tokens';
+// export { registerVsCodeCoreServices } from './di';
+```
+
+---
+
+**Batch 6 Verification**:
+
+- [ ] File header added to llm-abstraction/di/register.ts
+- [ ] File header added to template-generation/di/register.ts
+- [ ] File header added to vscode-lm-tools/di/register.ts
+- [ ] All headers include TASK_2025_071 context, date, pattern explanation
+- [ ] vscode-core di/index.ts export pattern fixed (TOKENS removed)
+- [ ] TOKENS still accessible via @ptah-extension/vscode-core import
+- [ ] Build passes: `npx nx build vscode-core`
+- [ ] Pattern consistent with agent-sdk, agent-generation, workspace-intelligence
+
+---
+
+## Batch 7: OPTIONAL - Runtime Dependency Validation ⏸️ PENDING
+
+**Developer**: backend-developer
+**Tasks**: 3 | **Dependencies**: Batch 6 complete
+**Priority**: NICE TO HAVE (can defer to future task)
+
+### Task 7.1: Add dependency validation to registerVsCodeCoreServices ⏸️ PENDING
+
+**File**: D:\projects\ptah-extension\libs\backend\vscode-core\src/di/register.ts
+**Spec Reference**: implementation-plan.md:1766-1829
+**Pattern to Follow**: Guard pattern with fail-fast errors
+
+**Quality Requirements**:
+
+- Check TOKENS.LOGGER registered before proceeding
+- Check TOKENS.EXTENSION_CONTEXT registered before proceeding
+- Throw clear error messages if prerequisites missing
+- Add at beginning of function (before logging)
+
+**Implementation Details**:
+
+```typescript
+export function registerVsCodeCoreServices(container: DependencyContainer, context: vscode.ExtensionContext, logger: Logger): void {
+  // VALIDATION: Check prerequisites (TASK_2025_071 Batch 7)
+  if (!container.isRegistered(TOKENS.LOGGER)) {
+    throw new Error('[VS Code Core] DEPENDENCY ERROR: TOKENS.LOGGER must be registered before calling registerVsCodeCoreServices. ' + 'Ensure container.registerSingleton(TOKENS.LOGGER, Logger) is called FIRST in container.ts.');
+  }
+
+  if (!container.isRegistered(TOKENS.EXTENSION_CONTEXT)) {
+    throw new Error('[VS Code Core] DEPENDENCY ERROR: TOKENS.EXTENSION_CONTEXT must be registered before calling registerVsCodeCoreServices. ' + 'Ensure context is registered in PHASE 0 of container.ts.');
+  }
+
+  logger.info('[VS Code Core] Registering infrastructure services...');
+  // ... rest of function unchanged ...
+}
+```
+
+---
+
+### Task 7.2: Add dependency validation to registerWorkspaceIntelligenceServices ⏸️ PENDING
+
+**File**: D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\di\register.ts
+**Dependencies**: Task 7.1
+**Spec Reference**: implementation-plan.md:1766-1829
+
+**Quality Requirements**:
+
+- Check TOKENS.LOGGER registered
+- Check TOKENS.FILE_SYSTEM_MANAGER registered (vscode-core dependency)
+- Throw clear error messages
+- Document 7-tier dependency order in comments
+
+**Implementation Details**:
+
+```typescript
+export function registerWorkspaceIntelligenceServices(container: DependencyContainer, logger: Logger): void {
+  // VALIDATION: Check prerequisites (TASK_2025_071 Batch 7)
+  if (!container.isRegistered(TOKENS.LOGGER)) {
+    throw new Error('[Workspace Intelligence] DEPENDENCY ERROR: TOKENS.LOGGER must be registered first.');
+  }
+
+  if (!container.isRegistered(TOKENS.FILE_SYSTEM_MANAGER)) {
+    throw new Error('[Workspace Intelligence] DEPENDENCY ERROR: vscode-core services must be registered before workspace-intelligence. ' + 'Ensure registerVsCodeCoreServices is called BEFORE registerWorkspaceIntelligenceServices in container.ts.');
+  }
+
+  logger.info('[Workspace Intelligence] Registering services...');
+  // ... rest unchanged ...
+}
+```
+
+---
+
+### Task 7.3: Add dependency validation to remaining registration functions ⏸️ PENDING
+
+**Files**:
+
+- D:\projects\ptah-extension\libs\backend\vscode-lm-tools\src\lib\di\register.ts
+- D:\projects\ptah-extension\libs\backend\llm-abstraction\src\lib\di\register.ts
+- D:\projects\ptah-extension\libs\backend\template-generation\src\lib\di\register.ts
+- D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\di\register.ts (if not already present)
+- D:\projects\ptah-extension\libs\backend\agent-generation\src\lib\di\register.ts (if not already present)
+
+**Dependencies**: Task 7.2
+**Spec Reference**: implementation-plan.md:1818-1829
+
+**Quality Requirements**:
+
+- Each function checks TOKENS.LOGGER at minimum
+- Complex dependencies (like vscode-lm-tools requiring workspace-intelligence) validated
+- Clear error messages identifying missing prerequisite
+- Consistent guard pattern across all functions
+
+**Implementation Pattern**:
+
+```typescript
+export function register[Library]Services(container: DependencyContainer, logger: Logger): void {
+  // VALIDATION: Check prerequisites (TASK_2025_071 Batch 7)
+  if (!container.isRegistered(TOKENS.LOGGER)) {
+    throw new Error('[Library Name] DEPENDENCY ERROR: TOKENS.LOGGER must be registered first.');
+  }
+
+  // Add library-specific dependency checks here
+  // Example for vscode-lm-tools:
+  if (!container.isRegistered(TOKENS.CONTEXT_ORCHESTRATION_SERVICE)) {
+    throw new Error(
+      '[VS Code LM Tools] DEPENDENCY ERROR: workspace-intelligence services must be registered before vscode-lm-tools.'
+    );
+  }
+
+  logger.info('[Library Name] Registering services...');
+  // ... rest unchanged ...
+}
+```
+
+---
+
+**Batch 7 Verification**:
+
+- [ ] registerVsCodeCoreServices validates Logger and ExtensionContext
+- [ ] registerWorkspaceIntelligenceServices validates vscode-core dependencies
+- [ ] All 7 registration functions validate Logger at minimum
+- [ ] Error messages are clear and actionable
+- [ ] Build passes: `npx nx build ptah-extension-vscode`
+- [ ] Extension activates (validation passes)
+- [ ] Test failure case: Remove Logger registration → extension fails with clear error
+
+---
+
+## Updated Definition of Done
+
+**Original Implementation (Batches 1-4): COMPLETE ✅**
+
+**Code Review Remediation (Batches 5-7):**
+
+**Batch 5 - CRITICAL FIX** (MUST DO):
+
+- [ ] TOKENS.FILE_SYSTEM_SERVICE collision resolved
+- [ ] New token TOKENS.TEMPLATE_FILE_SYSTEM_ADAPTER created
+- [ ] template-generation updated to use new token
+- [ ] workspace-intelligence unchanged (preserves FileSystemService)
+- [ ] Both services coexist without collision
+- [ ] Build passes, extension activates
+
+**Batch 6 - BLOCKING FIXES** (SHOULD DO):
+
+- [ ] File headers added to 3 registration files
+- [ ] Headers include TASK_2025_071 context, creation date, pattern reference
+- [ ] vscode-core di/index.ts export pattern fixed
+- [ ] TOKENS export removed from di/index.ts
+- [ ] TOKENS still accessible via main index.ts
+- [ ] Pattern consistent with other libraries
+
+**Batch 7 - NICE TO HAVE** (OPTIONAL):
+
+- [ ] Dependency validation guards added to registration functions
+- [ ] registerVsCodeCoreServices validates Logger registered first
+- [ ] workspace-intelligence validates base services before mid-tier
+- [ ] Clear error messages on prerequisite violations
+- [ ] Fail-fast behavior on registration order errors
+
+**Final Acceptance Criteria:**
 
 - Extension works identically to before refactor
-- All services resolve correctly
+- All services resolve correctly (no collisions)
 - All features functional
 - Code quality improved (reduced duplication, better separation of concerns)
-- Tests provide confidence in future changes
-- HIGH-RISK FIX VALIDATED: llm-abstraction and template-generation registration functions now called in container.ts
+- Code review issues addressed (CRITICAL + BLOCKING minimum)
+- Pattern consistency across all libraries
+- Clear documentation for future maintainers

@@ -39,15 +39,15 @@ import { registerSdkServices } from '@ptah-extension/agent-sdk';
 import { registerAgentGenerationServices } from '@ptah-extension/agent-generation';
 
 // Import registration functions (TASK_2025_071 Batch 3)
- 
+
 import { registerVsCodeCoreServices } from '@ptah-extension/vscode-core';
- 
+
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
- 
+
 import { registerVsCodeLmToolsServices } from '@ptah-extension/vscode-lm-tools';
- 
+
 import { registerLlmAbstractionServices } from '@ptah-extension/llm-abstraction';
- 
+
 import { registerTemplateGenerationServices } from '@ptah-extension/template-generation';
 
 // Import webview support services

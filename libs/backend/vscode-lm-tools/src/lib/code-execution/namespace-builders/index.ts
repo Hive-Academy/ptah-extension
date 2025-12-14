@@ -39,3 +39,9 @@ export {
 
 // IDE namespace (lsp, editor, actions, testing)
 export { buildIDENamespace } from './ide-namespace.builder';
+
+// LLM namespace (Langchain provider abstraction)
+export {
+  buildLLMNamespace,
+  type LlmNamespaceDependencies,
+} from './llm-namespace.builder';

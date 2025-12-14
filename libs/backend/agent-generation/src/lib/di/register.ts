@@ -1,0 +1,131 @@
+/**
+ * Agent Generation DI Registration
+ * TASK_2025_069: Register all agent-generation services in DI container
+ *
+ * Pattern: Follow agent-sdk registration pattern for consistency.
+ * Services use @injectable() decorators for auto-wiring.
+ *
+ * NOTE: This is a minimal registration for setup-status and setup-wizard functionality.
+ * Full agent generation features (orchestrator, file writer, etc.) are registered
+ * but may require additional dependencies to be fully functional.
+ */
+
+import { DependencyContainer, Lifecycle } from 'tsyringe';
+import type { Logger } from '@ptah-extension/vscode-core';
+import { AGENT_GENERATION_TOKENS } from '../di/tokens';
+
+// Import services
+import { SetupStatusService } from '../services/setup-status.service';
+import { SetupWizardService } from '../services/setup-wizard.service';
+import { AgentGenerationOrchestratorService } from '../services/orchestrator.service';
+import { AgentSelectionService } from '../services/agent-selection.service';
+import { TemplateStorageService } from '../services/template-storage.service';
+import { ContentGenerationService } from '../services/content-generation.service';
+import { AgentFileWriterService } from '../services/file-writer.service';
+import { OutputValidationService } from '../services/output-validation.service';
+import { VsCodeLmService } from '../services/vscode-lm.service';
+
+/**
+ * Register all agent-generation services in DI container
+ *
+ * IMPORTANT: This must be called AFTER workspace-intelligence and vscode-core services
+ * are registered, as agent-generation services depend on them.
+ *
+ * @param container - TSyringe DI container
+ * @param logger - Logger instance for debugging
+ */
+export function registerAgentGenerationServices(
+  container: DependencyContainer,
+  logger: Logger
+): void {
+  logger.info('[AgentGeneration] Registering agent-generation services...');
+
+  // ============================================================
+  // Foundation Services (no internal dependencies)
+  // ============================================================
+
+  // Output validation service - validates LLM outputs
+  container.register(
+    AGENT_GENERATION_TOKENS.OUTPUT_VALIDATION_SERVICE,
+    { useClass: OutputValidationService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Template storage service - loads and caches templates
+  container.register(
+    AGENT_GENERATION_TOKENS.TEMPLATE_STORAGE_SERVICE,
+    { useClass: TemplateStorageService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // ============================================================
+  // Mid-level Services (depend on foundation services)
+  // ============================================================
+
+  // VS Code LM service - LLM integration with retry logic
+  container.register(
+    AGENT_GENERATION_TOKENS.VSCODE_LM_SERVICE,
+    { useClass: VsCodeLmService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Agent selection service - scores and selects agents
+  container.register(
+    AGENT_GENERATION_TOKENS.AGENT_SELECTION_SERVICE,
+    { useClass: AgentSelectionService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Content generation service - renders templates with variables
+  container.register(
+    AGENT_GENERATION_TOKENS.CONTENT_GENERATION_SERVICE,
+    { useClass: ContentGenerationService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Agent file writer service - atomic file writing with rollback
+  container.register(
+    AGENT_GENERATION_TOKENS.AGENT_FILE_WRITER_SERVICE,
+    { useClass: AgentFileWriterService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // ============================================================
+  // High-level Services (orchestration layer)
+  // ============================================================
+
+  // Agent generation orchestrator - coordinates 5-phase workflow
+  container.register(
+    AGENT_GENERATION_TOKENS.AGENT_GENERATION_ORCHESTRATOR,
+    { useClass: AgentGenerationOrchestratorService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Setup status service - detects agent configuration status
+  container.register(
+    AGENT_GENERATION_TOKENS.SETUP_STATUS_SERVICE,
+    { useClass: SetupStatusService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Setup wizard service - orchestrates wizard UI flow
+  container.register(
+    AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE,
+    { useClass: SetupWizardService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  logger.info('[AgentGeneration] Agent-generation services registered', {
+    services: [
+      'OUTPUT_VALIDATION_SERVICE',
+      'TEMPLATE_STORAGE_SERVICE',
+      'VSCODE_LM_SERVICE',
+      'AGENT_SELECTION_SERVICE',
+      'CONTENT_GENERATION_SERVICE',
+      'AGENT_FILE_WRITER_SERVICE',
+      'AGENT_GENERATION_ORCHESTRATOR',
+      'SETUP_STATUS_SERVICE',
+      'SETUP_WIZARD_SERVICE',
+    ],
+  });
+}

@@ -211,17 +211,208 @@ You: Present final summary - WORKFLOW COMPLETE <�
 
 ### Agent Selection Matrix
 
-| Request Type | Agent Path                                      | Trigger             |
-| ------------ | ----------------------------------------------- | ------------------- |
-| Implement X  | project-manager � architect � team-leader � dev | New features        |
-| Fix bug      | team-leader � dev � test � review               | Bug reports         |
-| Research X   | researcher-expert � architect                   | Technical questions |
-| Review style | code-style-reviewer                             | Pattern checks      |
-| Review logic | code-logic-reviewer                             | Completeness checks |
-| Test X       | senior-tester                                   | Testing             |
-| Architecture | software-architect                              | Design              |
+| Request Type     | Agent Path                                      | Trigger                |
+| ---------------- | ----------------------------------------------- | ---------------------- |
+| Implement X      | project-manager → architect → team-leader → dev | New features           |
+| Fix bug          | team-leader → dev → test → review               | Bug reports            |
+| Research X       | researcher-expert → architect                   | Technical questions    |
+| Review style     | code-style-reviewer                             | Pattern checks         |
+| Review logic     | code-logic-reviewer                             | Completeness checks    |
+| Test X           | senior-tester                                   | Testing                |
+| Architecture     | software-architect                              | Design                 |
+| **Landing page** | **ui-ux-designer → technical-content-writer**   | **Marketing pages**    |
+| **Brand/visual** | **ui-ux-designer**                              | **Design system**      |
+| **Content**      | **technical-content-writer**                    | **Blogs, docs, video** |
 
 **Default**: When uncertain, use `/orchestrate`
+
+---
+
+## CREATIVE WORKFLOW ORCHESTRATION
+
+### Design-First Principle
+
+**CRITICAL**: For any content or marketing work, **design system MUST exist first**.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  CREATIVE WORKFLOW DEPENDENCY CHAIN                             │
+│                                                                 │
+│  1. DESIGN SYSTEM (Foundation)                                  │
+│     └── ui-ux-designer creates if missing                       │
+│         └── Output: .claude/skills/technical-content-writer/    │
+│                     DESIGN-SYSTEM.md                            │
+│                                                                 │
+│  2. CONTENT GENERATION (Depends on #1)                          │
+│     └── technical-content-writer uses design system             │
+│         └── Output: Design-integrated content specs             │
+│                                                                 │
+│  3. IMPLEMENTATION (Depends on #1 and #2)                       │
+│     └── frontend-developer implements with specs                │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Automatic Design System Check
+
+**BEFORE invoking technical-content-writer for landing pages, run this check:**
+
+```bash
+# Check if design system exists
+design_system_path=".claude/skills/technical-content-writer/DESIGN-SYSTEM.md"
+
+if NOT exists(design_system_path):
+    → Invoke ui-ux-designer FIRST
+    → "Create design system for this project"
+    → Wait for completion
+    → Then invoke technical-content-writer
+
+if exists(design_system_path):
+    → Invoke technical-content-writer directly
+    → Content will use existing design system
+```
+
+### Creative Request Detection
+
+**Trigger phrases that require creative workflow:**
+
+| User Says                         | Workflow                               |
+| --------------------------------- | -------------------------------------- |
+| "Create landing page"             | Design check → ui-ux → content-writer  |
+| "Design our homepage"             | Design check → ui-ux → content-writer  |
+| "Marketing content for..."        | Design check → content-writer          |
+| "Visual design for..."            | ui-ux-designer                         |
+| "Brand identity"                  | ui-ux-designer (full discovery)        |
+| "Write a blog post"               | content-writer (design check optional) |
+| "Video script for..."             | content-writer                         |
+| "What should our site look like?" | ui-ux-designer (discovery)             |
+
+### Creative Workflow Execution
+
+#### Workflow A: Full Creative (Landing Page, Marketing Site)
+
+```
+User: "Create a landing page for our extension"
+
+You (Orchestrator):
+  1. Check design system exists
+     Read(.claude/skills/technical-content-writer/DESIGN-SYSTEM.md)
+
+  2. IF MISSING → Invoke ui-ux-designer:
+     Task("Create design system", subagent_type="ui-ux-designer")
+     - Agent loads NICHE-DISCOVERY.md skill
+     - Agent guides user through aesthetic discovery
+     - Agent creates DESIGN-SYSTEM.md
+     - Wait for completion
+
+  3. Invoke technical-content-writer:
+     Task("Create landing page content", subagent_type="technical-content-writer")
+     - Agent loads LANDING-PAGES.md skill
+     - Agent loads DESIGN-SYSTEM.md
+     - Agent creates design-integrated content
+
+  4. Deliver combined output:
+     - Design system (if created)
+     - Content specification with visual specs
+     - Asset generation briefs
+```
+
+#### Workflow B: Content Only (Blog, Docs, Video)
+
+```
+User: "Write a blog post about the SDK"
+
+You (Orchestrator):
+  1. Design system check (OPTIONAL for blogs)
+     - If exists, content-writer can reference it
+     - If missing, proceed without (text-focused content)
+
+  2. Invoke technical-content-writer:
+     Task("Write blog post about SDK", subagent_type="technical-content-writer")
+     - Agent loads BLOG-POSTS.md skill
+     - Agent investigates codebase
+     - Agent creates evidence-backed content
+```
+
+#### Workflow C: Design System Only
+
+```
+User: "Help me define our visual identity"
+
+You (Orchestrator):
+  1. Invoke ui-ux-designer:
+     Task("Create design system with full discovery", subagent_type="ui-ux-designer")
+     - Agent loads NICHE-DISCOVERY.md
+     - Agent loads DESIGN-SYSTEM-BUILDER.md
+     - Agent guides through discovery questions
+     - Agent creates complete design system
+```
+
+### Parallel vs Sequential
+
+**Sequential (Default for Creative)**:
+
+- Design system MUST complete before content
+- Content informs implementation
+
+**Parallel (When Design Exists)**:
+
+- Multiple content pieces can be created in parallel
+- Different content types (blog + video) can run simultaneously
+
+```
+# Sequential (design missing)
+ui-ux-designer → technical-content-writer → frontend-developer
+
+# Parallel (design exists)
+┌→ technical-content-writer (landing page)
+├→ technical-content-writer (blog post)
+└→ technical-content-writer (video script)
+```
+
+### Output Locations
+
+| Agent                    | Output File                                                | Purpose                           |
+| ------------------------ | ---------------------------------------------------------- | --------------------------------- |
+| ui-ux-designer           | `.claude/skills/technical-content-writer/DESIGN-SYSTEM.md` | Design tokens, colors, typography |
+| ui-ux-designer           | `task-tracking/TASK_[ID]/visual-design-specification.md`   | Page-specific visual specs        |
+| technical-content-writer | `task-tracking/TASK_[ID]/content-specification.md`         | Content with design integration   |
+| technical-content-writer | `docs/content/*.md`                                        | Final content files               |
+
+### Handoff Protocol
+
+**ui-ux-designer → technical-content-writer:**
+
+```markdown
+## Design Handoff for Content
+
+**Design System**: .claude/skills/technical-content-writer/DESIGN-SYSTEM.md
+**Aesthetic**: [Name - e.g., "Sacred Tech"]
+**Key Colors**: [Primary accent, backgrounds]
+**Typography**: [Display + body fonts]
+**Animation Patterns**: [Key effects to reference]
+
+Content writer should:
+
+- Reference DESIGN-SYSTEM.md for all visual specs
+- Use LANDING-PAGES.md templates with design integration
+- Include animation/effect specifications in content
+```
+
+**technical-content-writer → frontend-developer:**
+
+```markdown
+## Content Handoff for Implementation
+
+**Content Spec**: task-tracking/TASK\_[ID]/content-specification.md
+**Design System**: .claude/skills/technical-content-writer/DESIGN-SYSTEM.md
+**Assets Needed**: [List from asset briefs]
+
+Developer should:
+
+- Implement content following visual specs
+- Use design system tokens exactly
+- Generate/source assets from briefs
+```
 
 ---
 
