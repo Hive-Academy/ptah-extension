@@ -13,4 +13,4 @@ export * from './lib/errors';
 export { TemplateGeneratorService } from './lib/services/template-generator.service';
 
 // DI Registration
-export { registerTemplateGeneration } from './lib/di/registration';
+export { registerTemplateGenerationServices } from './lib/di';
