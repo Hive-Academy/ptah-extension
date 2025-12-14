@@ -1,0 +1,86 @@
+/**
+ * VS Code Core DI Registration
+ * TASK_2025_071: Centralized registration for vscode-core infrastructure services
+ *
+ * IMPORTANT: Logger must be registered BEFORE calling this function.
+ * The logger parameter is used for logging registration events.
+ */
+
+import { DependencyContainer } from 'tsyringe';
+import * as vscode from 'vscode';
+import type { Logger } from '../logging/logger';
+import { TOKENS } from './tokens';
+
+// Import services (use relative paths to avoid circular dependencies)
+import { ErrorHandler } from '../error-handling/error-handler';
+import { ConfigManager } from '../config/config-manager';
+import { MessageValidatorService } from '../validation/message-validator.service';
+import { CommandManager } from '../api-wrappers/command-manager';
+import { WebviewManager } from '../api-wrappers/webview-manager';
+import { OutputManager } from '../api-wrappers/output-manager';
+import { StatusBarManager } from '../api-wrappers/status-bar-manager';
+import { FileSystemManager } from '../api-wrappers/file-system-manager';
+import { RpcHandler } from '../messaging/rpc-handler';
+import { AgentSessionWatcherService } from '../services/agent-session-watcher.service';
+
+/**
+ * Register vscode-core infrastructure services in DI container
+ *
+ * @param container - TSyringe DI container
+ * @param context - VS Code extension context (needed for some services)
+ * @param logger - Logger instance (already registered in container)
+ */
+export function registerVsCodeCoreServices(
+  container: DependencyContainer,
+  context: vscode.ExtensionContext,
+  logger: Logger
+): void {
+  logger.info('[VS Code Core] Registering infrastructure services...');
+
+  // ============================================================
+  // Core infrastructure (Logger already registered externally)
+  // ============================================================
+  container.registerSingleton(TOKENS.ERROR_HANDLER, ErrorHandler);
+  container.registerSingleton(TOKENS.CONFIG_MANAGER, ConfigManager);
+  container.registerSingleton(
+    TOKENS.MESSAGE_VALIDATOR,
+    MessageValidatorService
+  );
+
+  // ============================================================
+  // API Wrappers
+  // ============================================================
+  container.registerSingleton(TOKENS.COMMAND_MANAGER, CommandManager);
+  container.registerSingleton(TOKENS.WEBVIEW_MANAGER, WebviewManager);
+  container.registerSingleton(TOKENS.OUTPUT_MANAGER, OutputManager);
+  container.registerSingleton(TOKENS.STATUS_BAR_MANAGER, StatusBarManager);
+  container.registerSingleton(TOKENS.FILE_SYSTEM_MANAGER, FileSystemManager);
+
+  // ============================================================
+  // RPC Handler
+  // ============================================================
+  container.registerSingleton(TOKENS.RPC_HANDLER, RpcHandler);
+
+  // ============================================================
+  // Agent Session Watcher
+  // ============================================================
+  container.registerSingleton(
+    TOKENS.AGENT_SESSION_WATCHER_SERVICE,
+    AgentSessionWatcherService
+  );
+
+  logger.info('[VS Code Core] Infrastructure services registered', {
+    services: [
+      'ERROR_HANDLER',
+      'CONFIG_MANAGER',
+      'MESSAGE_VALIDATOR',
+      'COMMAND_MANAGER',
+      'WEBVIEW_MANAGER',
+      'OUTPUT_MANAGER',
+      'STATUS_BAR_MANAGER',
+      'FILE_SYSTEM_MANAGER',
+      'RPC_HANDLER',
+      'AGENT_SESSION_WATCHER_SERVICE',
+    ],
+  });
+}
