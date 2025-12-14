@@ -34,4 +34,4 @@ export { LlmService } from './lib/services/llm.service';
 // ========================================
 // DI Registration
 // ========================================
-export { registerLlmAbstraction } from './lib/di/registration';
+export { registerLlmAbstractionServices } from './lib/di';
