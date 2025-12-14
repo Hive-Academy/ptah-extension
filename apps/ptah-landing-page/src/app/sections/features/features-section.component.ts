@@ -29,9 +29,10 @@ interface Feature {
  * Patterns: Composition (uses FeatureCardComponent), GSAP ScrollTrigger animations
  *
  * Features:
- * - Two-column responsive grid layout
- * - Staggered entrance animations (0.2s delay between cards)
- * - Workspace Intelligence & VS Code LM Tools feature cards
+ * - Four feature cards with rich marketing copy
+ * - Two-column responsive grid layout with 48px gap (gap-12)
+ * - Staggered entrance animations (0.15s delay between cards)
+ * - Eyebrow label + section headline
  * - Reduced motion support
  * - Proper GSAP cleanup on component destroy
  *
@@ -41,6 +42,7 @@ interface Feature {
  * - Open/Closed: Extend features array, closed for modification
  *
  * Design Spec Reference: visual-design-specification.md:Feature Card animations
+ * Task Reference: TASK_2025_072 Batch 4 Task 4.2
  */
 @Component({
   selector: 'ptah-features-section',
@@ -49,13 +51,22 @@ interface Feature {
   template: `
     <section #sectionRef class="py-32 bg-base-100">
       <div class="container mx-auto px-6">
-        <h2
-          class="text-3xl md:text-4xl font-display font-bold text-base-content text-center mb-16"
+        <!-- Eyebrow label -->
+        <p
+          class="text-sm tracking-widest text-secondary uppercase text-center mb-4"
         >
-          Power-Ups for Your Development
+          SUPERPOWERS
+        </p>
+
+        <!-- Section headline -->
+        <h2
+          class="text-5xl md:text-6xl font-display font-bold text-center mb-16"
+        >
+          Everything You Need to Master Claude Code
         </h2>
 
-        <div class="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto features-grid">
+        <!-- Features grid with 48px gap -->
+        <div class="grid md:grid-cols-2 gap-12 max-w-5xl mx-auto features-grid">
           @for (feature of features; track feature.id) {
           <ptah-feature-card
             [iconEmoji]="feature.iconEmoji"
@@ -75,31 +86,61 @@ export class FeaturesSectionComponent {
   private readonly destroyRef = inject(DestroyRef);
   private gsapContext?: gsap.Context;
 
+  /**
+   * Feature card data with marketing copy from landing-page-copy.md
+   */
   readonly features: Feature[] = [
     {
-      id: 'workspace-intelligence',
-      iconEmoji: '🧠',
-      title: 'Workspace Intelligence',
+      id: 'native-chat',
+      iconEmoji: '🖥️',
+      title: 'Native Chat, Zero Context Switching',
       description:
-        'Understands your project structure, prioritizes files, and provides contextual awareness for smarter AI assistance.',
+        "Stop toggling terminals. Ptah brings Claude Code's full power into a native VS Code sidebar with 48+ hand-crafted components. Chat, view execution trees, and track sessions—all without leaving your editor.",
       capabilities: [
-        'Project type detection (NX, Angular, React, Node)',
-        'Smart file prioritization based on relevance',
-        'Token budget optimization for context',
-        'gitignore-aware file filtering',
+        '48+ Angular components',
+        'ExecutionNode tree visualization',
+        'Real-time streaming responses',
+        'Multi-session management',
       ],
     },
     {
-      id: 'vscode-lm-tools',
-      iconEmoji: '🪄',
-      title: 'VS Code LM Tools',
+      id: 'sdk-performance',
+      iconEmoji: '⚡',
+      title: '10x Faster With Official SDK',
       description:
-        'Native Language Model API integration with secure code execution and granular permission handling.',
+        'Ditch the CLI overhead. Ptah uses the official Claude Agent SDK for native TypeScript integration. Get instant streaming, built-in session management, and permission handling—no subprocess spawning required.',
       capabilities: [
-        'Copilot/GPT-4 integration via VS Code API',
-        'Secure sandboxed code execution',
-        'Granular permission controls',
-        'Real-time tool visualization',
+        'Official @anthropic-ai/claude-agent-sdk',
+        'Native streaming support',
+        'Zero CLI latency',
+        'Built-in session persistence',
+      ],
+    },
+    {
+      id: 'workspace-intelligence',
+      iconEmoji: '🧠',
+      title: 'Your Codebase, Understood',
+      description:
+        "Ptah doesn't just chat—it comprehends. 20+ specialized services analyze your workspace, detect 13+ project types, optimize token budgets, and auto-select relevant files. Claude gets the context it needs, nothing it doesn't.",
+      capabilities: [
+        '13+ project type detection',
+        'Intelligent file ranking',
+        'Token budget optimization',
+        'Autocomplete discovery',
+      ],
+    },
+    {
+      id: 'multi-provider',
+      iconEmoji: '🌐',
+      title: 'One Interface, Five AI Providers',
+      description:
+        "Never get locked in. Ptah's multi-provider abstraction supports Anthropic, OpenAI, Google Gemini, OpenRouter, and VS Code LM API. Switch models mid-conversation. Compare responses. Your choice, your control.",
+      capabilities: [
+        'Anthropic (Claude)',
+        'OpenAI (GPT-4)',
+        'Google Gemini',
+        'OpenRouter gateway',
+        'VS Code LM API',
       ],
     },
   ];
@@ -120,7 +161,7 @@ export class FeaturesSectionComponent {
         y: 40,
         opacity: 0,
         duration: 0.6,
-        stagger: 0.2,
+        stagger: 0.15, // Changed from 0.2s to 0.15s for faster reveal
         ease: 'power3.out',
         scrollTrigger: {
           trigger: '.features-grid',

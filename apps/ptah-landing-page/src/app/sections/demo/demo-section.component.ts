@@ -21,9 +21,10 @@ gsap.registerPlugin(ScrollTrigger);
  * Patterns: Composition (uses DemoChatViewComponent), GSAP ScrollTrigger animations
  *
  * Features:
- * - VS Code-like window chrome (traffic light window controls)
+ * - VS Code-like window chrome with glassmorphism effect
+ * - Gradient header bar (gold-to-transparent)
  * - Live demo chat embedded via DemoChatViewComponent
- * - GSAP scroll-triggered fade-in animation
+ * - GSAP scroll-triggered scale animation (0.95 → 1.0)
  * - Reduced motion support
  * - Proper GSAP cleanup on component destroy
  *
@@ -33,11 +34,7 @@ gsap.registerPlugin(ScrollTrigger);
  * - Open/Closed: Window chrome is fixed, content extensible via child component
  *
  * Design Spec Reference: visual-design-specification.md:Component 3: Live Demo Section
- * - Background: base-200
- * - Padding: 128px vertical (py-32)
- * - Window chrome: 40px height, traffic light dots (red/yellow/green)
- * - Container: 560px chat area (600px total - 40px header)
- * - Animation: Fade-in with slight upward motion on scroll (trigger at 85% viewport)
+ * Task Reference: TASK_2025_072 Batch 4 Task 4.3
  */
 @Component({
   selector: 'ptah-demo-section',
@@ -46,35 +43,36 @@ gsap.registerPlugin(ScrollTrigger);
   template: `
     <section #sectionRef id="demo" class="py-32 bg-base-200">
       <div class="container mx-auto px-6">
+        <!-- Section Label (eyebrow) -->
+        <p
+          class="text-sm tracking-widest text-secondary uppercase text-center mb-4"
+        >
+          SEE IT IN ACTION
+        </p>
+
         <!-- Section Header -->
         <h2
-          class="text-3xl md:text-4xl font-display font-bold text-accent text-center mb-4"
+          class="text-5xl md:text-6xl font-display font-bold text-center mb-16"
         >
-          See It In Action
+          Watch Your Codebase Come Alive
         </h2>
-        <p class="text-base-content/70 text-center mb-12 max-w-2xl mx-auto">
-          Real Claude Code conversation with Ptah enhancements - watch AI
-          navigate your codebase
-        </p>
 
         <!-- Demo Container with VS Code Chrome -->
         <div class="demo-container max-w-4xl mx-auto">
-          <!-- VS Code-like window chrome -->
+          <!-- Demo Window with Glassmorphism -->
           <div
-            class="bg-base-100 border border-secondary/20 rounded-3xl overflow-hidden shadow-[0_0_40px_rgba(0,0,0,0.3)]"
+            class="demo-window glassmorphism rounded-2xl overflow-hidden border border-secondary/20
+                   hover:animate-glow-pulse transition-all shadow-[0_0_40px_rgba(0,0,0,0.3)]"
           >
-            <!-- Title bar with traffic light dots -->
+            <!-- Gradient Header Bar -->
             <div
-              class="h-10 bg-base-300 flex items-center gap-2 px-4 border-b border-base-200"
+              class="h-10 flex items-center gap-2 px-4 border-b border-secondary/10"
+              style="background: linear-gradient(90deg, rgba(212,175,55,0.1) 0%, transparent 50%, rgba(212,175,55,0.1) 100%);"
             >
               <!-- Window control dots (macOS style) -->
-              <div class="w-3 h-3 rounded-full bg-error/60"></div>
-              <div class="w-3 h-3 rounded-full bg-warning/60"></div>
-              <div class="w-3 h-3 rounded-full bg-success/60"></div>
-              <!-- Window title -->
-              <span class="ml-4 text-sm text-base-content/50"
-                >Ptah Extension - Chat Session</span
-              >
+              <div class="w-3 h-3 rounded-full bg-error"></div>
+              <div class="w-3 h-3 rounded-full bg-warning"></div>
+              <div class="w-3 h-3 rounded-full bg-success"></div>
             </div>
 
             <!-- Chat content area (560px = 600px total - 40px header) -->
@@ -108,9 +106,10 @@ export class DemoSectionComponent {
    * Initialize GSAP scroll-triggered animations
    *
    * Animation Strategy:
-   * - Fade-in with slight upward motion (y: 30px → 0)
-   * - Trigger when demo container reaches 85% of viewport
-   * - Duration: 0.8s with power2.out easing
+   * - Scale animation (0.95 → 1.0) for dramatic entrance
+   * - Fade-in with opacity transition
+   * - Trigger when demo container reaches 80% of viewport
+   * - Duration: 0.8s with power3.out easing
    * - Respects prefers-reduced-motion preference
    *
    * Cleanup:
@@ -124,19 +123,23 @@ export class DemoSectionComponent {
 
     // Create scoped GSAP context for animations
     this.gsapContext = gsap.context(() => {
-      gsap.from('.demo-container', {
-        y: 30,
-        opacity: 0,
-        duration: 0.8,
-        ease: 'power2.out',
+      gsap.from('.demo-window', {
         scrollTrigger: {
           trigger: '.demo-container',
-          start: 'top 85%',
+          start: 'top 80%',
+          toggleActions: 'play none none reverse',
         },
+        scale: 0.95,
+        opacity: 0,
+        duration: 0.8,
+        ease: 'power3.out',
       });
     }, this.sectionRef().nativeElement);
 
     // Register cleanup on component destroy
-    this.destroyRef.onDestroy(() => this.gsapContext?.revert());
+    this.destroyRef.onDestroy(() => {
+      ScrollTrigger.getAll().forEach((trigger) => trigger.kill());
+      this.gsapContext?.revert();
+    });
   }
 }

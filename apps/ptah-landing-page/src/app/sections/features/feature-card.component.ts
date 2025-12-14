@@ -8,10 +8,10 @@ import { CommonModule } from '@angular/common';
  * Patterns: Standalone component, OnPush change detection, input signals
  *
  * Features:
- * - Emoji icon with gold-tinted container
- * - Title, description, and capabilities list
- * - Golden glow hover effect with smooth transitions
- * - Responsive sizing with min-width constraint
+ * - 80px icon container with gradient background circle
+ * - Title, description, and capabilities badge pills (DaisyUI)
+ * - Golden glow hover effect with translateY + rotate transform
+ * - Responsive sizing with min-h-[400px] for visual weight
  * - Glass morphism background effect
  *
  * SOLID Principles:
@@ -19,6 +19,7 @@ import { CommonModule } from '@angular/common';
  * - Composition: Used in FeaturesSectionComponent
  *
  * Design Spec Reference: visual-design-specification.md:Component 4
+ * Task Reference: TASK_2025_072 Batch 4 Task 4.1
  */
 @Component({
   selector: 'ptah-feature-card',
@@ -26,47 +27,52 @@ import { CommonModule } from '@angular/common';
   imports: [CommonModule],
   template: `
     <article
-      class="group bg-base-200/70 backdrop-blur-xl border border-secondary/20 rounded-2xl p-8
-             hover:translate-y-[-4px] hover:border-secondary/40 hover:shadow-[0_0_40px_rgba(212,175,55,0.3)]
-             transition-all duration-300 min-w-[320px]"
+      class="feature-card group bg-base-200/70 backdrop-blur-xl border border-secondary/20 rounded-2xl p-8
+             min-h-[400px] transition-all duration-300"
       role="article"
     >
-      <!-- Icon Container -->
+      <!-- Icon Container with Gradient Background Circle (80px) -->
       <div
-        class="w-20 h-20 rounded-xl bg-secondary/10 flex items-center justify-center mb-6
-               transition-colors duration-300 group-hover:bg-secondary/20"
+        class="icon-container w-20 h-20 rounded-full flex items-center justify-center mb-6"
+        style="background: radial-gradient(circle, rgba(212,175,55,0.2), transparent);"
       >
-        <span class="text-4xl text-secondary" aria-hidden="true">{{
-          iconEmoji()
-        }}</span>
+        <span class="text-6xl" aria-hidden="true">{{ iconEmoji() }}</span>
       </div>
 
       <!-- Title -->
-      <h3 class="text-2xl font-bold text-base-content mb-4">
+      <h3 class="text-2xl font-display font-bold text-accent mb-4">
         {{ title() }}
       </h3>
 
       <!-- Description -->
-      <p class="text-base text-base-content/80 mb-6 leading-relaxed">
+      <p class="text-base text-base-content/70 mb-6 leading-relaxed">
         {{ description() }}
       </p>
 
-      <!-- Capabilities List -->
-      <ul class="space-y-2" role="list">
+      <!-- Capability Pills (DaisyUI badges) -->
+      <div class="flex flex-wrap gap-2" role="list">
         @for (capability of capabilities(); track capability) {
-        <li class="text-sm text-base-content/70 flex items-center gap-2">
-          <span class="text-success flex-shrink-0" aria-hidden="true">✓</span>
-          <span>{{ capability }}</span>
-        </li>
+        <span class="badge badge-secondary badge-outline">{{
+          capability
+        }}</span>
         }
-      </ul>
+      </div>
     </article>
   `,
+  styles: [
+    `
+      .feature-card:hover {
+        transform: translateY(-8px) rotate(1deg);
+        box-shadow: 0 0 60px rgba(212, 175, 55, 0.3);
+        border-color: rgba(212, 175, 55, 0.4);
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FeatureCardComponent {
   /**
-   * Emoji icon to display (e.g., "🧠", "🪄")
+   * Emoji icon to display (e.g., "🧠", "🪄", "🖥️", "⚡", "🌐")
    */
   readonly iconEmoji = input.required<string>();
 
