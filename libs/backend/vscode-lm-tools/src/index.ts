@@ -14,3 +14,6 @@ export { PTAH_SYSTEM_PROMPT } from './lib/code-execution/ptah-system-prompt.cons
 
 // Permission Prompt Service exports (TASK_2025_026)
 export { PermissionPromptService } from './lib/permission/permission-prompt.service';
+
+// DI registration exports (TASK_2025_071 Batch 2A)
+export { registerVsCodeLmToolsServices } from './lib/di';
