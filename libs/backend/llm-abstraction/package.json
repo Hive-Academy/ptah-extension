@@ -5,6 +5,14 @@
   "type": "commonjs",
   "main": "./index.cjs",
   "types": "./index.d.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./anthropic": "./src/anthropic.ts",
+    "./openai": "./src/openai.ts",
+    "./google": "./src/google.ts",
+    "./openrouter": "./src/openrouter.ts",
+    "./vscode-lm": "./src/vscode-lm.ts"
+  },
   "dependencies": {
     "@ptah-extension/shared": "*",
     "@ptah-extension/vscode-core": "0.0.1",

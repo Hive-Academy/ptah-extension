@@ -16,22 +16,14 @@ import {
 } from '../interfaces/llm-provider.interface';
 import { LlmProviderError } from '../errors/llm-provider.error';
 import {
-  ILlmSecretsService,
   LlmProviderName,
-} from '../services/llm-secrets.service';
+  SUPPORTED_PROVIDERS,
+  isValidProviderName,
+} from '../types/provider-types';
+import type { ILlmSecretsService } from '../services/llm-secrets.service';
+import { PROVIDER_IMPORT_MAP } from './provider-import-map';
 
 // NO STATIC PROVIDER IMPORTS - they are loaded dynamically
-
-/**
- * All supported provider names
- */
-const SUPPORTED_PROVIDERS: readonly LlmProviderName[] = [
-  'vscode-lm',
-  'anthropic',
-  'openai',
-  'google-genai',
-  'openrouter',
-] as const;
 
 /**
  * Registry to manage LLM provider factories with dynamic loading.
@@ -169,7 +161,7 @@ export class ProviderRegistry {
    * Check if a provider name is valid/supported.
    */
   private isValidProvider(name: string): name is LlmProviderName {
-    return SUPPORTED_PROVIDERS.includes(name as LlmProviderName);
+    return isValidProviderName(name);
   }
 
   /**
@@ -210,51 +202,22 @@ export class ProviderRegistry {
   }
 
   /**
-   * Dynamically load a provider factory module.
-   * This is where the magic happens - providers are only loaded when needed.
+   * Dynamically load a provider factory module using the type-safe import map.
+   * Providers are only loaded when needed, enabling tree-shaking.
+   *
+   * @param providerName - Provider to load
+   * @returns Factory function for creating provider instances
+   * @throws Error if provider module fails to load or factory not found
    */
   private async loadProviderFactory(
     providerName: LlmProviderName
   ): Promise<LlmProviderFactory> {
-    switch (providerName) {
-      case 'vscode-lm': {
-        // VS Code LM has no external Langchain dependencies
-        const module = await import(
-          '@ptah-extension/llm-abstraction/vscode-lm'
-        );
-        return module.createVsCodeLmProvider;
-      }
+    const factoryLoader = PROVIDER_IMPORT_MAP[providerName];
 
-      case 'anthropic': {
-        // Loads @langchain/anthropic
-        const module = await import(
-          '@ptah-extension/llm-abstraction/anthropic'
-        );
-        return module.createAnthropicProvider;
-      }
-
-      case 'openai': {
-        // Loads @langchain/openai and openai
-        const module = await import('@ptah-extension/llm-abstraction/openai');
-        return module.createOpenAIProvider;
-      }
-
-      case 'google-genai': {
-        // Loads @langchain/google-genai
-        const module = await import('@ptah-extension/llm-abstraction/google');
-        return module.createGoogleProvider;
-      }
-
-      case 'openrouter': {
-        // Loads @langchain/openai (reuses OpenAI SDK)
-        const module = await import(
-          '@ptah-extension/llm-abstraction/openrouter'
-        );
-        return module.createOpenRouterProvider;
-      }
-
-      default:
-        throw new Error(`Unknown provider: ${providerName}`);
+    if (!factoryLoader) {
+      throw new Error(`No import map entry for provider: ${providerName}`);
     }
+
+    return factoryLoader();
   }
 }

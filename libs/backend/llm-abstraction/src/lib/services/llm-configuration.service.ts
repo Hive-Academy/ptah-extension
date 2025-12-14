@@ -9,7 +9,13 @@
 
 import { injectable, inject } from 'tsyringe';
 import { ConfigManager, TOKENS, Logger } from '@ptah-extension/vscode-core';
-import { LlmProviderName, ILlmSecretsService } from './llm-secrets.service';
+import {
+  LlmProviderName,
+  PROVIDER_DISPLAY_NAMES,
+  DEFAULT_MODELS,
+  isValidProviderName,
+} from '../types/provider-types';
+import type { ILlmSecretsService } from './llm-secrets.service';
 
 /**
  * Configuration for a specific LLM provider
@@ -34,28 +40,6 @@ export interface LlmConfiguration {
   /** All providers with their configurations */
   providers: LlmProviderConfig[];
 }
-
-/**
- * Default models for each provider
- */
-const DEFAULT_MODELS: Record<LlmProviderName, string> = {
-  'vscode-lm': 'copilot/gpt-4o',
-  anthropic: 'claude-3-5-sonnet-20241022',
-  openai: 'gpt-4-turbo',
-  'google-genai': 'gemini-1.5-pro',
-  openrouter: 'anthropic/claude-3-5-sonnet',
-};
-
-/**
- * Display names for providers
- */
-const PROVIDER_DISPLAY_NAMES: Record<LlmProviderName, string> = {
-  'vscode-lm': 'VS Code Language Model',
-  anthropic: 'Anthropic Claude',
-  openai: 'OpenAI GPT',
-  'google-genai': 'Google Gemini',
-  openrouter: 'OpenRouter',
-};
 
 /**
  * LLM Configuration Service Implementation
@@ -156,13 +140,7 @@ export class LlmConfigurationService {
    * Check if a provider string is a valid LlmProviderName
    */
   private isValidProvider(provider: string): provider is LlmProviderName {
-    return [
-      'anthropic',
-      'openai',
-      'google-genai',
-      'openrouter',
-      'vscode-lm',
-    ].includes(provider);
+    return isValidProviderName(provider);
   }
 
   /**

@@ -10,16 +10,10 @@
 import { injectable, inject } from 'tsyringe';
 import * as vscode from 'vscode';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
+import { LlmProviderName } from '../types/provider-types';
 
-/**
- * Supported LLM provider names
- */
-export type LlmProviderName =
-  | 'anthropic'
-  | 'openai'
-  | 'google-genai'
-  | 'openrouter'
-  | 'vscode-lm';
+// Re-export for backwards compatibility (DO NOT REMOVE - used by other services)
+export type { LlmProviderName } from '../types/provider-types';
 
 /**
  * All provider names that require API keys

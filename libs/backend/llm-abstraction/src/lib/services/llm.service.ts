@@ -11,7 +11,7 @@ import {
 import { LlmProviderError } from '../errors/llm-provider.error';
 import { ProviderRegistry } from '../registry/provider-registry';
 import { LlmConfigurationService } from './llm-configuration.service';
-import { LlmProviderName } from './llm-secrets.service';
+import { LlmProviderName } from '../types/provider-types';
 
 /**
  * Main LLM service for Ptah.
