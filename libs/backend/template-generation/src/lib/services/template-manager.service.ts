@@ -17,7 +17,8 @@ export class TemplateManagerService implements IPtahTemplateManager {
   protected readonly templateExt: string;
 
   constructor(
-    @inject(TOKENS.FILE_SYSTEM_SERVICE)
+    // TASK_2025_071 Batch 5: Use dedicated adapter token (not FILE_SYSTEM_SERVICE)
+    @inject(TOKENS.TEMPLATE_FILE_SYSTEM_ADAPTER)
     private readonly fileSystem: FileSystemAdapter,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     config?: { templateDir?: string; templateExt?: string }

@@ -67,6 +67,20 @@ export function registerWorkspaceIntelligenceServices(
   container: DependencyContainer,
   logger: Logger
 ): void {
+  // TASK_2025_071 Batch 7: Dependency validation - fail fast if prerequisites missing
+  if (!container.isRegistered(TOKENS.LOGGER)) {
+    throw new Error(
+      '[Workspace Intelligence] DEPENDENCY ERROR: TOKENS.LOGGER must be registered first.'
+    );
+  }
+
+  if (!container.isRegistered(TOKENS.FILE_SYSTEM_MANAGER)) {
+    throw new Error(
+      '[Workspace Intelligence] DEPENDENCY ERROR: vscode-core services must be registered before workspace-intelligence. ' +
+        'Ensure registerVsCodeCoreServices is called BEFORE registerWorkspaceIntelligenceServices in container.ts.'
+    );
+  }
+
   logger.info('[Workspace Intelligence] Registering services...');
 
   // ============================================================

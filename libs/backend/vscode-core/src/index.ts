@@ -1,7 +1,10 @@
 // Main library exports
 
 // Dependency Injection - TOKENS and registration function (TASK_2025_071)
-export { TOKENS, registerVsCodeCoreServices } from './di';
+// TASK_2025_071 Batch 6: TOKENS exported directly from tokens.ts (not via di/index.ts)
+// di/index.ts only exports registration function (pattern consistency with other libraries)
+export { TOKENS } from './di/tokens';
+export { registerVsCodeCoreServices } from './di';
 
 // NOTE: DIContainer moved to apps/ptah-extension-vscode/src/di/container.ts
 // This library exports services, TOKENS, and registration function

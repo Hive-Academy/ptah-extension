@@ -35,6 +35,21 @@ export function registerVsCodeCoreServices(
   context: vscode.ExtensionContext,
   logger: Logger
 ): void {
+  // TASK_2025_071 Batch 7: Dependency validation - fail fast if prerequisites missing
+  if (!container.isRegistered(TOKENS.LOGGER)) {
+    throw new Error(
+      '[VS Code Core] DEPENDENCY ERROR: TOKENS.LOGGER must be registered before calling registerVsCodeCoreServices. ' +
+        'Ensure container.registerSingleton(TOKENS.LOGGER, Logger) is called FIRST in container.ts.'
+    );
+  }
+
+  if (!container.isRegistered(TOKENS.EXTENSION_CONTEXT)) {
+    throw new Error(
+      '[VS Code Core] DEPENDENCY ERROR: TOKENS.EXTENSION_CONTEXT must be registered before calling registerVsCodeCoreServices. ' +
+        'Ensure context is registered in PHASE 0 of container.ts.'
+    );
+  }
+
   logger.info('[VS Code Core] Registering infrastructure services...');
 
   // ============================================================

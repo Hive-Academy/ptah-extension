@@ -1,3 +1,22 @@
+/**
+ * DI Registration for Template Generation
+ *
+ * TASK_2025_071: DI Registration Standardization
+ * Created: 2025-12-14
+ *
+ * This file centralizes all service registrations for the template-generation library.
+ * Following the standardized registration pattern established in agent-sdk and agent-generation.
+ *
+ * Pattern:
+ * - Function signature: registerTemplateGenerationServices(container, logger)
+ * - Uses injected container (no global import)
+ * - Uses injected logger (no console.log)
+ * - Logs registration start and completion
+ *
+ * @see libs/backend/agent-sdk/src/lib/di/register.ts - Pattern reference
+ * @see apps/ptah-extension-vscode/src/di/container.ts - Orchestration point
+ */
+
 import { DependencyContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
@@ -14,7 +33,7 @@ import { FileSystemAdapter } from '../adapters/file-system.adapter';
  * Register template generation services in DI container
  *
  * Registers:
- * - FileSystemAdapter (singleton): File system operations adapter
+ * - FileSystemAdapter (singleton): File system operations adapter (TEMPLATE_FILE_SYSTEM_ADAPTER token)
  * - TemplateManagerService (singleton): Template loading and caching
  * - ContentProcessorService (singleton): Content processing and transformation
  * - ContentGeneratorService (singleton): Content generation orchestration
@@ -41,10 +60,30 @@ export function registerTemplateGenerationServices(
   container: DependencyContainer,
   logger: Logger
 ): void {
+  // TASK_2025_071 Batch 7: Dependency validation - fail fast if prerequisites missing
+  if (!container.isRegistered(TOKENS.LOGGER)) {
+    throw new Error(
+      '[Template Generation] DEPENDENCY ERROR: TOKENS.LOGGER must be registered first.'
+    );
+  }
+
+  // FileSystemAdapter depends on workspace-intelligence's FileSystemService
+  if (!container.isRegistered(TOKENS.FILE_SYSTEM_SERVICE)) {
+    throw new Error(
+      '[Template Generation] DEPENDENCY ERROR: workspace-intelligence services must be registered before template-generation. ' +
+        'Ensure registerWorkspaceIntelligenceServices is called BEFORE registerTemplateGenerationServices in container.ts.'
+    );
+  }
+
   logger.info('[Template Generation] Registering services...');
 
   // Register all 8 services as singletons
-  container.registerSingleton(TOKENS.FILE_SYSTEM_SERVICE, FileSystemAdapter);
+  // TASK_2025_071 Batch 5: Use dedicated token to avoid collision with workspace-intelligence's FileSystemService
+  // FileSystemAdapter wraps workspace-intelligence's FileSystemService (which uses TOKENS.FILE_SYSTEM_SERVICE)
+  container.registerSingleton(
+    TOKENS.TEMPLATE_FILE_SYSTEM_ADAPTER,
+    FileSystemAdapter
+  );
   container.registerSingleton(TOKENS.TEMPLATE_MANAGER, TemplateManagerService);
   container.registerSingleton(
     TOKENS.CONTENT_PROCESSOR,
@@ -73,7 +112,7 @@ export function registerTemplateGenerationServices(
 
   logger.info('[Template Generation] Services registered', {
     services: [
-      'FILE_SYSTEM_SERVICE',
+      'TEMPLATE_FILE_SYSTEM_ADAPTER',
       'TEMPLATE_MANAGER',
       'CONTENT_PROCESSOR',
       'CONTENT_GENERATOR',
