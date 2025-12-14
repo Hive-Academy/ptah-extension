@@ -1,6 +1,7 @@
 import { injectable, inject } from 'tsyringe';
 import type { BaseLanguageModelInput } from '@langchain/core/language_models/base';
 import { z } from 'zod';
+import { Mutex } from 'async-mutex';
 import { Result } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
@@ -50,6 +51,10 @@ import { LlmProviderName } from '../types/provider-types';
 @injectable()
 export class LlmService implements ILlmService {
   private currentProvider: ILlmProvider | null = null;
+  private currentProviderName: LlmProviderName | null = null;
+  private currentModel: string | null = null;
+  private isInitialized = false;
+  private readonly providerMutex = new Mutex();
 
   constructor(
     @inject(TOKENS.PROVIDER_REGISTRY)
@@ -58,12 +63,97 @@ export class LlmService implements ILlmService {
     private readonly configService: LlmConfigurationService,
     @inject(TOKENS.LOGGER) private readonly logger: Logger
   ) {
-    this.logger.info('LlmService initialized');
+    this.logger.info('[LlmService.constructor] LlmService initialized');
+    // Schedule eager initialization (non-blocking)
+    void this.initializeDefaultProvider();
+  }
+
+  /**
+   * Initialize with default provider (vscode-lm, no API key needed)
+   * Called automatically on construction for eager initialization.
+   *
+   * TASK_2025_073 Batch 2: Eager initialization to avoid nullable currentProvider
+   */
+  private async initializeDefaultProvider(): Promise<void> {
+    if (this.isInitialized) {
+      return;
+    }
+
+    try {
+      const defaultProvider = this.configService.getDefaultProvider();
+      const defaultModel = this.configService.getDefaultModel(defaultProvider);
+
+      this.logger.debug('[LlmService.initializeDefaultProvider] Starting', {
+        provider: defaultProvider,
+        model: defaultModel,
+      });
+
+      const result = await this.setProvider(defaultProvider, defaultModel);
+
+      if (result.isOk()) {
+        this.isInitialized = true;
+        this.logger.info(
+          '[LlmService.initializeDefaultProvider] Default provider initialized',
+          {
+            provider: defaultProvider,
+            model: defaultModel,
+          }
+        );
+      } else {
+        this.logger.warn(
+          '[LlmService.initializeDefaultProvider] Failed to initialize default provider',
+          {
+            error: result.error?.message,
+          }
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        '[LlmService.initializeDefaultProvider] Exception during initialization',
+        {
+          error: error instanceof Error ? error.message : String(error),
+        }
+      );
+    }
+  }
+
+  /**
+   * Ensure provider is available before operations
+   * Attempts lazy initialization if not already initialized.
+   *
+   * TASK_2025_073 Batch 2: Error recovery logic
+   */
+  private async ensureProvider(): Promise<
+    Result<ILlmProvider, LlmProviderError>
+  > {
+    if (this.currentProvider) {
+      return Result.ok(this.currentProvider);
+    }
+
+    // Try to initialize if not done
+    this.logger.debug(
+      '[LlmService.ensureProvider] No provider available, attempting initialization'
+    );
+    await this.initializeDefaultProvider();
+
+    if (this.currentProvider) {
+      return Result.ok(this.currentProvider);
+    }
+
+    return Result.err(
+      new LlmProviderError(
+        'No LLM provider configured. Call setProvider() first or configure API keys.',
+        'PROVIDER_NOT_INITIALIZED',
+        'LlmService'
+      )
+    );
   }
 
   /**
    * Set the current LLM provider with a specific model.
    * API key is retrieved automatically from SecretStorage.
+   *
+   * TASK_2025_073 Batch 2: Thread-safe provider switching with mutex lock
    *
    * @param providerName Provider name (anthropic, openai, google-genai, openrouter, vscode-lm)
    * @param model Model name to use
@@ -73,27 +163,52 @@ export class LlmService implements ILlmService {
     providerName: LlmProviderName,
     model: string
   ): Promise<Result<void, LlmProviderError>> {
-    this.logger.debug('[LlmService] setProvider', { providerName, model });
+    // Acquire lock to prevent concurrent provider switching
+    return this.providerMutex.runExclusive(async () => {
+      const previousProvider = this.currentProvider;
+      const previousProviderName = this.currentProviderName;
+      const previousModel = this.currentModel;
 
-    const result = await this.providerRegistry.createProvider(
-      providerName,
-      model
-    );
+      this.logger.debug('[LlmService.setProvider] Acquiring lock', {
+        providerName,
+        model,
+        hasPrevious: !!previousProvider,
+      });
 
-    if (result.isErr()) {
-      this.logger.error(
-        `[LlmService] Failed to set provider '${providerName}': ${
-          result.error!.message
-        }`
+      const result = await this.providerRegistry.createProvider(
+        providerName,
+        model
       );
-      return Result.err(result.error!);
-    }
 
-    this.currentProvider = result.value!;
-    this.logger.info(
-      `[LlmService] Provider set to '${providerName}' with model '${model}'`
-    );
-    return Result.ok(undefined);
+      if (result.isErr()) {
+        // Preserve previous provider on error (don't leave in broken state)
+        this.logger.warn(
+          '[LlmService.setProvider] Provider creation failed, preserving previous',
+          {
+            providerName,
+            model,
+            error: result.error?.message,
+            preservedProvider: previousProviderName,
+            preservedModel: previousModel,
+          }
+        );
+        return Result.err(result.error!);
+      }
+
+      this.currentProvider = result.value!;
+      this.currentProviderName = providerName;
+      this.currentModel = model;
+
+      this.logger.info(
+        '[LlmService.setProvider] Provider switched successfully',
+        {
+          providerName,
+          model,
+        }
+      );
+
+      return Result.ok(undefined);
+    });
   }
 
   /**
@@ -137,6 +252,9 @@ export class LlmService implements ILlmService {
 
   /**
    * Get a text completion from the current LLM provider.
+   *
+   * TASK_2025_073 Batch 2: Uses ensureProvider() for error recovery
+   *
    * @param systemPrompt System-level instruction
    * @param userPrompt User's actual prompt
    * @returns Result containing completion text or error
@@ -146,11 +264,11 @@ export class LlmService implements ILlmService {
     userPrompt: string
   ): Promise<Result<string, LlmProviderError>> {
     try {
-      const providerResult = await this.getProvider();
+      const providerResult = await this.ensureProvider();
       if (providerResult.isErr()) {
-        this.logger.error(
-          `Failed to get LLM provider: ${providerResult.error!.message}`
-        );
+        this.logger.error('[LlmService.getCompletion] Failed to get provider', {
+          error: providerResult.error!.message,
+        });
         return Result.err(
           LlmProviderError.fromError(providerResult.error!, 'unknown')
         );
@@ -163,22 +281,20 @@ export class LlmService implements ILlmService {
       );
 
       if (completionResult.isErr()) {
-        this.logger.error(
-          `LLM completion failed: ${completionResult.error!.message}`
-        );
+        this.logger.error('[LlmService.getCompletion] Completion failed', {
+          error: completionResult.error!.message,
+        });
         return Result.err(completionResult.error!);
       }
 
-      this.logger.debug(
-        `LLM completion successful (${completionResult.value!.length} chars)`
-      );
+      this.logger.debug('[LlmService.getCompletion] Successful', {
+        chars: completionResult.value!.length,
+      });
       return completionResult;
     } catch (error) {
-      this.logger.error(
-        `Error getting completion: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
+      this.logger.error('[LlmService.getCompletion] Exception', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       if (error instanceof LlmProviderError) return Result.err(error);
       return Result.err(LlmProviderError.fromError(error, 'LlmService'));
     }
@@ -186,6 +302,9 @@ export class LlmService implements ILlmService {
 
   /**
    * Get a structured completion that conforms to a Zod schema.
+   *
+   * TASK_2025_073 Batch 2: Uses ensureProvider() for error recovery
+   *
    * @param prompt The prompt to send
    * @param schema Zod schema defining expected output structure
    * @param completionConfig Optional completion parameters
@@ -197,12 +316,13 @@ export class LlmService implements ILlmService {
     completionConfig?: LlmCompletionConfig
   ): Promise<Result<z.infer<T>, LlmProviderError>> {
     try {
-      const providerResult = await this.getProvider();
+      const providerResult = await this.ensureProvider();
       if (providerResult.isErr()) {
         this.logger.error(
-          `Failed to get LLM provider for structured completion: ${
-            providerResult.error!.message
-          }`
+          '[LlmService.getStructuredCompletion] Failed to get provider',
+          {
+            error: providerResult.error!.message,
+          }
         );
         return Result.err(
           LlmProviderError.fromError(providerResult.error!, 'unknown')
@@ -218,19 +338,20 @@ export class LlmService implements ILlmService {
 
       if (result.isErr()) {
         this.logger.error(
-          `Structured completion failed: ${result.error!.message}`
+          '[LlmService.getStructuredCompletion] Completion failed',
+          {
+            error: result.error!.message,
+          }
         );
       } else {
-        this.logger.debug('Structured completion successful');
+        this.logger.debug('[LlmService.getStructuredCompletion] Successful');
       }
 
       return result;
     } catch (error) {
-      this.logger.error(
-        `Error getting structured completion: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
+      this.logger.error('[LlmService.getStructuredCompletion] Exception', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       if (error instanceof LlmProviderError) return Result.err(error);
       return Result.err(LlmProviderError.fromError(error, 'LlmService'));
     }
@@ -238,15 +359,19 @@ export class LlmService implements ILlmService {
 
   /**
    * Get the context window size for the current model.
+   *
+   * TASK_2025_073 Batch 2: Uses ensureProvider() for error recovery
+   *
    * @returns Context window size in tokens
    */
   async getModelContextWindow(): Promise<number> {
-    const providerResult = await this.getProvider();
+    const providerResult = await this.ensureProvider();
     if (providerResult.isErr()) {
       this.logger.error(
-        `Failed to get LLM provider for context window size: ${
-          providerResult.error!.message
-        }`
+        '[LlmService.getModelContextWindow] Failed to get provider',
+        {
+          error: providerResult.error!.message,
+        }
       );
       return 0;
     }
@@ -255,17 +380,18 @@ export class LlmService implements ILlmService {
 
   /**
    * Count tokens in a given text.
+   *
+   * TASK_2025_073 Batch 2: Uses ensureProvider() for error recovery
+   *
    * @param text Text to count tokens for
    * @returns Token count
    */
   async countTokens(text: string): Promise<number> {
-    const providerResult = await this.getProvider();
+    const providerResult = await this.ensureProvider();
     if (providerResult.isErr()) {
-      this.logger.error(
-        `Failed to get LLM provider for token counting: ${
-          providerResult.error!.message
-        }`
-      );
+      this.logger.error('[LlmService.countTokens] Failed to get provider', {
+        error: providerResult.error!.message,
+      });
       return 0;
     }
     return providerResult.value!.countTokens(text);
@@ -273,14 +399,17 @@ export class LlmService implements ILlmService {
 
   /**
    * Get the current LLM provider instance.
+   *
+   * TASK_2025_073 Batch 2: Fixed error code to PROVIDER_NOT_INITIALIZED
+   *
    * @returns Result containing provider or error
    */
   async getProvider(): Promise<Result<ILlmProvider, Error>> {
     if (!this.currentProvider) {
       const message = 'No LLM provider configured. Call setProvider() first.';
-      this.logger.error(message);
+      this.logger.error('[LlmService.getProvider] No provider configured');
       return Result.err(
-        new LlmProviderError(message, 'PROVIDER_NOT_FOUND', 'LlmService')
+        new LlmProviderError(message, 'PROVIDER_NOT_INITIALIZED', 'LlmService')
       );
     }
     return Result.ok(this.currentProvider);

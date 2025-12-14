@@ -37,9 +37,12 @@ export class LlmProviderError extends Error {
 
 /**
  * Standardized error codes for LLM operations.
+ *
+ * TASK_2025_073 Batch 2: Added PROVIDER_NOT_INITIALIZED for clarity
  */
 export type LlmProviderErrorCode =
   | 'PROVIDER_NOT_FOUND' // Provider name not recognized
+  | 'PROVIDER_NOT_INITIALIZED' // Provider not initialized (TASK_2025_073 Batch 2)
   | 'API_KEY_MISSING' // API key not provided
   | 'API_KEY_INVALID' // API key authentication failed
   | 'RATE_LIMIT_EXCEEDED' // Provider rate limit hit
