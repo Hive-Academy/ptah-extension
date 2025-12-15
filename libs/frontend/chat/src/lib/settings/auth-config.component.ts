@@ -3,6 +3,7 @@ import {
   inject,
   signal,
   ChangeDetectionStrategy,
+  OnInit,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
@@ -10,12 +11,14 @@ import {
   CheckCircle,
   XCircle,
   Loader2,
+  Check,
 } from 'lucide-angular';
 import { ClaudeRpcService, RpcResult } from '@ptah-extension/core';
 import type {
   AuthSaveSettingsParams,
   AuthSaveSettingsResponse,
   AuthTestConnectionResponse,
+  AuthGetAuthStatusResponse,
 } from '@ptah-extension/shared';
 
 /**
@@ -51,18 +54,24 @@ import type {
   templateUrl: './auth-config.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AuthConfigComponent {
+export class AuthConfigComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
 
   // Lucide icons
   readonly CheckCircleIcon = CheckCircle;
   readonly XCircleIcon = XCircle;
   readonly Loader2Icon = Loader2;
+  readonly CheckIcon = Check;
 
   // Form state signals
   readonly authMethod = signal<'oauth' | 'apiKey' | 'auto'>('auto');
   readonly oauthToken = signal('');
   readonly apiKey = signal('');
+
+  // Credential status signals (TASK_2025_076)
+  readonly hasExistingOAuthToken = signal(false);
+  readonly hasExistingApiKey = signal(false);
+  readonly isLoadingStatus = signal(true);
 
   // Connection status signals
   readonly connectionStatus = signal<
@@ -70,6 +79,41 @@ export class AuthConfigComponent {
   >('idle');
   readonly errorMessage = signal('');
   readonly successMessage = signal('');
+
+  /**
+   * Fetch auth status on component initialization
+   */
+  async ngOnInit(): Promise<void> {
+    await this.fetchAuthStatus();
+  }
+
+  /**
+   * Fetch current auth status from backend
+   * SECURITY: Only boolean flags returned, never actual credential values
+   */
+  async fetchAuthStatus(): Promise<void> {
+    this.isLoadingStatus.set(true);
+    try {
+      const result = await this.rpcService.call<AuthGetAuthStatusResponse>(
+        'auth:getAuthStatus',
+        {}
+      );
+
+      if (result.isSuccess() && result.data) {
+        this.hasExistingOAuthToken.set(result.data.hasOAuthToken);
+        this.hasExistingApiKey.set(result.data.hasApiKey);
+        this.authMethod.set(result.data.authMethod);
+      }
+    } catch (error) {
+      console.error(
+        '[AuthConfigComponent] Failed to fetch auth status:',
+        error
+      );
+      // Graceful degradation - show empty state
+    } finally {
+      this.isLoadingStatus.set(false);
+    }
+  }
 
   /**
    * Save authentication settings and test connection
@@ -164,6 +208,8 @@ export class AuthConfigComponent {
             )}ms)`
           );
           this.errorMessage.set('');
+          // Refetch status to update configured badges (TASK_2025_076)
+          await this.fetchAuthStatus();
         } else {
           // Connection test failed
           this.connectionStatus.set('error');

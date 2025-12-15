@@ -121,6 +121,7 @@ export class DIContainer {
           c.resolve(TOKENS.AGENT_SESSION_WATCHER_SERVICE),
           c.resolve(TOKENS.CONFIG_MANAGER),
           c.resolve(TOKENS.COMMAND_MANAGER),
+          c.resolve(TOKENS.AUTH_SECRETS_SERVICE),
           c.resolve('SdkAgentAdapter'),
           c.resolve('SdkSessionStorage'),
           c // Pass container instance

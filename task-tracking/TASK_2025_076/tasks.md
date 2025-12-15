@@ -4,7 +4,7 @@
 **Total Tasks**: 8
 **Total Batches**: 3
 **Batching Strategy**: Layer-based (Backend Core → RPC Layer → Frontend)
-**Status**: 2/3 batches complete (67%)
+**Status**: 3/3 batches complete (100%) ✅
 
 ---
 
@@ -134,14 +134,14 @@
 
 ---
 
-## Batch 3: Frontend - Auth Status Display ⏸️ PENDING
+## Batch 3: Frontend - Auth Status Display ✅ COMPLETE
 
 **Assigned To**: frontend-developer
 **Tasks in Batch**: 2
 **Dependencies**: Batch 2 complete
-**Estimated Commits**: 1 (one commit per batch)
+**Git Commit**: `b4b9adb` - feat(webview): add auth status visual indicators to settings
 
-### Task 3.1: Add Status Fetch to AuthConfigComponent ⏸️ PENDING
+### Task 3.1: Add Status Fetch to AuthConfigComponent ✅ COMPLETE
 
 **File(s)**: `libs/frontend/chat/src/lib/settings/auth-config.component.ts` **[MODIFY]**
 **Specification Reference**: [implementation-plan.md:Component 5](file:///d:/projects/ptah-extension/task-tracking/TASK_2025_076/implementation-plan.md)
@@ -166,7 +166,7 @@
 
 ---
 
-### Task 3.2: Add Visual Indicators to Template ⏸️ PENDING
+### Task 3.2: Add Visual Indicators to Template ✅ COMPLETE
 
 **File(s)**: `libs/frontend/chat/src/lib/settings/auth-config.component.html` **[MODIFY]**
 **Specification Reference**: [implementation-plan.md:Component 5 HTML](file:///d:/projects/ptah-extension/task-tracking/TASK_2025_076/implementation-plan.md)

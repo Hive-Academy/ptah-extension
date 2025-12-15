@@ -1,0 +1,40 @@
+// Prisma Schema for Ptah License Server
+// Database: PostgreSQL with driver adapters (Nx monorepo compatible)
+// Prisma 7.1.0+ - URL configured in prisma.config.ts, adapter passed at runtime
+
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// User model - stores user email addresses for license ownership
+model User {
+  id        String    @id @default(uuid()) @db.Uuid
+  email     String    @unique
+  createdAt DateTime  @default(now()) @map("created_at")
+  licenses  License[]
+
+  @@map("users")
+}
+
+// License model - stores license keys with plan, status, and expiration
+model License {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  licenseKey String    @unique @map("license_key")
+  plan       String    // "free" | "early_adopter"
+  status     String    @default("active") // "active" | "expired" | "revoked"
+  expiresAt  DateTime? @map("expires_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  createdBy  String    @default("admin") @map("created_by")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([licenseKey])
+  @@index([userId])
+  @@index([status, expiresAt])
+  @@map("licenses")
+}

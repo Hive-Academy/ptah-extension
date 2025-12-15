@@ -49,9 +49,17 @@
   <!-- OAuth Token Input -->
   @if (authMethod() === 'oauth' || authMethod() === 'auto') {
   <div class="form-control">
-    <label class="label py-1" for="oauthToken">
+    <label class="label py-1 justify-start gap-2" for="oauthToken">
       <span class="label-text text-xs font-medium">Claude OAuth Token</span>
-      @if (authMethod() === 'auto') {
+      @if (hasExistingOAuthToken()) {
+      <span
+        class="badge badge-success badge-xs gap-0.5"
+        aria-label="OAuth token configured"
+      >
+        <lucide-angular [img]="CheckIcon" class="w-2.5 h-2.5" />
+        <span>Configured</span>
+      </span>
+      } @if (authMethod() === 'auto') {
       <span class="label-text-alt text-[10px]">(optional)</span>
       }
     </label>
@@ -61,7 +69,11 @@
       [(ngModel)]="oauthToken"
       name="oauthToken"
       class="input input-bordered input-sm w-full text-xs"
-      placeholder="Enter your OAuth token"
+      [placeholder]="
+        hasExistingOAuthToken()
+          ? 'Token configured - enter new value to replace'
+          : 'Enter your OAuth token'
+      "
       [attr.aria-required]="authMethod() === 'oauth'"
     />
     <div class="label flex-col items-start gap-0.5 py-1">
@@ -82,9 +94,17 @@
   <!-- API Key Input -->
   @if (authMethod() === 'apiKey' || authMethod() === 'auto') {
   <div class="form-control">
-    <label class="label py-1" for="apiKey">
+    <label class="label py-1 justify-start gap-2" for="apiKey">
       <span class="label-text text-xs font-medium">Anthropic API Key</span>
-      @if (authMethod() === 'auto') {
+      @if (hasExistingApiKey()) {
+      <span
+        class="badge badge-success badge-xs gap-0.5"
+        aria-label="API key configured"
+      >
+        <lucide-angular [img]="CheckIcon" class="w-2.5 h-2.5" />
+        <span>Configured</span>
+      </span>
+      } @if (authMethod() === 'auto') {
       <span class="label-text-alt text-[10px]">(optional)</span>
       }
     </label>
@@ -94,7 +114,11 @@
       [(ngModel)]="apiKey"
       name="apiKey"
       class="input input-bordered input-sm w-full text-xs"
-      placeholder="sk-ant-api03-..."
+      [placeholder]="
+        hasExistingApiKey()
+          ? 'Key configured - enter new value to replace'
+          : 'sk-ant-api03-...'
+      "
       [attr.aria-required]="authMethod() === 'apiKey'"
     />
     <div class="label flex-col items-start gap-0.5 py-1">
