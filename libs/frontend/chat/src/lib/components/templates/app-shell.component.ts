@@ -24,6 +24,7 @@ import { TabBarComponent } from '../organisms/tab-bar.component';
 import { ConfirmationDialogComponent } from '../molecules/confirmation-dialog.component';
 import { SettingsComponent } from '../../settings/settings.component';
 import { PopoverComponent } from '@ptah-extension/ui';
+import { WizardViewComponent } from '@ptah-extension/setup-wizard';
 import { ChatStore } from '../../services/chat.store';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
 import { TabManagerService } from '../../services/tab-manager.service';
@@ -47,6 +48,7 @@ import type { ChatSessionSummary } from '@ptah-extension/shared';
   imports: [
     ChatViewComponent,
     SettingsComponent,
+    WizardViewComponent,
     TabBarComponent,
     ConfirmationDialogComponent,
     DatePipe,

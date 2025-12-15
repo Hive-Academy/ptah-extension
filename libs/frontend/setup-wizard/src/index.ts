@@ -2,6 +2,9 @@
 export { SetupWizardStateService } from './lib/services/setup-wizard-state.service';
 export { WizardRpcService } from './lib/services/wizard-rpc.service';
 
+// Main Wizard Container
+export { WizardViewComponent } from './lib/components/wizard-view.component';
+
 // Wizard Components (Steps 1-3)
 export { WelcomeComponent } from './lib/components/welcome.component';
 export { ScanProgressComponent } from './lib/components/scan-progress.component';

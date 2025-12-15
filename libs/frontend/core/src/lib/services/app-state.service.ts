@@ -13,7 +13,8 @@ export type ViewType =
   | 'command-builder'
   | 'analytics'
   | 'context-tree'
-  | 'settings';
+  | 'settings'
+  | 'setup-wizard';
 
 export interface AppState {
   currentView: ViewType;

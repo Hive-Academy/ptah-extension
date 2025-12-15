@@ -29,6 +29,7 @@ import { StatusBarManager } from '../api-wrappers/status-bar-manager';
 import { FileSystemManager } from '../api-wrappers/file-system-manager';
 import { RpcHandler } from '../messaging/rpc-handler';
 import { AgentSessionWatcherService } from '../services/agent-session-watcher.service';
+import { WebviewMessageHandlerService } from '../services/webview-message-handler.service';
 
 /**
  * Register vscode-core infrastructure services in DI container
@@ -101,6 +102,14 @@ export function registerVsCodeCoreServices(
     AgentSessionWatcherService
   );
 
+  // ============================================================
+  // Webview Message Handler (shared message handling for all webviews)
+  // ============================================================
+  container.registerSingleton(
+    TOKENS.WEBVIEW_MESSAGE_HANDLER,
+    WebviewMessageHandlerService
+  );
+
   logger.info('[VS Code Core] Infrastructure services registered', {
     services: [
       'ERROR_HANDLER',
@@ -113,6 +122,7 @@ export function registerVsCodeCoreServices(
       'FILE_SYSTEM_MANAGER',
       'RPC_HANDLER',
       'AGENT_SESSION_WATCHER_SERVICE',
+      'WEBVIEW_MESSAGE_HANDLER',
     ],
   });
 }

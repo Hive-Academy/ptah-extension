@@ -11,7 +11,7 @@
  */
 
 import { DependencyContainer, Lifecycle } from 'tsyringe';
-import type { Logger } from '@ptah-extension/vscode-core';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
 
 // Import services
@@ -52,11 +52,15 @@ export function registerAgentGenerationServices(
   );
 
   // Template storage service - loads and caches templates
-  container.register(
-    AGENT_GENERATION_TOKENS.TEMPLATE_STORAGE_SERVICE,
-    { useClass: TemplateStorageService },
-    { lifecycle: Lifecycle.Singleton }
-  );
+  // Uses factory registration to handle optional templatesPath parameter
+  // (tsyringe cannot inject primitive types without explicit tokens)
+  container.register(AGENT_GENERATION_TOKENS.TEMPLATE_STORAGE_SERVICE, {
+    useFactory: (c) => {
+      const loggerInstance = c.resolve<Logger>(TOKENS.LOGGER);
+      // templatesPath is optional - defaults to internal path in constructor
+      return new TemplateStorageService(loggerInstance);
+    },
+  });
 
   // ============================================================
   // Mid-level Services (depend on foundation services)

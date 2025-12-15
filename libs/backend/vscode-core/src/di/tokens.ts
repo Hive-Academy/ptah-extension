@@ -179,6 +179,8 @@ export const WEBVIEW_EVENT_QUEUE = Symbol.for('WebviewEventQueue');
 export const WEBVIEW_INITIAL_DATA_BUILDER = Symbol.for(
   'WebviewInitialDataBuilder'
 );
+export const WEBVIEW_HTML_GENERATOR = Symbol.for('WebviewHtmlGenerator');
+export const WEBVIEW_MESSAGE_HANDLER = Symbol.for('WebviewMessageHandler');
 
 // Legacy tokens (being phased out)
 export const CLAUDE_SERVICE = Symbol.for('ClaudeService');
@@ -316,6 +318,8 @@ export const TOKENS = {
   COMMAND_HANDLERS,
   WEBVIEW_EVENT_QUEUE,
   WEBVIEW_INITIAL_DATA_BUILDER,
+  WEBVIEW_HTML_GENERATOR,
+  WEBVIEW_MESSAGE_HANDLER,
 
   // Legacy (being phased out)
   CLAUDE_SERVICE,

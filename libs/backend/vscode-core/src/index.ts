@@ -55,6 +55,8 @@ export type {
   FileOperationType,
   FileOperationOptions,
   FileWatcherConfig,
+  IWebviewHtmlGenerator,
+  WebviewHtmlOptions,
 } from './api-wrappers';
 
 // NOTE: RpcMethodRegistrationService moved to app layer (TASK_2025_051)
@@ -75,3 +77,10 @@ export type {
 // Agent Session Watcher (real-time summary streaming)
 export { AgentSessionWatcherService } from './services/agent-session-watcher.service';
 export type { AgentSummaryChunk } from './services/agent-session-watcher.service';
+
+// Webview Message Handler (shared message handling for all webviews)
+export { WebviewMessageHandlerService } from './services/webview-message-handler.service';
+export type {
+  CustomMessageHandler,
+  WebviewMessageHandlerConfig,
+} from './services/webview-message-handler.service';

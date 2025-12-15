@@ -12,7 +12,12 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { Logger, TOKENS, WebviewManager } from '@ptah-extension/vscode-core';
+import {
+  Logger,
+  TOKENS,
+  WebviewManager,
+  type IWebviewHtmlGenerator,
+} from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import type * as vscode from 'vscode';
 import { v4 as uuidv4 } from 'uuid';
@@ -97,7 +102,9 @@ export class SetupWizardService implements ISetupWizardService {
     @inject(AGENT_GENERATION_TOKENS.AGENT_GENERATION_ORCHESTRATOR)
     private readonly orchestrator: AgentGenerationOrchestratorService,
     @inject(TOKENS.LOGGER)
-    private readonly logger: Logger
+    private readonly logger: Logger,
+    @inject(TOKENS.WEBVIEW_HTML_GENERATOR)
+    private readonly htmlGenerator: IWebviewHtmlGenerator
   ) {
     this.logger.debug('SetupWizardService initialized');
   }
@@ -186,6 +193,21 @@ export class SetupWizardService implements ISetupWizardService {
           new Error('Failed to create wizard webview panel. Please try again.')
         );
       }
+
+      // Set the Angular webview HTML content with setup-wizard as initial view
+      panel.webview.html = this.htmlGenerator.generateAngularWebviewContent(
+        panel.webview,
+        {
+          workspaceInfo: this.htmlGenerator.buildWorkspaceInfo() as Record<
+            string,
+            unknown
+          >,
+          initialView: 'setup-wizard',
+        }
+      );
+      this.logger.debug(
+        'Wizard webview HTML content set with initial view: setup-wizard'
+      );
 
       // Register RPC message handlers
       panel.webview.onDidReceiveMessage(async (message: any) => {

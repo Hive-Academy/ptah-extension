@@ -11,7 +11,7 @@
     [class.overflow-hidden]="!sidebarOpen()"
   >
     <!-- Sidebar header with Ptah icon and new session button -->
-    <div class="p-2 border-b border-base-300 flex items-center gap-2">
+    <div class="p-2 border-b border-base-300 flex items-center justify-between">
       <!-- Ptah icon -->
       <img
         [ngSrc]="ptahIconUri"
@@ -183,13 +183,13 @@
 
     <!-- Main content area - conditional view rendering -->
     <div class="flex-1 overflow-hidden">
-      @if (currentView() === 'settings') {
-      <!-- Settings View -->
+      @switch (currentView()) { @case ('settings') {
       <ptah-settings />
-      } @else {
-      <!-- Chat View (default) -->
+      } @case ('setup-wizard') {
+      <ptah-wizard-view />
+      } @default {
       <ptah-chat-view />
-      }
+      } }
     </div>
   </div>
 </div>

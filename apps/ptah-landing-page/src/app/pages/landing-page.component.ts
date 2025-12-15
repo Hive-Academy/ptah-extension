@@ -6,7 +6,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { NavigationComponent } from '../components/navigation.component';
-import { HeroSectionComponent } from '../sections/hero/hero-section.component';
+import { HeroComponent } from '../sections/hero/hero.component';
 import { DemoSectionComponent } from '../sections/demo/demo-section.component';
 import { FeaturesSectionComponent } from '../sections/features/features-section.component';
 import { ComparisonSectionComponent } from '../sections/comparison/comparison-section.component';
@@ -73,7 +73,7 @@ import { StaticSessionProvider } from '../services/static-session.provider';
   imports: [
     CommonModule,
     NavigationComponent,
-    HeroSectionComponent,
+    HeroComponent,
     DemoSectionComponent,
     FeaturesSectionComponent,
     ComparisonSectionComponent,
@@ -86,8 +86,8 @@ import { StaticSessionProvider } from '../services/static-session.provider';
 
       <!-- Main Content Sections -->
       <main>
-        <!-- Hero Section: Full viewport with Egyptian theme -->
-        <ptah-hero-section />
+        <!-- Hero Section: Full viewport with Three.js -->
+        <ptah-hero />
 
         <!-- Demo Section: Live chat interface showcase -->
         <ptah-demo-section />

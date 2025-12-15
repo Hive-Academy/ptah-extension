@@ -206,6 +206,22 @@ export class SetupWizardStateService {
     return stepProgress[step];
   });
 
+  /**
+   * Current step index (0-based) for progress indicator
+   */
+  readonly stepIndex = computed(() => {
+    const step = this.currentStep();
+    const stepOrder: WizardStep[] = [
+      'welcome',
+      'scan',
+      'analysis',
+      'selection',
+      'generation',
+      'completion',
+    ];
+    return stepOrder.indexOf(step);
+  });
+
   // === State Mutations ===
 
   /**

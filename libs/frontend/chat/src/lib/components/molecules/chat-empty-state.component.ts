@@ -1,5 +1,7 @@
-import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+import { NgOptimizedImage } from '@angular/common';
 import { SetupStatusWidgetComponent } from './setup-status-widget.component';
+import { VSCodeService } from '@ptah-extension/core';
 
 /**
  * ChatEmptyStateComponent - Egyptian-themed empty state for chat view
@@ -31,7 +33,7 @@ import { SetupStatusWidgetComponent } from './setup-status-widget.component';
  */
 @Component({
   selector: 'ptah-chat-empty-state',
-  imports: [SetupStatusWidgetComponent],
+  imports: [SetupStatusWidgetComponent, NgOptimizedImage],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <!--
@@ -44,11 +46,17 @@ import { SetupStatusWidgetComponent } from './setup-status-widget.component';
     - Compact single-column layout
     -->
 
-    <div class="flex flex-col h-full px-3 py-3">
+    <div class="flex flex-col items-center h-full px-3 py-3">
       <!-- Compact Header -->
-      <div class="flex items-center gap-2 mb-3">
-        <span class="text-xl" aria-hidden="true">🏛️</span>
-        <div>
+      <div class="flex flex-col items-center gap-1 mb-3 text-center">
+        <img
+          [ngSrc]="ptahIconUri"
+          alt="Ptah"
+          width="24"
+          height="24"
+          class="w-6 h-6"
+        />
+        <div class="text-center">
           <h1 class="text-sm font-semibold text-secondary leading-tight">
             Ptah
           </h1>
@@ -133,5 +141,8 @@ import { SetupStatusWidgetComponent } from './setup-status-widget.component';
   ],
 })
 export class ChatEmptyStateComponent {
-  // Empty class body - component logic is in template
+  private readonly vscodeService = inject(VSCodeService);
+
+  /** Ptah icon URI - uses same method as app-shell component */
+  readonly ptahIconUri = this.vscodeService.getPtahIconUri();
 }

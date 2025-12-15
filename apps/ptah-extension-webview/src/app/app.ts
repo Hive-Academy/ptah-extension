@@ -108,11 +108,22 @@ export class App implements OnInit, OnDestroy {
   private async handleInitialView(): Promise<void> {
     console.log('Setting up initial view with pure signal navigation');
 
-    // Initialize to chat view by default
-    const success = await this.navigationService.navigateToView('chat');
+    // Check for initialView in ptahConfig (set by extension for specific views like wizard)
+    const ptahConfig = (window as any).ptahConfig;
+    const initialView = ptahConfig?.initialView as ViewType | null;
+
+    // Use configured initial view or default to 'chat'
+    const targetView: ViewType = initialView || 'chat';
+    console.log(`Initial view target: ${targetView}`, {
+      fromConfig: !!initialView,
+    });
+
+    const success = await this.navigationService.navigateToView(targetView);
     if (!success) {
-      console.warn('Initial navigation to chat failed, using fallback');
-      this.appState.setCurrentView('chat');
+      console.warn(
+        `Initial navigation to ${targetView} failed, using fallback`
+      );
+      this.appState.setCurrentView(targetView);
     }
   }
 }

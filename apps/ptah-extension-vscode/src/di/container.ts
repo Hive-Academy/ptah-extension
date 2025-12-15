@@ -59,6 +59,7 @@ import { registerTemplateGenerationServices } from '@ptah-extension/template-gen
 // Import webview support services
 import { WebviewEventQueue } from '../services/webview-event-queue';
 import { AngularWebviewProvider } from '../providers/angular-webview.provider';
+import { WebviewHtmlGenerator } from '../services/webview-html-generator';
 
 /**
  * DI Container Orchestrator
@@ -205,6 +206,13 @@ export class DIContainer {
     // PHASE 4: Webview Support Services (app-level)
     // ========================================
     container.registerSingleton(TOKENS.WEBVIEW_EVENT_QUEUE, WebviewEventQueue);
+
+    // WebviewHtmlGenerator - used by AngularWebviewProvider and SetupWizardService
+    // Registered as factory because it requires ExtensionContext (not injectable)
+    container.register(TOKENS.WEBVIEW_HTML_GENERATOR, {
+      useFactory: () => new WebviewHtmlGenerator(context),
+    });
+
     container.registerSingleton(
       TOKENS.ANGULAR_WEBVIEW_PROVIDER,
       AngularWebviewProvider

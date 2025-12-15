@@ -3,6 +3,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /**
+ * Options for generating webview HTML content
+ */
+export interface WebviewHtmlOptions {
+  workspaceInfo?: Record<string, unknown>;
+  /** Initial view to navigate to (e.g., 'chat', 'setup-wizard') */
+  initialView?: string;
+}
+
+/**
  * WebviewHtmlGenerator - Single Responsibility: Generate HTML content for Angular webviews
  * IMPROVED based on 4gray/vscode-webview-angular research findings
  * Follows SOLID principles by focusing only on HTML generation logic
@@ -14,18 +23,47 @@ export class WebviewHtmlGenerator {
    * Generate HTML content for Angular SPA application - IMPROVED METHOD
    * Based on research: Read actual index.html and modify it rather than recreating
    * Optimized for Angular 20+ with proper CSP and modern asset handling
+   *
+   * @param webview - VS Code webview instance
+   * @param options - Options object with workspaceInfo and/or initialView, or legacy Record<string, unknown>
    */
   generateAngularWebviewContent(
     webview: vscode.Webview,
-    workspaceInfo?: Record<string, unknown>
+    options?:
+      | { workspaceInfo?: Record<string, unknown>; initialView?: string }
+      | Record<string, unknown>
   ): string {
     try {
-      const htmlContent = this._getHtmlForWebview(webview, workspaceInfo);
+      // Support both new options object and legacy workspaceInfo object
+      let workspaceInfo: Record<string, unknown> | undefined;
+      let initialView: string | undefined;
+
+      if (options) {
+        if ('initialView' in options || 'workspaceInfo' in options) {
+          // New format with explicit options
+          workspaceInfo = (
+            options as { workspaceInfo?: Record<string, unknown> }
+          ).workspaceInfo;
+          initialView = (options as { initialView?: string }).initialView;
+        } else {
+          // Legacy format - treat as workspaceInfo directly
+          workspaceInfo = options as Record<string, unknown>;
+        }
+      }
+
+      const htmlContent = this._getHtmlForWebview(
+        webview,
+        workspaceInfo,
+        initialView
+      );
       return htmlContent;
     } catch (error) {
       console.error('Error generating webview content:', error);
       // Fallback to basic HTML
-      return this.generateFallbackHtml(webview, workspaceInfo);
+      return this.generateFallbackHtml(
+        webview,
+        options as Record<string, unknown>
+      );
     }
   }
 
@@ -35,7 +73,8 @@ export class WebviewHtmlGenerator {
    */
   private _getHtmlForWebview(
     webview: vscode.Webview,
-    workspaceInfo?: Record<string, unknown>
+    workspaceInfo?: Record<string, unknown>,
+    initialView?: string
   ): string {
     // Path to Angular dist folder (browser build output)
     // FIXED: context.extensionPath already points to dist/apps/ptah-extension-vscode
@@ -78,7 +117,8 @@ export class WebviewHtmlGenerator {
     const integrationScript = this.getVSCodeIntegrationScript(
       theme,
       workspaceInfo,
-      webview
+      webview,
+      initialView
     );
     const themeStyles = this.getThemeStyles();
 
@@ -336,7 +376,8 @@ export class WebviewHtmlGenerator {
   private getVSCodeIntegrationScript(
     theme: vscode.ColorThemeKind,
     workspaceInfo?: Record<string, unknown>,
-    webview?: vscode.Webview
+    webview?: vscode.Webview,
+    initialView?: string
   ): string {
     // Generate proper webview URIs for assets
     const appDistPath = path.join(
@@ -370,7 +411,10 @@ export class WebviewHtmlGenerator {
         )}',
         extensionUri: '${this.context.extensionUri.toString()}',
         baseUri: '${baseUri}',
-        iconUri: '${iconUri}'
+        iconUri: '${iconUri}',
+        initialView: ${
+          initialView ? `'${this.escapeJsString(initialView)}'` : 'null'
+        }
       };
 
 

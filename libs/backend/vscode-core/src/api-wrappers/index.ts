@@ -29,3 +29,38 @@ export type {
   FileWatcherConfig,
 } from './file-system-manager';
 // TODO: Phase 2 - Restore FileOperationPayload, FileWatcherEventPayload, FileSystemErrorPayload when RPC is implemented
+
+/**
+ * Interface for webview HTML content generation
+ * Allows libraries to inject HTML generator without depending on app layer
+ */
+import type * as vscode from 'vscode';
+
+/**
+ * Options for generating webview HTML content
+ */
+export interface WebviewHtmlOptions {
+  /** Optional workspace context */
+  workspaceInfo?: Record<string, unknown>;
+  /** Optional initial view to navigate to (e.g., 'chat', 'setup-wizard') */
+  initialView?: string;
+}
+
+export interface IWebviewHtmlGenerator {
+  /**
+   * Generate HTML content for Angular webview
+   * @param webview - VS Code webview instance
+   * @param options - Optional configuration including workspace info and initial view
+   * @returns HTML content string
+   */
+  generateAngularWebviewContent(
+    webview: vscode.Webview,
+    options?: WebviewHtmlOptions | Record<string, unknown>
+  ): string;
+
+  /**
+   * Build workspace info object for webview
+   * @returns Workspace info or null if no workspace
+   */
+  buildWorkspaceInfo(): Record<string, unknown> | null;
+}
