@@ -45,6 +45,11 @@ export interface LlmConfiguration {
  * LLM Configuration Service Implementation
  *
  * Reads configuration from VS Code settings namespace `ptah.llm.*`
+ *
+ * Error Handling Pattern (TASK_2025_073 Batch 3):
+ * - All methods have sensible defaults (never throw)
+ * - Invalid configurations fall back to safe defaults
+ * - All errors are logged before falling back
  */
 @injectable()
 export class LlmConfigurationService {

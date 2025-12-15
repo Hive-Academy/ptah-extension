@@ -76,6 +76,11 @@ export interface ILlmSecretsService {
  *
  * Uses VS Code's SecretStorage for encrypted API key storage.
  * Keys are stored with prefix: `ptah.llm.{provider}.apiKey`
+ *
+ * Error Handling Pattern (TASK_2025_073 Batch 3):
+ * - Public methods may throw on validation failures
+ * - SecretStorage errors propagate to caller for handling
+ * - All errors are logged before throwing
  */
 @injectable()
 export class LlmSecretsService implements ILlmSecretsService {

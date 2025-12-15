@@ -21,6 +21,11 @@ import { LlmProviderName } from '../types/provider-types';
  * API keys are managed via LlmSecretsService (VS Code SecretStorage).
  * Model defaults are configured via VS Code settings.
  *
+ * Error Handling Pattern (TASK_2025_073 Batch 3):
+ * - Public methods return Result<T, LlmProviderError>
+ * - Internal methods may throw (caught at public boundary)
+ * - All errors wrapped in LlmProviderError with appropriate codes
+ *
  * Usage:
  * ```typescript
  * const llmService = container.resolve<LlmService>(TOKENS.LLM_SERVICE);

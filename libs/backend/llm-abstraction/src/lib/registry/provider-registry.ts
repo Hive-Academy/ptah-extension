@@ -26,6 +26,12 @@ import { PROVIDER_IMPORT_MAP } from './provider-import-map';
 // NO STATIC PROVIDER IMPORTS - they are loaded dynamically
 
 /**
+ * Default timeout for provider creation (30 seconds)
+ * TASK_2025_073 Batch 3: Timeout protection for provider initialization
+ */
+const PROVIDER_CREATION_TIMEOUT_MS = 30000;
+
+/**
  * Registry to manage LLM provider factories with dynamic loading.
  * Creates provider instances on-demand, loading provider modules only when needed.
  *
@@ -35,6 +41,11 @@ import { PROVIDER_IMPORT_MAP } from './provider-import-map';
  * - openai (GPT-4, GPT-3.5-turbo)
  * - google-genai (Gemini)
  * - openrouter (Multi-provider access)
+ *
+ * Error Handling Pattern (TASK_2025_073 Batch 3):
+ * - Public methods return Result<T, LlmProviderError>
+ * - Internal methods may throw (caught at public boundary)
+ * - All errors wrapped in LlmProviderError with appropriate codes
  */
 @injectable()
 export class ProviderRegistry {
@@ -57,18 +68,58 @@ export class ProviderRegistry {
   }
 
   /**
-   * Create a provider instance using dynamic import.
+   * Create a provider instance with timeout protection.
    * Only loads the provider module when actually needed.
+   *
+   * TASK_2025_073 Batch 3: Added timeout protection (30s default)
+   *
+   * @param providerName - Name of the provider
+   * @param model - Model name to use
+   * @param timeoutMs - Optional timeout in milliseconds (default: 30000)
+   * @returns Result containing provider instance or error
+   */
+  public async createProvider(
+    providerName: LlmProviderName,
+    model: string,
+    timeoutMs: number = PROVIDER_CREATION_TIMEOUT_MS
+  ): Promise<Result<ILlmProvider, LlmProviderError>> {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(
+          new LlmProviderError(
+            `Provider creation timed out after ${timeoutMs}ms`,
+            'PROVIDER_TIMEOUT',
+            providerName
+          )
+        );
+      }, timeoutMs);
+    });
+
+    try {
+      const creationPromise = this.createProviderInternal(providerName, model);
+      return await Promise.race([creationPromise, timeoutPromise]);
+    } catch (error) {
+      if (error instanceof LlmProviderError) {
+        return Result.err(error);
+      }
+      return Result.err(LlmProviderError.fromError(error, providerName));
+    }
+  }
+
+  /**
+   * Internal provider creation logic (extracted for timeout wrapper).
+   *
+   * TASK_2025_073 Batch 3: Extracted to enable timeout wrapping
    *
    * @param providerName - Name of the provider
    * @param model - Model name to use
    * @returns Result containing provider instance or error
    */
-  public async createProvider(
+  private async createProviderInternal(
     providerName: LlmProviderName,
     model: string
   ): Promise<Result<ILlmProvider, LlmProviderError>> {
-    this.logger.debug('[ProviderRegistry] Creating provider', {
+    this.logger.debug('[ProviderRegistry.createProviderInternal] Starting', {
       provider: providerName,
       model,
     });
@@ -78,7 +129,10 @@ export class ProviderRegistry {
       const msg = `LLM provider '${providerName}' not found. Available: ${SUPPORTED_PROVIDERS.join(
         ', '
       )}`;
-      this.logger.warn('[ProviderRegistry] Invalid provider', { providerName });
+      this.logger.warn(
+        '[ProviderRegistry.createProviderInternal] Invalid provider',
+        { providerName }
+      );
       return Result.err(
         new LlmProviderError(msg, 'PROVIDER_NOT_FOUND', 'ProviderRegistry')
       );
@@ -89,9 +143,12 @@ export class ProviderRegistry {
       const hasKey = await this.secrets.hasApiKey(providerName);
       if (!hasKey) {
         const msg = `No API key configured for ${providerName}. Store API keys using SecretStorage.`;
-        this.logger.warn('[ProviderRegistry] Missing API key', {
-          providerName,
-        });
+        this.logger.warn(
+          '[ProviderRegistry.createProviderInternal] Missing API key',
+          {
+            providerName,
+          }
+        );
         return Result.err(
           new LlmProviderError(msg, 'API_KEY_MISSING', providerName)
         );
@@ -105,7 +162,7 @@ export class ProviderRegistry {
     }
 
     // Get API key and invoke factory
-    const apiKey = (await this.secrets.getApiKey(providerName)) ?? '';
+    const apiKey = await this.getApiKeyForProvider(providerName);
     const factory = factoryResult.value!;
 
     try {
@@ -114,18 +171,24 @@ export class ProviderRegistry {
       const providerResult = result instanceof Promise ? await result : result;
 
       if (providerResult.isOk()) {
-        this.logger.info('[ProviderRegistry] Provider created successfully', {
-          provider: providerName,
-          model,
-        });
+        this.logger.info(
+          '[ProviderRegistry.createProviderInternal] Provider created successfully',
+          {
+            provider: providerName,
+            model,
+          }
+        );
       }
 
       return providerResult;
     } catch (error) {
-      this.logger.error('[ProviderRegistry] Provider creation failed', {
-        provider: providerName,
-        error,
-      });
+      this.logger.error(
+        '[ProviderRegistry.createProviderInternal] Provider creation failed',
+        {
+          provider: providerName,
+          error,
+        }
+      );
       return Result.err(LlmProviderError.fromError(error, providerName));
     }
   }
@@ -219,5 +282,42 @@ export class ProviderRegistry {
     }
 
     return factoryLoader();
+  }
+
+  /**
+   * Get API key for provider with SecretStorage error handling.
+   *
+   * TASK_2025_073 Batch 3: Wrap SecretStorage calls in try/catch
+   *
+   * @param providerName - Provider to get API key for
+   * @returns API key string (empty string if vscode-lm or SecretStorage fails)
+   * @throws LlmProviderError if SecretStorage access fails
+   */
+  private async getApiKeyForProvider(
+    providerName: LlmProviderName
+  ): Promise<string> {
+    // VS Code LM doesn't need API key
+    if (providerName === 'vscode-lm') {
+      return '';
+    }
+
+    try {
+      const apiKey = await this.secrets.getApiKey(providerName);
+      return apiKey ?? '';
+    } catch (error) {
+      this.logger.error(
+        '[ProviderRegistry.getApiKeyForProvider] SecretStorage error',
+        {
+          providerName,
+          error: error instanceof Error ? error.message : String(error),
+        }
+      );
+      throw new LlmProviderError(
+        `Failed to retrieve API key for ${providerName}: SecretStorage error`,
+        'SECRET_STORAGE_ERROR',
+        providerName,
+        { cause: error }
+      );
+    }
   }
 }
