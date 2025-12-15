@@ -282,3 +282,25 @@ export interface AuthTestConnectionResponse {
   };
   errorMessage?: string;
 }
+
+// ============================================================
+// Auth Status RPC Types (TASK_2025_076)
+// ============================================================
+
+/** Parameters for auth:getAuthStatus RPC method */
+export type AuthGetAuthStatusParams = Record<string, never>;
+
+/**
+ * Response from auth:getAuthStatus RPC method
+ *
+ * SECURITY: This response NEVER contains actual credential values.
+ * Only boolean flags indicating whether credentials are configured.
+ */
+export interface AuthGetAuthStatusResponse {
+  /** Whether OAuth token is configured in SecretStorage */
+  hasOAuthToken: boolean;
+  /** Whether API key is configured in SecretStorage */
+  hasApiKey: boolean;
+  /** Current auth method preference */
+  authMethod: 'oauth' | 'apiKey' | 'auto';
+}

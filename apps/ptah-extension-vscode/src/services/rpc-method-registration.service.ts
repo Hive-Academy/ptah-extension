@@ -28,6 +28,7 @@ import {
   SetApiKeyRequest,
   SetApiKeyResponse,
   LlmProviderName,
+  IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { SdkAgentAdapter, SdkSessionStorage } from '@ptah-extension/agent-sdk';
@@ -124,6 +125,8 @@ export class RpcMethodRegistrationService {
     private readonly configManager: ConfigManager,
     @inject(TOKENS.COMMAND_MANAGER)
     private readonly commandManager: CommandManager,
+    @inject(TOKENS.AUTH_SECRETS_SERVICE)
+    private readonly authSecretsService: IAuthSecretsService,
     @inject('SdkAgentAdapter') private readonly sdkAdapter: SdkAgentAdapter,
     @inject('SdkSessionStorage') private readonly sdkStorage: SdkSessionStorage,
     private readonly container: DependencyContainer
@@ -1022,7 +1025,7 @@ export class RpcMethodRegistrationService {
   }
 
   /**
-   * Authentication RPC methods (TASK_2025_057)
+   * Authentication RPC methods (TASK_2025_057, TASK_2025_076)
    */
   private registerAuthMethods(): void {
     // auth:getHealth - Get SDK authentication health status
@@ -1043,7 +1046,50 @@ export class RpcMethodRegistrationService {
       }
     );
 
-    // auth:saveSettings - Save authentication settings to VS Code config
+    // auth:getAuthStatus - Get auth configuration status (TASK_2025_076)
+    // SECURITY: Never returns actual credential values - only boolean existence flags
+    this.rpcHandler.registerMethod<
+      void,
+      {
+        hasOAuthToken: boolean;
+        hasApiKey: boolean;
+        authMethod: 'oauth' | 'apiKey' | 'auto';
+      }
+    >('auth:getAuthStatus', async () => {
+      try {
+        this.logger.debug('RPC: auth:getAuthStatus called');
+
+        // Run migration if needed (first-time only)
+        await this.authSecretsService.migrateFromConfigManager();
+
+        // Check SecretStorage for credentials
+        const hasOAuthToken = await this.authSecretsService.hasCredential(
+          'oauthToken'
+        );
+        const hasApiKey = await this.authSecretsService.hasCredential('apiKey');
+
+        // Get auth method from ConfigManager (non-sensitive)
+        const authMethod = this.configManager.getWithDefault<
+          'oauth' | 'apiKey' | 'auto'
+        >('authMethod', 'auto');
+
+        this.logger.debug('RPC: auth:getAuthStatus result', {
+          hasOAuthToken,
+          hasApiKey,
+          authMethod,
+        });
+
+        return { hasOAuthToken, hasApiKey, authMethod };
+      } catch (error) {
+        this.logger.error(
+          'RPC: auth:getAuthStatus failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        throw error;
+      }
+    });
+
+    // auth:saveSettings - Save authentication settings (UPDATED for SecretStorage - TASK_2025_076)
     const AuthSettingsSchema = z.object({
       authMethod: z.enum(['oauth', 'apiKey', 'auto']),
       claudeOAuthToken: z.string().optional(),
@@ -1081,19 +1127,32 @@ export class RpcMethodRegistrationService {
         // Validate parameters with Zod
         const validated = AuthSettingsSchema.parse(params);
 
-        // Save settings to VS Code configuration
+        // Save auth method to ConfigManager (non-sensitive)
         await this.configManager.set('authMethod', validated.authMethod);
+
+        // Save credentials to SecretStorage (TASK_2025_076 - encrypted!)
         if (validated.claudeOAuthToken !== undefined) {
-          await this.configManager.set(
-            'claudeOAuthToken',
-            validated.claudeOAuthToken
-          );
+          if (validated.claudeOAuthToken.trim()) {
+            await this.authSecretsService.setCredential(
+              'oauthToken',
+              validated.claudeOAuthToken
+            );
+          } else {
+            // Empty string = clear the credential
+            await this.authSecretsService.deleteCredential('oauthToken');
+          }
         }
+
         if (validated.anthropicApiKey !== undefined) {
-          await this.configManager.set(
-            'anthropicApiKey',
-            validated.anthropicApiKey
-          );
+          if (validated.anthropicApiKey.trim()) {
+            await this.authSecretsService.setCredential(
+              'apiKey',
+              validated.anthropicApiKey
+            );
+          } else {
+            // Empty string = clear the credential
+            await this.authSecretsService.deleteCredential('apiKey');
+          }
         }
 
         this.logger.info('RPC: auth:saveSettings completed successfully');
