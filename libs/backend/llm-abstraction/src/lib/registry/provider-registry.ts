@@ -69,14 +69,27 @@ export class ProviderRegistry {
 
   /**
    * Create a provider instance with timeout protection.
-   * Only loads the provider module when actually needed.
+   *
+   * Only loads the provider module when actually needed (lazy loading).
+   * Provider factories are cached for subsequent creations.
+   * Automatically retrieves API keys from SecretStorage.
+   * Times out after 30 seconds if provider creation hangs.
    *
    * TASK_2025_073 Batch 3: Added timeout protection (30s default)
    *
-   * @param providerName - Name of the provider
-   * @param model - Model name to use
+   * @param providerName - Name of the provider (anthropic, openai, google-genai, openrouter, vscode-lm)
+   * @param model - Model identifier to use (e.g., 'claude-sonnet-4-20250514', 'gpt-4o')
    * @param timeoutMs - Optional timeout in milliseconds (default: 30000)
-   * @returns Result containing provider instance or error
+   * @returns Result containing ILlmProvider instance on success, or LlmProviderError on failure
+   *
+   * @example
+   * ```typescript
+   * const result = await registry.createProvider('anthropic', 'claude-sonnet-4-20250514');
+   * if (result.isOk()) {
+   *   const provider = result.value;
+   *   await provider.getCompletion('system', 'user prompt');
+   * }
+   * ```
    */
   public async createProvider(
     providerName: LlmProviderName,
@@ -195,7 +208,17 @@ export class ProviderRegistry {
 
   /**
    * Get list of providers that have API keys configured.
-   * @returns Array of provider names with configured keys
+   *
+   * Checks SecretStorage for configured API keys.
+   * vscode-lm is always included (no API key needed).
+   *
+   * @returns Array of provider names with configured keys (e.g., ['vscode-lm', 'anthropic'])
+   *
+   * @example
+   * ```typescript
+   * const available = await registry.getAvailableProviders();
+   * console.log(`Available providers: ${available.join(', ')}`);
+   * ```
    */
   public async getAvailableProviders(): Promise<LlmProviderName[]> {
     return this.secrets.getConfiguredProviders();
@@ -203,8 +226,21 @@ export class ProviderRegistry {
 
   /**
    * Check if a specific provider is available (has API key configured).
-   * @param providerName - Provider name to check
-   * @returns true if provider is available
+   *
+   * Checks SecretStorage for the provider's API key.
+   * vscode-lm always returns true (no API key needed).
+   *
+   * @param providerName - Provider name to check (anthropic, openai, etc.)
+   * @returns true if provider is available, false otherwise
+   *
+   * @example
+   * ```typescript
+   * if (await registry.isProviderAvailable('anthropic')) {
+   *   await registry.createProvider('anthropic', 'claude-sonnet-4-20250514');
+   * } else {
+   *   console.error('Anthropic API key not configured');
+   * }
+   * ```
    */
   public async isProviderAvailable(
     providerName: LlmProviderName
@@ -214,7 +250,17 @@ export class ProviderRegistry {
 
   /**
    * Get list of all supported providers (regardless of API key configuration).
-   * @returns Array of all supported provider names
+   *
+   * Returns all providers supported by the registry, even if API keys are not configured.
+   *
+   * @returns Readonly array of all supported provider names
+   *
+   * @example
+   * ```typescript
+   * const supported = registry.getSupportedProviders();
+   * console.log(`Supported: ${supported.join(', ')}`);
+   * // "Supported: anthropic, openai, google-genai, openrouter, vscode-lm"
+   * ```
    */
   public getSupportedProviders(): readonly LlmProviderName[] {
     return SUPPORTED_PROVIDERS;
@@ -235,31 +281,43 @@ export class ProviderRegistry {
   ): Promise<Result<LlmProviderFactory, LlmProviderError>> {
     // Return cached factory if available
     if (this.loadedFactories.has(providerName)) {
-      this.logger.debug('[ProviderRegistry] Using cached factory', {
-        provider: providerName,
-      });
+      this.logger.debug(
+        '[ProviderRegistry.getOrLoadFactory] Using cached factory',
+        {
+          provider: providerName,
+        }
+      );
       return Result.ok(this.loadedFactories.get(providerName)!);
     }
 
     // Dynamically load factory
     try {
-      this.logger.debug('[ProviderRegistry] Dynamically loading provider', {
-        provider: providerName,
-      });
+      this.logger.debug(
+        '[ProviderRegistry.getOrLoadFactory] Dynamically loading provider',
+        {
+          provider: providerName,
+        }
+      );
 
       const factory = await this.loadProviderFactory(providerName);
       this.loadedFactories.set(providerName, factory);
 
-      this.logger.info('[ProviderRegistry] Provider module loaded', {
-        provider: providerName,
-      });
+      this.logger.info(
+        '[ProviderRegistry.getOrLoadFactory] Provider module loaded successfully',
+        {
+          provider: providerName,
+        }
+      );
 
       return Result.ok(factory);
     } catch (error) {
-      this.logger.error('[ProviderRegistry] Failed to load provider module', {
-        provider: providerName,
-        error,
-      });
+      this.logger.error(
+        '[ProviderRegistry.getOrLoadFactory] Failed to load provider module',
+        {
+          provider: providerName,
+          error,
+        }
+      );
       return Result.err(LlmProviderError.fromError(error, providerName));
     }
   }

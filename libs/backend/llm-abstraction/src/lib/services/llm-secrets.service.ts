@@ -92,7 +92,7 @@ export class LlmSecretsService implements ILlmSecretsService {
     @inject(TOKENS.LOGGER)
     private readonly logger: Logger
   ) {
-    this.logger.info('[LlmSecretsService] Initialized');
+    this.logger.info('[LlmSecretsService.constructor] Service initialized');
   }
 
   /**
@@ -102,6 +102,23 @@ export class LlmSecretsService implements ILlmSecretsService {
     return `${this.SECRET_PREFIX}.${provider}.apiKey`;
   }
 
+  /**
+   * Get API key for a provider from SecretStorage.
+   *
+   * Returns undefined for vscode-lm (no API key needed).
+   * Keys are stored encrypted by VS Code's SecretStorage API.
+   *
+   * @param provider - Provider name to get API key for
+   * @returns API key string, or undefined if not set or provider is vscode-lm
+   *
+   * @example
+   * ```typescript
+   * const apiKey = await secretsService.getApiKey('anthropic');
+   * if (apiKey) {
+   *   console.log('API key configured');
+   * }
+   * ```
+   */
   async getApiKey(provider: LlmProviderName): Promise<string | undefined> {
     // VS Code LM doesn't need an API key
     if (provider === 'vscode-lm') {
@@ -111,19 +128,44 @@ export class LlmSecretsService implements ILlmSecretsService {
     const secretKey = this.getSecretKey(provider);
     const apiKey = await this.context.secrets.get(secretKey);
 
-    this.logger.debug('[LlmSecretsService] getApiKey', {
-      provider,
-      hasKey: !!apiKey,
-    });
+    this.logger.debug(
+      '[LlmSecretsService.getApiKey] Retrieved API key status',
+      {
+        provider,
+        hasKey: !!apiKey,
+      }
+    );
 
     return apiKey;
   }
 
+  /**
+   * Store API key for a provider in SecretStorage.
+   *
+   * Validates key format before storing (provider-specific validation).
+   * Keys are encrypted by VS Code's SecretStorage API.
+   * Ignores vscode-lm (no API key needed).
+   *
+   * @param provider - Provider name to store API key for
+   * @param key - API key to store (will be validated)
+   * @throws Error if key format is invalid for the provider
+   *
+   * @example
+   * ```typescript
+   * try {
+   *   await secretsService.setApiKey('anthropic', 'sk-ant-api-...');
+   *   console.log('API key stored successfully');
+   * } catch (error) {
+   *   console.error('Invalid API key format');
+   * }
+   * ```
+   */
   async setApiKey(provider: LlmProviderName, key: string): Promise<void> {
     // VS Code LM doesn't use API keys
     if (provider === 'vscode-lm') {
       this.logger.warn(
-        '[LlmSecretsService] Attempted to set API key for vscode-lm (not needed)'
+        '[LlmSecretsService.setApiKey] Attempted to set API key for vscode-lm (not needed)',
+        { provider }
       );
       return;
     }
@@ -136,13 +178,30 @@ export class LlmSecretsService implements ILlmSecretsService {
     const secretKey = this.getSecretKey(provider);
     await this.context.secrets.store(secretKey, key);
 
-    this.logger.info('[LlmSecretsService] API key stored', {
-      provider,
-      keyLength: key.length,
-      keyPrefix: key.substring(0, 10) + '...',
-    });
+    this.logger.info(
+      '[LlmSecretsService.setApiKey] API key stored successfully',
+      {
+        provider,
+        keyLength: key.length,
+        keyPrefix: key.substring(0, 10) + '...',
+      }
+    );
   }
 
+  /**
+   * Delete API key for a provider from SecretStorage.
+   *
+   * Removes the encrypted key from VS Code's SecretStorage.
+   * Ignores vscode-lm (no API key needed).
+   *
+   * @param provider - Provider name to delete API key for
+   *
+   * @example
+   * ```typescript
+   * await secretsService.deleteApiKey('anthropic');
+   * console.log('API key removed');
+   * ```
+   */
   async deleteApiKey(provider: LlmProviderName): Promise<void> {
     // VS Code LM doesn't use API keys
     if (provider === 'vscode-lm') {
@@ -152,9 +211,30 @@ export class LlmSecretsService implements ILlmSecretsService {
     const secretKey = this.getSecretKey(provider);
     await this.context.secrets.delete(secretKey);
 
-    this.logger.info('[LlmSecretsService] API key deleted', { provider });
+    this.logger.info(
+      '[LlmSecretsService.deleteApiKey] API key deleted successfully',
+      { provider }
+    );
   }
 
+  /**
+   * Check if provider has a configured API key.
+   *
+   * Checks SecretStorage for the provider's API key.
+   * Always returns true for vscode-lm (no API key needed).
+   *
+   * @param provider - Provider name to check
+   * @returns true if API key is configured (vscode-lm always returns true)
+   *
+   * @example
+   * ```typescript
+   * if (await secretsService.hasApiKey('anthropic')) {
+   *   console.log('Anthropic API key is configured');
+   * } else {
+   *   console.log('Please configure Anthropic API key');
+   * }
+   * ```
+   */
   async hasApiKey(provider: LlmProviderName): Promise<boolean> {
     // VS Code LM is always available (no API key needed)
     if (provider === 'vscode-lm') {
@@ -165,6 +245,20 @@ export class LlmSecretsService implements ILlmSecretsService {
     return !!key && key.length > 0;
   }
 
+  /**
+   * Get list of providers that have API keys configured.
+   *
+   * Checks SecretStorage for each provider's API key.
+   * Always includes vscode-lm (no API key needed).
+   *
+   * @returns Array of provider names with configured keys (e.g., ['vscode-lm', 'anthropic'])
+   *
+   * @example
+   * ```typescript
+   * const configured = await secretsService.getConfiguredProviders();
+   * console.log(`Configured providers: ${configured.join(', ')}`);
+   * ```
+   */
   async getConfiguredProviders(): Promise<LlmProviderName[]> {
     const providers: LlmProviderName[] = ['vscode-lm']; // Always available
 
@@ -175,13 +269,40 @@ export class LlmSecretsService implements ILlmSecretsService {
       }
     }
 
-    this.logger.debug('[LlmSecretsService] getConfiguredProviders', {
-      providers,
-    });
+    this.logger.debug(
+      '[LlmSecretsService.getConfiguredProviders] Retrieved configured providers',
+      {
+        count: providers.length,
+        providers,
+      }
+    );
 
     return providers;
   }
 
+  /**
+   * Validate API key format for a provider.
+   *
+   * Performs provider-specific format validation:
+   * - anthropic: Must start with 'sk-ant-' and be at least 20 characters
+   * - openai: Must start with 'sk-' and be at least 20 characters
+   * - google-genai: Must be at least 30 characters
+   * - openrouter: Must start with 'sk-or-' and be at least 20 characters
+   * - vscode-lm: Always returns false (no API key needed)
+   *
+   * @param provider - Provider name to validate key for
+   * @param key - API key to validate
+   * @returns true if key format is valid, false otherwise
+   *
+   * @example
+   * ```typescript
+   * if (secretsService.validateKeyFormat('anthropic', userInput)) {
+   *   await secretsService.setApiKey('anthropic', userInput);
+   * } else {
+   *   console.error('Invalid Anthropic API key format');
+   * }
+   * ```
+   */
   validateKeyFormat(provider: LlmProviderName, key: string): boolean {
     if (!key || key.trim().length === 0) {
       return false;

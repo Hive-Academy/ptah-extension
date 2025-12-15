@@ -61,12 +61,24 @@ export class LlmConfigurationService {
     @inject(TOKENS.LOGGER)
     private readonly logger: Logger
   ) {
-    this.logger.info('[LlmConfigurationService] Initialized');
+    this.logger.info(
+      '[LlmConfigurationService.constructor] Service initialized'
+    );
   }
 
   /**
-   * Get the default LLM provider
+   * Get the default LLM provider from VS Code settings.
+   *
+   * Reads `ptah.llm.defaultProvider` setting.
+   * Falls back to 'vscode-lm' if not configured or invalid.
+   *
    * @returns Default provider name from settings, or 'vscode-lm' if not set
+   *
+   * @example
+   * ```typescript
+   * const defaultProvider = configService.getDefaultProvider();
+   * console.log(`Default: ${defaultProvider}`); // "anthropic" or "vscode-lm"
+   * ```
    */
   getDefaultProvider(): LlmProviderName {
     const provider = this.config.get<string>('llm.defaultProvider');
@@ -80,9 +92,19 @@ export class LlmConfigurationService {
   }
 
   /**
-   * Get the default model for a specific provider
-   * @param provider - Provider name
-   * @returns Default model from settings, or built-in default
+   * Get the default model for a specific provider.
+   *
+   * Reads provider-specific settings (e.g., `ptah.llm.anthropic.model`).
+   * Falls back to built-in defaults from DEFAULT_MODELS constant.
+   *
+   * @param provider - Provider name (anthropic, openai, etc.)
+   * @returns Default model identifier from settings, or built-in default
+   *
+   * @example
+   * ```typescript
+   * const model = configService.getDefaultModel('anthropic');
+   * console.log(model); // "claude-sonnet-4-20250514" (from settings or default)
+   * ```
    */
   getDefaultModel(provider: LlmProviderName): string {
     // Map provider name to settings key
@@ -97,17 +119,39 @@ export class LlmConfigurationService {
   }
 
   /**
-   * Get display name for a provider
-   * @param provider - Provider name
-   * @returns Human-readable display name
+   * Get display name for a provider.
+   *
+   * Returns human-readable name for UI presentation.
+   * Uses PROVIDER_DISPLAY_NAMES constant, falls back to provider name.
+   *
+   * @param provider - Provider name (anthropic, openai, etc.)
+   * @returns Human-readable display name (e.g., "Anthropic (Claude)", "OpenAI (GPT)")
+   *
+   * @example
+   * ```typescript
+   * const displayName = configService.getProviderDisplayName('anthropic');
+   * console.log(displayName); // "Anthropic (Claude)"
+   * ```
    */
   getProviderDisplayName(provider: LlmProviderName): string {
     return PROVIDER_DISPLAY_NAMES[provider] || provider;
   }
 
   /**
-   * Get configuration for all available providers
+   * Get configuration for all available providers.
+   *
+   * Returns only providers with configured API keys (from SecretStorage).
+   * Each provider includes display name, default model, and availability status.
+   *
    * @returns Array of provider configurations (only those with API keys)
+   *
+   * @example
+   * ```typescript
+   * const providers = await configService.getAvailableProviders();
+   * providers.forEach(p => {
+   *   console.log(`${p.displayName}: ${p.model} (configured: ${p.isConfigured})`);
+   * });
+   * ```
    */
   async getAvailableProviders(): Promise<LlmProviderConfig[]> {
     const configuredProviders = await this.secrets.getConfiguredProviders();
@@ -128,8 +172,19 @@ export class LlmConfigurationService {
   }
 
   /**
-   * Get full LLM configuration state
-   * @returns Complete configuration including default provider and all providers
+   * Get full LLM configuration state.
+   *
+   * Returns complete configuration snapshot including default provider and all available providers.
+   * Useful for UI rendering or configuration validation.
+   *
+   * @returns Complete configuration including default provider and all available providers
+   *
+   * @example
+   * ```typescript
+   * const config = await configService.getConfiguration();
+   * console.log(`Default: ${config.defaultProvider}`);
+   * console.log(`Available: ${config.providers.length} providers`);
+   * ```
    */
   async getConfiguration(): Promise<LlmConfiguration> {
     const defaultProvider = this.getDefaultProvider();

@@ -156,13 +156,24 @@ export class LlmService implements ILlmService {
 
   /**
    * Set the current LLM provider with a specific model.
+   *
+   * Uses mutex lock to prevent race conditions during provider switching.
+   * Previous provider is preserved on error for recovery.
    * API key is retrieved automatically from SecretStorage.
    *
    * TASK_2025_073 Batch 2: Thread-safe provider switching with mutex lock
    *
-   * @param providerName Provider name (anthropic, openai, google-genai, openrouter, vscode-lm)
-   * @param model Model name to use
-   * @returns Promise of Result indicating success or error
+   * @param providerName - Provider name (anthropic, openai, google-genai, openrouter, vscode-lm)
+   * @param model - Model identifier to use (e.g., 'claude-sonnet-4-20250514', 'gpt-4o')
+   * @returns Promise of Result with void on success, or LlmProviderError on failure
+   *
+   * @example
+   * ```typescript
+   * const result = await llmService.setProvider('anthropic', 'claude-sonnet-4-20250514');
+   * if (result.isErr()) {
+   *   console.error('Failed to set provider:', result.error.message);
+   * }
+   * ```
    */
   public async setProvider(
     providerName: LlmProviderName,
@@ -218,38 +229,73 @@ export class LlmService implements ILlmService {
 
   /**
    * Set the current LLM provider using default model from settings.
-   * This is a convenience method that uses LlmConfigurationService for model lookup.
    *
-   * @param providerName Provider name (anthropic, openai, google-genai, openrouter, vscode-lm)
-   * @returns Promise of Result indicating success or error
+   * This is a convenience method that uses LlmConfigurationService for model lookup.
+   * Default models are configured via VS Code settings or fall back to built-in defaults.
+   *
+   * @param providerName - Provider name (anthropic, openai, google-genai, openrouter, vscode-lm)
+   * @returns Promise of Result with void on success, or LlmProviderError on failure
+   *
+   * @example
+   * ```typescript
+   * const result = await llmService.setProviderByName('anthropic');
+   * // Uses default model from settings (e.g., 'claude-sonnet-4-20250514')
+   * ```
    */
   public async setProviderByName(
     providerName: LlmProviderName
   ): Promise<Result<void, LlmProviderError>> {
     const model = this.configService.getDefaultModel(providerName);
-    this.logger.debug('[LlmService] setProviderByName', {
-      providerName,
-      model,
-    });
+    this.logger.debug(
+      '[LlmService.setProviderByName] Starting provider switch',
+      {
+        providerName,
+        model,
+      }
+    );
     return this.setProvider(providerName, model);
   }
 
   /**
    * Initialize with the default provider from settings.
-   * Uses the default provider and model from VS Code settings.
    *
-   * @returns Promise of Result indicating success or error
+   * Uses the default provider and model from VS Code settings.
+   * Falls back to 'vscode-lm' if no default provider is configured.
+   *
+   * @returns Promise of Result with void on success, or LlmProviderError on failure
+   *
+   * @example
+   * ```typescript
+   * const result = await llmService.initializeDefault();
+   * if (result.isOk()) {
+   *   console.log('LLM service initialized with default provider');
+   * }
+   * ```
    */
   public async initializeDefault(): Promise<Result<void, LlmProviderError>> {
     const defaultProvider = this.configService.getDefaultProvider();
-    this.logger.debug('[LlmService] initializeDefault', {
-      provider: defaultProvider,
-    });
+    this.logger.debug(
+      '[LlmService.initializeDefault] Starting initialization',
+      {
+        provider: defaultProvider,
+      }
+    );
     return this.setProviderByName(defaultProvider);
   }
 
   /**
    * Check if a provider is currently set.
+   *
+   * @returns true if a provider is configured and ready to use, false otherwise
+   *
+   * @example
+   * ```typescript
+   * if (llmService.hasProvider()) {
+   *   const response = await llmService.getCompletion('system', 'user prompt');
+   * } else {
+   *   await llmService.setProvider('anthropic', 'claude-sonnet-4-20250514');
+   * }
+   * ```
    */
   public hasProvider(): boolean {
     return this.currentProvider !== null;
@@ -258,11 +304,25 @@ export class LlmService implements ILlmService {
   /**
    * Get a text completion from the current LLM provider.
    *
+   * Automatically ensures provider is initialized before making the request.
+   * If no provider is set, attempts lazy initialization with default provider.
+   *
    * TASK_2025_073 Batch 2: Uses ensureProvider() for error recovery
    *
-   * @param systemPrompt System-level instruction
-   * @param userPrompt User's actual prompt
-   * @returns Result containing completion text or error
+   * @param systemPrompt - System-level instruction (sets context/behavior)
+   * @param userPrompt - User's actual prompt/question
+   * @returns Result containing completion text on success, or LlmProviderError on failure
+   *
+   * @example
+   * ```typescript
+   * const result = await llmService.getCompletion(
+   *   'You are a helpful TypeScript expert',
+   *   'Explain generics in TypeScript'
+   * );
+   * if (result.isOk()) {
+   *   console.log(result.value); // "Generics in TypeScript allow..."
+   * }
+   * ```
    */
   async getCompletion(
     systemPrompt: string,
@@ -308,12 +368,31 @@ export class LlmService implements ILlmService {
   /**
    * Get a structured completion that conforms to a Zod schema.
    *
+   * Uses Langchain's withStructuredOutput to enforce schema compliance.
+   * Returns fully typed, validated object matching the provided Zod schema.
+   * Automatically ensures provider is initialized before making the request.
+   *
    * TASK_2025_073 Batch 2: Uses ensureProvider() for error recovery
    *
-   * @param prompt The prompt to send
-   * @param schema Zod schema defining expected output structure
-   * @param completionConfig Optional completion parameters
-   * @returns Result containing parsed, type-safe object or error
+   * @param prompt - The prompt to send to the LLM
+   * @param schema - Zod schema defining expected output structure
+   * @param completionConfig - Optional completion parameters (temperature, maxTokens, etc.)
+   * @returns Result containing parsed, type-safe object on success, or LlmProviderError on failure
+   *
+   * @example
+   * ```typescript
+   * const schema = z.object({
+   *   summary: z.string(),
+   *   keyPoints: z.array(z.string())
+   * });
+   * const result = await llmService.getStructuredCompletion(
+   *   'Analyze this code...',
+   *   schema
+   * );
+   * if (result.isOk()) {
+   *   console.log(result.value.summary); // Fully typed!
+   * }
+   * ```
    */
   async getStructuredCompletion<T extends z.ZodTypeAny>(
     prompt: BaseLanguageModelInput,
@@ -365,9 +444,18 @@ export class LlmService implements ILlmService {
   /**
    * Get the context window size for the current model.
    *
+   * Returns the maximum number of tokens the model can process in a single request.
+   * Returns 0 if no provider is configured or provider lookup fails.
+   *
    * TASK_2025_073 Batch 2: Uses ensureProvider() for error recovery
    *
-   * @returns Context window size in tokens
+   * @returns Context window size in tokens (e.g., 200000 for Claude Sonnet 4)
+   *
+   * @example
+   * ```typescript
+   * const contextWindow = await llmService.getModelContextWindow();
+   * console.log(`Model can process ${contextWindow} tokens`);
+   * ```
    */
   async getModelContextWindow(): Promise<number> {
     const providerResult = await this.ensureProvider();
@@ -386,10 +474,23 @@ export class LlmService implements ILlmService {
   /**
    * Count tokens in a given text.
    *
+   * Uses the current provider's tokenizer to accurately count tokens.
+   * Useful for checking if text fits within context window.
+   * Returns 0 if no provider is configured or counting fails.
+   *
    * TASK_2025_073 Batch 2: Uses ensureProvider() for error recovery
    *
-   * @param text Text to count tokens for
-   * @returns Token count
+   * @param text - Text to count tokens for
+   * @returns Token count (e.g., 150 tokens)
+   *
+   * @example
+   * ```typescript
+   * const tokenCount = await llmService.countTokens('Hello, world!');
+   * const contextWindow = await llmService.getModelContextWindow();
+   * if (tokenCount < contextWindow) {
+   *   console.log('Text fits within context window');
+   * }
+   * ```
    */
   async countTokens(text: string): Promise<number> {
     const providerResult = await this.ensureProvider();
@@ -405,9 +506,21 @@ export class LlmService implements ILlmService {
   /**
    * Get the current LLM provider instance.
    *
+   * Returns the low-level provider interface for advanced usage.
+   * Most applications should use higher-level methods (getCompletion, getStructuredCompletion).
+   *
    * TASK_2025_073 Batch 2: Fixed error code to PROVIDER_NOT_INITIALIZED
    *
-   * @returns Result containing provider or error
+   * @returns Result containing ILlmProvider instance on success, or Error on failure
+   *
+   * @example
+   * ```typescript
+   * const result = await llmService.getProvider();
+   * if (result.isOk()) {
+   *   const provider = result.value;
+   *   // Use low-level provider API directly
+   * }
+   * ```
    */
   async getProvider(): Promise<Result<ILlmProvider, Error>> {
     if (!this.currentProvider) {
