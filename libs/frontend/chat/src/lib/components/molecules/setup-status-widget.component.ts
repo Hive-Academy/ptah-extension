@@ -1,12 +1,11 @@
 import {
   Component,
   OnInit,
-  OnDestroy,
   signal,
   inject,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { VSCodeService } from '@ptah-extension/core';
+import { ClaudeRpcService } from '@ptah-extension/core';
 
 /**
  * SetupStatus interface - Agent configuration status information
@@ -23,19 +22,19 @@ export interface SetupStatus {
  * SetupStatusWidgetComponent - Agent configuration status widget
  *
  * Complexity Level: 2 (Medium - RPC communication + state management)
- * Patterns: Signal-based state, RPC messaging, DaisyUI styling
+ * Patterns: Signal-based state, ClaudeRpcService, DaisyUI styling
  *
  * Features:
- * - Fetches agent setup status on component init
+ * - Fetches agent setup status on component init via RPC
  * - Displays agent count and last modified timestamp
  * - Shows "Configure" or "Update" button based on configuration status
- * - Launches setup wizard via RPC message
+ * - Launches setup wizard via RPC method
  * - Handles loading, error, and success states
  *
  * SOLID Principles:
  * - Single Responsibility: Display agent setup status and launch wizard
  * - Open/Closed: Extensible via signals, closed for modification
- * - Dependency Inversion: Depends on VSCodeService abstraction
+ * - Dependency Inversion: Depends on ClaudeRpcService abstraction
  */
 @Component({
   selector: 'ptah-setup-status-widget',
@@ -134,8 +133,8 @@ export interface SetupStatus {
     `,
   ],
 })
-export class SetupStatusWidgetComponent implements OnInit, OnDestroy {
-  private readonly vscodeService = inject(VSCodeService);
+export class SetupStatusWidgetComponent implements OnInit {
+  private readonly rpcService = inject(ClaudeRpcService);
 
   // Signals for reactive state
   readonly status = signal<SetupStatus | null>(null);
@@ -143,156 +142,65 @@ export class SetupStatusWidgetComponent implements OnInit, OnDestroy {
   readonly error = signal<string | null>(null);
   readonly launching = signal<boolean>(false);
 
-  // Message listener cleanup
-  private messageListener: ((event: MessageEvent) => void) | null = null;
-
-  // Timeout management
-  private statusTimeoutId: number | null = null;
-  private launchTimeoutId: number | null = null;
-
   ngOnInit(): void {
-    this.setupMessageListener();
     this.fetchStatus();
   }
 
-  ngOnDestroy(): void {
-    // Clean up message listener
-    if (this.messageListener) {
-      window.removeEventListener('message', this.messageListener);
-      this.messageListener = null;
-    }
-
-    // Clear any pending timeouts
-    if (this.statusTimeoutId) {
-      clearTimeout(this.statusTimeoutId);
-      this.statusTimeoutId = null;
-    }
-    if (this.launchTimeoutId) {
-      clearTimeout(this.launchTimeoutId);
-      this.launchTimeoutId = null;
-    }
-  }
-
   /**
-   * Fetch agent setup status from backend
+   * Fetch agent setup status from backend via RPC
    * Public to allow template retry button access
    */
-  fetchStatus(): void {
+  async fetchStatus(): Promise<void> {
     this.isLoading.set(true);
     this.error.set(null);
 
-    // Set 10-second timeout for status request
-    this.statusTimeoutId = window.setTimeout(() => {
-      if (this.isLoading()) {
-        this.error.set(
-          'Request timed out. Please try again or check your connection.'
-        );
-        this.isLoading.set(false);
-      }
-      this.statusTimeoutId = null;
-    }, 10000);
-
     try {
-      this.vscodeService.postMessage({
-        type: 'setup-status:get-status',
-      });
-    } catch (err) {
-      // Clear timeout on error
-      if (this.statusTimeoutId) {
-        clearTimeout(this.statusTimeoutId);
-        this.statusTimeoutId = null;
-      }
+      const result = await this.rpcService.call<SetupStatus>(
+        'setup-status:get-status',
+        {},
+        { timeout: 10000 }
+      );
 
+      if (result.isSuccess()) {
+        this.status.set(result.data);
+        this.error.set(null);
+      } else {
+        this.error.set(result.error || 'Failed to fetch status');
+      }
+    } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : 'Failed to fetch status';
       this.error.set(errorMessage);
+    } finally {
       this.isLoading.set(false);
     }
   }
 
   /**
-   * Setup message listener for RPC responses
+   * Launch setup wizard via RPC
    */
-  private setupMessageListener(): void {
-    this.messageListener = (event: MessageEvent) => {
-      const message = event.data;
-
-      // Handle setup-status:response messages
-      if (message.type === 'setup-status:response') {
-        // Clear timeout since we received a response
-        if (this.statusTimeoutId) {
-          clearTimeout(this.statusTimeoutId);
-          this.statusTimeoutId = null;
-        }
-
-        this.isLoading.set(false);
-
-        if (message.error) {
-          this.error.set(message.error);
-        } else if (message.payload) {
-          // Convert lastModified from ISO string to Date if needed
-          const statusData = message.payload as SetupStatus;
-          this.status.set(statusData);
-          this.error.set(null);
-        } else {
-          this.error.set('Invalid response from backend');
-        }
-      }
-
-      // Handle setup-wizard:launch-response messages
-      if (message.type === 'setup-wizard:launch-response') {
-        // Clear timeout since we received a response
-        if (this.launchTimeoutId) {
-          clearTimeout(this.launchTimeoutId);
-          this.launchTimeoutId = null;
-        }
-
-        this.launching.set(false);
-
-        if (message.error || !message.success) {
-          // Show error notification
-          this.error.set(
-            message.error || 'Failed to launch wizard. Please try again.'
-          );
-        }
-        // If success, wizard is already open - no action needed
-      }
-    };
-
-    window.addEventListener('message', this.messageListener);
-  }
-
-  /**
-   * Launch setup wizard
-   */
-  launchWizard(): void {
+  async launchWizard(): Promise<void> {
     this.launching.set(true);
     this.error.set(null); // Clear any previous errors
 
-    // Set 2-second timeout as fallback (wizard should respond faster)
-    this.launchTimeoutId = window.setTimeout(() => {
-      if (this.launching()) {
-        // Assume success if no error response within 2 seconds
-        // Wizard webview panel might have opened but didn't send response
-        this.launching.set(false);
-      }
-      this.launchTimeoutId = null;
-    }, 2000);
-
     try {
-      this.vscodeService.postMessage({
-        type: 'setup-wizard:launch',
-      });
-    } catch (err) {
-      // Clear timeout on error
-      if (this.launchTimeoutId) {
-        clearTimeout(this.launchTimeoutId);
-        this.launchTimeoutId = null;
-      }
+      const result = await this.rpcService.call<{ success: boolean }>(
+        'setup-wizard:launch',
+        {},
+        { timeout: 5000 }
+      );
 
+      if (!result.isSuccess()) {
+        this.error.set(
+          result.error || 'Failed to launch wizard. Please try again.'
+        );
+      }
+      // If success, wizard is already open - no action needed
+    } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : 'Failed to launch wizard';
       this.error.set(errorMessage);
+    } finally {
       this.launching.set(false);
     }
   }
