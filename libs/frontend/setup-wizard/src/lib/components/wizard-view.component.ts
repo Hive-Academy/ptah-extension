@@ -1,8 +1,30 @@
 /**
- * WizardViewComponent - Main Setup Wizard Container
+ * Wizard View Component - Main container for setup wizard UI.
  *
- * Renders the appropriate step component based on current wizard state.
- * This component is the main entry point for the setup wizard view.
+ * **Responsibilities**:
+ * - Render current wizard step component
+ * - Display step progress indicator
+ * - Handle step navigation (next/previous)
+ * - Coordinate with SetupWizardStateService for state
+ *
+ * **State Management**:
+ * - Current step: `wizardState.currentStep()` signal
+ * - Step index: `wizardState.stepIndex()` signal (for progress indicator)
+ *
+ * **Wizard Steps**:
+ * 1. Welcome - Introduction screen
+ * 2. Scan - Codebase scanning progress
+ * 3. Analysis - Project analysis results
+ * 4. Selection - Agent selection
+ * 5. Generation - Rule generation progress
+ * 6. Completion - Success confirmation
+ *
+ * **Usage**:
+ * ```html
+ * <ptah-wizard-view />
+ * ```
+ *
+ * @see SetupWizardStateService
  */
 
 import { Component, inject, ChangeDetectionStrategy } from '@angular/core';

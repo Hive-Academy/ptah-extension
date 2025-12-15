@@ -181,7 +181,16 @@
       </div>
     </div>
 
-    <!-- Main content area - conditional view rendering -->
+    <!--
+      Main content area - conditional view rendering
+
+      View Switching Contract:
+      - appStateManager.currentView() signal determines visible component
+      - Only ONE component rendered at a time (@switch)
+      - View changes trigger automatic component lifecycle (ngOnInit/ngOnDestroy)
+      - View state persists in respective state services (ChatStore, SetupWizardStateService)
+      - No manual cleanup required - Angular handles component destruction
+    -->
     <div class="flex-1 overflow-hidden">
       @switch (currentView()) { @case ('settings') {
       <ptah-settings />

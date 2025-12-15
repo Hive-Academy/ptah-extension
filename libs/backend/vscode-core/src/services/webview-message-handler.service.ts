@@ -39,29 +39,92 @@ export interface WebviewMessageHandlerConfig {
 /**
  * Shared service for handling webview messages
  *
- * Centralizes common message handling logic:
- * - webview-ready signal processing
- * - RPC request/response routing
- * - Permission response handling
+ * **Triple-Layered Message Routing Architecture:**
  *
- * @example
+ * This service implements a three-tier message routing system to provide flexible,
+ * extensible message handling for all webviews (chat sidebar, wizard panels, etc.).
+ *
+ * **Routing Layers (Execution Order):**
+ *
+ * 1. **Global Layer (Custom Handlers)** - Executed FIRST
+ *    - View-specific handlers provided via `customHandlers` configuration
+ *    - Allows webview to intercept and override default behavior
+ *    - Return `true` to mark message as handled (stops routing)
+ *    - Return `false` to pass message to next layer
+ *
+ * 2. **Common Layer (Default Handlers)** - Executed SECOND (if not handled)
+ *    - Built-in handlers for universal message types:
+ *      - `webview-ready`: Webview initialization signal
+ *      - `rpc:request`, `rpc:call`: RPC method invocation
+ *      - `permission:response`: MCP permission response
+ *      - `chat:permission-response`: SDK permission response
+ *    - All webviews automatically support these message types
+ *
+ * 3. **Fallback Layer** - Executed THIRD (if not handled)
+ *    - Logs unhandled messages for debugging
+ *    - Does not throw errors (allows webview to continue)
+ *
+ * **Execution Flow:**
+ * ```
+ * Message received from webview
+ *   ↓
+ * Try custom handlers (layer 1)
+ *   ↓ (if not handled)
+ * Try default handlers (layer 2)
+ *   ↓ (if not handled)
+ * Log as unhandled (layer 3)
+ * ```
+ *
+ * **Use Cases for Each Layer:**
+ *
+ * **Layer 1 - Custom Handlers (View-Specific Logic):**
+ * - Setup wizard: Handle `wizard:start`, `wizard:submit-selection`, `wizard:cancel`
+ * - Chat sidebar: Handle `chat:send-message`, `chat:cancel-generation`
+ * - Settings panel: Handle `settings:save`, `settings:reset`
+ *
+ * **Layer 2 - Default Handlers (Universal Logic):**
+ * - All webviews: RPC calls, permission responses, ready signals
+ * - No custom code needed for these (handled automatically)
+ *
+ * **Layer 3 - Fallback (Debugging):**
+ * - Helps identify missing handlers during development
+ * - Safe to ignore in production (webview may send informational messages)
+ *
+ * **Code Example:**
  * ```typescript
  * const handler = container.resolve(WebviewMessageHandlerService);
+ *
+ * // Setup message listener with custom handlers (layer 1)
  * handler.setupMessageListener({
  *   webviewId: 'ptah.wizard',
  *   webview: panel.webview,
  *   customHandlers: [
+ *     // Custom handler (layer 1) - executed FIRST
  *     async (msg, webview) => {
- *       if (msg.type === 'wizard:custom') {
- *         // handle custom message
- *         return true; // handled
+ *       if (msg.type === 'wizard:start') {
+ *         await this.handleWizardStart(msg);
+ *         return true; // Handled - stop routing
  *       }
- *       return false; // not handled
+ *       return false; // Not handled - continue to layer 2
  *     }
  *   ],
+ *   // Common handlers (layer 2) - automatic
+ *   // - webview-ready
+ *   // - rpc:request, rpc:call
+ *   // - permission:response, chat:permission-response
+ *
+ *   // Fallback (layer 3) - automatic logging
+ *
  *   onReady: () => console.log('Webview ready!')
  * });
  * ```
+ *
+ * **Benefits of Triple-Layered Routing:**
+ * - **Extensibility**: Custom handlers can override default behavior
+ * - **Reusability**: Common message types handled once for all webviews
+ * - **Debuggability**: Unhandled messages logged for investigation
+ * - **Type Safety**: RPC handler validates message structure
+ * - **Error Isolation**: Errors in one layer don't affect others
  */
 @injectable()
 export class WebviewMessageHandlerService {
@@ -148,6 +211,18 @@ export class WebviewMessageHandlerService {
         `[${webviewId}] Error handling message`,
         error instanceof Error ? error : new Error(String(error))
       );
+
+      // Send error response to webview if message has requestId
+      if (message.requestId || message.correlationId) {
+        const reqId = message.requestId || message.correlationId;
+        await webview.postMessage({
+          type: 'error',
+          requestId: reqId,
+          correlationId: reqId,
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
     }
   }
 
@@ -209,12 +284,11 @@ export class WebviewMessageHandlerService {
     message: any
   ): Promise<void> {
     try {
-      const PERMISSION_PROMPT_SERVICE = Symbol.for('PermissionPromptService');
       const { container } = await import('tsyringe');
 
-      if (container.isRegistered(PERMISSION_PROMPT_SERVICE)) {
+      if (container.isRegistered(TOKENS.PERMISSION_PROMPT_SERVICE)) {
         const permissionService = container.resolve<any>(
-          PERMISSION_PROMPT_SERVICE
+          TOKENS.PERMISSION_PROMPT_SERVICE
         );
         permissionService.resolveRequest(message.payload);
         this.logger.info(`[${webviewId}] Permission response processed`, {

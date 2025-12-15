@@ -1,4 +1,4 @@
-import { Injectable, signal, computed, inject } from '@angular/core';
+import { Injectable, signal, computed, inject, OnDestroy } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
 
 /**
@@ -105,50 +105,98 @@ export interface ErrorState {
 @Injectable({
   providedIn: 'root',
 })
-export class SetupWizardStateService {
+export class SetupWizardStateService implements OnDestroy {
   private readonly vscodeService = inject(VSCodeService);
+
+  /**
+   * Message listener cleanup function.
+   * Called in ngOnDestroy to prevent memory leaks.
+   */
+  private messageListenerCleanup: (() => void) | null = null;
 
   // === State Signals ===
 
   /**
-   * Current wizard step (6 steps total)
+   * Private writable signal for current wizard step (6 steps total)
    */
-  readonly currentStep = signal<WizardStep>('welcome');
+  private readonly currentStepSignal = signal<WizardStep>('welcome');
 
   /**
-   * Detected project context from workspace scan
+   * Private writable signal for detected project context from workspace scan
    */
-  readonly projectContext = signal<ProjectContext | null>(null);
+  private readonly projectContextSignal = signal<ProjectContext | null>(null);
 
   /**
-   * Available agents with selection state
+   * Private writable signal for available agents with selection state
    */
-  readonly availableAgents = signal<AgentSelection[]>([]);
+  private readonly availableAgentsSignal = signal<AgentSelection[]>([]);
 
   /**
-   * Current generation progress (null when not generating)
+   * Private writable signal for current generation progress (null when not generating)
    */
-  readonly generationProgress = signal<GenerationProgress | null>(null);
+  private readonly generationProgressSignal = signal<GenerationProgress | null>(
+    null
+  );
 
   /**
-   * Scan progress tracking (null when not scanning)
+   * Private writable signal for scan progress tracking (null when not scanning)
    */
-  readonly scanProgress = signal<ScanProgress | null>(null);
+  private readonly scanProgressSignal = signal<ScanProgress | null>(null);
 
   /**
-   * Analysis results (null until analysis complete)
+   * Private writable signal for analysis results (null until analysis complete)
    */
-  readonly analysisResults = signal<AnalysisResults | null>(null);
+  private readonly analysisResultsSignal = signal<AnalysisResults | null>(null);
 
   /**
-   * Completion data (null until wizard complete)
+   * Private writable signal for completion data (null until wizard complete)
    */
-  readonly completionData = signal<CompletionData | null>(null);
+  private readonly completionDataSignal = signal<CompletionData | null>(null);
 
   /**
-   * Error state (null when no error)
+   * Private writable signal for error state (null when no error)
    */
-  readonly errorState = signal<ErrorState | null>(null);
+  private readonly errorStateSignal = signal<ErrorState | null>(null);
+
+  /**
+   * Public readonly signal for current wizard step
+   */
+  readonly currentStep = this.currentStepSignal.asReadonly();
+
+  /**
+   * Public readonly signal for detected project context
+   */
+  readonly projectContext = this.projectContextSignal.asReadonly();
+
+  /**
+   * Public readonly signal for available agents
+   */
+  readonly availableAgents = this.availableAgentsSignal.asReadonly();
+
+  /**
+   * Public readonly signal for generation progress
+   */
+  readonly generationProgress = this.generationProgressSignal.asReadonly();
+
+  /**
+   * Public readonly signal for scan progress
+   */
+  readonly scanProgress = this.scanProgressSignal.asReadonly();
+
+  /**
+   * Public readonly signal for analysis results
+   */
+  readonly analysisResults = this.analysisResultsSignal.asReadonly();
+
+  /**
+   * Public readonly signal for completion data
+   */
+  readonly completionData = this.completionDataSignal.asReadonly();
+
+  /**
+   * Public readonly signal for error state
+   */
+  readonly errorState = this.errorStateSignal.asReadonly();
 
   constructor() {
     this.setupMessageListener();
@@ -160,21 +208,21 @@ export class SetupWizardStateService {
    * Selected agents count (for display)
    */
   readonly selectedCount = computed(() => {
-    return this.availableAgents().filter((a) => a.selected).length;
+    return this.availableAgentsSignal().filter((a) => a.selected).length;
   });
 
   /**
    * Can proceed to next step (validation logic)
    */
   readonly canProceed = computed(() => {
-    const step = this.currentStep();
+    const step = this.currentStepSignal();
     switch (step) {
       case 'welcome':
         return true; // Always can start
       case 'scan':
         return false; // Cannot proceed during scan
       case 'analysis':
-        return this.projectContext() !== null; // Need project context
+        return this.projectContextSignal() !== null; // Need project context
       case 'selection':
         return this.selectedCount() > 0; // Need at least one agent
       case 'generation':
@@ -190,8 +238,8 @@ export class SetupWizardStateService {
    * Overall wizard completion percentage (0-100)
    */
   readonly percentComplete = computed(() => {
-    const step = this.currentStep();
-    const progress = this.generationProgress();
+    const step = this.currentStepSignal();
+    const progress = this.generationProgressSignal();
 
     // Base progress from step progression
     const stepProgress: Record<WizardStep, number> = {
@@ -210,7 +258,7 @@ export class SetupWizardStateService {
    * Current step index (0-based) for progress indicator
    */
   readonly stepIndex = computed(() => {
-    const step = this.currentStep();
+    const step = this.currentStepSignal();
     const stepOrder: WizardStep[] = [
       'welcome',
       'scan',
@@ -228,28 +276,28 @@ export class SetupWizardStateService {
    * Set current wizard step
    */
   setCurrentStep(step: WizardStep): void {
-    this.currentStep.set(step);
+    this.currentStepSignal.set(step);
   }
 
   /**
    * Update project context from scan results
    */
   setProjectContext(context: ProjectContext): void {
-    this.projectContext.set(context);
+    this.projectContextSignal.set(context);
   }
 
   /**
    * Set available agents (from backend)
    */
   setAvailableAgents(agents: AgentSelection[]): void {
-    this.availableAgents.set(agents);
+    this.availableAgentsSignal.set(agents);
   }
 
   /**
    * Toggle agent selection
    */
   toggleAgentSelection(agentId: string): void {
-    this.availableAgents.update((agents) =>
+    this.availableAgentsSignal.update((agents) =>
       agents.map((agent) =>
         agent.id === agentId ? { ...agent, selected: !agent.selected } : agent
       )
@@ -260,21 +308,21 @@ export class SetupWizardStateService {
    * Update generation progress
    */
   updateGenerationProgress(progress: GenerationProgress): void {
-    this.generationProgress.set(progress);
+    this.generationProgressSignal.set(progress);
   }
 
   /**
    * Reset wizard state (for restart)
    */
   reset(): void {
-    this.currentStep.set('welcome');
-    this.projectContext.set(null);
-    this.availableAgents.set([]);
-    this.generationProgress.set(null);
-    this.scanProgress.set(null);
-    this.analysisResults.set(null);
-    this.completionData.set(null);
-    this.errorState.set(null);
+    this.currentStepSignal.set('welcome');
+    this.projectContextSignal.set(null);
+    this.availableAgentsSignal.set([]);
+    this.generationProgressSignal.set(null);
+    this.scanProgressSignal.set(null);
+    this.analysisResultsSignal.set(null);
+    this.completionDataSignal.set(null);
+    this.errorStateSignal.set(null);
   }
 
   /**
@@ -282,7 +330,7 @@ export class SetupWizardStateService {
    * Handles all setup-wizard:* messages from the extension backend
    */
   private setupMessageListener(): void {
-    window.addEventListener('message', (event) => {
+    const messageHandler = (event: MessageEvent) => {
       const message = event.data;
 
       // Type guard for message type
@@ -322,12 +370,19 @@ export class SetupWizardStateService {
         }
       } catch (error) {
         console.error('Error handling setup wizard message:', error);
-        this.errorState.set({
+        this.errorStateSignal.set({
           message: 'Failed to process backend message',
           details: error instanceof Error ? error.message : String(error),
         });
       }
-    });
+    };
+
+    window.addEventListener('message', messageHandler);
+
+    // Store cleanup function for ngOnDestroy
+    this.messageListenerCleanup = () => {
+      window.removeEventListener('message', messageHandler);
+    };
   }
 
   /**
@@ -339,8 +394,8 @@ export class SetupWizardStateService {
       return;
     }
 
-    this.scanProgress.set(payload);
-    this.generationProgress.set({
+    this.scanProgressSignal.set(payload);
+    this.generationProgressSignal.set({
       phase: 'analysis',
       percentComplete: Math.round(
         (payload.filesScanned / payload.totalFiles) * 100
@@ -360,9 +415,9 @@ export class SetupWizardStateService {
       return;
     }
 
-    this.analysisResults.set(payload);
-    this.projectContext.set(payload.projectContext);
-    this.currentStep.set('analysis');
+    this.analysisResultsSignal.set(payload);
+    this.projectContextSignal.set(payload.projectContext);
+    this.currentStepSignal.set('analysis');
   }
 
   /**
@@ -374,7 +429,7 @@ export class SetupWizardStateService {
       return;
     }
 
-    this.availableAgents.set(payload.agents);
+    this.availableAgentsSignal.set(payload.agents);
   }
 
   /**
@@ -386,7 +441,7 @@ export class SetupWizardStateService {
       return;
     }
 
-    this.generationProgress.set(payload.progress);
+    this.generationProgressSignal.set(payload.progress);
   }
 
   /**
@@ -398,8 +453,8 @@ export class SetupWizardStateService {
       return;
     }
 
-    this.completionData.set(payload);
-    this.currentStep.set('completion');
+    this.completionDataSignal.set(payload);
+    this.currentStepSignal.set('completion');
   }
 
   /**
@@ -411,7 +466,7 @@ export class SetupWizardStateService {
       return;
     }
 
-    this.errorState.set(payload);
+    this.errorStateSignal.set(payload);
   }
 
   /**
@@ -494,5 +549,16 @@ export class SetupWizardStateService {
       'message' in payload &&
       typeof (payload as ErrorState).message === 'string'
     );
+  }
+
+  /**
+   * Angular lifecycle hook - cleanup on service destruction.
+   * Removes message listener to prevent memory leaks.
+   */
+  ngOnDestroy(): void {
+    if (this.messageListenerCleanup) {
+      this.messageListenerCleanup();
+      this.messageListenerCleanup = null;
+    }
   }
 }

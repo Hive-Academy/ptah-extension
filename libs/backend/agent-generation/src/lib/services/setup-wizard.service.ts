@@ -79,6 +79,12 @@ export class SetupWizardService implements ISetupWizardService {
   private transitionLock = false;
 
   /**
+   * Launch lock to prevent concurrent wizard launch attempts.
+   * Protects against race conditions from rapid command invocations.
+   */
+  private isLaunching = false;
+
+  /**
    * Webview panel view type identifier.
    * Must match the viewType registered in package.json.
    */
@@ -123,9 +129,30 @@ export class SetupWizardService implements ISetupWizardService {
    * @returns Result with void on success, or Error if launch fails
    */
   async launchWizard(workspaceUri: vscode.Uri): Promise<Result<void, Error>> {
+    // Prevent concurrent launches
+    if (this.isLaunching) {
+      this.logger.warn(
+        'Wizard launch already in progress, ignoring duplicate request'
+      );
+      return Result.ok(undefined);
+    }
+
     try {
+      this.isLaunching = true;
+
+      // Validate workspace root is not empty
+      const workspaceRoot = workspaceUri.fsPath;
+      if (!workspaceRoot || workspaceRoot.trim() === '') {
+        this.logger.error('Cannot launch wizard: No workspace folder open');
+        const vscode = await import('vscode');
+        vscode.window.showErrorMessage(
+          'Setup Wizard requires an open workspace folder. Please open a project folder first.'
+        );
+        return Result.err(new Error('No workspace folder open'));
+      }
+
       this.logger.info('Launching setup wizard', {
-        workspace: workspaceUri.fsPath,
+        workspace: workspaceRoot,
       });
 
       // Check for existing session in same workspace
@@ -171,7 +198,7 @@ export class SetupWizardService implements ISetupWizardService {
         workspace: this.currentSession.workspaceRoot,
       });
 
-      // Create webview panel and verify creation succeeded
+      // Create webview panel
       const panel = await this.webviewManager.createWebviewPanel({
         viewType: this.WIZARD_VIEW_TYPE,
         title: 'Ptah Setup Wizard',
@@ -185,7 +212,7 @@ export class SetupWizardService implements ISetupWizardService {
         },
       });
 
-      // Verify panel was created successfully
+      // Verify panel was created successfully (CRITICAL: null check BEFORE any panel access)
       if (!panel) {
         this.logger.error('Failed to create wizard webview panel');
         this.currentSession = null; // Clean up failed session
@@ -194,22 +221,8 @@ export class SetupWizardService implements ISetupWizardService {
         );
       }
 
-      // Set the Angular webview HTML content with setup-wizard as initial view
-      panel.webview.html = this.htmlGenerator.generateAngularWebviewContent(
-        panel.webview,
-        {
-          workspaceInfo: this.htmlGenerator.buildWorkspaceInfo() as Record<
-            string,
-            unknown
-          >,
-          initialView: 'setup-wizard',
-        }
-      );
-      this.logger.debug(
-        'Wizard webview HTML content set with initial view: setup-wizard'
-      );
-
-      // Register RPC message handlers
+      // CRITICAL ORDER: Register listeners BEFORE setting HTML
+      // Prevents race condition where webview sends messages before listeners ready
       panel.webview.onDidReceiveMessage(async (message: any) => {
         switch (message.type) {
           case 'setup-wizard:start':
@@ -227,6 +240,22 @@ export class SetupWizardService implements ISetupWizardService {
             });
         }
       });
+      this.logger.debug('Message listeners registered for wizard');
+
+      // Now safe to load webview content
+      panel.webview.html = this.htmlGenerator.generateAngularWebviewContent(
+        panel.webview,
+        {
+          workspaceInfo: this.htmlGenerator.buildWorkspaceInfo() as Record<
+            string,
+            unknown
+          >,
+          initialView: 'setup-wizard',
+        }
+      );
+      this.logger.debug(
+        'Wizard webview HTML content set with initial view: setup-wizard'
+      );
 
       this.logger.info('Wizard launched successfully', {
         sessionId: this.currentSession.id,
@@ -238,6 +267,9 @@ export class SetupWizardService implements ISetupWizardService {
       return Result.err(
         new Error(`Wizard launch failed: ${(error as Error).message}`)
       );
+    } finally {
+      // Always release launch lock
+      this.isLaunching = false;
     }
   }
 
@@ -429,17 +461,15 @@ export class SetupWizardService implements ISetupWizardService {
         await this.saveSessionState(this.currentSession);
       }
 
-      // Dispose webview
-      this.webviewManager.disposeWebview(this.WIZARD_VIEW_TYPE);
-
-      // Clear session
-      this.currentSession = null;
+      // Clean up resources
+      this.cleanup();
 
       this.logger.info('Wizard cancelled successfully');
 
       return Result.ok(undefined);
     } catch (error) {
       this.logger.error('Failed to cancel wizard', error as Error);
+      this.cleanup(); // Ensure cleanup on errors
       return Result.err(
         new Error(`Wizard cancellation failed: ${(error as Error).message}`)
       );
@@ -493,7 +523,7 @@ export class SetupWizardService implements ISetupWizardService {
         selectedAgentIds: savedState.selectedAgentIds,
       };
 
-      // Re-launch webview at saved step and verify creation succeeded
+      // Re-launch webview at saved step
       const panel = await this.webviewManager.createWebviewPanel({
         viewType: this.WIZARD_VIEW_TYPE,
         title: 'Ptah Setup Wizard (Resumed)',
@@ -507,7 +537,7 @@ export class SetupWizardService implements ISetupWizardService {
         },
       });
 
-      // Verify panel was created successfully
+      // Verify panel was created successfully (CRITICAL: null check BEFORE any panel access)
       if (!panel) {
         this.logger.error('Failed to create wizard webview panel for resume');
         this.currentSession = null; // Clean up failed session
@@ -524,6 +554,7 @@ export class SetupWizardService implements ISetupWizardService {
       return Result.ok(this.currentSession);
     } catch (error) {
       this.logger.error('Failed to resume wizard', error as Error);
+      this.cleanup(); // Ensure cleanup on errors
       return Result.err(
         new Error(`Wizard resume failed: ${(error as Error).message}`)
       );
@@ -585,7 +616,76 @@ export class SetupWizardService implements ISetupWizardService {
   }
 
   /**
+   * Clean up wizard resources.
+   * Made idempotent - safe to call multiple times.
+   *
+   * @private
+   */
+  private cleanup(): void {
+    // Make idempotent - return early if already cleaned up
+    if (!this.currentSession) {
+      this.logger.debug('Cleanup called but no active session, skipping');
+      return;
+    }
+
+    this.logger.debug('Cleaning up wizard resources', {
+      sessionId: this.currentSession.id,
+    });
+
+    // Dispose webview if exists
+    try {
+      this.webviewManager.disposeWebview(this.WIZARD_VIEW_TYPE);
+    } catch (error) {
+      this.logger.warn(
+        'Error disposing webview during cleanup',
+        error as Error
+      );
+    }
+
+    // Clear session state
+    this.currentSession = null;
+    this.transitionLock = false;
+
+    this.logger.debug('Wizard cleanup complete');
+  }
+
+  /**
    * Save wizard session state for resume capability.
+   *
+   * **Workspace State Persistence:**
+   * This method persists wizard progress using VS Code's workspace state API,
+   * enabling users to resume interrupted setup sessions.
+   *
+   * **What Data is Persisted:**
+   * - Session ID (unique identifier)
+   * - Current wizard step (welcome, scan, analysis, select, generate, complete)
+   * - Workspace root path (validates session belongs to current workspace)
+   * - Last activity timestamp (for session expiry validation)
+   * - Project context (detected project type, frameworks, tech stack)
+   * - Selected agent IDs (user's agent selection for generation)
+   *
+   * **Storage Location:**
+   * - Stored in VS Code's workspace state (workspace-specific, not global)
+   * - Key: 'wizard-session-state'
+   * - Persists across VS Code restarts (until workspace is deleted)
+   * - Isolated per workspace (different workspaces have independent sessions)
+   *
+   * **When Persistence Occurs:**
+   * - On wizard cancellation (if user opts to save progress)
+   * - Before any long-running operation (as checkpoint)
+   * - NOT persisted on successful wizard completion (session is cleared)
+   *
+   * **Cleanup Strategy:**
+   * - Sessions expire after 24 hours (MAX_SESSION_AGE_MS)
+   * - Expired sessions are rejected during resume attempt (see isSessionValid)
+   * - Manual cleanup: User can clear workspace state via VS Code commands
+   * - Automatic cleanup: On workspace deletion or extension uninstall
+   *
+   * **Resume Flow:**
+   * 1. User launches wizard in workspace
+   * 2. Service checks for saved state (loadSavedState)
+   * 3. If valid state exists, offer resume option in UI
+   * 4. If user accepts, restore session and skip to saved step
    *
    * @param session - Wizard session to save
    * @private
@@ -611,6 +711,28 @@ export class SetupWizardService implements ISetupWizardService {
 
   /**
    * Load saved wizard session state for a workspace.
+   *
+   * **Workspace State Retrieval:**
+   * Retrieves previously saved wizard session state from VS Code workspace storage.
+   * Validates that the saved state belongs to the current workspace before returning.
+   *
+   * **Workspace Isolation:**
+   * - Each workspace has its own saved state (isolated storage)
+   * - Opening wizard in different workspace will NOT load other workspace's state
+   * - Workspace root path validation prevents cross-workspace state leakage
+   *
+   * **Return Behavior:**
+   * - Returns saved state if exists AND workspace matches
+   * - Returns undefined if no saved state exists
+   * - Returns undefined if saved state is for different workspace
+   *
+   * **Usage in Resume Flow:**
+   * ```typescript
+   * const savedState = await this.loadSavedState(workspaceUri.fsPath);
+   * if (savedState && this.isSessionValid(savedState)) {
+   *   // Offer resume option in UI
+   * }
+   * ```
    *
    * @param workspaceRoot - Workspace root to load state for
    * @returns Saved wizard state, or undefined if none exists
@@ -643,6 +765,30 @@ export class SetupWizardService implements ISetupWizardService {
 
   /**
    * Validate wizard session state is still valid (not expired).
+   *
+   * **Session Expiry Policy:**
+   * - Sessions expire after 24 hours (MAX_SESSION_AGE_MS = 24 * 60 * 60 * 1000)
+   * - Expiry is based on last activity timestamp (saved during cancelWizard)
+   * - Expired sessions cannot be resumed (user must start fresh wizard)
+   *
+   * **Why 24 Hours?**
+   * - Balances user convenience (resume next day) with data staleness
+   * - Prevents resuming with outdated workspace analysis
+   * - Reduces risk of corrupted state from workspace changes
+   *
+   * **Validation Checks:**
+   * 1. Session age < 24 hours (primary check)
+   * 2. Future: Could add workspace integrity checks (file count, git commit hash)
+   *
+   * **Expiry Handling:**
+   * ```typescript
+   * if (!this.isSessionValid(savedState)) {
+   *   // Clear expired state
+   *   await this.context.workspaceState.update(SESSION_STATE_KEY, undefined);
+   *   // User must start fresh wizard
+   *   return Result.err(new Error('Saved session expired'));
+   * }
+   * ```
    *
    * @param state - Wizard state to validate
    * @returns True if session is valid and can be resumed

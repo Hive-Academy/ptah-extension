@@ -76,6 +76,23 @@ export class WebviewHtmlGenerator {
     workspaceInfo?: Record<string, unknown>,
     initialView?: string
   ): string {
+    // CRITICAL: Validate initialView to prevent invalid views from crashing navigation
+    const VALID_VIEWS = [
+      'chat',
+      'command-builder',
+      'analytics',
+      'context-tree',
+      'settings',
+      'setup-wizard',
+    ];
+
+    if (initialView && !VALID_VIEWS.includes(initialView)) {
+      throw new Error(
+        `Invalid initialView: "${initialView}". Valid values are: ${VALID_VIEWS.join(
+          ', '
+        )}`
+      );
+    }
     // Path to Angular dist folder (browser build output)
     // FIXED: context.extensionPath already points to dist/apps/ptah-extension-vscode
     const appDistPath = path.join(

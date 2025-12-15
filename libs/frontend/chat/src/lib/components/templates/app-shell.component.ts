@@ -41,6 +41,23 @@ import type { ChatSessionSummary } from '@ptah-extension/shared';
  * Optimized for VS Code sidebar panel width constraints.
  *
  * Displays session list in sidebar with active session highlighting.
+ *
+ * **View Switching Architecture**:
+ * - Renders ONE view at a time via @switch directive
+ * - View determined by AppStateManager.currentView() signal
+ * - Supported views: 'chat' (default), 'settings', 'setup-wizard'
+ * - Component lifecycle managed automatically (ngOnInit/ngOnDestroy)
+ * - View state persists in respective state services
+ *
+ * **Signal Dependencies**:
+ * - currentView: AppStateManager.currentView (determines active view)
+ * - sidebarOpen: Local signal for sidebar visibility
+ * - chatStore.sessions: Session list for sidebar
+ *
+ * @see AppStateManager
+ * @see ChatViewComponent
+ * @see SettingsComponent
+ * @see WizardViewComponent
  */
 @Component({
   selector: 'ptah-app-shell',

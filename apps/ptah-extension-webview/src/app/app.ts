@@ -110,12 +110,36 @@ export class App implements OnInit, OnDestroy {
 
     // Check for initialView in ptahConfig (set by extension for specific views like wizard)
     const ptahConfig = (window as any).ptahConfig;
-    const initialView = ptahConfig?.initialView as ViewType | null;
+    const rawInitialView = ptahConfig?.initialView;
 
-    // Use configured initial view or default to 'chat'
-    const targetView: ViewType = initialView || 'chat';
+    // CRITICAL: Validate initialView at runtime with graceful degradation
+    const VALID_VIEWS: ViewType[] = [
+      'chat',
+      'command-builder',
+      'analytics',
+      'context-tree',
+      'settings',
+      'setup-wizard',
+    ];
+    const isValidView =
+      rawInitialView && VALID_VIEWS.includes(rawInitialView as ViewType);
+
+    // Use configured initial view if valid, otherwise default to 'chat'
+    const targetView: ViewType = isValidView
+      ? (rawInitialView as ViewType)
+      : 'chat';
+
+    if (rawInitialView && !isValidView) {
+      console.warn(
+        `Invalid initialView "${rawInitialView}" in ptahConfig. Valid values are: ${VALID_VIEWS.join(
+          ', '
+        )}. Defaulting to 'chat'.`
+      );
+    }
+
     console.log(`Initial view target: ${targetView}`, {
-      fromConfig: !!initialView,
+      fromConfig: !!rawInitialView,
+      wasValid: isValidView,
     });
 
     const success = await this.navigationService.navigateToView(targetView);

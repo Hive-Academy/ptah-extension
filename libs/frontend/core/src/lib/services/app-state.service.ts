@@ -57,6 +57,38 @@ export class AppStateManager {
     return workspace ? `Ptah - ${workspace.name}` : 'Ptah';
   });
 
+  /**
+   * Initialize application state from window object augmentation.
+   *
+   * **Window Augmentation for Debugging:**
+   * The extension backend can inject initial state into the webview by augmenting
+   * the window object before the Angular app bootstraps. This is useful for:
+   * - Setting initial view based on command context (e.g., open wizard directly)
+   * - Debugging webview initialization in VS Code DevTools
+   * - Testing different initial states during development
+   *
+   * **Usage in Extension:**
+   * ```typescript
+   * panel.webview.html = generateHtml({
+   *   workspaceInfo: {...},
+   *   initialView: 'setup-wizard' // Sets window.initialView before app loads
+   * });
+   * ```
+   *
+   * **DevTools Debugging:**
+   * You can inspect/modify window.initialView in Chrome DevTools before app loads:
+   * ```javascript
+   * // In VS Code DevTools console (before app bootstrap)
+   * window.initialView = 'analytics'; // Force initial view
+   * ```
+   *
+   * **Production Warning:**
+   * This pattern is safe for production as it only reads from window during
+   * initialization. However, avoid writing to window after app bootstrap as it
+   * bypasses Angular's change detection.
+   *
+   * @private
+   */
   private initializeState(): void {
     const windowWithState = window as Window & { initialView?: ViewType };
     const initialView = windowWithState.initialView || 'chat';
