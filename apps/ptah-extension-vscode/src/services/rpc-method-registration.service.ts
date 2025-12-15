@@ -1332,12 +1332,12 @@ export class RpcMethodRegistrationService {
    * TASK_2025_073 Batch 5: RPC handlers for webview API key management
    */
   private registerLlmProviderMethods(): void {
-    // llm.getProviderStatus - Get status of all LLM providers (without exposing API keys)
+    // llm:getProviderStatus - Get status of all LLM providers (without exposing API keys)
     this.rpcHandler.registerMethod<void, unknown>(
-      'llm.getProviderStatus',
+      'llm:getProviderStatus',
       async () => {
         try {
-          this.logger.debug('RPC: llm.getProviderStatus called');
+          this.logger.debug('RPC: llm:getProviderStatus called');
 
           const handlers = this.container.resolve<LlmRpcHandlers>(
             TOKENS.LLM_RPC_HANDLERS
@@ -1347,7 +1347,7 @@ export class RpcMethodRegistrationService {
           return statuses;
         } catch (error) {
           this.logger.error(
-            'RPC: llm.getProviderStatus failed',
+            'RPC: llm:getProviderStatus failed',
             error instanceof Error ? error : new Error(String(error))
           );
           throw error;
@@ -1355,13 +1355,13 @@ export class RpcMethodRegistrationService {
       }
     );
 
-    // llm.setApiKey - Set API key for a provider
+    // llm:setApiKey - Set API key for a provider
     this.rpcHandler.registerMethod<SetApiKeyRequest, SetApiKeyResponse>(
-      'llm.setApiKey',
+      'llm:setApiKey',
       async (request: SetApiKeyRequest) => {
         try {
           // SECURITY: Never log the actual API key
-          this.logger.debug('RPC: llm.setApiKey called', {
+          this.logger.debug('RPC: llm:setApiKey called', {
             provider: request.provider,
           });
 
@@ -1373,7 +1373,7 @@ export class RpcMethodRegistrationService {
           return result;
         } catch (error) {
           this.logger.error(
-            'RPC: llm.setApiKey failed',
+            'RPC: llm:setApiKey failed',
             error instanceof Error ? error : new Error(String(error))
           );
           return {
@@ -1384,12 +1384,12 @@ export class RpcMethodRegistrationService {
       }
     );
 
-    // llm.removeApiKey - Remove API key for a provider
+    // llm:removeApiKey - Remove API key for a provider
     this.rpcHandler.registerMethod<LlmProviderName, SetApiKeyResponse>(
-      'llm.removeApiKey',
+      'llm:removeApiKey',
       async (provider: LlmProviderName) => {
         try {
-          this.logger.debug('RPC: llm.removeApiKey called', { provider });
+          this.logger.debug('RPC: llm:removeApiKey called', { provider });
 
           const handlers = this.container.resolve<LlmRpcHandlers>(
             TOKENS.LLM_RPC_HANDLERS
@@ -1399,7 +1399,7 @@ export class RpcMethodRegistrationService {
           return result;
         } catch (error) {
           this.logger.error(
-            'RPC: llm.removeApiKey failed',
+            'RPC: llm:removeApiKey failed',
             error instanceof Error ? error : new Error(String(error))
           );
           return {
@@ -1410,12 +1410,12 @@ export class RpcMethodRegistrationService {
       }
     );
 
-    // llm.getDefaultProvider - Get default provider from settings
+    // llm:getDefaultProvider - Get default provider from settings
     this.rpcHandler.registerMethod<void, LlmProviderName>(
-      'llm.getDefaultProvider',
+      'llm:getDefaultProvider',
       async () => {
         try {
-          this.logger.debug('RPC: llm.getDefaultProvider called');
+          this.logger.debug('RPC: llm:getDefaultProvider called');
 
           const handlers = this.container.resolve<LlmRpcHandlers>(
             TOKENS.LLM_RPC_HANDLERS
@@ -1425,7 +1425,7 @@ export class RpcMethodRegistrationService {
           return provider;
         } catch (error) {
           this.logger.error(
-            'RPC: llm.getDefaultProvider failed',
+            'RPC: llm:getDefaultProvider failed',
             error instanceof Error ? error : new Error(String(error))
           );
           throw error;
@@ -1433,16 +1433,16 @@ export class RpcMethodRegistrationService {
       }
     );
 
-    // llm.validateApiKeyFormat - Validate API key format (without storing)
+    // llm:validateApiKeyFormat - Validate API key format (without storing)
     this.rpcHandler.registerMethod<
       { provider: LlmProviderName; apiKey: string },
       { valid: boolean; error?: string }
     >(
-      'llm.validateApiKeyFormat',
+      'llm:validateApiKeyFormat',
       async (params: { provider: LlmProviderName; apiKey: string }) => {
         try {
           // SECURITY: Never log the actual API key
-          this.logger.debug('RPC: llm.validateApiKeyFormat called', {
+          this.logger.debug('RPC: llm:validateApiKeyFormat called', {
             provider: params.provider,
           });
 
@@ -1457,7 +1457,7 @@ export class RpcMethodRegistrationService {
           return result;
         } catch (error) {
           this.logger.error(
-            'RPC: llm.validateApiKeyFormat failed',
+            'RPC: llm:validateApiKeyFormat failed',
             error instanceof Error ? error : new Error(String(error))
           );
           return {
@@ -1470,11 +1470,11 @@ export class RpcMethodRegistrationService {
 
     this.logger.info('LLM provider RPC handlers registered', {
       methods: [
-        'llm.getProviderStatus',
-        'llm.setApiKey',
-        'llm.removeApiKey',
-        'llm.getDefaultProvider',
-        'llm.validateApiKeyFormat',
+        'llm:getProviderStatus',
+        'llm:setApiKey',
+        'llm:removeApiKey',
+        'llm:getDefaultProvider',
+        'llm:validateApiKeyFormat',
       ],
     });
   }

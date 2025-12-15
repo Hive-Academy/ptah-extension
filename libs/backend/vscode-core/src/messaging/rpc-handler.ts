@@ -51,6 +51,7 @@ const ALLOWED_METHOD_PREFIXES = [
   'auth:',
   'setup-status:',
   'setup-wizard:',
+  'llm:', // TASK_2025_073: LLM provider management (API keys, provider status)
 ] as const;
 
 /**
