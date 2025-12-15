@@ -25,7 +25,11 @@ import * as vscode from 'vscode';
 import { TOKENS } from '@ptah-extension/vscode-core';
 
 // Import Logger (must be registered directly - cannot be in registration function)
-import { Logger, SdkRpcHandlers } from '@ptah-extension/vscode-core';
+import {
+  Logger,
+  SdkRpcHandlers,
+  LlmRpcHandlers,
+} from '@ptah-extension/vscode-core';
 
 // Import app-level RPC service (requires container instance - cannot be in registration function)
 import { RpcMethodRegistrationService } from '../services/rpc-method-registration.service';
@@ -158,6 +162,10 @@ export class DIContainer {
     // FIXES: LlmService was never registered before this task
     // This registration function was created but NEVER called in container.ts
     registerLlmAbstractionServices(container, logger);
+
+    // Register LlmRpcHandlers (TASK_2025_073 Batch 5)
+    // Must come AFTER llm-abstraction (depends on LLM_SECRETS_SERVICE, LLM_CONFIGURATION_SERVICE)
+    container.registerSingleton(TOKENS.LLM_RPC_HANDLERS, LlmRpcHandlers);
 
     // ========================================
     // PHASE 2.10: Template Generation Services (TASK_2025_071)

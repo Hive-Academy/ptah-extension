@@ -24,6 +24,10 @@ import {
   TOKENS,
   ConfigManager,
   CommandManager,
+  LlmRpcHandlers,
+  SetApiKeyRequest,
+  SetApiKeyResponse,
+  LlmProviderName,
 } from '@ptah-extension/vscode-core';
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { SdkAgentAdapter, SdkSessionStorage } from '@ptah-extension/agent-sdk';
@@ -248,6 +252,7 @@ export class RpcMethodRegistrationService {
     this.registerModelAndAutopilotMethods();
     this.registerAuthMethods();
     this.registerSetupStatusHandlers();
+    this.registerLlmProviderMethods(); // TASK_2025_073 Batch 5
 
     this.logger.info('RPC methods registered (SDK-only mode)', {
       methods: this.rpcHandler.getRegisteredMethods(),
@@ -1320,5 +1325,157 @@ export class RpcMethodRegistrationService {
     );
 
     this.logger.info('Setup status RPC handlers registered');
+  }
+
+  /**
+   * Register LLM provider management RPC methods
+   * TASK_2025_073 Batch 5: RPC handlers for webview API key management
+   */
+  private registerLlmProviderMethods(): void {
+    // llm.getProviderStatus - Get status of all LLM providers (without exposing API keys)
+    this.rpcHandler.registerMethod<void, unknown>(
+      'llm.getProviderStatus',
+      async () => {
+        try {
+          this.logger.debug('RPC: llm.getProviderStatus called');
+
+          const handlers = this.container.resolve<LlmRpcHandlers>(
+            TOKENS.LLM_RPC_HANDLERS
+          );
+          const statuses = await handlers.getProviderStatus();
+
+          return statuses;
+        } catch (error) {
+          this.logger.error(
+            'RPC: llm.getProviderStatus failed',
+            error instanceof Error ? error : new Error(String(error))
+          );
+          throw error;
+        }
+      }
+    );
+
+    // llm.setApiKey - Set API key for a provider
+    this.rpcHandler.registerMethod<SetApiKeyRequest, SetApiKeyResponse>(
+      'llm.setApiKey',
+      async (request: SetApiKeyRequest) => {
+        try {
+          // SECURITY: Never log the actual API key
+          this.logger.debug('RPC: llm.setApiKey called', {
+            provider: request.provider,
+          });
+
+          const handlers = this.container.resolve<LlmRpcHandlers>(
+            TOKENS.LLM_RPC_HANDLERS
+          );
+          const result = await handlers.setApiKey(request);
+
+          return result;
+        } catch (error) {
+          this.logger.error(
+            'RPC: llm.setApiKey failed',
+            error instanceof Error ? error : new Error(String(error))
+          );
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+    );
+
+    // llm.removeApiKey - Remove API key for a provider
+    this.rpcHandler.registerMethod<LlmProviderName, SetApiKeyResponse>(
+      'llm.removeApiKey',
+      async (provider: LlmProviderName) => {
+        try {
+          this.logger.debug('RPC: llm.removeApiKey called', { provider });
+
+          const handlers = this.container.resolve<LlmRpcHandlers>(
+            TOKENS.LLM_RPC_HANDLERS
+          );
+          const result = await handlers.removeApiKey(provider);
+
+          return result;
+        } catch (error) {
+          this.logger.error(
+            'RPC: llm.removeApiKey failed',
+            error instanceof Error ? error : new Error(String(error))
+          );
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+    );
+
+    // llm.getDefaultProvider - Get default provider from settings
+    this.rpcHandler.registerMethod<void, LlmProviderName>(
+      'llm.getDefaultProvider',
+      async () => {
+        try {
+          this.logger.debug('RPC: llm.getDefaultProvider called');
+
+          const handlers = this.container.resolve<LlmRpcHandlers>(
+            TOKENS.LLM_RPC_HANDLERS
+          );
+          const provider = handlers.getDefaultProvider();
+
+          return provider;
+        } catch (error) {
+          this.logger.error(
+            'RPC: llm.getDefaultProvider failed',
+            error instanceof Error ? error : new Error(String(error))
+          );
+          throw error;
+        }
+      }
+    );
+
+    // llm.validateApiKeyFormat - Validate API key format (without storing)
+    this.rpcHandler.registerMethod<
+      { provider: LlmProviderName; apiKey: string },
+      { valid: boolean; error?: string }
+    >(
+      'llm.validateApiKeyFormat',
+      async (params: { provider: LlmProviderName; apiKey: string }) => {
+        try {
+          // SECURITY: Never log the actual API key
+          this.logger.debug('RPC: llm.validateApiKeyFormat called', {
+            provider: params.provider,
+          });
+
+          const handlers = this.container.resolve<LlmRpcHandlers>(
+            TOKENS.LLM_RPC_HANDLERS
+          );
+          const result = handlers.validateApiKeyFormat(
+            params.provider,
+            params.apiKey
+          );
+
+          return result;
+        } catch (error) {
+          this.logger.error(
+            'RPC: llm.validateApiKeyFormat failed',
+            error instanceof Error ? error : new Error(String(error))
+          );
+          return {
+            valid: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+    );
+
+    this.logger.info('LLM provider RPC handlers registered', {
+      methods: [
+        'llm.getProviderStatus',
+        'llm.setApiKey',
+        'llm.removeApiKey',
+        'llm.getDefaultProvider',
+        'llm.validateApiKeyFormat',
+      ],
+    });
   }
 }

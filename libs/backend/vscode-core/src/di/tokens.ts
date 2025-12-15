@@ -96,6 +96,7 @@ export const LLM_SERVICE = Symbol.for('LlmService');
 export const PROVIDER_REGISTRY = Symbol.for('ProviderRegistry');
 export const LLM_SECRETS_SERVICE = Symbol.for('LlmSecretsService');
 export const LLM_CONFIGURATION_SERVICE = Symbol.for('LlmConfigurationService');
+export const LLM_RPC_HANDLERS = Symbol.for('LlmRpcHandlers');
 
 // ========================================
 // Template Generation Service Tokens
@@ -257,6 +258,7 @@ export const TOKENS = {
   PROVIDER_REGISTRY,
   LLM_SECRETS_SERVICE,
   LLM_CONFIGURATION_SERVICE,
+  LLM_RPC_HANDLERS,
 
   // ========================================
   // Template Generation

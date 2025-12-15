@@ -62,6 +62,15 @@ export type {
 export { RpcHandler, SdkRpcHandlers } from './messaging';
 export type { RpcMessage, RpcResponse, RpcMethodHandler } from './messaging';
 
+// RPC handlers (TASK_2025_073 Batch 5)
+export { LlmRpcHandlers } from './rpc/llm-rpc-handlers';
+export type {
+  LlmProviderName,
+  LlmProviderStatus,
+  SetApiKeyRequest,
+  SetApiKeyResponse,
+} from './rpc/llm-rpc-handlers';
+
 // Agent Session Watcher (real-time summary streaming)
 export { AgentSessionWatcherService } from './services/agent-session-watcher.service';
 export type { AgentSummaryChunk } from './services/agent-session-watcher.service';
