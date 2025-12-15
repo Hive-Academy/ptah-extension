@@ -84,3 +84,10 @@ export type {
   CustomMessageHandler,
   WebviewMessageHandlerConfig,
 } from './services/webview-message-handler.service';
+
+// Auth Secrets Service (TASK_2025_076)
+export { AuthSecretsService } from './services/auth-secrets.service';
+export type {
+  IAuthSecretsService,
+  AuthCredentialType,
+} from './services/auth-secrets.service';

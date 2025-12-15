@@ -99,6 +99,11 @@ export const LLM_CONFIGURATION_SERVICE = Symbol.for('LlmConfigurationService');
 export const LLM_RPC_HANDLERS = Symbol.for('LlmRpcHandlers');
 
 // ========================================
+// Auth Secrets Service Token (TASK_2025_076)
+// ========================================
+export const AUTH_SECRETS_SERVICE = Symbol.for('AuthSecretsService');
+
+// ========================================
 // Template Generation Service Tokens
 // ========================================
 // TASK_2025_071 Batch 5: Dedicated token for template-generation's FileSystemAdapter
@@ -261,6 +266,9 @@ export const TOKENS = {
   LLM_SECRETS_SERVICE,
   LLM_CONFIGURATION_SERVICE,
   LLM_RPC_HANDLERS,
+
+  // Auth Secrets (TASK_2025_076)
+  AUTH_SECRETS_SERVICE,
 
   // ========================================
   // Template Generation
