@@ -47,15 +47,24 @@ gsap.registerPlugin(ScrollTrigger);
   template: `
     <section
       #sectionRef
-      class="relative min-h-screen flex items-center justify-center bg-base-100 overflow-hidden"
+      class="relative min-h-screen flex items-center justify-center overflow-hidden"
+      style="
+        background-color: #0a0a0a;
+        background-image:
+          url('assets/hero/circuit_corner_topleft.png'),
+          url('assets/hero/circuit_corner_bottomright.png');
+        background-position: top left, bottom right;
+        background-repeat: no-repeat;
+        background-size: 500px, 500px;
+      "
     >
-      <!-- Three.js Egyptian Scene Background -->
-      <app-hero-scene class="absolute inset-0 z-0" />
+      <!-- Three.js Golden Sphere Scene -->
+      <app-hero-scene class="absolute inset-0 z-[1]" />
 
       <!-- Gradient Overlay for text readability -->
-      <div class="absolute inset-0 z-[1] pointer-events-none">
+      <div class="absolute inset-0 z-[2] pointer-events-none">
         <div
-          class="absolute inset-0 bg-gradient-to-b from-base-100/30 via-transparent to-base-100/50"
+          class="absolute inset-0 bg-gradient-to-b from-base-100/20 via-transparent to-base-100/40"
         ></div>
       </div>
 
@@ -254,9 +263,9 @@ export class HeroSectionComponent {
     }, this.sectionRef().nativeElement);
 
     // Register cleanup on component destroy
+    // Note: gsapContext.revert() automatically kills all ScrollTriggers created within this context
+    // Do NOT use ScrollTrigger.getAll().forEach() as it kills ALL triggers globally
     this.destroyRef.onDestroy(() => {
-      // Kill all ScrollTriggers associated with this context
-      ScrollTrigger.getAll().forEach((trigger) => trigger.kill());
       this.gsapContext?.revert();
     });
   }

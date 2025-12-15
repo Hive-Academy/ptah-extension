@@ -404,4 +404,82 @@ export class LlmRpcHandlers {
       return { valid: false, error: message };
     }
   }
+
+  /**
+   * List available VS Code language models
+   *
+   * Queries VS Code's Language Model API for available models.
+   * Returns models in vendor/family format for UI display.
+   *
+   * @returns Array of available model identifiers (e.g., ['copilot/gpt-4o', 'copilot/gpt-4o-mini'])
+   *
+   * @example
+   * ```typescript
+   * const models = await rpcHandlers.listVsCodeModels();
+   * models.forEach(m => console.log(`Available: ${m}`));
+   * ```
+   */
+  async listVsCodeModels(): Promise<VsCodeModelInfo[]> {
+    try {
+      this.logger.debug(
+        '[LlmRpcHandlers.listVsCodeModels] Querying available models'
+      );
+
+      // Import vscode dynamically to avoid issues if not in extension context
+      const vscode = await import('vscode');
+
+      // Query all available chat models
+      const models = await vscode.lm.selectChatModels();
+
+      // Transform to response format
+      const modelInfos: VsCodeModelInfo[] = models.map((m) => ({
+        id: `${m.vendor}/${m.family}`,
+        vendor: m.vendor,
+        family: m.family,
+        version: m.version,
+        maxInputTokens: m.maxInputTokens,
+        displayName: `${m.vendor}/${m.family}${
+          m.version ? ` (${m.version})` : ''
+        }`,
+      }));
+
+      this.logger.debug(
+        '[LlmRpcHandlers.listVsCodeModels] Found available models',
+        {
+          count: modelInfos.length,
+          models: modelInfos.map((m) => m.id),
+        }
+      );
+
+      return modelInfos;
+    } catch (error) {
+      this.logger.error(
+        '[LlmRpcHandlers.listVsCodeModels] Failed to list models',
+        {
+          error: error instanceof Error ? error.message : String(error),
+        }
+      );
+
+      // Return empty array on error
+      return [];
+    }
+  }
+}
+
+/**
+ * VS Code model information
+ */
+export interface VsCodeModelInfo {
+  /** Model identifier in vendor/family format */
+  id: string;
+  /** Model vendor (e.g., 'copilot') */
+  vendor: string;
+  /** Model family (e.g., 'gpt-4o') */
+  family: string;
+  /** Model version if available */
+  version?: string;
+  /** Maximum input tokens supported */
+  maxInputTokens?: number;
+  /** Display name for UI */
+  displayName: string;
 }

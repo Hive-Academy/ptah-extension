@@ -59,13 +59,16 @@ export const PROVIDER_DISPLAY_NAMES: Record<LlmProviderName, string> = {
  * @remarks
  * These are fallback defaults when no model is specified in settings.
  * Users can override these via VS Code settings.
+ *
+ * For vscode-lm, the format is 'vendor/family' (e.g., 'copilot/gpt-4o').
+ * This allows the provider to correctly select models from VS Code's LM API.
  */
 export const DEFAULT_MODELS: Record<LlmProviderName, string> = {
   anthropic: 'claude-sonnet-4-20250514',
   openai: 'gpt-4o',
   'google-genai': 'gemini-1.5-pro',
   openrouter: 'anthropic/claude-sonnet-4',
-  'vscode-lm': 'copilot-gpt-4o',
+  'vscode-lm': 'copilot/gpt-4o', // Format: vendor/family for VS Code LM API
 } as const;
 
 /**

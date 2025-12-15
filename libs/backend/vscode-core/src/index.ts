@@ -69,6 +69,7 @@ export type {
   LlmProviderStatus,
   SetApiKeyRequest,
   SetApiKeyResponse,
+  VsCodeModelInfo,
 } from './rpc/llm-rpc-handlers';
 
 // Agent Session Watcher (real-time summary streaming)

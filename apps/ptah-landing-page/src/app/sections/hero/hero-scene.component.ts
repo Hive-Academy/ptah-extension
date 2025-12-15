@@ -8,35 +8,18 @@ import {
   inject,
 } from '@angular/core';
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import gsap from 'gsap';
 
 /**
- * HeroSceneComponent - Golden Ankh 3D Scene with Particle Halo
+ * HeroSceneComponent - Clean rebuild with three-nebula
  *
- * COMPLEXITY LEVEL: 3 (Complex - Post-processing, procedural geometry, 500 particles)
- *
- * Features:
- * - Loads Golden Ankh GLTF model with procedural fallback
- * - 500-particle spherical halo with additive blending
- * - UnrealBloomPass post-processing for golden glow
- * - Radial gradient background (obsidian → gold)
- * - OrbitControls for user interaction (auto-rotate enabled)
- * - Mouse parallax for subtle camera movement
- * - Proper WebGL resource disposal
- *
- * Accessibility:
- * - Respects prefers-reduced-motion (disables auto-rotate)
- * - Canvas is decorative (aria-hidden handled by parent)
- *
- * Performance:
- * - 500 particles optimized with BufferGeometry
- * - Pixel ratio capped at 2x
- * - Post-processing with optimized bloom settings
- * - RAF animation loop with proper cleanup
+ * Simple, focused implementation:
+ * - One central textured sphere with ankh image
+ * - Golden nebula particle system using three-nebula
+ * - Bloom post-processing for glow effect
  */
 @Component({
   selector: 'app-hero-scene',
@@ -58,366 +41,389 @@ export class HeroSceneComponent {
     viewChild.required<ElementRef<HTMLCanvasElement>>('canvas');
   private readonly destroyRef = inject(DestroyRef);
 
-  // Three.js scene objects
+  // Three.js core
   private renderer?: THREE.WebGLRenderer;
   private scene?: THREE.Scene;
   private camera?: THREE.PerspectiveCamera;
-  private controls?: OrbitControls;
-  private ankhModel?: THREE.Object3D;
-  private particles?: THREE.Points;
   private composer?: EffectComposer;
   private animationId?: number;
   private clock = new THREE.Clock();
 
-  // Mouse parallax state
+  // Scene objects
+  private centralSphere?: THREE.Mesh;
+  private particles?: THREE.Points;
+  private floatTimeline?: gsap.core.Timeline;
+
+  // Mouse parallax
   private mouseX = 0;
   private mouseY = 0;
-  private targetCameraX = 0;
-  private targetCameraY = 0;
+
+  // Cleanup
+  private boundMouseMove?: (e: MouseEvent) => void;
+  private boundResize?: () => void;
+  private isTabVisible = true;
 
   constructor() {
     afterNextRender(() => this.initScene());
   }
 
-  /**
-   * Initialize Three.js scene with Egyptian island model
-   */
   private async initScene(): Promise<void> {
     const canvas = this.canvasRef().nativeElement;
-    const prefersReducedMotion = window.matchMedia(
-      '(prefers-reduced-motion: reduce)'
-    ).matches;
 
-    // Setup renderer with gradient background
+    // Setup renderer
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: true,
-      alpha: false,
+      alpha: true,
+      powerPreference: 'high-performance',
     });
     this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.2;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-    // Setup scene with radial gradient background
+    // Scene with dark background
     this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x080808);
 
-    // Create radial gradient background (obsidian → gold glow)
-    this.scene.background = this.createRadialGradientTexture();
-
-    // Setup camera - positioned for Golden Ankh focal point
+    // Camera
     this.camera = new THREE.PerspectiveCamera(
-      65, // Wider FOV for dramatic effect
+      50,
       canvas.clientWidth / canvas.clientHeight,
       0.1,
       1000
     );
-    // Camera positioned to showcase Ankh and particle halo
-    this.camera.position.set(0, 3, 8);
+    this.camera.position.set(0, 0, 6);
     this.camera.lookAt(0, 0, 0);
 
-    // Setup OrbitControls for user interaction
-    this.controls = new OrbitControls(this.camera, canvas);
-    this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.05;
-    this.controls.enableZoom = false; // Disable zoom for landing page
-    this.controls.enablePan = false; // Disable pan
-    this.controls.autoRotate = !prefersReducedMotion; // Auto-rotate unless reduced motion
-    this.controls.autoRotateSpeed = 0.5; // Rotation speed for Ankh showcase
-    this.controls.minPolarAngle = Math.PI / 4; // Limit vertical rotation
-    this.controls.maxPolarAngle = Math.PI / 2.2;
-    // Target center of Ankh
-    this.controls.target.set(0, 0, 0);
-
-    // Add lighting
+    // Lighting
     this.setupLighting();
 
-    // Load the Golden Ankh model
-    await this.loadAnkhModel();
+    // Central sphere with ankh texture
+    this.createCentralSphere();
 
-    // Add spherical particle halo (500 particles)
-    this.addAnkhParticleHalo();
+    // Golden particle nebula
+    this.createNebulaParticles();
 
-    // Setup post-processing bloom effect
-    this.setupBloomEffect();
+    // Post-processing bloom
+    this.setupPostProcessing();
+
+    // Float animation
+    this.startFloatAnimation();
 
     // Event listeners
-    window.addEventListener('mousemove', this.onMouseMove);
-    window.addEventListener('resize', this.onResize);
+    this.boundMouseMove = this.onMouseMove.bind(this);
+    this.boundResize = this.onResize.bind(this);
+    window.addEventListener('mousemove', this.boundMouseMove);
+    window.addEventListener('resize', this.boundResize);
 
-    // Start animation loop
+    document.addEventListener('visibilitychange', () => {
+      this.isTabVisible = !document.hidden;
+    });
+
+    // Start animation
     this.animate();
 
-    // Cleanup on destroy
-    this.destroyRef.onDestroy(() => {
-      if (this.animationId) {
-        cancelAnimationFrame(this.animationId);
-      }
-      window.removeEventListener('mousemove', this.onMouseMove);
-      window.removeEventListener('resize', this.onResize);
-      this.controls?.dispose();
-      this.composer?.dispose();
-      this.renderer?.dispose();
-      // Dispose scene resources
-      this.scene?.traverse((object) => {
-        if (object instanceof THREE.Mesh) {
-          object.geometry?.dispose();
-          if (Array.isArray(object.material)) {
-            object.material.forEach((m) => m.dispose());
-          } else {
-            object.material?.dispose();
-          }
-        }
-      });
-    });
+    // Cleanup
+    this.destroyRef.onDestroy(() => this.cleanup());
   }
 
-  /**
-   * Create radial gradient texture for background (obsidian → gold glow)
-   */
-  private createRadialGradientTexture(): THREE.Texture {
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 512;
-    const ctx = canvas.getContext('2d')!;
-
-    // Radial gradient: gold glow center → dark fade → obsidian edge
-    const gradient = ctx.createRadialGradient(256, 358, 0, 256, 358, 512);
-    gradient.addColorStop(0, 'rgba(212, 175, 55, 0.15)'); // Gold glow center
-    gradient.addColorStop(0.5, 'rgba(26, 26, 26, 1)'); // Dark fade
-    gradient.addColorStop(1, 'rgba(10, 10, 10, 1)'); // Obsidian edge
-
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, 512, 512);
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.needsUpdate = true;
-    return texture;
-  }
-
-  /**
-   * Setup dramatic lighting for the Golden Ankh scene
-   */
   private setupLighting(): void {
     if (!this.scene) return;
 
-    // Ambient light for base illumination
-    const ambientLight = new THREE.AmbientLight(0xffeedd, 0.5);
-    this.scene.add(ambientLight);
+    // Ambient light
+    const ambient = new THREE.AmbientLight(0xffeedd, 0.4);
+    this.scene.add(ambient);
 
-    // Main directional light - warm golden light from above
-    const sunLight = new THREE.DirectionalLight(0xd4af37, 1.8);
-    sunLight.position.set(10, 15, 10);
-    sunLight.castShadow = true;
-    sunLight.shadow.mapSize.width = 2048;
-    sunLight.shadow.mapSize.height = 2048;
-    this.scene.add(sunLight);
-
-    // Key light from front-left for Ankh highlight
-    const keyLight = new THREE.DirectionalLight(0xfbbf24, 1.2);
-    keyLight.position.set(-8, 8, 12);
+    // Key light (golden)
+    const keyLight = new THREE.DirectionalLight(0xffd700, 2.0);
+    keyLight.position.set(5, 5, 10);
     this.scene.add(keyLight);
 
-    // Rim light from behind for golden edge glow
-    const rimLight = new THREE.DirectionalLight(0xd4af37, 1.0);
-    rimLight.position.set(-5, 5, -10);
+    // Rim light (orange glow behind)
+    const rimLight = new THREE.DirectionalLight(0xff8800, 1.5);
+    rimLight.position.set(-3, 2, -5);
     this.scene.add(rimLight);
 
-    // Point light at Ankh center for inner glow (enhances bloom)
-    const centerGlow = new THREE.PointLight(0xd4af37, 2.0, 10);
-    centerGlow.position.set(0, 0, 0);
-    this.scene.add(centerGlow);
-
-    // Fill light from below for particle illumination
-    const fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
-    fillLight.position.set(0, -5, 8);
-    this.scene.add(fillLight);
+    // Point light for inner glow
+    const innerGlow = new THREE.PointLight(0xffaa00, 2.0, 8);
+    innerGlow.position.set(0, 0, 2);
+    this.scene.add(innerGlow);
   }
 
   /**
-   * Load the Golden Ankh GLTF model with procedural fallback
+   * Create central sphere with ankh texture
    */
-  private async loadAnkhModel(): Promise<void> {
-    const loader = new GLTFLoader();
-
-    try {
-      // Attempt to load Ankh GLTF model
-      const gltf = await loader.loadAsync('/assets/3d-models/ankh.gltf');
-      const ankh = gltf.scene;
-
-      // Apply golden material to all meshes
-      ankh.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          child.material = new THREE.MeshStandardMaterial({
-            color: 0xd4af37,
-            metalness: 1.0,
-            roughness: 0.2,
-          });
-          child.castShadow = true;
-          child.receiveShadow = true;
-        }
-      });
-
-      // Scale and position the Ankh
-      ankh.scale.setScalar(2.5);
-      ankh.position.set(0, 0, 0);
-      this.scene!.add(ankh);
-      this.ankhModel = ankh;
-
-      console.log('[HeroScene] Golden Ankh model loaded successfully');
-    } catch (error) {
-      console.warn(
-        '[HeroScene] Ankh model not found, using procedural fallback',
-        error
-      );
-      // Fallback to procedural golden pyramid
-      this.createProceduralAnkh();
-    }
-  }
-
-  /**
-   * Create procedural Golden Ankh geometry (fallback if GLTF fails)
-   */
-  private createProceduralAnkh(): void {
+  private createCentralSphere(): void {
     if (!this.scene) return;
 
-    // Simplified Ankh representation using golden pyramid
-    const geometry = new THREE.ConeGeometry(1.5, 3, 4);
+    // Load ankh texture
+    const textureLoader = new THREE.TextureLoader();
+    const ankhTexture = textureLoader.load('assets/hero/anekh.png');
+
+    // Sphere geometry
+    const geometry = new THREE.SphereGeometry(1.5, 64, 64);
+
+    // Material with emissive glow and texture
     const material = new THREE.MeshStandardMaterial({
-      color: 0xd4af37,
-      metalness: 1.0,
-      roughness: 0.2,
+      map: ankhTexture,
+      emissive: 0xff6600,
+      emissiveIntensity: 0.5,
+      metalness: 0.3,
+      roughness: 0.5,
     });
-    const pyramid = new THREE.Mesh(geometry, material);
-    pyramid.rotation.y = Math.PI / 4; // Rotate 45 degrees for diamond shape
-    pyramid.castShadow = true;
-    pyramid.receiveShadow = true;
-    this.scene.add(pyramid);
-    this.ankhModel = pyramid;
 
-    console.log('[HeroScene] Using procedural golden pyramid fallback');
+    this.centralSphere = new THREE.Mesh(geometry, material);
+    this.scene.add(this.centralSphere);
+
+    // Add outer glow sphere
+    this.createOuterGlow();
   }
 
   /**
-   * Add spherical particle halo around the Golden Ankh (500 particles)
+   * Create outer glow effect around the sphere
    */
-  private addAnkhParticleHalo(): void {
+  private createOuterGlow(): void {
     if (!this.scene) return;
 
-    const particleCount = 500;
+    const glowGeometry = new THREE.SphereGeometry(2.0, 32, 32);
+
+    const glowMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        uColor: { value: new THREE.Color(0xff8800) },
+        uIntensity: { value: 2.0 },
+      },
+      vertexShader: `
+        varying vec3 vNormal;
+        void main() {
+          vNormal = normalize(normalMatrix * normal);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uColor;
+        uniform float uIntensity;
+        varying vec3 vNormal;
+        void main() {
+          float intensity = pow(0.7 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.0);
+          vec3 glow = uColor * intensity * uIntensity;
+          gl_FragColor = vec4(glow, intensity * 0.6);
+        }
+      `,
+      side: THREE.BackSide,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+
+    const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
+    this.scene.add(glowMesh);
+  }
+
+  /**
+   * Create golden nebula particle system
+   */
+  private createNebulaParticles(): void {
+    if (!this.scene) return;
+
+    const particleCount = 8000;
     const positions = new Float32Array(particleCount * 3);
+    const colors = new Float32Array(particleCount * 3);
+    const sizes = new Float32Array(particleCount);
 
-    // Spherical distribution using spherical coordinates
+    const goldColors = [
+      new THREE.Color(0xffd700),
+      new THREE.Color(0xffa500),
+      new THREE.Color(0xffcc00),
+    ];
+
     for (let i = 0; i < particleCount; i++) {
-      // Random spherical coordinates
-      const theta = Math.random() * Math.PI * 2; // Azimuthal angle (0 to 2π)
-      const phi = Math.acos(2 * Math.random() - 1); // Polar angle (0 to π)
-      const radius = 3 + Math.random() * 2; // Radius 3-5 units
+      // Spherical distribution around center
+      const radius = 2.5 + Math.random() * 4;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
 
-      // Convert spherical to Cartesian coordinates
-      positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta); // x
-      positions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta); // y
-      positions[i * 3 + 2] = radius * Math.cos(phi); // z
+      positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+      positions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+      positions[i * 3 + 2] = radius * Math.cos(phi);
+
+      // Random gold color
+      const color = goldColors[Math.floor(Math.random() * goldColors.length)];
+      colors[i * 3] = color.r;
+      colors[i * 3 + 1] = color.g;
+      colors[i * 3 + 2] = color.b;
+
+      // Size
+      sizes[i] = 0.02 + Math.random() * 0.04;
     }
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
-    const material = new THREE.PointsMaterial({
-      color: 0xd4af37, // Golden color
-      size: 0.05,
+    const material = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
+      },
+      vertexShader: `
+        attribute float size;
+        attribute vec3 color;
+        uniform float uTime;
+        uniform float uPixelRatio;
+        varying vec3 vColor;
+        varying float vAlpha;
+
+        void main() {
+          vColor = color;
+
+          // Slow rotation
+          float angle = uTime * 0.1;
+          float cosA = cos(angle);
+          float sinA = sin(angle);
+          vec3 pos = position;
+          pos.xz = mat2(cosA, -sinA, sinA, cosA) * pos.xz;
+
+          vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+          vAlpha = 0.6 + 0.4 * sin(uTime + length(position) * 2.0);
+
+          gl_PointSize = size * uPixelRatio * 300.0 * (1.0 / -mvPosition.z);
+          gl_Position = projectionMatrix * mvPosition;
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vColor;
+        varying float vAlpha;
+
+        void main() {
+          vec2 uv = gl_PointCoord - 0.5;
+          float dist = length(uv);
+          float alpha = 1.0 - smoothstep(0.3, 0.5, dist);
+          vec3 hdrColor = vColor * 2.0;
+          gl_FragColor = vec4(hdrColor, alpha * vAlpha);
+        }
+      `,
       transparent: true,
-      opacity: 0.8,
-      blending: THREE.AdditiveBlending, // Additive blending for glow effect
-      sizeAttenuation: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
     });
 
     this.particles = new THREE.Points(geometry, material);
     this.scene.add(this.particles);
-
-    console.log('[HeroScene] 500-particle spherical halo created');
   }
 
-  /**
-   * Setup UnrealBloomPass post-processing for golden glow
-   */
-  private setupBloomEffect(): void {
+  private setupPostProcessing(): void {
     if (!this.renderer || !this.scene || !this.camera) return;
 
-    // Create EffectComposer
+    const canvas = this.canvasRef().nativeElement;
+
     this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
 
-    // Add RenderPass (renders the scene)
-    const renderPass = new RenderPass(this.scene, this.camera);
-    this.composer.addPass(renderPass);
-
-    // Add UnrealBloomPass for glow effect
     const bloomPass = new UnrealBloomPass(
-      new THREE.Vector2(window.innerWidth, window.innerHeight),
-      1.5, // strength - intensity of bloom
-      0.4, // radius - spread of glow
-      0.85 // threshold - brightness threshold for bloom
+      new THREE.Vector2(canvas.clientWidth / 2, canvas.clientHeight / 2),
+      1.2,
+      0.5,
+      0.6
     );
     this.composer.addPass(bloomPass);
-
-    console.log('[HeroScene] UnrealBloomPass post-processing enabled');
   }
 
-  /**
-   * Handle mouse move for subtle camera parallax
-   */
-  private readonly onMouseMove = (event: MouseEvent): void => {
-    this.mouseX = (event.clientX / window.innerWidth) * 2 - 1;
-    this.mouseY = (event.clientY / window.innerHeight) * 2 - 1;
-  };
+  private startFloatAnimation(): void {
+    if (!this.centralSphere) return;
 
-  /**
-   * Handle window resize
-   */
-  private readonly onResize = (): void => {
-    const canvas = this.canvasRef().nativeElement;
-    if (this.camera) {
-      this.camera.aspect = canvas.clientWidth / canvas.clientHeight;
-      this.camera.updateProjectionMatrix();
-    }
-    this.renderer?.setSize(canvas.clientWidth, canvas.clientHeight);
-  };
+    this.floatTimeline = gsap.timeline({ repeat: -1 });
+    this.floatTimeline.to(this.centralSphere.position, {
+      y: 0.15,
+      duration: 2,
+      ease: 'sine.inOut',
+    });
+    this.floatTimeline.to(this.centralSphere.position, {
+      y: -0.15,
+      duration: 2,
+      ease: 'sine.inOut',
+    });
+  }
 
-  /**
-   * Animation loop
-   */
   private animate = (): void => {
     this.animationId = requestAnimationFrame(this.animate);
 
-    // Particle rotation and subtle emanation
+    if (!this.isTabVisible) return;
+
+    const elapsedTime = this.clock.getElapsedTime();
+
+    // Update particles
     if (this.particles) {
-      this.particles.rotation.y += 0.001; // Slow rotation
-      // Optional: Add subtle pulsing effect to particle scale
-      const time = Date.now() * 0.0005;
-      const scale = 1.0 + Math.sin(time) * 0.05;
-      this.particles.scale.setScalar(scale);
+      const mat = this.particles.material as THREE.ShaderMaterial;
+      mat.uniforms['uTime'].value = elapsedTime;
     }
 
-    // Very subtle camera parallax based on mouse position
-    this.targetCameraX = this.mouseX * 0.8;
-    this.targetCameraY = this.mouseY * 0.4;
-
-    if (this.controls) {
-      // Add very subtle offset to camera based on mouse
-      this.controls.target.x +=
-        (this.targetCameraX * 0.3 - this.controls.target.x) * 0.005;
-
-      // Update controls (handles auto-rotate and damping)
-      this.controls.update();
+    // Slow sphere rotation
+    if (this.centralSphere) {
+      this.centralSphere.rotation.y = elapsedTime * 0.1;
     }
 
-    // Render using composer (with bloom) or fallback to direct render
+    // Mouse parallax
+    if (this.camera) {
+      const targetX = this.mouseX * 0.3;
+      const targetY = this.mouseY * 0.2;
+      this.camera.position.x += (targetX - this.camera.position.x) * 0.02;
+      this.camera.position.y += (targetY - this.camera.position.y) * 0.02;
+      this.camera.lookAt(0, 0, 0);
+    }
+
+    // Render
     if (this.composer) {
       this.composer.render();
     } else if (this.renderer && this.scene && this.camera) {
       this.renderer.render(this.scene, this.camera);
     }
   };
+
+  private onMouseMove(event: MouseEvent): void {
+    this.mouseX = (event.clientX / window.innerWidth) * 2 - 1;
+    this.mouseY = -(event.clientY / window.innerHeight) * 2 + 1;
+  }
+
+  private onResize(): void {
+    const canvas = this.canvasRef().nativeElement;
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+
+    if (this.camera) {
+      this.camera.aspect = width / height;
+      this.camera.updateProjectionMatrix();
+    }
+
+    if (this.renderer) {
+      this.renderer.setSize(width, height);
+    }
+
+    if (this.composer) {
+      this.composer.setSize(width, height);
+    }
+  }
+
+  private cleanup(): void {
+    if (this.animationId) {
+      cancelAnimationFrame(this.animationId);
+    }
+    if (this.boundMouseMove) {
+      window.removeEventListener('mousemove', this.boundMouseMove);
+    }
+    if (this.boundResize) {
+      window.removeEventListener('resize', this.boundResize);
+    }
+    if (this.floatTimeline) {
+      this.floatTimeline.kill();
+    }
+    if (this.renderer) {
+      this.renderer.dispose();
+    }
+    if (this.composer) {
+      this.composer.dispose();
+    }
+  }
 }

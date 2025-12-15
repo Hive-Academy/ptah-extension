@@ -1,0 +1,27 @@
+TASK_2025_073 Batch 5 - CODE REVIEW REQUEST
+
+Files for Review:
+1. D:\projects\ptah-extension\libs\backend\vscode-core\src\rpc\llm-rpc-handlers.ts
+2. D:\projects\ptah-extension\libs\backend\vscode-core\src\di\tokens.ts
+3. D:\projects\ptah-extension\libs\backend\vscode-core\src\index.ts
+4. D:\projects\ptah-extension\apps\ptah-extension-vscode\src\di\container.ts
+5. D:\projects\ptah-extension\apps\ptah-extension-vscode\src\services\rpc-method-registration.service.ts
+
+Rejection Criteria:
+- // TODO comments
+- // PLACEHOLDER or // STUB
+- Empty method bodies
+- Hardcoded mock data
+- console.log without real logic
+
+Security Requirements:
+- API keys MUST NOT be exposed to webview (only isConfigured boolean)
+- API keys MUST NOT be logged in plain text
+- All RPC methods must validate inputs
+
+Implementation Checklist:
+✓ LlmRpcHandlers with 5 methods
+✓ TOKENS.LLM_RPC_HANDLERS added
+✓ DI registration in container.ts
+✓ 5 RPC methods wired in rpc-method-registration.service.ts
+✓ Security: No API keys in responses/logs

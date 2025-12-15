@@ -1411,6 +1411,30 @@ export class RpcMethodRegistrationService {
       }
     );
 
+    // llm:listVsCodeModels - List available VS Code language models
+    this.rpcHandler.registerMethod<void, unknown[]>(
+      'llm:listVsCodeModels',
+      async () => {
+        try {
+          this.logger.debug('RPC: llm:listVsCodeModels called');
+
+          const handlers = this.container.resolve<LlmRpcHandlers>(
+            TOKENS.LLM_RPC_HANDLERS
+          );
+          const models = await handlers.listVsCodeModels();
+
+          return models;
+        } catch (error) {
+          this.logger.error(
+            'RPC: llm:listVsCodeModels failed',
+            error instanceof Error ? error : new Error(String(error))
+          );
+          // Return empty array on error
+          return [];
+        }
+      }
+    );
+
     this.logger.info('LLM provider RPC handlers registered', {
       methods: [
         'llm:getProviderStatus',
@@ -1418,6 +1442,7 @@ export class RpcMethodRegistrationService {
         'llm:removeApiKey',
         'llm:getDefaultProvider',
         'llm:validateApiKeyFormat',
+        'llm:listVsCodeModels',
       ],
     });
   }
