@@ -24,9 +24,11 @@ import * as vscode from 'vscode';
 // Import TOKENS (single source of truth)
 import { TOKENS } from '@ptah-extension/vscode-core';
 
-// Import Logger (must be registered directly - cannot be in registration function)
+// Import Logger and OutputManager (must be registered directly - cannot be in registration function)
+// Logger depends on OutputManager, so OutputManager must be registered BEFORE Logger is resolved
 import {
   Logger,
+  OutputManager,
   SdkRpcHandlers,
   LlmRpcHandlers,
 } from '@ptah-extension/vscode-core';
@@ -92,7 +94,12 @@ export class DIContainer {
     // ========================================
     // PHASE 1: Infrastructure Services (vscode-core)
     // ========================================
-    // Logger must be registered FIRST (before all other services)
+    // CRITICAL: OutputManager must be registered BEFORE Logger
+    // because Logger depends on OutputManager (@inject(OUTPUT_MANAGER))
+    // Dependency chain: Logger → OutputManager → EXTENSION_CONTEXT
+    container.registerSingleton(TOKENS.OUTPUT_MANAGER, OutputManager);
+
+    // Now Logger can be registered and resolved safely
     container.registerSingleton(TOKENS.LOGGER, Logger);
     const logger = container.resolve<Logger>(TOKENS.LOGGER);
 
