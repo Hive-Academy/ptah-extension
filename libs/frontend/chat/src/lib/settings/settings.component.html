@@ -1,6 +1,13 @@
 <!--
   SettingsComponent - Compact VS Code Sidebar Design
-  
+
+  TASK_2025_079: Conditional visibility based on auth and license status
+
+  Visibility Rules:
+  - Authentication: Always visible
+  - Model Selection & Autopilot: Visible after auth configured
+  - MCP Port & LLM Providers: Premium-only (early_adopter tier)
+
   Follows VS Code UX Guidelines:
   - Icons: 16-20px (was 24px+)
   - Headings: 14-16px (text-sm)
@@ -11,19 +18,37 @@
 <div class="h-full overflow-y-auto bg-base-100">
   <div class="px-3 py-3 space-y-3">
     <!-- Compact Header with back button -->
-    <div class="flex items-center gap-2">
-      <button
-        class="btn btn-ghost btn-xs gap-1.5"
-        (click)="backToChat()"
-        aria-label="Back to Chat"
-      >
-        <lucide-angular [img]="ArrowLeftIcon" class="w-3.5 h-3.5" />
-        <span class="text-xs">Back</span>
-      </button>
-      <h1 class="text-sm font-semibold">Settings</h1>
+    <div class="flex items-center justify-between gap-2">
+      <div class="flex items-center gap-2">
+        <button
+          class="btn btn-ghost btn-xs gap-1.5"
+          (click)="backToChat()"
+          aria-label="Back to Chat"
+        >
+          <lucide-angular [img]="ArrowLeftIcon" class="w-3.5 h-3.5" />
+          <span class="text-xs">Back</span>
+        </button>
+        <h1 class="text-sm font-semibold">Settings</h1>
+      </div>
+      <!-- License tier badge -->
+      @if (!isLoadingLicenseStatus()) {
+      <div class="flex items-center gap-1">
+        @if (isPremium()) {
+        <span
+          class="badge badge-primary badge-xs gap-1"
+          aria-label="Premium user"
+        >
+          <lucide-angular [img]="SparklesIcon" class="w-2.5 h-2.5" />
+          <span>Premium</span>
+        </span>
+        } @else {
+        <span class="badge badge-ghost badge-xs">Free</span>
+        }
+      </div>
+      }
     </div>
 
-    <!-- Authentication Section - Compact Card -->
+    <!-- Authentication Section - Always Visible -->
     <div class="border border-base-300 rounded-md bg-base-200/50">
       <div class="p-3">
         <div class="flex items-center gap-1.5 mb-2">
@@ -39,8 +64,127 @@
       </div>
     </div>
 
-    <!-- Future sections placeholder comments for expansion -->
-    <!-- Model Selection Section - TODO: Add ModelSelectorComponent -->
-    <!-- Autopilot Configuration Section - TODO: Add AutopilotConfigComponent -->
+    <!-- Additional Settings - Only visible after auth configured -->
+    @if (isAuthenticated()) {
+    <!-- Model Selection Section -->
+    <div class="border border-base-300 rounded-md bg-base-200/50">
+      <div class="p-3">
+        <div class="flex items-center gap-1.5 mb-2">
+          <span class="text-sm">🤖</span>
+          <h2 class="text-xs font-medium uppercase tracking-wide">
+            Model Selection
+          </h2>
+        </div>
+        <p class="text-xs text-base-content/70 mb-3">
+          Choose the default Claude model for new chat sessions.
+        </p>
+        <!-- TODO: Add ModelSelectorComponent -->
+        <div class="text-xs text-base-content/50 italic">
+          Configure in VS Code Settings: <code>ptah.model.selected</code>
+        </div>
+      </div>
+    </div>
+
+    <!-- Autopilot Configuration Section -->
+    <div class="border border-base-300 rounded-md bg-base-200/50">
+      <div class="p-3">
+        <div class="flex items-center gap-1.5 mb-2">
+          <span class="text-sm">🚀</span>
+          <h2 class="text-xs font-medium uppercase tracking-wide">
+            Autopilot Mode
+          </h2>
+        </div>
+        <p class="text-xs text-base-content/70 mb-3">
+          Configure automatic approval for Claude actions.
+        </p>
+        <!-- TODO: Add AutopilotConfigComponent -->
+        <div class="text-xs text-base-content/50 italic">
+          Configure in VS Code Settings: <code>ptah.autopilot.*</code>
+        </div>
+      </div>
+    </div>
+    } @else if (!isLoadingAuthStatus()) {
+    <!-- Hint: Configure auth to unlock more settings -->
+    <div class="text-center py-4">
+      <p class="text-xs text-base-content/50">
+        Configure authentication above to unlock additional settings.
+      </p>
+    </div>
+    }
+
+    <!-- Premium-Only Sections - Only visible for premium users -->
+    @if (showPremiumSections()) {
+    <!-- Divider with Premium Label -->
+    <div class="divider divider-primary text-xs my-2">
+      <lucide-angular [img]="SparklesIcon" class="w-3 h-3" />
+      <span>Premium Features</span>
+    </div>
+
+    <!-- MCP Port Configuration -->
+    <div class="border border-primary/30 rounded-md bg-primary/5">
+      <div class="p-3">
+        <div class="flex items-center gap-1.5 mb-2">
+          <span class="text-sm">🔌</span>
+          <h2 class="text-xs font-medium uppercase tracking-wide">
+            MCP Server Port
+          </h2>
+        </div>
+        <p class="text-xs text-base-content/70 mb-3">
+          Configure the port for Ptah's MCP server (code execution tools).
+        </p>
+        <!-- TODO: Add McpPortConfigComponent -->
+        <div class="text-xs text-base-content/50 italic">
+          Configure in VS Code Settings: <code>ptah.mcpPort</code> (default:
+          51820)
+        </div>
+      </div>
+    </div>
+
+    <!-- LLM Provider API Keys -->
+    <div class="border border-primary/30 rounded-md bg-primary/5">
+      <div class="p-3">
+        <div class="flex items-center gap-1.5 mb-2">
+          <span class="text-sm">🔑</span>
+          <h2 class="text-xs font-medium uppercase tracking-wide">
+            LLM Provider API Keys
+          </h2>
+        </div>
+        <p class="text-xs text-base-content/70 mb-3">
+          Configure API keys for additional LLM providers (OpenAI, Google,
+          OpenRouter) used by the MCP server's ptah.ai namespace.
+        </p>
+        <!-- TODO: Add LlmConfigComponent -->
+        <div class="text-xs text-base-content/50 italic">
+          Coming soon: Configure API keys for multiple LLM providers.
+        </div>
+      </div>
+    </div>
+    } @else if (isAuthenticated() && !isLoadingLicenseStatus() && !isPremium())
+    {
+    <!-- Premium Upsell for free users -->
+    <div class="border border-base-300 rounded-md bg-base-200/30 opacity-75">
+      <div class="p-3">
+        <div class="flex items-center gap-1.5 mb-2">
+          <lucide-angular
+            [img]="LockIcon"
+            class="w-4 h-4 text-base-content/50"
+          />
+          <h2
+            class="text-xs font-medium uppercase tracking-wide text-base-content/70"
+          >
+            Premium Features
+          </h2>
+        </div>
+        <p class="text-xs text-base-content/50 mb-3">
+          Upgrade to access MCP server configuration and additional LLM
+          providers.
+        </p>
+        <button class="btn btn-primary btn-xs gap-1.5">
+          <lucide-angular [img]="SparklesIcon" class="w-3 h-3" />
+          <span>Upgrade to Premium</span>
+        </button>
+      </div>
+    </div>
+    }
   </div>
 </div>

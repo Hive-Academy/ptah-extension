@@ -366,6 +366,33 @@ export interface SetupWizardLaunchResponse {
 }
 
 // ============================================================
+// License RPC Types
+// ============================================================
+
+/** Parameters for license:getStatus RPC method */
+export type LicenseGetStatusParams = Record<string, never>;
+
+/** License tier (matches LicenseService backend) */
+export type LicenseTier = 'free' | 'early_adopter';
+
+/** Response from license:getStatus RPC method */
+export interface LicenseGetStatusResponse {
+  /** Whether the license is valid */
+  valid: boolean;
+  /** License tier (free or early_adopter) */
+  tier: LicenseTier;
+  /** Whether the user has premium features enabled */
+  isPremium: boolean;
+  /** Days remaining before expiration (null if not applicable) */
+  daysRemaining: number | null;
+  /** Plan details (if premium) */
+  plan?: {
+    name: string;
+    description: string;
+  };
+}
+
+// ============================================================
 // LLM Provider RPC Types
 // ============================================================
 
@@ -522,6 +549,12 @@ export interface RpcMethodRegistry {
     result: SetupWizardLaunchResponse;
   };
 
+  // ---- License Methods ----
+  'license:getStatus': {
+    params: LicenseGetStatusParams;
+    result: LicenseGetStatusResponse;
+  };
+
   // ---- LLM Provider Methods ----
   'llm:getProviderStatus': {
     params: LlmGetProviderStatusParams;
@@ -598,6 +631,9 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   // Setup Methods
   'setup-status:get-status',
   'setup-wizard:launch',
+
+  // License Methods
+  'license:getStatus',
 
   // LLM Provider Methods
   'llm:getProviderStatus',

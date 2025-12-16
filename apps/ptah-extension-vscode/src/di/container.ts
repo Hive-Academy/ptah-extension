@@ -44,6 +44,7 @@ import {
   ConfigRpcHandlers,
   AuthRpcHandlers,
   SetupRpcHandlers,
+  LicenseRpcHandlers,
   LlmRpcHandlers as AppLlmRpcHandlers,
 } from '../services/rpc';
 
@@ -133,11 +134,30 @@ export class DIContainer {
     container.registerSingleton(FileRpcHandlers);
     container.registerSingleton(ConfigRpcHandlers);
     container.registerSingleton(AuthRpcHandlers);
-    container.registerSingleton(SetupRpcHandlers);
-    container.registerSingleton(AppLlmRpcHandlers);
+    container.registerSingleton(LicenseRpcHandlers);
+    // SetupRpcHandlers and LlmRpcHandlers require container instance for lazy resolution
+    // Must use factory pattern because DependencyContainer is an interface (no reflection metadata)
+    container.register(SetupRpcHandlers, {
+      useFactory: (c) =>
+        new SetupRpcHandlers(
+          c.resolve(TOKENS.LOGGER),
+          c.resolve(TOKENS.RPC_HANDLER),
+          c
+        ),
+    });
+
+    container.register(AppLlmRpcHandlers, {
+      useFactory: (c) =>
+        new AppLlmRpcHandlers(
+          c.resolve(TOKENS.LOGGER),
+          c.resolve(TOKENS.RPC_HANDLER),
+          c
+        ),
+    });
 
     // RPC Method Registration Service (orchestrator - requires container instance)
     // TASK_2025_074: Refactored to use domain-specific handler classes
+    // TASK_2025_079: Added LicenseRpcHandlers for premium feature gating
     container.register(TOKENS.RPC_METHOD_REGISTRATION_SERVICE, {
       useFactory: (c) => {
         return new RpcMethodRegistrationService(
@@ -156,6 +176,7 @@ export class DIContainer {
           c.resolve(ConfigRpcHandlers),
           c.resolve(AuthRpcHandlers),
           c.resolve(SetupRpcHandlers),
+          c.resolve(LicenseRpcHandlers),
           c.resolve(AppLlmRpcHandlers),
           c // Pass container instance
         );

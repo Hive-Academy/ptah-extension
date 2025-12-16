@@ -40,6 +40,7 @@ import { FileRpcHandlers } from './handlers/file-rpc.handlers';
 import { ConfigRpcHandlers } from './handlers/config-rpc.handlers';
 import { AuthRpcHandlers } from './handlers/auth-rpc.handlers';
 import { SetupRpcHandlers } from './handlers/setup-rpc.handlers';
+import { LicenseRpcHandlers } from './handlers/license-rpc.handlers';
 import { LlmRpcHandlers } from './handlers/llm-rpc.handlers';
 
 interface WebviewManager {
@@ -73,6 +74,7 @@ export class RpcMethodRegistrationService {
     private readonly configHandlers: ConfigRpcHandlers,
     private readonly authHandlers: AuthRpcHandlers,
     private readonly setupHandlers: SetupRpcHandlers,
+    private readonly licenseHandlers: LicenseRpcHandlers,
     private readonly llmHandlers: LlmRpcHandlers,
     private readonly container: DependencyContainer
   ) {
@@ -96,6 +98,7 @@ export class RpcMethodRegistrationService {
     this.configHandlers.register();
     this.authHandlers.register();
     this.setupHandlers.register();
+    this.licenseHandlers.register();
     this.llmHandlers.register();
 
     this.logger.info('RPC methods registered (SDK-only mode)', {
