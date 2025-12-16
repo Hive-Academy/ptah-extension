@@ -2,6 +2,7 @@ import {
   Component,
   inject,
   signal,
+  computed,
   ChangeDetectionStrategy,
   OnInit,
 } from '@angular/core';
@@ -84,6 +85,27 @@ export class AuthConfigComponent implements OnInit {
   >('idle');
   readonly errorMessage = signal('');
   readonly successMessage = signal('');
+
+  /**
+   * Computed signal to determine if Save & Test button should be enabled
+   * Button is enabled when there's a new credential value entered based on auth method
+   */
+  readonly canSaveAndTest = computed(() => {
+    const method = this.authMethod();
+    const oauth = this.oauthToken().trim();
+    const apiKeyValue = this.apiKey().trim();
+
+    switch (method) {
+      case 'oauth':
+        return oauth.length > 0;
+      case 'apiKey':
+        return apiKeyValue.length > 0;
+      case 'auto':
+        return oauth.length > 0 || apiKeyValue.length > 0;
+      default:
+        return false;
+    }
+  });
 
   /**
    * Fetch auth status on component initialization

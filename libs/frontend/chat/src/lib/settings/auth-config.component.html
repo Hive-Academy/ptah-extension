@@ -221,7 +221,9 @@
       class="btn btn-primary btn-sm gap-1.5 text-xs"
       (click)="saveAndTest()"
       [disabled]="
-        connectionStatus() === 'saving' || connectionStatus() === 'testing'
+        !canSaveAndTest() ||
+        connectionStatus() === 'saving' ||
+        connectionStatus() === 'testing'
       "
     >
       @if (connectionStatus() === 'saving') {
