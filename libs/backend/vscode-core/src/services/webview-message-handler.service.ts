@@ -55,10 +55,10 @@ export interface WebviewMessageHandlerConfig {
  *
  * 2. **Common Layer (Default Handlers)** - Executed SECOND (if not handled)
  *    - Built-in handlers for universal message types:
- *      - `webview-ready`: Webview initialization signal
- *      - `rpc:request`, `rpc:call`: RPC method invocation
- *      - `permission:response`: MCP permission response
- *      - `chat:permission-response`: SDK permission response
+ *      - `MESSAGE_TYPES.WEBVIEW_READY`: Webview initialization signal
+ *      - `MESSAGE_TYPES.RPC_REQUEST`, `MESSAGE_TYPES.RPC_CALL`: RPC method invocation
+ *      - `MESSAGE_TYPES.SDK_PERMISSION_RESPONSE`: Claude SDK permission response
+ *      - `MESSAGE_TYPES.MCP_PERMISSION_RESPONSE`: Code Execution MCP permission response
  *    - All webviews automatically support these message types
  *
  * 3. **Fallback Layer** - Executed THIRD (if not handled)
@@ -182,23 +182,23 @@ export class WebviewMessageHandlerService {
 
       // Handle common message types
       switch (message.type) {
-        case 'webview-ready':
+        case MESSAGE_TYPES.WEBVIEW_READY:
           this.logger.info(`[${webviewId}] Webview ready signal received`);
           if (onReady) {
             onReady();
           }
           return;
 
-        case 'rpc:request':
-        case 'rpc:call':
+        case MESSAGE_TYPES.RPC_REQUEST:
+        case MESSAGE_TYPES.RPC_CALL:
           await this.handleRpcMessage(webviewId, webview, message);
           return;
 
-        case 'permission:response':
-          await this.handlePermissionResponse(webviewId, message);
+        case MESSAGE_TYPES.MCP_PERMISSION_RESPONSE:
+          await this.handleMcpPermissionResponse(webviewId, message);
           return;
 
-        case 'chat:permission-response':
+        case MESSAGE_TYPES.SDK_PERMISSION_RESPONSE:
           await this.handleSdkPermissionResponse(webviewId, message);
           return;
 
@@ -278,9 +278,14 @@ export class WebviewMessageHandlerService {
   }
 
   /**
-   * Handle MCP permission responses
+   * Handle MCP permission responses (Premium only - Code Execution MCP)
+   *
+   * SYSTEM 2: Code Execution MCP Permissions
+   * - Triggered by: Ptah MCP Server's approval_prompt tool
+   * - Message type: MESSAGE_TYPES.MCP_PERMISSION_RESPONSE ('permission:response')
+   * - Handler: PermissionPromptService.resolveRequest()
    */
-  private async handlePermissionResponse(
+  private async handleMcpPermissionResponse(
     webviewId: string,
     message: any
   ): Promise<void> {
@@ -292,24 +297,32 @@ export class WebviewMessageHandlerService {
           TOKENS.PERMISSION_PROMPT_SERVICE
         );
         permissionService.resolveRequest(message.payload);
-        this.logger.info(`[${webviewId}] Permission response processed`, {
+        this.logger.info(`[${webviewId}] MCP Permission response processed`, {
           requestId: message.payload?.id,
         });
       } else {
         this.logger.warn(
-          `[${webviewId}] PermissionPromptService not registered`
+          `[${webviewId}] PermissionPromptService not registered (MCP not enabled)`
         );
       }
     } catch (error) {
       this.logger.error(
-        `[${webviewId}] Failed to process permission response`,
+        `[${webviewId}] Failed to process MCP permission response`,
         error instanceof Error ? error : new Error(String(error))
       );
     }
   }
 
   /**
-   * Handle SDK permission responses (from chat UI)
+   * Handle SDK permission responses (Claude Agent SDK)
+   *
+   * SYSTEM 1: Claude Agent SDK Permissions (Primary, always active)
+   * - Triggered by: SDK's canUseTool callback for Write, Edit, Bash tools
+   * - Message type: MESSAGE_TYPES.SDK_PERMISSION_RESPONSE ('chat:permission-response')
+   * - Handler: SdkPermissionHandler.handleResponse()
+   *
+   * NOTE: This handler ONLY processes SDK permissions.
+   * MCP permissions use a separate message type and handler.
    */
   private async handleSdkPermissionResponse(
     webviewId: string,
@@ -317,30 +330,31 @@ export class WebviewMessageHandlerService {
   ): Promise<void> {
     try {
       const { container } = await import('tsyringe');
-      const SDK_PERMISSION_HANDLER = 'SdkPermissionHandler';
+      const payload = message.payload || message.response;
+      const requestId = payload?.id;
 
+      const approved =
+        payload?.decision === 'allow' || payload?.decision === 'always_allow';
+
+      const SDK_PERMISSION_HANDLER = 'SdkPermissionHandler';
       if (container.isRegistered(SDK_PERMISSION_HANDLER)) {
         const permissionHandler = container.resolve<any>(
           SDK_PERMISSION_HANDLER
         );
-        const payload = message.payload || message.response;
-
-        const approved =
-          payload?.decision === 'allow' || payload?.decision === 'always_allow';
-
-        permissionHandler.handleResponse(payload?.id, {
+        permissionHandler.handleResponse(requestId, {
           approved,
           modifiedInput: payload?.modifiedInput,
           reason: payload?.reason,
         });
-
         this.logger.info(`[${webviewId}] SDK Permission response processed`, {
-          requestId: payload?.id,
+          requestId,
           decision: payload?.decision,
           approved,
         });
       } else {
-        this.logger.warn(`[${webviewId}] SdkPermissionHandler not registered`);
+        this.logger.warn(`[${webviewId}] SdkPermissionHandler not registered`, {
+          requestId,
+        });
       }
     } catch (error) {
       this.logger.error(

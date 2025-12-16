@@ -366,11 +366,11 @@ export class WebviewManager {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private handleSystemMessage(webviewId: string, message: any): void {
     switch (message.type) {
-      case 'webview-ready':
+      case MESSAGE_TYPES.WEBVIEW_READY:
         // Webview ready event
         break;
 
-      case 'requestInitialData':
+      case MESSAGE_TYPES.REQUEST_INITIAL_DATA:
         // This would typically be handled by sending initial data
         // Implementation depends on specific webview needs
         break;

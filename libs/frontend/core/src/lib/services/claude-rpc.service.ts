@@ -12,6 +12,7 @@ import {
   SessionLoadResult,
   FileOpenParams,
   FileOpenResult,
+  MESSAGE_TYPES,
 } from '@ptah-extension/shared';
 
 /**
@@ -147,7 +148,7 @@ export class ClaudeRpcService {
 
       // Send RPC call to backend
       this.postRpcMessage({
-        type: 'rpc:call',
+        type: MESSAGE_TYPES.RPC_CALL,
         payload: { method, params, correlationId },
       });
     });
@@ -170,7 +171,7 @@ export class ClaudeRpcService {
 
   /**
    * Handle RPC response from backend
-   * Called by message handler when 'rpc:response' message arrives
+   * Called by message handler when MESSAGE_TYPES.RPC_RESPONSE message arrives
    * @param response - RPC response with correlation ID
    */
   handleResponse(response: RpcResponse): void {

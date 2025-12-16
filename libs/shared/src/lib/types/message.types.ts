@@ -198,11 +198,36 @@ export const MESSAGE_TYPES = {
   CHAT_SESSION_INIT: 'chat:sessionInit',
   CHAT_HEALTH_UPDATE: 'chat:healthUpdate',
   CHAT_CLI_ERROR: 'chat:cliError',
-  CHAT_PERMISSION_RESPONSE: 'chat:permission-response',
   CHAT_RESTORE_INPUT: 'chat:restore-input',
 
   // ---- Permission Messages ----
+  // TWO SEPARATE SYSTEMS - SDK and MCP - DO NOT CONFUSE!
+  //
+  // SYSTEM 1: Claude Agent SDK Permissions (Primary, always active)
+  // - Triggered when SDK calls Write, Edit, Bash tools via canUseTool callback
+  // - Flow: SdkPermissionHandler → 'permission:request' → UI → 'chat:permission-response'
+  // - Handler: SdkPermissionHandler.handleResponse()
+  //
+  // SYSTEM 2: Code Execution MCP Permissions (Premium only, separate)
+  // - Triggered by Ptah MCP Server's approval_prompt tool
+  // - Flow: PermissionPromptService → 'permission:request' → UI → 'permission:response'
+  // - Handler: PermissionPromptService.resolveRequest()
+  //
+  // Both use same request type but DIFFERENT response types!
+
+  // Shared request type (both SDK and MCP send this to frontend)
   PERMISSION_REQUEST: 'permission:request',
+
+  // SDK-specific response (frontend → backend for SDK permissions)
+  SDK_PERMISSION_RESPONSE: 'chat:permission-response',
+
+  // MCP-specific response (frontend → backend for MCP permissions)
+  MCP_PERMISSION_RESPONSE: 'permission:response',
+
+  // DEPRECATED aliases for backward compatibility
+  /** @deprecated Use SDK_PERMISSION_RESPONSE instead */
+  CHAT_PERMISSION_RESPONSE: 'chat:permission-response',
+  /** @deprecated Use MCP_PERMISSION_RESPONSE instead */
   PERMISSION_RESPONSE: 'permission:response',
 
   // ---- Provider Messages ----
@@ -272,6 +297,10 @@ export const MESSAGE_TYPES = {
   WORKSPACE_CHANGED: 'workspaceChanged',
 
   // ---- RPC Messages ----
+  // Frontend → Backend: Request/call an RPC method
+  RPC_REQUEST: 'rpc:request',
+  RPC_CALL: 'rpc:call',
+  // Backend → Frontend: RPC method response
   RPC_RESPONSE: 'rpc:response',
 
   // ---- SDK Integration Messages ----

@@ -14,6 +14,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
 /**
  * SDK Types - Structural typing to avoid ESM/CommonJS import issues
@@ -224,9 +225,9 @@ export class SdkPermissionHandler {
       };
     }
 
-    // Emit event (webview will listen and show permission prompt)
-    // Uses 'permission:request' to match shared/message.types.ts and VSCodeService handler
-    this.eventEmitter('permission:request', request);
+    // Emit SDK permission request event (webview will show permission prompt)
+    // Uses MESSAGE_TYPES.PERMISSION_REQUEST which is shared by both SDK and MCP systems
+    this.eventEmitter(MESSAGE_TYPES.PERMISSION_REQUEST, request);
 
     this.logger.debug(
       `[SdkPermissionHandler] Emitted permission request ${requestId} for tool ${toolName}`
