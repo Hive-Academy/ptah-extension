@@ -7,9 +7,10 @@
 import 'reflect-metadata';
 import * as vscode from 'vscode';
 import { DIContainer, TOKENS } from './container';
-import { EventBus } from '../messaging/event-bus';
+// EventBus import removed - TASK_2025_078 (event-bus deleted)
 import { CommandManager } from '../api-wrappers/command-manager';
 import { WebviewManager } from '../api-wrappers/webview-manager';
+import { Logger } from '../logging/logger';
 import {
   createMockExtensionContext,
   vscodeModuleMock,
@@ -18,10 +19,7 @@ import {
 // Mock VS Code API
 jest.mock('vscode', () => vscodeModuleMock);
 
-// Mock the dynamic imports in DIContainer
-jest.mock('../messaging/event-bus', () => ({
-  EventBus: jest.fn().mockImplementation(() => ({})),
-}));
+// EventBus mock removed - TASK_2025_078 (event-bus deleted)
 
 jest.mock('../api-wrappers/command-manager', () => ({
   CommandManager: jest.fn().mockImplementation(() => ({})),
@@ -78,9 +76,10 @@ describe('DIContainer - User Requirement: Type-Safe Dependency Injection', () =>
       DIContainer.setup(mockContext);
 
       // THEN: All core services should be registered
-      expect(DIContainer.isRegistered(TOKENS.EVENT_BUS)).toBe(true);
-      expect(DIContainer.isRegistered(TOKENS.COMMAND_REGISTRY)).toBe(true);
-      expect(DIContainer.isRegistered(TOKENS.WEBVIEW_PROVIDER)).toBe(true);
+      // NOTE: EVENT_BUS, COMMAND_REGISTRY, WEBVIEW_PROVIDER deleted in TASK_2025_078
+      expect(DIContainer.isRegistered(TOKENS.COMMAND_MANAGER)).toBe(true);
+      expect(DIContainer.isRegistered(TOKENS.WEBVIEW_MANAGER)).toBe(true);
+      expect(DIContainer.isRegistered(TOKENS.LOGGER)).toBe(true);
     });
 
     it('should use Symbol-based tokens for type safety', () => {
@@ -90,9 +89,9 @@ describe('DIContainer - User Requirement: Type-Safe Dependency Injection', () =>
 
       // THEN: All tokens should be Symbols (not strings)
       expect(typeof TOKENS.EXTENSION_CONTEXT).toBe('symbol');
-      expect(typeof TOKENS.EVENT_BUS).toBe('symbol');
-      expect(typeof TOKENS.COMMAND_REGISTRY).toBe('symbol');
-      expect(typeof TOKENS.WEBVIEW_PROVIDER).toBe('symbol');
+      expect(typeof TOKENS.COMMAND_MANAGER).toBe('symbol');
+      expect(typeof TOKENS.WEBVIEW_MANAGER).toBe('symbol');
+      expect(typeof TOKENS.LOGGER).toBe('symbol');
     });
   });
 
@@ -104,28 +103,30 @@ describe('DIContainer - User Requirement: Type-Safe Dependency Injection', () =>
     it('should resolve services with correct types', () => {
       // GIVEN: Services are registered
       // WHEN: Services are resolved
-      const eventBus = DIContainer.resolve<EventBus>(TOKENS.EVENT_BUS);
+      // NOTE: EVENT_BUS deleted in earlier cleanup, COMMAND_REGISTRY/WEBVIEW_PROVIDER deleted in TASK_2025_078
       const commandManager = DIContainer.resolve<CommandManager>(
-        TOKENS.COMMAND_REGISTRY
+        TOKENS.COMMAND_MANAGER
       );
       const webviewManager = DIContainer.resolve<WebviewManager>(
-        TOKENS.WEBVIEW_PROVIDER
+        TOKENS.WEBVIEW_MANAGER
       );
+      const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
 
       // THEN: Services should be resolved with correct types
-      expect(eventBus).toBeDefined();
       expect(commandManager).toBeDefined();
       expect(webviewManager).toBeDefined();
+      expect(logger).toBeDefined();
     });
 
     it('should return same singleton instance on multiple resolutions', () => {
       // GIVEN: Singleton services are registered
       // WHEN: Services are resolved multiple times
-      const eventBus1 = DIContainer.resolve<EventBus>(TOKENS.EVENT_BUS);
-      const eventBus2 = DIContainer.resolve<EventBus>(TOKENS.EVENT_BUS);
+      // NOTE: EVENT_BUS deleted in earlier cleanup
+      const logger1 = DIContainer.resolve<Logger>(TOKENS.LOGGER);
+      const logger2 = DIContainer.resolve<Logger>(TOKENS.LOGGER);
 
       // THEN: Same instance should be returned (singleton behavior)
-      expect(eventBus1).toBe(eventBus2);
+      expect(logger1).toBe(logger2);
     });
 
     it('should throw error for unregistered service', () => {

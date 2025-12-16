@@ -21,7 +21,7 @@ import {
   ClaudeAgentStartEvent,
   ClaudeAgentActivityEvent,
   ClaudeAgentCompleteEvent,
-  SessionSummary,
+  SessionUIData,
 } from './claude-domain.types';
 import type {
   ContentBlock,
@@ -483,7 +483,7 @@ export interface ChatRequestSessionsPayload {
 }
 
 export interface ChatSessionsUpdatedPayload {
-  readonly sessions: readonly SessionSummary[];
+  readonly sessions: readonly SessionUIData[];
 }
 
 /**

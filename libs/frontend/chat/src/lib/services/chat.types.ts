@@ -69,7 +69,7 @@ export interface TabState {
   /** User-provided or auto-generated session name */
   name: string;
 
-  /** Display title for the tab (deprecated - use name instead) */
+  /** Display title shown in tab UI (typically derived from name) */
   title: string;
 
   /** Tab order position */

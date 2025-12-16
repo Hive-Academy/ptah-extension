@@ -52,7 +52,10 @@
     <label class="label py-1 justify-start gap-2" for="oauthToken">
       <span class="label-text text-xs font-medium">Claude OAuth Token</span>
       @if (isLoadingStatus()) {
-      <span class="badge badge-ghost badge-xs" aria-label="Loading authentication status">
+      <span
+        class="badge badge-ghost badge-xs"
+        aria-label="Loading authentication status"
+      >
         <span class="loading loading-spinner loading-xs"></span>
       </span>
       } @else if (hasExistingOAuthToken()) {
@@ -101,7 +104,10 @@
     <label class="label py-1 justify-start gap-2" for="apiKey">
       <span class="label-text text-xs font-medium">Anthropic API Key</span>
       @if (isLoadingStatus()) {
-      <span class="badge badge-ghost badge-xs" aria-label="Loading authentication status">
+      <span
+        class="badge badge-ghost badge-xs"
+        aria-label="Loading authentication status"
+      >
         <span class="loading loading-spinner loading-xs"></span>
       </span>
       } @else if (hasExistingApiKey()) {

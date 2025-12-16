@@ -88,23 +88,6 @@ export class PermissionHandlerService {
   }
 
   /**
-   * DEPRECATED: Use getPermissionByToolId() method instead
-   * Kept for backward compatibility with components that use permissionRequestsByToolId()
-   */
-  readonly permissionRequestsByToolId = computed(() => {
-    const requests = this._permissionRequests();
-    const map = new Map<string, PermissionRequest>();
-
-    requests.forEach((req) => {
-      if (req.toolUseId) {
-        map.set(req.toolUseId, req);
-      }
-    });
-
-    return map;
-  });
-
-  /**
    * Set of all toolCallIds currently present in execution trees.
    * Used to determine which permissions are matched vs unmatched.
    *
@@ -195,13 +178,15 @@ export class PermissionHandlerService {
   ): PermissionRequest | null {
     if (!toolCallId) return null;
 
-    const permission = this.permissionRequestsByToolId().get(toolCallId);
+    const permission = this.getPermissionByToolId(toolCallId);
 
     // Debug logging for ID correlation issues
     if (!permission && this._permissionRequests().length > 0) {
       console.debug('[PermissionHandlerService] Permission lookup miss:', {
         lookupKey: toolCallId,
-        availableKeys: Array.from(this.permissionRequestsByToolId().keys()),
+        availableToolUseIds: this._permissionRequests()
+          .map((req) => req.toolUseId)
+          .filter(Boolean),
         pendingCount: this._permissionRequests().length,
       });
     }

@@ -5,8 +5,6 @@ import type {
   Logger,
   LicenseService,
   LicenseStatus,
-  IAuthSecretsService,
-  ConfigManager,
 } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import * as vscode from 'vscode';
@@ -30,45 +28,6 @@ export async function activate(
     const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
     logger.info('Activating Ptah extension...');
     console.log('[Activate] Step 2: Logger resolved');
-
-    // Step 2.5: Run one-time credential migration (TASK_2025_076 Batch 2 - Task 2.1)
-    console.log('[Activate] Step 2.5: Checking for credential migration...');
-    const authSecrets = DIContainer.resolve<IAuthSecretsService>(
-      TOKENS.AUTH_SECRETS_SERVICE
-    );
-    const configManager = DIContainer.resolve<ConfigManager>(
-      TOKENS.CONFIG_MANAGER
-    );
-
-    const migrationCompleted = configManager.getWithDefault<boolean>(
-      'migration.secretsV1.completed',
-      false
-    );
-
-    if (!migrationCompleted) {
-      logger.info('Running credential migration to SecretStorage...');
-      const result = await authSecrets.migrateFromConfigManager();
-
-      if (result.oauthMigrated || result.apiKeyMigrated) {
-        logger.info('Credentials migrated to secure storage', {
-          oauthMigrated: result.oauthMigrated,
-          apiKeyMigrated: result.apiKeyMigrated,
-        });
-        vscode.window.showInformationMessage(
-          'Your authentication credentials have been migrated to secure storage.'
-        );
-      } else {
-        logger.debug(
-          'No credentials to migrate (already in SecretStorage or not configured)'
-        );
-      }
-
-      await configManager.set('migration.secretsV1.completed', true);
-      logger.info('Migration flag set - will not run again');
-    } else {
-      logger.debug('Credential migration already completed - skipping');
-    }
-    console.log('[Activate] Step 2.5: Credential migration check complete');
 
     // Register RPC Methods (Phase 2 - TASK_2025_021)
     // Extracted to RpcMethodRegistrationService for clean separation
@@ -133,8 +92,7 @@ export async function activate(
 
     // Register late-binding adapters (require PtahExtension initialization)
     console.log('[Activate] Step 6: Registering late-binding adapters...');
-    // NOTE: CONFIGURATION_PROVIDER is now registered in DIContainer.setup()
-    // It was moved there to fix dependency injection order (ConfigOrchestrationService depends on it)
+    // NOTE: Most late-binding adapters removed in TASK_2025_023 purge
     console.log(
       '[Activate] Step 6: Late-binding adapters registered (analytics removed)'
     );

@@ -13,8 +13,8 @@
 // VS Code API Tokens
 // ========================================
 export const EXTENSION_CONTEXT = Symbol.for('ExtensionContext');
-export const WEBVIEW_PROVIDER = Symbol.for('WebviewProvider');
-export const COMMAND_REGISTRY = Symbol.for('CommandRegistry');
+// WEBVIEW_PROVIDER - DELETED in TASK_2025_078 (never registered, use WEBVIEW_MANAGER)
+// COMMAND_REGISTRY - DELETED in TASK_2025_078 (never registered, use COMMAND_MANAGER)
 
 // ========================================
 // Messaging System Tokens (DELETED - event-based system removed)
@@ -177,12 +177,12 @@ export const SDK_AGENT_ADAPTER = Symbol.for('SdkAgentAdapter');
 
 // Service dependencies
 export const STORAGE_SERVICE = Symbol.for('StorageService');
-export const CONFIGURATION_PROVIDER = Symbol.for('ConfigurationProvider');
+// CONFIGURATION_PROVIDER - DELETED in TASK_2025_078 (orphaned, never registered)
 
 // ========================================
 // Main App Service Tokens (PARTIALLY DELETED)
 // ========================================
-export const COMMAND_BUILDER_SERVICE = Symbol.for('CommandBuilderService');
+// COMMAND_BUILDER_SERVICE - DELETED in TASK_2025_078 (never used)
 // ANALYTICS_DATA_COLLECTOR - DELETED (analytics-data-collector removed)
 export const ANGULAR_WEBVIEW_PROVIDER = Symbol.for('AngularWebviewProvider');
 export const COMMAND_HANDLERS = Symbol.for('CommandHandlers');
@@ -193,10 +193,6 @@ export const WEBVIEW_INITIAL_DATA_BUILDER = Symbol.for(
 export const WEBVIEW_HTML_GENERATOR = Symbol.for('WebviewHtmlGenerator');
 export const WEBVIEW_MESSAGE_HANDLER = Symbol.for('WebviewMessageHandler');
 
-// Legacy tokens (being phased out)
-export const CLAUDE_SERVICE = Symbol.for('ClaudeService');
-export const WORKSPACE_ANALYZER = Symbol.for('WorkspaceAnalyzer');
-
 /**
  * TOKENS constant for convenient access to all DI tokens
  * Provides a single source of truth for all dependency injection symbols
@@ -206,8 +202,8 @@ export const TOKENS = {
   // VS Code APIs
   // ========================================
   EXTENSION_CONTEXT,
-  WEBVIEW_PROVIDER,
-  COMMAND_REGISTRY,
+  // WEBVIEW_PROVIDER - DELETED in TASK_2025_078
+  // COMMAND_REGISTRY - DELETED in TASK_2025_078
   COMMAND_MANAGER,
   WEBVIEW_MANAGER,
 
@@ -319,7 +315,7 @@ export const TOKENS = {
   PRICING_SERVICE,
   GLOBAL_STATE,
   STORAGE_SERVICE,
-  CONFIGURATION_PROVIDER,
+  // CONFIGURATION_PROVIDER - DELETED in TASK_2025_078
   SDK_AGENT_ADAPTER,
   // PERMISSION_SERVICE - DELETED (over-engineered, unused)
   // DELETED (TASK_2025_023 cleanup): SESSION_MANAGER, INTERACTIVE_SESSION_MANAGER,
@@ -330,7 +326,7 @@ export const TOKENS = {
   // ========================================
   // Main App Services (PARTIALLY DELETED)
   // ========================================
-  COMMAND_BUILDER_SERVICE,
+  // COMMAND_BUILDER_SERVICE - DELETED in TASK_2025_078
   // ANALYTICS_DATA_COLLECTOR - DELETED
   ANGULAR_WEBVIEW_PROVIDER,
   COMMAND_HANDLERS,
@@ -338,10 +334,6 @@ export const TOKENS = {
   WEBVIEW_INITIAL_DATA_BUILDER,
   WEBVIEW_HTML_GENERATOR,
   WEBVIEW_MESSAGE_HANDLER,
-
-  // Legacy (being phased out)
-  CLAUDE_SERVICE,
-  WORKSPACE_ANALYZER,
 } as const;
 
 /**

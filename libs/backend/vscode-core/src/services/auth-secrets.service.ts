@@ -12,7 +12,6 @@
 import { injectable, inject } from 'tsyringe';
 import * as vscode from 'vscode';
 import { Logger } from '../logging';
-import { ConfigManager } from '../config';
 import { TOKENS } from '../di/tokens';
 
 /**
@@ -77,23 +76,6 @@ export interface IAuthSecretsService {
    * ```
    */
   hasCredential(type: AuthCredentialType): Promise<boolean>;
-
-  /**
-   * Migrate credentials from ConfigManager to SecretStorage (one-time operation)
-   * @returns Object indicating which credentials were migrated
-   *
-   * @example
-   * ```typescript
-   * const result = await authSecrets.migrateFromConfigManager();
-   * if (result.oauthMigrated || result.apiKeyMigrated) {
-   *   console.log('Credentials migrated to secure storage');
-   * }
-   * ```
-   */
-  migrateFromConfigManager(): Promise<{
-    oauthMigrated: boolean;
-    apiKeyMigrated: boolean;
-  }>;
 }
 
 /**
@@ -126,9 +108,7 @@ export class AuthSecretsService implements IAuthSecretsService {
     @inject(TOKENS.EXTENSION_CONTEXT)
     private readonly context: vscode.ExtensionContext,
     @inject(TOKENS.LOGGER)
-    private readonly logger: Logger,
-    @inject(TOKENS.CONFIG_MANAGER)
-    private readonly configManager: ConfigManager
+    private readonly logger: Logger
   ) {
     this.logger.info('[AuthSecretsService.constructor] Service initialized');
   }
@@ -140,15 +120,6 @@ export class AuthSecretsService implements IAuthSecretsService {
    */
   private getSecretKey(type: AuthCredentialType): string {
     return `${this.SECRET_PREFIX}.${this.KEY_MAP[type]}`;
-  }
-
-  /**
-   * Get the config manager key for a credential type (for migration)
-   * @param type - Credential type
-   * @returns Config key without prefix
-   */
-  private getConfigKey(type: AuthCredentialType): string {
-    return this.KEY_MAP[type];
   }
 
   /**
@@ -257,130 +228,5 @@ export class AuthSecretsService implements IAuthSecretsService {
   async hasCredential(type: AuthCredentialType): Promise<boolean> {
     const value = await this.getCredential(type);
     return !!value && value.length > 0;
-  }
-
-  /**
-   * Migrate credentials from ConfigManager to SecretStorage.
-   *
-   * One-time migration for users who previously stored credentials
-   * in plain-text VS Code settings. After migration:
-   * 1. Credentials are stored in encrypted SecretStorage
-   * 2. Plain-text settings values are cleared
-   *
-   * Safe to call multiple times - only migrates if SecretStorage is empty
-   * and ConfigManager has a value.
-   *
-   * TASK_2025_076 Batch 2 - Task 2.3: Added rollback mechanism for safety.
-   * If migration fails mid-way, credentials are restored to ConfigManager.
-   * Each credential type is migrated independently for partial success.
-   *
-   * @returns Object with migration status for each credential type
-   *
-   * @example
-   * ```typescript
-   * const result = await authSecrets.migrateFromConfigManager();
-   * if (result.oauthMigrated) {
-   *   console.log('OAuth token migrated to SecretStorage');
-   * }
-   * ```
-   */
-  async migrateFromConfigManager(): Promise<{
-    oauthMigrated: boolean;
-    apiKeyMigrated: boolean;
-  }> {
-    let oauthMigrated = false;
-    let apiKeyMigrated = false;
-
-    // Backup original values for rollback
-    const oauthConfigKey = this.getConfigKey('oauthToken');
-    const apiKeyConfigKey = this.getConfigKey('apiKey');
-    const originalOAuth = this.configManager.get<string>(oauthConfigKey);
-    const originalApiKey = this.configManager.get<string>(apiKeyConfigKey);
-
-    // Migrate OAuth token (isolated try-catch for partial success)
-    try {
-      if (originalOAuth?.trim()) {
-        // Check if already in SecretStorage
-        const existingOauth = await this.hasCredential('oauthToken');
-        if (!existingOauth) {
-          await this.setCredential('oauthToken', originalOAuth);
-          // Clear from ConfigManager (plain text)
-          await this.configManager.set(oauthConfigKey, '');
-          oauthMigrated = true;
-          this.logger.info(
-            '[AuthSecretsService.migrateFromConfigManager] OAuth token migrated to SecretStorage'
-          );
-        }
-      }
-    } catch (error) {
-      this.logger.error(
-        '[AuthSecretsService.migrateFromConfigManager] OAuth migration failed, rolling back',
-        error instanceof Error ? error : new Error(String(error))
-      );
-      // Rollback: Restore original value to ConfigManager
-      if (originalOAuth) {
-        try {
-          await this.configManager.set(oauthConfigKey, originalOAuth);
-          this.logger.info(
-            '[AuthSecretsService.migrateFromConfigManager] OAuth token rolled back to ConfigManager'
-          );
-        } catch (rollbackError) {
-          this.logger.error(
-            '[AuthSecretsService.migrateFromConfigManager] OAuth rollback failed - data may be lost',
-            rollbackError instanceof Error
-              ? rollbackError
-              : new Error(String(rollbackError))
-          );
-        }
-      }
-    }
-
-    // Migrate API key (isolated try-catch for partial success)
-    try {
-      if (originalApiKey?.trim()) {
-        // Check if already in SecretStorage
-        const existingApiKey = await this.hasCredential('apiKey');
-        if (!existingApiKey) {
-          await this.setCredential('apiKey', originalApiKey);
-          // Clear from ConfigManager (plain text)
-          await this.configManager.set(apiKeyConfigKey, '');
-          apiKeyMigrated = true;
-          this.logger.info(
-            '[AuthSecretsService.migrateFromConfigManager] API key migrated to SecretStorage'
-          );
-        }
-      }
-    } catch (error) {
-      this.logger.error(
-        '[AuthSecretsService.migrateFromConfigManager] API key migration failed, rolling back',
-        error instanceof Error ? error : new Error(String(error))
-      );
-      // Rollback: Restore original value to ConfigManager
-      if (originalApiKey) {
-        try {
-          await this.configManager.set(apiKeyConfigKey, originalApiKey);
-          this.logger.info(
-            '[AuthSecretsService.migrateFromConfigManager] API key rolled back to ConfigManager'
-          );
-        } catch (rollbackError) {
-          this.logger.error(
-            '[AuthSecretsService.migrateFromConfigManager] API key rollback failed - data may be lost',
-            rollbackError instanceof Error
-              ? rollbackError
-              : new Error(String(rollbackError))
-          );
-        }
-      }
-    }
-
-    this.logger.debug(
-      '[AuthSecretsService.migrateFromConfigManager] Migration complete',
-      {
-        oauthMigrated,
-        apiKeyMigrated,
-      }
-    );
-
-    return { oauthMigrated, apiKeyMigrated };
   }
 }

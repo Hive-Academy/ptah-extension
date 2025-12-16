@@ -36,10 +36,3 @@ export {
   CommandDiscoveryFacade,
   type CommandSuggestion,
 } from './command-discovery.facade';
-
-// UI Interaction Services
-export {
-  DropdownInteractionService,
-  type KeyboardNavConfig,
-  type AutoManageConfig,
-} from './dropdown-interaction.service';

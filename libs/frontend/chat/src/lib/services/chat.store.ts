@@ -133,8 +133,7 @@ export class ChatStore {
 
   // Permission signals (delegated to PermissionHandlerService)
   readonly permissionRequests = this.permissionHandler.permissionRequests;
-  readonly permissionRequestsByToolId =
-    this.permissionHandler.permissionRequestsByToolId;
+  // permissionRequestsByToolId - DELETED in TASK_2025_078 (use getPermissionForTool() method)
   readonly unmatchedPermissions = this.permissionHandler.unmatchedPermissions;
 
   // ============================================================================
