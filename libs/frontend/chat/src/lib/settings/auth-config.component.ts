@@ -12,6 +12,7 @@ import {
   XCircle,
   Loader2,
   Check,
+  Trash2,
 } from 'lucide-angular';
 import { ClaudeRpcService, RpcResult } from '@ptah-extension/core';
 import type {
@@ -65,6 +66,7 @@ export class AuthConfigComponent implements OnInit {
   readonly XCircleIcon = XCircle;
   readonly Loader2Icon = Loader2;
   readonly CheckIcon = Check;
+  readonly Trash2Icon = Trash2;
 
   // Form state signals
   readonly authMethod = signal<'oauth' | 'apiKey' | 'auto'>('auto');
@@ -265,5 +267,77 @@ export class AuthConfigComponent implements OnInit {
     this.connectionStatus.set('idle');
     this.errorMessage.set('');
     this.successMessage.set('');
+  }
+
+  /**
+   * Delete OAuth token from SecretStorage
+   */
+  async deleteOAuthToken(): Promise<void> {
+    this.connectionStatus.set('saving');
+    this.errorMessage.set('');
+    this.successMessage.set('');
+
+    try {
+      const saveParams: AuthSaveSettingsParams = {
+        authMethod: this.authMethod(),
+        claudeOAuthToken: '', // Empty string triggers deletion
+      };
+
+      const result = await this.rpcService.call(
+        'auth:saveSettings',
+        saveParams
+      );
+
+      if (result.isSuccess()) {
+        this.successMessage.set('OAuth token removed successfully');
+        this.connectionStatus.set('success');
+        this.oauthToken.set('');
+        await this.fetchAuthStatus();
+      } else {
+        this.errorMessage.set(result.error || 'Failed to remove OAuth token');
+        this.connectionStatus.set('error');
+      }
+    } catch (error) {
+      this.errorMessage.set(
+        error instanceof Error ? error.message : 'Failed to remove OAuth token'
+      );
+      this.connectionStatus.set('error');
+    }
+  }
+
+  /**
+   * Delete API key from SecretStorage
+   */
+  async deleteApiKey(): Promise<void> {
+    this.connectionStatus.set('saving');
+    this.errorMessage.set('');
+    this.successMessage.set('');
+
+    try {
+      const saveParams: AuthSaveSettingsParams = {
+        authMethod: this.authMethod(),
+        anthropicApiKey: '', // Empty string triggers deletion
+      };
+
+      const result = await this.rpcService.call(
+        'auth:saveSettings',
+        saveParams
+      );
+
+      if (result.isSuccess()) {
+        this.successMessage.set('API key removed successfully');
+        this.connectionStatus.set('success');
+        this.apiKey.set('');
+        await this.fetchAuthStatus();
+      } else {
+        this.errorMessage.set(result.error || 'Failed to remove API key');
+        this.connectionStatus.set('error');
+      }
+    } catch (error) {
+      this.errorMessage.set(
+        error instanceof Error ? error.message : 'Failed to remove API key'
+      );
+      this.connectionStatus.set('error');
+    }
   }
 }

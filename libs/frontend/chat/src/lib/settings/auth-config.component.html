@@ -70,19 +70,50 @@
       <span class="label-text-alt text-[10px]">(optional)</span>
       }
     </label>
+    <!-- Show masked value when configured -->
+    @if (hasExistingOAuthToken() && !oauthToken()) {
+    <div class="flex gap-1.5">
+      <div
+        class="input input-bordered input-sm flex-1 flex items-center text-xs text-base-content/50 font-mono"
+      >
+        sk-ant-oat01-••••••••••••
+      </div>
+      <button
+        type="button"
+        class="btn btn-ghost btn-sm btn-square text-error hover:bg-error/10"
+        (click)="deleteOAuthToken()"
+        [disabled]="connectionStatus() === 'saving'"
+        title="Remove OAuth token"
+        aria-label="Remove OAuth token"
+      >
+        <lucide-angular [img]="Trash2Icon" class="w-4 h-4" />
+      </button>
+    </div>
+    <div class="label py-0.5">
+      <span class="label-text-alt text-[10px] opacity-70">
+        Enter a new token below to replace the existing one
+      </span>
+    </div>
     <input
       id="oauthToken"
       type="password"
       [(ngModel)]="oauthToken"
       name="oauthToken"
       class="input input-bordered input-sm w-full text-xs"
-      [placeholder]="
-        hasExistingOAuthToken()
-          ? 'Configured - enter to replace'
-          : 'Enter your OAuth token'
-      "
+      placeholder="Enter new token to replace..."
       [attr.aria-required]="authMethod() === 'oauth'"
     />
+    } @else {
+    <input
+      id="oauthToken"
+      type="password"
+      [(ngModel)]="oauthToken"
+      name="oauthToken"
+      class="input input-bordered input-sm w-full text-xs"
+      placeholder="Enter your OAuth token"
+      [attr.aria-required]="authMethod() === 'oauth'"
+    />
+    }
     <div class="label flex-col items-start gap-0.5 py-1">
       <span class="label-text-alt text-[10px] opacity-70">
         <strong>✅ Claude Max/Pro:</strong> Run
@@ -122,19 +153,50 @@
       <span class="label-text-alt text-[10px]">(optional)</span>
       }
     </label>
+    <!-- Show masked value when configured -->
+    @if (hasExistingApiKey() && !apiKey()) {
+    <div class="flex gap-1.5">
+      <div
+        class="input input-bordered input-sm flex-1 flex items-center text-xs text-base-content/50 font-mono"
+      >
+        sk-ant-api03-••••••••••••
+      </div>
+      <button
+        type="button"
+        class="btn btn-ghost btn-sm btn-square text-error hover:bg-error/10"
+        (click)="deleteApiKey()"
+        [disabled]="connectionStatus() === 'saving'"
+        title="Remove API key"
+        aria-label="Remove API key"
+      >
+        <lucide-angular [img]="Trash2Icon" class="w-4 h-4" />
+      </button>
+    </div>
+    <div class="label py-0.5">
+      <span class="label-text-alt text-[10px] opacity-70">
+        Enter a new key below to replace the existing one
+      </span>
+    </div>
     <input
       id="apiKey"
       type="password"
       [(ngModel)]="apiKey"
       name="apiKey"
       class="input input-bordered input-sm w-full text-xs"
-      [placeholder]="
-        hasExistingApiKey()
-          ? 'Configured - enter to replace'
-          : 'sk-ant-api03-...'
-      "
+      placeholder="Enter new API key to replace..."
       [attr.aria-required]="authMethod() === 'apiKey'"
     />
+    } @else {
+    <input
+      id="apiKey"
+      type="password"
+      [(ngModel)]="apiKey"
+      name="apiKey"
+      class="input input-bordered input-sm w-full text-xs"
+      placeholder="sk-ant-api03-..."
+      [attr.aria-required]="authMethod() === 'apiKey'"
+    />
+    }
     <div class="label flex-col items-start gap-0.5 py-1">
       <span class="label-text-alt text-[10px] opacity-70">
         <strong>💳 Pay-per-token:</strong> Get API key from
