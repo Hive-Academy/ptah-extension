@@ -7,16 +7,13 @@ import {
 } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
 
+import { SetupStatusGetResponse } from '@ptah-extension/shared';
+
 /**
- * SetupStatus interface - Agent configuration status information
+ * SetupStatus type - Agent configuration status information
+ * Uses the RPC response type directly for type safety
  */
-export interface SetupStatus {
-  isConfigured: boolean;
-  agentCount: number;
-  lastModified: string | null;
-  projectAgents: string[];
-  userAgents: string[];
-}
+export type SetupStatus = SetupStatusGetResponse;
 
 /**
  * SetupStatusWidgetComponent - Agent configuration status widget
@@ -98,8 +95,8 @@ export interface SetupStatus {
               {{ status()!.agentCount }} agent{{
                 status()!.agentCount !== 1 ? 's' : ''
               }}
-              @if (status()!.lastModified) { •
-              {{ formatRelativeTime(status()!.lastModified!) }}
+              @if (status()!.lastUpdated) { •
+              {{ formatRelativeTime(status()!.lastUpdated!) }}
               }
             </p>
             } @else {
@@ -155,13 +152,13 @@ export class SetupStatusWidgetComponent implements OnInit {
     this.error.set(null);
 
     try {
-      const result = await this.rpcService.call<SetupStatus>(
+      const result = await this.rpcService.call(
         'setup-status:get-status',
         {},
         { timeout: 10000 }
       );
 
-      if (result.isSuccess()) {
+      if (result.isSuccess() && result.data) {
         this.status.set(result.data);
         this.error.set(null);
       } else {
@@ -184,7 +181,7 @@ export class SetupStatusWidgetComponent implements OnInit {
     this.error.set(null); // Clear any previous errors
 
     try {
-      const result = await this.rpcService.call<{ success: boolean }>(
+      const result = await this.rpcService.call(
         'setup-wizard:launch',
         {},
         { timeout: 5000 }

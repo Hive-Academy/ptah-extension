@@ -108,10 +108,12 @@ export class WelcomeComponent {
     this.errorMessage.set(null);
 
     try {
-      // Trigger RPC to start setup wizard
-      await this.wizardRpc.startSetupWizard();
+      // Launch the setup wizard webview
+      // Note: Full wizard workflow (scan → select → generate) not yet implemented
+      // For now, launchWizard() opens the wizard webview panel
+      await this.wizardRpc.launchWizard();
 
-      // Transition to scan step
+      // Transition to scan step (when backend is ready)
       this.wizardState.setCurrentStep('scan');
     } catch (error) {
       // Handle RPC error (timeout, backend failure, etc.)

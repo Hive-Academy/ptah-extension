@@ -250,19 +250,16 @@ export class MessageSenderService {
       });
 
       // Call RPC to start NEW chat (using activeTab from line 236)
-      const result = await this.claudeRpcService.call<{ sessionId: string }>(
-        'chat:start',
-        {
-          prompt: content,
-          sessionId,
-          name: activeTab?.name, // ✅ Send session name to backend
-          workspacePath,
-          options: {
-            model: this.modelState.currentModel(),
-            ...(files ? { files } : {}),
-          },
-        }
-      );
+      const result = await this.claudeRpcService.call('chat:start', {
+        prompt: content,
+        sessionId: sessionId as SessionId,
+        name: activeTab?.name, // ✅ Send session name to backend
+        workspacePath,
+        options: {
+          model: this.modelState.currentModel(),
+          ...(files ? { files } : {}),
+        },
+      });
 
       if (!result.success) {
         console.error('[MessageSender] Failed to start chat:', result.error);
@@ -381,17 +378,14 @@ export class MessageSenderService {
       });
 
       // Call RPC to CONTINUE existing chat (uses --resume flag)
-      const result = await this.claudeRpcService.call<{ sessionId: string }>(
-        'chat:continue',
-        {
-          prompt: content,
-          sessionId,
-          name: activeTab?.name, // ✅ Send session name (support late naming)
-          workspacePath,
-          model: this.modelState.currentModel(),
-          files: files ?? [],
-        }
-      );
+      const result = await this.claudeRpcService.call('chat:continue', {
+        prompt: content,
+        sessionId,
+        name: activeTab?.name, // ✅ Send session name (support late naming)
+        workspacePath,
+        model: this.modelState.currentModel(),
+        files: files ?? [],
+      });
 
       if (!result.success) {
         console.error('[MessageSender] Failed to continue chat:', result.error);

@@ -91,11 +91,7 @@ export class SessionLoaderService {
       // Reset pagination state
       this._sessionsOffset.set(0);
 
-      const result = await this.claudeRpcService.call<{
-        sessions: ChatSessionSummary[];
-        total: number;
-        hasMore: boolean;
-      }>('session:list', {
+      const result = await this.claudeRpcService.call('session:list', {
         workspacePath,
         limit: SessionLoaderService.SESSIONS_PAGE_SIZE,
         offset: 0,
@@ -142,11 +138,7 @@ export class SessionLoaderService {
 
       const currentOffset = this._sessionsOffset();
 
-      const result = await this.claudeRpcService.call<{
-        sessions: ChatSessionSummary[];
-        total: number;
-        hasMore: boolean;
-      }>('session:list', {
+      const result = await this.claudeRpcService.call('session:list', {
         workspacePath,
         limit: SessionLoaderService.SESSIONS_PAGE_SIZE,
         offset: currentOffset,
@@ -204,24 +196,22 @@ export class SessionLoaderService {
 
       // Load messages for this session via RPC
       // SDK storage returns StoredSessionMessage[] format
-      const result = await this.claudeRpcService.call<{
-        sessionId: string;
-        messages: StoredSessionMessage[];
-        agentSessions?: unknown[]; // Kept for backward compatibility, not used
-      }>('session:load', { sessionId, workspacePath });
+      // Note: workspacePath is not needed for session:load, session ID is sufficient
+      const result = await this.claudeRpcService.call('session:load', {
+        sessionId: sessionId as SessionId,
+      });
 
       if (result.success && result.data) {
+        // Cast messages from unknown[] to StoredSessionMessage[]
+        const storedMessages = result.data.messages as StoredSessionMessage[];
         console.log(
           '[SessionLoaderService] Loaded session:',
-          result.data.messages.length,
+          storedMessages.length,
           'messages'
         );
 
         // Convert SDK storage format to UI display format
-        const messages = this.convertStoredMessages(
-          result.data.messages,
-          sessionId
-        );
+        const messages = this.convertStoredMessages(storedMessages, sessionId);
 
         // Open or switch to tab for this session (prevents duplicate tabs)
         const title =

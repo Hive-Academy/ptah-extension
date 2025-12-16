@@ -57,6 +57,9 @@ import type {
 export class AuthConfigComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
 
+  // Timeout constants
+  private readonly CONNECTION_TEST_TIMEOUT_MS = 10000;
+
   // Lucide icons
   readonly CheckCircleIcon = CheckCircle;
   readonly XCircleIcon = XCircle;
@@ -84,7 +87,18 @@ export class AuthConfigComponent implements OnInit {
    * Fetch auth status on component initialization
    */
   async ngOnInit(): Promise<void> {
-    await this.fetchAuthStatus();
+    try {
+      await this.fetchAuthStatus();
+    } catch (error) {
+      console.error(
+        '[AuthConfigComponent] Failed to initialize auth status:',
+        error
+      );
+      this.errorMessage.set(
+        'Failed to load authentication status. Please try refreshing.'
+      );
+      this.isLoadingStatus.set(false);
+    }
   }
 
   /**
@@ -94,10 +108,7 @@ export class AuthConfigComponent implements OnInit {
   async fetchAuthStatus(): Promise<void> {
     this.isLoadingStatus.set(true);
     try {
-      const result = await this.rpcService.call<AuthGetAuthStatusResponse>(
-        'auth:getAuthStatus',
-        {}
-      );
+      const result = await this.rpcService.call('auth:getAuthStatus', {});
 
       if (result.isSuccess() && result.data) {
         this.hasExistingOAuthToken.set(result.data.hasOAuthToken);
@@ -173,7 +184,7 @@ export class AuthConfigComponent implements OnInit {
         anthropicApiKey: apiKeyValue || undefined,
       };
 
-      const saveResult = await this.rpcService.call<AuthSaveSettingsResponse>(
+      const saveResult = await this.rpcService.call(
         'auth:saveSettings',
         saveParams
       );
@@ -190,12 +201,16 @@ export class AuthConfigComponent implements OnInit {
       this.connectionStatus.set('testing');
       this.successMessage.set('Settings saved. Testing connection...');
 
-      const testResult = await this.callWithTimeout<AuthTestConnectionResponse>(
-        'auth:testConnection',
-        {},
-        10000,
-        'Connection test timed out after 10 seconds'
-      );
+      const testResult = await Promise.race([
+        this.rpcService.call('auth:testConnection', {}),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(new Error('Connection test timed out after 10 seconds')),
+            this.CONNECTION_TEST_TIMEOUT_MS
+          )
+        ),
+      ]);
 
       if (testResult.isSuccess()) {
         const testData = testResult.data!;
@@ -250,27 +265,5 @@ export class AuthConfigComponent implements OnInit {
     this.connectionStatus.set('idle');
     this.errorMessage.set('');
     this.successMessage.set('');
-  }
-
-  /**
-   * Call RPC method with timeout protection
-   * @param method - RPC method name
-   * @param params - RPC method parameters
-   * @param timeoutMs - Timeout in milliseconds
-   * @param errorMessage - Error message to show on timeout
-   * @returns RpcResult with success/error state
-   */
-  private async callWithTimeout<T>(
-    method: string,
-    params: unknown,
-    timeoutMs: number,
-    errorMessage: string
-  ): Promise<RpcResult<T>> {
-    return Promise.race([
-      this.rpcService.call<T>(method, params),
-      new Promise<RpcResult<T>>((_, reject) =>
-        setTimeout(() => reject(new Error(errorMessage)), timeoutMs)
-      ),
-    ]);
   }
 }

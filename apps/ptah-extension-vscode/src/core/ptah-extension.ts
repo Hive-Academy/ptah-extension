@@ -9,6 +9,7 @@ import type {
   WebviewManager,
 } from '@ptah-extension/vscode-core';
 import { AngularWebviewProvider } from '../providers/angular-webview.provider';
+import type { LicenseCommands } from '../commands/license-commands';
 
 /**
  * Main extension class for Ptah
@@ -81,7 +82,14 @@ export class PtahExtension implements vscode.Disposable {
    * Register all components - called after initialization
    */
   async registerAll(): Promise<void> {
-    // All registration now happens in initialize()
+    // Register license commands (TASK_2025_075 Batch 6)
+    const licenseCommands = DIContainer.resolve<LicenseCommands>(
+      TOKENS.LICENSE_COMMANDS
+    );
+    licenseCommands.registerCommands(this.context);
+    this.logger.info('License commands registered');
+
+    // All other registration now happens in initialize()
     // This method kept for API compatibility with main.ts
     this.logger.info('Extension components registered');
   }

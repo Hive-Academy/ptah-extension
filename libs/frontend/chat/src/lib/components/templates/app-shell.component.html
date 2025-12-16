@@ -1,7 +1,30 @@
 <!-- Global confirmation dialog (replaces window.confirm) -->
 <ptah-confirmation-dialog />
 
-<!-- Main layout - No drawer, simple sidebar + content -->
+<!--
+  Layout Architecture:
+  - Wizard and Settings views render STANDALONE (no sidebar, no tabs)
+  - Chat view renders with full sidebar + tab bar layout
+  - View determined by appStateManager.currentView() signal
+-->
+
+@switch (currentView()) {
+<!-- Setup Wizard: Full-width, standalone layout -->
+@case ('setup-wizard') {
+<div class="h-full w-full">
+  <ptah-wizard-view />
+</div>
+}
+
+<!-- Settings: Full-width, standalone layout -->
+@case ('settings') {
+<div class="h-full w-full">
+  <ptah-settings />
+</div>
+}
+
+<!-- Chat (default): Sidebar + Header + Chat layout -->
+@default {
 <div class="flex h-full">
   <!-- Session Sidebar (always visible, fixed width) -->
   <aside
@@ -46,7 +69,7 @@
 
           <!-- Input field with Enter/ESC keyboard support -->
           <input
-            #sessionNameInput
+            #sessionNameInputRef
             type="text"
             class="input input-bordered input-sm w-full mb-3"
             placeholder="Enter session name (optional)"
@@ -181,24 +204,10 @@
       </div>
     </div>
 
-    <!--
-      Main content area - conditional view rendering
-
-      View Switching Contract:
-      - appStateManager.currentView() signal determines visible component
-      - Only ONE component rendered at a time (@switch)
-      - View changes trigger automatic component lifecycle (ngOnInit/ngOnDestroy)
-      - View state persists in respective state services (ChatStore, SetupWizardStateService)
-      - No manual cleanup required - Angular handles component destruction
-    -->
+    <!-- Chat content area -->
     <div class="flex-1 overflow-hidden">
-      @switch (currentView()) { @case ('settings') {
-      <ptah-settings />
-      } @case ('setup-wizard') {
-      <ptah-wizard-view />
-      } @default {
       <ptah-chat-view />
-      } }
     </div>
   </div>
 </div>
+} }

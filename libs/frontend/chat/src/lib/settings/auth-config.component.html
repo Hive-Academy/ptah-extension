@@ -51,7 +51,11 @@
   <div class="form-control">
     <label class="label py-1 justify-start gap-2" for="oauthToken">
       <span class="label-text text-xs font-medium">Claude OAuth Token</span>
-      @if (hasExistingOAuthToken()) {
+      @if (isLoadingStatus()) {
+      <span class="badge badge-ghost badge-xs" aria-label="Loading authentication status">
+        <span class="loading loading-spinner loading-xs"></span>
+      </span>
+      } @else if (hasExistingOAuthToken()) {
       <span
         class="badge badge-success badge-xs gap-0.5"
         aria-label="OAuth token configured"
@@ -71,7 +75,7 @@
       class="input input-bordered input-sm w-full text-xs"
       [placeholder]="
         hasExistingOAuthToken()
-          ? 'Token configured - enter new value to replace'
+          ? 'Configured - enter to replace'
           : 'Enter your OAuth token'
       "
       [attr.aria-required]="authMethod() === 'oauth'"
@@ -96,7 +100,11 @@
   <div class="form-control">
     <label class="label py-1 justify-start gap-2" for="apiKey">
       <span class="label-text text-xs font-medium">Anthropic API Key</span>
-      @if (hasExistingApiKey()) {
+      @if (isLoadingStatus()) {
+      <span class="badge badge-ghost badge-xs" aria-label="Loading authentication status">
+        <span class="loading loading-spinner loading-xs"></span>
+      </span>
+      } @else if (hasExistingApiKey()) {
       <span
         class="badge badge-success badge-xs gap-0.5"
         aria-label="API key configured"
@@ -116,7 +124,7 @@
       class="input input-bordered input-sm w-full text-xs"
       [placeholder]="
         hasExistingApiKey()
-          ? 'Key configured - enter new value to replace'
+          ? 'Configured - enter to replace'
           : 'sk-ant-api03-...'
       "
       [attr.aria-required]="authMethod() === 'apiKey'"

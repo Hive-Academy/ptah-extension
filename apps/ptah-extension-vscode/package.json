@@ -68,12 +68,39 @@
         "title": "Setup Ptah Agents",
         "category": "Ptah",
         "icon": "$(tools)"
+      },
+      {
+        "command": "ptah.enterLicenseKey",
+        "title": "Enter License Key",
+        "category": "Ptah",
+        "icon": "$(key)"
+      },
+      {
+        "command": "ptah.removeLicenseKey",
+        "title": "Remove License Key",
+        "category": "Ptah",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "ptah.checkLicenseStatus",
+        "title": "Check License Status",
+        "category": "Ptah",
+        "icon": "$(info)"
       }
     ],
     "menus": {
       "commandPalette": [
         {
           "command": "ptah.setupAgents"
+        },
+        {
+          "command": "ptah.enterLicenseKey"
+        },
+        {
+          "command": "ptah.removeLicenseKey"
+        },
+        {
+          "command": "ptah.checkLicenseStatus"
         }
       ],
       "editor/context": [],

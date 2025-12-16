@@ -111,8 +111,8 @@ export class AppShellComponent {
   readonly sessionNameInput = signal('');
 
   // ViewChild for session name input (programmatic focus)
-  @ViewChild('sessionNameInput')
-  sessionNameInputElement?: ElementRef<HTMLInputElement>;
+  @ViewChild('sessionNameInputRef')
+  sessionNameInputRef?: ElementRef<HTMLInputElement>;
 
   constructor() {
     // Focus input when popover opens
@@ -120,7 +120,7 @@ export class AppShellComponent {
       if (this.sessionNamePopoverOpen()) {
         // Wait for next tick to ensure popover is rendered
         setTimeout(() => {
-          this.sessionNameInputElement?.nativeElement.focus();
+          this.sessionNameInputRef?.nativeElement.focus();
         }, 0);
       }
     });

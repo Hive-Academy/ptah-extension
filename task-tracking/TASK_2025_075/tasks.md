@@ -652,12 +652,12 @@ npm run typecheck:all
 
 ---
 
-## Batch 4: Magic Link Authentication ⏸️ PENDING
+## Batch 4: Magic Link Authentication 🔄 IMPLEMENTED
 
 **Developer**: backend-developer
 **Tasks**: 4 | **Dependencies**: Batch 3 complete
 
-### Task 4.1: Create MagicLinkService ⏸️ PENDING
+### Task 4.1: Create MagicLinkService 🔄 IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\apps\ptah-license-server\src\auth\services\magic-link.service.ts` (CREATE)
 **Spec Reference**: implementation-plan.md (Component A5, lines 688-752)
@@ -702,9 +702,9 @@ npm run typecheck:all
 
 ---
 
-### Task 4.2: Modify AuthController for Magic Link Endpoints ⏸️ PENDING
+### Task 4.2: Modify AuthController for Magic Link Endpoints 🔄 IMPLEMENTED
 
-**File**: `D:\projects\ptah-extension\apps\ptah-license-server\src\auth\auth.controller.ts` (MODIFY)
+**File**: `D:\projects\ptah-extension\apps\ptah-license-server\src\app\auth\auth.controller.ts` (MODIFY)
 **Spec Reference**: implementation-plan.md (Component A5, line 769)
 **Dependencies**: Task 4.1
 
@@ -745,9 +745,9 @@ npx nx build ptah-license-server
 
 ---
 
-### Task 4.3: Update AuthModule to Export MagicLinkService ⏸️ PENDING
+### Task 4.3: Update AuthModule to Export MagicLinkService 🔄 IMPLEMENTED
 
-**File**: `D:\projects\ptah-extension\apps\ptah-license-server\src\auth\auth.module.ts` (MODIFY)
+**File**: `D:\projects\ptah-extension\apps\ptah-license-server\src\app\auth\auth.module.ts` (MODIFY)
 **Spec Reference**: implementation-plan.md (Component A5, line 770)
 **Dependencies**: Task 4.2
 
@@ -771,7 +771,7 @@ npm run typecheck:all
 
 ---
 
-### Task 4.4: Add Portal License API Endpoint (GET /licenses/me) ⏸️ PENDING
+### Task 4.4: Add Portal License API Endpoint (GET /licenses/me) 🔄 IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\apps\ptah-license-server\src\license\controllers\license.controller.ts` (MODIFY)
 **Spec Reference**: task-description.md (lines 548-571)
@@ -824,12 +824,12 @@ curl -X GET http://localhost:3000/api/v1/licenses/me --cookie "access_token=vali
 
 ---
 
-## Batch 5: VS Code LicenseService ⏸️ PENDING
+## Batch 5: VS Code LicenseService 🔄 IMPLEMENTED
 
 **Developer**: backend-developer (or frontend-developer with VS Code extension experience)
 **Tasks**: 5 | **Dependencies**: Batch 1-4 complete (server must be running)
 
-### Task 5.1: Create LicenseService in vscode-core ⏸️ PENDING
+### Task 5.1: Create LicenseService in vscode-core 🔄 IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\libs\backend\vscode-core\src\services\license.service.ts` (CREATE)
 **Spec Reference**: implementation-plan.md (Component B1, lines 901-1073)
@@ -876,7 +876,7 @@ npm run typecheck:all
 
 ---
 
-### Task 5.2: Add LICENSE_SERVICE Token to TOKENS Namespace ⏸️ PENDING
+### Task 5.2: Add LICENSE_SERVICE Token to TOKENS Namespace 🔄 IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\libs\backend\vscode-core\src\di\tokens.ts` (MODIFY)
 **Spec Reference**: implementation-plan.md (Component B1, line 1092)
@@ -901,7 +901,7 @@ npm run typecheck:all
 
 ---
 
-### Task 5.3: Register LicenseService in vscode-core's register.ts ⏸️ PENDING
+### Task 5.3: Register LicenseService in vscode-core's register.ts 🔄 IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\libs\backend\vscode-core\src\di\register.ts` (MODIFY)
 **Spec Reference**: implementation-plan.md (Component B1, line 1093)
@@ -929,7 +929,7 @@ npm run typecheck:all
 
 ---
 
-### Task 5.4: Export LicenseService from vscode-core Index ⏸️ PENDING
+### Task 5.4: Export LicenseService from vscode-core Index 🔄 IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\libs\backend\vscode-core\src\index.ts` (MODIFY)
 **Spec Reference**: implementation-plan.md (Component B1, line 1094)
@@ -955,11 +955,13 @@ npm run typecheck:all
 
 ---
 
-### Task 5.5: Write Unit Tests for LicenseService ⏸️ PENDING
+### Task 5.5: Write Unit Tests for LicenseService ⏸️ SKIPPED
 
 **File**: `D:\projects\ptah-extension\libs\backend\vscode-core\src\services\license.service.spec.ts` (CREATE)
 **Spec Reference**: implementation-plan.md (Component B1, line 1091)
 **Dependencies**: Task 5.4
+
+**NOTE**: Skipped as per task instructions (optional - skip if time constrained)
 
 **Implementation Requirements**:
 

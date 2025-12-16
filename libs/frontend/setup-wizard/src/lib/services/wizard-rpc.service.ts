@@ -1,169 +1,92 @@
 import { Injectable, inject } from '@angular/core';
-import { VSCodeService } from '@ptah-extension/core';
+import { ClaudeRpcService } from '@ptah-extension/core';
 import { AgentSelection } from './setup-wizard-state.service';
-
-/**
- * RPC message types for setup wizard communication
- * These match the message types defined in Batch 0 (RPC types)
- */
-
-interface StartSetupWizardMessage {
-  type: 'setup-wizard:start';
-  workspaceUri: string;
-}
-
-interface SubmitAgentSelectionMessage {
-  type: 'setup-wizard:submit-selection';
-  selectedAgents: AgentSelection[];
-}
-
-interface CancelWizardMessage {
-  type: 'setup-wizard:cancel';
-  saveProgress: boolean;
-}
 
 /**
  * WizardRpcService
  *
- * Type-safe RPC message sending service for setup wizard.
- * Communicates with the VS Code extension backend via webview messaging.
- * Handles promise-based responses with timeout protection.
+ * Thin facade for wizard-specific RPC calls.
+ * Delegates to ClaudeRpcService for actual RPC communication.
  *
- * Pattern: Follows libs/frontend/core VSCodeService RPC communication pattern
- * Integration: Uses VSCodeService.postMessage() for message sending
+ * REFACTORED (TASK_2025_078): Removed duplicate RPC infrastructure.
+ * Previously had its own pendingResponses map, setupMessageListener(), and
+ * generateMessageId() which duplicated ClaudeRpcService's implementation.
+ * Now delegates to ClaudeRpcService's unified RPC layer.
+ *
+ * Pattern: Facade pattern - provides wizard-specific API over unified RPC
+ *
+ * NOTE (TASK_2025_074): Backend RPC handlers for wizard operations are pending.
+ * Currently only `setup-wizard:launch` is implemented in backend.
+ * The following methods need backend handlers before they will work:
+ * - startSetupWizard → needs `wizard:start` RPC handler
+ * - submitAgentSelection → needs `wizard:submit-selection` RPC handler
+ * - cancelWizard → needs `wizard:cancel` RPC handler
  */
 @Injectable({
   providedIn: 'root',
 })
 export class WizardRpcService {
-  private readonly vscodeService = inject(VSCodeService);
-  private readonly DEFAULT_TIMEOUT_MS = 30000; // 30 seconds
-  private readonly pendingResponses = new Map<
-    string,
-    {
-      resolve: (value: unknown) => void;
-      reject: (error: Error) => void;
-      timeoutId: ReturnType<typeof setTimeout>;
-    }
-  >();
+  private readonly rpcService = inject(ClaudeRpcService);
 
-  constructor() {
-    this.setupMessageListener();
+  /**
+   * Launch the setup wizard webview
+   * This uses the existing `setup-wizard:launch` RPC handler
+   */
+  async launchWizard(): Promise<void> {
+    const result = await this.rpcService.call('setup-wizard:launch', {});
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to launch wizard');
+    }
   }
 
   /**
    * Start the setup wizard (Step 1 → Step 2 transition)
+   * Triggers workspace scanning and agent detection
+   *
+   * TODO: Backend handler not implemented yet
+   * When implemented, add 'wizard:start' to RpcMethodRegistry
    */
-  async startSetupWizard(): Promise<void> {
-    const message: StartSetupWizardMessage = {
-      type: 'setup-wizard:start',
-      workspaceUri: this.vscodeService.config().workspaceRoot,
-    };
-
-    await this.sendMessage<void>(message);
+  async startSetupWizard(_workspaceUri: string): Promise<void> {
+    // TODO: Implement when backend handler is ready
+    // const result = await this.rpcService.call('wizard:start', { workspaceUri });
+    console.warn(
+      '[WizardRpcService] startSetupWizard: Backend handler not implemented'
+    );
+    throw new Error(
+      'Setup wizard backend not fully implemented. Use launchWizard() instead.'
+    );
   }
 
   /**
    * Submit agent selection (Step 4 → Step 5 transition)
+   * Triggers agent generation with selected agents
+   *
+   * TODO: Backend handler not implemented yet
+   * When implemented, add 'wizard:submit-selection' to RpcMethodRegistry
    */
-  async submitAgentSelection(selections: AgentSelection[]): Promise<void> {
-    const message: SubmitAgentSelectionMessage = {
-      type: 'setup-wizard:submit-selection',
-      selectedAgents: selections,
-    };
-
-    await this.sendMessage<void>(message);
+  async submitAgentSelection(_selections: AgentSelection[]): Promise<void> {
+    // TODO: Implement when backend handler is ready
+    // const selectedIds = selections.filter((s) => s.selected).map((s) => s.id);
+    // const result = await this.rpcService.call('wizard:submit-selection', { agentIds: selectedIds });
+    console.warn(
+      '[WizardRpcService] submitAgentSelection: Backend handler not implemented'
+    );
+    throw new Error('Agent selection submission not yet implemented');
   }
 
   /**
    * Cancel wizard (any step → close)
-   */
-  async cancelWizard(saveProgress = true): Promise<void> {
-    const message: CancelWizardMessage = {
-      type: 'setup-wizard:cancel',
-      saveProgress,
-    };
-
-    await this.sendMessage<void>(message);
-  }
-
-  /**
-   * Generic message sender with promise-based response handling and timeout
+   * Optionally saves progress for resuming later
    *
-   * Pattern: Promise-based RPC with timeout protection
-   * Error Handling: Rejects on timeout or RPC error
+   * TODO: Backend handler not implemented yet
+   * When implemented, add 'wizard:cancel' to RpcMethodRegistry
    */
-  private async sendMessage<T>(message: object & { type: string }): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const messageId = this.generateMessageId();
-      const messageWithId = { ...message, messageId };
-
-      // Setup timeout
-      const timeoutId = setTimeout(() => {
-        this.pendingResponses.delete(messageId);
-        reject(
-          new Error(
-            `RPC timeout after ${this.DEFAULT_TIMEOUT_MS}ms: ${message.type}`
-          )
-        );
-      }, this.DEFAULT_TIMEOUT_MS);
-
-      // Store promise callbacks
-      this.pendingResponses.set(messageId, {
-        resolve: resolve as (value: unknown) => void,
-        reject,
-        timeoutId,
-      });
-
-      // Send message via VSCodeService with error handling
-      try {
-        this.vscodeService.postMessage(messageWithId);
-      } catch (error) {
-        // Clean up on send failure
-        this.pendingResponses.delete(messageId);
-        clearTimeout(timeoutId);
-        reject(
-          new Error(
-            `Failed to send RPC message: ${
-              error instanceof Error ? error.message : String(error)
-            }`
-          )
-        );
-      }
-    });
-  }
-
-  /**
-   * Setup listener for RPC responses from extension backend
-   */
-  private setupMessageListener(): void {
-    window.addEventListener('message', (event) => {
-      const message = event.data;
-
-      // Handle RPC responses
-      if (message.type === 'rpc:response' && message.messageId) {
-        const pending = this.pendingResponses.get(message.messageId);
-        if (pending) {
-          clearTimeout(pending.timeoutId);
-          this.pendingResponses.delete(message.messageId);
-
-          if (message.error) {
-            pending.reject(new Error(message.error));
-          } else {
-            pending.resolve(message.payload);
-          }
-        }
-      }
-
-      // Note: Progress and event messages are handled by SetupWizardStateService
-      // via direct subscription to VSCodeService message events
-    });
-  }
-
-  /**
-   * Generate unique message ID for request/response correlation
-   */
-  private generateMessageId(): string {
-    return `wizard-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  async cancelWizard(_saveProgress = true): Promise<void> {
+    // TODO: Implement when backend handler is ready
+    // const result = await this.rpcService.call('wizard:cancel', { saveProgress });
+    console.warn(
+      '[WizardRpcService] cancelWizard: Backend handler not implemented'
+    );
+    throw new Error('Wizard cancellation not yet implemented');
   }
 }

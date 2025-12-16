@@ -318,15 +318,12 @@ export class ConversationService {
       });
 
       // Call RPC to start NEW chat
-      const result = await this.claudeRpcService.call<{ sessionId: string }>(
-        'chat:start',
-        {
-          prompt: content,
-          sessionId,
-          workspacePath,
-          options: files ? { files } : undefined,
-        }
-      );
+      const result = await this.claudeRpcService.call('chat:start', {
+        prompt: content,
+        sessionId: sessionId as SessionId,
+        workspacePath,
+        options: files ? { files } : undefined,
+      });
 
       if (!result.success) {
         console.error(
@@ -465,14 +462,11 @@ export class ConversationService {
       });
 
       // Call RPC to CONTINUE existing chat (uses --resume flag)
-      const result = await this.claudeRpcService.call<{ sessionId: string }>(
-        'chat:continue',
-        {
-          prompt: content,
-          sessionId,
-          workspacePath,
-        }
-      );
+      const result = await this.claudeRpcService.call('chat:continue', {
+        prompt: content,
+        sessionId: sessionId as SessionId,
+        workspacePath,
+      });
 
       if (!result.success) {
         console.error(
@@ -553,8 +547,8 @@ export class ConversationService {
       // ========== END QUEUE HANDLING ==========
 
       // Call RPC to abort
-      const result = await this.claudeRpcService.call<void>('chat:abort', {
-        sessionId,
+      const result = await this.claudeRpcService.call('chat:abort', {
+        sessionId: sessionId as SessionId,
       });
 
       if (result.success) {

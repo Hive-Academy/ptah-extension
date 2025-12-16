@@ -163,17 +163,7 @@ export class FilePickerService {
 
     try {
       // Call backend via RPC
-      const result = await this.rpcService.call<{
-        files?: Array<{
-          uri: string;
-          relativePath: string;
-          fileName: string;
-          fileType: string;
-          size: number;
-          lastModified: number;
-          isDirectory: boolean;
-        }>;
-      }>('context:getAllFiles', {
+      const result = await this.rpcService.call('context:getAllFiles', {
         includeImages: false,
         limit: 500,
       });

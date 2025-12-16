@@ -16,6 +16,7 @@ import {
   Logger,
   TOKENS,
   WebviewManager,
+  WebviewMessageHandlerService,
   type IWebviewHtmlGenerator,
 } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
@@ -28,22 +29,18 @@ import {
   WizardState,
   AgentSelectionUpdate,
   ResumeWizardRequest,
+  // Typed message interfaces (TASK_2025_078)
+  WizardStartMessage,
+  WizardSelectionMessage,
+  WizardCancelMessage,
+  FrontendProjectContext,
 } from '../types/wizard.types';
 import { AgentProjectContext, GenerationSummary } from '../types/core.types';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
 import { AgentGenerationOrchestratorService } from './orchestrator.service';
 
-/**
- * Discriminated union type for step-specific data.
- * Ensures type-safe access to step data based on current wizard step.
- */
-type StepData =
-  | { step: 'welcome' }
-  | { step: 'scan'; projectContext: AgentProjectContext }
-  | { step: 'review' }
-  | { step: 'select'; selectedAgentIds: string[] }
-  | { step: 'generate'; generationSummary: GenerationSummary }
-  | { step: 'complete' };
+// NOTE: StepData type REMOVED in TASK_2025_078
+// Was unused discriminated union - using typed message interfaces instead
 
 /**
  * Setup Wizard Service - Backend orchestration for agent generation wizard
@@ -110,9 +107,103 @@ export class SetupWizardService implements ISetupWizardService {
     @inject(TOKENS.LOGGER)
     private readonly logger: Logger,
     @inject(TOKENS.WEBVIEW_HTML_GENERATOR)
-    private readonly htmlGenerator: IWebviewHtmlGenerator
+    private readonly htmlGenerator: IWebviewHtmlGenerator,
+    @inject(TOKENS.WEBVIEW_MESSAGE_HANDLER)
+    private readonly messageHandler: WebviewMessageHandlerService
   ) {
     this.logger.debug('SetupWizardService initialized');
+  }
+
+  /**
+   * Create wizard webview panel with message handlers.
+   * Extracted helper to avoid duplication between launchWizard and resumeWizard.
+   * (TASK_2025_078 - DRY improvement)
+   *
+   * @param title - Panel title
+   * @param initialData - Initial data to pass to webview (including resumed session state)
+   * @returns Panel on success, null on failure
+   * @private
+   */
+  private async createWizardPanel(
+    title: string,
+    initialData?: {
+      resumedSession?: {
+        sessionId: string;
+        currentStep: WizardStep;
+        // Use Record type for flexibility - saved state may have simplified context
+        projectContext?: Record<string, unknown>;
+        selectedAgentIds?: string[];
+      };
+    }
+  ): Promise<vscode.WebviewPanel | null> {
+    // Create webview panel
+    const panel = await this.webviewManager.createWebviewPanel({
+      viewType: this.WIZARD_VIEW_TYPE,
+      title,
+      showOptions: {
+        viewColumn: 1,
+        preserveFocus: false,
+      },
+      options: {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+      },
+    });
+
+    if (!panel) {
+      this.logger.error('Failed to create wizard webview panel');
+      return null;
+    }
+
+    // Register message handlers (CRITICAL: before setting HTML)
+    this.messageHandler.setupMessageListener({
+      webviewId: this.WIZARD_VIEW_TYPE,
+      webview: panel.webview,
+      customHandlers: [
+        async (message) => {
+          switch (message.type) {
+            case 'setup-wizard:start':
+              await this.handleStartMessage(
+                panel,
+                message as WizardStartMessage
+              );
+              return true;
+            case 'setup-wizard:submit-selection':
+              await this.handleSelectionMessage(
+                panel,
+                message as WizardSelectionMessage
+              );
+              return true;
+            case 'setup-wizard:cancel':
+              await this.handleCancelMessage(
+                panel,
+                message as WizardCancelMessage
+              );
+              return true;
+            default:
+              return false;
+          }
+        },
+      ],
+      onReady: () => {
+        this.logger.info('Wizard webview ready signal received');
+      },
+    });
+
+    // Set webview HTML content
+    panel.webview.html = this.htmlGenerator.generateAngularWebviewContent(
+      panel.webview,
+      {
+        workspaceInfo: this.htmlGenerator.buildWorkspaceInfo() as Record<
+          string,
+          unknown
+        >,
+        initialView: 'setup-wizard',
+        ...initialData,
+      }
+    );
+
+    return panel;
   }
 
   /**
@@ -198,64 +289,15 @@ export class SetupWizardService implements ISetupWizardService {
         workspace: this.currentSession.workspaceRoot,
       });
 
-      // Create webview panel
-      const panel = await this.webviewManager.createWebviewPanel({
-        viewType: this.WIZARD_VIEW_TYPE,
-        title: 'Ptah Setup Wizard',
-        showOptions: {
-          viewColumn: 1,
-          preserveFocus: false,
-        },
-        options: {
-          enableScripts: true,
-          retainContextWhenHidden: true,
-        },
-      });
+      // Use consolidated panel creation helper (DRY - TASK_2025_078)
+      const panel = await this.createWizardPanel('Ptah Setup Wizard');
 
-      // Verify panel was created successfully (CRITICAL: null check BEFORE any panel access)
       if (!panel) {
-        this.logger.error('Failed to create wizard webview panel');
         this.currentSession = null; // Clean up failed session
         return Result.err(
           new Error('Failed to create wizard webview panel. Please try again.')
         );
       }
-
-      // CRITICAL ORDER: Register listeners BEFORE setting HTML
-      // Prevents race condition where webview sends messages before listeners ready
-      panel.webview.onDidReceiveMessage(async (message: any) => {
-        switch (message.type) {
-          case 'setup-wizard:start':
-            await this.handleStartMessage(panel, message);
-            break;
-          case 'setup-wizard:submit-selection':
-            await this.handleSelectionMessage(panel, message);
-            break;
-          case 'setup-wizard:cancel':
-            await this.handleCancelMessage(panel, message);
-            break;
-          default:
-            this.logger.warn('Unknown wizard message type', {
-              type: message.type,
-            });
-        }
-      });
-      this.logger.debug('Message listeners registered for wizard');
-
-      // Now safe to load webview content
-      panel.webview.html = this.htmlGenerator.generateAngularWebviewContent(
-        panel.webview,
-        {
-          workspaceInfo: this.htmlGenerator.buildWorkspaceInfo() as Record<
-            string,
-            unknown
-          >,
-          initialView: 'setup-wizard',
-        }
-      );
-      this.logger.debug(
-        'Wizard webview HTML content set with initial view: setup-wizard'
-      );
 
       this.logger.info('Wizard launched successfully', {
         sessionId: this.currentSession.id,
@@ -523,23 +565,20 @@ export class SetupWizardService implements ISetupWizardService {
         selectedAgentIds: savedState.selectedAgentIds,
       };
 
-      // Re-launch webview at saved step
-      const panel = await this.webviewManager.createWebviewPanel({
-        viewType: this.WIZARD_VIEW_TYPE,
-        title: 'Ptah Setup Wizard (Resumed)',
-        showOptions: {
-          viewColumn: 1,
-          preserveFocus: false,
-        },
-        options: {
-          enableScripts: true,
-          retainContextWhenHidden: true,
-        },
-      });
+      // Use consolidated panel creation helper (DRY - TASK_2025_078)
+      const panel = await this.createWizardPanel(
+        'Ptah Setup Wizard (Resumed)',
+        {
+          resumedSession: {
+            sessionId: this.currentSession.id,
+            currentStep: this.currentSession.currentStep,
+            projectContext: this.currentSession.projectContext,
+            selectedAgentIds: this.currentSession.selectedAgentIds,
+          },
+        }
+      );
 
-      // Verify panel was created successfully (CRITICAL: null check BEFORE any panel access)
       if (!panel) {
-        this.logger.error('Failed to create wizard webview panel for resume');
         this.currentSession = null; // Clean up failed session
         return Result.err(
           new Error('Failed to create wizard webview panel. Please try again.')
@@ -795,8 +834,15 @@ export class SetupWizardService implements ISetupWizardService {
    * @private
    */
   private isSessionValid(state: WizardState): boolean {
+    // FIX (TASK_2025_078): Handle Date deserialization from JSON
+    // workspaceState.get() returns lastActivity as string, not Date object
+    const lastActivityDate =
+      state.lastActivity instanceof Date
+        ? state.lastActivity
+        : new Date(state.lastActivity);
+
     // Check session age
-    const ageMs = Date.now() - state.lastActivity.getTime();
+    const ageMs = Date.now() - lastActivityDate.getTime();
     if (ageMs > this.MAX_SESSION_AGE_MS) {
       this.logger.warn('Wizard session expired', {
         sessionId: state.sessionId,
@@ -877,18 +923,31 @@ export class SetupWizardService implements ISetupWizardService {
    * Map frontend ProjectContext to backend AgentProjectContext.
    * Handles type differences between frontend and backend representations.
    *
+   * NOTE: Frontend sends string types, backend expects enums from workspace-intelligence.
+   * We use type assertions because the frontend guarantees valid values.
+   *
    * @param frontendContext - Project context from frontend
    * @returns Backend AgentProjectContext
    * @private
    */
-  private mapToAgentProjectContext(frontendContext: any): AgentProjectContext {
+  private mapToAgentProjectContext(
+    frontendContext: FrontendProjectContext
+  ): AgentProjectContext {
     // Frontend sends simplified ProjectContext, map to full AgentProjectContext
+    // Type assertions needed: frontend sends strings, backend expects enums
     return {
       rootPath: frontendContext.rootPath || frontendContext.workspacePath || '',
-      projectType: frontendContext.projectType,
-      frameworks: frontendContext.frameworks || [],
-      monorepoType: frontendContext.monorepoType,
-      relevantFiles: frontendContext.relevantFiles || [],
+      // Cast string to ProjectType enum - frontend validates values match enum
+      projectType:
+        frontendContext.projectType as unknown as AgentProjectContext['projectType'],
+      // Cast string array to Framework enum array
+      frameworks: (frontendContext.frameworks ||
+        []) as unknown as AgentProjectContext['frameworks'],
+      // Cast string to MonorepoType enum (or undefined)
+      monorepoType:
+        frontendContext.monorepoType as unknown as AgentProjectContext['monorepoType'],
+      // Frontend doesn't send full IndexedFile objects, use empty array
+      relevantFiles: [] as AgentProjectContext['relevantFiles'],
       techStack: {
         languages: frontendContext.techStack?.languages || [],
         frameworks: frontendContext.techStack?.frameworks || [],
@@ -896,12 +955,12 @@ export class SetupWizardService implements ISetupWizardService {
         testingFrameworks: frontendContext.techStack?.testingFrameworks || [],
         packageManager: frontendContext.techStack?.packageManager || 'npm',
       },
-      codeConventions: frontendContext.codeConventions || {
-        indentation: 'spaces',
-        indentSize: 2,
-        quoteStyle: 'single',
-        semicolons: true,
-        trailingComma: 'es5',
+      codeConventions: {
+        indentation: frontendContext.codeConventions?.indentation ?? 'spaces',
+        indentSize: frontendContext.codeConventions?.indentSize ?? 2,
+        quoteStyle: frontendContext.codeConventions?.quoteStyle ?? 'single',
+        semicolons: frontendContext.codeConventions?.semicolons ?? true,
+        trailingComma: frontendContext.codeConventions?.trailingComma ?? 'es5',
       },
     };
   }
@@ -911,12 +970,12 @@ export class SetupWizardService implements ISetupWizardService {
    * Initiates workspace scanning and agent detection (Phase 1).
    *
    * @param panel - Webview panel
-   * @param message - RPC message with messageId and payload
+   * @param message - Typed RPC message with messageId and payload
    * @private
    */
   private async handleStartMessage(
     panel: vscode.WebviewPanel,
-    message: any
+    message: WizardStartMessage
   ): Promise<void> {
     const { messageId, payload } = message;
 
@@ -965,29 +1024,29 @@ export class SetupWizardService implements ISetupWizardService {
         }
       );
 
-      // Send response
+      // Send response - use proper Result unwrapping
       if (result.isErr()) {
-        await this.sendResponse(
-          panel,
-          messageId,
-          undefined,
-          result.error!.message
-        );
+        const errorMessage =
+          result.error?.message ?? 'Unknown error during generation';
+        await this.sendResponse(panel, messageId, undefined, errorMessage);
       } else {
-        await this.sendResponse(panel, messageId, {
-          agents: result.value!.agents.map((agent) => ({
-            id: agent.sourceTemplateId,
-            name: agent.sourceTemplateId,
-            version: agent.sourceTemplateVersion,
-          })),
-          summary: {
-            totalAgents: result.value!.totalAgents,
-            successful: result.value!.successful,
-            failed: result.value!.failed,
-            durationMs: result.value!.durationMs,
-            warnings: result.value!.warnings,
-          },
-        });
+        const value = result.value;
+        if (value) {
+          await this.sendResponse(panel, messageId, {
+            agents: value.agents.map((agent) => ({
+              id: agent.sourceTemplateId,
+              name: agent.sourceTemplateId,
+              version: agent.sourceTemplateVersion,
+            })),
+            summary: {
+              totalAgents: value.totalAgents,
+              successful: value.successful,
+              failed: value.failed,
+              durationMs: value.durationMs,
+              warnings: value.warnings,
+            },
+          });
+        }
       }
     } catch (error) {
       this.logger.error('Error in handleStartMessage', error as Error);
@@ -1005,12 +1064,12 @@ export class SetupWizardService implements ISetupWizardService {
    * Processes user's agent selection and initiates generation (Phase 2-5).
    *
    * @param panel - Webview panel
-   * @param message - RPC message with messageId and payload
+   * @param message - Typed RPC message with messageId and payload
    * @private
    */
   private async handleSelectionMessage(
     panel: vscode.WebviewPanel,
-    message: any
+    message: WizardSelectionMessage
   ): Promise<void> {
     const { messageId, payload } = message;
 
@@ -1067,27 +1126,27 @@ export class SetupWizardService implements ISetupWizardService {
         }
       );
 
-      // Send response
+      // Send response - use proper Result unwrapping
       if (result.isErr()) {
-        await this.sendResponse(
-          panel,
-          messageId,
-          undefined,
-          result.error!.message
-        );
+        const errorMessage =
+          result.error?.message ?? 'Unknown generation error';
+        await this.sendResponse(panel, messageId, undefined, errorMessage);
       } else {
-        // Update session with generation summary
-        this.currentSession.generationSummary = {
-          totalAgents: result.value!.totalAgents,
-          successful: result.value!.successful,
-          failed: result.value!.failed,
-          durationMs: result.value!.durationMs,
-          warnings: result.value!.warnings,
-        };
+        const value = result.value;
+        if (value) {
+          // Update session with generation summary
+          this.currentSession.generationSummary = {
+            totalAgents: value.totalAgents,
+            successful: value.successful,
+            failed: value.failed,
+            durationMs: value.durationMs,
+            warnings: value.warnings,
+          };
 
-        await this.sendResponse(panel, messageId, {
-          summary: this.currentSession.generationSummary,
-        });
+          await this.sendResponse(panel, messageId, {
+            summary: this.currentSession.generationSummary,
+          });
+        }
       }
     } catch (error) {
       this.logger.error('Error in handleSelectionMessage', error as Error);
@@ -1105,12 +1164,12 @@ export class SetupWizardService implements ISetupWizardService {
    * Cancels the wizard and optionally saves progress.
    *
    * @param panel - Webview panel
-   * @param message - RPC message with messageId and payload
+   * @param message - Typed RPC message with messageId and payload
    * @private
    */
   private async handleCancelMessage(
     panel: vscode.WebviewPanel,
-    message: any
+    message: WizardCancelMessage
   ): Promise<void> {
     const { messageId, payload } = message;
 
@@ -1134,14 +1193,11 @@ export class SetupWizardService implements ISetupWizardService {
       // Cancel wizard
       const result = await this.cancelWizard(sessionId, saveProgress);
 
-      // Send response
+      // Send response - use proper Result unwrapping
       if (result.isErr()) {
-        await this.sendResponse(
-          panel,
-          messageId,
-          undefined,
-          result.error!.message
-        );
+        const errorMessage =
+          result.error?.message ?? 'Unknown cancellation error';
+        await this.sendResponse(panel, messageId, undefined, errorMessage);
       } else {
         await this.sendResponse(panel, messageId, {
           cancelled: true,

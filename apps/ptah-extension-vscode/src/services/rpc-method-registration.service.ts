@@ -29,6 +29,7 @@ import {
   SetApiKeyResponse,
   LlmProviderName,
   IAuthSecretsService,
+  verifyRpcRegistration,
 } from '@ptah-extension/vscode-core';
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { SdkAgentAdapter, SdkSessionStorage } from '@ptah-extension/agent-sdk';
@@ -61,6 +62,8 @@ import {
   ConfigAutopilotToggleResult,
   ConfigAutopilotGetResult,
   ConfigModelsListResult,
+  AuthGetAuthStatusParams,
+  AuthGetAuthStatusResponse,
   retryWithBackoff,
 } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
@@ -272,6 +275,24 @@ export class RpcMethodRegistrationService {
     this.logger.info('RPC methods registered (SDK-only mode)', {
       methods: this.rpcHandler.getRegisteredMethods(),
     });
+
+    // Verify all expected RPC methods have handlers (TASK_2025_074)
+    // This ensures frontend can only call methods that actually exist
+    const verificationResult = verifyRpcRegistration(
+      this.rpcHandler,
+      this.logger
+    );
+
+    if (!verificationResult.valid) {
+      // Log detailed error for debugging
+      this.logger.error(
+        `RPC registration incomplete: ${verificationResult.missingHandlers.length} methods missing`,
+        new Error(
+          `Missing: ${verificationResult.missingHandlers.join(', ')}. ` +
+            `Add handlers in RpcMethodRegistrationService or remove from RpcMethodRegistry.`
+        )
+      );
+    }
   }
 
   /**
@@ -556,15 +577,14 @@ export class RpcMethodRegistrationService {
           const paginated = sorted.slice(offset, offset + limit);
           const hasMore = offset + limit < total;
 
-          // Transform to RPC response format
+          // Transform to RPC response format (ChatSessionSummary)
           const sessions = paginated.map((s) => ({
             id: s.id,
             name: s.name,
             lastActivityAt: s.lastActiveAt,
             createdAt: s.createdAt,
             messageCount: s.messages.length,
-            branch: null,
-            isUserSession: true,
+            isActive: false, // Listed sessions are not currently active
           }));
 
           return { sessions, total, hasMore };
@@ -1049,18 +1069,14 @@ export class RpcMethodRegistrationService {
     // auth:getAuthStatus - Get auth configuration status (TASK_2025_076)
     // SECURITY: Never returns actual credential values - only boolean existence flags
     this.rpcHandler.registerMethod<
-      void,
-      {
-        hasOAuthToken: boolean;
-        hasApiKey: boolean;
-        authMethod: 'oauth' | 'apiKey' | 'auto';
-      }
-    >('auth:getAuthStatus', async () => {
+      AuthGetAuthStatusParams,
+      AuthGetAuthStatusResponse
+    >('auth:getAuthStatus', async (_params: AuthGetAuthStatusParams) => {
       try {
         this.logger.debug('RPC: auth:getAuthStatus called');
 
-        // Run migration if needed (first-time only)
-        await this.authSecretsService.migrateFromConfigManager();
+        // Migration now runs once during extension activation (main.ts), not here
+        // This RPC handler only reads the current auth status
 
         // Check SecretStorage for credentials
         const hasOAuthToken = await this.authSecretsService.hasCredential(

@@ -64,6 +64,13 @@ export type {
 export { RpcHandler, SdkRpcHandlers } from './messaging';
 export type { RpcMessage, RpcResponse, RpcMethodHandler } from './messaging';
 
+// RPC Registration Verification (TASK_2025_074)
+export {
+  verifyRpcRegistration,
+  assertRpcRegistration,
+} from './messaging/rpc-verification';
+export type { RpcVerificationResult } from './messaging/rpc-verification';
+
 // RPC handlers (TASK_2025_073 Batch 5)
 export { LlmRpcHandlers } from './rpc/llm-rpc-handlers';
 export type {
@@ -91,3 +98,7 @@ export type {
   IAuthSecretsService,
   AuthCredentialType,
 } from './services/auth-secrets.service';
+
+// License Service (TASK_2025_075)
+export { LicenseService } from './services/license.service';
+export type { LicenseStatus, LicenseEvents } from './services/license.service';

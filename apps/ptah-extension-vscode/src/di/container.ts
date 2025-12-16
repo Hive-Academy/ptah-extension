@@ -61,6 +61,9 @@ import { WebviewEventQueue } from '../services/webview-event-queue';
 import { AngularWebviewProvider } from '../providers/angular-webview.provider';
 import { WebviewHtmlGenerator } from '../services/webview-html-generator';
 
+// Import command handlers
+import { LicenseCommands } from '../commands/license-commands';
+
 /**
  * DI Container Orchestrator
  * Orchestrates service registration across all libraries
@@ -218,6 +221,11 @@ export class DIContainer {
       TOKENS.ANGULAR_WEBVIEW_PROVIDER,
       AngularWebviewProvider
     );
+
+    // ========================================
+    // PHASE 5: Command Handlers (TASK_2025_075)
+    // ========================================
+    container.registerSingleton(TOKENS.LICENSE_COMMANDS, LicenseCommands);
 
     return container;
   }

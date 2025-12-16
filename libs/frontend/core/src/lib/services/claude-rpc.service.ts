@@ -2,16 +2,17 @@ import { Injectable, inject } from '@angular/core';
 import { VSCodeService } from './vscode.service';
 import {
   SessionId,
-  SessionSummary,
-  StrictChatSession,
   CorrelationId,
-  StrictChatMessage,
+  RpcMethodName,
+  RpcMethodParams,
+  RpcMethodResult,
+  SessionListParams,
+  SessionListResult,
+  SessionLoadParams,
+  SessionLoadResult,
+  FileOpenParams,
+  FileOpenResult,
 } from '@ptah-extension/shared';
-
-// Import ChatStore type (lazy to avoid circular dependency)
-interface ChatStoreInterface {
-  setRpcService(rpcService: any): void;
-}
 
 /**
  * Options for RPC calls
@@ -58,21 +59,22 @@ interface RpcResponse<T = unknown> {
 /**
  * ClaudeRpcService - Frontend service for RPC communication with backend
  *
- * Replaces the old EventBus + MessageHandlerService pattern (deleted in Phase 0).
- * Instead of event subscriptions and message types, we use direct RPC method calls.
+ * Provides type-safe RPC calls to backend handlers using the RpcMethodRegistry.
+ * Only methods defined in RpcMethodRegistry can be called - this is enforced at compile time.
  *
  * Usage:
- *   const result = await claudeRpc.listSessions();
- *   if (result.isSuccess()) {
- *     console.log('Sessions:', result.data);
- *   }
+ *   // Type-safe call (recommended)
+ *   const result = await claudeRpc.call('session:list', { workspacePath: '/path' });
+ *
+ *   // Using typed method wrappers
+ *   const result = await claudeRpc.listSessions(workspacePath);
  */
 @Injectable({ providedIn: 'root' })
 export class ClaudeRpcService {
   private readonly vscode = inject(VSCodeService);
   private pendingCalls = new Map<
     string,
-    (response: RpcResponse<any>) => void
+    (response: RpcResponse<unknown>) => void
   >();
 
   constructor() {
@@ -84,39 +86,66 @@ export class ClaudeRpcService {
   }
 
   /**
-   * Call an RPC method on the backend
-   * @param method - Method name (e.g., 'session:list', 'chat:sendMessage')
-   * @param params - Method parameters
+   * Type-safe RPC call using RpcMethodRegistry
+   *
+   * This method enforces compile-time type safety:
+   * - Method name must be a valid key in RpcMethodRegistry
+   * - Params must match the method's params type
+   * - Result is typed as the method's result type
+   *
+   * @param method - Method name (must be in RpcMethodRegistry)
+   * @param params - Method parameters (type-checked)
    * @param options - Call options (timeout, etc.)
-   * @returns RpcResult with success/error state
+   * @returns RpcResult with typed data
+   *
+   * @example
+   * // Compile-time type checking
+   * const result = await rpc.call('session:list', { workspacePath: '/path' });
+   * // result.data is typed as SessionListResult
+   *
+   * // Compile error - invalid method name
+   * await rpc.call('invalid:method', {});
+   *
+   * // Compile error - wrong params type
+   * await rpc.call('session:list', { wrongParam: true });
    */
-  async call<T>(
-    method: string,
-    params: unknown,
+  async call<T extends RpcMethodName>(
+    method: T,
+    params: RpcMethodParams<T>,
     options?: RpcCallOptions
-  ): Promise<RpcResult<T>> {
+  ): Promise<RpcResult<RpcMethodResult<T>>> {
     const correlationId = CorrelationId.create();
     const timeout = options?.timeout ?? 30000;
 
-    return new Promise<RpcResult<T>>((resolve) => {
+    return new Promise<RpcResult<RpcMethodResult<T>>>((resolve) => {
       // Store resolver for this correlation ID
-      this.pendingCalls.set(correlationId, (response: RpcResponse<T>) => {
-        this.pendingCalls.delete(correlationId);
-        clearTimeout(timer);
-        resolve(new RpcResult(response.success, response.data, response.error));
-      });
+      this.pendingCalls.set(
+        correlationId,
+        (response: RpcResponse<RpcMethodResult<T>>) => {
+          this.pendingCalls.delete(correlationId);
+          clearTimeout(timer);
+          resolve(
+            new RpcResult(response.success, response.data, response.error)
+          );
+        }
+      );
 
       // Set timeout to prevent hanging calls
       const timer = setTimeout(() => {
         if (this.pendingCalls.has(correlationId)) {
           this.pendingCalls.delete(correlationId);
-          resolve(new RpcResult<T>(false, undefined, `RPC timeout: ${method}`));
+          console.error(`[ClaudeRpcService] RPC timeout for method: ${method}`);
+          resolve(
+            new RpcResult<RpcMethodResult<T>>(
+              false,
+              undefined,
+              `RPC timeout: ${method}`
+            )
+          );
         }
       }, timeout);
 
-      // Send RPC call to backend via generic message
-      // NOTE: RPC message types will be added to MessagePayloadMap in Phase 1 (backend)
-      // For now, we construct the message manually
+      // Send RPC call to backend
       this.postRpcMessage({
         type: 'rpc:call',
         payload: { method, params, correlationId },
@@ -126,14 +155,14 @@ export class ClaudeRpcService {
 
   /**
    * Post RPC message to VS Code extension
-   * Accesses the underlying VS Code API directly since RPC types
-   * are not yet in MessagePayloadMap (added in Phase 1)
    * @private
    */
   private postRpcMessage(message: { type: string; payload: unknown }): void {
     // Access the private vscode API via type assertion
     // This is safe because VSCodeService.postStrictMessage does the same internally
-    const vscodeService = this.vscode as any;
+    const vscodeService = this.vscode as unknown as {
+      vscode?: { postMessage: (msg: unknown) => void };
+    };
     if (vscodeService.vscode) {
       vscodeService.vscode.postMessage(message);
     }
@@ -152,92 +181,47 @@ export class ClaudeRpcService {
   }
 
   // ===== Type-Safe RPC Method Wrappers =====
+  // These are convenience methods that wrap call() with proper types.
+  // They use the RpcMethodRegistry types automatically.
 
   /**
-   * List all chat sessions
-   * @returns Array of session summaries
+   * List all chat sessions for a workspace
+   * @param workspacePath - Workspace path to list sessions for
+   * @param limit - Maximum number of sessions to return (default: 10)
+   * @param offset - Pagination offset (default: 0)
+   * @returns Array of session summaries with pagination info
    */
-  listSessions(): Promise<RpcResult<SessionSummary[]>> {
+  async listSessions(
+    workspacePath: string,
+    limit?: number,
+    offset?: number
+  ): Promise<RpcResult<SessionListResult>> {
     console.log(
       '🔵 [ClaudeRpcService] listSessions() called - Sending RPC request...'
     );
-    return this.call<SessionSummary[]>('session:list', {}).then((result) => {
-      console.log('✅ [ClaudeRpcService] listSessions() response:', {
-        success: result.success,
-        sessionCount: result.data?.length ?? 0,
-        sessions: result.data,
-        error: result.error,
-      });
-      return result;
+    const result = await this.call('session:list', {
+      workspacePath,
+      limit,
+      offset,
     });
+    console.log('✅ [ClaudeRpcService] listSessions() response:', {
+      success: result.success,
+      sessionCount: result.data?.sessions?.length ?? 0,
+      total: result.data?.total ?? 0,
+      error: result.error,
+    });
+    return result;
   }
 
   /**
-   * Get full session with messages
-   * @param id - Session ID
-   * @returns Full session with messages
+   * Load a session with its messages
+   * @param sessionId - Session ID to load
+   * @returns Session with messages
    */
-  getSession(id: SessionId): Promise<RpcResult<StrictChatSession>> {
-    return this.call<StrictChatSession>('session:get', { id });
-  }
-
-  /**
-   * Create new chat session
-   * @param name - Optional session name
-   * @returns New session ID
-   */
-  createSession(name?: string): Promise<RpcResult<SessionId>> {
-    return this.call<SessionId>('session:create', { name });
-  }
-
-  /**
-   * Switch to different session
-   * @param id - Session ID to switch to
-   */
-  switchSession(id: SessionId): Promise<RpcResult<void>> {
-    return this.call<void>('session:switch', { id });
-  }
-
-  /**
-   * Start chat session (initiates Claude CLI, streaming happens via postMessage)
-   * @param sessionId - Session ID to send message in
-   * @param content - Message content
-   * @param files - Optional file paths
-   * @returns Promise that resolves when CLI process starts (streaming handled separately)
-   */
-  startChat(
-    sessionId: SessionId,
-    content: string,
-    files?: string[]
-  ): Promise<RpcResult<void>> {
-    return this.call<void>('chat:start', { sessionId, content, files });
-  }
-
-  /**
-   * Pause current turn in interactive session (SIGTSTP)
-   * @param sessionId - Session ID to pause
-   * @returns Promise that resolves when pause signal is sent
-   */
-  pauseChat(sessionId: SessionId): Promise<RpcResult<void>> {
-    return this.call<void>('chat:pause', { sessionId });
-  }
-
-  /**
-   * Resume paused turn in interactive session (SIGCONT)
-   * @param sessionId - Session ID to resume
-   * @returns Promise that resolves when resume signal is sent
-   */
-  resumeChat(sessionId: SessionId): Promise<RpcResult<void>> {
-    return this.call<void>('chat:resume', { sessionId });
-  }
-
-  /**
-   * Stop current turn and clear message queue (SIGTERM)
-   * @param sessionId - Session ID to stop
-   * @returns Promise that resolves when stop signal is sent
-   */
-  stopChat(sessionId: SessionId): Promise<RpcResult<void>> {
-    return this.call<void>('chat:stop', { sessionId });
+  async loadSession(
+    sessionId: SessionId
+  ): Promise<RpcResult<SessionLoadResult>> {
+    return this.call('session:load', { sessionId });
   }
 
   /**
@@ -246,7 +230,10 @@ export class ClaudeRpcService {
    * @param line - Optional line number to navigate to
    * @returns Promise that resolves when file is opened
    */
-  openFile(path: string, line?: number): Promise<RpcResult<void>> {
-    return this.call<void>('file:open', { path, line });
+  async openFile(
+    path: string,
+    line?: number
+  ): Promise<RpcResult<FileOpenResult>> {
+    return this.call('file:open', { path, line });
   }
 }

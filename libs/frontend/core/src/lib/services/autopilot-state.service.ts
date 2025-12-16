@@ -154,14 +154,11 @@ export class AutopilotStateService {
       this._enabled.set(newState);
 
       // Persist to backend via RPC (with sessionId for live SDK sync)
-      const result: RpcResult<void> = await this.rpc.call<void>(
-        'config:autopilot-toggle',
-        {
-          enabled: newState,
-          permissionLevel: this._permissionLevel(),
-          sessionId: sessionId ?? null,
-        }
-      );
+      const result = await this.rpc.call('config:autopilot-toggle', {
+        enabled: newState,
+        permissionLevel: this._permissionLevel(),
+        sessionId: sessionId ?? null,
+      });
 
       if (!result.isSuccess()) {
         console.error(
@@ -218,14 +215,11 @@ export class AutopilotStateService {
       // Persist to backend via RPC (with sessionId for live SDK sync)
       // Note: We always call config:autopilot-toggle RPC with current enabled state
       // Backend will persist the new permission level
-      const result: RpcResult<void> = await this.rpc.call<void>(
-        'config:autopilot-toggle',
-        {
-          enabled: this._enabled(),
-          permissionLevel: level,
-          sessionId: sessionId ?? null,
-        }
-      );
+      const result = await this.rpc.call('config:autopilot-toggle', {
+        enabled: this._enabled(),
+        permissionLevel: level,
+        sessionId: sessionId ?? null,
+      });
 
       if (!result.isSuccess()) {
         console.error(
@@ -250,13 +244,7 @@ export class AutopilotStateService {
    * @private
    */
   private async loadPersistedState(): Promise<void> {
-    const result: RpcResult<{
-      enabled: boolean;
-      permissionLevel: PermissionLevel;
-    }> = await this.rpc.call<{
-      enabled: boolean;
-      permissionLevel: PermissionLevel;
-    }>('config:autopilot-get', {});
+    const result = await this.rpc.call('config:autopilot-get', {});
 
     if (result.isSuccess() && result.data) {
       const { enabled, permissionLevel } = result.data;

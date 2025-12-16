@@ -1,8 +1,8 @@
 import {
   TOKENS,
   WebviewManager,
+  WebviewMessageHandlerService,
   type Logger,
-  type RpcHandler,
 } from '@ptah-extension/vscode-core';
 import { inject, injectable } from 'tsyringe';
 import * as vscode from 'vscode';
@@ -51,12 +51,14 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     private readonly webviewManager: WebviewManager,
     @inject(TOKENS.WEBVIEW_EVENT_QUEUE)
     private readonly eventQueue: WebviewEventQueue,
-    @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler // InteractiveSessionManager DELETED in TASK_2025_023 - ClaudeProcess handles sessions
-  ) {
+    @inject(TOKENS.WEBVIEW_MESSAGE_HANDLER)
+    private readonly messageHandler: WebviewMessageHandlerService // InteractiveSessionManager DELETED in TASK_2025_023 - ClaudeProcess handles sessions
+  ) // RpcHandler REMOVED - message handling delegated to WebviewMessageHandlerService
+  {
     this.htmlGenerator = new WebviewHtmlGenerator(context);
     this.initializeDevelopmentWatcher();
     this.logger.info(
-      'AngularWebviewProvider initialized - message forwarding handled by WebviewMessageBridge'
+      'AngularWebviewProvider initialized - using shared WebviewMessageHandlerService'
     );
   }
 
@@ -90,18 +92,24 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>
     );
 
-    // TASK_2025_019 Phase 1: Setup RPC message listener
-    webviewView.webview.onDidReceiveMessage(
-      async (message: any) => {
-        await this.handleWebviewMessage(message);
+    // TASK_2025_019 Phase 1: Setup RPC message listener using shared service
+    // Uses WebviewMessageHandlerService for unified message handling (RPC, permissions, etc.)
+    this.messageHandler.setupMessageListener(
+      {
+        webviewId: 'ptah.main',
+        webview: webviewView.webview,
+        onReady: () => {
+          this.logger.info('Sidebar webview ready signal received');
+          this.markWebviewReady();
+        },
       },
-      undefined,
       this._disposables
     );
   }
 
   /**
    * Create a full-screen Angular SPA panel
+   * Uses shared WebviewMessageHandlerService for unified message handling
    */
   public async createPanel(): Promise<void> {
     if (this._panel) {
@@ -122,6 +130,24 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
           this.context.extensionUri, // Allow all extension resources
         ],
       }
+    );
+
+    // Register with WebviewManager for message routing
+    this.webviewManager.registerWebviewView(
+      'ptah.panel',
+      this._panel as unknown as vscode.WebviewView
+    );
+
+    // Setup message handling using shared service (CRITICAL: was missing before!)
+    this.messageHandler.setupMessageListener(
+      {
+        webviewId: 'ptah.panel',
+        webview: this._panel.webview,
+        onReady: () => {
+          this.logger.info('Panel webview ready signal received');
+        },
+      },
+      this._disposables
     );
 
     this._panel.webview.html = this.htmlGenerator.generateAngularWebviewContent(
@@ -295,174 +321,9 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     });
   }
 
-  /**
-   * Handle messages from webview (RPC requests + webview-ready)
-   * TASK_2025_019 Phase 1: Route RPC requests to handler and send responses back
-   * TASK_2025_010 FIX: Handle webview-ready message to flush event queue
-   */
-  private async handleWebviewMessage(message: any): Promise<void> {
-    console.log(
-      '[AngularWebviewProvider] Received message from webview:',
-      message.type
-    );
-    this.logger.info('[AngularWebviewProvider] Processing message', {
-      type: message.type,
-    });
-
-    try {
-      // CRITICAL FIX: Handle webview-ready message
-      if (message.type === 'webview-ready') {
-        console.log('[AngularWebviewProvider] Webview ready signal received!');
-        this.logger.info(
-          'Webview ready signal received - flushing event queue'
-        );
-        this.markWebviewReady();
-        console.log('[AngularWebviewProvider] markWebviewReady() completed');
-        return;
-      }
-
-      // TASK_2025_026 Batch 4: Handle permission:response messages (MCP approval_prompt)
-      if (message.type === 'permission:response') {
-        try {
-          // Service injection pending Batch 5 DI registration
-          // When registered, resolve from container and call resolveRequest
-          const PERMISSION_PROMPT_SERVICE = Symbol.for(
-            'PermissionPromptService'
-          );
-          const { container } = await import('tsyringe');
-
-          if (container.isRegistered(PERMISSION_PROMPT_SERVICE)) {
-            const permissionService = container.resolve<any>(
-              PERMISSION_PROMPT_SERVICE
-            );
-            permissionService.resolveRequest(message.payload);
-            this.logger.info('Permission response processed', {
-              requestId: (message.payload as any)?.id,
-            });
-          } else {
-            this.logger.warn(
-              'PermissionPromptService not registered (Batch 5 pending)',
-              { payload: message.payload }
-            );
-          }
-        } catch (error) {
-          this.logger.error(
-            'Failed to process permission response',
-            error instanceof Error ? error : new Error(String(error))
-          );
-        }
-        return;
-      }
-
-      // Handle SDK permission responses (from chat UI)
-      if (message.type === 'chat:permission-response') {
-        try {
-          const { container } = await import('tsyringe');
-          const SDK_PERMISSION_HANDLER = 'SdkPermissionHandler';
-
-          if (container.isRegistered(SDK_PERMISSION_HANDLER)) {
-            const permissionHandler = container.resolve<any>(
-              SDK_PERMISSION_HANDLER
-            );
-            const payload = message.payload || message.response;
-
-            // Map decision to approved boolean for backend handler
-            const approved =
-              payload?.decision === 'allow' ||
-              payload?.decision === 'always_allow';
-
-            permissionHandler.handleResponse(payload?.id, {
-              approved,
-              modifiedInput: payload?.modifiedInput,
-              reason: payload?.reason,
-            });
-
-            this.logger.info('SDK Permission response processed', {
-              requestId: payload?.id,
-              decision: payload?.decision,
-              approved,
-            });
-          } else {
-            this.logger.warn(
-              'SdkPermissionHandler not registered - cannot process response',
-              { payload: message.payload }
-            );
-          }
-        } catch (error) {
-          this.logger.error(
-            'Failed to process SDK permission response',
-            error instanceof Error ? error : new Error(String(error))
-          );
-        }
-        return;
-      }
-
-      // Handle RPC requests (support both 'rpc:request' and 'rpc:call' for compatibility)
-      if (message.type === 'rpc:request' || message.type === 'rpc:call') {
-        // Frontend wraps RPC data in 'payload' object, so unwrap it
-        const rpcData = message.payload || message;
-        const { requestId, method, params, correlationId } = rpcData;
-        const reqId = requestId || correlationId; // Support both field names
-
-        console.log('[AngularWebviewProvider] RPC call:', {
-          method,
-          params,
-          correlationId: reqId,
-        });
-
-        try {
-          // Call RPC handler
-          const response = await this.rpcHandler.handleMessage({
-            method,
-            params,
-            correlationId: reqId,
-          });
-
-          // Send response back to webview
-          // CRITICAL: Send BOTH requestId AND correlationId for compatibility
-          // - VSCodeService.sendRequest() expects requestId
-          // - ClaudeRpcService expects correlationId
-          this.postMessageDirect({
-            type: 'rpc:response',
-            requestId: reqId,
-            correlationId: reqId, // ClaudeRpcService expects this field
-            success: response.success,
-            data: response.data, // ClaudeRpcService expects 'data'
-            result: response.data, // VSCodeService.sendRequest() expects 'result'
-            error: response.error ? { message: response.error } : undefined,
-          } as any);
-        } catch (error) {
-          // Send error response with both field formats for compatibility
-          this.postMessageDirect({
-            type: 'rpc:response',
-            requestId: reqId,
-            correlationId: reqId,
-            success: false,
-            data: undefined,
-            result: undefined,
-            error: {
-              message: error instanceof Error ? error.message : 'Unknown error',
-            },
-          } as any);
-        }
-        return;
-      }
-
-      // Log unhandled message types
-      this.logger.warn('Unhandled webview message type', {
-        type: message.type,
-      });
-    } catch (error) {
-      console.error(
-        '[AngularWebviewProvider] Error in handleWebviewMessage:',
-        error
-      );
-      this.logger.error(
-        'Failed to handle webview message',
-        error instanceof Error ? error : new Error(String(error))
-      );
-    }
-  }
+  // NOTE: handleWebviewMessage() REMOVED - All message handling now unified via
+  // WebviewMessageHandlerService.setupMessageListener() in resolveWebviewView() and createPanel()
+  // This eliminates ~160 lines of duplicate RPC, permission, and ready-signal handling code.
 
   /**
    * Dispose of resources

@@ -148,9 +148,10 @@ export class ModelStateService {
       this.updateSelectionState(model);
 
       // Persist to backend via RPC (with sessionId for live SDK sync)
-      const result: RpcResult<{ model: string }> = await this.rpc.call<{
-        model: string;
-      }>('config:model-switch', { model, sessionId: sessionId ?? null });
+      const result = await this.rpc.call('config:model-switch', {
+        model,
+        sessionId: sessionId ?? null,
+      });
 
       if (!result.isSuccess()) {
         console.error(
@@ -182,11 +183,7 @@ export class ModelStateService {
    */
   private async loadModels(): Promise<void> {
     try {
-      const result: RpcResult<{ models: ModelInfoWithSelection[] }> =
-        await this.rpc.call<{ models: ModelInfoWithSelection[] }>(
-          'config:models-list',
-          {}
-        );
+      const result = await this.rpc.call('config:models-list', {});
 
       if (result.isSuccess() && result.data?.models) {
         const models = result.data.models;

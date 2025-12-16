@@ -1,7 +1,13 @@
 // CRITICAL: reflect-metadata MUST be imported first for TSyringe to work
 import 'reflect-metadata';
 
-import type { Logger } from '@ptah-extension/vscode-core';
+import type {
+  Logger,
+  LicenseService,
+  LicenseStatus,
+  IAuthSecretsService,
+  ConfigManager,
+} from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import * as vscode from 'vscode';
 import { PtahExtension } from './core/ptah-extension';
@@ -24,6 +30,45 @@ export async function activate(
     const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
     logger.info('Activating Ptah extension...');
     console.log('[Activate] Step 2: Logger resolved');
+
+    // Step 2.5: Run one-time credential migration (TASK_2025_076 Batch 2 - Task 2.1)
+    console.log('[Activate] Step 2.5: Checking for credential migration...');
+    const authSecrets = DIContainer.resolve<IAuthSecretsService>(
+      TOKENS.AUTH_SECRETS_SERVICE
+    );
+    const configManager = DIContainer.resolve<ConfigManager>(
+      TOKENS.CONFIG_MANAGER
+    );
+
+    const migrationCompleted = configManager.getWithDefault<boolean>(
+      'migration.secretsV1.completed',
+      false
+    );
+
+    if (!migrationCompleted) {
+      logger.info('Running credential migration to SecretStorage...');
+      const result = await authSecrets.migrateFromConfigManager();
+
+      if (result.oauthMigrated || result.apiKeyMigrated) {
+        logger.info('Credentials migrated to secure storage', {
+          oauthMigrated: result.oauthMigrated,
+          apiKeyMigrated: result.apiKeyMigrated,
+        });
+        vscode.window.showInformationMessage(
+          'Your authentication credentials have been migrated to secure storage.'
+        );
+      } else {
+        logger.debug(
+          'No credentials to migrate (already in SecretStorage or not configured)'
+        );
+      }
+
+      await configManager.set('migration.secretsV1.completed', true);
+      logger.info('Migration flag set - will not run again');
+    } else {
+      logger.debug('Credential migration already completed - skipping');
+    }
+    console.log('[Activate] Step 2.5: Credential migration check complete');
 
     // Register RPC Methods (Phase 2 - TASK_2025_021)
     // Extracted to RpcMethodRegistrationService for clean separation
@@ -99,22 +144,98 @@ export async function activate(
     await ptahExtension.registerAll();
     console.log('[Activate] Step 7: ptahExtension.registerAll() complete');
 
-    // Start Code Execution MCP Server
-    console.log('[Activate] Step 8: Starting Code Execution MCP Server...');
-    const codeExecutionMCP = DIContainer.resolve(TOKENS.CODE_EXECUTION_MCP);
-    const mcpPort = await (
-      codeExecutionMCP as { start: () => Promise<number> }
-    ).start();
-    context.subscriptions.push(codeExecutionMCP as vscode.Disposable);
-    logger.info(`Code Execution MCP Server started on port ${mcpPort}`);
-    console.log(
-      `[Activate] Step 8: Code Execution MCP Server started (port ${mcpPort})`
+    // ========================================
+    // NEW STEP 7.5: LICENSE VERIFICATION
+    // ========================================
+    console.log('[Activate] Step 7.5: Verifying license...');
+    const licenseService = DIContainer.resolve<LicenseService>(
+      TOKENS.LICENSE_SERVICE
     );
+    const licenseStatus: LicenseStatus = await licenseService.verifyLicense();
+
+    if (licenseStatus.valid && licenseStatus.tier !== 'free') {
+      logger.info('Premium license verified', {
+        tier: licenseStatus.tier,
+        expiresAt: licenseStatus.expiresAt,
+      });
+    } else {
+      logger.info('Free tier user (no premium features)', {
+        reason: licenseStatus.reason || 'no_license',
+      });
+    }
+    console.log(
+      `[Activate] Step 7.5: License verified (tier: ${licenseStatus.tier})`
+    );
+
+    // ========================================
+    // MODIFIED STEP 8: CONDITIONAL MCP SERVER START
+    // ========================================
+    console.log('[Activate] Step 8: Conditional MCP Server registration...');
+
+    if (licenseStatus.valid && licenseStatus.tier !== 'free') {
+      // PREMIUM USER: Register MCP Server
+      logger.info('Registering premium MCP server (licensed user)');
+      const codeExecutionMCP = DIContainer.resolve(TOKENS.CODE_EXECUTION_MCP);
+      const mcpPort = await (
+        codeExecutionMCP as { start: () => Promise<number> }
+      ).start();
+      context.subscriptions.push(codeExecutionMCP as vscode.Disposable);
+      logger.info(`Code Execution MCP Server started on port ${mcpPort}`);
+      console.log(
+        `[Activate] Step 8: Premium MCP Server started (port ${mcpPort})`
+      );
+    } else {
+      // FREE USER: Skip MCP Server Registration
+      logger.info('Skipping premium MCP server (free tier user)');
+      console.log('[Activate] Step 8: MCP Server skipped (free tier)');
+    }
 
     // Note: MCP config (.mcp.json) writing removed - SDK tools are now native
     // and don't require external MCP server registration. The Code Execution
     // MCP server runs locally and Ptah tools (help, executeCode) are registered
     // directly with the SDK via mcpServers option in SdkAgentAdapter.
+
+    // ========================================
+    // NEW STEP 9: LICENSE STATUS WATCHER
+    // ========================================
+    console.log('[Activate] Step 9: Setting up license status watcher...');
+
+    // Handle dynamic license changes (upgrade/expire)
+    licenseService.on('license:verified', async (status: LicenseStatus) => {
+      logger.info('License upgraded - registering premium features', {
+        status,
+      });
+      // Note: Dynamic registration requires checking if MCP is already running
+      // For simplicity, we show a message prompting user to reload window
+      vscode.window
+        .showInformationMessage(
+          'Premium license activated! Reload window to enable premium features.',
+          'Reload Window'
+        )
+        .then((action) => {
+          if (action === 'Reload Window') {
+            vscode.commands.executeCommand('workbench.action.reloadWindow');
+          }
+        });
+    });
+
+    licenseService.on('license:expired', (status: LicenseStatus) => {
+      logger.warn('License expired - premium features disabled', { status });
+      vscode.window.showWarningMessage(
+        'Your Ptah premium license has expired. Reload window to disable premium features.'
+      );
+    });
+
+    console.log('[Activate] Step 9: License status watcher initialized');
+
+    // Background revalidation (every 24 hours)
+    const revalidationInterval = setInterval(
+      () => licenseService.revalidate(),
+      24 * 60 * 60 * 1000
+    );
+    context.subscriptions.push({
+      dispose: () => clearInterval(revalidationInterval),
+    });
 
     logger.info('Ptah extension activated successfully');
     console.log('===== PTAH ACTIVATION COMPLETE =====');

@@ -31,6 +31,7 @@ import { RpcHandler } from '../messaging/rpc-handler';
 import { AgentSessionWatcherService } from '../services/agent-session-watcher.service';
 import { WebviewMessageHandlerService } from '../services/webview-message-handler.service';
 import { AuthSecretsService } from '../services/auth-secrets.service';
+import { LicenseService } from '../services/license.service';
 
 /**
  * Register vscode-core infrastructure services in DI container
@@ -116,6 +117,11 @@ export function registerVsCodeCoreServices(
   // ============================================================
   container.registerSingleton(TOKENS.AUTH_SECRETS_SERVICE, AuthSecretsService);
 
+  // ============================================================
+  // License Service (TASK_2025_075 Batch 5)
+  // ============================================================
+  container.registerSingleton(TOKENS.LICENSE_SERVICE, LicenseService);
+
   logger.info('[VS Code Core] Infrastructure services registered', {
     services: [
       'ERROR_HANDLER',
@@ -130,6 +136,7 @@ export function registerVsCodeCoreServices(
       'AGENT_SESSION_WATCHER_SERVICE',
       'WEBVIEW_MESSAGE_HANDLER',
       'AUTH_SECRETS_SERVICE',
+      'LICENSE_SERVICE',
     ],
   });
 }

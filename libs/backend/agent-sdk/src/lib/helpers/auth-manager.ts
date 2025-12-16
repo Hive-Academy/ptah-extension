@@ -9,7 +9,12 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  Logger,
+  ConfigManager,
+  TOKENS,
+  IAuthSecretsService,
+} from '@ptah-extension/vscode-core';
 
 export interface AuthResult {
   configured: boolean;
@@ -28,7 +33,9 @@ export interface AuthConfig {
 export class AuthManager {
   constructor(
     @inject(TOKENS.LOGGER) private logger: Logger,
-    @inject(TOKENS.CONFIG_MANAGER) private config: ConfigManager
+    @inject(TOKENS.CONFIG_MANAGER) private config: ConfigManager,
+    @inject(TOKENS.AUTH_SECRETS_SERVICE)
+    private authSecrets: IAuthSecretsService
   ) {}
 
   /**
@@ -45,7 +52,7 @@ export class AuthManager {
     // NOTE: As of SDK v0.1.8+, CLAUDE_CODE_OAUTH_TOKEN is supported and will use your subscription
     // Get token via: claude setup-token
     if (authMethod === 'oauth' || authMethod === 'auto') {
-      const oauthResult = this.configureOAuthToken();
+      const oauthResult = await this.configureOAuthToken();
       if (oauthResult.configured) {
         authConfigured = true;
         authDetails.push(...oauthResult.details);
@@ -58,7 +65,7 @@ export class AuthManager {
     const hasOAuthToken = authDetails.some((d) => d.includes('OAuth token'));
 
     if ((authMethod === 'apiKey' || authMethod === 'auto') && !hasOAuthToken) {
-      const apiKeyResult = this.configureAPIKey();
+      const apiKeyResult = await this.configureAPIKey();
       if (apiKeyResult.configured) {
         authConfigured = true;
         authDetails.push(...apiKeyResult.details);
@@ -100,9 +107,10 @@ export class AuthManager {
 
   /**
    * Configure OAuth token authentication
+   * Reads from SecretStorage (primary) or environment (fallback)
    */
-  private configureOAuthToken(): AuthResult {
-    const oauthToken = this.config.get<string>('claudeOAuthToken');
+  private async configureOAuthToken(): Promise<AuthResult> {
+    const oauthToken = await this.authSecrets.getCredential('oauthToken');
     const envOAuthToken = process.env['CLAUDE_CODE_OAUTH_TOKEN'];
     const details: string[] = [];
 
@@ -112,7 +120,7 @@ export class AuthManager {
       const isOAuthFormat = oauthToken.startsWith('sk-ant-oat01-');
 
       this.logger.info(
-        `[AuthManager] Found OAuth token in settings (length: ${tokenLength}, prefix: ${tokenPrefix}..., OAuth format: ${isOAuthFormat})`
+        `[AuthManager] Found OAuth token in SecretStorage (length: ${tokenLength}, prefix: ${tokenPrefix}..., OAuth format: ${isOAuthFormat})`
       );
 
       if (!isOAuthFormat) {
@@ -137,7 +145,7 @@ export class AuthManager {
       );
 
       details.push(
-        `OAuth token from settings (subscription mode${
+        `OAuth token from SecretStorage (subscription mode${
           !isOAuthFormat ? ', format may be invalid' : ''
         })`
       );
@@ -168,7 +176,7 @@ export class AuthManager {
       return { configured: true, details };
     } else {
       this.logger.debug(
-        '[AuthManager] No OAuth token found in settings or environment'
+        '[AuthManager] No OAuth token found in SecretStorage or environment'
       );
       return { configured: false, details: [] };
     }
@@ -176,9 +184,10 @@ export class AuthManager {
 
   /**
    * Configure API key authentication
+   * Reads from SecretStorage (primary) or environment (fallback)
    */
-  private configureAPIKey(): AuthResult {
-    const apiKey = this.config.get<string>('anthropicApiKey');
+  private async configureAPIKey(): Promise<AuthResult> {
+    const apiKey = await this.authSecrets.getCredential('apiKey');
     const envApiKey = process.env['ANTHROPIC_API_KEY'];
     const details: string[] = [];
 
@@ -188,7 +197,7 @@ export class AuthManager {
       const isValidFormat = apiKey.startsWith('sk-ant-api');
 
       this.logger.info(
-        `[AuthManager] Found API key in settings (length: ${keyLength}, prefix: ${keyPrefix}..., valid format: ${isValidFormat})`
+        `[AuthManager] Found API key in SecretStorage (length: ${keyLength}, prefix: ${keyPrefix}..., valid format: ${isValidFormat})`
       );
 
       if (!isValidFormat) {
@@ -202,7 +211,7 @@ export class AuthManager {
 
       process.env['ANTHROPIC_API_KEY'] = apiKey.trim();
       details.push(
-        `API key from settings (pay-per-token, format ${
+        `API key from SecretStorage (pay-per-token, format ${
           isValidFormat ? 'valid' : 'INVALID'
         })`
       );
@@ -229,7 +238,7 @@ export class AuthManager {
       return { configured: true, details };
     } else {
       this.logger.debug(
-        '[AuthManager] No API key found in settings or environment'
+        '[AuthManager] No API key found in SecretStorage or environment'
       );
       return { configured: false, details: [] };
     }

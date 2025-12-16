@@ -47,14 +47,10 @@ export class CommandDiscoveryFacade {
     this._error.set(null);
 
     try {
-      const result = await this.rpc.call<{
-        commands?: Array<{
-          name: string;
-          description: string;
-          scope: 'builtin' | 'project' | 'user' | 'mcp';
-          argumentHint?: string;
-        }>;
-      }>('autocomplete:commands', { query: '', maxResults: 100 });
+      const result = await this.rpc.call('autocomplete:commands', {
+        query: '',
+        maxResults: 100,
+      });
 
       if (result.success && result.data?.commands) {
         this._commands.set(

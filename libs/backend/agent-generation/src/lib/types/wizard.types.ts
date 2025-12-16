@@ -274,3 +274,104 @@ export interface AgentSelectionUpdate {
     variableOverrides?: Record<string, string>;
   };
 }
+
+// =============================================================================
+// Wizard RPC Message Types (TASK_2025_078 - Type Safety Improvement)
+// =============================================================================
+
+/**
+ * Base interface for all wizard RPC messages.
+ */
+export interface WizardRpcMessageBase {
+  /** Message type identifier */
+  type: string;
+  /** Unique message ID for request/response correlation */
+  messageId: string;
+}
+
+/**
+ * Project context payload from frontend.
+ * Simplified version sent by wizard UI.
+ */
+export interface FrontendProjectContext {
+  rootPath?: string;
+  workspacePath?: string;
+  projectType: string;
+  frameworks?: string[];
+  monorepoType?: string;
+  relevantFiles?: string[];
+  techStack?: {
+    languages?: string[];
+    frameworks?: string[];
+    buildTools?: string[];
+    testingFrameworks?: string[];
+    packageManager?: string;
+  };
+  codeConventions?: {
+    indentation?: 'spaces' | 'tabs';
+    indentSize?: number;
+    quoteStyle?: 'single' | 'double';
+    semicolons?: boolean;
+    trailingComma?: 'none' | 'es5' | 'all';
+  };
+}
+
+/**
+ * Wizard start message payload.
+ * Sent when user initiates workspace scan.
+ */
+export interface WizardStartPayload {
+  projectContext: FrontendProjectContext;
+  threshold?: number;
+}
+
+/**
+ * Wizard start RPC message.
+ */
+export interface WizardStartMessage extends WizardRpcMessageBase {
+  type: 'setup-wizard:start';
+  payload: WizardStartPayload;
+}
+
+/**
+ * Wizard selection submission payload.
+ * Sent when user confirms agent selection.
+ */
+export interface WizardSelectionPayload {
+  selectedAgentIds: string[];
+  threshold?: number;
+  variableOverrides?: Record<string, string>;
+}
+
+/**
+ * Wizard selection RPC message.
+ */
+export interface WizardSelectionMessage extends WizardRpcMessageBase {
+  type: 'setup-wizard:submit-selection';
+  payload: WizardSelectionPayload;
+}
+
+/**
+ * Wizard cancel payload.
+ * Sent when user cancels the wizard.
+ */
+export interface WizardCancelPayload {
+  saveProgress?: boolean;
+}
+
+/**
+ * Wizard cancel RPC message.
+ */
+export interface WizardCancelMessage extends WizardRpcMessageBase {
+  type: 'setup-wizard:cancel';
+  payload?: WizardCancelPayload;
+}
+
+/**
+ * Union type for all wizard RPC messages.
+ * Use for type narrowing in message handlers.
+ */
+export type WizardRpcMessage =
+  | WizardStartMessage
+  | WizardSelectionMessage
+  | WizardCancelMessage;
