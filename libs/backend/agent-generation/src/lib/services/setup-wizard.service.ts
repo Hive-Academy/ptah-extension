@@ -19,7 +19,7 @@ import {
   WebviewMessageHandlerService,
   type IWebviewHtmlGenerator,
 } from '@ptah-extension/vscode-core';
-import { Result } from '@ptah-extension/shared';
+import { Result, MESSAGE_TYPES } from '@ptah-extension/shared';
 import type * as vscode from 'vscode';
 import { v4 as uuidv4 } from 'uuid';
 import { ISetupWizardService } from '../interfaces/setup-wizard.interface';
@@ -873,7 +873,7 @@ export class SetupWizardService implements ISetupWizardService {
   ): Promise<void> {
     try {
       await panel.webview.postMessage({
-        type: 'rpc:response',
+        type: MESSAGE_TYPES.RPC_RESPONSE,
         messageId,
         payload,
         error,

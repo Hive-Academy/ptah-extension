@@ -33,8 +33,19 @@ import {
   LlmRpcHandlers,
 } from '@ptah-extension/vscode-core';
 
-// Import app-level RPC service (requires container instance - cannot be in registration function)
-import { RpcMethodRegistrationService } from '../services/rpc-method-registration.service';
+// Import app-level RPC service and handlers (TASK_2025_074: Modular architecture)
+import {
+  RpcMethodRegistrationService,
+  ChatRpcHandlers,
+  SessionRpcHandlers,
+  ContextRpcHandlers,
+  AutocompleteRpcHandlers,
+  FileRpcHandlers,
+  ConfigRpcHandlers,
+  AuthRpcHandlers,
+  SetupRpcHandlers,
+  LlmRpcHandlers as AppLlmRpcHandlers,
+} from '../services/rpc';
 
 // Import agent-sdk services (TASK_2025_044 Batch 3)
 // eslint-disable-next-line @nx/enforce-module-boundaries
@@ -110,23 +121,42 @@ export class DIContainer {
     // PHASE 1.5: Register remaining vscode-core infrastructure services
     registerVsCodeCoreServices(container, context, logger);
 
-    // RPC Method Registration Service (app-level - requires container instance)
-    // Use factory to pass container instance (fixes circular dependency in TASK_2025_069)
+    // ========================================
+    // PHASE 1.6: RPC Domain Handlers (TASK_2025_074)
+    // ========================================
+    // Register all domain-specific RPC handler classes
+    // These are used by RpcMethodRegistrationService to delegate RPC registration
+    container.registerSingleton(ChatRpcHandlers);
+    container.registerSingleton(SessionRpcHandlers);
+    container.registerSingleton(ContextRpcHandlers);
+    container.registerSingleton(AutocompleteRpcHandlers);
+    container.registerSingleton(FileRpcHandlers);
+    container.registerSingleton(ConfigRpcHandlers);
+    container.registerSingleton(AuthRpcHandlers);
+    container.registerSingleton(SetupRpcHandlers);
+    container.registerSingleton(AppLlmRpcHandlers);
+
+    // RPC Method Registration Service (orchestrator - requires container instance)
+    // TASK_2025_074: Refactored to use domain-specific handler classes
     container.register(TOKENS.RPC_METHOD_REGISTRATION_SERVICE, {
       useFactory: (c) => {
         return new RpcMethodRegistrationService(
           c.resolve(TOKENS.LOGGER),
           c.resolve(TOKENS.RPC_HANDLER),
-          c.resolve(TOKENS.CONTEXT_ORCHESTRATION_SERVICE),
-          c.resolve(TOKENS.AGENT_DISCOVERY_SERVICE),
-          c.resolve(TOKENS.COMMAND_DISCOVERY_SERVICE),
           c.resolve(TOKENS.WEBVIEW_MANAGER),
           c.resolve(TOKENS.AGENT_SESSION_WATCHER_SERVICE),
-          c.resolve(TOKENS.CONFIG_MANAGER),
           c.resolve(TOKENS.COMMAND_MANAGER),
-          c.resolve(TOKENS.AUTH_SECRETS_SERVICE),
           c.resolve('SdkAgentAdapter'),
-          c.resolve('SdkSessionStorage'),
+          // Domain-specific handlers
+          c.resolve(ChatRpcHandlers),
+          c.resolve(SessionRpcHandlers),
+          c.resolve(ContextRpcHandlers),
+          c.resolve(AutocompleteRpcHandlers),
+          c.resolve(FileRpcHandlers),
+          c.resolve(ConfigRpcHandlers),
+          c.resolve(AuthRpcHandlers),
+          c.resolve(SetupRpcHandlers),
+          c.resolve(AppLlmRpcHandlers),
           c // Pass container instance
         );
       },

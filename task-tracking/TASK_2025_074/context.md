@@ -4,7 +4,7 @@
 
 **Created**: 2025-12-15
 **Updated**: 2025-12-16
-**Status**: IN_PROGRESS (Phase 1 Complete)
+**Status**: IN_PROGRESS (Phase 1.5 Complete)
 **Priority**: MEDIUM
 **Type**: REFACTORING
 **Complexity**: Complex
@@ -217,8 +217,10 @@ import { verifyRpcRegistration } from '@ptah-extension/vscode-core';
 
 @injectable()
 export class RpcMethodRegistrationService {
-  constructor(@inject(TOKENS.RPC_HANDLER) private rpcHandler: RpcHandler, @inject(TOKENS.LOGGER) private logger: Logger) // ... other dependencies
-  {}
+  constructor(
+    @inject(TOKENS.RPC_HANDLER) private rpcHandler: RpcHandler,
+    @inject(TOKENS.LOGGER) private logger: Logger // ... other dependencies
+  ) {}
 
   registerAll(): void {
     // Delegate to library-specific registration functions
@@ -372,3 +374,77 @@ Each phase can be done incrementally with full test coverage maintained.
 - **TASK_2025_073**: LLM Abstraction Remediation (created LLM RPC handlers)
 - **TASK_2025_075**: License Management (added LICENSE_COMMANDS token)
 - **TASK_2025_076**: Auth Secrets Service (added auth:getAuthStatus)
+
+---
+
+## Phase 1.5: MESSAGE_TYPES Constants (2025-12-16)
+
+### Completed Work ✅
+
+Added `MESSAGE_TYPES` runtime constants and enabled ESLint enforcement:
+
+**1. MESSAGE_TYPES Constant Object** (`libs/shared/src/lib/types/message.types.ts`)
+
+```typescript
+export const MESSAGE_TYPES = {
+  // Chat Messages
+  CHAT_SEND_MESSAGE: 'chat:sendMessage',
+  CHAT_MESSAGE_CHUNK: 'chat:messageChunk',
+  // ... 100+ message type constants
+
+  // System Messages
+  ERROR: 'error',
+  INITIAL_DATA: 'initialData',
+  WEBVIEW_READY: 'webview-ready',
+  NAVIGATE: 'navigate',
+  REFRESH: 'refresh',
+
+  // RPC Messages
+  RPC_RESPONSE: 'rpc:response',
+
+  // Setup Wizard Messages
+  SETUP_WIZARD_OPEN_AGENTS_FOLDER: 'setup-wizard:open-agents-folder',
+  SETUP_WIZARD_START_CHAT: 'setup-wizard:start-chat',
+} as const;
+
+export type MessageType = (typeof MESSAGE_TYPES)[keyof typeof MESSAGE_TYPES];
+```
+
+**2. ESLint Rule Enabled** (`eslint.config.mjs`)
+
+```javascript
+{
+  files: ['**/*.ts'],
+  rules: {
+    'no-restricted-syntax': [
+      'error',
+      {
+        selector: "CallExpression[callee.property.name='postStrictMessage'][arguments.0.type='Literal']",
+        message: 'Use MESSAGE_TYPES constants instead of string literals...',
+      },
+      {
+        selector: "CallExpression[callee.property.name='publish'][arguments.0.type='Literal']",
+        message: 'Use MESSAGE_TYPES constants instead of string literals...',
+      },
+    ],
+  },
+},
+```
+
+**3. Files Updated to Use MESSAGE_TYPES**
+
+- `apps/ptah-extension-vscode/src/providers/angular-webview.provider.ts`
+- `apps/ptah-extension-vscode/src/services/webview-html-generator.ts`
+- `libs/backend/agent-generation/src/lib/services/setup-wizard.service.ts`
+- `libs/backend/vscode-core/src/services/webview-message-handler.service.ts`
+- `libs/backend/vscode-core/src/api-wrappers/webview-manager.ts`
+- `libs/frontend/setup-wizard/src/lib/components/completion.component.ts`
+- `libs/frontend/chat/src/lib/services/chat-store/permission-handler.service.ts`
+- `libs/frontend/chat/src/lib/services/chat.store.ts`
+
+### Benefits
+
+- Runtime constants for message type strings (no more typos)
+- ESLint enforcement prevents string literal usage
+- Consistent with RPC_METHOD_NAMES pattern
+- Enables IDE autocomplete for message types

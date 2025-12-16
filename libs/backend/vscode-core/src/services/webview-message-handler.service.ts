@@ -10,6 +10,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import * as vscode from 'vscode';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { TOKENS } from '../di/tokens';
 import type { Logger } from '../logging';
 import type { RpcHandler } from '../messaging';
@@ -216,7 +217,7 @@ export class WebviewMessageHandlerService {
       if (message.requestId || message.correlationId) {
         const reqId = message.requestId || message.correlationId;
         await webview.postMessage({
-          type: 'error',
+          type: MESSAGE_TYPES.ERROR,
           requestId: reqId,
           correlationId: reqId,
           success: false,
@@ -253,7 +254,7 @@ export class WebviewMessageHandlerService {
 
       // Send response back with both field names for compatibility
       await webview.postMessage({
-        type: 'rpc:response',
+        type: MESSAGE_TYPES.RPC_RESPONSE,
         requestId: reqId,
         correlationId: reqId,
         success: response.success,
@@ -263,7 +264,7 @@ export class WebviewMessageHandlerService {
       });
     } catch (error) {
       await webview.postMessage({
-        type: 'rpc:response',
+        type: MESSAGE_TYPES.RPC_RESPONSE,
         requestId: reqId,
         correlationId: reqId,
         success: false,

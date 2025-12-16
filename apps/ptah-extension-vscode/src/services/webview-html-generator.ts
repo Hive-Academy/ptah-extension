@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
 /**
  * Options for generating webview HTML content
@@ -473,7 +474,7 @@ export class WebviewHtmlGenerator {
       setTimeout(() => {
         if (window.vscode) {
           console.log('Sending webview-ready message to extension...');
-          window.vscode.postMessage({ type: 'webview-ready' });
+          window.vscode.postMessage({ type: '${MESSAGE_TYPES.WEBVIEW_READY}' });
         } else {
           console.error('CRITICAL: window.vscode is not available!');
         }

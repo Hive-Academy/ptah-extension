@@ -6,6 +6,7 @@ import {
 } from '@angular/core';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { VSCodeService } from '@ptah-extension/core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
 /**
  * CompletionComponent - Success screen with generation summary
@@ -212,7 +213,7 @@ export class CompletionComponent {
    */
   protected onOpenAgentsFolder(): void {
     this.vscodeService.postMessage({
-      type: 'setup-wizard:open-agents-folder',
+      type: MESSAGE_TYPES.SETUP_WIZARD_OPEN_AGENTS_FOLDER,
     });
   }
 
@@ -221,7 +222,7 @@ export class CompletionComponent {
    */
   protected onStartNewChat(): void {
     this.vscodeService.postMessage({
-      type: 'setup-wizard:start-chat',
+      type: MESSAGE_TYPES.SETUP_WIZARD_START_CHAT,
     });
   }
 }

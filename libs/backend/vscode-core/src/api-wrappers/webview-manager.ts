@@ -5,7 +5,11 @@
  */
 
 import type { StrictMessageType, WebviewMessage } from '@ptah-extension/shared';
-import { isRoutableMessage, isSystemMessage } from '@ptah-extension/shared';
+import {
+  isRoutableMessage,
+  isSystemMessage,
+  MESSAGE_TYPES,
+} from '@ptah-extension/shared';
 import { inject, injectable } from 'tsyringe';
 import * as vscode from 'vscode';
 import { TOKENS } from '../di/tokens';
@@ -146,7 +150,7 @@ export class WebviewManager {
     // Send initial data if provided
     if (initialData) {
       panel.webview.postMessage({
-        type: 'initialData',
+        type: MESSAGE_TYPES.INITIAL_DATA,
         payload: initialData,
       });
     }

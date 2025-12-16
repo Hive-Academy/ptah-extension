@@ -6,6 +6,7 @@ import {
   PermissionResponse,
   calculateMessageCost,
   createExecutionChatMessage,
+  MESSAGE_TYPES,
 } from '@ptah-extension/shared';
 import { SessionManager } from './session-manager.service';
 import { TabManagerService } from './tab-manager.service';
@@ -646,7 +647,7 @@ export class ChatStore {
     if (queuedContent) {
       // Emit restore event to input component
       this._vscodeService.postMessage({
-        type: 'chat:restore-input',
+        type: MESSAGE_TYPES.CHAT_RESTORE_INPUT,
         content: queuedContent,
       });
     }

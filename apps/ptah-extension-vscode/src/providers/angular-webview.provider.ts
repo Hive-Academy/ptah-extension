@@ -40,7 +40,6 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   private _panel?: vscode.WebviewPanel;
   private htmlGenerator: WebviewHtmlGenerator;
   private fileWatcher?: vscode.FileSystemWatcher;
-  private _initialDataSent = false;
 
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT)
@@ -52,9 +51,8 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     @inject(TOKENS.WEBVIEW_EVENT_QUEUE)
     private readonly eventQueue: WebviewEventQueue,
     @inject(TOKENS.WEBVIEW_MESSAGE_HANDLER)
-    private readonly messageHandler: WebviewMessageHandlerService // InteractiveSessionManager DELETED in TASK_2025_023 - ClaudeProcess handles sessions
-  ) // RpcHandler REMOVED - message handling delegated to WebviewMessageHandlerService
-  {
+    private readonly messageHandler: WebviewMessageHandlerService // InteractiveSessionManager DELETED in TASK_2025_023 - ClaudeProcess handles sessions // RpcHandler REMOVED - message handling delegated to WebviewMessageHandlerService
+  ) {
     this.htmlGenerator = new WebviewHtmlGenerator(context);
     this.initializeDevelopmentWatcher();
     this.logger.info(
@@ -163,16 +161,6 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       undefined,
       this._disposables
     );
-  }
-
-  /**
-   * Switch the view mode (handled by Angular routing)
-   */
-  public switchView(viewType: 'chat' | 'command-builder' | 'analytics'): void {
-    this.postMessage({
-      type: 'navigate',
-      payload: { route: `/${viewType}` },
-    });
   }
 
   /**
@@ -286,9 +274,8 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    // Reset initialization guards on reload
-    this._initialDataSent = false;
-    this.eventQueue.reset(); // Webview instance changes on reload
+    // Reset event queue on reload - webview instance changes
+    this.eventQueue.reset();
 
     const newHtml = this.htmlGenerator.generateAngularWebviewContent(
       webview,
@@ -304,12 +291,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       this._view.webview.html = newHtml;
       this.logger.info('View webview reloaded');
     }
-
-    // Send refresh signal to Angular app
-    this.postMessage({
-      type: 'refresh',
-      payload: { reason: 'hot-reload', timestamp: Date.now() },
-    });
+    // NOTE: Hot-reload works by replacing webview.html entirely, no need for refresh signal
   }
 
   /**

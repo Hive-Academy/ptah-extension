@@ -14,6 +14,7 @@ import {
   PermissionRequest,
   PermissionResponse,
   ExecutionNode,
+  MESSAGE_TYPES,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '../tab-manager.service';
 import { VSCodeService } from '@ptah-extension/core';
@@ -160,7 +161,7 @@ export class PermissionHandlerService {
 
     // Use public VSCodeService.postMessage() API
     this.vscodeService.postMessage({
-      type: 'chat:permission-response',
+      type: MESSAGE_TYPES.CHAT_PERMISSION_RESPONSE,
       response,
     });
   }

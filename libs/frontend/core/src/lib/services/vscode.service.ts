@@ -1,5 +1,5 @@
 import { Injectable, signal } from '@angular/core';
-import { ExecutionNode } from '@ptah-extension/shared';
+import { ExecutionNode, MESSAGE_TYPES } from '@ptah-extension/shared';
 
 /**
  * Webview Configuration
@@ -173,7 +173,7 @@ export class VSCodeService {
       const message = event.data;
 
       // Route RPC responses to ClaudeRpcService
-      if (message.type === 'rpc:response') {
+      if (message.type === MESSAGE_TYPES.RPC_RESPONSE) {
         console.log('[VSCodeService] Received RPC response:', message);
         if (this.claudeRpcService) {
           this.claudeRpcService.handleResponse(message);
@@ -185,7 +185,7 @@ export class VSCodeService {
       }
 
       // Route chat:chunk messages to ChatStore (SDK path only)
-      if (message.type === 'chat:chunk') {
+      if (message.type === MESSAGE_TYPES.CHAT_CHUNK) {
         if (message.payload && this.chatStore) {
           const { sessionId, message: node } = message.payload;
           this.chatStore.processExecutionNode(node as ExecutionNode, sessionId);
@@ -201,7 +201,7 @@ export class VSCodeService {
       }
 
       // Handle chat completion - CRITICAL for resetting streaming state
-      if (message.type === 'chat:complete') {
+      if (message.type === MESSAGE_TYPES.CHAT_COMPLETE) {
         const { sessionId, code } = message.payload ?? {};
         console.log('[VSCodeService] Chat complete:', { sessionId, code });
         if (this.chatStore) {
@@ -215,7 +215,7 @@ export class VSCodeService {
       }
 
       // Handle chat errors - CRITICAL for resetting streaming state on error
-      if (message.type === 'chat:error') {
+      if (message.type === MESSAGE_TYPES.CHAT_ERROR) {
         const { sessionId, error } = message.payload ?? {};
         console.error('[VSCodeService] Chat error:', { sessionId, error });
         if (this.chatStore) {
@@ -232,7 +232,7 @@ export class VSCodeService {
       }
 
       // Handle session ID resolution (TASK_2025_027 Batch 2)
-      if (message.type === 'session:id-resolved') {
+      if (message.type === MESSAGE_TYPES.SESSION_ID_RESOLVED) {
         if (message.payload && this.chatStore) {
           this.chatStore.handleSessionIdResolved(message.payload);
         } else if (!message.payload) {
@@ -247,7 +247,7 @@ export class VSCodeService {
       }
 
       // Handle permission request (TASK_2025_026)
-      if (message.type === 'permission:request') {
+      if (message.type === MESSAGE_TYPES.PERMISSION_REQUEST) {
         if (message.payload && this.chatStore) {
           console.log(
             '[VSCodeService] Permission request received:',
@@ -266,7 +266,7 @@ export class VSCodeService {
       }
 
       // Handle agent summary chunk (real-time agent summary streaming)
-      if (message.type === 'agent:summary-chunk') {
+      if (message.type === MESSAGE_TYPES.AGENT_SUMMARY_CHUNK) {
         if (message.payload && this.chatStore) {
           this.chatStore.handleAgentSummaryChunk(message.payload);
         } else if (!message.payload) {
@@ -281,7 +281,7 @@ export class VSCodeService {
       }
 
       // Handle session stats (cost/token data after completion)
-      if (message.type === 'session:stats') {
+      if (message.type === MESSAGE_TYPES.SESSION_STATS) {
         if (message.payload && this.chatStore) {
           this.chatStore.handleSessionStats(message.payload);
         } else if (!message.payload) {
