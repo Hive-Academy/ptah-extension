@@ -16,7 +16,10 @@ import { PermissionRequestCardComponent } from '../molecules/permission-request-
 import { ChatEmptyStateComponent } from '../molecules/chat-empty-state.component';
 import { ChatStore } from '../../services/chat.store';
 import { VSCodeService } from '@ptah-extension/core';
-import { createExecutionChatMessage } from '@ptah-extension/shared';
+import {
+  createExecutionChatMessage,
+  createExecutionNode,
+} from '@ptah-extension/shared';
 
 /**
  * ChatViewComponent - Main chat view with message list and Egyptian themed welcome
@@ -74,7 +77,7 @@ export class ChatViewComponent {
 
   /**
    * Computed signal that creates a temporary ExecutionChatMessage
-   * from the currentExecutionTree for live streaming display.
+   * from the currentExecutionTree (ExecutionNode) for live streaming display.
    *
    * This allows the message-bubble component to render the in-progress
    * execution tree without waiting for finalization.
@@ -86,7 +89,7 @@ export class ChatViewComponent {
     return createExecutionChatMessage({
       id: tree.id,
       role: 'assistant',
-      executionTree: tree,
+      streamingState: tree,
       sessionId: this.chatStore.currentSessionId() ?? undefined,
     });
   });

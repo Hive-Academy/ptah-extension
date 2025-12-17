@@ -17,6 +17,7 @@ import { SessionLoaderService } from './chat-store/session-loader.service';
 import { ConversationService } from './chat-store/conversation.service';
 import { PermissionHandlerService } from './chat-store/permission-handler.service';
 import { MessageSenderService } from './message-sender.service';
+import { ExecutionTreeBuilderService } from './execution-tree-builder.service';
 import { TabState } from './chat.types';
 
 /**
@@ -67,6 +68,9 @@ export class ChatStore {
 
   // Message sending mediator (Phase 8 - TASK_2025_054 Batch 3)
   private readonly messageSender = inject(MessageSenderService);
+
+  // Tree builder for render-time ExecutionNode construction (TASK_2025_082 Batch 5)
+  private readonly treeBuilder = inject(ExecutionTreeBuilderService);
 
   // Signal to track service initialization state
   private readonly _servicesReady = signal(false);
@@ -152,9 +156,13 @@ export class ChatStore {
   readonly messages = computed(
     () => this.tabManager.activeTab()?.messages ?? []
   );
-  readonly currentExecutionTree = computed(
-    () => this.tabManager.activeTab()?.streamingState ?? null
-  );
+  readonly currentExecutionTree = computed(() => {
+    const activeTab = this.tabManager.activeTab();
+    if (!activeTab?.streamingState) return null;
+
+    const rootNodes = this.treeBuilder.buildTree(activeTab.streamingState);
+    return rootNodes.length > 0 ? rootNodes[0] : null;
+  });
   readonly isStreaming = computed(() => {
     const tab = this.tabManager.activeTab();
     return tab?.status === 'streaming' || tab?.status === 'resuming';
