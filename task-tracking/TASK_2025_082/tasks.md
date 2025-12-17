@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2025_082
 
-**Total Tasks**: 33 | **Batches**: 7 | **Status**: 3.5/7 complete (Batch 3.5 complete)
+**Total Tasks**: 33 | **Batches**: 7 | **Status**: 3.5/7 complete (Batches 3+3.5 committed)
 
 ---
 
@@ -357,6 +357,7 @@
 
 **Developer**: frontend-developer
 **Tasks**: 6 | **Dependencies**: Batch 2 complete
+**Commit**: d9ba81d (combined with Batch 3.5)
 **Status**: Completed - All tasks implemented
 
 ### Task 3.1: Add StreamingState interface to chat.types.ts ✅ COMPLETE
@@ -511,7 +512,7 @@ export function createEmptyStreamingState(): StreamingState {
 **Developer**: backend-developer
 **Tasks**: 2 | **Dependencies**: Batch 3 complete
 **Rationale**: The ExecutionChatMessage interface in shared library still uses `executionTree` field. This causes 11 TypeScript errors in frontend. Must be fixed before Batch 4 can proceed.
-**Commit**: [Pending verification]
+**Commit**: d9ba81d
 **Status**: Both tasks implemented, shared library builds successfully
 
 ### Task 3.5.1: Update ExecutionChatMessage interface to use streamingState ✅ COMPLETE
@@ -571,12 +572,12 @@ export function createEmptyStreamingState(): StreamingState {
 
 ---
 
-## Batch 4: Streaming Handler Rewrite - Flat Event Storage ⏸️ PENDING
+## Batch 4: Streaming Handler Rewrite - Flat Event Storage 🔄 IN PROGRESS
 
 **Developer**: frontend-developer
 **Tasks**: 5 | **Dependencies**: Batch 3.5 complete
 
-### Task 4.1: Remove mergeExecutionNode() method from StreamingHandlerService PENDING
+### Task 4.1: Remove mergeExecutionNode() method from StreamingHandlerService 🔄 IN PROGRESS
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\services\chat-store\streaming-handler.service.ts
 **Spec Reference**: implementation-plan.md:708-787
@@ -595,7 +596,7 @@ export function createEmptyStreamingState(): StreamingState {
 
 ---
 
-### Task 4.2: Rename processExecutionNode() to processStreamEvent() and change signature PENDING
+### Task 4.2: Rename processExecutionNode() to processStreamEvent() and change signature 🔄 IN PROGRESS
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\services\chat-store\streaming-handler.service.ts
 **Spec Reference**: implementation-plan.md:716-778
@@ -614,7 +615,7 @@ export function createEmptyStreamingState(): StreamingState {
 
 ---
 
-### Task 4.3: Implement flat event storage logic in processStreamEvent() PENDING
+### Task 4.3: Implement flat event storage logic in processStreamEvent() 🔄 IN PROGRESS
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\services\chat-store\streaming-handler.service.ts
 **Spec Reference**: implementation-plan.md:722-778
@@ -688,7 +689,7 @@ processStreamEvent(event: FlatStreamEventUnion): void {
 
 ---
 
-### Task 4.4: Remove SessionManager agent/tool registration from streaming handler PENDING
+### Task 4.4: Remove SessionManager agent/tool registration from streaming handler 🔄 IN PROGRESS
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\services\chat-store\streaming-handler.service.ts
 **Spec Reference**: implementation-plan.md:708-787
@@ -705,7 +706,7 @@ processStreamEvent(event: FlatStreamEventUnion): void {
 
 ---
 
-### Task 4.5: Update all callers of processExecutionNode to use processStreamEvent PENDING
+### Task 4.5: Update all callers of processExecutionNode to use processStreamEvent 🔄 IN PROGRESS
 
 **File**: Multiple files (search for processExecutionNode usage)
 **Spec Reference**: implementation-plan.md:896-923
