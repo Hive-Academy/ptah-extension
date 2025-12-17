@@ -28,7 +28,8 @@
       "WebFetch(domain:platform.claude.com)",
       "WebFetch(domain:spin.atomicobject.com)",
       "WebFetch(domain:angular.love)",
-      "Bash(npm run typecheck:all:*)"
+      "Bash(npm run typecheck:all:*)",
+      "WebFetch(domain:api.github.com)"
     ],
     "deny": [],
     "ask": [],

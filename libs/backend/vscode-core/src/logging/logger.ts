@@ -19,16 +19,66 @@ import type { LogLevel, LogContext, LogEntry } from './types';
 /**
  * Logger service for centralized logging
  * Uses OutputManager for VS Code integration
+ *
+ * Log Level Filtering:
+ * - Production: 'info' (skips debug messages)
+ * - Development: 'debug' (logs everything)
+ * - Detects development mode via VS Code extensionMode
  */
 @injectable()
 export class Logger {
   private static readonly CHANNEL_NAME = 'Ptah';
+
+  /**
+   * Minimum log level - messages below this level are filtered out
+   * Levels ordered: debug < info < warn < error
+   */
+  private readonly minLevel: LogLevel;
+
+  private static readonly LEVEL_ORDER: Record<LogLevel, number> = {
+    debug: 0,
+    info: 1,
+    warn: 2,
+    error: 3,
+  };
 
   constructor(
     @inject(OUTPUT_MANAGER) private readonly outputManager: OutputManager
   ) {
     // Ensure output channel is created for logging
     this.outputManager.createOutputChannel({ name: Logger.CHANNEL_NAME });
+
+    // Detect development mode - default to 'info' in production
+    // In development (F5 debugging), extensionMode is Development (2)
+    // In production (installed extension), extensionMode is Production (1)
+    const isDevelopment = this.detectDevelopmentMode();
+    this.minLevel = isDevelopment ? 'debug' : 'info';
+  }
+
+  /**
+   * Detect if running in development mode
+   * Uses VS Code's extension host detection
+   */
+  private detectDevelopmentMode(): boolean {
+    try {
+      // Check for VS Code extension development mode
+      // process.env.VSCODE_DEBUG_MODE is set during F5 debugging
+      // NODE_ENV can also be used for explicit configuration
+      return (
+        process.env['VSCODE_DEBUG_MODE'] === 'true' ||
+        process.env['NODE_ENV'] === 'development' ||
+        process.env['PTAH_LOG_LEVEL'] === 'debug'
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Check if a log level should be logged based on minLevel
+   */
+  private shouldLog(level: LogLevel): boolean {
+    return Logger.LEVEL_ORDER[level] >= Logger.LEVEL_ORDER[this.minLevel];
   }
 
   /**
@@ -114,6 +164,9 @@ export class Logger {
    * @param context - Contextual information
    */
   logWithContext(level: LogLevel, message: string, context: LogContext): void {
+    // Skip logging if below minimum level
+    if (!this.shouldLog(level)) return;
+
     const entry = this.createLogEntry(level, message, context);
     this.writeLogEntry(entry);
   }
@@ -143,6 +196,9 @@ export class Logger {
    * @param args - Additional arguments
    */
   private log(level: LogLevel, message: string, args: unknown[]): void {
+    // Skip logging if below minimum level (early check for performance)
+    if (!this.shouldLog(level)) return;
+
     const context: LogContext =
       args.length > 0 ? { metadata: this.serializeArgs(args) } : {};
 

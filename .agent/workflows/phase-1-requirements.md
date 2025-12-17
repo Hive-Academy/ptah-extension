@@ -66,6 +66,39 @@ Read(task-tracking/{TASK_ID}/context.md)
 
 ---
 
+### Step 2.5: Scope Clarification (Conditional)
+
+**Objective**: Gather clarifying information before creating requirements
+
+**Trigger Conditions** (ask questions if ANY apply):
+
+- User request is vague or ambiguous
+- Scope could reasonably vary (small vs large)
+- Multiple valid interpretations exist
+- Business context is unclear
+
+**Question Template**:
+
+```markdown
+Before I create the requirements document, I have a few clarifying questions:
+
+1. **Scope**: [specific scope question based on request]
+2. **Priority**: [what's most important]
+3. **Constraints**: [any limitations to know about]
+
+Please answer briefly, or say "use your judgment" to skip.
+```
+
+**Skip Conditions**:
+
+- User request is extremely specific and unambiguous
+- Task is a continuation of previous work with clear context
+- User explicitly said "use your judgment"
+
+**Quality Gates**: ✅ Trigger conditions evaluated ✅ Questions asked (if triggered) OR skip justified ✅ User answers received
+
+---
+
 ### Step 3: Create task-description.md
 
 **Template**:

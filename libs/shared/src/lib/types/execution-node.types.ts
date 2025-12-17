@@ -71,6 +71,13 @@ export type MessageRole = 'user' | 'assistant' | 'system';
  * rich interactive components.
  *
  * Key feature: `children` array enables infinite nesting depth.
+ *
+ * **IMPORTANT - USAGE CONTEXT** (TASK_2025_082):
+ * - ExecutionNode represents **FINALIZED** message trees (after streaming completes)
+ * - During streaming, use `FlatStreamEventUnion` instead (no nested children)
+ * - Frontend builds ExecutionNode trees **at render time** from flat event map
+ * - This prevents state corruption from interleaved sub-agent streams
+ * - ExecutionNode is for **storage, rendering, and historical messages** only
  */
 export interface ExecutionNode {
   /** Unique identifier for this node */

@@ -18,7 +18,7 @@ import {
 import { SdkAgentAdapter } from '@ptah-extension/agent-sdk';
 import {
   SessionId,
-  ExecutionNode,
+  FlatStreamEventUnion,
   ChatStartParams,
   ChatStartResult,
   ChatContinueParams,
@@ -226,21 +226,24 @@ export class ChatRpcHandlers {
   }
 
   /**
-   * Stream ExecutionNodes to webview
-   * Handles SDK AsyncIterable<ExecutionNode> → webview messages
+   * Stream flat events to webview
+   * Handles SDK AsyncIterable<FlatStreamEventUnion> → webview messages
+   *
+   * TASK_2025_082: Migrated from ExecutionNode to FlatStreamEventUnion
+   * The webview rebuilds ExecutionNode trees at render time from these flat events.
    */
   private async streamExecutionNodesToWebview(
     sessionId: SessionId,
-    stream: AsyncIterable<ExecutionNode>
+    stream: AsyncIterable<FlatStreamEventUnion>
   ): Promise<void> {
     try {
-      for await (const node of stream) {
+      for await (const event of stream) {
         await this.webviewManager.sendMessage(
           'ptah.main',
           MESSAGE_TYPES.CHAT_CHUNK,
           {
             sessionId,
-            message: node,
+            event,
           }
         );
       }
@@ -256,7 +259,7 @@ export class ChatRpcHandlers {
       );
     } catch (error) {
       this.logger.error(
-        `[RPC] Error streaming ExecutionNodes for session ${sessionId}`,
+        `[RPC] Error streaming flat events for session ${sessionId}`,
         error instanceof Error ? error : new Error(String(error))
       );
       await this.webviewManager.sendMessage(

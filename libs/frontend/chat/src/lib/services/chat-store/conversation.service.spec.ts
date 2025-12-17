@@ -45,7 +45,7 @@ describe('ConversationService - Cleanup Mechanisms (Batch 2)', () => {
     isDirty: false,
     lastActivityAt: Date.now(),
     messages: [],
-    executionTree: null,
+    streamingState: null,
     currentMessageId: null,
     queuedContent: '',
     claudeSessionId: null,

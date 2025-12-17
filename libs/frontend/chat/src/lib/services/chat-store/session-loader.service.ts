@@ -222,7 +222,7 @@ export class SessionLoaderService {
         // Update tab with loaded messages
         this.tabManager.updateTab(activeTabId, {
           messages,
-          executionTree: null,
+          streamingState: null,
           status: 'loaded',
           title,
         });
@@ -259,7 +259,7 @@ export class SessionLoaderService {
    * - role: 'user' | 'assistant' | 'system'
    *
    * ExecutionChatMessage format (for UI display):
-   * - executionTree: ExecutionNode | null (single root for assistant)
+   * - streamingState: StreamingState | null (flat events for assistant)
    * - rawContent: string (for user messages)
    */
   private convertStoredMessages(
@@ -299,7 +299,7 @@ export class SessionLoaderService {
           }
 
           // Wrap ExecutionNode[] in a root node
-          const executionTree = createExecutionNode({
+          const streamingState = createExecutionNode({
             id: stored.id,
             type: 'message',
             status: 'complete',
@@ -309,7 +309,7 @@ export class SessionLoaderService {
           return createExecutionChatMessage({
             id: stored.id,
             role: 'assistant',
-            executionTree,
+            streamingState,
             sessionId,
             timestamp: stored.timestamp,
             tokens: stored.tokens,

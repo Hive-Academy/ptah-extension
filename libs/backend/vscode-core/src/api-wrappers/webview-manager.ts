@@ -12,7 +12,8 @@ import {
 } from '@ptah-extension/shared';
 import { inject, injectable } from 'tsyringe';
 import * as vscode from 'vscode';
-import { TOKENS } from '../di/tokens';
+import { TOKENS, LOGGER } from '../di/tokens';
+import type { Logger } from '../logging/logger';
 
 /**
  * Webview panel configuration options
@@ -78,7 +79,8 @@ export class WebviewManager {
 
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT)
-    private readonly context: vscode.ExtensionContext
+    private readonly context: vscode.ExtensionContext,
+    @inject(LOGGER) private readonly logger: Logger
   ) {}
 
   /**
@@ -165,7 +167,7 @@ export class WebviewManager {
    * @param view - The webview view to register
    */
   registerWebviewView(viewType: string, view: vscode.WebviewView): void {
-    console.log(`[WebviewManager] Registering WebviewView: ${viewType}`);
+    this.logger.debug(`[WebviewManager] Registering WebviewView: ${viewType}`);
 
     // Track the webview view
     this.activeWebviewViews.set(viewType, view);
@@ -183,15 +185,17 @@ export class WebviewManager {
 
     // Set up disposal handling
     view.onDidDispose(() => {
-      console.log(`[WebviewManager] WebviewView disposed: ${viewType}`);
+      this.logger.debug(`[WebviewManager] WebviewView disposed: ${viewType}`);
       this.activeWebviewViews.delete(viewType);
       this.webviewMetrics.delete(viewType);
     });
 
-    console.log(
+    this.logger.debug(
       `[WebviewManager] WebviewView registered successfully: ${viewType}`
     );
-    console.log(`[WebviewManager] Active webviews:`, this.getActiveWebviews());
+    this.logger.debug(
+      `[WebviewManager] Active webviews: ${this.getActiveWebviews().join(', ')}`
+    );
   }
 
   /**
@@ -214,29 +218,30 @@ export class WebviewManager {
     const webview = panel?.webview || view?.webview;
 
     if (!webview) {
-      console.error(`[WebviewManager] CRITICAL: Webview ${viewType} not found`);
-      console.error(
-        `[WebviewManager] Active panels:`,
-        Array.from(this.activeWebviews.keys())
-      );
-      console.error(
-        `[WebviewManager] Active views:`,
-        Array.from(this.activeWebviewViews.keys())
+      this.logger.error(
+        `[WebviewManager] CRITICAL: Webview ${viewType} not found`,
+        {
+          activePanels: Array.from(this.activeWebviews.keys()),
+          activeViews: Array.from(this.activeWebviewViews.keys()),
+        }
       );
       return false;
     }
 
     try {
-      console.log(`[WebviewManager] Calling webview.postMessage():`, {
+      this.logger.debug(`[WebviewManager] Calling webview.postMessage()`, {
         viewType,
         type,
         payloadKeys: Object.keys(payload || {}),
       });
       const result = await webview.postMessage({ type, payload });
-      console.log(`[WebviewManager] postMessage() returned:`, result);
+      this.logger.debug(`[WebviewManager] postMessage() returned: ${result}`);
       return true;
     } catch (error) {
-      console.error(`[WebviewManager] postMessage() threw error:`, error);
+      this.logger.error(
+        `[WebviewManager] postMessage() threw error`,
+        error instanceof Error ? error : new Error(String(error))
+      );
       return false;
     }
   }
@@ -346,15 +351,14 @@ export class WebviewManager {
       this.handleSystemMessage(webviewId, message);
     } else if (isRoutableMessage(message)) {
       // TODO: Phase 2 - Route to RPC handler for message processing
-      console.warn(
-        `[WebviewManager] Routable message received but EventBus removed:`,
-        message.type
+      this.logger.warn(
+        `[WebviewManager] Routable message received but EventBus removed: ${message.type}`
       );
     } else {
-      console.error(
-        `[WebviewManager] Invalid message type:`,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (message as any).type
+      this.logger.error(
+        `[WebviewManager] Invalid message type: ${
+          (message as { type?: string }).type || 'unknown'
+        }`
       );
     }
   }

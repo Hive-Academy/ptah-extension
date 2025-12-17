@@ -104,6 +104,11 @@ Invoking [first-agent] now...
 ### FEATURE (Full Workflow)
 
 ```
+Phase 0.5: [IF ambiguous request] SCOPE CLARIFICATION ✋
+           Orchestrator asks scope/priority/constraint questions
+           ↓
+           USER ANSWERS (clarifies scope)
+           ↓
 Phase 1: project-manager → Creates task-description.md
          ↓
          USER VALIDATES ✋ ("APPROVED" or feedback)
@@ -112,6 +117,11 @@ Phase 2: [IF technical unknowns] researcher-expert → Creates research-report.m
          ↓
 Phase 3: [IF UI/UX work] ui-ux-designer → Creates visual-design-specification.md
          ↓
+Phase 3.5: [IF multiple valid approaches] TECHNICAL CLARIFICATION ✋
+           Orchestrator asks pattern/integration/tradeoff questions
+           ↓
+           USER ANSWERS (clarifies technical preferences)
+           ↓
 Phase 4: software-architect → Creates implementation-plan.md
          ↓
          USER VALIDATES ✋ ("APPROVED" or feedback)
@@ -279,6 +289,38 @@ See team-leader.md for detailed MODE 3 instructions.`,
 
 ## User Checkpoints
 
+### Checkpoint 0: Scope Clarification (Before Project Manager)
+
+**Trigger Conditions** (ask if ANY apply):
+
+- User request is vague or ambiguous
+- Scope could reasonably be small OR large
+- Multiple valid interpretations exist
+- Business context is unclear
+
+```markdown
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 SCOPE CLARIFICATION - TASK\_[ID]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Before I create the requirements, I have a few clarifying questions:
+
+1. **Scope**: [What should be included vs excluded?]
+2. **Priority**: [What's the most critical outcome?]
+3. **Constraints**: [Any deadlines, technical limits, or dependencies?]
+4. **Success**: [How will you know this task is successful?]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✋ Please answer briefly, or say "use your judgment" to skip.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Skip Conditions**:
+
+- User request is extremely specific and unambiguous
+- Task is a continuation of previous work with clear context
+- User explicitly said "use your judgment"
+
 ### Checkpoint 1: After Project Manager
 
 ```markdown
@@ -306,6 +348,37 @@ Reply "APPROVED" to proceed to architecture phase
 OR provide feedback for revision
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
+
+### Checkpoint 1.5: Technical Clarification (Before Architect)
+
+**Trigger Conditions** (ask if ANY apply):
+
+- Multiple valid architectural approaches exist
+- Key technology choices need user preference
+- Integration scope is unclear
+- Design tradeoffs with significant impact
+
+```markdown
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔧 TECHNICAL CLARIFICATION - TASK\_[ID]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Before I create the architecture, I have a few technical questions:
+
+1. **Approach**: [Pattern A vs Pattern B - which do you prefer?]
+2. **Integration**: [Should this integrate with X or be standalone?]
+3. **Tradeoff**: [Prioritize performance or simplicity?]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✋ Please answer briefly, or say "use your judgment" to skip.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Skip Conditions**:
+
+- Codebase investigation shows clear established patterns
+- Task is a direct extension of existing architecture
+- User explicitly deferred technical decisions
 
 ### Checkpoint 2: After Architect
 

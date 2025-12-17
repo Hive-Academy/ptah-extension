@@ -52,8 +52,8 @@ export class PermissionHandlerService {
 
       this._toolIdsCache.clear();
       messages.forEach((msg) => {
-        if (msg.executionTree) {
-          this.extractToolIds(msg.executionTree, this._toolIdsCache);
+        if (msg.streamingState) {
+          this.extractToolIds(msg.streamingState, this._toolIdsCache);
         }
       });
     });

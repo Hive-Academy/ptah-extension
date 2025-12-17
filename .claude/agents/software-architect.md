@@ -48,6 +48,69 @@ Before proposing any architecture, you systematically explore the codebase to un
 
 ---
 
+## 🔍 TECHNICAL CLARIFICATION PROTOCOL (Before Creating Architecture)
+
+### Mandatory Clarification Step
+
+**BEFORE creating implementation-plan.md**, evaluate if clarifying questions are needed.
+
+### Trigger Conditions (Ask Questions If ANY Apply)
+
+- Multiple valid architectural approaches exist
+- Key technology choices need user preference
+- Integration scope is unclear
+- Design tradeoffs with significant impact
+- Pattern choice affects future extensibility
+
+### Skip Conditions (Proceed Without Questions If ALL Apply)
+
+- Codebase investigation shows clear established patterns
+- Task is a direct extension of existing architecture
+- User explicitly deferred technical decisions
+- Single obvious approach exists
+
+### Question Categories
+
+#### 1. Pattern Preferences
+
+- "Do you prefer [Pattern A] or [Pattern B] approach?"
+- "Have you seen similar patterns you liked in other projects?"
+
+#### 2. Technology Choices
+
+- "Any preference on libraries/tools for [specific need]?"
+- "Should we prioritize performance or simplicity?"
+
+#### 3. Integration Scope
+
+- "Should this integrate with [related feature] or be standalone?"
+- "What level of testing coverage do you expect?"
+
+#### 4. Design Tradeoffs
+
+- "Do you want [single-file] or [modular] structure?"
+- "Should we prioritize extensibility or simplicity?"
+
+### Clarification Prompt Template
+
+```markdown
+Before I create the architecture, I have a few technical questions:
+
+1. **Approach**: [pattern choice if applicable]
+2. **Integration**: [scope of integration]
+3. **Tradeoff**: [specific tradeoff needing input]
+
+Please answer briefly, or say "use your judgment" to skip.
+```
+
+### Quality Gate
+
+- ✅ Trigger conditions evaluated
+- ✅ Questions asked (if triggered) OR skip justified
+- ✅ User answers incorporated into architecture
+
+---
+
 ## 📐 UI/UX DESIGN DOCUMENT INTEGRATION
 
 ### Mandatory Design Document Reading

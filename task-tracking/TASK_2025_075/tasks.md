@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2025_075: Simplified License Server (No Payments)
 
-**Total Tasks**: 28 | **Batches**: 6 | **Status**: 0/6 complete
+**Total Tasks**: 30 | **Batches**: 7 | **Status**: 0/7 complete
 
 ---
 
@@ -1266,6 +1266,153 @@ npx nx build ptah-extension-vscode
 
 ---
 
+## Batch 7: Cross-Window License Synchronization ⏸️ PENDING
+
+**Developer**: backend-developer
+**Tasks**: 2 | **Dependencies**: Batch 5 complete (LicenseService exists)
+
+> [!NOTE]
+> This batch was added based on analysis of the [VS Code AuthenticationProvider sample](https://github.com/microsoft/vscode-extension-samples/blob/main/authenticationprovider-sample/src/authProvider.ts). While the full AuthenticationProvider pattern doesn't apply to license verification, the **cross-window token synchronization** pattern is valuable for user experience.
+
+### Task 7.1: Add SecretStorage Change Listener to LicenseService ⏸️ PENDING
+
+**File**: `D:\projects\ptah-extension\libs\backend\vscode-core\src\services\license.service.ts` (MODIFY)
+**Spec Reference**: VS Code AuthenticationProvider sample (authProvider.ts lines 46-58)
+**Dependencies**: Task 5.1
+
+**Implementation Requirements**:
+
+- In LicenseService constructor, add listener for `context.secrets.onDidChange`:
+  - Filter for key === 'ptah.licenseKey'
+  - Invalidate cache on external change
+  - Re-verify license immediately
+  - Emit 'license:updated' event with new status
+
+**Pattern from VS Code Sample**:
+
+```typescript
+// In constructor or init method
+context.secrets.onDidChange((e) => {
+  if (e.key === LicenseService.SECRET_KEY) {
+    this.logger.info('License key changed externally, re-verifying...');
+    this.cache = { status: null, timestamp: null }; // Invalidate cache
+    void this.verifyLicense().then((status) => {
+      this.emit('license:updated', status);
+    });
+  }
+});
+```
+
+**Use Case**: User has 2 VS Code windows open. They enter license key in Window A. Window B should:
+
+1. Detect the SecretStorage change
+2. Invalidate its cached license status
+3. Re-verify the license
+4. Emit 'license:updated' event (triggers MCP registration in Window B)
+
+**Validation Notes**:
+
+- RISK: Avoid infinite loops (don't trigger setLicenseKey → onChange → setLicenseKey)
+- Edge case: Key deleted → emit license:updated with free tier status
+- Edge case: Key changed → re-verify with new key
+
+**Quality Requirements**:
+
+- Listener must be disposed on extension deactivation
+- Must not cause duplicate verification calls during normal setLicenseKey flow
+- Must pass: `npm run typecheck:all`
+
+**Verification**:
+
+```bash
+npx nx build ptah-extension-vscode
+# Manual: Open 2 VS Code windows → Enter license in Window A → Verify Window B updates
+```
+
+---
+
+### Task 7.2: Register SecretStorage Listener Disposable ⏸️ PENDING
+
+**File**: `D:\projects\ptah-extension\libs\backend\vscode-core\src\services\license.service.ts` (MODIFY)
+**Dependencies**: Task 7.1
+
+**Implementation Requirements**:
+
+- Store the `secrets.onDidChange` subscription as a class property
+- Implement `dispose()` method to clean up the listener
+- Ensure LicenseService is added to `context.subscriptions` in main.ts
+
+**Implementation Pattern**:
+
+```typescript
+@injectable()
+export class LicenseService extends EventEmitter<LicenseEvents> implements vscode.Disposable {
+  private secretsListener: vscode.Disposable | undefined;
+
+  constructor(@inject(TOKENS.EXTENSION_CONTEXT) private context: vscode.ExtensionContext, @inject(TOKENS.LOGGER) private logger: Logger) {
+    super();
+
+    // Cross-window sync: detect license key changes from other windows
+    this.secretsListener = this.context.secrets.onDidChange((e) => {
+      if (e.key === LicenseService.SECRET_KEY) {
+        this.handleExternalKeyChange();
+      }
+    });
+  }
+
+  private async handleExternalKeyChange(): Promise<void> {
+    this.logger.info('License key changed externally (another window), re-verifying...');
+    this.cache = { status: null, timestamp: null };
+    const status = await this.verifyLicense();
+    this.emit('license:updated', status);
+  }
+
+  dispose(): void {
+    this.secretsListener?.dispose();
+    this.removeAllListeners(); // EventEmitter3 cleanup
+  }
+}
+```
+
+**Quality Requirements**:
+
+- LicenseService must implement `vscode.Disposable` interface
+- Listener must be properly disposed on extension deactivation
+- EventEmitter listeners must be cleared on dispose
+- Must pass: `npx nx lint ptah-extension-vscode`
+
+**Verification**:
+
+```bash
+npx nx build ptah-extension-vscode
+npm run typecheck:all
+```
+
+---
+
+**Batch 7 Verification**:
+
+- Cross-window sync works: Enter key in Window A → Window B detects immediately
+- Cache invalidation works: Window B re-verifies (logs show network call)
+- Event emission works: Window B emits license:updated → MCP starts dynamically
+- Disposal works: Extension deactivation cleans up listener
+- Build passes: `npx nx build ptah-extension-vscode`
+
+---
+
+## GIT COMMIT MESSAGE (Batch 7)
+
+```bash
+git commit -m "feat(vscode): add cross-window license key synchronization
+
+- add secretstorage onDidChange listener for cross-window sync
+- invalidate cache and re-verify when license changes externally
+- implement proper disposable pattern for listener cleanup
+- inspired by vscode authenticationprovider-sample pattern"
+```
+
+---
+
 ## FINAL VALIDATION CHECKLIST
 
 ### Backend (License Server)
@@ -1355,6 +1502,14 @@ git commit -m "feat(vscode): add conditional mcp registration based on license
 - licensed users: register and start premium mcp server
 - add license commands for command palette (enter, remove, check status)
 - add dynamic registration on license status changes"
+
+# Batch 7
+git commit -m "feat(vscode): add cross-window license key synchronization
+
+- add secretstorage onDidChange listener for cross-window sync
+- invalidate cache and re-verify when license changes externally
+- implement proper disposable pattern for listener cleanup
+- inspired by vscode authenticationprovider-sample pattern"
 ```
 
 **CRITICAL**: All commit messages must:
@@ -1371,8 +1526,8 @@ git commit -m "feat(vscode): add conditional mcp registration based on license
 
 **Status**: ✅ Ready for Implementation
 **Created**: 2025-12-15
-**Total Tasks**: 28 tasks across 6 batches
-**Estimated Time**: 12-16 hours (2-3 hours per batch)
+**Total Tasks**: 30 tasks across 7 batches
+**Estimated Time**: 14-18 hours (2-3 hours per batch)
 
 **Next Action**: Orchestrator should invoke backend-developer with Batch 1 tasks.
 

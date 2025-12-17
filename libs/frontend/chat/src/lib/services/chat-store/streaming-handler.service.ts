@@ -15,10 +15,11 @@ import {
   FlatStreamEventUnion,
   createExecutionChatMessage,
   calculateMessageCost,
-  createExecutionNode,
+  MessageCompleteEvent,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
+import { ExecutionTreeBuilderService } from '../execution-tree-builder.service';
 import {
   TabState,
   createEmptyStreamingState,
@@ -29,6 +30,7 @@ import {
 export class StreamingHandlerService {
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
+  private readonly treeBuilder = inject(ExecutionTreeBuilderService);
 
   /**
    * Process flat streaming event from SDK
@@ -116,9 +118,10 @@ export class StreamingHandlerService {
   /**
    * Finalize the current streaming message
    *
-   * Creates a minimal ExecutionNode stub from StreamingState.
-   * Full tree building will be done at render time (Batch 5).
+   * Builds final ExecutionNode tree from StreamingState using ExecutionTreeBuilderService.
+   * Extracts metadata from message_complete event.
    * Uses per-tab currentMessageId for proper multi-tab streaming support.
+   *
    * @param tabId - Optional tab ID to finalize. Falls back to active tab if not provided.
    */
   finalizeCurrentMessage(tabId?: string): void {
@@ -131,62 +134,59 @@ export class StreamingHandlerService {
       ? this.tabManager.tabs().find((t) => t.id === tabId)
       : this.tabManager.activeTab();
 
-    const state = targetTab?.streamingState;
+    const streamingState = targetTab?.streamingState;
     const messageId = targetTab?.currentMessageId;
 
-    if (!state || !messageId) return;
+    if (!streamingState || !messageId) return;
 
-    // Extract token usage and calculate cost from streaming state
+    console.log(
+      '[StreamingHandlerService] 📊 Finalizing message - streaming state:',
+      {
+        messageId,
+        eventCount: streamingState.events.size,
+        hasTokenUsage: !!streamingState.currentTokenUsage,
+      }
+    );
+
+    // Build final tree using ExecutionTreeBuilderService (TASK_2025_082 Batch 6)
+    const finalTree = this.treeBuilder.buildTree(streamingState);
+
+    // Find message_complete event for metadata
+    const completeEvent = [...streamingState.events.values()].find(
+      (e) => e.eventType === 'message_complete' && e.messageId === messageId
+    ) as MessageCompleteEvent | undefined;
+
+    // Extract metadata from message_complete event
     let tokens:
       | { input: number; output: number; cacheHit?: number }
       | undefined;
     let cost: number | undefined;
     let duration: number | undefined;
 
-    console.log(
-      '[StreamingHandlerService] 📊 Finalizing message - streaming state:',
-      {
-        hasTokenUsage: !!state.currentTokenUsage,
-        tokenUsage: state.currentTokenUsage,
-        eventCount: state.events.size,
-      }
-    );
-
-    if (state.currentTokenUsage) {
+    if (completeEvent?.tokenUsage) {
       tokens = {
-        input: state.currentTokenUsage.input,
-        output: state.currentTokenUsage.output,
+        input: completeEvent.tokenUsage.input,
+        output: completeEvent.tokenUsage.output,
       };
-      // Use default model for now (model selection handled elsewhere)
-      try {
-        const modelId = 'default';
-        cost = calculateMessageCost(modelId, tokens);
-        console.log('[StreamingHandlerService] ✅ Cost calculated:', {
-          modelId,
-          tokens,
-          cost,
-        });
-      } catch (error) {
-        console.error(
-          '[StreamingHandlerService] Cost calculation failed',
-          error
-        );
-        cost = undefined;
-      }
+      cost = completeEvent.cost;
+      duration = completeEvent.duration;
+
+      console.log('[StreamingHandlerService] ✅ Metadata extracted:', {
+        tokens,
+        cost,
+        duration,
+      });
     } else {
       console.warn(
-        '[StreamingHandlerService] ⚠️ No tokenUsage found in streaming state!'
+        '[StreamingHandlerService] ⚠️ No message_complete event found!'
       );
     }
 
-    // Build minimal ExecutionNode stub (full tree building in Batch 5)
-    const stubNode = this.buildStubExecutionNode(state, messageId);
-
-    // Create chat message with stub node and token/cost metadata
+    // Create finalized chat message with tree
     const assistantMessage = createExecutionChatMessage({
       id: messageId,
       role: 'assistant',
-      streamingState: stubNode,
+      streamingState: finalTree[0] || null, // Single root message
       sessionId: targetTab?.claudeSessionId ?? undefined,
       tokens,
       cost,
@@ -195,6 +195,8 @@ export class StreamingHandlerService {
 
     console.log('[StreamingHandlerService] 📝 Created assistant message:', {
       messageId,
+      hasTree: !!assistantMessage.streamingState,
+      treeNodeCount: finalTree.length,
       hasTokens: !!assistantMessage.tokens,
       tokens: assistantMessage.tokens,
       cost: assistantMessage.cost,
@@ -211,26 +213,6 @@ export class StreamingHandlerService {
 
     // Update SessionManager status
     this.sessionManager.setStatus('loaded');
-  }
-
-  /**
-   * Build a minimal ExecutionNode stub from StreamingState
-   * TEMPORARY: Full tree building will be done at render time in Batch 5
-   */
-  private buildStubExecutionNode(
-    state: StreamingState,
-    messageId: string
-  ): ExecutionNode {
-    // Accumulate all text deltas
-    const textContent = Array.from(state.textAccumulators.values()).join('');
-
-    return createExecutionNode({
-      id: messageId,
-      type: 'message',
-      status: 'complete',
-      content: textContent,
-      tokenUsage: state.currentTokenUsage || undefined,
-    });
   }
 
   /**

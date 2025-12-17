@@ -36,10 +36,10 @@
   <div
     class="chat-bubble bg-neutral text-neutral-content shadow-card max-w-[85%] md:max-w-[90%] lg:max-w-[85%]"
   >
-    @if (message().executionTree) {
+    @if (message().streamingState) {
     <!-- ExecutionNode recursive tree with streaming state -->
     <ptah-execution-node
-      [node]="message().executionTree!"
+      [node]="message().streamingState!"
       [isStreaming]="isStreaming()"
       [getPermissionForTool]="getPermissionForTool"
       (permissionResponded)="onPermissionResponse($event)"
