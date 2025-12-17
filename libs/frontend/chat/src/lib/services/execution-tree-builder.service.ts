@@ -80,15 +80,22 @@ export class ExecutionTreeBuilderService {
     // Use pre-indexed events for O(1) lookup (TASK_2025_084 Batch 1 Task 1.2)
     const messageEvents = state.eventsByMessage.get(messageId) || [];
 
+    // Sort by timestamp to handle out-of-order arrival (TASK_2025_084 Batch 2 Task 2.3)
+    const sortedEvents = messageEvents.slice().sort((a, b) => {
+      const timeA = a.timestamp || 0;
+      const timeB = b.timestamp || 0;
+      return timeA - timeB;
+    });
+
     // Find message_start event
-    const startEvent = messageEvents.find(
+    const startEvent = sortedEvents.find(
       (e) => e.eventType === 'message_start'
     ) as MessageStartEvent | undefined;
 
     if (!startEvent) return null;
 
     // Find message_complete event (may not exist if streaming)
-    const completeEvent = messageEvents.find(
+    const completeEvent = sortedEvents.find(
       (e) => e.eventType === 'message_complete'
     ) as MessageCompleteEvent | undefined;
 
@@ -149,10 +156,20 @@ export class ExecutionTreeBuilderService {
   ): ExecutionNode[] {
     const blocks: ExecutionNode[] = [];
 
+    // Get message events to find first text_delta for timestamp
+    const messageEvents = state.eventsByMessage.get(messageId) || [];
+
     // Find all text block keys for this message
     for (const [key, accumulatedText] of state.textAccumulators) {
       if (key.startsWith(`${messageId}-block-`)) {
         const blockIndex = parseInt(key.split('-block-')[1], 10);
+
+        // Find first text_delta event for this block to get timestamp
+        const firstDelta = messageEvents.find(
+          (e) =>
+            e.eventType === 'text_delta' && (e.blockIndex ?? 0) === blockIndex
+        );
+
         blocks.push(
           createExecutionNode({
             id: `${messageId}-text-${blockIndex}`,
@@ -160,7 +177,7 @@ export class ExecutionTreeBuilderService {
             status: 'complete',
             content: accumulatedText,
             children: [],
-            startTime: Date.now(), // Will be sorted with others
+            startTime: firstDelta?.timestamp || Date.now(),
           })
         );
       }
@@ -186,9 +203,20 @@ export class ExecutionTreeBuilderService {
   ): ExecutionNode[] {
     const blocks: ExecutionNode[] = [];
 
+    // Get message events to find first thinking_delta for timestamp
+    const messageEvents = state.eventsByMessage.get(messageId) || [];
+
     for (const [key, accumulatedText] of state.textAccumulators) {
       if (key.startsWith(`${messageId}-thinking-`)) {
         const blockIndex = parseInt(key.split('-thinking-')[1], 10);
+
+        // Find first thinking_delta event for this block to get timestamp
+        const firstDelta = messageEvents.find(
+          (e) =>
+            e.eventType === 'thinking_delta' &&
+            (e.blockIndex ?? 0) === blockIndex
+        );
+
         blocks.push(
           createExecutionNode({
             id: `${messageId}-thinking-${blockIndex}`,
@@ -196,7 +224,7 @@ export class ExecutionTreeBuilderService {
             status: 'complete',
             content: accumulatedText,
             children: [],
-            startTime: Date.now(),
+            startTime: firstDelta?.timestamp || Date.now(),
           })
         );
       }
@@ -342,6 +370,12 @@ export class ExecutionTreeBuilderService {
         const messageNode = this.buildMessageNode(msgId, state, depth + 1);
         if (messageNode) {
           children.push(messageNode);
+        } else {
+          console.warn('[ExecutionTreeBuilderService] Message node dropped', {
+            messageId: msgId,
+            toolCallId,
+            reason: 'buildMessageNode returned null',
+          });
         }
       }
     }

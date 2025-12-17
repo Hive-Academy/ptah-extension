@@ -24,6 +24,7 @@ import {
   TabState,
   createEmptyStreamingState,
   StreamingState,
+  AccumulatorKeys,
 } from '../chat.types';
 
 @Injectable({ providedIn: 'root' })
@@ -33,6 +34,32 @@ export class StreamingHandlerService {
   private readonly treeBuilder = inject(ExecutionTreeBuilderService);
 
   /**
+   * Tracks active session IDs to early-exit for deleted sessions.
+   * Prevents wasted CPU on events for closed tabs.
+   */
+  private activeSessionIds = new Set<string>();
+
+  /**
+   * Register a session as active.
+   * Call when creating a new tab/session or loading an existing session.
+   *
+   * @param sessionId - Session ID to register
+   */
+  registerActiveSession(sessionId: string): void {
+    this.activeSessionIds.add(sessionId);
+  }
+
+  /**
+   * Unregister a session as active.
+   * Call when deleting a tab or closing a session.
+   *
+   * @param sessionId - Session ID to unregister
+   */
+  unregisterActiveSession(sessionId: string): void {
+    this.activeSessionIds.delete(sessionId);
+  }
+
+  /**
    * Process flat streaming event from SDK
    *
    * Stores events in flat Maps instead of building ExecutionNode trees.
@@ -40,6 +67,11 @@ export class StreamingHandlerService {
    */
   processStreamEvent(event: FlatStreamEventUnion): void {
     try {
+      // Early exit if session is no longer active (TASK_2025_084 Batch 2 Task 2.5)
+      if (!this.activeSessionIds.has(event.sessionId)) {
+        return;
+      }
+
       // 1. Find target tab by event.sessionId
       const targetTab = this.tabManager.findTabBySessionId(event.sessionId);
       if (!targetTab) {
@@ -78,17 +110,21 @@ export class StreamingHandlerService {
 
         case 'text_delta': {
           const blockIndex = event.blockIndex ?? 0; // Default to 0
-          const blockKey = `${event.messageId}-block-${blockIndex}`;
-          const current = state.textAccumulators.get(blockKey) || '';
-          state.textAccumulators.set(blockKey, current + event.delta);
+          const blockKey = AccumulatorKeys.textBlock(
+            event.messageId,
+            blockIndex
+          );
+          this.accumulateDelta(state.textAccumulators, blockKey, event.delta);
           break;
         }
 
         case 'thinking_delta': {
           const blockIndex = event.blockIndex ?? 0; // Default to 0
-          const thinkKey = `${event.messageId}-thinking-${blockIndex}`;
-          const current = state.textAccumulators.get(thinkKey) || '';
-          state.textAccumulators.set(thinkKey, current + event.delta);
+          const thinkKey = AccumulatorKeys.thinkingBlock(
+            event.messageId,
+            blockIndex
+          );
+          this.accumulateDelta(state.textAccumulators, thinkKey, event.delta);
           break;
         }
 
@@ -100,9 +136,12 @@ export class StreamingHandlerService {
           break;
 
         case 'tool_delta': {
-          const inputKey = `${event.toolCallId}-input`;
-          const current = state.toolInputAccumulators.get(inputKey) || '';
-          state.toolInputAccumulators.set(inputKey, current + event.delta);
+          const inputKey = AccumulatorKeys.toolInput(event.toolCallId);
+          this.accumulateDelta(
+            state.toolInputAccumulators,
+            inputKey,
+            event.delta
+          );
           break;
         }
 
@@ -122,6 +161,23 @@ export class StreamingHandlerService {
         event
       );
     }
+  }
+
+  /**
+   * Helper to accumulate delta into Map.
+   * Reduces code duplication across text/thinking/tool delta handlers.
+   *
+   * @param map - Map to accumulate into
+   * @param key - Key for the accumulator
+   * @param delta - Delta text to append
+   */
+  private accumulateDelta(
+    map: Map<string, string>,
+    key: string,
+    delta: string
+  ): void {
+    const current = map.get(key) || '';
+    map.set(key, current + delta);
   }
 
   /**
