@@ -30,6 +30,12 @@ import type {
 import { createExecutionNode } from '@ptah-extension/shared';
 import type { StreamingState } from './chat.types';
 
+/**
+ * Maximum recursion depth for tool children to prevent stack overflow.
+ * Real-world agent nesting rarely exceeds 3-4 levels.
+ */
+const MAX_DEPTH = 10;
+
 @Injectable({ providedIn: 'root' })
 export class ExecutionTreeBuilderService {
   /**
@@ -63,26 +69,31 @@ export class ExecutionTreeBuilderService {
    *
    * @param messageId - Root message ID
    * @param state - Streaming state
+   * @param depth - Current recursion depth (for preventing stack overflow)
    * @returns Complete message ExecutionNode
    */
   private buildMessageNode(
     messageId: string,
-    state: StreamingState
+    state: StreamingState,
+    depth = 0
   ): ExecutionNode | null {
+    // Use pre-indexed events for O(1) lookup (TASK_2025_084 Batch 1 Task 1.2)
+    const messageEvents = state.eventsByMessage.get(messageId) || [];
+
     // Find message_start event
-    const startEvent = [...state.events.values()].find(
-      (e) => e.eventType === 'message_start' && e.messageId === messageId
+    const startEvent = messageEvents.find(
+      (e) => e.eventType === 'message_start'
     ) as MessageStartEvent | undefined;
 
     if (!startEvent) return null;
 
     // Find message_complete event (may not exist if streaming)
-    const completeEvent = [...state.events.values()].find(
-      (e) => e.eventType === 'message_complete' && e.messageId === messageId
+    const completeEvent = messageEvents.find(
+      (e) => e.eventType === 'message_complete'
     ) as MessageCompleteEvent | undefined;
 
     // Build children
-    const children = this.buildMessageChildren(messageId, state);
+    const children = this.buildMessageChildren(messageId, state, depth);
 
     return createExecutionNode({
       id: startEvent.id,
@@ -102,11 +113,13 @@ export class ExecutionTreeBuilderService {
    *
    * @param messageId - Parent message ID
    * @param state - Streaming state
+   * @param depth - Current recursion depth (propagate to children)
    * @returns Array of child nodes
    */
   private buildMessageChildren(
     messageId: string,
-    state: StreamingState
+    state: StreamingState,
+    depth: number
   ): ExecutionNode[] {
     const children: ExecutionNode[] = [];
 
@@ -117,7 +130,7 @@ export class ExecutionTreeBuilderService {
     children.push(...this.collectThinkingBlocks(messageId, state));
 
     // Collect tools
-    children.push(...this.collectTools(messageId, state));
+    children.push(...this.collectTools(messageId, state, depth));
 
     // Sort by timestamp
     return children.sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
@@ -201,11 +214,13 @@ export class ExecutionTreeBuilderService {
    *
    * @param messageId - Parent message ID
    * @param state - Streaming state
+   * @param depth - Current recursion depth (propagate to tool nodes)
    * @returns Array of tool ExecutionNode objects
    */
   private collectTools(
     messageId: string,
-    state: StreamingState
+    state: StreamingState,
+    depth: number
   ): ExecutionNode[] {
     const tools: ExecutionNode[] = [];
 
@@ -218,7 +233,7 @@ export class ExecutionTreeBuilderService {
     ) as ToolStartEvent[];
 
     for (const toolStart of toolStarts) {
-      tools.push(this.buildToolNode(toolStart, state));
+      tools.push(this.buildToolNode(toolStart, state, depth));
     }
 
     return tools;
@@ -229,15 +244,31 @@ export class ExecutionTreeBuilderService {
    *
    * @param toolStart - Tool start event
    * @param state - Streaming state
+   * @param depth - Current recursion depth (for preventing stack overflow)
    * @returns Tool ExecutionNode with nested execution
    */
   private buildToolNode(
     toolStart: ToolStartEvent,
-    state: StreamingState
+    state: StreamingState,
+    depth = 0
   ): ExecutionNode {
     // Get accumulated input
     const inputKey = `${toolStart.toolCallId}-input`;
-    const input = state.toolInputAccumulators.get(inputKey) || '';
+    const inputString = state.toolInputAccumulators.get(inputKey) || '';
+
+    // Parse JSON into toolInput field (TASK_2025_084 Batch 1 Task 1.4)
+    let toolInput: Record<string, unknown> | undefined;
+    try {
+      toolInput = inputString ? JSON.parse(inputString) : undefined;
+    } catch (error) {
+      // Parse failed - use undefined (UI components don't handle {raw} properly)
+      console.error('[ExecutionTreeBuilderService] Tool input parse failed', {
+        toolCallId: toolStart.toolCallId,
+        inputString: inputString.slice(0, 100),
+        error,
+      });
+      toolInput = undefined;
+    }
 
     // Find tool result
     const resultEvent = [...state.events.values()].find(
@@ -246,13 +277,14 @@ export class ExecutionTreeBuilderService {
     ) as ToolResultEvent | undefined;
 
     // Build nested children (RECURSIVE - sub-agent messages!)
-    const children = this.buildToolChildren(toolStart.toolCallId, state);
+    const children = this.buildToolChildren(toolStart.toolCallId, state, depth);
 
     return createExecutionNode({
       id: toolStart.id,
       type: 'tool',
       status: resultEvent ? 'complete' : 'streaming',
-      content: input,
+      content: null, // Content is null, not the JSON string
+      toolInput, // Parsed JSON in correct field
       children,
       startTime: toolStart.timestamp,
       toolName: toolStart.toolName,
@@ -268,12 +300,27 @@ export class ExecutionTreeBuilderService {
    *
    * @param toolCallId - Parent tool call ID
    * @param state - Streaming state
+   * @param depth - Current recursion depth (default 0)
    * @returns Array of nested ExecutionNode objects
    */
   private buildToolChildren(
     toolCallId: string,
-    state: StreamingState
+    state: StreamingState,
+    depth = 0
   ): ExecutionNode[] {
+    // Early exit if max depth exceeded
+    if (depth >= MAX_DEPTH) {
+      console.warn(
+        '[ExecutionTreeBuilderService] Max recursion depth exceeded',
+        {
+          toolCallId,
+          depth,
+          maxDepth: MAX_DEPTH,
+        }
+      );
+      return [];
+    }
+
     const children: ExecutionNode[] = [];
 
     // Find all agent_start events where parentToolUseId = toolCallId
@@ -292,7 +339,7 @@ export class ExecutionTreeBuilderService {
         .map((e) => e.messageId);
 
       for (const msgId of agentMessageIds) {
-        const messageNode = this.buildMessageNode(msgId, state);
+        const messageNode = this.buildMessageNode(msgId, state, depth + 1);
         if (messageNode) {
           children.push(messageNode);
         }

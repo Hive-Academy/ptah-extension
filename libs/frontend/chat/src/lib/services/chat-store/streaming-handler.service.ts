@@ -62,6 +62,13 @@ export class StreamingHandlerService {
       // 3. Store event by ID
       state.events.set(event.id, event);
 
+      // 3.1. Pre-index event by messageId for O(1) lookup (TASK_2025_084 Batch 1 Task 1.2)
+      if (event.messageId) {
+        const messageEvents = state.eventsByMessage.get(event.messageId) || [];
+        messageEvents.push(event);
+        state.eventsByMessage.set(event.messageId, messageEvents);
+      }
+
       // 4. Handle by event type
       switch (event.eventType) {
         case 'message_start':
@@ -70,14 +77,16 @@ export class StreamingHandlerService {
           break;
 
         case 'text_delta': {
-          const blockKey = `${event.messageId}-block-${event.blockIndex}`;
+          const blockIndex = event.blockIndex ?? 0; // Default to 0
+          const blockKey = `${event.messageId}-block-${blockIndex}`;
           const current = state.textAccumulators.get(blockKey) || '';
           state.textAccumulators.set(blockKey, current + event.delta);
           break;
         }
 
         case 'thinking_delta': {
-          const thinkKey = `${event.messageId}-thinking-${event.blockIndex}`;
+          const blockIndex = event.blockIndex ?? 0; // Default to 0
+          const thinkKey = `${event.messageId}-thinking-${blockIndex}`;
           const current = state.textAccumulators.get(thinkKey) || '';
           state.textAccumulators.set(thinkKey, current + event.delta);
           break;
@@ -116,6 +125,32 @@ export class StreamingHandlerService {
   }
 
   /**
+   * Deep-copy StreamingState to prevent race condition between finalize and stream.
+   * Creates new Map instances to ensure isolation.
+   *
+   * @param state - StreamingState to copy
+   * @returns Deep copy of StreamingState
+   */
+  private deepCopyStreamingState(state: StreamingState): StreamingState {
+    return {
+      events: new Map(state.events),
+      messageEventIds: [...state.messageEventIds],
+      toolCallMap: new Map(
+        [...state.toolCallMap.entries()].map(([k, v]) => [k, [...v]])
+      ),
+      textAccumulators: new Map(state.textAccumulators),
+      toolInputAccumulators: new Map(state.toolInputAccumulators),
+      currentMessageId: state.currentMessageId,
+      currentTokenUsage: state.currentTokenUsage
+        ? { ...state.currentTokenUsage }
+        : null,
+      eventsByMessage: new Map(
+        [...state.eventsByMessage.entries()].map(([k, v]) => [k, [...v]])
+      ),
+    };
+  }
+
+  /**
    * Finalize the current streaming message
    *
    * Builds final ExecutionNode tree from StreamingState using ExecutionTreeBuilderService.
@@ -148,8 +183,11 @@ export class StreamingHandlerService {
       }
     );
 
+    // Deep-copy state to prevent race condition (TASK_2025_084 Batch 1 Task 1.3)
+    const stateCopy = this.deepCopyStreamingState(streamingState);
+
     // Build final tree using ExecutionTreeBuilderService (TASK_2025_082 Batch 6)
-    const finalTree = this.treeBuilder.buildTree(streamingState);
+    const finalTree = this.treeBuilder.buildTree(stateCopy);
 
     // Find message_complete event for metadata
     const completeEvent = [...streamingState.events.values()].find(
