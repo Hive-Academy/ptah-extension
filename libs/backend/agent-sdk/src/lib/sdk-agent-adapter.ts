@@ -22,7 +22,7 @@ import {
   AISessionConfig,
   AIMessageOptions,
   SessionId,
-  ExecutionNode,
+  FlatStreamEventUnion,
   MessageId,
 } from '@ptah-extension/shared';
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
@@ -386,7 +386,7 @@ export class SdkAgentAdapter implements IAIProvider {
   async startChatSession(
     sessionId: SessionId,
     config?: AISessionConfig & { name?: string }
-  ): Promise<AsyncIterable<ExecutionNode>> {
+  ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
       throw new Error(
         'SdkAgentAdapter not initialized. Call initialize() first.'
@@ -480,12 +480,12 @@ export class SdkAgentAdapter implements IAIProvider {
    *
    * @param sessionId - The session ID to resume (must exist in storage)
    * @param config - Optional session configuration overrides
-   * @returns AsyncIterable<ExecutionNode> for streaming new responses
+   * @returns AsyncIterable<FlatStreamEventUnion> for streaming new responses
    */
   async resumeSession(
     sessionId: SessionId,
     config?: AISessionConfig
-  ): Promise<AsyncIterable<ExecutionNode>> {
+  ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
       throw new Error(
         'SdkAgentAdapter not initialized. Call initialize() first.'

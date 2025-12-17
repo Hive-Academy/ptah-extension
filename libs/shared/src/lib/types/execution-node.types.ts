@@ -105,6 +105,12 @@ export interface ExecutionNode {
   readonly toolCallId?: string;
 
   /**
+   * Parent tool use ID - links sub-agent messages to their parent agent
+   * Used to nest execution trees: Parent Message → Agent Tool → Sub-agent Message
+   */
+  readonly parentToolUseId?: string;
+
+  /**
    * Whether this tool execution is awaiting permission.
    * Set when tool_result has is_error: true AND error message contains "permission".
    * Used to show special permission request UI instead of generic error.
@@ -645,3 +651,178 @@ export function isTaskToolMessage(msg: JSONLMessage): boolean {
 export function isNestedToolMessage(msg: JSONLMessage): boolean {
   return !!msg.parent_tool_use_id;
 }
+
+// ============================================================================
+// FLAT STREAMING EVENT TYPES (TASK_2025_082)
+// ============================================================================
+
+/**
+ * Flat streaming event types - replaces ExecutionNode during streaming
+ * Events contain relationship IDs instead of nested children
+ *
+ * Architecture: Backend emits these flat events during streaming,
+ * frontend stores them in a Map, builds ExecutionNode tree at render time.
+ *
+ * This eliminates state corruption from interleaved sub-agent streams.
+ */
+export type StreamEventType =
+  | 'message_start'
+  | 'text_delta'
+  | 'thinking_start'
+  | 'thinking_delta'
+  | 'tool_start'
+  | 'tool_delta'
+  | 'tool_result'
+  | 'agent_start'
+  | 'message_complete'
+  | 'message_delta';
+
+/**
+ * Base flat event with common fields
+ * All streaming events inherit from this base interface
+ */
+export interface FlatStreamEvent {
+  /** Unique event ID */
+  readonly id: string;
+
+  /** Discriminated union type for TypeScript narrowing */
+  readonly eventType: StreamEventType;
+
+  /** Event timestamp (Unix epoch ms) */
+  readonly timestamp: number;
+
+  /** Session ID this event belongs to */
+  readonly sessionId: string;
+
+  // ---- Relationship IDs for tree building ----
+
+  /** Root message this event belongs to */
+  readonly messageId: string;
+
+  /** For nesting under tools (agents, sub-tools) */
+  readonly parentToolUseId?: string;
+
+  /** For tool-related events */
+  readonly toolCallId?: string;
+
+  /** For multiple text blocks in same message (edge case) */
+  readonly blockIndex?: number;
+}
+
+/**
+ * Message start event - creates message node
+ */
+export interface MessageStartEvent extends FlatStreamEvent {
+  readonly eventType: 'message_start';
+  readonly role: 'user' | 'assistant';
+  readonly parentToolUseId?: string; // For sub-agent messages
+}
+
+/**
+ * Text delta event - accumulates text content
+ */
+export interface TextDeltaEvent extends FlatStreamEvent {
+  readonly eventType: 'text_delta';
+  readonly delta: string; // Text chunk to append
+  readonly blockIndex: number; // Which text block (0, 1, 2...) - handles multiple text blocks
+}
+
+/**
+ * Thinking block start event
+ */
+export interface ThinkingStartEvent extends FlatStreamEvent {
+  readonly eventType: 'thinking_start';
+  readonly blockIndex: number;
+}
+
+/**
+ * Thinking block delta event
+ */
+export interface ThinkingDeltaEvent extends FlatStreamEvent {
+  readonly eventType: 'thinking_delta';
+  readonly delta: string;
+  readonly blockIndex: number;
+  readonly signature?: string; // Thinking verification signature
+}
+
+/**
+ * Tool execution start event
+ */
+export interface ToolStartEvent extends FlatStreamEvent {
+  readonly eventType: 'tool_start';
+  readonly toolCallId: string; // SDK tool use ID
+  readonly toolName: string;
+  readonly toolInput?: Record<string, unknown>; // May be streaming JSON
+  readonly isTaskTool: boolean; // true if Task tool (agent spawn)
+
+  // Agent-specific fields (only if isTaskTool = true)
+  readonly agentType?: string;
+  readonly agentDescription?: string;
+  readonly agentPrompt?: string;
+}
+
+/**
+ * Tool input delta event (for streaming JSON input)
+ */
+export interface ToolDeltaEvent extends FlatStreamEvent {
+  readonly eventType: 'tool_delta';
+  readonly toolCallId: string;
+  readonly delta: string; // Partial JSON for toolInput
+}
+
+/**
+ * Tool result event
+ */
+export interface ToolResultEvent extends FlatStreamEvent {
+  readonly eventType: 'tool_result';
+  readonly toolCallId: string;
+  readonly output: unknown;
+  readonly isError: boolean;
+  readonly isPermissionRequest?: boolean;
+}
+
+/**
+ * Agent spawn event (when Task tool starts)
+ */
+export interface AgentStartEvent extends FlatStreamEvent {
+  readonly eventType: 'agent_start';
+  readonly toolCallId: string; // Links to parent Task tool
+  readonly agentType: string;
+  readonly agentDescription?: string;
+  readonly agentPrompt?: string;
+}
+
+/**
+ * Message completion event - updates message node with final metadata
+ */
+export interface MessageCompleteEvent extends FlatStreamEvent {
+  readonly eventType: 'message_complete';
+  readonly stopReason?: string;
+  readonly tokenUsage?: { input: number; output: number };
+  readonly cost?: number;
+  readonly duration?: number;
+  readonly model?: string;
+}
+
+/**
+ * Message delta event - updates cumulative token usage during streaming
+ */
+export interface MessageDeltaEvent extends FlatStreamEvent {
+  readonly eventType: 'message_delta';
+  readonly tokenUsage: { input: number; output: number };
+}
+
+/**
+ * Union type for all flat events - enables discriminated unions
+ */
+export type FlatStreamEventUnion =
+  | MessageStartEvent
+  | TextDeltaEvent
+  | ThinkingStartEvent
+  | ThinkingDeltaEvent
+  | ToolStartEvent
+  | ToolDeltaEvent
+  | ToolResultEvent
+  | AgentStartEvent
+  | MessageCompleteEvent
+  | MessageDeltaEvent;

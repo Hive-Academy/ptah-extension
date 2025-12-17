@@ -6,7 +6,11 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { SessionId, ExecutionNode, MessageId } from '@ptah-extension/shared';
+import {
+  SessionId,
+  FlatStreamEventUnion,
+  MessageId,
+} from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   SdkMessageTransformer,
@@ -71,6 +75,19 @@ function getRoleFromSDKMessage(
     default:
       return 'assistant';
   }
+}
+
+/**
+ * Helper function to get event role from flat stream event
+ */
+function getRoleFromFlatEvent(
+  event: FlatStreamEventUnion
+): 'user' | 'assistant' | 'system' {
+  if (event.eventType === 'message_start') {
+    return event.role;
+  }
+  // For other event types, default to assistant
+  return 'assistant';
 }
 
 /**
@@ -150,11 +167,15 @@ function validateStats(
 }
 
 /**
- * StreamTransformer - Transforms SDK messages to ExecutionNodes
+ * StreamTransformer - Transforms SDK messages to flat stream events
+ *
+ * CRITICAL CHANGE (TASK_2025_082):
+ * - Yields FlatStreamEventUnion instead of ExecutionNode
+ * - Frontend builds trees at render time from flat events
  *
  * Responsibilities:
  * - Extract real Claude session ID from system 'init' messages
- * - Transform SDK messages to ExecutionNode format
+ * - Transform SDK messages to flat stream event format
  * - Store messages in session storage
  * - Handle authentication errors gracefully
  */
@@ -171,9 +192,11 @@ export class StreamTransformer {
   ) {}
 
   /**
-   * Create a transformed ExecutionNode stream from SDK messages
+   * Create a transformed flat event stream from SDK messages
    */
-  transform(config: StreamTransformConfig): AsyncIterable<ExecutionNode> {
+  transform(
+    config: StreamTransformConfig
+  ): AsyncIterable<FlatStreamEventUnion> {
     const {
       sdkQuery,
       sessionId,
@@ -290,20 +313,19 @@ export class StreamTransformer {
               }
             }
 
-            const nodes = messageTransformer.transform(sdkMessage, sessionId);
+            const flatEvents = messageTransformer.transform(
+              sdkMessage,
+              sessionId
+            );
 
-            // Store messages and yield nodes
-            for (const node of nodes) {
-              // Try to parse node.id as MessageId, or create a new one if it's not a valid UUID
-              // (e.g., Anthropic tool_use IDs like "toolu_01Xsdsrk5VAepjhuwFGEGzZV" are not UUIDs)
+            // Store messages and yield flat events
+            for (const event of flatEvents) {
+              // Try to parse event.messageId as MessageId, or create a new one if it's not a valid UUID
               const messageId =
-                MessageId.safeParse(node.id) ?? MessageId.create();
+                MessageId.safeParse(event.messageId) ?? MessageId.create();
 
-              // Extract parent_tool_use_id from SDK message
-              const parentToolUseId =
-                'parent_tool_use_id' in sdkMessage
-                  ? sdkMessage['parent_tool_use_id']
-                  : null;
+              // Extract parent_tool_use_id from event
+              const parentToolUseId = event.parentToolUseId ?? null;
 
               // Get current model from session
               const currentSession =
@@ -316,15 +338,20 @@ export class StreamTransformer {
                   ? MessageId.safeParse(parentToolUseId)
                   : null;
 
-              // Create stored message from ExecutionNode
+              // Create stored message from flat event
+              // NOTE: For flat events, we store the event itself, not ExecutionNode
+              // The frontend will build ExecutionNode trees at render time
               const storedMessage: StoredSessionMessage = {
                 id: messageId,
                 parentId,
-                role: getRoleFromSDKMessage(sdkMessage),
-                content: [node],
-                timestamp: Date.now(),
+                role: getRoleFromFlatEvent(event),
+                content: [event as any], // Store flat event in content array
+                timestamp: event.timestamp,
                 model: currentModel,
-                tokens: node.tokenUsage,
+                tokens:
+                  event.eventType === 'message_complete'
+                    ? event.tokenUsage
+                    : undefined,
               };
 
               // Save to storage - log errors but don't block UI
@@ -341,8 +368,8 @@ export class StreamTransformer {
                 );
               }
 
-              // Yield ExecutionNode for UI consumption
-              yield node;
+              // Yield FlatStreamEventUnion for UI consumption
+              yield event;
             }
           }
         } catch (error) {

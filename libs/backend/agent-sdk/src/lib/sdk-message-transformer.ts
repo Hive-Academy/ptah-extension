@@ -1,17 +1,27 @@
 /**
- * SDK Message Transformer - Converts SDK messages to ExecutionNode format
+ * SDK Message Transformer - Converts SDK messages to flat stream events
  *
- * Transforms messages from the official Claude Agent SDK into the ExecutionNode
- * tree structure required by the Ptah UI layer.
+ * Transforms messages from the official Claude Agent SDK into flat streaming events
+ * that contain relationship IDs instead of nested children trees.
+ *
+ * CRITICAL CHANGE (TASK_2025_082): Emits FlatStreamEventUnion[] instead of ExecutionNode[].
+ * The frontend builds ExecutionNode trees at render time from these flat events.
  */
 
 import { injectable, inject } from 'tsyringe';
 import {
-  ExecutionNode,
-  ExecutionNodeType,
-  ExecutionStatus,
+  FlatStreamEventUnion,
+  MessageStartEvent,
+  TextDeltaEvent,
+  ThinkingStartEvent,
+  ThinkingDeltaEvent,
+  ToolStartEvent,
+  ToolDeltaEvent,
+  ToolResultEvent,
+  AgentStartEvent,
+  MessageCompleteEvent,
+  MessageDeltaEvent,
   SessionId,
-  createExecutionNode,
   calculateMessageCost,
 } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
@@ -174,39 +184,58 @@ function isSDKResultMessage(msg: SDKMessage): msg is SDKResultMessage {
 export { isSDKResultMessage };
 
 /**
- * SdkMessageTransformer - Transforms SDK messages to ExecutionNode hierarchy
+ * Generate unique event ID
+ * Format: evt_{timestamp}_{random}
+ */
+function generateEventId(): string {
+  return `evt_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+}
+
+/**
+ * SdkMessageTransformer - Transforms SDK messages to flat stream events
  *
- * Handles message transformation with proper parent-child relationships,
- * agent detection (Task tool), and metadata preservation.
+ * CRITICAL CHANGE (TASK_2025_082):
+ * - Returns FlatStreamEventUnion[] instead of ExecutionNode[]
+ * - NO tree building (no children field manipulation)
+ * - Emits events with relationship IDs (messageId, toolCallId, parentToolUseId)
+ * - Removed 87 lines of complex state tracking (messageStates, messageUuidStack)
+ * - Simple currentMessageId variable tracking instead
  */
 @injectable()
 export class SdkMessageTransformer {
+  /**
+   * Simple message ID tracking - replaced complex Map-based state
+   */
+  private currentMessageId: string | null = null;
+
   constructor(@inject(TOKENS.LOGGER) private logger: Logger) {}
 
   /**
-   * Transform SDK message to ExecutionNode array
+   * Transform SDK message to flat stream events
    *
-   * A single SDK message may produce multiple ExecutionNodes:
-   * - SDKAssistantMessage → message node + children (text, tool_use, tool_result)
-   * - SDKUserMessage → message node with raw content
-   * - SDKSystemMessage → system node
-   * - SDKResultMessage → system node with result summary
+   * A single SDK message may produce multiple flat events:
+   * - SDKAssistantMessage → message_start + content events + message_complete
+   * - SDKUserMessage → message_start + text_delta + message_complete
+   * - stream_event → various streaming events
    *
    * @param sdkMessage - SDK message to transform (uses structural typing to match SDK types)
-   * @param sessionId - Optional session ID for node correlation
-   * @returns Array of ExecutionNode (typically 1, but could be multiple for nested content)
+   * @param sessionId - Optional session ID for event correlation
+   * @returns Array of FlatStreamEventUnion (flat events with relationship IDs)
    */
-  transform(sdkMessage: SDKMessage, sessionId?: SessionId): ExecutionNode[] {
+  transform(
+    sdkMessage: SDKMessage,
+    sessionId?: SessionId
+  ): FlatStreamEventUnion[] {
     try {
       switch (sdkMessage.type) {
         case 'assistant':
-          return this.transformAssistantMessage(
+          return this.transformAssistantToFlatEvents(
             sdkMessage as SDKAssistantMessage,
             sessionId
           );
 
         case 'user':
-          return this.transformUserMessage(
+          return this.transformUserToFlatEvents(
             sdkMessage as SDKUserMessage,
             sessionId
           );
@@ -214,20 +243,17 @@ export class SdkMessageTransformer {
         case 'system':
           // Skip system messages (init, etc.) - they contain metadata
           // that shouldn't be displayed as chat messages in the UI.
-          // Session info can be shown in a separate UI element if needed.
           return [];
 
         case 'result':
           // Skip result messages - they contain session summary metadata
           // (cost, duration, tokens) that shouldn't appear as chat bubbles.
-          // This data can be shown in a session info panel if needed.
+          // This data is handled via callback in StreamTransformer.
           return [];
 
         case 'stream_event':
-          // Skip partial streaming events - the complete 'assistant' message
-          // will contain all accumulated text. Processing stream_events causes
-          // duplicate messages (each chunk + the final complete message).
-          return [];
+          // Process partial streaming events for real-time UI updates
+          return this.transformStreamEventToFlatEvents(sdkMessage, sessionId);
 
         default:
           this.logger.warn(
@@ -248,46 +274,337 @@ export class SdkMessageTransformer {
   }
 
   /**
-   * Transform SDKAssistantMessage to ExecutionNode
+   * Transform SDK stream_event to flat events
    *
-   * Assistant messages contain content blocks: text, tool_use, thinking.
-   * Each block becomes a child node of the message node.
+   * stream_event messages contain real-time streaming content from the API.
+   * The event field contains RawMessageStreamEvent with various event types:
+   * - message_start: Initialize streaming with message.id (UUID)
+   * - content_block_start: New content block beginning
+   * - content_block_delta: Partial text/json/thinking content
+   * - content_block_stop: Content block finished
+   * - message_delta: Top-level changes (stop_reason, cumulative token usage)
+   * - message_stop: Final completion event
+   * - ping: Keep-alive (ignored)
+   * - error: Stream error
    */
-  private transformAssistantMessage(
+  private transformStreamEventToFlatEvents(
+    sdkMessage: SDKMessage,
+    sessionId?: SessionId
+  ): FlatStreamEventUnion[] {
+    const { event } = sdkMessage;
+
+    // Skip non-content events
+    if (!event || typeof event !== 'object') {
+      return [];
+    }
+
+    const eventType = (event as { type?: string }).type;
+    const blockIndex = (event as { index?: number }).index ?? 0;
+
+    // Capture parent_tool_use_id for nested agent messages
+    // This is present on stream_event messages from sub-agents
+    const parentToolUseId = sdkMessage['parent_tool_use_id'] as
+      | string
+      | undefined;
+
+    switch (eventType) {
+      // ========== MESSAGE LIFECYCLE ==========
+
+      case 'message_start': {
+        // Capture UUID from message.id - this is the canonical message ID
+        const message = (event as { message?: { id?: string } }).message;
+        const messageId = message?.id || `stream-msg-${Date.now()}`;
+
+        // Track current message ID (simple variable tracking)
+        this.currentMessageId = messageId;
+
+        this.logger.debug(
+          `[SdkMessageTransformer] Stream started: ${messageId}`
+        );
+
+        // Emit message_start event
+        const messageStartEvent: MessageStartEvent = {
+          id: generateEventId(),
+          eventType: 'message_start',
+          timestamp: Date.now(),
+          sessionId: sessionId || '',
+          messageId,
+          role: 'assistant',
+          parentToolUseId,
+        };
+
+        return [messageStartEvent];
+      }
+
+      case 'message_delta': {
+        // Emit message_delta event with cumulative token usage
+        const usage = (
+          event as {
+            usage?: { input_tokens?: number; output_tokens?: number };
+          }
+        ).usage;
+
+        if (!usage || !this.currentMessageId) {
+          return [];
+        }
+
+        const messageDeltaEvent: MessageDeltaEvent = {
+          id: generateEventId(),
+          eventType: 'message_delta',
+          timestamp: Date.now(),
+          sessionId: sessionId || '',
+          messageId: this.currentMessageId,
+          tokenUsage: {
+            input: usage.input_tokens ?? 0,
+            output: usage.output_tokens ?? 0,
+          },
+        };
+
+        return [messageDeltaEvent];
+      }
+
+      case 'message_stop': {
+        this.logger.debug(
+          `[SdkMessageTransformer] Stream stopped: ${this.currentMessageId}`
+        );
+
+        // Clear tracking (assistant message will emit message_complete)
+        this.currentMessageId = null;
+
+        return [];
+      }
+
+      // ========== CONTENT BLOCK LIFECYCLE ==========
+
+      case 'content_block_start': {
+        const contentBlock = (
+          event as {
+            content_block?: {
+              type?: string;
+              text?: string;
+              id?: string;
+              name?: string;
+            };
+          }
+        ).content_block;
+
+        const blockType = contentBlock?.type || 'text';
+
+        if (!this.currentMessageId) {
+          this.logger.warn(
+            '[SdkMessageTransformer] content_block_start but no active message'
+          );
+          return [];
+        }
+
+        // Emit thinking_start for thinking blocks
+        if (blockType === 'thinking') {
+          const thinkingStartEvent: ThinkingStartEvent = {
+            id: generateEventId(),
+            eventType: 'thinking_start',
+            timestamp: Date.now(),
+            sessionId: sessionId || '',
+            messageId: this.currentMessageId,
+            blockIndex,
+            parentToolUseId,
+          };
+
+          return [thinkingStartEvent];
+        }
+
+        // Emit tool_start for tool_use blocks
+        if (
+          blockType === 'tool_use' &&
+          contentBlock?.id &&
+          contentBlock?.name
+        ) {
+          const isTaskTool = contentBlock.name === 'Task';
+
+          const toolStartEvent: ToolStartEvent = {
+            id: generateEventId(),
+            eventType: 'tool_start',
+            timestamp: Date.now(),
+            sessionId: sessionId || '',
+            messageId: this.currentMessageId,
+            toolCallId: contentBlock.id,
+            toolName: contentBlock.name,
+            isTaskTool,
+            parentToolUseId,
+          };
+
+          return [toolStartEvent];
+        }
+
+        // Text blocks don't emit on start (wait for delta)
+        return [];
+      }
+
+      case 'content_block_delta': {
+        const delta = (
+          event as {
+            delta?: {
+              type?: string;
+              text?: string;
+              partial_json?: string;
+              thinking?: string;
+              signature?: string;
+            };
+          }
+        ).delta;
+
+        if (!delta || !this.currentMessageId) {
+          return [];
+        }
+
+        switch (delta.type) {
+          case 'text_delta': {
+            if (!delta.text) return [];
+
+            const textDeltaEvent: TextDeltaEvent = {
+              id: generateEventId(),
+              eventType: 'text_delta',
+              timestamp: Date.now(),
+              sessionId: sessionId || '',
+              messageId: this.currentMessageId,
+              delta: delta.text,
+              blockIndex,
+              parentToolUseId,
+            };
+
+            return [textDeltaEvent];
+          }
+
+          case 'input_json_delta': {
+            if (delta.partial_json === undefined) return [];
+
+            // Find tool_start event by blockIndex to get toolCallId
+            // (In flat event model, we need to track toolCallId separately)
+            // For now, use a generated ID - frontend will associate by blockIndex
+            const toolDeltaEvent: ToolDeltaEvent = {
+              id: generateEventId(),
+              eventType: 'tool_delta',
+              timestamp: Date.now(),
+              sessionId: sessionId || '',
+              messageId: this.currentMessageId,
+              toolCallId: `tool-block-${blockIndex}`, // Placeholder - real ID from tool_start
+              delta: delta.partial_json,
+              parentToolUseId,
+            };
+
+            return [toolDeltaEvent];
+          }
+
+          case 'thinking_delta': {
+            if (!delta.thinking) return [];
+
+            const thinkingDeltaEvent: ThinkingDeltaEvent = {
+              id: generateEventId(),
+              eventType: 'thinking_delta',
+              timestamp: Date.now(),
+              sessionId: sessionId || '',
+              messageId: this.currentMessageId,
+              delta: delta.thinking,
+              blockIndex,
+              signature: delta.signature,
+              parentToolUseId,
+            };
+
+            return [thinkingDeltaEvent];
+          }
+
+          default:
+            this.logger.debug(
+              `[SdkMessageTransformer] Unknown delta type: ${delta.type}`
+            );
+            return [];
+        }
+      }
+
+      case 'content_block_stop': {
+        // Content block finished - no event needed (frontend accumulates deltas)
+        return [];
+      }
+
+      // ========== SPECIAL EVENTS ==========
+
+      case 'ping':
+        // Keep-alive event, ignore
+        return [];
+
+      case 'error': {
+        const error = (event as { error?: { type?: string; message?: string } })
+          .error;
+        this.logger.error(
+          `[SdkMessageTransformer] Stream error: ${error?.type} - ${error?.message}`
+        );
+        // Could emit error event if needed
+        return [];
+      }
+
+      default:
+        this.logger.debug(
+          `[SdkMessageTransformer] Unknown event type: ${eventType}`
+        );
+        return [];
+    }
+  }
+
+  /**
+   * Transform complete assistant message to flat events
+   *
+   * Emits:
+   * - message_start
+   * - text_delta events for text blocks
+   * - tool_start events for tool_use blocks
+   * - tool_result events for tool_result blocks
+   * - message_complete
+   */
+  private transformAssistantToFlatEvents(
     sdkMessage: SDKAssistantMessage,
     sessionId?: SessionId
-  ): ExecutionNode[] {
+  ): FlatStreamEventUnion[] {
     const { uuid, message, parent_tool_use_id } = sdkMessage;
+
+    const events: FlatStreamEventUnion[] = [];
 
     // Extract content blocks from Anthropic SDK message
     const content = message.content || [];
 
-    // Determine completion status from stop_reason
-    // If stop_reason exists, message is complete; otherwise still streaming
-    const isMessageComplete = !!message.stop_reason;
-    const messageStatus: ExecutionStatus = isMessageComplete
-      ? 'complete'
-      : 'streaming';
+    // 1. Emit message_start
+    const messageStartEvent: MessageStartEvent = {
+      id: generateEventId(),
+      eventType: 'message_start',
+      timestamp: Date.now(),
+      sessionId: sessionId || '',
+      messageId: uuid,
+      role: 'assistant',
+      parentToolUseId: parent_tool_use_id ?? undefined,
+    };
+    events.push(messageStartEvent);
 
-    // Create child nodes from content blocks
-    const children: ExecutionNode[] = [];
+    // 2. Emit content events (text, tools)
+    let textBlockIndex = 0;
 
     for (const block of content) {
       if (isTextBlock(block)) {
-        // Text content block - use dynamic status based on stop_reason
-        children.push(
-          createExecutionNode({
-            id: `${uuid}-text-${children.length}`,
-            type: 'text' as ExecutionNodeType,
-            status: messageStatus,
-            content: block.text,
-          })
-        );
+        // Emit text_delta event
+        const textDeltaEvent: TextDeltaEvent = {
+          id: generateEventId(),
+          eventType: 'text_delta',
+          timestamp: Date.now(),
+          sessionId: sessionId || '',
+          messageId: uuid,
+          delta: block.text,
+          blockIndex: textBlockIndex,
+          parentToolUseId: parent_tool_use_id ?? undefined,
+        };
+        events.push(textDeltaEvent);
+        textBlockIndex++;
       } else if (isToolUseBlock(block)) {
-        // Tool use block - check if it's a Task tool (agent spawn)
+        // Emit tool_start event
         const isTaskTool = block.name === 'Task';
 
-        // Extract agent info from Task tool input
+        // Extract agent-specific fields for Task tools
         const agentType = isTaskTool
           ? (block.input as { subagent_type?: string }).subagent_type
           : undefined;
@@ -298,28 +615,58 @@ export class SdkMessageTransformer {
           ? (block.input as { prompt?: string }).prompt
           : undefined;
 
-        children.push(
-          createExecutionNode({
-            id: block.id,
-            type: isTaskTool
-              ? ('agent' as ExecutionNodeType)
-              : ('tool' as ExecutionNodeType),
-            status: 'pending' as ExecutionStatus, // Will be updated when tool_result arrives
-            content: null,
-            toolName: block.name,
-            toolInput: block.input as Record<string, unknown>,
+        const toolStartEvent: ToolStartEvent = {
+          id: generateEventId(),
+          eventType: 'tool_start',
+          timestamp: Date.now(),
+          sessionId: sessionId || '',
+          messageId: uuid,
+          toolCallId: block.id,
+          toolName: block.name,
+          toolInput: block.input,
+          isTaskTool,
+          agentType,
+          agentDescription,
+          agentPrompt,
+          parentToolUseId: parent_tool_use_id ?? undefined,
+        };
+
+        // Emit agent_start event for Task tools
+        if (isTaskTool) {
+          const agentStartEvent: AgentStartEvent = {
+            id: generateEventId(),
+            eventType: 'agent_start',
+            timestamp: Date.now(),
+            sessionId: sessionId || '',
+            messageId: uuid,
             toolCallId: block.id,
-            // Agent-specific fields (only for Task tool)
-            agentType,
+            agentType: agentType || 'unknown',
             agentDescription,
             agentPrompt,
-          })
-        );
+            parentToolUseId: parent_tool_use_id ?? undefined,
+          };
+          events.push(agentStartEvent);
+        }
+
+        events.push(toolStartEvent);
+      } else if (isToolResultBlock(block)) {
+        // Emit tool_result event
+        const toolResultEvent: ToolResultEvent = {
+          id: generateEventId(),
+          eventType: 'tool_result',
+          timestamp: Date.now(),
+          sessionId: sessionId || '',
+          messageId: uuid,
+          toolCallId: block.tool_use_id,
+          output: block.content,
+          isError: block.is_error ?? false,
+          parentToolUseId: parent_tool_use_id ?? undefined,
+        };
+        events.push(toolResultEvent);
       }
-      // TODO: Handle thinking blocks if SDK exposes them
     }
 
-    // Extract usage metrics if available
+    // 3. Emit message_complete with metadata
     const tokenUsage =
       message.usage &&
       'input_tokens' in message.usage &&
@@ -330,36 +677,42 @@ export class SdkMessageTransformer {
           }
         : undefined;
 
-    // Calculate cost from usage (using model for accurate pricing)
     const cost = tokenUsage
       ? calculateMessageCost(message.model || '', tokenUsage)
       : undefined;
 
-    // Create message node - use dynamic status based on stop_reason
-    const messageNode = createExecutionNode({
-      id: uuid,
-      type: 'message' as ExecutionNodeType,
-      status: messageStatus,
-      content: null, // Content is in children
-      children,
+    const messageCompleteEvent: MessageCompleteEvent = {
+      id: generateEventId(),
+      eventType: 'message_complete',
+      timestamp: Date.now(),
+      sessionId: sessionId || '',
+      messageId: uuid,
+      stopReason: message.stop_reason,
       tokenUsage,
       cost,
       model: message.model,
-      // Link to parent if nested under agent
-      // parent_tool_use_id is used for correlation but not stored in ExecutionNode
-    });
+      parentToolUseId: parent_tool_use_id ?? undefined,
+    };
+    events.push(messageCompleteEvent);
 
-    return [messageNode];
+    return events;
   }
 
   /**
-   * Transform SDKUserMessage to ExecutionNode
+   * Transform user message to flat events
+   *
+   * Emits:
+   * - message_start
+   * - text_delta (with full text)
+   * - message_complete
    */
-  private transformUserMessage(
+  private transformUserToFlatEvents(
     sdkMessage: SDKUserMessage,
     sessionId?: SessionId
-  ): ExecutionNode[] {
+  ): FlatStreamEventUnion[] {
     const { uuid, message } = sdkMessage;
+
+    const events: FlatStreamEventUnion[] = [];
 
     // Extract text content from user message
     let textContent = '';
@@ -373,214 +726,48 @@ export class SdkMessageTransformer {
         .join('\n');
     }
 
-    const userNode = createExecutionNode({
-      id: uuid || `user-${Date.now()}`,
-      type: 'message' as ExecutionNodeType,
-      status: 'complete' as ExecutionStatus,
-      content: textContent,
-    });
+    // 1. Emit message_start
+    const messageStartEvent: MessageStartEvent = {
+      id: generateEventId(),
+      eventType: 'message_start',
+      timestamp: Date.now(),
+      sessionId: sessionId || '',
+      messageId: uuid || `user-${Date.now()}`,
+      role: 'user',
+    };
+    events.push(messageStartEvent);
 
-    return [userNode];
+    // 2. Emit text_delta with full text
+    if (textContent) {
+      const textDeltaEvent: TextDeltaEvent = {
+        id: generateEventId(),
+        eventType: 'text_delta',
+        timestamp: Date.now(),
+        sessionId: sessionId || '',
+        messageId: uuid || `user-${Date.now()}`,
+        delta: textContent,
+        blockIndex: 0,
+      };
+      events.push(textDeltaEvent);
+    }
+
+    // 3. Emit message_complete
+    const messageCompleteEvent: MessageCompleteEvent = {
+      id: generateEventId(),
+      eventType: 'message_complete',
+      timestamp: Date.now(),
+      sessionId: sessionId || '',
+      messageId: uuid || `user-${Date.now()}`,
+    };
+    events.push(messageCompleteEvent);
+
+    return events;
   }
 
   /**
-   * Transform SDKSystemMessage to ExecutionNode
+   * Clear streaming state - called for reset scenarios
    */
-  private transformSystemMessage(
-    sdkMessage: SDKSystemMessage,
-    sessionId?: SessionId
-  ): ExecutionNode[] {
-    const { uuid, subtype, session_id, model, cwd, tools, mcp_servers } =
-      sdkMessage;
-
-    // Create system initialization message
-    const systemContent = [
-      `Session: ${session_id}`,
-      `Model: ${model}`,
-      `Working Directory: ${cwd}`,
-      `Tools: ${tools.join(', ')}`,
-      mcp_servers.length > 0
-        ? `MCP Servers: ${mcp_servers
-            .map((s: any) => `${s.name} (${s.status})`)
-            .join(', ')}`
-        : null,
-    ]
-      .filter(Boolean)
-      .join('\n');
-
-    const systemNode = createExecutionNode({
-      id: uuid,
-      type: 'system' as ExecutionNodeType,
-      status: 'complete' as ExecutionStatus,
-      content: systemContent,
-    });
-
-    return [systemNode];
-  }
-
-  /**
-   * Transform SDKResultMessage to ExecutionNode
-   */
-  private transformResultMessage(
-    sdkMessage: SDKResultMessage,
-    sessionId?: SessionId
-  ): ExecutionNode[] {
-    const { uuid, subtype, duration_ms, total_cost_usd, usage, num_turns } =
-      sdkMessage;
-
-    // Check if error result
-    const isError = sdkMessage['subtype'] !== 'success';
-    const errorInfo =
-      isError && 'errors' in sdkMessage
-        ? (sdkMessage as unknown as { errors: string[] }).errors.join('\n')
-        : undefined;
-
-    // Create result summary content
-    const resultContent = [
-      `Status: ${subtype}`,
-      `Turns: ${num_turns}`,
-      `Duration: ${(duration_ms / 1000).toFixed(2)}s`,
-      `Cost: $${total_cost_usd.toFixed(4)}`,
-      `Tokens: ${usage['input_tokens']} in / ${usage['output_tokens']} out`,
-      errorInfo ? `Errors: ${errorInfo}` : null,
-    ]
-      .filter(Boolean)
-      .join('\n');
-
-    const resultNode = createExecutionNode({
-      id: uuid,
-      type: 'system' as ExecutionNodeType,
-      status: isError
-        ? ('error' as ExecutionStatus)
-        : ('complete' as ExecutionStatus),
-      content: resultContent,
-      error: errorInfo,
-      duration: duration_ms,
-      tokenUsage: {
-        input: usage['input_tokens'],
-        output: usage['output_tokens'],
-      },
-    });
-
-    return [resultNode];
-  }
-
-  /**
-   * Transform SDK stream_event (partial assistant message) to ExecutionNode
-   *
-   * stream_event messages contain real-time streaming content from the API.
-   * The event field contains RawMessageStreamEvent with various event types:
-   * - content_block_start: New content block beginning
-   * - content_block_delta: Partial text or other content
-   * - content_block_stop: Content block finished
-   * - message_start/message_delta/message_stop: Message lifecycle events
-   */
-  private transformStreamEvent(
-    sdkMessage: SDKMessage,
-    sessionId?: SessionId
-  ): ExecutionNode[] {
-    const { uuid, event } = sdkMessage;
-
-    // Skip non-content events
-    if (!event || typeof event !== 'object') {
-      return [];
-    }
-
-    const eventType = (event as { type?: string }).type;
-
-    // Handle content_block_delta events - these contain streaming text
-    if (eventType === 'content_block_delta') {
-      const delta = (event as { delta?: { type?: string; text?: string } })
-        .delta;
-      if (delta?.type === 'text_delta' && delta.text) {
-        // Create a text node with streaming status
-        const textNode = createExecutionNode({
-          id: uuid || `stream-${Date.now()}`,
-          type: 'text' as ExecutionNodeType,
-          status: 'streaming' as ExecutionStatus,
-          content: delta.text,
-        });
-        return [textNode];
-      }
-    }
-
-    // Handle content_block_start for new content blocks
-    if (eventType === 'content_block_start') {
-      const contentBlock = (
-        event as { content_block?: { type?: string; text?: string } }
-      ).content_block;
-      if (contentBlock?.type === 'text' && contentBlock.text) {
-        const textNode = createExecutionNode({
-          id: uuid || `stream-start-${Date.now()}`,
-          type: 'text' as ExecutionNodeType,
-          status: 'streaming' as ExecutionStatus,
-          content: contentBlock.text,
-        });
-        return [textNode];
-      }
-    }
-
-    // Other event types (message_start, message_stop, etc.) don't need nodes
-    return [];
-  }
-
-  /**
-   * Update existing node with tool result
-   *
-   * When a tool_result message arrives, find the corresponding tool_use node
-   * and update it with the result.
-   *
-   * This method is called externally when processing tool_result blocks.
-   */
-  updateToolResult(
-    toolUseId: string,
-    output: unknown,
-    isError: boolean,
-    nodes: readonly ExecutionNode[]
-  ): void {
-    // Find the tool node by toolCallId
-    const toolNode = this.findNodeById(toolUseId, nodes);
-
-    if (!toolNode) {
-      this.logger.warn(
-        `[SdkMessageTransformer] Tool node not found: ${toolUseId}`
-      );
-      return;
-    }
-
-    // Update tool node with result
-    // Note: ExecutionNode is readonly, so this is a conceptual update
-    // In practice, the caller should recreate the node with updated fields
-    this.logger.debug(
-      `[SdkMessageTransformer] Updating tool result for: ${toolUseId}`,
-      {
-        isError,
-        output,
-      }
-    );
-  }
-
-  /**
-   * Find node by ID in tree (recursive search)
-   */
-  private findNodeById(
-    id: string,
-    nodes: readonly ExecutionNode[]
-  ): ExecutionNode | null {
-    for (const node of nodes) {
-      if (node.id === id || node.toolCallId === id) {
-        return node;
-      }
-
-      // Search children recursively
-      if (node.children.length > 0) {
-        const found = this.findNodeById(id, node.children);
-        if (found) {
-          return found;
-        }
-      }
-    }
-
-    return null;
+  clearStreamingState(): void {
+    this.currentMessageId = null;
   }
 }
