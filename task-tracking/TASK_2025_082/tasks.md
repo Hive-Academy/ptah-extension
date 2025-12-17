@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2025_082
 
-**Total Tasks**: 33 | **Batches**: 7 | **Status**: 4/7 complete (Batches 1-4 committed)
+**Total Tasks**: 33 | **Batches**: 7 | **Status**: 5/7 complete (Batches 1-5 committed)
 
 ---
 
@@ -728,7 +728,7 @@ export function createEmptyStreamingState(): StreamingState {
 
 **Developer**: frontend-developer
 **Tasks**: 6 | **Dependencies**: Batch 4 complete
-**Commit**: [will be added after commit]
+**Commit**: 72a0b9b
 
 ### Task 5.1: Implement buildTree() method in ExecutionTreeBuilderService ✅ COMPLETE
 
@@ -897,12 +897,12 @@ readonly currentExecutionTree = computed(() => {
 
 ---
 
-## Batch 6: Integration - Message Routing + Finalization + Cleanup PENDING
+## Batch 6: Integration - Message Routing + Finalization + Cleanup 🔄 IN PROGRESS
 
 **Developer**: frontend-developer (or backend-developer for Task 6.1)
 **Tasks**: 7 | **Dependencies**: Batch 5 complete
 
-### Task 6.1: Update VSCodeService message routing to route flat events PENDING
+### Task 6.1: Update VSCodeService message routing to route flat events 🔄 IN PROGRESS
 
 **File**: D:\projects\ptah-extension\libs\frontend\core\src\lib\services\vscode.service.ts
 **Spec Reference**: implementation-plan.md:902-923
@@ -939,7 +939,7 @@ if (message.type === MESSAGE_TYPES.CHAT_CHUNK) {
 
 ---
 
-### Task 6.2: Update ChatViewComponent to use currentExecutionTree computed signal PENDING
+### Task 6.2: Update ChatViewComponent to use currentExecutionTree computed signal 🔄 IN PROGRESS
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\templates\chat-view.component.ts
 **Spec Reference**: implementation-plan.md:826-838
@@ -957,7 +957,7 @@ if (message.type === MESSAGE_TYPES.CHAT_CHUNK) {
 
 ---
 
-### Task 6.3: Update finalization logic in StreamingHandlerService PENDING
+### Task 6.3: Update finalization logic in StreamingHandlerService 🔄 IN PROGRESS
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\services\chat-store\streaming-handler.service.ts
 **Spec Reference**: implementation-plan.md:846-883
@@ -1008,7 +1008,7 @@ finalizeCurrentMessage(tabId?: string): void {
 
 ---
 
-### Task 6.4: Remove deprecated code from SdkMessageTransformer PENDING
+### Task 6.4: Remove deprecated code from SdkMessageTransformer 🔄 IN PROGRESS
 
 **File**: D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\sdk-message-transformer.ts
 **Spec Reference**: implementation-plan.md:944-967
@@ -1028,7 +1028,7 @@ finalizeCurrentMessage(tabId?: string): void {
 
 ---
 
-### Task 6.5: Update ExecutionNode type documentation PENDING
+### Task 6.5: Update ExecutionNode type documentation 🔄 IN PROGRESS
 
 **File**: D:\projects\ptah-extension\libs\shared\src\lib\types\execution-node.types.ts
 **Spec Reference**: implementation-plan.md:951-955
@@ -1046,7 +1046,7 @@ finalizeCurrentMessage(tabId?: string): void {
 
 ---
 
-### Task 6.6: Run full test suite and fix any failing tests PENDING
+### Task 6.6: Run full test suite and fix any failing tests 🔄 IN PROGRESS
 
 **File**: N/A (testing)
 **Spec Reference**: implementation-plan.md:957-966
@@ -1066,7 +1066,7 @@ finalizeCurrentMessage(tabId?: string): void {
 
 ---
 
-### Task 6.7: Manual testing of streaming scenarios PENDING
+### Task 6.7: Manual testing of streaming scenarios 🔄 IN PROGRESS
 
 **File**: N/A (manual testing)
 **Spec Reference**: implementation-plan.md:957-966
