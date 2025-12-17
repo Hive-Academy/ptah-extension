@@ -1,4 +1,8 @@
-import { ExecutionChatMessage, ExecutionNode } from '@ptah-extension/shared';
+import {
+  ExecutionChatMessage,
+  ExecutionNode,
+  FlatStreamEventUnion,
+} from '@ptah-extension/shared';
 
 /**
  * Maps for tracking execution nodes during session operations.
@@ -9,6 +13,49 @@ export interface NodeMaps {
   agents: Map<string, ExecutionNode>;
   /** Map of tool call IDs to their execution nodes */
   tools: Map<string, ExecutionNode>;
+}
+
+/**
+ * Flat event-based streaming state (replaces ExecutionNode tree).
+ * Stores all streaming events as flat list with lookup maps for performance.
+ */
+export interface StreamingState {
+  /** All streaming events indexed by event ID */
+  events: Map<string, FlatStreamEventUnion>;
+
+  /** Ordered list of event IDs for message-level events (excludes chunks/deltas) */
+  messageEventIds: string[];
+
+  /** Maps tool call IDs to their child event IDs */
+  toolCallMap: Map<string, string[]>;
+
+  /** Accumulated text for text-delta events, keyed by parent event ID */
+  textAccumulators: Map<string, string>;
+
+  /** Accumulated tool input for input-json-delta events, keyed by tool call ID */
+  toolInputAccumulators: Map<string, string>;
+
+  /** Current message ID being built during streaming */
+  currentMessageId: string | null;
+
+  /** Current token usage for the active message */
+  currentTokenUsage: { input: number; output: number } | null;
+}
+
+/**
+ * Factory function to create an empty StreamingState.
+ * Used for tab initialization and resetting streaming state.
+ */
+export function createEmptyStreamingState(): StreamingState {
+  return {
+    events: new Map(),
+    messageEventIds: [],
+    toolCallMap: new Map(),
+    textAccumulators: new Map(),
+    toolInputAccumulators: new Map(),
+    currentMessageId: null,
+    currentTokenUsage: null,
+  };
 }
 
 /**
@@ -87,8 +134,8 @@ export interface TabState {
   /** Messages for this session */
   messages: ExecutionChatMessage[];
 
-  /** Current execution tree (if streaming) */
-  executionTree: ExecutionNode | null;
+  /** Current streaming state (flat events model, replaces executionTree) */
+  streamingState: StreamingState | null;
 
   /**
    * ID of the message currently being built during streaming.

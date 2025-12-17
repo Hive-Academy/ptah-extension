@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2025_082
 
-**Total Tasks**: 31 | **Batches**: 6 | **Status**: 2/6 complete
+**Total Tasks**: 33 | **Batches**: 7 | **Status**: 3.5/7 complete (Batch 3.5 complete)
 
 ---
 
@@ -353,12 +353,13 @@
 
 ---
 
-## Batch 3: Frontend Storage Model - StreamingState 🔄 IN PROGRESS
+## Batch 3: Frontend Storage Model - StreamingState ✅ COMPLETE
 
 **Developer**: frontend-developer
 **Tasks**: 6 | **Dependencies**: Batch 2 complete
+**Status**: Completed - All tasks implemented
 
-### Task 3.1: Add StreamingState interface to chat.types.ts 🔄 IN PROGRESS
+### Task 3.1: Add StreamingState interface to chat.types.ts ✅ COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\services\chat.types.ts
 **Spec Reference**: implementation-plan.md:293-334
@@ -385,7 +386,7 @@
 
 ---
 
-### Task 3.2: Update TabState interface to replace executionTree with streamingState 🔄 IN PROGRESS
+### Task 3.2: Update TabState interface to replace executionTree with streamingState ✅ COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\services\chat.types.ts
 **Spec Reference**: implementation-plan.md:318-334
@@ -408,7 +409,7 @@
 
 ---
 
-### Task 3.3: Update TabManagerService to initialize streamingState: null 🔄 IN PROGRESS
+### Task 3.3: Update TabManagerService to initialize streamingState: null ✅ COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\services\tab-manager.service.ts
 **Spec Reference**: implementation-plan.md:684-699
@@ -426,7 +427,7 @@
 
 ---
 
-### Task 3.4: Create helper to initialize empty StreamingState 🔄 IN PROGRESS
+### Task 3.4: Create helper to initialize empty StreamingState ✅ COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\services\chat.types.ts
 **Spec Reference**: implementation-plan.md:728-739
@@ -457,7 +458,7 @@ export function createEmptyStreamingState(): StreamingState {
 
 ---
 
-### Task 3.5: Update TabState creation in all locations to use streamingState 🔄 IN PROGRESS
+### Task 3.5: Update TabState creation in all locations to use streamingState ✅ COMPLETE
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\services\tab-manager.service.ts
 **Spec Reference**: implementation-plan.md:684-699
@@ -475,7 +476,7 @@ export function createEmptyStreamingState(): StreamingState {
 
 ---
 
-### Task 3.6: Build frontend to verify storage model compiles 🔄 IN PROGRESS
+### Task 3.6: Build frontend to verify storage model compiles ✅ COMPLETE
 
 **File**: N/A (build verification)
 **Spec Reference**: implementation-plan.md:695-699
@@ -495,17 +496,85 @@ export function createEmptyStreamingState(): StreamingState {
 
 **Batch 3 Verification**:
 
-- Frontend compiles (errors expected in components, fixed in next batch)
-- TabState has streamingState field
-- StreamingState interface complete
-- Tab creation initializes streamingState: null
+- ✅ Frontend compiles (11 errors expected - shared library interface mismatch)
+- ✅ TabState has streamingState field (line 138)
+- ✅ StreamingState interface complete (lines 22-43)
+- ✅ Tab creation initializes streamingState: null (lines 123, 160)
+- ✅ createEmptyStreamingState() factory function (lines 49-59)
+
+**Next Step**: Fix shared library ExecutionChatMessage interface before Batch 4
 
 ---
 
-## Batch 4: Streaming Handler Rewrite - Flat Event Storage PENDING
+## Batch 3.5: Shared Library Interface Update ✅ COMPLETE
+
+**Developer**: backend-developer
+**Tasks**: 2 | **Dependencies**: Batch 3 complete
+**Rationale**: The ExecutionChatMessage interface in shared library still uses `executionTree` field. This causes 11 TypeScript errors in frontend. Must be fixed before Batch 4 can proceed.
+**Commit**: [Pending verification]
+**Status**: Both tasks implemented, shared library builds successfully
+
+### Task 3.5.1: Update ExecutionChatMessage interface to use streamingState ✅ COMPLETE
+
+**File**: D:\projects\ptah-extension\libs\shared\src\lib\types\execution-node.types.ts
+**Spec Reference**: implementation-plan.md:293-334 (StreamingState design)
+**Pattern to Follow**: TabState interface update (Batch 3)
+
+**Quality Requirements**:
+
+- Change field: `executionTree: ExecutionNode | null` → `streamingState: ExecutionNode | null`
+- NO other changes to interface
+- Backward compatible (field type remains ExecutionNode | null)
+- Note: During streaming, this will be null. After finalization, it becomes ExecutionNode tree.
+
+**Validation Notes**:
+
+- This is a rename only - the field type stays ExecutionNode | null
+- The semantic meaning changes: "finalized tree only" (not streaming state)
+- During active streaming, streamingState will be null in ExecutionChatMessage
+- After finalization, StreamingHandlerService builds final ExecutionNode tree and assigns it
+
+**Implementation Details**:
+
+- Find line 276: `readonly executionTree: ExecutionNode | null;`
+- Replace with: `readonly streamingState: ExecutionNode | null;`
+- Update comment to clarify: "Finalized execution tree (null during streaming)"
+
+---
+
+### Task 3.5.2: Build shared library to verify interface change compiles ✅ COMPLETE
+
+**File**: N/A (build verification)
+**Spec Reference**: implementation-plan.md:586-588
+**Dependencies**: Task 3.5.1
+
+**Quality Requirements**:
+
+- `npx nx build shared` succeeds with no errors
+- TypeScript errors reduced (from 11 to ~6 remaining)
+- Remaining errors will be in components accessing tab.executionTree (fixed in Batch 4)
+
+**Implementation Details**:
+
+- Command: `npx nx build shared`
+- Verify: Run `npm run typecheck:all` and count remaining errors
+- Expected: Errors in chat.store.ts and streaming-handler.service.ts accessing `tab.executionTree`
+
+---
+
+**Batch 3.5 Verification**:
+
+- Shared library builds successfully
+- ExecutionChatMessage uses streamingState field
+- TypeScript error count reduced
+- Ready for Batch 4 (streaming handler rewrite)
+
+---
+
+## Batch 4: Streaming Handler Rewrite - Flat Event Storage ⏸️ PENDING
 
 **Developer**: frontend-developer
-**Tasks**: 5 | **Dependencies**: Batch 3 complete
+**Tasks**: 5 | **Dependencies**: Batch 3.5 complete
 
 ### Task 4.1: Remove mergeExecutionNode() method from StreamingHandlerService PENDING
 

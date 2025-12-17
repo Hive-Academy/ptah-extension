@@ -226,7 +226,7 @@ export interface AgentInfo {
 
   /**
    * Indicates if we have execution data (tool calls, results).
-   * When true but executionTree is empty, show a loading placeholder.
+   * When true but streamingState is empty, show a loading placeholder.
    */
   readonly hasExecution?: boolean;
 
@@ -255,7 +255,7 @@ export interface AgentInfo {
  *
  * Each ExecutionChatMessage contains either:
  * - rawContent (for user messages): Plain text input
- * - executionTree (for assistant messages): Root ExecutionNode with nested children
+ * - streamingState (for assistant messages): Root ExecutionNode with nested children
  *
  * Note: Named "ExecutionChatMessage" to avoid conflict with legacy ChatMessage type
  */
@@ -270,10 +270,11 @@ export interface ExecutionChatMessage {
   readonly timestamp: number;
 
   /**
-   * Root of the execution tree (for assistant messages)
+   * Finalized execution tree (null during streaming)
    * This contains all nested content: text, thinking, tools, agents
+   * Built from StreamingState after message completion.
    */
-  readonly executionTree: ExecutionNode | null;
+  readonly streamingState: ExecutionNode | null;
 
   /** Raw text content (for user messages) */
   readonly rawContent?: string;
@@ -501,7 +502,7 @@ export const ExecutionChatMessageSchema = z.object({
   id: z.string(),
   role: MessageRoleSchema,
   timestamp: z.number(),
-  executionTree: ExecutionNodeSchema.nullable(),
+  streamingState: ExecutionNodeSchema.nullable(),
   rawContent: z.string().optional(),
   files: z.array(z.string()).readonly().optional(),
   sessionId: z.string().optional(),
@@ -601,7 +602,7 @@ export function createExecutionChatMessage(
 ): ExecutionChatMessage {
   return {
     timestamp: Date.now(),
-    executionTree: null,
+    streamingState: null,
     ...partial,
   };
 }

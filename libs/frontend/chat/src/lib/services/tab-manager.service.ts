@@ -120,7 +120,7 @@ export class TabManagerService {
       isDirty: false,
       lastActivityAt: Date.now(),
       messages: [],
-      executionTree: null,
+      streamingState: null,
     };
 
     this._tabs.update((tabs) => [...tabs, newTab]);
@@ -157,7 +157,7 @@ export class TabManagerService {
       isDirty: false,
       lastActivityAt: Date.now(),
       messages: [],
-      executionTree: null,
+      streamingState: null,
     };
 
     this._tabs.update((tabs) => [...tabs, newTab]);
