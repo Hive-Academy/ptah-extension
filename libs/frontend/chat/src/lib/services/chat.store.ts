@@ -2,6 +2,7 @@ import { Injectable, signal, computed, inject } from '@angular/core';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import {
   ExecutionNode,
+  FlatStreamEventUnion,
   PermissionRequest,
   PermissionResponse,
   calculateMessageCost,
@@ -152,7 +153,7 @@ export class ChatStore {
     () => this.tabManager.activeTab()?.messages ?? []
   );
   readonly currentExecutionTree = computed(
-    () => this.tabManager.activeTab()?.executionTree ?? null
+    () => this.tabManager.activeTab()?.streamingState ?? null
   );
   readonly isStreaming = computed(() => {
     const tab = this.tabManager.activeTab();
@@ -358,21 +359,21 @@ export class ChatStore {
     const lastMsgIndex = currentMessages.length - 1;
     const lastMsg = currentMessages[lastMsgIndex];
 
-    if (lastMsg.role !== 'assistant' || !lastMsg.executionTree) return;
+    if (lastMsg.role !== 'assistant' || !lastMsg.streamingState) return;
 
     // Replace the agent node in the tree
     const updatedTree = this.replaceNodeInTree(
-      lastMsg.executionTree,
+      lastMsg.streamingState,
       toolUseId,
       updatedAgent
     );
 
-    if (updatedTree !== lastMsg.executionTree) {
+    if (updatedTree !== lastMsg.streamingState) {
       // Update the message with the new tree
       const updatedMessages = [...currentMessages];
       updatedMessages[lastMsgIndex] = {
         ...lastMsg,
-        executionTree: updatedTree,
+        streamingState: updatedTree,
       };
 
       this.tabManager.updateTab(activeTab.id, {
@@ -459,155 +460,19 @@ export class ChatStore {
   // ============================================================================
 
   /**
-   * Process ExecutionNode directly from SDK
+   * Process flat streaming event from SDK
    * Delegates to StreamingHandlerService (Phase 7 extraction)
    */
-  processExecutionNode(node: ExecutionNode, sessionId?: string): void {
-    this.streamingHandler.processExecutionNode(node, sessionId);
-  }
-
-  /**
-   * Merge ExecutionNode into existing tree
-   */
-  private mergeExecutionNode(
-    currentTree: ExecutionNode | null,
-    node: ExecutionNode
-  ): ExecutionNode {
-    if (!currentTree) {
-      // First node becomes the root
-      return node;
-    }
-
-    // Check if this node should replace an existing node (by ID)
-    const existingNode = this.findNodeInTree(currentTree, node.id);
-    if (existingNode) {
-      // Replace existing node (update scenario)
-      return this.replaceNodeInTree(currentTree, node.id, node);
-    }
-
-    // Append as new child
-    return {
-      ...currentTree,
-      children: [...currentTree.children, node],
-    };
-  }
-
-  /**
-   * Find node by ID in tree (recursive)
-   */
-  private findNodeInTree(
-    tree: ExecutionNode,
-    id: string
-  ): ExecutionNode | null {
-    if (tree.id === id) return tree;
-    for (const child of tree.children) {
-      const found = this.findNodeInTree(child, id);
-      if (found) return found;
-    }
-    return null;
+  processStreamEvent(event: FlatStreamEventUnion): void {
+    this.streamingHandler.processStreamEvent(event);
   }
 
   /**
    * Finalize the current streaming message
-   *
-   * Converts the execution tree to a chat message and adds it to the target tab's messages.
-   * Uses per-tab currentMessageId for proper multi-tab streaming support.
-   * @param tabId - Optional tab ID to finalize. Falls back to active tab if not provided.
+   * Delegates to StreamingHandlerService (Phase 7 extraction)
    */
   private finalizeCurrentMessage(tabId?: string): void {
-    // Use provided tabId or fall back to active tab
-    const targetTabId = tabId ?? this.tabManager.activeTabId();
-    if (!targetTabId) return;
-
-    // Get the target tab (by ID if provided, otherwise active)
-    const targetTab = tabId
-      ? this.tabManager.tabs().find((t) => t.id === tabId)
-      : this.tabManager.activeTab();
-
-    const tree = targetTab?.executionTree;
-    const messageId = targetTab?.currentMessageId;
-
-    if (!tree || !messageId) return;
-
-    // Mark all streaming nodes as complete
-    const finalizeNode = (node: ExecutionNode): ExecutionNode => ({
-      ...node,
-      status: node.status === 'streaming' ? 'complete' : node.status,
-      children: node.children.map(finalizeNode),
-    });
-
-    const finalTree = finalizeNode(tree);
-
-    // Extract token usage and calculate cost from finalized tree
-    let tokens:
-      | { input: number; output: number; cacheHit?: number }
-      | undefined;
-    let cost: number | undefined;
-    let duration: number | undefined;
-
-    console.log('[ChatStore] 📊 Finalizing message - tree data:', {
-      hasTokenUsage: !!finalTree.tokenUsage,
-      tokenUsage: finalTree.tokenUsage,
-      model: finalTree.model,
-      duration: finalTree.duration,
-    });
-
-    if (finalTree.tokenUsage) {
-      tokens = {
-        input: finalTree.tokenUsage.input,
-        output: finalTree.tokenUsage.output,
-        // cacheHit: Future enhancement when ExecutionNode.tokenUsage includes cache
-      };
-      // Use model from tree root (set during init) for accurate pricing
-      try {
-        const modelId = finalTree.model ?? 'default';
-        cost = calculateMessageCost(modelId, tokens);
-        console.log('[ChatStore] ✅ Cost calculated:', {
-          modelId,
-          tokens,
-          cost,
-        });
-      } catch (error) {
-        console.error('[ChatStore] Cost calculation failed', error);
-        cost = undefined;
-      }
-    } else {
-      console.warn('[ChatStore] ⚠️ No tokenUsage found on finalized tree!');
-    }
-
-    if (finalTree.duration !== undefined) {
-      duration = finalTree.duration;
-    }
-
-    // Create chat message with execution tree and token/cost metadata
-    const assistantMessage = createExecutionChatMessage({
-      id: messageId,
-      role: 'assistant',
-      executionTree: finalTree,
-      sessionId: targetTab?.claudeSessionId ?? undefined,
-      tokens,
-      cost,
-      duration,
-    });
-
-    console.log('[ChatStore] 📝 Created assistant message:', {
-      messageId,
-      hasTokens: !!assistantMessage.tokens,
-      tokens: assistantMessage.tokens,
-      cost: assistantMessage.cost,
-      duration: assistantMessage.duration,
-    });
-
-    // Add to target tab's messages and clear streaming state
-    this.tabManager.updateTab(targetTabId, {
-      messages: [...(targetTab?.messages ?? []), assistantMessage],
-      executionTree: null,
-      status: 'loaded',
-      currentMessageId: null,
-    });
-
-    // Update SessionManager status
-    this.sessionManager.setStatus('loaded');
+    this.streamingHandler.finalizeCurrentMessage(tabId);
   }
 
   // ============================================================================

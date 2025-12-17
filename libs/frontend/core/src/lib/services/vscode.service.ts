@@ -1,5 +1,5 @@
 import { Injectable, signal } from '@angular/core';
-import { ExecutionNode, MESSAGE_TYPES } from '@ptah-extension/shared';
+import { FlatStreamEventUnion, MESSAGE_TYPES } from '@ptah-extension/shared';
 
 /**
  * Webview Configuration
@@ -187,8 +187,8 @@ export class VSCodeService {
       // Route chat:chunk messages to ChatStore (SDK path only)
       if (message.type === MESSAGE_TYPES.CHAT_CHUNK) {
         if (message.payload && this.chatStore) {
-          const { sessionId, message: node } = message.payload;
-          this.chatStore.processExecutionNode(node as ExecutionNode, sessionId);
+          const event = message.payload as FlatStreamEventUnion;
+          this.chatStore.processStreamEvent(event);
         } else if (!message.payload) {
           console.warn(
             '[VSCodeService] chat:chunk received but payload is undefined!'

@@ -1,9 +1,9 @@
 /**
- * StreamingHandlerService - ExecutionNode Processing and Finalization
+ * StreamingHandlerService - Flat Event Storage and Finalization
  *
  * Extracted from ChatStore to handle streaming-related operations:
- * - Processing ExecutionNode updates from SDK
- * - Merging nodes into execution tree
+ * - Processing flat streaming events from SDK
+ * - Storing events in StreamingState maps
  * - Finalizing streaming messages to chat messages
  *
  * Part of ChatStore refactoring (Facade pattern) - ChatStore delegates here.
@@ -12,12 +12,18 @@
 import { Injectable, inject } from '@angular/core';
 import {
   ExecutionNode,
+  FlatStreamEventUnion,
   createExecutionChatMessage,
   calculateMessageCost,
+  createExecutionNode,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
-import { TabState } from '../chat.types';
+import {
+  TabState,
+  createEmptyStreamingState,
+  StreamingState,
+} from '../chat.types';
 
 @Injectable({ providedIn: 'root' })
 export class StreamingHandlerService {
@@ -25,129 +31,93 @@ export class StreamingHandlerService {
   private readonly sessionManager = inject(SessionManager);
 
   /**
-   * Process ExecutionNode directly from SDK
+   * Process flat streaming event from SDK
    *
-   * SDK returns clean ExecutionNode objects - no CLI formatting to strip.
+   * Stores events in flat Maps instead of building ExecutionNode trees.
+   * Tree building is deferred to render time.
    */
-  processExecutionNode(node: ExecutionNode, sessionId?: string): void {
+  processStreamEvent(event: FlatStreamEventUnion): void {
     try {
-      // 1. Find target tab by session ID
-      let targetTab: TabState | null = null;
-      let targetTabId: string | null = null;
-
-      if (sessionId) {
-        targetTab = this.tabManager.findTabBySessionId(sessionId);
-        if (targetTab) {
-          targetTabId = targetTab.id;
-        }
-      }
-
-      // Fall back to active tab
+      // 1. Find target tab by event.sessionId
+      const targetTab = this.tabManager.findTabBySessionId(event.sessionId);
       if (!targetTab) {
-        targetTabId = this.tabManager.activeTabId();
-        targetTab = this.tabManager.activeTab();
-      }
-
-      if (!targetTabId || !targetTab) {
         console.warn(
-          '[StreamingHandlerService] No target tab for ExecutionNode processing'
+          '[StreamingHandlerService] No target tab for event',
+          event.sessionId
         );
         return;
       }
 
-      // 2. Merge node into execution tree
-      const currentTree = targetTab.executionTree;
-      const updatedTree = this.mergeExecutionNode(currentTree, node);
-
-      // 3. Update tab state
-      this.tabManager.updateTab(targetTabId, {
-        executionTree: updatedTree,
-      });
-
-      // 4. Register in SessionManager for agent/tool correlation
-      if (node.type === 'agent' && node.id) {
-        this.sessionManager.registerAgent(node.id, node);
-      } else if (node.type === 'tool' && node.toolCallId) {
-        this.sessionManager.registerTool(node.toolCallId, node);
-      }
-
-      // 5. Track streaming state
-      if (node.status === 'streaming' && !targetTab.currentMessageId) {
-        this.tabManager.updateTab(targetTabId, {
-          currentMessageId: node.id,
+      // 2. Initialize streaming state if null
+      if (!targetTab.streamingState) {
+        this.tabManager.updateTab(targetTab.id, {
+          streamingState: createEmptyStreamingState(),
         });
       }
+
+      const state = targetTab.streamingState!;
+
+      // 3. Store event by ID
+      state.events.set(event.id, event);
+
+      // 4. Handle by event type
+      switch (event.eventType) {
+        case 'message_start':
+          state.messageEventIds.push(event.messageId);
+          state.currentMessageId = event.messageId;
+          break;
+
+        case 'text_delta': {
+          const blockKey = `${event.messageId}-block-${event.blockIndex}`;
+          const current = state.textAccumulators.get(blockKey) || '';
+          state.textAccumulators.set(blockKey, current + event.delta);
+          break;
+        }
+
+        case 'thinking_delta': {
+          const thinkKey = `${event.messageId}-thinking-${event.blockIndex}`;
+          const current = state.textAccumulators.get(thinkKey) || '';
+          state.textAccumulators.set(thinkKey, current + event.delta);
+          break;
+        }
+
+        case 'tool_start':
+          if (!state.toolCallMap.has(event.toolCallId)) {
+            state.toolCallMap.set(event.toolCallId, []);
+          }
+          state.toolCallMap.get(event.toolCallId)!.push(event.id);
+          break;
+
+        case 'tool_delta': {
+          const inputKey = `${event.toolCallId}-input`;
+          const current = state.toolInputAccumulators.get(inputKey) || '';
+          state.toolInputAccumulators.set(inputKey, current + event.delta);
+          break;
+        }
+
+        case 'message_complete':
+          state.currentTokenUsage = event.tokenUsage || null;
+          break;
+      }
+
+      // 5. Trigger reactivity by updating tab
+      this.tabManager.updateTab(targetTab.id, {
+        streamingState: { ...state },
+      });
     } catch (error) {
       console.error(
-        '[StreamingHandlerService] Error processing ExecutionNode:',
+        '[StreamingHandlerService] Error processing stream event:',
         error,
-        node
+        event
       );
     }
   }
 
   /**
-   * Merge ExecutionNode into existing tree
-   */
-  mergeExecutionNode(
-    currentTree: ExecutionNode | null,
-    node: ExecutionNode
-  ): ExecutionNode {
-    if (!currentTree) {
-      // First node becomes the root
-      return node;
-    }
-
-    // Check if this node should replace an existing node (by ID)
-    const existingNode = this.findNodeInTree(currentTree, node.id);
-    if (existingNode) {
-      // Replace existing node (update scenario)
-      return this.replaceNodeInTree(currentTree, node.id, node);
-    }
-
-    // Append as new child
-    return {
-      ...currentTree,
-      children: [...currentTree.children, node],
-    };
-  }
-
-  /**
-   * Find node by ID in tree (recursive)
-   */
-  findNodeInTree(tree: ExecutionNode, id: string): ExecutionNode | null {
-    if (tree.id === id) return tree;
-    for (const child of tree.children) {
-      const found = this.findNodeInTree(child, id);
-      if (found) return found;
-    }
-    return null;
-  }
-
-  /**
-   * Recursively replace a node in the execution tree by ID
-   */
-  replaceNodeInTree(
-    tree: ExecutionNode,
-    nodeId: string,
-    replacement: ExecutionNode
-  ): ExecutionNode {
-    if (tree.id === nodeId) {
-      return replacement;
-    }
-
-    return {
-      ...tree,
-      children: tree.children.map((child) =>
-        this.replaceNodeInTree(child, nodeId, replacement)
-      ),
-    };
-  }
-
-  /**
    * Finalize the current streaming message
    *
-   * Converts the execution tree to a chat message and adds it to the target tab's messages.
+   * Creates a minimal ExecutionNode stub from StreamingState.
+   * Full tree building will be done at render time (Batch 5).
    * Uses per-tab currentMessageId for proper multi-tab streaming support.
    * @param tabId - Optional tab ID to finalize. Falls back to active tab if not provided.
    */
@@ -161,21 +131,12 @@ export class StreamingHandlerService {
       ? this.tabManager.tabs().find((t) => t.id === tabId)
       : this.tabManager.activeTab();
 
-    const tree = targetTab?.executionTree;
+    const state = targetTab?.streamingState;
     const messageId = targetTab?.currentMessageId;
 
-    if (!tree || !messageId) return;
+    if (!state || !messageId) return;
 
-    // Mark all streaming nodes as complete
-    const finalizeNode = (node: ExecutionNode): ExecutionNode => ({
-      ...node,
-      status: node.status === 'streaming' ? 'complete' : node.status,
-      children: node.children.map(finalizeNode),
-    });
-
-    const finalTree = finalizeNode(tree);
-
-    // Extract token usage and calculate cost from finalized tree
+    // Extract token usage and calculate cost from streaming state
     let tokens:
       | { input: number; output: number; cacheHit?: number }
       | undefined;
@@ -183,23 +144,22 @@ export class StreamingHandlerService {
     let duration: number | undefined;
 
     console.log(
-      '[StreamingHandlerService] 📊 Finalizing message - tree data:',
+      '[StreamingHandlerService] 📊 Finalizing message - streaming state:',
       {
-        hasTokenUsage: !!finalTree.tokenUsage,
-        tokenUsage: finalTree.tokenUsage,
-        model: finalTree.model,
-        duration: finalTree.duration,
+        hasTokenUsage: !!state.currentTokenUsage,
+        tokenUsage: state.currentTokenUsage,
+        eventCount: state.events.size,
       }
     );
 
-    if (finalTree.tokenUsage) {
+    if (state.currentTokenUsage) {
       tokens = {
-        input: finalTree.tokenUsage.input,
-        output: finalTree.tokenUsage.output,
+        input: state.currentTokenUsage.input,
+        output: state.currentTokenUsage.output,
       };
-      // Use model from tree root (set during init) for accurate pricing
+      // Use default model for now (model selection handled elsewhere)
       try {
-        const modelId = finalTree.model ?? 'default';
+        const modelId = 'default';
         cost = calculateMessageCost(modelId, tokens);
         console.log('[StreamingHandlerService] ✅ Cost calculated:', {
           modelId,
@@ -215,19 +175,18 @@ export class StreamingHandlerService {
       }
     } else {
       console.warn(
-        '[StreamingHandlerService] ⚠️ No tokenUsage found on finalized tree!'
+        '[StreamingHandlerService] ⚠️ No tokenUsage found in streaming state!'
       );
     }
 
-    if (finalTree.duration !== undefined) {
-      duration = finalTree.duration;
-    }
+    // Build minimal ExecutionNode stub (full tree building in Batch 5)
+    const stubNode = this.buildStubExecutionNode(state, messageId);
 
-    // Create chat message with execution tree and token/cost metadata
+    // Create chat message with stub node and token/cost metadata
     const assistantMessage = createExecutionChatMessage({
       id: messageId,
       role: 'assistant',
-      executionTree: finalTree,
+      streamingState: stubNode,
       sessionId: targetTab?.claudeSessionId ?? undefined,
       tokens,
       cost,
@@ -245,13 +204,33 @@ export class StreamingHandlerService {
     // Add to target tab's messages and clear streaming state
     this.tabManager.updateTab(targetTabId, {
       messages: [...(targetTab?.messages ?? []), assistantMessage],
-      executionTree: null,
+      streamingState: null,
       status: 'loaded',
       currentMessageId: null,
     });
 
     // Update SessionManager status
     this.sessionManager.setStatus('loaded');
+  }
+
+  /**
+   * Build a minimal ExecutionNode stub from StreamingState
+   * TEMPORARY: Full tree building will be done at render time in Batch 5
+   */
+  private buildStubExecutionNode(
+    state: StreamingState,
+    messageId: string
+  ): ExecutionNode {
+    // Accumulate all text deltas
+    const textContent = Array.from(state.textAccumulators.values()).join('');
+
+    return createExecutionNode({
+      id: messageId,
+      type: 'message',
+      status: 'complete',
+      content: textContent,
+      tokenUsage: state.currentTokenUsage || undefined,
+    });
   }
 
   /**
