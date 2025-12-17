@@ -208,6 +208,13 @@ export class SdkMessageTransformer {
    */
   private currentMessageId: string | null = null;
 
+  /**
+   * Maps blockIndex to real contentBlock.id from tool_use blocks.
+   * Used to associate tool_delta events with correct toolCallId.
+   * Cleared on message boundaries.
+   */
+  private toolCallIdByBlockIndex: Map<number, string> = new Map();
+
   constructor(@inject(TOKENS.LOGGER) private logger: Logger) {}
 
   /**
@@ -318,6 +325,9 @@ export class SdkMessageTransformer {
         // Track current message ID (simple variable tracking)
         this.currentMessageId = messageId;
 
+        // Clear tool call ID tracking for new message
+        this.toolCallIdByBlockIndex.clear();
+
         this.logger.debug(
           `[SdkMessageTransformer] Stream started: ${messageId}`
         );
@@ -370,6 +380,7 @@ export class SdkMessageTransformer {
 
         // Clear tracking (assistant message will emit message_complete)
         this.currentMessageId = null;
+        this.toolCallIdByBlockIndex.clear();
 
         return [];
       }
@@ -419,6 +430,9 @@ export class SdkMessageTransformer {
           contentBlock?.name
         ) {
           const isTaskTool = contentBlock.name === 'Task';
+
+          // Track real toolCallId for subsequent deltas
+          this.toolCallIdByBlockIndex.set(blockIndex, contentBlock.id);
 
           const toolStartEvent: ToolStartEvent = {
             id: generateEventId(),
@@ -477,16 +491,18 @@ export class SdkMessageTransformer {
           case 'input_json_delta': {
             if (delta.partial_json === undefined) return [];
 
-            // Find tool_start event by blockIndex to get toolCallId
-            // (In flat event model, we need to track toolCallId separately)
-            // For now, use a generated ID - frontend will associate by blockIndex
+            // Get real toolCallId from map, fallback to placeholder if delta arrives before start
+            const realToolCallId =
+              this.toolCallIdByBlockIndex.get(blockIndex) ||
+              `tool-block-${blockIndex}`;
+
             const toolDeltaEvent: ToolDeltaEvent = {
               id: generateEventId(),
               eventType: 'tool_delta',
               timestamp: Date.now(),
               sessionId: sessionId || '',
               messageId: this.currentMessageId,
-              toolCallId: `tool-block-${blockIndex}`, // Placeholder - real ID from tool_start
+              toolCallId: realToolCallId,
               delta: delta.partial_json,
               parentToolUseId,
             };
@@ -769,5 +785,6 @@ export class SdkMessageTransformer {
    */
   clearStreamingState(): void {
     this.currentMessageId = null;
+    this.toolCallIdByBlockIndex.clear();
   }
 }
