@@ -2,7 +2,22 @@ import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { ContentBlock } from './session-lifecycle-manager';
+import {
+  TextBlock,
+  ToolResultBlock,
+} from '../types/sdk-types/claude-sdk.types';
+
+/**
+ * User message content block - can be text, image, or tool result
+ * Matches UserMessageContent array element type
+ */
+type UserMessageContentBlock =
+  | TextBlock
+  | {
+      type: 'image';
+      source: { type: 'base64'; media_type: string; data: string };
+    }
+  | ToolResultBlock;
 
 /**
  * Service to process file attachments (images and text)
@@ -33,12 +48,14 @@ export class AttachmentProcessorService {
   }
 
   /**
-   * Process a list of files into ContentBlocks
+   * Process a list of files into content blocks
    * - Images are converted to base64 blocks
    * - Text files are read and wrapped in XML tags
    */
-  async processAttachments(files: readonly string[]): Promise<ContentBlock[]> {
-    const blocks: ContentBlock[] = [];
+  async processAttachments(
+    files: readonly string[]
+  ): Promise<UserMessageContentBlock[]> {
+    const blocks: UserMessageContentBlock[] = [];
 
     for (const file of files) {
       try {
@@ -71,7 +88,7 @@ export class AttachmentProcessorService {
     filePath: string,
     size: number,
     ext: string
-  ): Promise<ContentBlock | null> {
+  ): Promise<UserMessageContentBlock | null> {
     if (size > this.MAX_IMAGE_SIZE) {
       this.logger.warn(
         `[AttachmentProcessor] Image too large (>5MB): ${filePath}`
@@ -104,7 +121,7 @@ export class AttachmentProcessorService {
   private async processTextFile(
     filePath: string,
     size: number
-  ): Promise<ContentBlock | null> {
+  ): Promise<UserMessageContentBlock | null> {
     if (size > this.MAX_TEXT_FILE_SIZE) {
       // Just log warning, maybe we want to truncate later, but for now skip
       this.logger.warn(

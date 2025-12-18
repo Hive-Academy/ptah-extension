@@ -124,27 +124,26 @@ export class RpcMethodRegistrationService {
 
   /**
    * Setup callback to notify frontend when real Claude session ID is resolved
+   * TASK_2025_088: Single sessionId architecture - SDK returns the real UUID
    */
   private setupSessionIdResolvedCallback(): void {
-    this.sdkAdapter.setSessionIdResolvedCallback(
-      (placeholderId: SessionId, realClaudeSessionId: string) => {
-        this.logger.info(
-          `[RPC] Session ID resolved: ${placeholderId} -> ${realClaudeSessionId}`
-        );
+    this.sdkAdapter.setSessionIdResolvedCallback((realSessionId: string) => {
+      this.logger.info(`[RPC] Session ID resolved from SDK: ${realSessionId}`);
 
-        this.webviewManager
-          .sendMessage('ptah.main', MESSAGE_TYPES.SESSION_ID_RESOLVED, {
-            sessionId: placeholderId,
-            realSessionId: realClaudeSessionId,
-          })
-          .catch((error) => {
-            this.logger.error(
-              'Failed to send session:id-resolved to webview',
-              error instanceof Error ? error : new Error(String(error))
-            );
-          });
-      }
-    );
+      // Notify frontend of the real session ID
+      // With single sessionId architecture, this confirms the SDK's UUID
+      this.webviewManager
+        .sendMessage('ptah.main', MESSAGE_TYPES.SESSION_ID_RESOLVED, {
+          sessionId: realSessionId as SessionId,
+          realSessionId: realSessionId,
+        })
+        .catch((error) => {
+          this.logger.error(
+            'Failed to send session:id-resolved to webview',
+            error instanceof Error ? error : new Error(String(error))
+          );
+        });
+    });
   }
 
   /**

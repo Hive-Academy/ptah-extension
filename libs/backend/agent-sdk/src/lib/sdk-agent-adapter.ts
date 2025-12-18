@@ -26,9 +26,13 @@ import {
   MessageId,
 } from '@ptah-extension/shared';
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
-import { SdkSessionStorage } from './sdk-session-storage';
-import { StoredSessionMessage } from './types/sdk-session.types';
 import { SDK_TOKENS } from './di/tokens';
+import { SessionMetadataStore } from './session-metadata-store';
+import {
+  SDKMessage,
+  UserMessageContent,
+  TextBlock,
+} from './types/sdk-types/claude-sdk.types';
 import {
   AuthManager,
   SessionLifecycleManager,
@@ -125,23 +129,12 @@ export class SdkAgentAdapter implements IAIProvider {
 
   /**
    * Create SDK Agent Adapter with all dependencies injected
-   *
-   * @param logger - Logger instance
-   * @param config - Configuration manager
-   * @param storage - Session storage service
-   * @param authManager - Authentication manager
-   * @param sessionLifecycle - Session lifecycle manager
-   * @param configWatcher - Configuration change watcher
-   * @param cliDetector - Claude CLI detector
-   * @param queryBuilder - SDK query options builder
-   * @param messageStreamFactory - User message stream factory
-   * @param streamTransformer - SDK to ExecutionNode transformer
    */
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
-    @inject(SDK_TOKENS.SDK_SESSION_STORAGE)
-    private readonly storage: SdkSessionStorage,
+    @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
+    private readonly metadataStore: SessionMetadataStore,
     @inject(SDK_TOKENS.SDK_AUTH_MANAGER)
     private readonly authManager: AuthManager,
     @inject(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER)
@@ -408,8 +401,8 @@ export class SdkAgentAdapter implements IAIProvider {
       abortController
     );
 
-    // Create session record in storage (for persistence)
-    await this.sessionLifecycle.createSessionRecord(sessionId, config?.name);
+    // NOTE: Session metadata will be created when SDK returns real session ID
+    // via onSessionIdResolved callback. SDK handles message persistence natively.
 
     // Import SDK dynamically (ESM in CommonJS context)
     this.logger.info(
@@ -458,8 +451,10 @@ export class SdkAgentAdapter implements IAIProvider {
     this.sessionLifecycle.setSessionQuery(sessionId, sdkQuery);
 
     // Return transformed stream
+    // Note: sdkQuery yields SDK's SDKMessage (from @anthropic-ai/claude-agent-sdk)
+    // We structurally match it with our SDKMessage type (from claude-sdk.types.ts)
     return this.streamTransformer.transform({
-      sdkQuery,
+      sdkQuery: sdkQuery as unknown as AsyncIterable<SDKMessage>,
       sessionId,
       initialModel,
       onSessionIdResolved: this.sessionIdResolvedCallback || undefined,
@@ -475,12 +470,12 @@ export class SdkAgentAdapter implements IAIProvider {
   }
 
   /**
-   * Resume a previously persisted session using SDK's resume option.
-   * This reconnects to Claude's conversation context without replaying history.
+   * Resume a session using SDK's native resume option.
+   * SDK handles conversation history loading from ~/.claude/projects/{sessionId}.jsonl
    *
-   * @param sessionId - The session ID to resume (must exist in storage)
+   * @param sessionId - The SDK session ID to resume
    * @param config - Optional session configuration overrides
-   * @returns AsyncIterable<FlatStreamEventUnion> for streaming new responses
+   * @returns AsyncIterable<FlatStreamEventUnion> for streaming responses
    */
   async resumeSession(
     sessionId: SessionId,
@@ -506,27 +501,14 @@ export class SdkAgentAdapter implements IAIProvider {
       });
     }
 
-    // Verify session exists in storage
-    const storedSession = await this.storage.getSession(sessionId);
-    if (!storedSession) {
-      throw new Error(
-        `Cannot resume session ${sessionId}: not found in storage`
-      );
-    }
-
     this.logger.info(`[SdkAgentAdapter] Resuming session: ${sessionId}`, {
       config,
-      storedMessages: storedSession.messages?.length || 0,
     });
-
-    // CRITICAL: Use real Claude session ID for resumption
-    const resumeId = storedSession.claudeSessionId;
 
     // Create abort controller FIRST
     const abortController = new AbortController();
 
     // PRE-REGISTER session BEFORE creating message stream
-    // This fixes race condition where UserMessageStreamFactory couldn't find session
     this.sessionLifecycle.preRegisterActiveSession(
       sessionId,
       config || {},
@@ -537,52 +519,41 @@ export class SdkAgentAdapter implements IAIProvider {
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
     this.logger.info('[SdkAgentAdapter] SDK imported for session resume');
 
-    // Create user message stream (session is now pre-registered, so it can be found)
+    // Create user message stream
     const userMessageStream = this.messageStreamFactory.create(
       sessionId,
       abortController
     );
 
-    // If no claudeSessionId, start fresh but keep session record (preserves UI history)
-    if (!resumeId) {
-      this.logger.warn(
-        `[SdkAgentAdapter] Session ${sessionId} has no claudeSessionId - starting fresh SDK conversation (UI history preserved)`
-      );
-    }
-
+    // Build query with resume option - SDK loads history from its native storage
     const queryOptions = await this.queryBuilder.build({
       userMessageStream,
       abortController,
       sessionConfig: config,
-      // Only pass resumeSessionId if we have the real Claude ID
-      resumeSessionId: resumeId || undefined,
+      resumeSessionId: sessionId as string, // SDK session ID - SDK handles everything
     });
 
-    this.logger.debug('[SdkAgentAdapter] SDK query options', {
-      usingBuiltInCli: true,
+    this.logger.debug('[SdkAgentAdapter] SDK query options for resume', {
       cwd: config?.projectPath || process.cwd(),
       model: queryOptions.options.model,
-      internalSessionId: sessionId,
-      realClaudeSessionId: resumeId || 'N/A (fresh start)',
-      isResume: !!resumeId,
+      sessionId,
+      isResume: true,
     });
 
-    // Start SDK query
+    // Start SDK query with resume
     const sdkQuery = query(queryOptions);
     const initialModel = queryOptions.options.model;
 
     // Set the SDK query on the pre-registered session
     this.sessionLifecycle.setSessionQuery(sessionId, sdkQuery);
 
-    this.logger.info(
-      `[SdkAgentAdapter] Session ${
-        resumeId ? 'resumed' : 'started fresh'
-      }: ${sessionId}`
-    );
+    this.logger.info(`[SdkAgentAdapter] Session resumed: ${sessionId}`);
 
-    // Return transformed stream
+    // Return transformed stream - SDK will replay history messages
+    // Note: sdkQuery yields SDK's SDKMessage (from @anthropic-ai/claude-agent-sdk)
+    // We structurally match it with our SDKMessage type (from claude-sdk.types.ts)
     return this.streamTransformer.transform({
-      sdkQuery,
+      sdkQuery: sdkQuery as unknown as AsyncIterable<SDKMessage>,
       sessionId,
       initialModel,
       onSessionIdResolved: this.sessionIdResolvedCallback || undefined,
@@ -615,7 +586,7 @@ export class SdkAgentAdapter implements IAIProvider {
 
   /**
    * Send a message to an active session.
-   * If session exists in storage but not active, caller should resume first.
+   * SDK handles message persistence natively to ~/.claude/projects/{sessionId}.jsonl
    */
   async sendMessageToSession(
     sessionId: SessionId,
@@ -634,7 +605,7 @@ export class SdkAgentAdapter implements IAIProvider {
 
     // Check for attachments (files & images)
     const files = options?.files || [];
-    let messageContent: string | ContentBlock[] = content;
+    let messageContent: UserMessageContent = content;
 
     if (files.length > 0) {
       this.logger.debug(
@@ -645,15 +616,17 @@ export class SdkAgentAdapter implements IAIProvider {
         await this.attachmentProcessor.processAttachments(files);
 
       if (attachmentBlocks.length > 0) {
-        messageContent = [{ type: 'text', text: content }, ...attachmentBlocks];
+        const textBlock: TextBlock = { type: 'text', text: content };
+        messageContent = [textBlock, ...attachmentBlocks];
       }
     }
 
-    // Generate message ID for UI storage
+    // Generate message ID for SDK
     const messageId = MessageId.create();
     const messageIdStr = messageId.toString();
 
     // Create SDK user message (matches official SDK type from sdk.d.ts)
+    // SDK handles persistence natively - no manual storage needed
     const sdkUserMessage: SDKUserMessage = {
       type: 'user',
       uuid: messageIdStr as `${string}-${string}-${string}-${string}-${string}`,
@@ -665,28 +638,7 @@ export class SdkAgentAdapter implements IAIProvider {
       parent_tool_use_id: null,
     };
 
-    // Store for UI history
-    const storedMessage: StoredSessionMessage = {
-      id: messageId,
-      parentId: null,
-      role: 'user',
-      content: [
-        {
-          id: messageIdStr,
-          type: 'text',
-          status: 'complete',
-          content,
-          children: [],
-          isCollapsed: false,
-        },
-      ],
-      timestamp: Date.now(),
-      model: session.currentModel,
-    };
-
-    await this.storage.addMessage(sessionId, storedMessage);
-
-    // Queue for SDK
+    // Queue for SDK - SDK will persist message to ~/.claude/projects/
     session.messageQueue.push(sdkUserMessage);
 
     // Wake iterator

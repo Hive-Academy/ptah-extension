@@ -5,7 +5,6 @@ import {
   OverlayModule,
 } from '@angular/cdk/overlay';
 import {
-  AfterViewInit,
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
@@ -56,6 +55,11 @@ export type { SuggestionItem } from './suggestion-option.component';
  * - Filter input auto-focuses on open
  * - Parent only triggers open/close, dropdown handles filtering
  * - Simplified parent component - no more query extraction logic
+ *
+ * FIX: KeyManager is now initialized ONCE in ngAfterViewInit, not via effect.
+ * - Effect was resetting selection on every filter change (causing "random item" bug)
+ * - Scroll handling moved to keyManager.change subscription (not in setActiveStyles)
+ * - Loading state no longer blocks keyboard navigation
  */
 @Component({
   selector: 'ptah-unified-suggestions-dropdown',
@@ -126,9 +130,7 @@ export type { SuggestionItem } from './suggestion-option.component';
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class UnifiedSuggestionsDropdownComponent
-  implements AfterViewInit, OnDestroy
-{
+export class UnifiedSuggestionsDropdownComponent implements OnDestroy {
   private readonly elementRef = inject(ElementRef);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -153,6 +155,11 @@ export class UnifiedSuggestionsDropdownComponent
   private readonly _activeOptionId = signal<string | null>(null);
   readonly activeOptionId = this._activeOptionId.asReadonly();
 
+  // Track previous options count to detect significant changes
+  private previousOptionsCount = 0;
+  // Track if this is first initialization
+  private isFirstInit = true;
+
   // Overlay positions (above input preferred, fallback below)
   // Uses ABOVE variant for chat input at bottom of VS Code sidebar
   readonly dropdownPositions: ConnectedPosition[] =
@@ -164,40 +171,62 @@ export class UnifiedSuggestionsDropdownComponent
     .substring(2, 9)}`;
 
   constructor() {
-    // Initialize/re-initialize key manager when options change
-    // This handles both initial render AND subsequent suggestion changes
+    // Effect to handle dynamic options changes
+    // Key insight: We need to recreate keyManager when options change (since it holds references)
+    // but we should NOT reset selection unless this is initialization
     effect(() => {
       const options = this.optionComponents();
+      const currentCount = options.length;
+      const hadOptions = this.previousOptionsCount > 0;
+      const hasOptions = currentCount > 0;
 
-      if (options.length === 0) {
-        // Destroy keyManager when no options to prevent stale references
+      // Case 1: No options - cleanup
+      if (!hasOptions) {
         if (this.keyManager) {
           this.keyManager.destroy();
           this.keyManager = null;
           this._activeOptionId.set(null);
         }
+        this.previousOptionsCount = 0;
         return;
       }
 
-      // Create/update keyManager when options exist
-      if (options.length > 0) {
-        if (this.keyManager) {
-          // Key manager exists - just reset to first item
-          this.keyManager.setFirstItemActive();
-          this.updateActiveOptionId();
-        } else {
-          // First time options are available - initialize key manager
-          this.initKeyManager();
-        }
+      // Case 2: First time having options - initialize
+      if (!hadOptions && hasOptions && this.isFirstInit) {
+        this.initKeyManager();
+        this.isFirstInit = false;
+        this.previousOptionsCount = currentCount;
+        return;
       }
-    });
-  }
 
-  ngAfterViewInit(): void {
-    // Key manager may already be initialized by effect() if options were available
-    if (!this.keyManager) {
-      this.initKeyManager();
-    }
+      // Case 3: Options changed (filtering) - update keyManager items
+      // The keyManager needs new references, but we preserve the active index
+      if (this.keyManager && hasOptions) {
+        const currentActiveIndex = this.keyManager.activeItemIndex ?? 0;
+
+        // Destroy old and create new keyManager with updated options
+        this.keyManager.destroy();
+        this.keyManager = new ActiveDescendantKeyManager(options)
+          .withVerticalOrientation()
+          .withWrap()
+          .withHomeAndEnd();
+
+        // Preserve selection: clamp to valid range, prefer current index
+        const targetIndex = Math.min(currentActiveIndex, currentCount - 1);
+        this.keyManager.setActiveItem(Math.max(0, targetIndex));
+        this.updateActiveOptionId();
+
+        // Re-subscribe to changes
+        this.keyManager.change
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe(() => {
+            this.updateActiveOptionId();
+            this.scrollActiveItemIntoView();
+          });
+      }
+
+      this.previousOptionsCount = currentCount;
+    });
   }
 
   ngOnDestroy(): void {
@@ -206,6 +235,7 @@ export class UnifiedSuggestionsDropdownComponent
 
   /**
    * Initialize the ActiveDescendantKeyManager
+   * Called ONCE when options first become available
    */
   private initKeyManager(): void {
     const options = this.optionComponents();
@@ -216,16 +246,35 @@ export class UnifiedSuggestionsDropdownComponent
       .withWrap()
       .withHomeAndEnd();
 
-    // Set first item active initially
+    // Set first item active initially (only on first initialization)
     this.keyManager.setFirstItemActive();
     this.updateActiveOptionId();
 
-    // Subscribe to active item changes (auto-unsubscribes on component destroy)
+    // Subscribe to active item changes for:
+    // 1. Updating aria-activedescendant
+    // 2. Scrolling active item into view (FIX: moved from setActiveStyles)
     this.keyManager.change
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => {
         this.updateActiveOptionId();
+        // Scroll active item into view - only on actual navigation
+        this.scrollActiveItemIntoView();
       });
+  }
+
+  /**
+   * Scroll the active item into view
+   * FIX: Moved from SuggestionOptionComponent.setActiveStyles() to here
+   * This ensures scroll only happens on keyboard navigation, not programmatic resets
+   */
+  private scrollActiveItemIntoView(): void {
+    const activeElement = this.keyManager?.activeItem?.getHostElement();
+    if (activeElement) {
+      activeElement.scrollIntoView({
+        block: 'nearest',
+        behavior: 'smooth',
+      });
+    }
   }
 
   /**
@@ -299,9 +348,9 @@ export class UnifiedSuggestionsDropdownComponent
    * @returns true if event was handled, false if not ready to handle
    */
   onKeyDown(event: KeyboardEvent): boolean {
-    // CRITICAL: Return false when not ready - don't claim to handle events we can't process
-    // This was the root cause of arrow keys not working: returning true when keyManager was null
-    if (!this.keyManager || this.isLoading()) {
+    // Return false only when keyManager is truly not ready (no options at all)
+    // FIX: Removed isLoading() check - navigation should work on existing options during loading
+    if (!this.keyManager) {
       return false;
     }
 

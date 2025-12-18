@@ -1,60 +1,31 @@
 /**
- * Session Lifecycle Manager - Handles SDK session creation and management
+ * Session Lifecycle Manager - Handles SDK session runtime management
  *
  * Responsibilities:
- * - Session creation and storage
- * - Message queue management
+ * - Active session tracking (runtime only)
+ * - Message queue management for streaming input
  * - Abort controller lifecycle
  * - Session cleanup
+ *
+ * NOTE: This manager does NOT handle session persistence.
+ * The SDK handles persistence natively to ~/.claude/projects/
+ * UI metadata (names, timestamps) is managed by SessionMetadataStore.
+ *
+ * @see TASK_2025_088 - Simplified to remove redundant storage
  */
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { SessionId, AISessionConfig } from '@ptah-extension/shared';
-import { SdkSessionStorage } from '../sdk-session-storage';
-import { StoredSession } from '../types/sdk-session.types';
-import { SDK_TOKENS } from '../di/tokens';
-import * as vscode from 'vscode';
+import {
+  SDKUserMessage,
+  UUID,
+  UserMessageContent,
+  ContentBlock,
+} from '../types/sdk-types/claude-sdk.types';
 
-/**
- * UUID type for SDK message identifiers
- */
-type UUID = `${string}-${string}-${string}-${string}-${string}`;
-
-/**
- * User message structure for SDK streaming input
- *
- * Matches the official SDK type from @anthropic-ai/claude-agent-sdk/sdk.d.ts:
- * - type: 'user'
- * - message: APIUserMessage (role + content)
- * - parent_tool_use_id: string | null (required)
- * - uuid?: UUID (optional)
- * - session_id: string (required)
- */
-export type SDKUserMessage = {
-  type: 'user';
-  message: {
-    role: 'user';
-    content: string | ContentBlock[];
-  };
-  parent_tool_use_id: string | null;
-  uuid?: UUID;
-  session_id: string;
-};
-
-/**
- * Content block for multi-modal messages (text + images)
- */
-export type ContentBlock =
-  | { type: 'text'; text: string }
-  | {
-      type: 'image';
-      source: {
-        type: 'base64';
-        media_type: string;
-        data: string;
-      };
-    };
+// Re-export for backward compatibility with other files
+export type { SDKUserMessage, ContentBlock };
 
 /**
  * Query interface - matches SDK's Query runtime structure
@@ -87,52 +58,16 @@ export interface ActiveSession {
 }
 
 /**
- * Manages SDK session lifecycle
+ * Manages SDK session lifecycle (runtime only)
+ *
+ * Uses a single sessionId (the real SDK UUID) everywhere.
+ * No placeholder IDs, no mapping needed.
  */
 @injectable()
 export class SessionLifecycleManager {
   private activeSessions = new Map<string, ActiveSession>();
-  /** Maps real Claude session ID → placeholder session ID for reverse lookup */
-  private sessionIdMapping = new Map<string, string>();
 
-  constructor(
-    @inject(TOKENS.LOGGER) private logger: Logger,
-    @inject(SDK_TOKENS.SDK_SESSION_STORAGE) private storage: SdkSessionStorage
-  ) {}
-
-  /**
-   * Create initial session record in storage
-   * @param sessionId Session identifier
-   * @param name Optional user-provided session name
-   */
-  async createSessionRecord(
-    sessionId: SessionId,
-    name?: string
-  ): Promise<StoredSession> {
-    const workspaceId =
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || 'unknown';
-
-    // Generate default name if not provided
-    const sessionName = name || `Session ${new Date().toLocaleString()}`;
-
-    const storedSession: StoredSession = {
-      id: sessionId,
-      workspaceId,
-      name: sessionName,
-      createdAt: Date.now(),
-      lastActiveAt: Date.now(),
-      messages: [],
-      totalTokens: { input: 0, output: 0 },
-      totalCost: 0,
-    };
-
-    await this.storage.saveSession(storedSession);
-    this.logger.debug(
-      `[SessionLifecycle] Created session record: ${sessionId} (name: "${sessionName}")`
-    );
-
-    return storedSession;
-  }
+  constructor(@inject(TOKENS.LOGGER) private logger: Logger) {}
 
   /**
    * Pre-register active session (before SDK query is created)
@@ -202,36 +137,10 @@ export class SessionLifecycleManager {
   }
 
   /**
-   * Register mapping from real Claude session ID to placeholder
-   * Called by StreamTransformer when session ID is resolved
-   */
-  registerSessionIdMapping(
-    realSessionId: string,
-    placeholderSessionId: string
-  ): void {
-    this.sessionIdMapping.set(realSessionId, placeholderSessionId);
-    this.logger.debug(
-      `[SessionLifecycle] Registered ID mapping: ${realSessionId.slice(
-        0,
-        8
-      )}... → ${placeholderSessionId.slice(0, 8)}...`
-    );
-  }
-
-  /**
-   * Get active session - checks both placeholder and real session IDs
+   * Get active session by sessionId
    */
   getActiveSession(sessionId: SessionId): ActiveSession | undefined {
-    // First try direct lookup by sessionId
-    let session = this.activeSessions.get(sessionId as string);
-    if (session) return session;
-
-    // Try mapping from real Claude ID to placeholder
-    const placeholderId = this.sessionIdMapping.get(sessionId as string);
-    if (placeholderId) {
-      session = this.activeSessions.get(placeholderId);
-    }
-    return session;
+    return this.activeSessions.get(sessionId as string);
   }
 
   /**

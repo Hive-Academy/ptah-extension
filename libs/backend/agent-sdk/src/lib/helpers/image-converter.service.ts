@@ -12,9 +12,24 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import { ContentBlock } from './session-lifecycle-manager';
+import {
+  TextBlock,
+  ToolResultBlock,
+} from '../types/sdk-types/claude-sdk.types';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+
+/**
+ * User message content block - can be text, image, or tool result
+ * Matches UserMessageContent array element type
+ */
+type UserMessageContentBlock =
+  | TextBlock
+  | {
+      type: 'image';
+      source: { type: 'base64'; media_type: string; data: string };
+    }
+  | ToolResultBlock;
 
 /** Maximum allowed image size (5MB) - matches Claude API limits */
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
@@ -27,8 +42,8 @@ export class ImageConverterService {
   constructor(@inject(TOKENS.LOGGER) private logger: Logger) {}
 
   /**
-   * Convert text prompt and file paths into SDK ContentBlocks
-   * Returns generic ContentBlock array which can be used if images are present
+   * Convert text prompt and file paths into SDK content blocks
+   * Returns content block array which can be used if images are present
    *
    * @param text - The user's prompt text
    * @param files - List of file paths to check for images
@@ -36,8 +51,8 @@ export class ImageConverterService {
   async convertToContentBlocks(
     text: string,
     files: readonly string[]
-  ): Promise<ContentBlock[]> {
-    const blocks: ContentBlock[] = [{ type: 'text', text }];
+  ): Promise<UserMessageContentBlock[]> {
+    const blocks: UserMessageContentBlock[] = [{ type: 'text', text }];
 
     if (!files || files.length === 0) {
       return blocks;

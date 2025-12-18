@@ -15,7 +15,7 @@ import { DependencyContainer, Lifecycle } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { SdkAgentAdapter } from '../sdk-agent-adapter';
-import { SdkSessionStorage } from '../sdk-session-storage';
+import { SessionMetadataStore } from '../session-metadata-store';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
 import { SdkMessageTransformer } from '../sdk-message-transformer';
 import { ClaudeCliDetector } from '../detector/claude-cli-detector';
@@ -52,12 +52,12 @@ export function registerSdkServices(
   // Core Services (require special initialization)
   // ============================================================
 
-  // Session storage needs VS Code Memento - register with factory
+  // Session metadata store needs VS Code Memento for UI metadata persistence
+  // SDK handles message persistence natively to ~/.claude/projects/
   container.registerInstance(
-    SDK_TOKENS.SDK_SESSION_STORAGE,
+    SDK_TOKENS.SDK_SESSION_METADATA_STORE,
     (() => {
-      // Create singleton instance immediately during registration
-      return new SdkSessionStorage(context.workspaceState, logger);
+      return new SessionMetadataStore(context.workspaceState, logger);
     })()
   );
 
@@ -100,7 +100,7 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton }
   );
 
-  // Session lifecycle manager - depends on Logger, SdkSessionStorage
+  // Session lifecycle manager - depends on Logger only (runtime session tracking)
   container.register(
     SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
     { useClass: SessionLifecycleManager },
@@ -121,7 +121,7 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton }
   );
 
-  // Stream transformer - depends on Logger, SdkMessageTransformer, SdkSessionStorage, SessionLifecycleManager
+  // Stream transformer - depends on Logger, SdkMessageTransformer (no storage - SDK persists natively)
   container.register(
     SDK_TOKENS.SDK_STREAM_TRANSFORMER,
     { useClass: StreamTransformer },

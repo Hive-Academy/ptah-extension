@@ -1,16 +1,18 @@
 /**
  * Session RPC Handlers
  *
- * Handles session-related RPC methods: session:list, session:load
- * Uses SdkSessionStorage for session management.
+ * Handles session-related RPC methods: session:list, session:load, session:delete
+ * Uses SessionMetadataStore for lightweight UI metadata.
+ * SDK handles message persistence natively to ~/.claude/projects/{sessionId}.jsonl
  *
  * TASK_2025_074: Extracted from monolithic RpcMethodRegistrationService
+ * TASK_2025_088: Simplified to use SDK-native session persistence
  */
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 // eslint-disable-next-line @nx/enforce-module-boundaries
-import { SdkSessionStorage } from '@ptah-extension/agent-sdk';
+import { SessionMetadataStore, SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import {
   SessionId,
   SessionListParams,
@@ -21,13 +23,19 @@ import {
 
 /**
  * RPC handlers for session operations (SDK-based)
+ *
+ * Session Architecture (TASK_2025_088):
+ * - SDK handles message persistence to ~/.claude/projects/{sessionId}.jsonl
+ * - This handler manages metadata only (names, timestamps, cost)
+ * - session:load returns minimal data - actual messages come from SDK resume
  */
 @injectable()
 export class SessionRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
-    @inject('SdkSessionStorage') private readonly sdkStorage: SdkSessionStorage
+    @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
+    private readonly metadataStore: SessionMetadataStore
   ) {}
 
   /**
@@ -45,6 +53,7 @@ export class SessionRpcHandlers {
 
   /**
    * session:list - List all sessions for workspace (with pagination)
+   * Returns metadata only - SDK handles actual message storage
    */
   private registerSessionList(): void {
     this.rpcHandler.registerMethod<SessionListParams, SessionListResult>(
@@ -58,27 +67,23 @@ export class SessionRpcHandlers {
             offset,
           });
 
-          // Get all sessions from SDK storage
-          const allSessions = await this.sdkStorage.getAllSessions(
+          // Get session metadata for workspace
+          const allSessions = await this.metadataStore.getForWorkspace(
             workspacePath
           );
 
-          // Filter, sort, and paginate
-          const sorted = allSessions
-            .filter((s) => s.messages.length > 0)
-            .sort((a, b) => b.lastActiveAt - a.lastActiveAt);
-
-          const total = sorted.length;
-          const paginated = sorted.slice(offset, offset + limit);
+          // Already sorted by lastActiveAt in metadataStore
+          const total = allSessions.length;
+          const paginated = allSessions.slice(offset, offset + limit);
           const hasMore = offset + limit < total;
 
           // Transform to RPC response format (ChatSessionSummary)
           const sessions = paginated.map((s) => ({
-            id: s.id,
+            id: s.sessionId as SessionId,
             name: s.name,
             lastActivityAt: s.lastActiveAt,
             createdAt: s.createdAt,
-            messageCount: s.messages.length,
+            messageCount: 0, // SDK handles messages - count not stored in metadata
             isActive: false, // Listed sessions are not currently active
           }));
 
@@ -99,7 +104,11 @@ export class SessionRpcHandlers {
   }
 
   /**
-   * session:load - Load session messages from SDK storage
+   * session:load - Return session metadata for resumption
+   * SDK handles actual message loading via resume option
+   *
+   * NOTE: This now returns minimal metadata. To get actual messages,
+   * the frontend should call chat:resume which triggers SDK to replay history.
    */
   private registerSessionLoad(): void {
     this.rpcHandler.registerMethod<SessionLoadParams, SessionLoadResult>(
@@ -110,17 +119,17 @@ export class SessionRpcHandlers {
 
           this.logger.debug('RPC: session:load called', { sessionId });
 
-          // Get session from SDK storage
-          const session = await this.sdkStorage.getSession(sessionId);
+          // Get session metadata
+          const metadata = await this.metadataStore.get(sessionId as string);
 
-          if (!session) {
+          if (!metadata) {
             throw new Error(`Session not found: ${sessionId}`);
           }
 
-          // Transform to RPC response format
+          // Return minimal result - SDK will stream messages via resume
           return {
-            sessionId: session.id,
-            messages: session.messages,
+            sessionId: metadata.sessionId as SessionId,
+            messages: [], // SDK handles messages via resume - don't store them
             agentSessions: [],
           };
         } catch (error) {
@@ -139,7 +148,8 @@ export class SessionRpcHandlers {
   }
 
   /**
-   * session:delete - Delete session from SDK storage (TASK_2025_086)
+   * session:delete - Delete session metadata
+   * Note: This only deletes Ptah's metadata. SDK's JSONL files remain.
    */
   private registerSessionDelete(): void {
     this.rpcHandler.registerMethod<
@@ -151,8 +161,8 @@ export class SessionRpcHandlers {
 
         this.logger.info('RPC: session:delete called', { sessionId });
 
-        // Delete from SDK storage
-        await this.sdkStorage.deleteSession(sessionId);
+        // Delete metadata (SDK files remain in ~/.claude/projects/)
+        await this.metadataStore.delete(sessionId as string);
 
         this.logger.info('RPC: session:delete succeeded', { sessionId });
 

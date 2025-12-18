@@ -3,21 +3,26 @@
  *
  * Official Claude Agent SDK wrapper providing IAIProvider implementation
  * with 10x performance improvements over CLI-based integration.
+ *
+ * Session Architecture (TASK_2025_088):
+ * - SDK handles message persistence natively to ~/.claude/projects/{sessionId}.jsonl
+ * - SessionMetadataStore only tracks UI metadata (names, timestamps, cost)
+ * - Single sessionId used everywhere (SDK's UUID from system 'init' message)
  */
 
 // Core adapter exports
 export { SdkAgentAdapter } from './lib/sdk-agent-adapter';
-export type { SessionIdResolvedCallback } from './lib/sdk-agent-adapter';
+export type {
+  SessionIdResolvedCallback,
+  ResultStatsCallback,
+} from './lib/sdk-agent-adapter';
 
 // Message transformation exports
 export { SdkMessageTransformer } from './lib/sdk-message-transformer';
 
-// Session storage exports
-export { SdkSessionStorage } from './lib/sdk-session-storage';
-export type {
-  StoredSession,
-  StoredSessionMessage,
-} from './lib/types/sdk-session.types';
+// Session metadata exports (lightweight UI metadata only)
+export { SessionMetadataStore } from './lib/session-metadata-store';
+export type { SessionMetadata } from './lib/session-metadata-store';
 
 // Permission handler exports
 export { SdkPermissionHandler } from './lib/sdk-permission-handler';

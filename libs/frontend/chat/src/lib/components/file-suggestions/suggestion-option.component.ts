@@ -102,14 +102,12 @@ export class SuggestionOptionComponent implements Highlightable {
   /**
    * Highlightable interface - called by ActiveDescendantKeyManager
    * Sets visual active state without moving focus
+   *
+   * FIX: Removed scrollIntoView() - scroll handling moved to parent component's
+   * keyManager.change subscription. This prevents scroll hijacking on programmatic resets.
    */
   setActiveStyles(): void {
     this._isActive.set(true);
-    // Scroll into view when activated via keyboard
-    this.elementRef.nativeElement.scrollIntoView({
-      block: 'nearest',
-      behavior: 'smooth',
-    });
   }
 
   /**

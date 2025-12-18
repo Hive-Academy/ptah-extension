@@ -15,23 +15,21 @@
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import {
+  ContentBlock,
+  ToolUseBlock,
+  isToolUseBlock,
+} from './types/sdk-types/claude-sdk.types';
 
 /**
- * SDK Types - Structural typing to avoid ESM/CommonJS import issues
- *
- * The SDK package is ESM-only ("type": "module"), but this library is CommonJS.
- * We use structural typing to match the SDK's permission types without imports.
- * These types are structurally compatible with @anthropic-ai/claude-agent-sdk/sdk.d.ts
- */
-
-/**
- * Permission result type (internal type hint)
+ * Permission result type
+ * Structurally matches SDK's PermissionResult from @anthropic-ai/claude-agent-sdk
  */
 type PermissionResult =
   | {
       behavior: 'allow';
       updatedInput: Record<string, unknown>;
-      updatedPermissions?: any[];
+      updatedPermissions?: Array<unknown>;
       toolUseID?: string;
     }
   | {
@@ -44,16 +42,15 @@ type PermissionResult =
 /**
  * Callback type for permission checking
  * Structurally matches SDK's CanUseTool type
- * Return type uses 'any' to accept SDK's actual PermissionResult without type errors
  */
 type CanUseTool = (
   toolName: string,
   input: Record<string, unknown>,
   options: {
     signal: AbortSignal;
-    suggestions?: any[];
+    suggestions?: Array<unknown>;
   }
-) => Promise<any>;
+) => Promise<PermissionResult>;
 
 /**
  * Permission request payload for RPC event

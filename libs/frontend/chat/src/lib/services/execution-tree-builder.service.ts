@@ -36,6 +36,17 @@ import type { StreamingState } from './chat.types';
  */
 const MAX_DEPTH = 10;
 
+/**
+ * ParseResult - Result of safe JSON parsing with error tracking
+ * TASK_2025_088 Batch 2 Task 2.1: Prevents data loss from silent parse failures
+ */
+interface ParseResult<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  raw?: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ExecutionTreeBuilderService {
   /**
@@ -272,6 +283,25 @@ export class ExecutionTreeBuilderService {
   }
 
   /**
+   * Parse tool input JSON with error tracking
+   * TASK_2025_088 Batch 2 Task 2.1: Safe JSON parser with error tracking
+   *
+   * @param input - Raw JSON string
+   * @returns ParseResult with success/error state
+   */
+  private parseToolInput(input: string): ParseResult<Record<string, unknown>> {
+    try {
+      const parsed = JSON.parse(input);
+      if (typeof parsed !== 'object' || parsed === null) {
+        return { success: false, error: 'Not an object', raw: input };
+      }
+      return { success: true, data: parsed };
+    } catch (e) {
+      return { success: false, error: String(e), raw: input };
+    }
+  }
+
+  /**
    * Build a single tool node with nested children (RECURSIVE)
    *
    * @param toolStart - Tool start event
@@ -288,17 +318,26 @@ export class ExecutionTreeBuilderService {
     const inputKey = `${toolStart.toolCallId}-input`;
     const inputString = state.toolInputAccumulators.get(inputKey) || '';
 
-    // Parse JSON into toolInput field (TASK_2025_084 Batch 1 Task 1.4)
+    // Parse JSON into toolInput field
+    // TASK_2025_088 Batch 2 Task 2.2: Use safe parser instead of unsafe try/catch
     let toolInput: Record<string, unknown> | undefined;
-    try {
-      toolInput = inputString ? JSON.parse(inputString) : undefined;
-    } catch (error) {
-      // Parse failed - use undefined (UI components don't handle {raw} properly)
-      console.error('[ExecutionTreeBuilderService] Tool input parse failed', {
-        toolCallId: toolStart.toolCallId,
-        inputString: inputString.slice(0, 100),
-        error,
-      });
+    if (inputString) {
+      const result = this.parseToolInput(inputString);
+      if (result.success) {
+        toolInput = result.data;
+      } else {
+        // CRITICAL FIX: Preserve parse error for UI display instead of silent failure
+        toolInput = {
+          __parseError: result.error,
+          __raw: result.raw,
+        } as Record<string, unknown>;
+        console.warn('[ExecutionTreeBuilderService] Tool input parse failed', {
+          toolCallId: toolStart.toolCallId,
+          error: result.error,
+          raw: result.raw?.substring(0, 100), // Log first 100 chars
+        });
+      }
+    } else {
       toolInput = undefined;
     }
 

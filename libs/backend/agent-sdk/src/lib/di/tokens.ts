@@ -10,7 +10,7 @@
 export const SDK_TOKENS = {
   // Core services
   SDK_AGENT_ADAPTER: 'SdkAgentAdapter',
-  SDK_SESSION_STORAGE: 'SdkSessionStorage',
+  SDK_SESSION_METADATA_STORE: 'SessionMetadataStore',
   SDK_PERMISSION_HANDLER: 'SdkPermissionHandler',
   SDK_MESSAGE_TRANSFORMER: 'SdkMessageTransformer',
 

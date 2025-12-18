@@ -2,6 +2,7 @@ import {
   Component,
   input,
   output,
+  computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import {
@@ -10,6 +11,7 @@ import {
   CheckCircle,
   XCircle,
   Loader2,
+  AlertTriangle,
 } from 'lucide-angular';
 import { ToolIconComponent } from '../atoms/tool-icon.component';
 import { FilePathLinkComponent } from '../atoms/file-path-link.component';
@@ -78,6 +80,17 @@ import type { ExecutionNode } from '@ptah-extension/shared';
       </span>
       }
 
+      <!-- Parse Error Warning (TASK_2025_088 Batch 2 Task 2.3) -->
+      @if (hasParseError()) {
+      <div
+        class="flex items-center gap-1 flex-shrink-0 px-1.5 py-0.5 bg-warning/20 rounded text-warning"
+        [title]="'Parse Error: ' + parseError()"
+      >
+        <lucide-angular [img]="AlertIcon" class="w-3 h-3" />
+        <span class="text-[10px] font-mono">Parse Error</span>
+      </div>
+      }
+
       <!-- Status indicator -->
       @if (node().status === 'complete' && node().toolOutput) {
       <lucide-angular
@@ -116,6 +129,38 @@ export class ToolCallHeaderComponent {
   readonly CheckIcon = CheckCircle;
   readonly XIcon = XCircle;
   readonly LoaderIcon = Loader2;
+  readonly AlertIcon = AlertTriangle;
+
+  /**
+   * Check if tool input has parse error
+   * TASK_2025_088 Batch 2 Task 2.3: Detect parse errors from safe parser
+   */
+  readonly hasParseError = computed(() => {
+    const input = this.node().toolInput;
+    return (
+      input &&
+      typeof input === 'object' &&
+      '__parseError' in input &&
+      typeof input['__parseError'] === 'string'
+    );
+  });
+
+  /**
+   * Get parse error message
+   * TASK_2025_088 Batch 2 Task 2.3: Extract error message for display
+   */
+  readonly parseError = computed(() => {
+    const input = this.node().toolInput;
+    if (
+      input &&
+      typeof input === 'object' &&
+      '__parseError' in input &&
+      typeof input['__parseError'] === 'string'
+    ) {
+      return input['__parseError'];
+    }
+    return '';
+  });
 
   /**
    * Check if tool has clickable file path

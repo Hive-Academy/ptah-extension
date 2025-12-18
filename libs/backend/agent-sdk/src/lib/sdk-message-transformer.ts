@@ -26,163 +26,28 @@ import {
   calculateMessageCost,
 } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  SDKMessage,
+  SDKAssistantMessage,
+  SDKUserMessage,
+  SDKSystemMessage,
+  SDKResultMessage,
+  SDKPartialAssistantMessage,
+  TextBlock,
+  ToolUseBlock,
+  ToolResultBlock,
+  isTextBlock,
+  isToolUseBlock,
+  isToolResultBlock,
+  isResultMessage,
+  isSystemInit,
+  isStreamEvent,
+  isUserMessage,
+  isAssistantMessage,
+} from './types/sdk-types/claude-sdk.types';
 
-/**
- * SDK Types - Manually defined to avoid ESM/CommonJS import issues
- *
- * The SDK package is ESM-only ("type": "module"), but this library is CommonJS.
- * We manually define the types we need from the SDK to avoid TS1479 errors.
- * These types are extracted from @anthropic-ai/claude-agent-sdk/sdk.d.ts
- *
- * Note: These types use structural typing to match SDK types without imports.
- * We use `any` strategically in nested types to maintain compatibility while
- * preserving type safety at the API boundary.
- */
-
-/**
- * Generic SDK message type - accepts any SDK message
- * We perform runtime type checking via switch/case on the 'type' field
- */
-type SDKMessage = {
-  type: string;
-  [key: string]: any;
-};
-
-/**
- * Assistant message type (for internal type hints)
- */
-type SDKAssistantMessage = SDKMessage & {
-  type: 'assistant';
-};
-
-/**
- * User message type (for internal type hints)
- */
-type SDKUserMessage = SDKMessage & {
-  type: 'user';
-};
-
-/**
- * System message type (for internal type hints)
- */
-type SDKSystemMessage = SDKMessage & {
-  type: 'system';
-  subtype: string;
-};
-
-/**
- * Result message type (for internal type hints)
- * Strict type with all required stats fields
- */
-type SDKResultMessage = SDKMessage & {
-  type: 'result';
-  total_cost_usd: number;
-  usage: {
-    input_tokens: number;
-    output_tokens: number;
-  };
-  duration_ms: number;
-};
-
-/**
- * Content block types from Anthropic SDK
- * (defined locally to avoid ESM import issues)
- */
-interface TextBlock {
-  type: 'text';
-  text: string;
-}
-
-interface ToolUseBlock {
-  type: 'tool_use';
-  id: string;
-  name: string;
-  input: Record<string, unknown>;
-}
-
-interface ToolResultBlockParam {
-  type: 'tool_result';
-  tool_use_id: string;
-  content?: string | unknown;
-  is_error?: boolean;
-}
-
-/**
- * Type guard for TextBlock from Anthropic SDK
- */
-function isTextBlock(block: unknown): block is TextBlock {
-  return (
-    typeof block === 'object' &&
-    block !== null &&
-    'type' in block &&
-    block.type === 'text' &&
-    'text' in block
-  );
-}
-
-/**
- * Type guard for ToolUseBlock from Anthropic SDK
- */
-function isToolUseBlock(block: unknown): block is ToolUseBlock {
-  return (
-    typeof block === 'object' &&
-    block !== null &&
-    'type' in block &&
-    block.type === 'tool_use' &&
-    'id' in block &&
-    'name' in block &&
-    'input' in block
-  );
-}
-
-/**
- * Type guard for ToolResultBlockParam
- */
-function isToolResultBlock(block: unknown): block is ToolResultBlockParam {
-  return (
-    typeof block === 'object' &&
-    block !== null &&
-    'type' in block &&
-    block.type === 'tool_result' &&
-    'tool_use_id' in block
-  );
-}
-
-/**
- * Type guard for SDKResultMessage
- * Validates that result message has all required stats fields.
- * Uses bracket notation for index signature compatibility (TS4111).
- */
-function isSDKResultMessage(msg: SDKMessage): msg is SDKResultMessage {
-  if (msg.type !== 'result') return false;
-
-  // Check top-level required fields exist and have correct types
-  if (
-    !('total_cost_usd' in msg) ||
-    !('usage' in msg) ||
-    !('duration_ms' in msg) ||
-    typeof msg['total_cost_usd'] !== 'number' ||
-    typeof msg['duration_ms'] !== 'number'
-  ) {
-    return false;
-  }
-
-  // Validate nested usage object
-  const usage = msg['usage'];
-  if (typeof usage !== 'object' || usage === null) return false;
-
-  return (
-    'input_tokens' in usage &&
-    'output_tokens' in usage &&
-    typeof usage.input_tokens === 'number' &&
-    typeof usage.output_tokens === 'number'
-  );
-}
-
-/**
- * Export type guard for external use
- */
-export { isSDKResultMessage };
+// Re-export isResultMessage for backward compatibility with stream-transformer.ts
+export { isResultMessage as isSDKResultMessage };
 
 /**
  * Generate unique event ID
@@ -235,41 +100,39 @@ export class SdkMessageTransformer {
     sessionId?: SessionId
   ): FlatStreamEventUnion[] {
     try {
-      switch (sdkMessage.type) {
-        case 'assistant':
-          return this.transformAssistantToFlatEvents(
-            sdkMessage as SDKAssistantMessage,
-            sessionId
-          );
-
-        case 'user':
-          return this.transformUserToFlatEvents(
-            sdkMessage as SDKUserMessage,
-            sessionId
-          );
-
-        case 'system':
-          // Skip system messages (init, etc.) - they contain metadata
-          // that shouldn't be displayed as chat messages in the UI.
-          return [];
-
-        case 'result':
-          // Skip result messages - they contain session summary metadata
-          // (cost, duration, tokens) that shouldn't appear as chat bubbles.
-          // This data is handled via callback in StreamTransformer.
-          return [];
-
-        case 'stream_event':
-          // Process partial streaming events for real-time UI updates
-          return this.transformStreamEventToFlatEvents(sdkMessage, sessionId);
-
-        default:
-          this.logger.warn(
-            '[SdkMessageTransformer] Unknown message type',
-            sdkMessage
-          );
-          return [];
+      // Use type guards for discriminated union narrowing
+      if (isAssistantMessage(sdkMessage)) {
+        return this.transformAssistantToFlatEvents(sdkMessage, sessionId);
       }
+
+      if (isUserMessage(sdkMessage)) {
+        return this.transformUserToFlatEvents(sdkMessage, sessionId);
+      }
+
+      if (isSystemInit(sdkMessage)) {
+        // Skip system messages (init, etc.) - they contain metadata
+        // that shouldn't be displayed as chat messages in the UI.
+        return [];
+      }
+
+      if (isResultMessage(sdkMessage)) {
+        // Skip result messages - they contain session summary metadata
+        // (cost, duration, tokens) that shouldn't appear as chat bubbles.
+        // This data is handled via callback in StreamTransformer.
+        return [];
+      }
+
+      if (isStreamEvent(sdkMessage)) {
+        // Process partial streaming events for real-time UI updates
+        return this.transformStreamEventToFlatEvents(sdkMessage, sessionId);
+      }
+
+      // Unknown message type
+      this.logger.warn(
+        '[SdkMessageTransformer] Unknown message type',
+        sdkMessage
+      );
+      return [];
     } catch (error) {
       const errorObj =
         error instanceof Error ? error : new Error(String(error));
@@ -296,10 +159,10 @@ export class SdkMessageTransformer {
    * - error: Stream error
    */
   private transformStreamEventToFlatEvents(
-    sdkMessage: SDKMessage,
+    sdkMessage: SDKPartialAssistantMessage,
     sessionId?: SessionId
   ): FlatStreamEventUnion[] {
-    const { event } = sdkMessage;
+    const { event, parent_tool_use_id } = sdkMessage;
 
     // Skip non-content events
     if (!event || typeof event !== 'object') {
@@ -310,10 +173,7 @@ export class SdkMessageTransformer {
     const blockIndex = (event as { index?: number }).index ?? 0;
 
     // Capture parent_tool_use_id for nested agent messages
-    // This is present on stream_event messages from sub-agents
-    const parentToolUseId = sdkMessage['parent_tool_use_id'] as
-      | string
-      | undefined;
+    const parentToolUseId = parent_tool_use_id ?? undefined;
 
     switch (eventType) {
       // ========== MESSAGE LIFECYCLE ==========
@@ -664,16 +524,29 @@ export class SdkMessageTransformer {
         // Emit tool_start event
         const isTaskTool = block.name === 'Task';
 
-        // Extract agent-specific fields for Task tools
-        const agentType = isTaskTool
-          ? (block.input as { subagent_type?: string }).subagent_type
-          : undefined;
-        const agentDescription = isTaskTool
-          ? (block.input as { description?: string }).description
-          : undefined;
-        const agentPrompt = isTaskTool
-          ? (block.input as { prompt?: string }).prompt
-          : undefined;
+        // Extract agent-specific fields for Task tools using safe property access
+        // block.input is Record<string, unknown>, so we check properties exist
+        let agentType: string | undefined;
+        let agentDescription: string | undefined;
+        let agentPrompt: string | undefined;
+
+        if (isTaskTool && block.input) {
+          // Use bracket notation for index signature properties (TS4111)
+          agentType =
+            'subagent_type' in block.input &&
+            typeof block.input['subagent_type'] === 'string'
+              ? block.input['subagent_type']
+              : undefined;
+          agentDescription =
+            'description' in block.input &&
+            typeof block.input['description'] === 'string'
+              ? block.input['description']
+              : undefined;
+          agentPrompt =
+            'prompt' in block.input && typeof block.input['prompt'] === 'string'
+              ? block.input['prompt']
+              : undefined;
+        }
 
         const toolStartEvent: ToolStartEvent = {
           id: generateEventId(),
@@ -747,7 +620,7 @@ export class SdkMessageTransformer {
       timestamp: Date.now(),
       sessionId: sessionId || '',
       messageId,
-      stopReason: message.stop_reason,
+      stopReason: message.stop_reason ?? undefined,
       tokenUsage,
       cost,
       model: message.model,
@@ -782,9 +655,17 @@ export class SdkMessageTransformer {
       textContent = message.content;
     } else if (Array.isArray(message.content)) {
       // Concatenate text blocks
+      // Filter for text blocks using inline check (UserMessageContent doesn't include ThinkingBlock)
       textContent = message.content
-        .filter(isTextBlock)
-        .map((block: TextBlock) => block.text)
+        .filter(
+          (block): block is TextBlock =>
+            typeof block === 'object' &&
+            block !== null &&
+            'type' in block &&
+            block.type === 'text' &&
+            'text' in block
+        )
+        .map((block) => block.text)
         .join('\n');
     }
 

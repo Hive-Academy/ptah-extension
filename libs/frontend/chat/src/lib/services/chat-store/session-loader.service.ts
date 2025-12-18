@@ -282,13 +282,19 @@ export class SessionLoaderService {
   /**
    * Convert StoredSessionMessage[] to ExecutionChatMessage[]
    *
-   * TASK_2025_086 FIX: Handles MIXED storage formats per-message:
+   * TASK_2025_086 + TASK_2025_088 FIX: Handles storage format issues:
    *
-   * Sessions may contain BOTH formats:
-   * - User messages often use ExecutionNode format (type: 'text')
-   * - Assistant messages often use FlatStreamEventUnion format (eventType: 'text_delta')
+   * OLD BUG: Each streaming event was stored as a SEPARATE message, causing:
+   * - 71 messages instead of 2-3
+   * - FlatStreamEventUnion format with single event per message
+   * - Fragmented display in UI
    *
-   * This method detects format PER MESSAGE, not per session.
+   * DETECTION: If we have many messages where each contains a single FlatStreamEventUnion,
+   * we need to AGGREGATE all events by messageId FIRST, then build proper messages.
+   *
+   * FORMATS:
+   * - ExecutionNode format: Has 'type' field (legacy, correctly stored)
+   * - FlatStreamEventUnion format: Has 'eventType' field (may be fragmented)
    */
   private convertStoredMessages(
     storedMessages: StoredSessionMessage[],
@@ -297,15 +303,75 @@ export class SessionLoaderService {
     console.log(
       '[SessionLoaderService] Converting',
       storedMessages.length,
-      'stored messages (mixed format detection)'
+      'stored messages'
     );
-
-    const messages: ExecutionChatMessage[] = [];
 
     // Filter to chat messages only
     const chatMessages = storedMessages.filter(
       (msg) => msg.role === 'user' || msg.role === 'assistant'
     );
+
+    if (chatMessages.length === 0) {
+      return [];
+    }
+
+    // TASK_2025_088: Detect if we have fragmented flat events that need aggregation
+    // Fragmented = many messages where each contains a single FlatStreamEventUnion
+    const flatEventMessages = chatMessages.filter((msg) => {
+      if (!msg.content || msg.content.length === 0) return false;
+      return 'eventType' in msg.content[0];
+    });
+
+    const executionNodeMessages = chatMessages.filter((msg) => {
+      if (!msg.content || msg.content.length === 0) return false;
+      return 'type' in msg.content[0] && !('eventType' in msg.content[0]);
+    });
+
+    // Heuristic: If >10 flat event messages and most have single event = fragmented
+    const isFragmented =
+      flatEventMessages.length > 10 &&
+      flatEventMessages.filter((m) => m.content.length === 1).length >
+        flatEventMessages.length * 0.7;
+
+    console.log(
+      `[SessionLoaderService] Format analysis: ${flatEventMessages.length} flat event msgs, ${executionNodeMessages.length} execution node msgs, fragmented=${isFragmented}`
+    );
+
+    if (isFragmented) {
+      // AGGREGATION PATH: Old corrupted data - aggregate all flat events by messageId
+      console.log(
+        '[SessionLoaderService] Using AGGREGATION path for fragmented flat events'
+      );
+      const aggregatedMessages = this.convertFlatEventsToMessages(
+        flatEventMessages,
+        sessionId
+      );
+
+      // Also convert any ExecutionNode messages
+      const legacyMessages: ExecutionChatMessage[] = [];
+      for (const stored of executionNodeMessages) {
+        const nodes = stored.content as ExecutionNode[];
+        const converted = this.convertSingleLegacyMessage(
+          stored,
+          nodes,
+          sessionId
+        );
+        if (converted) {
+          legacyMessages.push(converted);
+        }
+      }
+
+      const allMessages = [...aggregatedMessages, ...legacyMessages];
+      allMessages.sort((a, b) => a.timestamp - b.timestamp);
+
+      console.log(
+        `[SessionLoaderService] Aggregated ${flatEventMessages.length} fragmented messages into ${aggregatedMessages.length} proper messages`
+      );
+      return allMessages;
+    }
+
+    // NORMAL PATH: Process each message individually (new correct format)
+    const messages: ExecutionChatMessage[] = [];
 
     for (const stored of chatMessages) {
       if (!stored.content || stored.content.length === 0) {
@@ -315,12 +381,6 @@ export class SessionLoaderService {
       // Detect format for THIS message by checking its content
       const firstContent = stored.content[0];
       const isFlatEventFormat = 'eventType' in firstContent;
-
-      console.log(
-        `[SessionLoaderService] Message ${stored.id} (${stored.role}): format=${
-          isFlatEventFormat ? 'FlatStreamEventUnion' : 'ExecutionNode'
-        }`
-      );
 
       if (isFlatEventFormat) {
         // FlatStreamEventUnion format - convert events to ExecutionNode tree
