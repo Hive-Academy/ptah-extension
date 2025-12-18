@@ -224,12 +224,6 @@ export const MESSAGE_TYPES = {
   // MCP-specific response (frontend → backend for MCP permissions)
   MCP_PERMISSION_RESPONSE: 'permission:response',
 
-  // DEPRECATED aliases for backward compatibility
-  /** @deprecated Use SDK_PERMISSION_RESPONSE instead */
-  CHAT_PERMISSION_RESPONSE: 'chat:permission-response',
-  /** @deprecated Use MCP_PERMISSION_RESPONSE instead */
-  PERMISSION_RESPONSE: 'permission:response',
-
   // ---- Provider Messages ----
   PROVIDERS_GET_AVAILABLE: 'providers:getAvailable',
   PROVIDERS_GET_CURRENT: 'providers:getCurrent',

@@ -5,8 +5,6 @@
  * - AuthManager: Authentication configuration and validation
  * - SessionLifecycleManager: Session creation, tracking, and cleanup
  * - ConfigWatcher: Config change detection and re-initialization
- * - SdkQueryBuilder: SDK query options construction
- * - UserMessageStreamFactory: Async message stream creation
  * - StreamTransformer: SDK message to ExecutionNode transformation
  */
 
@@ -19,12 +17,6 @@ export {
   type ContentBlock,
 } from './session-lifecycle-manager';
 export { ConfigWatcher, type ReinitCallback } from './config-watcher';
-export {
-  SdkQueryBuilder,
-  type SdkQueryOptions,
-  type QueryBuildConfig,
-} from './sdk-query-builder';
-export { UserMessageStreamFactory } from './user-message-stream-factory';
 export {
   StreamTransformer,
   type SessionIdResolvedCallback,

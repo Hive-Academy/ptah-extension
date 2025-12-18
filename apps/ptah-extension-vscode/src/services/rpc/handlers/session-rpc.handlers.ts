@@ -58,7 +58,7 @@ export class SessionRpcHandlers {
   private registerSessionList(): void {
     this.rpcHandler.registerMethod<SessionListParams, SessionListResult>(
       'session:list',
-      async (params) => {
+      async (params: SessionListParams) => {
         try {
           const { workspacePath, limit = 10, offset = 0 } = params;
           this.logger.debug('RPC: session:list called', {
@@ -113,7 +113,7 @@ export class SessionRpcHandlers {
   private registerSessionLoad(): void {
     this.rpcHandler.registerMethod<SessionLoadParams, SessionLoadResult>(
       'session:load',
-      async (params) => {
+      async (params: SessionLoadParams) => {
         try {
           const { sessionId } = params;
 
@@ -155,7 +155,7 @@ export class SessionRpcHandlers {
     this.rpcHandler.registerMethod<
       { sessionId: SessionId },
       { success: boolean; error?: string }
-    >('session:delete', async (params) => {
+    >('session:delete', async (params: { sessionId: SessionId }) => {
       try {
         const { sessionId } = params;
 

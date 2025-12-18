@@ -11,6 +11,9 @@ export * from './lib/types/webview-ui.types';
 export * from './lib/types/model-autopilot.types';
 export * from './lib/types/rpc.types';
 
+// Type guards
+export * from './lib/type-guards/tool-input-guards';
+
 // Utilities
 export * from './lib/utils/message-normalizer';
 export * from './lib/utils';

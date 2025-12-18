@@ -18,8 +18,6 @@ export const SDK_TOKENS = {
   SDK_AUTH_MANAGER: 'SdkAuthManager',
   SDK_SESSION_LIFECYCLE_MANAGER: 'SdkSessionLifecycleManager',
   SDK_CONFIG_WATCHER: 'SdkConfigWatcher',
-  SDK_QUERY_BUILDER: 'SdkQueryBuilder',
-  SDK_USER_MESSAGE_STREAM_FACTORY: 'SdkUserMessageStreamFactory',
   SDK_STREAM_TRANSFORMER: 'SdkStreamTransformer',
   SDK_CLI_DETECTOR: 'SdkCliDetector',
   SDK_ATTACHMENT_PROCESSOR: Symbol('SdkAttachmentProcessor'),

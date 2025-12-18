@@ -22,6 +22,14 @@ import {
 } from 'lucide-angular';
 import { MarkdownModule } from 'ngx-markdown';
 import { PermissionRequest, PermissionResponse } from '@ptah-extension/shared';
+import {
+  isReadToolInput,
+  isWriteToolInput,
+  isEditToolInput,
+  isBashToolInput,
+  isGrepToolInput,
+  isGlobToolInput,
+} from '@ptah-extension/shared';
 
 /**
  * PermissionRequestCardComponent - Polished card for permission requests
@@ -277,56 +285,36 @@ export class PermissionRequestCardComponent {
   /**
    * Format the description with markdown code styling
    * Extracts command/path from description and wraps in backticks
+   * TASK_2025_088 Batch 5 Task 5.2: Use type guards for type-safe access
    */
   protected getFormattedDescription(): string {
     const description = this.request().description;
-    const toolName = this.request().toolName;
     const toolInput = this.request().toolInput;
 
-    // Format based on tool type
-    switch (toolName) {
-      case 'Bash': {
-        const command = toolInput?.['command'] as string | undefined;
-        if (command) {
-          return `Execute bash command: \`${command}\``;
-        }
-        break;
-      }
-      case 'Read': {
-        const filePath = toolInput?.['file_path'] as string | undefined;
-        if (filePath) {
-          return `Read file: \`${filePath}\``;
-        }
-        break;
-      }
-      case 'Write': {
-        const filePath = toolInput?.['file_path'] as string | undefined;
-        if (filePath) {
-          return `Write file: \`${filePath}\``;
-        }
-        break;
-      }
-      case 'Edit': {
-        const filePath = toolInput?.['file_path'] as string | undefined;
-        if (filePath) {
-          return `Edit file: \`${filePath}\``;
-        }
-        break;
-      }
-      case 'Glob': {
-        const pattern = toolInput?.['pattern'] as string | undefined;
-        if (pattern) {
-          return `Search files matching: \`${pattern}\``;
-        }
-        break;
-      }
-      case 'Grep': {
-        const pattern = toolInput?.['pattern'] as string | undefined;
-        if (pattern) {
-          return `Search content for: \`${pattern}\``;
-        }
-        break;
-      }
+    // Format based on tool type using type guards
+    if (isBashToolInput(toolInput)) {
+      const command = toolInput.command;
+      return `Execute bash command: \`${command}\``;
+    }
+    if (isReadToolInput(toolInput)) {
+      const filePath = toolInput.file_path;
+      return `Read file: \`${filePath}\``;
+    }
+    if (isWriteToolInput(toolInput)) {
+      const filePath = toolInput.file_path;
+      return `Write file: \`${filePath}\``;
+    }
+    if (isEditToolInput(toolInput)) {
+      const filePath = toolInput.file_path;
+      return `Edit file: \`${filePath}\``;
+    }
+    if (isGlobToolInput(toolInput)) {
+      const pattern = toolInput.pattern;
+      return `Search files matching: \`${pattern}\``;
+    }
+    if (isGrepToolInput(toolInput)) {
+      const pattern = toolInput.pattern;
+      return `Search content for: \`${pattern}\``;
     }
 
     // Fallback to original description

@@ -28,6 +28,7 @@ import {
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from './di/tokens';
 import { SessionMetadataStore } from './session-metadata-store';
+import { SdkPermissionHandler } from './sdk-permission-handler';
 import {
   SDKMessage,
   UserMessageContent,
@@ -37,8 +38,6 @@ import {
   AuthManager,
   SessionLifecycleManager,
   ConfigWatcher,
-  SdkQueryBuilder,
-  UserMessageStreamFactory,
   StreamTransformer,
   AttachmentProcessorService,
   type SDKUserMessage,
@@ -143,15 +142,222 @@ export class SdkAgentAdapter implements IAIProvider {
     private readonly configWatcher: ConfigWatcher,
     @inject(SDK_TOKENS.SDK_CLI_DETECTOR)
     private readonly cliDetector: ClaudeCliDetector,
-    @inject(SDK_TOKENS.SDK_QUERY_BUILDER)
-    private readonly queryBuilder: SdkQueryBuilder,
-    @inject(SDK_TOKENS.SDK_USER_MESSAGE_STREAM_FACTORY)
-    private readonly messageStreamFactory: UserMessageStreamFactory,
     @inject(SDK_TOKENS.SDK_STREAM_TRANSFORMER)
     private readonly streamTransformer: StreamTransformer,
     @inject(SDK_TOKENS.SDK_ATTACHMENT_PROCESSOR)
-    private readonly attachmentProcessor: AttachmentProcessorService
+    private readonly attachmentProcessor: AttachmentProcessorService,
+    @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
+    private readonly permissionHandler: SdkPermissionHandler
   ) {}
+
+  /**
+   * Build SDK query options for new or resumed session
+   * Inlined from SdkQueryBuilder
+   */
+  private async buildQueryOptions(config: {
+    userMessageStream: AsyncIterable<SDKUserMessage>;
+    abortController: AbortController;
+    sessionConfig?: AISessionConfig;
+    resumeSessionId?: string;
+  }): Promise<{
+    prompt: AsyncIterable<SDKUserMessage>;
+    options: {
+      abortController: AbortController;
+      cwd: string;
+      model: string;
+      resume?: string;
+      maxTurns?: number;
+      systemPrompt: {
+        type: 'preset';
+        preset: 'claude_code';
+        append?: string;
+      };
+      tools: {
+        type: 'preset';
+        preset: 'claude_code';
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      mcpServers: Record<string, any>;
+      permissionMode: 'default' | 'acceptEdits' | 'bypassPermissions';
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      canUseTool: any;
+      includePartialMessages: boolean;
+      settingSources?: Array<'user' | 'project' | 'local'>;
+      env?: Record<string, string | undefined>;
+      stderr?: (data: string) => void;
+    };
+  }> {
+    const {
+      userMessageStream,
+      abortController,
+      sessionConfig,
+      resumeSessionId,
+    } = config;
+
+    // Model is required - SDK sets default in config at startup
+    if (!sessionConfig?.model) {
+      throw new Error('Model not provided - ensure SDK is initialized');
+    }
+    const model = sessionConfig.model;
+    const cwd = sessionConfig?.projectPath || process.cwd();
+
+    // Build system prompt configuration
+    const systemPrompt = sessionConfig?.systemPrompt
+      ? {
+          type: 'preset' as const,
+          preset: 'claude_code' as const,
+          append: sessionConfig.systemPrompt,
+        }
+      : {
+          type: 'preset' as const,
+          preset: 'claude_code' as const,
+        };
+
+    // CRITICAL: Create canUseTool callback
+    const canUseToolCallback = this.permissionHandler.createCallback();
+
+    // Default port for Ptah HTTP MCP server (from vscode-lm-tools/CodeExecutionMCP)
+    const PTAH_MCP_PORT = 51820;
+
+    // Log query options with permission details
+    this.logger.info('[SdkAgentAdapter] Building SDK query options', {
+      cwd,
+      model,
+      isResume: !!resumeSessionId,
+      resumeSessionId: resumeSessionId
+        ? `${resumeSessionId.slice(0, 8)}...`
+        : undefined,
+      permissionMode: 'default',
+      hasCanUseToolCallback: !!canUseToolCallback,
+    });
+
+    return {
+      prompt: userMessageStream,
+      options: {
+        abortController,
+        cwd,
+        model,
+        resume: resumeSessionId,
+        maxTurns: sessionConfig?.maxTokens
+          ? Math.floor(sessionConfig.maxTokens / 1000)
+          : undefined,
+        systemPrompt,
+        tools: {
+          type: 'preset' as const,
+          preset: 'claude_code' as const,
+        },
+        // Use HTTP MCP server from vscode-lm-tools/CodeExecutionMCP
+        // Provides execute_code tool with 11 Ptah API namespaces
+        mcpServers: {
+          ptah: {
+            type: 'http',
+            url: `http://localhost:${PTAH_MCP_PORT}`,
+          },
+        },
+        // CRITICAL: permissionMode must be 'default' for canUseTool to be invoked
+        // If set to 'bypassPermissions', canUseTool is never called
+        permissionMode: 'default',
+        canUseTool: canUseToolCallback,
+        includePartialMessages: true,
+        // Load settings from user and project directories
+        // Required for CLAUDE.md files and proper CLI initialization
+        settingSources: ['user', 'project', 'local'],
+        // Pass current environment variables (includes CLAUDE_CODE_OAUTH_TOKEN from AuthManager)
+        env: process.env as Record<string, string | undefined>,
+        // Capture stderr for debugging CLI failures
+        stderr: (data: string) => {
+          this.logger.error(`[SdkAgentAdapter] CLI stderr: ${data}`);
+        },
+      },
+    };
+  }
+
+  /**
+   * Create a user message stream for SDK consumption
+   * Inlined from UserMessageStreamFactory
+   *
+   * @param sessionId - The session to create stream for
+   * @param abortController - Controller to signal stream termination
+   * @returns AsyncIterable that yields SDKUserMessage objects
+   */
+  private createUserMessageStream(
+    sessionId: SessionId,
+    abortController: AbortController
+  ): AsyncIterable<SDKUserMessage> {
+    const sessionLifecycle = this.sessionLifecycle;
+    const logger = this.logger;
+    const MESSAGE_TIMEOUT_MS = 5 * 60 * 1000;
+
+    return {
+      async *[Symbol.asyncIterator]() {
+        while (!abortController.signal.aborted) {
+          const session = sessionLifecycle.getActiveSession(sessionId);
+          if (!session) {
+            logger.warn(
+              `[SdkAgentAdapter] Session ${sessionId} not found - ending stream`
+            );
+            return;
+          }
+
+          // Drain all queued messages
+          while (session.messageQueue.length > 0) {
+            const message = session.messageQueue.shift();
+            if (message) {
+              logger.debug(
+                `[SdkAgentAdapter] Yielding message (${session.messageQueue.length} remaining)`
+              );
+              yield message;
+            }
+            if (abortController.signal.aborted) return;
+          }
+
+          // Wait for next message
+          const waitResult = await new Promise<
+            'message' | 'aborted' | 'timeout'
+          >((resolve) => {
+            const abortHandler = () => resolve('aborted');
+            abortController.signal.addEventListener('abort', abortHandler);
+
+            const currentSession = sessionLifecycle.getActiveSession(sessionId);
+            if (!currentSession) {
+              resolve('aborted');
+              return;
+            }
+
+            // Check queue again before waiting
+            if (currentSession.messageQueue.length > 0) {
+              abortController.signal.removeEventListener('abort', abortHandler);
+              resolve('message');
+              return;
+            }
+
+            // Set timeout
+            const timeoutId = setTimeout(() => {
+              logger.warn(`[SdkAgentAdapter] Session ${sessionId} timeout`);
+              abortController.signal.removeEventListener('abort', abortHandler);
+              resolve('timeout');
+            }, MESSAGE_TIMEOUT_MS);
+
+            // Set wake callback
+            currentSession.resolveNext = () => {
+              clearTimeout(timeoutId);
+              abortController.signal.removeEventListener('abort', abortHandler);
+              resolve('message');
+            };
+
+            logger.debug(
+              `[SdkAgentAdapter] Waiting for message (${sessionId})...`
+            );
+          });
+
+          if (waitResult === 'aborted' || waitResult === 'timeout') {
+            logger.debug(`[SdkAgentAdapter] Stream ended: ${waitResult}`);
+            return;
+          }
+        }
+      },
+    };
+  }
 
   /**
    * Initialize the SDK adapter
@@ -420,7 +626,7 @@ export class SdkAgentAdapter implements IAIProvider {
     this.logger.info('[SdkAgentAdapter] SDK imported successfully');
 
     // Create user message stream (session is now pre-registered, so it can be found)
-    const userMessageStream = this.messageStreamFactory.create(
+    const userMessageStream = this.createUserMessageStream(
       sessionId,
       abortController
     );
@@ -431,7 +637,7 @@ export class SdkAgentAdapter implements IAIProvider {
       usingBuiltIn: true,
     });
 
-    const queryOptions = await this.queryBuilder.build({
+    const queryOptions = await this.buildQueryOptions({
       userMessageStream,
       abortController,
       sessionConfig: config,
@@ -520,13 +726,13 @@ export class SdkAgentAdapter implements IAIProvider {
     this.logger.info('[SdkAgentAdapter] SDK imported for session resume');
 
     // Create user message stream
-    const userMessageStream = this.messageStreamFactory.create(
+    const userMessageStream = this.createUserMessageStream(
       sessionId,
       abortController
     );
 
     // Build query with resume option - SDK loads history from its native storage
-    const queryOptions = await this.queryBuilder.build({
+    const queryOptions = await this.buildQueryOptions({
       userMessageStream,
       abortController,
       sessionConfig: config,

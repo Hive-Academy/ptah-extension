@@ -24,6 +24,9 @@ export { SdkMessageTransformer } from './lib/sdk-message-transformer';
 export { SessionMetadataStore } from './lib/session-metadata-store';
 export type { SessionMetadata } from './lib/session-metadata-store';
 
+// SDK type exports (centralized SDK types)
+export * from './lib/types/sdk-types/claude-sdk.types';
+
 // Permission handler exports
 export { SdkPermissionHandler } from './lib/sdk-permission-handler';
 

@@ -161,7 +161,7 @@ export class PermissionHandlerService {
 
     // Use public VSCodeService.postMessage() API
     this.vscodeService.postMessage({
-      type: MESSAGE_TYPES.CHAT_PERMISSION_RESPONSE,
+      type: MESSAGE_TYPES.SDK_PERMISSION_RESPONSE,
       response,
     });
   }

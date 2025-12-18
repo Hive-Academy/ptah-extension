@@ -17,6 +17,16 @@ import { ToolIconComponent } from '../atoms/tool-icon.component';
 import { FilePathLinkComponent } from '../atoms/file-path-link.component';
 import { DurationBadgeComponent } from '../atoms/duration-badge.component';
 import type { ExecutionNode } from '@ptah-extension/shared';
+import {
+  isReadToolInput,
+  isWriteToolInput,
+  isEditToolInput,
+  isBashToolInput,
+  isGrepToolInput,
+  isGlobToolInput,
+  isWebFetchToolInput,
+  isWebSearchToolInput,
+} from '@ptah-extension/shared';
 
 /**
  * ToolCallHeaderComponent - Header section for tool call display
@@ -165,79 +175,102 @@ export class ToolCallHeaderComponent {
   /**
    * Check if tool has clickable file path
    * Extracted from tool-call-item.component.ts:342-349
+   * TASK_2025_088 Batch 5 Task 5.2: Use type guards instead of bracket notation
    */
   protected hasClickableFilePath(): boolean {
-    const toolName = this.node().toolName;
     const toolInput = this.node().toolInput;
     return (
-      ['Read', 'Write', 'Edit'].includes(toolName || '') &&
-      typeof toolInput?.['file_path'] === 'string'
+      isReadToolInput(toolInput) ||
+      isWriteToolInput(toolInput) ||
+      isEditToolInput(toolInput)
     );
   }
 
   /**
    * Get file path from tool input
+   * TASK_2025_088 Batch 5 Task 5.2: Type-safe access after type guard
    */
   protected getFilePath(): string {
-    return this.node().toolInput?.['file_path'] as string;
+    const toolInput = this.node().toolInput;
+    if (isReadToolInput(toolInput)) {
+      return toolInput.file_path;
+    }
+    if (isWriteToolInput(toolInput)) {
+      return toolInput.file_path;
+    }
+    if (isEditToolInput(toolInput)) {
+      return toolInput.file_path;
+    }
+    return '';
   }
 
   /**
    * Get tool description for display
    * Extracted from tool-call-item.component.ts:360-383
+   * TASK_2025_088 Batch 5 Task 5.2: Use type guards for type-safe access
    */
   protected getToolDescription(): string {
     const node = this.node();
     const toolName = node.toolName || '';
     const toolInput = node.toolInput;
 
-    switch (toolName) {
-      case 'Read':
-      case 'Write':
-      case 'Edit':
-        return this.shortenPath(toolInput?.['file_path'] as string) || '...';
-      case 'Bash': {
-        const cmd = toolInput?.['command'] as string;
-        const desc = toolInput?.['description'] as string;
-        if (desc) return desc;
-        return cmd ? this.truncate(cmd, 40) : '...';
-      }
-      case 'Grep':
-        return this.truncate(toolInput?.['pattern'] as string, 30) || '...';
-      case 'Glob':
-        return this.truncate(toolInput?.['pattern'] as string, 30) || '...';
-      default:
-        return toolName;
+    if (isReadToolInput(toolInput)) {
+      return this.shortenPath(toolInput.file_path) || '...';
     }
+    if (isWriteToolInput(toolInput)) {
+      return this.shortenPath(toolInput.file_path) || '...';
+    }
+    if (isEditToolInput(toolInput)) {
+      return this.shortenPath(toolInput.file_path) || '...';
+    }
+    if (isBashToolInput(toolInput)) {
+      const desc = toolInput.description;
+      if (desc) return desc;
+      const cmd = toolInput.command;
+      return cmd ? this.truncate(cmd, 40) : '...';
+    }
+    if (isGrepToolInput(toolInput)) {
+      return this.truncate(toolInput.pattern, 30) || '...';
+    }
+    if (isGlobToolInput(toolInput)) {
+      return this.truncate(toolInput.pattern, 30) || '...';
+    }
+    return toolName;
   }
 
   /**
    * Get full description for title attribute
    * Extracted from tool-call-item.component.ts:385-403
+   * TASK_2025_088 Batch 5 Task 5.2: Use type guards for type-safe access
    */
   protected getFullDescription(): string {
-    const node = this.node();
-    const toolInput = node.toolInput;
-    const toolName = node.toolName || '';
+    const toolInput = this.node().toolInput;
 
-    switch (toolName) {
-      case 'Read':
-      case 'Write':
-      case 'Edit':
-        return (toolInput?.['file_path'] as string) || '';
-      case 'Bash':
-        return (toolInput?.['command'] as string) || '';
-      case 'Grep':
-      case 'Glob':
-        return (toolInput?.['pattern'] as string) || '';
-      default:
-        return '';
+    if (isReadToolInput(toolInput)) {
+      return toolInput.file_path;
     }
+    if (isWriteToolInput(toolInput)) {
+      return toolInput.file_path;
+    }
+    if (isEditToolInput(toolInput)) {
+      return toolInput.file_path;
+    }
+    if (isBashToolInput(toolInput)) {
+      return toolInput.command;
+    }
+    if (isGrepToolInput(toolInput)) {
+      return toolInput.pattern;
+    }
+    if (isGlobToolInput(toolInput)) {
+      return toolInput.pattern;
+    }
+    return '';
   }
 
   /**
    * Get streaming description
    * Extracted from tool-call-item.component.ts:666-701
+   * TASK_2025_088 Batch 5 Task 5.2: Use type guards for type-safe access
    */
   protected getStreamingDescription(): string {
     const toolName = this.node().toolName;
@@ -245,35 +278,37 @@ export class ToolCallHeaderComponent {
 
     if (!toolName || !input) return 'Working...';
 
-    switch (toolName) {
-      case 'Read':
-        return `Reading ${this.shortenPath(input['file_path'] as string)}...`;
-      case 'Write':
-        return `Writing ${this.shortenPath(input['file_path'] as string)}...`;
-      case 'Edit':
-        return `Editing ${this.shortenPath(input['file_path'] as string)}...`;
-      case 'Bash': {
-        const desc = input['description'] as string;
-        if (desc) return `${desc}...`;
-        const cmd = input['command'] as string;
-        return `Running ${this.truncate(cmd, 20)}...`;
-      }
-      case 'Grep':
-        return `Searching for "${this.truncate(
-          input['pattern'] as string,
-          15
-        )}"...`;
-      case 'Glob':
-        return `Finding ${this.truncate(input['pattern'] as string, 15)}...`;
-      case 'Task':
-        return 'Invoking agent...';
-      case 'WebFetch':
-        return `Fetching ${this.truncate(input['url'] as string, 20)}...`;
-      case 'WebSearch':
-        return `Searching "${this.truncate(input['query'] as string, 15)}"...`;
-      default:
-        return `Executing ${toolName}...`;
+    if (isReadToolInput(input)) {
+      return `Reading ${this.shortenPath(input.file_path)}...`;
     }
+    if (isWriteToolInput(input)) {
+      return `Writing ${this.shortenPath(input.file_path)}...`;
+    }
+    if (isEditToolInput(input)) {
+      return `Editing ${this.shortenPath(input.file_path)}...`;
+    }
+    if (isBashToolInput(input)) {
+      const desc = input.description;
+      if (desc) return `${desc}...`;
+      const cmd = input.command;
+      return `Running ${this.truncate(cmd, 20)}...`;
+    }
+    if (isGrepToolInput(input)) {
+      return `Searching for "${this.truncate(input.pattern, 15)}"...`;
+    }
+    if (isGlobToolInput(input)) {
+      return `Finding ${this.truncate(input.pattern, 15)}...`;
+    }
+    if (isWebFetchToolInput(input)) {
+      return `Fetching ${this.truncate(input.url, 20)}...`;
+    }
+    if (isWebSearchToolInput(input)) {
+      return `Searching "${this.truncate(input.query, 15)}"...`;
+    }
+    if (toolName === 'Task') {
+      return 'Invoking agent...';
+    }
+    return `Executing ${toolName}...`;
   }
 
   /**

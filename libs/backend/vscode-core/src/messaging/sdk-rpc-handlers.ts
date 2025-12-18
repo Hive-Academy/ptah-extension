@@ -45,16 +45,22 @@ interface SdkPermissionHandler {
     requestId: string,
     response: {
       approved: boolean;
-      modifiedInput?: any;
+      modifiedInput?: Record<string, unknown>;
       reason?: string;
     }
   ): void;
-  setEventEmitter(emitter: (event: string, payload: any) => void): void;
+  setEventEmitter(
+    emitter: (event: string, payload: FlatStreamEventUnion) => void
+  ): void;
 }
 
 // Webview manager interface
 interface WebviewManager {
-  sendMessage(viewType: string, type: string, payload: any): Promise<void>;
+  sendMessage<T = unknown>(
+    viewType: string,
+    type: string,
+    payload: T
+  ): Promise<void>;
 }
 
 /**
@@ -94,14 +100,14 @@ export class SdkRpcHandlers {
     );
 
     // Create emitter that sends permission requests to webview
-    const emitter = (event: string, payload: any): void => {
+    const emitter = (event: string, payload: FlatStreamEventUnion): void => {
       this.logger.debug(`[SdkRpcHandlers] Permission event: ${event}`, {
         payload,
       });
 
       // Send to webview - fire and forget (async but we don't await)
       this.webviewManager
-        .sendMessage('ptah.main', event, payload)
+        .sendMessage<FlatStreamEventUnion>('ptah.main', event, payload)
         .catch((error) => {
           this.logger.error(
             `[SdkRpcHandlers] Failed to send permission event: ${event}`,
@@ -308,7 +314,7 @@ export class SdkRpcHandlers {
   handlePermissionResponse(params: {
     requestId: string;
     approved: boolean;
-    modifiedInput?: any;
+    modifiedInput?: Record<string, unknown>;
     reason?: string;
   }): void {
     try {

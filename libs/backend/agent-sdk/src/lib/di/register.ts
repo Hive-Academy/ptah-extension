@@ -23,8 +23,6 @@ import {
   AuthManager,
   SessionLifecycleManager,
   ConfigWatcher,
-  SdkQueryBuilder,
-  UserMessageStreamFactory,
   StreamTransformer,
   AttachmentProcessorService,
 } from '../helpers';
@@ -104,20 +102,6 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
     { useClass: SessionLifecycleManager },
-    { lifecycle: Lifecycle.Singleton }
-  );
-
-  // Query builder - depends on Logger, SdkPermissionHandler
-  container.register(
-    SDK_TOKENS.SDK_QUERY_BUILDER,
-    { useClass: SdkQueryBuilder },
-    { lifecycle: Lifecycle.Singleton }
-  );
-
-  // User message stream factory - depends on Logger, SessionLifecycleManager
-  container.register(
-    SDK_TOKENS.SDK_USER_MESSAGE_STREAM_FACTORY,
-    { useClass: UserMessageStreamFactory },
     { lifecycle: Lifecycle.Singleton }
   );
 
