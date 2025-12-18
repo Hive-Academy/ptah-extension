@@ -12,6 +12,7 @@ import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { SdkSessionStorage } from '@ptah-extension/agent-sdk';
 import {
+  SessionId,
   SessionListParams,
   SessionListResult,
   SessionLoadParams,
@@ -35,9 +36,10 @@ export class SessionRpcHandlers {
   register(): void {
     this.registerSessionList();
     this.registerSessionLoad();
+    this.registerSessionDelete();
 
     this.logger.debug('Session RPC handlers registered', {
-      methods: ['session:list', 'session:load'],
+      methods: ['session:list', 'session:load', 'session:delete'],
     });
   }
 
@@ -134,5 +136,37 @@ export class SessionRpcHandlers {
         }
       }
     );
+  }
+
+  /**
+   * session:delete - Delete session from SDK storage (TASK_2025_086)
+   */
+  private registerSessionDelete(): void {
+    this.rpcHandler.registerMethod<
+      { sessionId: SessionId },
+      { success: boolean; error?: string }
+    >('session:delete', async (params) => {
+      try {
+        const { sessionId } = params;
+
+        this.logger.info('RPC: session:delete called', { sessionId });
+
+        // Delete from SDK storage
+        await this.sdkStorage.deleteSession(sessionId);
+
+        this.logger.info('RPC: session:delete succeeded', { sessionId });
+
+        return { success: true };
+      } catch (error) {
+        this.logger.error(
+          'RPC: session:delete failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
   }
 }

@@ -236,9 +236,20 @@ export class ChatRpcHandlers {
     sessionId: SessionId,
     stream: AsyncIterable<FlatStreamEventUnion>
   ): Promise<void> {
+    this.logger.info(
+      `[RPC] streamExecutionNodesToWebview STARTED for session ${sessionId}`
+    );
+    let eventCount = 0;
+
     try {
       for await (const event of stream) {
-        await this.webviewManager.sendMessage(
+        eventCount++;
+        this.logger.debug(
+          `[RPC] Streaming event #${eventCount} type=${event.eventType} to webview`,
+          { sessionId, eventType: event.eventType, messageId: event.messageId }
+        );
+
+        const sendResult = await this.webviewManager.sendMessage(
           'ptah.main',
           MESSAGE_TYPES.CHAT_CHUNK,
           {
@@ -246,7 +257,16 @@ export class ChatRpcHandlers {
             event,
           }
         );
+
+        this.logger.debug(`[RPC] CHAT_CHUNK sent, result=${sendResult}`, {
+          sessionId,
+          eventCount,
+        });
       }
+
+      this.logger.info(
+        `[RPC] Stream completed for session ${sessionId}, total events: ${eventCount}`
+      );
 
       // Stream completed successfully
       await this.webviewManager.sendMessage(
@@ -259,7 +279,7 @@ export class ChatRpcHandlers {
       );
     } catch (error) {
       this.logger.error(
-        `[RPC] Error streaming flat events for session ${sessionId}`,
+        `[RPC] Error streaming flat events for session ${sessionId} after ${eventCount} events`,
         error instanceof Error ? error : new Error(String(error))
       );
       await this.webviewManager.sendMessage(

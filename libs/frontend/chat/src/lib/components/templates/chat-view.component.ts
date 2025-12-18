@@ -9,7 +9,6 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { NgOptimizedImage } from '@angular/common';
-import { LucideAngularModule, Square } from 'lucide-angular';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { ChatInputComponent } from '../molecules/chat-input.component';
 import { PermissionRequestCardComponent } from '../molecules/permission-request-card.component';
@@ -48,7 +47,6 @@ import {
   standalone: true,
   imports: [
     NgOptimizedImage,
-    LucideAngularModule,
     MessageBubbleComponent,
     ChatInputComponent,
     PermissionRequestCardComponent,
@@ -61,9 +59,6 @@ import {
 export class ChatViewComponent {
   readonly chatStore = inject(ChatStore);
   private readonly vscodeService = inject(VSCodeService);
-
-  // Stop button icon
-  readonly SquareIcon = Square;
 
   @ViewChild('messageContainer') messageContainer?: ElementRef<HTMLElement>;
 

@@ -21,6 +21,7 @@ import {
   AgentStartEvent,
   MessageCompleteEvent,
   MessageDeltaEvent,
+  SignatureDeltaEvent,
   SessionId,
   calculateMessageCost,
 } from '@ptah-extension/shared';
@@ -378,11 +379,29 @@ export class SdkMessageTransformer {
           `[SdkMessageTransformer] Stream stopped: ${this.currentMessageId}`
         );
 
-        // Clear tracking (assistant message will emit message_complete)
+        // TASK_2025_086: Emit message_complete when stream ends
+        // This is CRITICAL - without this, StreamTransformer never stores the message
+        // because it waits for message_complete to finalize the accumulator
+        const events: FlatStreamEventUnion[] = [];
+
+        if (this.currentMessageId) {
+          const messageCompleteEvent: MessageCompleteEvent = {
+            id: generateEventId(),
+            eventType: 'message_complete',
+            timestamp: Date.now(),
+            sessionId: sessionId || '',
+            messageId: this.currentMessageId,
+            // Note: token usage comes from message_delta events, not message_stop
+            parentToolUseId,
+          };
+          events.push(messageCompleteEvent);
+        }
+
+        // Clear tracking after emitting complete event
         this.currentMessageId = null;
         this.toolCallIdByBlockIndex.clear();
 
-        return [];
+        return events;
       }
 
       // ========== CONTENT BLOCK LIFECYCLE ==========
@@ -528,6 +547,25 @@ export class SdkMessageTransformer {
             return [thinkingDeltaEvent];
           }
 
+          case 'signature_delta': {
+            // Extended thinking signature validation
+            // Emitted after thinking block to provide cryptographic verification
+            if (!delta.signature) return [];
+
+            const signatureDeltaEvent: SignatureDeltaEvent = {
+              id: generateEventId(),
+              eventType: 'signature_delta',
+              timestamp: Date.now(),
+              sessionId: sessionId || '',
+              messageId: this.currentMessageId,
+              blockIndex,
+              signature: delta.signature,
+              parentToolUseId,
+            };
+
+            return [signatureDeltaEvent];
+          }
+
           default:
             this.logger.debug(
               `[SdkMessageTransformer] Unknown delta type: ${delta.type}`
@@ -586,13 +624,19 @@ export class SdkMessageTransformer {
     // Extract content blocks from Anthropic SDK message
     const content = message.content || [];
 
+    // TASK_2025_087 FIX: Use message.id (Anthropic API ID) for consistency with stream_event
+    // Stream events use event.message.id, so we must match that for deduplication to work.
+    // The SDK's internal `uuid` is different for stream_event vs assistant messages,
+    // but `message.id` (Anthropic API ID like msg_xxx) is consistent across both.
+    const messageId = message?.id || uuid;
+
     // 1. Emit message_start
     const messageStartEvent: MessageStartEvent = {
       id: generateEventId(),
       eventType: 'message_start',
       timestamp: Date.now(),
       sessionId: sessionId || '',
-      messageId: uuid,
+      messageId,
       role: 'assistant',
       parentToolUseId: parent_tool_use_id ?? undefined,
     };
@@ -609,7 +653,7 @@ export class SdkMessageTransformer {
           eventType: 'text_delta',
           timestamp: Date.now(),
           sessionId: sessionId || '',
-          messageId: uuid,
+          messageId,
           delta: block.text,
           blockIndex: textBlockIndex,
           parentToolUseId: parent_tool_use_id ?? undefined,
@@ -636,7 +680,7 @@ export class SdkMessageTransformer {
           eventType: 'tool_start',
           timestamp: Date.now(),
           sessionId: sessionId || '',
-          messageId: uuid,
+          messageId,
           toolCallId: block.id,
           toolName: block.name,
           toolInput: block.input,
@@ -654,7 +698,7 @@ export class SdkMessageTransformer {
             eventType: 'agent_start',
             timestamp: Date.now(),
             sessionId: sessionId || '',
-            messageId: uuid,
+            messageId,
             toolCallId: block.id,
             agentType: agentType || 'unknown',
             agentDescription,
@@ -672,7 +716,7 @@ export class SdkMessageTransformer {
           eventType: 'tool_result',
           timestamp: Date.now(),
           sessionId: sessionId || '',
-          messageId: uuid,
+          messageId,
           toolCallId: block.tool_use_id,
           output: block.content,
           isError: block.is_error ?? false,
@@ -702,7 +746,7 @@ export class SdkMessageTransformer {
       eventType: 'message_complete',
       timestamp: Date.now(),
       sessionId: sessionId || '',
-      messageId: uuid,
+      messageId,
       stopReason: message.stop_reason,
       tokenUsage,
       cost,
@@ -721,6 +765,8 @@ export class SdkMessageTransformer {
    * - message_start
    * - text_delta (with full text)
    * - message_complete
+   *
+   * TASK_2025_086: Skips empty user messages (SDK sends these for tool result confirmations)
    */
   private transformUserToFlatEvents(
     sdkMessage: SDKUserMessage,
@@ -742,6 +788,15 @@ export class SdkMessageTransformer {
         .join('\n');
     }
 
+    // TASK_2025_086: Skip empty user messages (SDK sends these for tool result confirmations)
+    // This prevents empty "You" bubbles from appearing in the UI
+    if (!textContent || !textContent.trim()) {
+      this.logger.debug('[SdkMessageTransformer] Skipping empty user message', {
+        uuid,
+      });
+      return [];
+    }
+
     // 1. Emit message_start
     const messageStartEvent: MessageStartEvent = {
       id: generateEventId(),
@@ -754,18 +809,16 @@ export class SdkMessageTransformer {
     events.push(messageStartEvent);
 
     // 2. Emit text_delta with full text
-    if (textContent) {
-      const textDeltaEvent: TextDeltaEvent = {
-        id: generateEventId(),
-        eventType: 'text_delta',
-        timestamp: Date.now(),
-        sessionId: sessionId || '',
-        messageId: uuid || `user-${Date.now()}`,
-        delta: textContent,
-        blockIndex: 0,
-      };
-      events.push(textDeltaEvent);
-    }
+    const textDeltaEvent: TextDeltaEvent = {
+      id: generateEventId(),
+      eventType: 'text_delta',
+      timestamp: Date.now(),
+      sessionId: sessionId || '',
+      messageId: uuid || `user-${Date.now()}`,
+      delta: textContent,
+      blockIndex: 0,
+    };
+    events.push(textDeltaEvent);
 
     // 3. Emit message_complete
     const messageCompleteEvent: MessageCompleteEvent = {

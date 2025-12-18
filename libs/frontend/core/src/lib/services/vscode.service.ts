@@ -186,8 +186,22 @@ export class VSCodeService {
 
       // Route chat:chunk messages to ChatStore (SDK path only)
       if (message.type === MESSAGE_TYPES.CHAT_CHUNK) {
+        console.log('[VSCodeService] CHAT_CHUNK received!', {
+          hasPayload: !!message.payload,
+          hasChatStore: !!this.chatStore,
+        });
         if (message.payload && this.chatStore) {
-          const event = message.payload as FlatStreamEventUnion;
+          // TASK_2025_086 FIX: Extract event from payload object
+          // Backend sends { sessionId, event }, not just the event directly
+          const { sessionId, event } = message.payload as {
+            sessionId: string;
+            event: FlatStreamEventUnion;
+          };
+          console.log('[VSCodeService] Processing CHAT_CHUNK event', {
+            sessionId,
+            eventType: event?.eventType,
+            messageId: event?.messageId,
+          });
           this.chatStore.processStreamEvent(event);
         } else if (!message.payload) {
           console.warn(
@@ -227,21 +241,6 @@ export class VSCodeService {
         } else {
           console.warn(
             '[VSCodeService] chat:error received but ChatStore not registered!'
-          );
-        }
-      }
-
-      // Handle session ID resolution (TASK_2025_027 Batch 2)
-      if (message.type === MESSAGE_TYPES.SESSION_ID_RESOLVED) {
-        if (message.payload && this.chatStore) {
-          this.chatStore.handleSessionIdResolved(message.payload);
-        } else if (!message.payload) {
-          console.warn(
-            '[VSCodeService] session:id-resolved received but payload is undefined!'
-          );
-        } else {
-          console.warn(
-            '[VSCodeService] session:id-resolved received but ChatStore not registered!'
           );
         }
       }

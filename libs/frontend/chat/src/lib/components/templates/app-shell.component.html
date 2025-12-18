@@ -103,10 +103,10 @@
     <div class="flex-1 overflow-y-auto p-1">
       <ul class="menu menu-sm p-0 gap-0.5">
         @for (session of chatStore.sessions(); track session.id) {
-        <li>
+        <li class="group relative">
           <button
             type="button"
-            class="flex flex-col items-start gap-0.5 py-1.5 px-2 w-full text-left rounded-lg border border-transparent"
+            class="flex flex-col items-start gap-0.5 py-1.5 px-2 pr-7 w-full text-left rounded-lg border border-transparent"
             [class.active]="session.id === chatStore.currentSession()?.id"
             [class.bg-primary]="session.id === chatStore.currentSession()?.id"
             [class.text-primary-content]="
@@ -137,6 +137,16 @@
               </span>
               }
             </span>
+          </button>
+          <!-- Delete button (appears on hover) -->
+          <button
+            type="button"
+            class="absolute right-1 top-1/2 -translate-y-1/2 btn btn-ghost btn-xs btn-square opacity-0 group-hover:opacity-100 transition-opacity hover:text-error"
+            title="Delete session"
+            aria-label="Delete session"
+            (click)="deleteSession($event, session)"
+          >
+            <lucide-angular [img]="Trash2Icon" class="w-3 h-3" />
           </button>
         </li>
         } @empty {

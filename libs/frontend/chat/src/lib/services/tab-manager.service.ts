@@ -1,5 +1,4 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { v4 as uuidv4 } from 'uuid';
 import { TabState } from './chat.types';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 
@@ -54,18 +53,11 @@ export class TabManagerService {
   // ============================================================================
 
   /**
-   * Find a tab by its session ID (real Claude ID or placeholder)
-   * @param sessionId - Either the real Claude CLI session UUID or placeholder ID
-   * @returns Tab state if found, null otherwise
+   * Find a tab by its Claude session ID
+   * Returns null for tabs without sessions (new tabs)
    */
   findTabBySessionId(sessionId: string): TabState | null {
-    return (
-      this._tabs().find(
-        (t) =>
-          t.claudeSessionId === sessionId ||
-          t.placeholderSessionId === sessionId
-      ) ?? null
-    );
+    return this._tabs().find((t) => t.claudeSessionId === sessionId) ?? null;
   }
 
   // ============================================================================
@@ -138,18 +130,17 @@ export class TabManagerService {
 
   /**
    * Create a new tab
-   * @param name - Optional session name (defaults to slugified timestamp via AppShell)
+   * @param name - Optional session name
    * @returns Tab ID
    */
   createTab(name?: string): string {
     const id = this.generateTabId();
-    const placeholderId = uuidv4(); // ✅ Proper UUID v4 instead of msg_${Date.now()}
-    const sessionName = name || `New Chat`;
+    const sessionName = name || 'New Chat';
 
     const newTab: TabState = {
       id,
-      claudeSessionId: null,
-      placeholderSessionId: placeholderId, // Valid UUID v4
+      claudeSessionId: null, // Set by StreamingHandler on first streaming event
+      placeholderSessionId: null, // No longer used
       name: sessionName,
       title: sessionName,
       order: this._tabs().length,
@@ -164,12 +155,7 @@ export class TabManagerService {
     this._activeTabId.set(id);
     this.saveTabState();
 
-    console.log(
-      '[TabManager] Tab created with UUID placeholder:',
-      id,
-      sessionName,
-      placeholderId
-    );
+    console.log('[TabManager] Tab created (no session yet):', id, sessionName);
     return id;
   }
 
@@ -273,34 +259,6 @@ export class TabManagerService {
     });
     this.saveTabState();
     console.log('[TabManager] Tabs reordered:', fromIndex, '->', toIndex);
-  }
-
-  /**
-   * Atomically resolve placeholder session ID to real Claude session ID.
-   * Prevents race conditions during tab switching by using placeholder ID for lookup.
-   * @param placeholderId - Placeholder session ID (UUID v4)
-   * @param claudeSessionId - Real Claude CLI session UUID
-   */
-  resolveSessionId(placeholderId: string, claudeSessionId: string): void {
-    this._tabs.update((tabs) =>
-      tabs.map((tab) =>
-        tab.placeholderSessionId === placeholderId
-          ? {
-              ...tab,
-              claudeSessionId,
-              placeholderSessionId: null, // ✅ Clear after resolution
-              status: 'streaming' as const,
-            }
-          : tab
-      )
-    );
-    this.saveTabState();
-    console.log(
-      '[TabManager] Session ID resolved (atomic):',
-      placeholderId,
-      '->',
-      claudeSessionId
-    );
   }
 
   // ============================================================================
@@ -469,11 +427,19 @@ export class TabManagerService {
       }
 
       if (state.tabs && Array.isArray(state.tabs)) {
-        this._tabs.set(state.tabs);
+        // TASK_2025_087: Clear streamingState when loading from localStorage
+        // Maps (events, eventsByMessage, etc.) don't serialize to JSON properly
+        // and become plain objects, causing "get is not a function" errors
+        const sanitizedTabs = state.tabs.map((tab: TabState) => ({
+          ...tab,
+          streamingState: null, // Clear transient streaming state
+          status: tab.status === 'streaming' ? 'loaded' : tab.status, // Reset stuck streaming status
+        }));
+        this._tabs.set(sanitizedTabs);
         this._activeTabId.set(state.activeTabId);
         console.log(
           '[TabManager] Loaded tab state from localStorage:',
-          state.tabs.length,
+          sanitizedTabs.length,
           'tabs'
         );
       }

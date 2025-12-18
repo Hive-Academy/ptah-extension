@@ -40,6 +40,20 @@ export class StreamingHandlerService {
   private activeSessionIds = new Set<string>();
 
   /**
+   * Tracks processed messageIds per session to prevent duplicate message_start events.
+   * TASK_2025_085: SDK sends both streaming events AND complete messages - we must deduplicate.
+   * Map key = sessionId, value = Set of processed messageIds.
+   */
+  private processedMessageIds = new Map<string, Set<string>>();
+
+  /**
+   * Tracks processed toolCallIds per session to prevent duplicate tool_start events.
+   * TASK_2025_085: Prevents duplicate agent cards.
+   * Map key = sessionId, value = Set of processed toolCallIds.
+   */
+  private processedToolCallIds = new Map<string, Set<string>>();
+
+  /**
    * Register a session as active.
    * Call when creating a new tab/session or loading an existing session.
    *
@@ -52,11 +66,15 @@ export class StreamingHandlerService {
   /**
    * Unregister a session as active.
    * Call when deleting a tab or closing a session.
+   * Also cleans up deduplication tracking state.
    *
    * @param sessionId - Session ID to unregister
    */
   unregisterActiveSession(sessionId: string): void {
     this.activeSessionIds.delete(sessionId);
+    // TASK_2025_085: Clean up deduplication state to prevent memory leaks
+    this.processedMessageIds.delete(sessionId);
+    this.processedToolCallIds.delete(sessionId);
   }
 
   /**
@@ -66,20 +84,88 @@ export class StreamingHandlerService {
    * Tree building is deferred to render time.
    */
   processStreamEvent(event: FlatStreamEventUnion): void {
+    // TASK_2025_087: Comprehensive diagnostic logging
+    console.log('[StreamingHandlerService] processStreamEvent called:', {
+      eventType: event.eventType,
+      sessionId: event.sessionId,
+      messageId: event.messageId,
+    });
+
     try {
-      // Early exit if session is no longer active (TASK_2025_084 Batch 2 Task 2.5)
-      if (!this.activeSessionIds.has(event.sessionId)) {
-        return;
-      }
+      // NOTE: Removed early exit check for activeSessionIds (TASK_2025_086)
+      // The activeSessionIds mechanism was never properly integrated - registerActiveSession
+      // is never called. For now, we rely on findTabBySessionId returning null as the filter.
+      // TODO: Properly integrate registerActiveSession calls if optimization is needed.
 
       // 1. Find target tab by event.sessionId
-      const targetTab = this.tabManager.findTabBySessionId(event.sessionId);
+      let targetTab = this.tabManager.findTabBySessionId(event.sessionId);
+      console.log('[StreamingHandlerService] findTabBySessionId result:', {
+        found: !!targetTab,
+        sessionId: event.sessionId,
+        targetTabId: targetTab?.id,
+        targetTabClaudeSessionId: targetTab?.claudeSessionId,
+      });
+
+      // 2. If no tab found, check if active tab needs session ID initialization
       if (!targetTab) {
-        console.warn(
-          '[StreamingHandlerService] No target tab for event',
-          event.sessionId
+        const activeTab = this.tabManager.activeTab();
+
+        // TASK_2025_087: Log active tab state for debugging
+        console.log(
+          '[StreamingHandlerService] No tab found, checking active tab:',
+          {
+            hasActiveTab: !!activeTab,
+            activeTabId: activeTab?.id,
+            activeTabStatus: activeTab?.status,
+            activeTabClaudeSessionId: activeTab?.claudeSessionId,
+            eventSessionId: event.sessionId,
+          }
         );
-        return;
+
+        // Initialize session ID for new tab (first event received)
+        // TASK_2025_087: Accept 'fresh', 'streaming', OR 'draft' status
+        // - 'fresh': Tab just created (createTab)
+        // - 'draft': New conversation started (startNewConversation sets draft before RPC)
+        // - 'streaming': Status set by successful RPC result
+        // The key condition is !claudeSessionId - that identifies a tab awaiting initialization.
+        if (
+          activeTab &&
+          !activeTab.claudeSessionId &&
+          (activeTab.status === 'fresh' ||
+            activeTab.status === 'streaming' ||
+            activeTab.status === 'draft')
+        ) {
+          console.log(
+            '[StreamingHandlerService] INITIALIZING session ID for active tab:',
+            {
+              tabId: activeTab.id,
+              sessionId: event.sessionId,
+              tabStatus: activeTab.status,
+            }
+          );
+
+          // Set the session ID and transition to streaming status
+          this.tabManager.updateTab(activeTab.id, {
+            claudeSessionId: event.sessionId,
+            status: 'streaming',
+          });
+
+          // Update SessionManager
+          this.sessionManager.setSessionId(event.sessionId);
+          this.sessionManager.setStatus('streaming');
+
+          // Retry finding tab - should succeed now
+          targetTab = this.tabManager.findTabBySessionId(event.sessionId);
+        }
+
+        // If still not found, log warning and return
+        if (!targetTab) {
+          console.warn(
+            '[StreamingHandlerService] No target tab for event',
+            event.sessionId
+          );
+          return;
+        }
       }
 
       // 2. Initialize streaming state if null
@@ -87,6 +173,8 @@ export class StreamingHandlerService {
         this.tabManager.updateTab(targetTab.id, {
           streamingState: createEmptyStreamingState(),
         });
+        // TASK_2025_086 FIX: Re-read tab after update - targetTab was stale!
+        targetTab = this.tabManager.findTabBySessionId(event.sessionId)!;
       }
 
       const state = targetTab.streamingState!;
@@ -103,12 +191,45 @@ export class StreamingHandlerService {
 
       // 4. Handle by event type
       switch (event.eventType) {
-        case 'message_start':
+        case 'message_start': {
+          // TASK_2025_085: Deduplicate message_start events
+          // SDK sends both streaming events AND complete messages - we must skip duplicates
+          let sessionMessageIds = this.processedMessageIds.get(event.sessionId);
+          if (!sessionMessageIds) {
+            sessionMessageIds = new Set<string>();
+            this.processedMessageIds.set(event.sessionId, sessionMessageIds);
+          }
+
+          if (sessionMessageIds.has(event.messageId)) {
+            console.debug(
+              '[StreamingHandlerService] Skipping duplicate message_start',
+              { messageId: event.messageId, sessionId: event.sessionId }
+            );
+            return; // Skip duplicate - already processed this message
+          }
+
+          sessionMessageIds.add(event.messageId);
           state.messageEventIds.push(event.messageId);
           state.currentMessageId = event.messageId;
           break;
+        }
 
         case 'text_delta': {
+          // TASK_2025_085: Skip text_delta if this message was already finalized
+          // This prevents "Hello worldHello world" duplication when complete message arrives after streaming
+          const sessionMsgIds = this.processedMessageIds.get(event.sessionId);
+          const alreadyProcessed =
+            sessionMsgIds?.has(event.messageId) &&
+            !state.messageEventIds.includes(event.messageId);
+
+          if (alreadyProcessed) {
+            console.debug(
+              '[StreamingHandlerService] Skipping text_delta for finalized message',
+              { messageId: event.messageId }
+            );
+            return;
+          }
+
           const blockIndex = event.blockIndex ?? 0; // Default to 0
           const blockKey = AccumulatorKeys.textBlock(
             event.messageId,
@@ -119,6 +240,20 @@ export class StreamingHandlerService {
         }
 
         case 'thinking_delta': {
+          // TASK_2025_085: Skip thinking_delta if this message was already finalized
+          const sessionMsgIds2 = this.processedMessageIds.get(event.sessionId);
+          const alreadyProcessed2 =
+            sessionMsgIds2?.has(event.messageId) &&
+            !state.messageEventIds.includes(event.messageId);
+
+          if (alreadyProcessed2) {
+            console.debug(
+              '[StreamingHandlerService] Skipping thinking_delta for finalized message',
+              { messageId: event.messageId }
+            );
+            return;
+          }
+
           const blockIndex = event.blockIndex ?? 0; // Default to 0
           const thinkKey = AccumulatorKeys.thinkingBlock(
             event.messageId,
@@ -128,14 +263,49 @@ export class StreamingHandlerService {
           break;
         }
 
-        case 'tool_start':
+        case 'tool_start': {
+          // TASK_2025_085: Deduplicate tool_start events
+          // Prevents duplicate agent cards when SDK sends both streaming and complete events
+          let sessionToolCallIds = this.processedToolCallIds.get(
+            event.sessionId
+          );
+          if (!sessionToolCallIds) {
+            sessionToolCallIds = new Set<string>();
+            this.processedToolCallIds.set(event.sessionId, sessionToolCallIds);
+          }
+
+          if (sessionToolCallIds.has(event.toolCallId)) {
+            console.debug(
+              '[StreamingHandlerService] Skipping duplicate tool_start',
+              { toolCallId: event.toolCallId, sessionId: event.sessionId }
+            );
+            return; // Skip duplicate - already processed this tool
+          }
+
+          sessionToolCallIds.add(event.toolCallId);
+
           if (!state.toolCallMap.has(event.toolCallId)) {
             state.toolCallMap.set(event.toolCallId, []);
           }
           state.toolCallMap.get(event.toolCallId)!.push(event.id);
           break;
+        }
 
         case 'tool_delta': {
+          // TASK_2025_085: Skip tool_delta if this tool was already finalized
+          const sessionToolIds = this.processedToolCallIds.get(event.sessionId);
+          const toolAlreadyProcessed =
+            sessionToolIds?.has(event.toolCallId) &&
+            !state.toolCallMap.has(event.toolCallId);
+
+          if (toolAlreadyProcessed) {
+            console.debug(
+              '[StreamingHandlerService] Skipping tool_delta for finalized tool',
+              { toolCallId: event.toolCallId }
+            );
+            return;
+          }
+
           const inputKey = AccumulatorKeys.toolInput(event.toolCallId);
           this.accumulateDelta(
             state.toolInputAccumulators,
@@ -226,7 +396,9 @@ export class StreamingHandlerService {
       : this.tabManager.activeTab();
 
     const streamingState = targetTab?.streamingState;
-    const messageId = targetTab?.currentMessageId;
+    // TASK_2025_087 FIX: Read currentMessageId from streamingState, not targetTab
+    // processStreamEvent() sets state.currentMessageId (on StreamingState), not targetTab.currentMessageId
+    const messageId = streamingState?.currentMessageId;
 
     if (!streamingState || !messageId) return;
 

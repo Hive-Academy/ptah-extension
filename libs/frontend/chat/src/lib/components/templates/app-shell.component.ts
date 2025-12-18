@@ -18,6 +18,7 @@ import {
   ChevronDown,
   Check,
   X,
+  Trash2,
 } from 'lucide-angular';
 import { ChatViewComponent } from './chat-view.component';
 import { TabBarComponent } from '../organisms/tab-bar.component';
@@ -28,8 +29,13 @@ import { WizardViewComponent } from '@ptah-extension/setup-wizard';
 import { ChatStore } from '../../services/chat.store';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
 import { TabManagerService } from '../../services/tab-manager.service';
-import { AppStateManager, VSCodeService } from '@ptah-extension/core';
-import type { ChatSessionSummary } from '@ptah-extension/shared';
+import {
+  AppStateManager,
+  VSCodeService,
+  ClaudeRpcService,
+} from '@ptah-extension/core';
+import type { ChatSessionSummary, SessionId } from '@ptah-extension/shared';
+import { ConfirmationDialogService } from '../../services/confirmation-dialog.service';
 
 /**
  * AppShellComponent - Main application layout with collapsible sidebar
@@ -85,6 +91,8 @@ export class AppShellComponent {
   private readonly tabManager = inject(TabManagerService);
   private readonly appState = inject(AppStateManager);
   private readonly vscodeService = inject(VSCodeService);
+  private readonly rpcService = inject(ClaudeRpcService);
+  private readonly confirmDialog = inject(ConfirmationDialogService);
 
   // Expose currentView signal for template
   readonly currentView = this.appState.currentView;
@@ -101,26 +109,43 @@ export class AppShellComponent {
   readonly PanelLeftCloseIcon = PanelLeftClose;
   readonly PanelLeftOpenIcon = PanelLeftOpen;
   readonly ChevronDownIcon = ChevronDown;
+  readonly Trash2Icon = Trash2;
 
   // Ptah icon URI
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
 
-  // Session name popover state
+  // Session name popover state (sidebar)
   private readonly _sessionNamePopoverOpen = signal(false);
   readonly sessionNamePopoverOpen = this._sessionNamePopoverOpen.asReadonly();
   readonly sessionNameInput = signal('');
+
+  // Tab bar popover state (separate for correct positioning)
+  private readonly _tabBarPopoverOpen = signal(false);
+  readonly tabBarPopoverOpen = this._tabBarPopoverOpen.asReadonly();
+  readonly tabBarSessionNameInput = signal('');
 
   // ViewChild for session name input (programmatic focus)
   @ViewChild('sessionNameInputRef')
   sessionNameInputRef?: ElementRef<HTMLInputElement>;
 
+  @ViewChild('tabBarSessionNameInputRef')
+  tabBarSessionNameInputRef?: ElementRef<HTMLInputElement>;
+
   constructor() {
-    // Focus input when popover opens
+    // Focus sidebar input when popover opens
     effect(() => {
       if (this.sessionNamePopoverOpen()) {
-        // Wait for next tick to ensure popover is rendered
         setTimeout(() => {
           this.sessionNameInputRef?.nativeElement.focus();
+        }, 0);
+      }
+    });
+
+    // Focus tab bar input when popover opens
+    effect(() => {
+      if (this.tabBarPopoverOpen()) {
+        setTimeout(() => {
+          this.tabBarSessionNameInputRef?.nativeElement.focus();
         }, 0);
       }
     });
@@ -174,6 +199,11 @@ export class AppShellComponent {
     // Clear current session (activates new tab)
     this.chatStore.clearCurrentSession();
 
+    // Refresh sessions list to show new session in sidebar (once backend confirms it)
+    // Note: Session won't appear until first message is sent and SDK creates it
+    // This ensures sidebar stays in sync with backend state
+    this.chatStore.loadSessions();
+
     // Close popover
     this._sessionNamePopoverOpen.set(false);
   }
@@ -184,6 +214,42 @@ export class AppShellComponent {
   handleCancelSession(): void {
     this._sessionNamePopoverOpen.set(false);
     this.sessionNameInput.set('');
+  }
+
+  /**
+   * Open tab bar session name popover
+   */
+  createTabBarSession(): void {
+    this.tabBarSessionNameInput.set('');
+    this._tabBarPopoverOpen.set(true);
+  }
+
+  /**
+   * Handle tab bar session creation from popover
+   */
+  handleCreateTabBarSession(): void {
+    const name = this.tabBarSessionNameInput().trim();
+    const sessionName = name || this.generateDefaultSessionName();
+
+    // Create new tab with name
+    this.tabManager.createTab(sessionName);
+
+    // Clear current session (activates new tab)
+    this.chatStore.clearCurrentSession();
+
+    // Refresh sessions list
+    this.chatStore.loadSessions();
+
+    // Close popover
+    this._tabBarPopoverOpen.set(false);
+  }
+
+  /**
+   * Handle tab bar popover close (backdrop click or ESC)
+   */
+  handleCancelTabBarSession(): void {
+    this._tabBarPopoverOpen.set(false);
+    this.tabBarSessionNameInput.set('');
   }
 
   /**
@@ -225,5 +291,61 @@ export class AppShellComponent {
    */
   isSessionOpen(sessionId: string): boolean {
     return this.tabManager.findTabBySessionId(sessionId) !== null;
+  }
+
+  /**
+   * Delete session from storage (TASK_2025_086)
+   * Shows confirmation dialog before deleting
+   */
+  async deleteSession(
+    event: Event,
+    session: ChatSessionSummary
+  ): Promise<void> {
+    // Prevent click from propagating to session button
+    event.stopPropagation();
+
+    const sessionName = this.getSessionDisplayName(session);
+    const confirmed = await this.confirmDialog.confirm({
+      title: 'Delete Session',
+      message: `Are you sure you want to delete "${sessionName}"? This action cannot be undone.`,
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+      confirmStyle: 'error',
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const result = await this.rpcService.deleteSession(
+        session.id as SessionId
+      );
+
+      if (result.isSuccess() && result.data?.success) {
+        // Remove from local session list
+        this.chatStore.removeSessionFromList(session.id as SessionId);
+
+        // If this was the current session, clear it
+        if (this.chatStore.currentSession()?.id === session.id) {
+          this.chatStore.clearCurrentSession();
+        }
+
+        // Close any open tab for this session
+        const tab = this.tabManager.findTabBySessionId(session.id);
+        if (tab) {
+          this.tabManager.closeTab(tab.id);
+        }
+
+        console.log(`[AppShell] Session ${session.id} deleted successfully`);
+      } else {
+        console.error(
+          '[AppShell] Failed to delete session:',
+          result.error || result.data?.error
+        );
+      }
+    } catch (error) {
+      console.error('[AppShell] Error deleting session:', error);
+    }
   }
 }

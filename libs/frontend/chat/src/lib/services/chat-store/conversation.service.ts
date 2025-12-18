@@ -20,7 +20,7 @@ import {
 import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
 import { SessionLoaderService } from './session-loader.service';
-import { PendingSessionManagerService } from '../pending-session-manager.service';
+
 import { MessageValidationService } from '../message-validation.service';
 
 @Injectable({ providedIn: 'root' })
@@ -30,7 +30,6 @@ export class ConversationService {
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
   private readonly sessionLoader = inject(SessionLoaderService);
-  private readonly pendingSessionManager = inject(PendingSessionManagerService);
   private readonly validator = inject(MessageValidationService);
 
   // ============================================================================
@@ -307,10 +306,8 @@ export class ConversationService {
         currentMessageId: null, // Reset per-tab message ID for new conversation
       });
 
-      // Track this tab for session ID resolution using PendingSessionManager
-      // When session:id-resolved arrives, we'll know which tab initiated this conversation
-      // This eliminates shared mutable state (no direct Map mutation on SessionLoader)
-      this.pendingSessionManager.add(sessionId, activeTabId);
+      // Session ID will be initialized by StreamingHandler on first event
+      // No tracking needed - removed PendingSessionManager
 
       console.log('[ConversationService] Starting NEW conversation:', {
         sessionId,
@@ -330,8 +327,6 @@ export class ConversationService {
           '[ConversationService] Failed to start chat:',
           result.error
         );
-        // Clean up pending resolution since chat failed (clears timeout)
-        this.pendingSessionManager.remove(sessionId);
         // Update tab status to loaded (failed)
         this.tabManager.updateTab(activeTabId, { status: 'loaded' });
       } else {
@@ -339,6 +334,11 @@ export class ConversationService {
           '[ConversationService] New conversation started:',
           result.data
         );
+
+        // TASK_2025_087: Set status to 'streaming' after successful chat:start
+        // Events will start arriving and StreamingHandlerService will initialize sessionId
+        this.tabManager.updateTab(activeTabId, { status: 'streaming' });
+        this.sessionManager.setStatus('streaming');
 
         // Add placeholder session immediately for UI responsiveness
         const now = Date.now();
@@ -366,17 +366,6 @@ export class ConversationService {
         '[ConversationService] Failed to start new conversation:',
         error
       );
-
-      // CRITICAL: Clean up pending resolution to prevent memory leak
-      // This ensures pendingSessionManager.remove() is called on ALL failure paths
-      const placeholderSessionId = this.sessionManager.getCurrentSessionId();
-      if (placeholderSessionId) {
-        this.pendingSessionManager.remove(placeholderSessionId);
-        console.log(
-          '[ConversationService] Cleaned up pending resolution after error:',
-          placeholderSessionId
-        );
-      }
 
       // Update tab status to loaded (error)
       const activeTabId = this.tabManager.activeTabId();

@@ -8,7 +8,6 @@ import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
-  computed,
   DestroyRef,
   effect,
   ElementRef,
@@ -17,11 +16,10 @@ import {
   OnDestroy,
   output,
   signal,
-  viewChild,
   viewChildren,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { AUTOCOMPLETE_POSITIONS } from '@ptah-extension/ui';
+import { AUTOCOMPLETE_POSITIONS_ABOVE } from '@ptah-extension/ui';
 import {
   SuggestionOptionComponent,
   type SuggestionItem,
@@ -71,15 +69,14 @@ export type { SuggestionItem } from './suggestion-option.component';
       [cdkConnectedOverlayOrigin]="overlayOrigin()"
       [cdkConnectedOverlayOpen]="true"
       [cdkConnectedOverlayPositions]="dropdownPositions"
+      [cdkConnectedOverlayWidth]="getOverlayWidth()"
       [cdkConnectedOverlayHasBackdrop]="true"
       [cdkConnectedOverlayBackdropClass]="'cdk-overlay-transparent-backdrop'"
       cdkConnectedOverlayPush
       (backdropClick)="handleBackdropClick()"
-      (attached)="handleAttached()"
     >
       <div
-        cdkTrapFocus
-        [cdkTrapFocusAutoCapture]="true"
+        [id]="listboxId"
         class="suggestions-panel flex flex-col max-h-96 shadow-lg bg-base-200 rounded-lg border border-base-300 z-50 overflow-hidden"
         role="listbox"
         [attr.aria-label]="getHeaderTitle()"
@@ -93,22 +90,6 @@ export type { SuggestionItem } from './suggestion-option.component';
           </span>
         </div>
 
-        <!-- Filter Input -->
-        <div class="px-2 py-1.5 border-b border-base-300">
-          <input
-            #filterInput
-            cdkFocusInitial
-            type="text"
-            class="input input-sm input-bordered w-full text-xs"
-            placeholder="Type to filter..."
-            [value]="filterQuery()"
-            (input)="onFilterInput($event)"
-            (keydown)="onKeyDown($event)"
-            aria-label="Filter suggestions"
-            [attr.aria-activedescendant]="activeOptionId()"
-          />
-        </div>
-
         <!-- Loading State -->
         @if (isLoading()) {
         <div class="flex items-center justify-center gap-2 p-3">
@@ -118,7 +99,7 @@ export type { SuggestionItem } from './suggestion-option.component';
         }
 
         <!-- Empty State -->
-        @else if (filteredSuggestions().length === 0) {
+        @else if (suggestions().length === 0) {
         <div class="flex items-center justify-center p-3">
           <span class="text-xs text-base-content/60">No matches found</span>
         </div>
@@ -129,8 +110,8 @@ export type { SuggestionItem } from './suggestion-option.component';
         <div
           class="flex flex-col overflow-y-auto overflow-x-hidden max-h-64 p-1"
         >
-          @for ( suggestion of filteredSuggestions(); track trackBy($index,
-          suggestion); let i = $index ) {
+          @for ( suggestion of suggestions(); track trackBy($index, suggestion);
+          let i = $index ) {
           <ptah-suggestion-option
             [suggestion]="suggestion"
             [optionId]="'suggestion-' + i"
@@ -161,10 +142,6 @@ export class UnifiedSuggestionsDropdownComponent
   readonly closed = output<void>();
   readonly filterChanged = output<string>(); // New: emit filter changes to parent
 
-  // ViewChild for filter input (auto-focus)
-  private readonly filterInputRef =
-    viewChild<ElementRef<HTMLInputElement>>('filterInput');
-
   // ViewChildren for ActiveDescendantKeyManager
   private readonly optionComponents = viewChildren(SuggestionOptionComponent);
 
@@ -176,35 +153,15 @@ export class UnifiedSuggestionsDropdownComponent
   private readonly _activeOptionId = signal<string | null>(null);
   readonly activeOptionId = this._activeOptionId.asReadonly();
 
-  // Filter state (NEW: Batch 13)
-  private readonly _filterQuery = signal('');
-  readonly filterQuery = this._filterQuery.asReadonly();
+  // Overlay positions (above input preferred, fallback below)
+  // Uses ABOVE variant for chat input at bottom of VS Code sidebar
+  readonly dropdownPositions: ConnectedPosition[] =
+    AUTOCOMPLETE_POSITIONS_ABOVE;
 
-  // Filtered suggestions based on local filter query
-  readonly filteredSuggestions = computed(() => {
-    const query = this._filterQuery().toLowerCase().trim();
-    const allSuggestions = this.suggestions();
-
-    if (!query) return allSuggestions;
-
-    return allSuggestions.filter((suggestion) => {
-      if (suggestion.type === 'file') {
-        return (
-          suggestion.name.toLowerCase().includes(query) ||
-          suggestion.path.toLowerCase().includes(query)
-        );
-      } else if (suggestion.type === 'command') {
-        return (
-          suggestion.name.toLowerCase().includes(query) ||
-          suggestion.description.toLowerCase().includes(query)
-        );
-      }
-      return false;
-    });
-  });
-
-  // Overlay positions (above input, fallback below)
-  readonly dropdownPositions: ConnectedPosition[] = AUTOCOMPLETE_POSITIONS;
+  // Unique ID for the listbox element (used by aria-controls on parent input)
+  readonly listboxId = `suggestions-listbox-${Math.random()
+    .toString(36)
+    .substring(2, 9)}`;
 
   constructor() {
     // Initialize/re-initialize key manager when options change
@@ -282,58 +239,11 @@ export class UnifiedSuggestionsDropdownComponent
   }
 
   /**
-   * Handle overlay attached - auto-focus filter input with retry
-   * Using 'attached' event for reliable DOM access
-   */
-  handleAttached(): void {
-    // Try immediate focus
-    this.focusFilterInput();
-
-    // Retry after a small delay if initial focus failed (safety net)
-    setTimeout(() => {
-      const filterInput = this.filterInputRef()?.nativeElement;
-      if (filterInput && document.activeElement !== filterInput) {
-        console.warn(
-          '[UnifiedSuggestionsDropdown] Initial focus failed, retrying...'
-        );
-        this.focusFilterInput();
-      }
-    }, 50);
-  }
-
-  /**
-   * Focus the filter input element
-   */
-  private focusFilterInput(): void {
-    const filterInput = this.filterInputRef()?.nativeElement;
-    if (filterInput) {
-      filterInput.focus();
-      console.log('[UnifiedSuggestionsDropdown] Filter input focused');
-    }
-  }
-
-  /**
    * Handle backdrop click - close dropdown
    */
   handleBackdropClick(): void {
     console.log('[UnifiedSuggestionsDropdown] Backdrop clicked, closing');
     this.closed.emit();
-  }
-
-  /**
-   * Handle filter input changes
-   */
-  onFilterInput(event: Event): void {
-    const value = (event.target as HTMLInputElement).value;
-    this._filterQuery.set(value);
-
-    // Emit filter change to parent (for server-side filtering if needed)
-    this.filterChanged.emit(value);
-
-    // Reset key manager to first item when filter changes
-    if (this.keyManager) {
-      this.keyManager.setFirstItemActive();
-    }
   }
 
   /**
@@ -357,41 +267,62 @@ export class UnifiedSuggestionsDropdownComponent
     return 'Suggestions';
   }
 
+  /**
+   * Get overlay width to match the origin element (textarea) width.
+   * This ensures the dropdown doesn't exceed the VS Code sidebar width.
+   *
+   * Returns the origin element's offsetWidth, which is the rendered width
+   * including padding and border but not margin.
+   */
+  getOverlayWidth(): number {
+    const origin = this.overlayOrigin();
+    if (!origin?.elementRef?.nativeElement) {
+      return 300; // Fallback width
+    }
+    return origin.elementRef.nativeElement.offsetWidth;
+  }
+
   // ============================================================
   // PUBLIC API - Called by parent component for keyboard navigation
   // ============================================================
 
   /**
-   * Handle keyboard events from filter input
+   * Handle keyboard events from parent component
    *
-   * @param event KeyboardEvent from filter input
-   * @returns true if event was handled
+   * CRITICAL: Must return FALSE when keyManager is not ready (null or loading).
+   * This signals to the parent that the event was NOT handled, allowing
+   * fallback behavior (e.g., normal textarea cursor movement).
+   *
+   * Pattern copied from @ptah-extension/ui AutocompleteComponent.
+   *
+   * @param event KeyboardEvent from parent
+   * @returns true if event was handled, false if not ready to handle
    */
   onKeyDown(event: KeyboardEvent): boolean {
+    // CRITICAL: Return false when not ready - don't claim to handle events we can't process
+    // This was the root cause of arrow keys not working: returning true when keyManager was null
+    if (!this.keyManager || this.isLoading()) {
+      return false;
+    }
+
     switch (event.key) {
       case 'ArrowDown':
       case 'ArrowUp':
       case 'Home':
       case 'End':
-        // Navigate options list
-        if (this.keyManager) {
-          event.preventDefault();
-          this.keyManager.onKeydown(event);
-        }
+        // Navigate options list - keyManager handles the navigation
+        this.keyManager.onKeydown(event);
         return true;
 
       case 'Enter':
-        event.preventDefault();
         this.selectFocused();
         return true;
 
       case 'Escape':
-        event.preventDefault();
         this.closed.emit();
         return true;
 
       default:
-        // Let typing happen in filter input
         return false;
     }
   }
@@ -442,6 +373,7 @@ export class UnifiedSuggestionsDropdownComponent
   }
 
   trackBy(index: number, item: SuggestionItem): string {
+    if (item.type === 'file') return `file-${item.path}`;
     return `${item.type}-${item.name}`;
   }
 }

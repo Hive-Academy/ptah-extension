@@ -71,7 +71,6 @@ export class SlashTriggerDirective implements OnInit {
 
   // Inputs
   readonly enabled = input(true);
-  readonly slashDropdownOpen = input(false); // NEW: Signal to pause directive when dropdown is open
 
   // CRITICAL: Field initializer pattern for toObservable() call
   // Why: toObservable() uses inject() internally, which requires injection context
@@ -79,11 +78,11 @@ export class SlashTriggerDirective implements OnInit {
   // Violation: Calling toObservable() in ngOnInit causes NG0203 "inject() must be called from injection context"
   // Reference: https://angular.dev/guide/signals/inputs#reading-input-values-in-ngOnInit
   private readonly enabled$ = toObservable(this.enabled);
-  private readonly slashDropdownOpen$ = toObservable(this.slashDropdownOpen);
 
   // Outputs (prefixed with 'slash' to avoid conflicts with other trigger directives)
   readonly slashTriggered = output<SlashTriggerEvent>();
   readonly slashClosed = output<void>();
+  readonly slashQueryChanged = output<string>();
 
   private readonly DEBOUNCE_DELAY_MS = 150;
 
@@ -141,12 +140,8 @@ export class SlashTriggerDirective implements OnInit {
     );
 
     // Combined stream that respects enabled state AND dropdown open state
-    const triggerState$ = combineLatest([
-      inputState$,
-      this.enabled$,
-      this.slashDropdownOpen$, // NEW: Listen to dropdown state
-    ]).pipe(
-      filter(([, enabled, dropdownOpen]) => enabled && !dropdownOpen), // PAUSE when dropdown is open
+    const triggerState$ = combineLatest([inputState$, this.enabled$]).pipe(
+      filter(([, enabled]) => enabled),
       map(([state]) => state),
       takeUntilDestroyed(this.destroyRef)
     );
@@ -158,6 +153,11 @@ export class SlashTriggerDirective implements OnInit {
         // Emit close immediately when transitioning from active to inactive
         if (prev.isActive && !curr.isActive) {
           this.slashClosed.emit();
+        }
+
+        // Emit query change immediately
+        if (curr.isActive && curr.query !== prev.query) {
+          this.slashQueryChanged.emit(curr.query);
         }
       });
 

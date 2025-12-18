@@ -27,7 +27,6 @@ import {
 import { createExecutionChatMessage, SessionId } from '@ptah-extension/shared';
 import { TabManagerService } from './tab-manager.service';
 import { SessionManager } from './session-manager.service';
-import { PendingSessionManagerService } from './pending-session-manager.service';
 import { SessionLoaderService } from './chat-store/session-loader.service';
 import { MessageValidationService } from './message-validation.service';
 
@@ -47,7 +46,6 @@ export class MessageSenderService {
   private readonly vscodeService = inject(VSCodeService);
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
-  private readonly pendingSessionManager = inject(PendingSessionManagerService);
   private readonly sessionLoader = inject(SessionLoaderService);
   private readonly validator = inject(MessageValidationService);
   private readonly modelState = inject(ModelStateService);
@@ -209,19 +207,25 @@ export class MessageSenderService {
       // Clear previous node maps to prevent stale references
       this.sessionManager.clearNodeMaps();
 
-      // Generate placeholder session ID for new conversation
-      const sessionId = this.generateId();
+      // Use the tab's existing placeholder session ID (proper UUID v4)
+      // This ensures TabManager.resolveSessionId can find the correct tab
+      const activeTab = this.tabManager.activeTab();
+      const sessionId = activeTab?.placeholderSessionId || this.generateId();
 
-      // Update tab with draft status
+      // Update tab with streaming status immediately
+      // TASK_2025_086: Changed from 'draft' to 'streaming' so UI shows content as it arrives
+      // Previously, isStreaming() returned false until session:id-resolved, hiding all streaming content
       this.tabManager.updateTab(activeTabId, {
         title: content.substring(0, 50) || 'New Chat',
-        status: 'draft',
+        status: 'streaming',
         isDirty: false,
       });
 
       // Update SessionManager state - use new state machine API
-      this.sessionManager.setSessionId(sessionId, 'draft'); // Start in draft state
-      this.sessionManager.setStatus('draft'); // Start in draft status (no real session ID yet)
+      // TASK_2025_086: Use 'draft' state (session not yet confirmed by backend)
+      // The 'streaming' is a SessionStatus, not SessionState
+      this.sessionManager.setSessionId(sessionId); // Default to 'draft' state
+      this.sessionManager.setStatus('streaming'); // Start streaming status so UI shows content
 
       // Add user message immediately (with empty sessionId - will be updated when resolved)
       const userMessage = createExecutionChatMessage({
@@ -232,24 +236,21 @@ export class MessageSenderService {
         sessionId: '' as SessionId, // Will be updated when session:id-resolved arrives
       });
 
-      // Update tab with user message
-      const activeTab = this.tabManager.activeTab();
+      // Update tab with user message (reuse activeTab from above)
       this.tabManager.updateTab(activeTabId, {
         messages: [...(activeTab?.messages ?? []), userMessage],
         currentMessageId: null, // Reset per-tab message ID for new conversation
       });
 
-      // Track this tab for session ID resolution using PendingSessionManager
-      // When session:id-resolved arrives, we'll know which tab initiated this conversation
-      // This eliminates shared mutable state (no direct Map mutation on SessionLoader)
-      this.pendingSessionManager.add(sessionId, activeTabId);
+      // Session ID will be initialized by StreamingHandler on first event
+      // No tracking needed - removed PendingSessionManager
 
       console.log('[MessageSender] Starting NEW conversation:', {
         sessionId,
         tabId: activeTabId,
       });
 
-      // Call RPC to start NEW chat (using activeTab from line 236)
+      // Call RPC to start NEW chat
       const result = await this.claudeRpcService.call('chat:start', {
         prompt: content,
         sessionId: sessionId as SessionId,
@@ -263,8 +264,6 @@ export class MessageSenderService {
 
       if (!result.success) {
         console.error('[MessageSender] Failed to start chat:', result.error);
-        // Clean up pending resolution since chat failed (clears timeout)
-        this.pendingSessionManager.remove(sessionId);
         // Update tab status to loaded (failed)
         this.tabManager.updateTab(activeTabId, { status: 'loaded' });
         this.sessionManager.setStatus('loaded');
@@ -279,17 +278,6 @@ export class MessageSenderService {
       }
     } catch (error) {
       console.error('[MessageSender] Failed to start new conversation:', error);
-
-      // CRITICAL: Clean up pending resolution to prevent memory leak
-      // This ensures pendingSessionManager.remove() is called on ALL failure paths
-      const placeholderSessionId = this.sessionManager.getCurrentSessionId();
-      if (placeholderSessionId) {
-        this.pendingSessionManager.remove(placeholderSessionId);
-        console.log(
-          '[MessageSender] Cleaned up pending resolution after error:',
-          placeholderSessionId
-        );
-      }
 
       // Update tab status to loaded (error)
       const activeTabId = this.tabManager.activeTabId();

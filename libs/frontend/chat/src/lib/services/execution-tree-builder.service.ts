@@ -78,7 +78,11 @@ export class ExecutionTreeBuilderService {
     depth = 0
   ): ExecutionNode | null {
     // Use pre-indexed events for O(1) lookup (TASK_2025_084 Batch 1 Task 1.2)
-    const messageEvents = state.eventsByMessage.get(messageId) || [];
+    // TASK_2025_087: Defensive check - eventsByMessage might not be a Map if loaded from localStorage
+    const messageEvents =
+      state.eventsByMessage instanceof Map
+        ? state.eventsByMessage.get(messageId) || []
+        : [];
 
     // Sort by timestamp to handle out-of-order arrival (TASK_2025_084 Batch 2 Task 2.3)
     const sortedEvents = messageEvents.slice().sort((a, b) => {

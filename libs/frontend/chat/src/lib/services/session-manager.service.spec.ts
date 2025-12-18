@@ -69,7 +69,6 @@ describe('SessionManager - Session State Machine', () => {
     service.confirmSessionId(confirmedId);
 
     expect(service.sessionId()).toBe(confirmedId);
-    expect(service.claudeSessionId()).toBe(confirmedId);
     expect(service.sessionState()).toBe('confirmed');
     expect(service.draftId()).toBe(draftId); // Draft ID preserved for reference
   });
@@ -223,7 +222,7 @@ describe('SessionManager - Session State Machine', () => {
     service.clearSession();
 
     expect(service.sessionId()).toBeNull();
-    expect(service.claudeSessionId()).toBeNull();
+    expect(service.sessionId()).toBeNull();
     expect(service.sessionState()).toBe('draft');
     expect(service.draftId()).toBeNull();
     expect(service.status()).toBe('fresh');
@@ -251,7 +250,7 @@ describe('SessionManager - Session State Machine', () => {
 
     expect(service.sessionState()).toBe('confirmed');
     expect(service.sessionId()).toBe(confirmedId);
-    expect(service.claudeSessionId()).toBe(confirmedId);
+
     expect(service.draftId()).toBe(draftId); // Original draft ID preserved
     expect(service.isSessionConfirmed()).toBe(true);
     expect(service.status()).toBe('streaming'); // Status transitioned
@@ -299,9 +298,9 @@ describe('SessionManager - Session State Machine', () => {
     const realId = 'real_compat_123';
 
     service.setStatus('draft');
-    service.setClaudeSessionId(realId);
+    service.setSessionId(realId);
 
-    expect(service.claudeSessionId()).toBe(realId);
+    expect(service.sessionId()).toBe(realId);
     expect(service.status()).toBe('streaming'); // Old API transitions status
   });
 
@@ -316,8 +315,8 @@ describe('SessionManager - Session State Machine', () => {
 
     // Old API: setClaudeSessionId (deprecated but functional)
     service.setStatus('draft');
-    service.setClaudeSessionId(realId);
-    expect(service.claudeSessionId()).toBe(realId);
+    service.setSessionId(realId);
+    expect(service.sessionId()).toBe(realId);
     expect(service.status()).toBe('streaming');
   });
 

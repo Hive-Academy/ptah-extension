@@ -2,22 +2,25 @@
  * SDK RPC Handlers - Frontend-backend communication for Agent SDK
  *
  * TASK_2025_044 Batch 3: RPC handlers for SDK operations
+ * TASK_2025_086: Fixed message type from sdk:executionNode to chat:chunk
  *
  * Handles:
- * - sdk:startSession - Start new SDK session and stream ExecutionNodes
+ * - sdk:startSession - Start new SDK session and stream FlatStreamEventUnion events
  * - sdk:sendMessage - Send user message to existing session
  * - sdk:resumeSession - Resume session from storage
  * - sdk:getSession - Get session data from storage
+ * - sdk:deleteSession - Delete session from storage (TASK_2025_086)
  * - sdk:permission.response - Handle permission approval/denial
  */
 
 import { injectable, inject } from 'tsyringe';
 import type { Logger } from '../logging/logger';
 import { TOKENS } from '../di/tokens';
-import type { SessionId, ExecutionNode } from '@ptah-extension/shared';
+import type { SessionId, FlatStreamEventUnion } from '@ptah-extension/shared';
 import { MessageId } from '@ptah-extension/shared';
 
 // SDK adapter interface (avoid circular import)
+// NOTE: SdkAgentAdapter.startChatSession() returns FlatStreamEventUnion, NOT ExecutionNode
 interface SdkAgentAdapter {
   startChatSession(
     sessionId: SessionId,
@@ -27,8 +30,13 @@ interface SdkAgentAdapter {
       model?: string;
       projectPath?: string;
     }
-  ): Promise<AsyncIterable<ExecutionNode>>;
+  ): Promise<AsyncIterable<FlatStreamEventUnion>>;
   sendMessageToSession(sessionId: SessionId, content: string): Promise<void>;
+}
+
+// SDK session storage interface (avoid circular import)
+interface SdkSessionStorage {
+  deleteSession(sessionId: SessionId): Promise<void>;
 }
 
 // SDK permission handler interface
@@ -59,7 +67,7 @@ export class SdkRpcHandlers {
   // Active SDK sessions (sessionId -> stream iterator)
   private readonly activeSessions = new Map<
     string,
-    AsyncIterator<ExecutionNode>
+    AsyncIterator<FlatStreamEventUnion>
   >();
 
   constructor(
@@ -68,7 +76,9 @@ export class SdkRpcHandlers {
     private readonly webviewManager: WebviewManager,
     @inject('SdkAgentAdapter') private readonly sdkAdapter: SdkAgentAdapter,
     @inject('SdkPermissionHandler')
-    private readonly permissionHandler: SdkPermissionHandler
+    private readonly permissionHandler: SdkPermissionHandler,
+    @inject('SdkSessionStorage')
+    private readonly sessionStorage: SdkSessionStorage
   ) {
     // Wire up permission handler to send events to webview
     this.initializePermissionEmitter();
@@ -143,8 +153,8 @@ export class SdkRpcHandlers {
       const iterator = stream[Symbol.asyncIterator]();
       this.activeSessions.set(params.sessionId as string, iterator);
 
-      // Stream ExecutionNodes to webview
-      this.streamExecutionNodesToWebview(params.sessionId, iterator);
+      // Stream FlatStreamEventUnion events to webview via chat:chunk messages
+      this.streamEventsToWebview(params.sessionId, iterator);
 
       this.logger.debug('[SdkRpcHandlers] SDK session stream started', {
         sessionId: params.sessionId,
@@ -155,8 +165,8 @@ export class SdkRpcHandlers {
         sessionId: params.sessionId,
       });
 
-      // Send error to webview
-      await this.webviewManager.sendMessage('ptah.main', 'sdk:error', {
+      // Send error to webview via chat:error
+      await this.webviewManager.sendMessage('ptah.main', 'chat:error', {
         sessionId: params.sessionId,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -191,8 +201,8 @@ export class SdkRpcHandlers {
         sessionId: params.sessionId,
       });
 
-      // Send error to webview
-      await this.webviewManager.sendMessage('ptah.main', 'sdk:error', {
+      // Send error to webview via chat:error
+      await this.webviewManager.sendMessage('ptah.main', 'chat:error', {
         sessionId: params.sessionId,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -251,6 +261,47 @@ export class SdkRpcHandlers {
   }
 
   /**
+   * RPC: sdk:deleteSession
+   * Delete session from storage (TASK_2025_086)
+   */
+  async handleDeleteSession(params: {
+    sessionId: SessionId;
+  }): Promise<{ success: boolean; error?: string }> {
+    try {
+      this.logger.info('[SdkRpcHandlers] Deleting SDK session', {
+        sessionId: params.sessionId,
+      });
+
+      // Remove from active sessions map if present
+      this.activeSessions.delete(params.sessionId as string);
+
+      // Delete from storage
+      await this.sessionStorage.deleteSession(params.sessionId);
+
+      this.logger.info('[SdkRpcHandlers] SDK session deleted successfully', {
+        sessionId: params.sessionId,
+      });
+
+      // Notify webview of deletion
+      await this.webviewManager.sendMessage('ptah.main', 'sdk:sessionDeleted', {
+        sessionId: params.sessionId,
+      });
+
+      return { success: true };
+    } catch (error) {
+      this.logger.error('[SdkRpcHandlers] Failed to delete session', {
+        error,
+        sessionId: params.sessionId,
+      });
+
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
    * RPC: sdk:permission.response
    * Handle permission approval/denial from webview
    */
@@ -287,50 +338,60 @@ export class SdkRpcHandlers {
   }
 
   /**
-   * Stream ExecutionNodes to webview in background
+   * Stream FlatStreamEventUnion events to webview in background
+   * TASK_2025_086: Fixed to send 'chat:chunk' messages that frontend expects
    */
-  private async streamExecutionNodesToWebview(
+  private async streamEventsToWebview(
     sessionId: SessionId,
-    iterator: AsyncIterator<ExecutionNode>
+    iterator: AsyncIterator<FlatStreamEventUnion>
   ): Promise<void> {
+    let eventCount = 0;
     try {
       while (true) {
-        const { value: node, done } = await iterator.next();
+        const { value: event, done } = await iterator.next();
 
         if (done) {
-          // Signal completion
-          await this.webviewManager.sendMessage(
-            'ptah.main',
-            'sdk:sessionComplete',
-            {
-              sessionId,
-            }
-          );
+          // Signal completion via chat:complete (matches MESSAGE_TYPES.CHAT_COMPLETE)
+          await this.webviewManager.sendMessage('ptah.main', 'chat:complete', {
+            sessionId,
+            code: 0,
+          });
           this.activeSessions.delete(sessionId as string);
           this.logger.info('[SdkRpcHandlers] SDK session stream completed', {
             sessionId,
+            totalEvents: eventCount,
           });
           break;
         }
 
-        // Send ExecutionNode to webview
-        await this.webviewManager.sendMessage(
-          'ptah.main',
-          'sdk:executionNode',
+        eventCount++;
+
+        // Log every event for debugging
+        this.logger.debug(
+          `[SdkRpcHandlers] Streaming event #${eventCount} to webview`,
           {
             sessionId,
-            node,
+            eventType: event.eventType,
+            messageId: event.messageId,
           }
         );
+
+        // Send FlatStreamEventUnion to webview via chat:chunk (matches MESSAGE_TYPES.CHAT_CHUNK)
+        // Frontend expects payload: { sessionId, event }
+        await this.webviewManager.sendMessage('ptah.main', 'chat:chunk', {
+          sessionId,
+          event,
+        });
       }
     } catch (error) {
       this.logger.error('[SdkRpcHandlers] SDK session stream error', {
         error,
         sessionId,
+        eventsBeforeError: eventCount,
       });
 
-      // Send error to webview
-      await this.webviewManager.sendMessage('ptah.main', 'sdk:error', {
+      // Send error to webview via chat:error (matches MESSAGE_TYPES.CHAT_ERROR)
+      await this.webviewManager.sendMessage('ptah.main', 'chat:error', {
         sessionId,
         error: error instanceof Error ? error.message : String(error),
       });

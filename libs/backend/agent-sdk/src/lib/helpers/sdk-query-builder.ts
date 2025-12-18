@@ -113,14 +113,19 @@ export class SdkQueryBuilder {
           preset: 'claude_code' as const,
         };
 
-    // Log query options
-    this.logger.debug('[SdkQueryBuilder] Building SDK query options', {
+    // CRITICAL: Create canUseTool callback
+    const canUseToolCallback = this.permissionHandler.createCallback();
+
+    // Log query options with permission details
+    this.logger.info('[SdkQueryBuilder] Building SDK query options', {
       cwd,
       model,
       isResume: !!resumeSessionId,
       resumeSessionId: resumeSessionId
         ? `${resumeSessionId.slice(0, 8)}...`
         : undefined,
+      permissionMode: 'default',
+      hasCanUseToolCallback: !!canUseToolCallback,
     });
 
     return {
@@ -146,8 +151,10 @@ export class SdkQueryBuilder {
             url: `http://localhost:${PTAH_MCP_PORT}`,
           },
         },
+        // CRITICAL: permissionMode must be 'default' for canUseTool to be invoked
+        // If set to 'bypassPermissions', canUseTool is never called
         permissionMode: 'default',
-        canUseTool: this.permissionHandler.createCallback(),
+        canUseTool: canUseToolCallback,
         includePartialMessages: true,
         // Load settings from user and project directories
         // Required for CLAUDE.md files and proper CLI initialization

@@ -5,6 +5,7 @@ import {
   FlatStreamEventUnion,
   PermissionRequest,
   PermissionResponse,
+  SessionId,
   calculateMessageCost,
   createExecutionChatMessage,
   MESSAGE_TYPES,
@@ -255,6 +256,15 @@ export class ChatStore {
   }
 
   /**
+   * Remove a session from the local list (UI only) - TASK_2025_086
+   * Called after successful backend deletion to update UI state
+   * Delegates to SessionLoaderService
+   */
+  removeSessionFromList(sessionId: SessionId): void {
+    return this.sessionLoader.removeSessionFromList(sessionId);
+  }
+
+  /**
    * Send a message - automatically determines whether to start new or continue
    * Delegates to MessageSenderService (TASK_2025_054 Batch 3 - eliminates callback indirection)
    */
@@ -301,20 +311,6 @@ export class ChatStore {
    */
   async continueConversation(content: string, files?: string[]): Promise<void> {
     return this.conversation.continueConversation(content, files);
-  }
-
-  /**
-   * Handle session ID resolution from backend
-   * Delegates to SessionLoaderService
-   */
-  handleSessionIdResolved(data: {
-    sessionId: string;
-    realSessionId: string;
-  }): void {
-    this.sessionLoader.handleSessionIdResolved(
-      data.sessionId,
-      data.realSessionId
-    );
   }
 
   /**
@@ -472,6 +468,12 @@ export class ChatStore {
    * Delegates to StreamingHandlerService (Phase 7 extraction)
    */
   processStreamEvent(event: FlatStreamEventUnion): void {
+    // TASK_2025_087: Log event receipt in ChatStore
+    console.log('[ChatStore] processStreamEvent called:', {
+      eventType: event.eventType,
+      sessionId: event.sessionId,
+      messageId: event.messageId,
+    });
     this.streamingHandler.processStreamEvent(event);
   }
 

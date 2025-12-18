@@ -107,6 +107,18 @@ export interface SessionLoadResult {
   agentSessions: unknown[];
 }
 
+/** Parameters for session:delete RPC method (TASK_2025_086) */
+export interface SessionDeleteParams {
+  /** Session ID to delete */
+  sessionId: SessionId;
+}
+
+/** Response from session:delete RPC method */
+export interface SessionDeleteResult {
+  success: boolean;
+  error?: string;
+}
+
 // ============================================================
 // Context RPC Types
 // ============================================================
@@ -475,6 +487,10 @@ export interface RpcMethodRegistry {
   // ---- Session Methods ----
   'session:list': { params: SessionListParams; result: SessionListResult };
   'session:load': { params: SessionLoadParams; result: SessionLoadResult };
+  'session:delete': {
+    params: SessionDeleteParams;
+    result: SessionDeleteResult;
+  };
 
   // ---- Context Methods ----
   'context:getAllFiles': {
@@ -603,6 +619,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   // Session Methods
   'session:list',
   'session:load',
+  'session:delete',
 
   // Context Methods
   'context:getAllFiles',

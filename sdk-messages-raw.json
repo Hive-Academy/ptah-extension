@@ -1,0 +1,1824 @@
+[
+  {
+    "type": "system",
+    "subtype": "init",
+    "cwd": "D:\\projects\\ptah-extension",
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "tools": [
+      "Task",
+      "TaskOutput",
+      "Bash",
+      "Glob",
+      "Grep",
+      "ExitPlanMode",
+      "Read",
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "WebFetch",
+      "TodoWrite",
+      "WebSearch",
+      "KillShell",
+      "Skill",
+      "SlashCommand",
+      "EnterPlanMode"
+    ],
+    "mcp_servers": [],
+    "model": "claude-sonnet-4-5-20250929",
+    "permissionMode": "default",
+    "slash_commands": [
+      "compact",
+      "context",
+      "cost",
+      "init",
+      "pr-comments",
+      "release-notes",
+      "review",
+      "security-review"
+    ],
+    "apiKeySource": "none",
+    "claude_code_version": "2.0.69",
+    "output_style": "default",
+    "agents": [
+      "general-purpose",
+      "statusline-setup",
+      "Explore",
+      "Plan",
+      "claude-code-guide"
+    ],
+    "skills": [],
+    "plugins": [],
+    "uuid": "04e973fe-a58f-49a8-817e-3ff62610d049"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "message_start",
+      "message": {
+        "model": "claude-sonnet-4-5-20250929",
+        "id": "msg_0154MB2oEHrKRdk27Aeseao4",
+        "type": "message",
+        "role": "assistant",
+        "content": [],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 3,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 14473,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 0
+          },
+          "output_tokens": 1,
+          "service_tier": "standard"
+        }
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "863961d3-6a2e-4f04-b8c9-3701484f3d0a"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_start",
+      "index": 0,
+      "content_block": {
+        "type": "text",
+        "text": ""
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "b29a0f7e-d2ec-454a-8ece-c9dfd86f5c1f"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "Here"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "6227330e-b21d-4967-a66b-219dde472290"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "'s a haiku about TypeScript programming"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "a88c7ab0-13cd-492d-95e4-729d2280a03c"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": ":\n\n**"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "3eeba4a8-2be6-4579-84ce-06ab3a31f6a6"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "Types"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "aa3246ff-2160-4d5b-8c70-adf60e1f948d"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " guar"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "8092d6e6-0372-4b4e-a850-a39108815b62"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "d the code's path"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "b3049fd5-e440-4df0-b4b0-d63fa960e657"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": ","
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "ef3683d0-f272-486b-861e-22f41564cd65"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "**\n**Compiler"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "99ac8929-8cb9-491c-bf1e-51cfb7f45703"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " catches"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "1895525f-68ff-4ce8-ab20-f17df9bb0eab"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " mistakes"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "fc208ff4-132b-42a7-982b-220316cfb334"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "—"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "9643e60c-0cc9-412f-af53-55c7c8cb6db9"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "**"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "c94a14d3-fe7f-4266-a682-72afa906c15e"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "\n**Safe"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "ececad8f-4ede-44e2-aece-deda049334dc"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " code"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "f14cdd9a-e62e-476b-985d-525302f9e61b"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": ","
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "f7e2c8b5-2472-4b76-854c-547f85b925d8"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " rest"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "ee5b7e46-7e20-47b3-a7d0-6e9701ac7919"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "ful nights.**\n\n---"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "12619fe9-04e1-42ea-a66f-fd2307e946fe"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "\n\n**What makes this"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "997d52bb-564c-43ed-8df4-f504d3d3b637"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " ha"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "962bcc2c-3fd1-495d-9aab-60e163bec024"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "iku work"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "b058c782-2714-4627-90e0-b6b1f23f7f9c"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": ":**\n\n1. **Syll"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "b75bdd50-0723-4621-be92-6f8c382380c5"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "able structure"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "5e675cee-f0f0-426d-9b1a-6d9d1a3a382a"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " ("
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "4c162c20-d8f7-48e2-ba02-c17d5c718844"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "5-7-5)**: The"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "d209309d-673d-46c4-aaf5-b08d3cbd2858"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " haiku follows the"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "a5b578b5-6c3b-48b0-9e46-e48324c50b04"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " traditional pattern"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "a449c4a6-3534-4dff-bab6-1f720cee2966"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " with"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "63532fcf-f1a8-4e4a-91ef-057fc2f88a14"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " \""
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "5e1f8eab-4bc2-4b43-b2e8-e36439b9b8af"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "Types"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "733b3d25-7b91-4f4f-b89b-254d7de664d7"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " guard the"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "e15da2d3-5797-4809-a8d2-7cbdcf4c01f2"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " code's path\""
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "068d217f-2b7d-492c-8e3f-90ad1b2f1daf"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " ("
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "07acb540-4fab-4427-a9ba-92e0aad68464"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "5),"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "61b95b1a-c876-42f5-9e8f-2bd58758119e"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " \"Compiler catches mistakes\""
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "a38f32c2-19e4-4a6c-9c6f-ec670b50cac5"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " (7), and \"Safe code,"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "911e2fca-3117-4109-a21c-71f5c75d6a76"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " restful nights\" (5)."
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "44aacad9-5502-45a6-9e02-7a99a9e494c6"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "\n\n2. **Captures"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "7941f0be-eed6-4116-a671-c8a2d15418ea"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " Type"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "65590d2e-4b3c-4a42-ba01-be95f3cb2f6c"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "Script's essence**: It"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "526038a9-1065-4c45-942e-3929267a950d"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " focuses"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "4ced1668-d4ca-4782-b9be-0c30d6c11cd4"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " on Type"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "40941b77-3644-4ea7-b61c-fb02c7950e0c"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "Script's"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "cf7dc04f-a31a-444d-82c1-e771d2296bb5"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " core"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "657c4774-7dc5-403d-a5c3-8e89e0793237"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " value"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "afe3dbbe-e408-4b3e-ad20-f3a800a9ef87"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " proposition"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "d8a02dbd-88c0-4996-b895-19ca0be6c4af"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "—"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "dc53b555-d616-4a5e-968b-b46be49a7729"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "type"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "c755cd28-e183-4741-b6d7-078a16348a6a"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " safety and compile-time error"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "9a4d168a-e564-43c5-8e1c-a389bfbee449"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " detection"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "4b489687-8977-4e6f-9038-78f5b542ab0a"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "—which"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "3b74c0fc-4c44-4cb1-8510-a60fc2f299b0"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " is what distingu"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "4cab7f77-e6ea-4aa0-a3b8-744d2f56f0f3"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "ishes it from JavaScript"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "3c51ef58-72fa-4806-82b2-b3e686d6b734"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": ".\n\n3. **Emotional"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "8f0145a4-76dc-457a-b792-9fff4cbb5fa3"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " resonance**: The final"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "6e6c3947-8bba-4949-95f0-d65bf748a3f9"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " line \"Safe code, restful nights"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "0db37a24-5cba-4633-930e-a71cc87c4806"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "\" connects"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "0ec78159-682f-4247-b7df-f2fbb90b09e4"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " the"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "0f245fec-452a-43f2-ad81-82195d531fa8"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " technical"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "c3f008fa-82d2-4234-a134-cb0fe8cd7469"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " benefit"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "1520c694-e739-40a6-91e6-45c142296946"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " to a"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "82412883-4da5-4432-b8b1-3ba72c8a93e8"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " human experience"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "fddb5526-7eae-4edd-a2a5-2b928ed32ad5"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "."
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "e253b438-a9d2-45bc-be8d-e64135898674"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " Developers"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "e09ba740-8f06-456b-8951-bf0c4add2139"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " who've debug"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "6fd7db80-aa6d-40f0-9f7d-069953ca76e0"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "ged runtime"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "1e465a26-2406-4bc0-9596-3c7ed56d5e15"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " type"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "0c7d7755-4d8c-4568-a0d0-f5ed9027bb47"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " errors at"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "31450ac7-477a-4ad2-a057-a460a74d7ff0"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " "
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "d3858fd3-4dba-4dca-b6bc-9d46d1b1e9fb"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "2 AM will relate"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "81a7c0fd-dac1-47c4-85a6-4e011c237370"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " to this feeling"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "367a2a9d-3170-4c3b-9c6f-c36c88cdacd5"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " of relief."
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "d8b7ce6f-1fa6-48b4-a182-5518abc1b33d"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "\n\n4. **Ju"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "1d4695b9-456b-460e-8b9d-e11a42b737ab"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "xtaposition**: There"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "da400bdb-e2bd-423a-ab8e-007df9148041"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "'s a classic"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "1d057c5b-d0b7-459e-bdb9-13487057882e"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " ha"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "a399444a-0a57-48ab-a99e-00b2f46f10de"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "iku contrast"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "31edcf5f-5ef7-4dba-9471-03ef70e66a63"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " between"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "cfbfaea0-828c-469a-b8e1-4ec6fde3bbac"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " the"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "b9085a8f-8378-4c49-8989-e321a308605a"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " technical"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "fe3a8fe4-f147-4138-ae92-130ae3919453"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " realm"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "59d9e579-c373-4da1-812a-c557a135f109"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " (types,"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "4dbb33ae-2c66-4ea4-9789-1a316900d300"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " compiler"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "16f3f2d2-a814-488e-a83d-f66374c0dab6"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": ") and the peaceful"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "d80aae40-be36-482a-89ee-7e6919fd305d"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " human"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "24676792-4790-49ec-bd75-3ef4106a7c01"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " outcome"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "9c1a79c7-ded3-4fb5-bad1-4434fa223977"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " (rest"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "5d0c847b-31c4-4f34-9ef7-df0f00f058e7"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "ful nights), creating a satisf"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "69dbc203-8788-4e3c-b06b-e13ee947c09a"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "ying resolution"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "be764795-ccad-4ff0-8612-695243b23a24"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": ".\n\n5. **Concrete"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "36750b02-b927-46c8-8535-135d516b6efe"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " imagery**: Rather"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "c74ae6a2-a929-4d5b-be12-d23f050acf23"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " than abstract"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "7536e01d-817c-427d-821c-80864930a31d"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " concepts, it uses tang"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "5decb39f-2dee-4669-8632-4d841d66859c"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "ible images"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "65f41784-b3aa-4811-9226-356b67041bc0"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "—"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "9f77271e-5670-4618-9b28-ffcb6e9b7d84"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "a"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "24537941-0423-424d-91c6-e367d8929439"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " path"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "a2ce3eb3-7052-4629-b780-4ffab6233d8b"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " being"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "3de825f1-9068-45bc-a9b5-cc2d282bc2d5"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " gu"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "c0f8e3ed-23fc-4f91-8087-f5ef6811a2a8"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "arded, mistakes"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "3dcd9b08-2d8a-48be-8c84-17fe93a4bc10"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " being caught, and the"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "30df5e0d-0185-407b-8f66-c70425e630f8"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " peaceful"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "2be21f11-bf8f-4395-a0fa-586ea355180b"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " state"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "43a98a13-dfb8-49df-a607-7cdbc62219b8"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " of rest.\n\nThe haiku manages"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "4a4d2629-b201-444c-acd4-c56d854db79e"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " to be"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "0a84b560-08b0-4697-8ff7-7e1753824bd0"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " both technically"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "965a2346-e336-4b2a-ac10-d9fd2b15aaab"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " accurate"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "657b5bb3-fba9-4254-adbd-5938a5b88212"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " and emotionally meaningful"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "58bb388e-797c-428c-b796-91c54c0f36fc"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": ", which"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "2024ff20-8d87-44e0-ace8-f5952330982b"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " is the"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "548e0eb0-70f0-431e-ae6f-1ac7cec840ec"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " challenge"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "c7e06550-c6b5-48df-8e8a-29dfcddc49ab"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " when"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "5a0699f8-5737-4cec-822e-9ff9e46b91ef"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " writing"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "38e68b1e-f1c5-4340-bb64-8a6555127b21"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " poetry"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "918fecf9-5138-4962-be53-73bcdeda4f96"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": " about programming topics"
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "003a8e81-fdd6-4c26-9a42-9383b055cc3f"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+        "type": "text_delta",
+        "text": "."
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "469ee844-f619-4d47-b394-16a182a035db"
+  },
+  {
+    "type": "assistant",
+    "message": {
+      "model": "claude-sonnet-4-5-20250929",
+      "id": "msg_0154MB2oEHrKRdk27Aeseao4",
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "Here's a haiku about TypeScript programming:\n\n**Types guard the code's path,**\n**Compiler catches mistakes—**\n**Safe code, restful nights.**\n\n---\n\n**What makes this haiku work:**\n\n1. **Syllable structure (5-7-5)**: The haiku follows the traditional pattern with \"Types guard the code's path\" (5), \"Compiler catches mistakes\" (7), and \"Safe code, restful nights\" (5).\n\n2. **Captures TypeScript's essence**: It focuses on TypeScript's core value proposition—type safety and compile-time error detection—which is what distinguishes it from JavaScript.\n\n3. **Emotional resonance**: The final line \"Safe code, restful nights\" connects the technical benefit to a human experience. Developers who've debugged runtime type errors at 2 AM will relate to this feeling of relief.\n\n4. **Juxtaposition**: There's a classic haiku contrast between the technical realm (types, compiler) and the peaceful human outcome (restful nights), creating a satisfying resolution.\n\n5. **Concrete imagery**: Rather than abstract concepts, it uses tangible images—a path being guarded, mistakes being caught, and the peaceful state of rest.\n\nThe haiku manages to be both technically accurate and emotionally meaningful, which is the challenge when writing poetry about programming topics."
+        }
+      ],
+      "stop_reason": null,
+      "stop_sequence": null,
+      "usage": {
+        "input_tokens": 3,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 14473,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_tokens": 1,
+        "service_tier": "standard"
+      },
+      "context_management": null
+    },
+    "parent_tool_use_id": null,
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "uuid": "b16cdb75-7068-4eb0-b5a7-e71e922a82d2"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "content_block_stop",
+      "index": 0
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "612b3fe5-ea07-4888-8582-ace3411f9654"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "message_delta",
+      "delta": {
+        "stop_reason": "end_turn",
+        "stop_sequence": null
+      },
+      "usage": {
+        "input_tokens": 3,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 14473,
+        "output_tokens": 301
+      }
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "52cc9397-b2be-43fd-8d54-0bd40da112bb"
+  },
+  {
+    "type": "stream_event",
+    "event": {
+      "type": "message_stop"
+    },
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "parent_tool_use_id": null,
+    "uuid": "fb06766f-bee2-40b9-b479-a4234ad28ee8"
+  },
+  {
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "duration_ms": 10224,
+    "duration_api_ms": 23198,
+    "num_turns": 1,
+    "result": "Here's a haiku about TypeScript programming:\n\n**Types guard the code's path,**\n**Compiler catches mistakes—**\n**Safe code, restful nights.**\n\n---\n\n**What makes this haiku work:**\n\n1. **Syllable structure (5-7-5)**: The haiku follows the traditional pattern with \"Types guard the code's path\" (5), \"Compiler catches mistakes\" (7), and \"Safe code, restful nights\" (5).\n\n2. **Captures TypeScript's essence**: It focuses on TypeScript's core value proposition—type safety and compile-time error detection—which is what distinguishes it from JavaScript.\n\n3. **Emotional resonance**: The final line \"Safe code, restful nights\" connects the technical benefit to a human experience. Developers who've debugged runtime type errors at 2 AM will relate to this feeling of relief.\n\n4. **Juxtaposition**: There's a classic haiku contrast between the technical realm (types, compiler) and the peaceful human outcome (restful nights), creating a satisfying resolution.\n\n5. **Concrete imagery**: Rather than abstract concepts, it uses tangible images—a path being guarded, mistakes being caught, and the peaceful state of rest.\n\nThe haiku manages to be both technically accurate and emotionally meaningful, which is the challenge when writing poetry about programming topics.",
+    "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+    "total_cost_usd": 0.0164341,
+    "usage": {
+      "input_tokens": 3,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 14473,
+      "output_tokens": 301,
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 0,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "modelUsage": {
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 1947,
+        "outputTokens": 176,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.0028269999999999997,
+        "contextWindow": 200000
+      },
+      "claude-sonnet-4-5-20250929": {
+        "inputTokens": 6,
+        "outputTokens": 575,
+        "cacheReadInputTokens": 16547,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.0136071,
+        "contextWindow": 200000
+      }
+    },
+    "permission_denials": [],
+    "uuid": "30a21acd-c661-4df3-9a84-b51e42e66761"
+  }
+]

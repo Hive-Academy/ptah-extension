@@ -173,10 +173,14 @@ function validateStats(
  * - Yields FlatStreamEventUnion instead of ExecutionNode
  * - Frontend builds trees at render time from flat events
  *
+ * CRITICAL FIX (TASK_2025_086):
+ * - Accumulates events by messageId, stores ONE message per logical message
+ * - Previously stored each event as separate message (causing fragmented display)
+ *
  * Responsibilities:
  * - Extract real Claude session ID from system 'init' messages
  * - Transform SDK messages to flat stream event format
- * - Store messages in session storage
+ * - Accumulate events per message and store when complete
  * - Handle authentication errors gracefully
  */
 @injectable()
@@ -213,12 +217,20 @@ export class StreamTransformer {
 
     return {
       async *[Symbol.asyncIterator]() {
+        let sdkMessageCount = 0;
+        let yieldedEventCount = 0;
+
         try {
           logger.info(
             `[StreamTransformer] Starting message stream for ${sessionId}`
           );
 
           for await (const sdkMessage of sdkQuery) {
+            sdkMessageCount++;
+            logger.info(
+              `[StreamTransformer] SDK message #${sdkMessageCount} received: type=${sdkMessage.type}`,
+              { sessionId, messageType: sdkMessage.type }
+            );
             // Extract real Claude session ID from system 'init' message
             // This is the ONLY place where we get the real Claude UUID
             if (
@@ -318,60 +330,126 @@ export class StreamTransformer {
               sessionId
             );
 
-            // Store messages and yield flat events
+            logger.debug(
+              `[StreamTransformer] Transformed SDK message #${sdkMessageCount} to ${flatEvents.length} flat events`,
+              {
+                sessionId,
+                messageType: sdkMessage.type,
+                eventCount: flatEvents.length,
+              }
+            );
+
+            // TASK_2025_086 FIX: Only yield events for real-time streaming
+            // DON'T store stream_events - they're for UI only
+            // Storage happens when complete 'assistant'/'user' messages arrive
             for (const event of flatEvents) {
-              // Try to parse event.messageId as MessageId, or create a new one if it's not a valid UUID
-              const messageId =
-                MessageId.safeParse(event.messageId) ?? MessageId.create();
+              yieldedEventCount++;
+              logger.debug(
+                `[StreamTransformer] Yielding event #${yieldedEventCount}: ${event.eventType}`,
+                { sessionId, eventType: event.eventType }
+              );
+              yield event;
+            }
 
-              // Extract parent_tool_use_id from event
-              const parentToolUseId = event.parentToolUseId ?? null;
+            // TASK_2025_086 FIX: Store COMPLETE messages only
+            // SDK sends: stream_events (for UI) + complete assistant/user message (for storage)
+            // The complete message has all content blocks aggregated
+            if (sdkMessage.type === 'assistant' || sdkMessage.type === 'user') {
+              const uuid = sdkMessage['uuid'] as string;
+              const message = sdkMessage['message'] as {
+                id?: string;
+                content?: Array<{
+                  type: string;
+                  text?: string;
+                  id?: string;
+                  name?: string;
+                  input?: unknown;
+                }>;
+                model?: string;
+                usage?: { input_tokens?: number; output_tokens?: number };
+              };
+              const parentToolUseId = sdkMessage['parent_tool_use_id'] as
+                | string
+                | null;
 
-              // Get current model from session
+              // Convert message.content blocks to ExecutionNode[] format
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const executionNodes: any[] = [];
+              for (const block of message?.content || []) {
+                if (block.type === 'text' && block.text) {
+                  executionNodes.push({
+                    id: `text-${Date.now()}`,
+                    type: 'text',
+                    status: 'complete',
+                    content: block.text,
+                  });
+                } else if (
+                  block.type === 'tool_use' &&
+                  block.id &&
+                  block.name
+                ) {
+                  executionNodes.push({
+                    id: block.id,
+                    type: block.name === 'Task' ? 'agent' : 'tool',
+                    status: 'complete',
+                    toolName: block.name,
+                    toolInput: block.input,
+                    toolCallId: block.id,
+                  });
+                }
+              }
+
+              // Get model from session or message
               const currentSession =
                 sessionLifecycle.getActiveSession(sessionId);
-              const currentModel = currentSession?.currentModel || initialModel;
+              const currentModel =
+                message?.model || currentSession?.currentModel || initialModel;
 
-              // For parentId, also use safeParse since tool_use_ids from Anthropic are not UUIDs
-              const parentId =
-                parentToolUseId && typeof parentToolUseId === 'string'
-                  ? MessageId.safeParse(parentToolUseId)
-                  : null;
+              // Build token usage
+              const tokens = message?.usage
+                ? {
+                    input: message.usage.input_tokens || 0,
+                    output: message.usage.output_tokens || 0,
+                  }
+                : undefined;
 
-              // Create stored message from flat event
-              // NOTE: For flat events, we store the event itself, not ExecutionNode
-              // The frontend will build ExecutionNode trees at render time
+              const messageIdParsed =
+                MessageId.safeParse(uuid) ?? MessageId.create();
+              const parentId = parentToolUseId
+                ? MessageId.safeParse(parentToolUseId)
+                : null;
+
               const storedMessage: StoredSessionMessage = {
-                id: messageId,
-                parentId,
-                role: getRoleFromFlatEvent(event),
-                content: [event as any], // Store flat event in content array
-                timestamp: event.timestamp,
+                id: messageIdParsed,
+                parentId: parentId as MessageId | null,
+                role: sdkMessage.type as 'user' | 'assistant',
+                content: executionNodes, // Store proper ExecutionNode[] format
+                timestamp: Date.now(),
                 model: currentModel,
-                tokens:
-                  event.eventType === 'message_complete'
-                    ? event.tokenUsage
-                    : undefined,
+                tokens,
               };
 
-              // Save to storage - log errors but don't block UI
               try {
                 await storage.addMessage(sessionId, storedMessage);
+                logger.info(
+                  `[StreamTransformer] Stored complete ${sdkMessage.type} message ${uuid} with ${executionNodes.length} nodes`
+                );
               } catch (storageError) {
                 const errObj =
                   storageError instanceof Error
                     ? storageError
                     : new Error(String(storageError));
                 logger.warn(
-                  `[StreamTransformer] Failed to store message ${messageId}, continuing anyway`,
+                  `[StreamTransformer] Failed to store message ${uuid}, continuing anyway`,
                   errObj
                 );
               }
-
-              // Yield FlatStreamEventUnion for UI consumption
-              yield event;
             }
           }
+
+          logger.info(
+            `[StreamTransformer] Stream ended for ${sessionId}: ${sdkMessageCount} SDK messages, ${yieldedEventCount} events yielded`
+          );
         } catch (error) {
           const errorObj =
             error instanceof Error ? error : new Error(String(error));

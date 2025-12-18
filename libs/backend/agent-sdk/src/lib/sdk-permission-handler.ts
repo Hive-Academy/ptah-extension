@@ -108,6 +108,14 @@ const SAFE_TOOLS = ['Read', 'Grep', 'Glob'];
 const DANGEROUS_TOOLS = ['Write', 'Edit', 'Bash', 'NotebookEdit'];
 
 /**
+ * Check if a tool name is an MCP tool (prefixed with "mcp__")
+ * MCP tools should always require user approval as they can execute arbitrary code
+ */
+function isMcpTool(toolName: string): boolean {
+  return toolName.startsWith('mcp__');
+}
+
+/**
  * SDK Permission Handler
  *
  * Implements SDK canUseTool callback interface with webview coordination.
@@ -143,7 +151,8 @@ export class SdkPermissionHandler {
    * Returns a function matching SDK's CanUseTool signature that:
    * 1. Auto-approves safe tools instantly
    * 2. Requests user approval for dangerous tools via RPC
-   * 3. Denies unknown tools (fail-safe)
+   * 3. Requests user approval for MCP tools (can execute arbitrary code)
+   * 4. Denies unknown tools (fail-safe)
    */
   createCallback(): CanUseTool {
     return async (
@@ -151,6 +160,18 @@ export class SdkPermissionHandler {
       input: any,
       _options?: { signal?: AbortSignal; suggestions?: any[] }
     ): Promise<PermissionResult> => {
+      // CRITICAL: Log every canUseTool invocation for debugging
+      this.logger.info(
+        `[SdkPermissionHandler] canUseTool invoked: ${toolName}`,
+        {
+          toolName,
+          inputKeys: input ? Object.keys(input) : [],
+          isSafe: SAFE_TOOLS.includes(toolName),
+          isDangerous: DANGEROUS_TOOLS.includes(toolName),
+          isMcp: isMcpTool(toolName),
+        }
+      );
+
       // Auto-approve safe tools (no user prompt needed)
       if (SAFE_TOOLS.includes(toolName)) {
         this.logger.debug(
@@ -166,6 +187,14 @@ export class SdkPermissionHandler {
       if (DANGEROUS_TOOLS.includes(toolName)) {
         this.logger.info(
           `[SdkPermissionHandler] Requesting user permission for dangerous tool: ${toolName}`
+        );
+        return await this.requestUserPermission(toolName, input);
+      }
+
+      // MCP tools require user approval (can execute arbitrary code)
+      if (isMcpTool(toolName)) {
+        this.logger.info(
+          `[SdkPermissionHandler] Requesting user permission for MCP tool: ${toolName}`
         );
         return await this.requestUserPermission(toolName, input);
       }
@@ -379,6 +408,17 @@ export class SdkPermissionHandler {
    * Used in the webview permission UI to help users understand what's being requested.
    */
   private generateDescription(toolName: string, input: any): string {
+    // Handle MCP tools (format: mcp__server-name__tool-name)
+    if (isMcpTool(toolName)) {
+      const parts = toolName.split('__');
+      if (parts.length >= 3) {
+        const serverName = parts[1];
+        const toolNameOnly = parts.slice(2).join('__');
+        return `Execute MCP tool "${toolNameOnly}" from server "${serverName}"`;
+      }
+      return `Execute MCP tool: ${toolName}`;
+    }
+
     switch (toolName) {
       case 'Bash': {
         const command = input?.command;

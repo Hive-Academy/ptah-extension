@@ -40,6 +40,9 @@ export interface StreamingState {
 
   /** Current token usage for the active message */
   currentTokenUsage: { input: number; output: number } | null;
+
+  /** Pre-indexed events by messageId for O(1) lookup (eliminates O(n²) iteration) */
+  eventsByMessage: Map<string, FlatStreamEventUnion[]>;
 }
 
 /**
@@ -55,6 +58,7 @@ export function createEmptyStreamingState(): StreamingState {
     toolInputAccumulators: new Map(),
     currentMessageId: null,
     currentTokenUsage: null,
+    eventsByMessage: new Map(),
   };
 }
 
@@ -150,3 +154,15 @@ export interface TabState {
    */
   queuedContent?: string | null;
 }
+
+/**
+ * Accumulator key helpers to ensure consistency across streaming-handler and tree-builder.
+ * Prevents magic string coupling.
+ */
+export const AccumulatorKeys = {
+  toolInput: (toolCallId: string) => `${toolCallId}-input`,
+  textBlock: (messageId: string, blockIndex: number) =>
+    `${messageId}-block-${blockIndex}`,
+  thinkingBlock: (messageId: string, blockIndex: number) =>
+    `${messageId}-thinking-${blockIndex}`,
+} as const;

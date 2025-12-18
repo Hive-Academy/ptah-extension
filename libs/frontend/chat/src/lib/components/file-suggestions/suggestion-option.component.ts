@@ -5,6 +5,7 @@ import {
   ChangeDetectionStrategy,
   ElementRef,
   inject,
+  signal,
 } from '@angular/core';
 import { Highlightable } from '@angular/cdk/a11y';
 import type { CommandSuggestion } from '@ptah-extension/core';
@@ -93,14 +94,17 @@ export class SuggestionOptionComponent implements Highlightable {
   readonly hovered = output<void>();
 
   // Highlightable interface state
-  isActive = false;
+  private readonly _isActive = signal(false);
+  get isActive() {
+    return this._isActive();
+  }
 
   /**
    * Highlightable interface - called by ActiveDescendantKeyManager
    * Sets visual active state without moving focus
    */
   setActiveStyles(): void {
-    this.isActive = true;
+    this._isActive.set(true);
     // Scroll into view when activated via keyboard
     this.elementRef.nativeElement.scrollIntoView({
       block: 'nearest',
@@ -113,7 +117,7 @@ export class SuggestionOptionComponent implements Highlightable {
    * Removes visual active state
    */
   setInactiveStyles(): void {
-    this.isActive = false;
+    this._isActive.set(false);
   }
 
   handleClick(): void {

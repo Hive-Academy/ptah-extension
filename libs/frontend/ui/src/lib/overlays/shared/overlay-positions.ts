@@ -214,3 +214,25 @@ export const AUTOCOMPLETE_POSITIONS: ConnectedPosition[] = [
     offsetY: -4,
   },
 ];
+
+/**
+ * Autocomplete positions: ABOVE input first (fallback below)
+ * Ideal for chat input at bottom of sidebar/viewport.
+ * Shows suggestions above the input to maximize visible space.
+ */
+export const AUTOCOMPLETE_POSITIONS_ABOVE: ConnectedPosition[] = [
+  {
+    originX: 'start',
+    originY: 'top',
+    overlayX: 'start',
+    overlayY: 'bottom',
+    offsetY: -4,
+  },
+  {
+    originX: 'start',
+    originY: 'bottom',
+    overlayX: 'start',
+    overlayY: 'top',
+    offsetY: 4,
+  },
+];

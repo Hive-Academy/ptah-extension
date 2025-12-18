@@ -39,6 +39,9 @@ describe('ConversationService - Cleanup Mechanisms (Batch 2)', () => {
    */
   const createMockTabState = (overrides?: Partial<TabState>): TabState => ({
     id: 'tab_123',
+    claudeSessionId: null,
+    placeholderSessionId: null,
+    name: 'Test Session',
     title: 'Test Tab',
     order: 0,
     status: 'loaded',
@@ -48,7 +51,6 @@ describe('ConversationService - Cleanup Mechanisms (Batch 2)', () => {
     streamingState: null,
     currentMessageId: null,
     queuedContent: '',
-    claudeSessionId: null,
     ...overrides,
   });
 

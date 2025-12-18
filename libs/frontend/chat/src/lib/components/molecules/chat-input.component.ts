@@ -96,14 +96,19 @@ import { AgentSelectorComponent } from './agent-selector.component';
             (input)="handleInput($event)"
             (keydown)="handleKeyDown($event)"
             rows="4"
+            role="combobox"
+            [attr.aria-expanded]="showSuggestions()"
+            [attr.aria-controls]="getListboxId()"
+            [attr.aria-activedescendant]="getActiveDescendantId()"
+            aria-autocomplete="list"
             ptahAtTrigger
-            [dropdownOpen]="dropdownOpen()"
             (atTriggered)="handleAtTriggered($event)"
             (atClosed)="handleAtClosed()"
+            (atQueryChanged)="handleQueryChanged($event)"
             ptahSlashTrigger
-            [slashDropdownOpen]="dropdownOpen()"
             (slashTriggered)="handleSlashTriggered($event)"
             (slashClosed)="handleSlashClosed()"
+            (slashQueryChanged)="handleQueryChanged($event)"
           ></textarea>
 
           <!-- File/Folder Suggestions Dropdown - positioned above textarea -->
@@ -111,7 +116,7 @@ import { AgentSelectorComponent } from './agent-selector.component';
           <ptah-unified-suggestions-dropdown
             #suggestionsDropdown
             [overlayOrigin]="textareaOriginRef()!"
-            [suggestions]="allSuggestions()"
+            [suggestions]="filteredSuggestions()"
             [isLoading]="isLoadingSuggestions()"
             (suggestionSelected)="handleSuggestionSelected($event)"
             (closed)="closeSuggestions()"
@@ -219,14 +224,11 @@ export class ChatInputComponent {
   private readonly _showSuggestions = signal(false);
   readonly showSuggestions = this._showSuggestions.asReadonly();
 
-  // NEW: Track if dropdown is currently open (for directive pausing)
-  private readonly _dropdownOpen = signal(false);
-  readonly dropdownOpen = this._dropdownOpen.asReadonly();
-
   private readonly _suggestionMode = signal<
     'at-trigger' | 'slash-trigger' | null
   >(null);
   private readonly _triggerPosition = signal(0); // Position where trigger (@, /) starts
+  private readonly _currentQuery = signal(''); // Current search query after trigger
   private readonly _selectedFiles = signal<ChatFile[]>([]);
   private readonly _isLoadingSuggestions = signal(false);
 
@@ -245,14 +247,16 @@ export class ChatInputComponent {
     return !!tab?.queuedContent?.trim();
   });
 
-  // Computed signals for autocomplete - now returns ALL suggestions (no filtering)
-  readonly allSuggestions = computed(() => {
+  /**
+   * Computed signal for filtered suggestions
+   * Replaces the logic previously held inside the dropdown
+   */
+  readonly filteredSuggestions = computed(() => {
     const mode = this._suggestionMode();
+    const query = this._currentQuery().toLowerCase().trim();
 
     if (mode === 'at-trigger') {
-      // @ trigger: Files + Folders ONLY (agents moved to dedicated button)
-      // Return ALL files (dropdown handles filtering)
-      const files = this.filePicker.workspaceFiles().map((f) => {
+      const allFiles = this.filePicker.workspaceFiles().map((f) => {
         const { type: originalType, ...rest } = f;
         const isFolder = originalType === 'directory';
         return {
@@ -261,21 +265,31 @@ export class ChatInputComponent {
           description: f.directory,
           isFolder,
           ...rest,
-        };
+        } as SuggestionItem;
       });
 
-      return files;
+      if (!query) return allFiles;
+      return allFiles.filter(
+        (f) =>
+          f.type === 'file' &&
+          (f.name.toLowerCase().includes(query) ||
+            f.path.toLowerCase().includes(query))
+      );
     }
 
     if (mode === 'slash-trigger') {
-      // / trigger: Commands only
-      // Return ALL commands (dropdown handles filtering)
-      const commands = this.commandDiscovery.searchCommands('').map((c) => ({
+      const allCommands = this.commandDiscovery.searchCommands('').map((c) => ({
         type: 'command' as const,
         ...c,
-      }));
+      })) as SuggestionItem[];
 
-      return commands;
+      if (!query) return allCommands;
+      return allCommands.filter(
+        (c) =>
+          c.type === 'command' &&
+          (c.name.toLowerCase().includes(query) ||
+            (c.description && c.description.toLowerCase().includes(query)))
+      );
     }
 
     return [];
@@ -304,8 +318,8 @@ export class ChatInputComponent {
   handleAtTriggered(event: AtTriggerEvent): void {
     this._suggestionMode.set('at-trigger');
     this._triggerPosition.set(event.triggerPosition);
+    this._currentQuery.set(event.query);
     this._showSuggestions.set(true);
-    this._dropdownOpen.set(true); // ← NEW: Signal dropdown is open
     this.fetchAtSuggestions();
   }
 
@@ -326,8 +340,8 @@ export class ChatInputComponent {
   handleSlashTriggered(event: SlashTriggerEvent): void {
     this._suggestionMode.set('slash-trigger');
     this._triggerPosition.set(0); // Slash always starts at position 0
+    this._currentQuery.set(event.query);
     this._showSuggestions.set(true);
-    this._dropdownOpen.set(true); // ← NEW: Signal dropdown is open
     this.fetchCommandSuggestions();
   }
 
@@ -339,6 +353,13 @@ export class ChatInputComponent {
       this._showSuggestions.set(false);
       this._suggestionMode.set(null);
     }
+  }
+
+  /**
+   * Handle immediate query changes for responsive filtering
+   */
+  handleQueryChanged(query: string): void {
+    this._currentQuery.set(query);
   }
 
   // ============ END DIRECTIVE EVENT HANDLERS ============
@@ -501,13 +522,37 @@ export class ChatInputComponent {
    */
   closeSuggestions(): void {
     this._showSuggestions.set(false);
-    this._dropdownOpen.set(false); // ← NEW: Signal dropdown is closed
     this._suggestionMode.set(null);
+    this._currentQuery.set('');
+  }
 
-    // Return focus to textarea after dropdown closes
-    setTimeout(() => {
-      this.textareaRef()?.nativeElement.focus();
-    }, 0);
+  /**
+   * Get listbox ID for aria-controls attribute
+   * Returns the ID of the dropdown's listbox element, or null if closed.
+   *
+   * ACCESSIBILITY: aria-controls tells assistive technology which element
+   * the combobox controls (the popup listbox).
+   */
+  getListboxId(): string | null {
+    if (!this.showSuggestions()) {
+      return null;
+    }
+    return this.dropdownRef()?.listboxId ?? null;
+  }
+
+  /**
+   * Get active descendant ID for aria-activedescendant attribute
+   * Returns the ID of the currently highlighted option in the dropdown,
+   * or null if dropdown is closed or no option is active.
+   *
+   * ACCESSIBILITY: Screen readers use aria-activedescendant to announce
+   * the currently focused option without moving DOM focus from the textarea.
+   */
+  getActiveDescendantId(): string | null {
+    if (!this.showSuggestions()) {
+      return null;
+    }
+    return this.dropdownRef()?.getActiveDescendantId() ?? null;
   }
 
   /**
@@ -524,8 +569,25 @@ export class ChatInputComponent {
    * When dropdown is open, focus is on filter input, so textarea doesn't receive events.
    */
   handleKeyDown(event: KeyboardEvent): void {
-    // Only handle Enter when dropdown is NOT showing
-    // (when dropdown is open, focus is on filter input, not textarea)
+    const dropdown = this.dropdownRef();
+
+    // If dropdown is open, handle navigation and selection
+    if (this.showSuggestions() && dropdown) {
+      if (
+        ['ArrowDown', 'ArrowUp', 'Home', 'End', 'Enter', 'Escape'].includes(
+          event.key
+        )
+      ) {
+        // Forward event to dropdown component
+        const handled = dropdown.onKeyDown(event);
+        if (handled) {
+          event.preventDefault();
+          return;
+        }
+      }
+    }
+
+    // Default: Handle Enter to send message
     if (!this.showSuggestions() && event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       this.handleSend();

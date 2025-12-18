@@ -79,7 +79,6 @@ export class AtTriggerDirective implements OnInit {
    * Enable/disable the directive
    */
   readonly enabled = input(true);
-  readonly dropdownOpen = input(false); // NEW: Signal to pause directive when dropdown is open
 
   // CRITICAL: Field initializer pattern for toObservable() call
   // Why: toObservable() uses inject() internally, which requires injection context
@@ -87,7 +86,6 @@ export class AtTriggerDirective implements OnInit {
   // Violation: Calling toObservable() in ngOnInit causes NG0203 "inject() must be called from injection context"
   // Reference: https://angular.dev/guide/signals/inputs#reading-input-values-in-ngOnInit
   private readonly enabled$ = toObservable(this.enabled);
-  private readonly dropdownOpen$ = toObservable(this.dropdownOpen);
 
   /**
    * Emitted when @ trigger is detected with valid query
@@ -100,6 +98,12 @@ export class AtTriggerDirective implements OnInit {
    * NOT debounced - immediate
    */
   readonly atClosed = output<void>();
+
+  /**
+   * Emitted immediately when query changes (no debounce)
+   * Used for responsive filtering in UI
+   */
+  readonly atQueryChanged = output<string>();
 
   private readonly DEBOUNCE_DELAY_MS = 150;
 
@@ -134,12 +138,8 @@ export class AtTriggerDirective implements OnInit {
     );
 
     // Combined stream that respects enabled state AND dropdown open state
-    const triggerState$ = combineLatest([
-      inputState$,
-      this.enabled$,
-      this.dropdownOpen$, // NEW: Listen to dropdown state
-    ]).pipe(
-      filter(([, enabled, dropdownOpen]) => enabled && !dropdownOpen), // PAUSE when dropdown is open
+    const triggerState$ = combineLatest([inputState$, this.enabled$]).pipe(
+      filter(([, enabled]) => enabled),
       map(([state]) => state),
       takeUntilDestroyed(this.destroyRef)
     );
@@ -151,6 +151,11 @@ export class AtTriggerDirective implements OnInit {
         // Emit close immediately when transitioning from active to inactive
         if (prev.isActive && !curr.isActive) {
           this.atClosed.emit();
+        }
+
+        // Emit query change immediately
+        if (curr.isActive && curr.query !== prev.query) {
+          this.atQueryChanged.emit(curr.query);
         }
       });
 

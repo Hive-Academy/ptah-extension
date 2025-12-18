@@ -683,7 +683,8 @@ export type StreamEventType =
   | 'tool_result'
   | 'agent_start'
   | 'message_complete'
-  | 'message_delta';
+  | 'message_delta'
+  | 'signature_delta';
 
 /**
  * Base flat event with common fields
@@ -821,6 +822,18 @@ export interface MessageDeltaEvent extends FlatStreamEvent {
 }
 
 /**
+ * Signature delta event - validates extended thinking blocks
+ *
+ * Emitted by the SDK for extended thinking scenarios.
+ * Contains cryptographic signature for thinking block verification.
+ */
+export interface SignatureDeltaEvent extends FlatStreamEvent {
+  readonly eventType: 'signature_delta';
+  readonly blockIndex: number;
+  readonly signature: string; // Cryptographic signature for thinking verification
+}
+
+/**
  * Union type for all flat events - enables discriminated unions
  */
 export type FlatStreamEventUnion =
@@ -833,4 +846,5 @@ export type FlatStreamEventUnion =
   | ToolResultEvent
   | AgentStartEvent
   | MessageCompleteEvent
-  | MessageDeltaEvent;
+  | MessageDeltaEvent
+  | SignatureDeltaEvent;

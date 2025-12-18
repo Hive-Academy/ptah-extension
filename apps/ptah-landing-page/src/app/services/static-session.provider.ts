@@ -102,7 +102,7 @@ export class StaticSessionProvider {
       createExecutionChatMessage({
         id: 'demo_msg_002',
         role: 'assistant',
-        executionTree: this.createAssistantTree1(),
+        streamingState: this.createAssistantTree1(),
       }),
 
       // User message 2
@@ -116,7 +116,7 @@ export class StaticSessionProvider {
       createExecutionChatMessage({
         id: 'demo_msg_004',
         role: 'assistant',
-        executionTree: this.createAssistantTree2(),
+        streamingState: this.createAssistantTree2(),
       }),
     ];
   }

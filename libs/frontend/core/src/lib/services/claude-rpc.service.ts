@@ -237,4 +237,23 @@ export class ClaudeRpcService {
   ): Promise<RpcResult<FileOpenResult>> {
     return this.call('file:open', { path, line });
   }
+
+  /**
+   * Delete a chat session from storage (TASK_2025_086)
+   * @param sessionId - Session ID to delete
+   * @returns Promise with success status
+   */
+  async deleteSession(
+    sessionId: SessionId
+  ): Promise<RpcResult<{ success: boolean; error?: string }>> {
+    console.log(
+      '🗑️ [ClaudeRpcService] deleteSession() called - Sending RPC request...'
+    );
+    const result = await this.call('session:delete', { sessionId });
+    console.log('✅ [ClaudeRpcService] deleteSession() response:', {
+      success: result.success,
+      error: result.error,
+    });
+    return result;
+  }
 }

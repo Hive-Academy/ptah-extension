@@ -59,9 +59,9 @@ import { StaticSessionProvider } from '../services/static-session.provider';
         <div
           class="chat-bubble bg-base-300 text-base-content w-full max-w-none"
         >
-          @if (message.executionTree) {
+          @if (message.streamingState) {
           <!-- Render execution tree children -->
-          @for (child of message.executionTree.children; track child.id) {
+          @for (child of message.streamingState.children; track child.id) {
           @switch (child.type) { @case ('text') {
           <div class="prose prose-sm prose-invert max-w-none my-2">
             <markdown [data]="child.content || ''" />

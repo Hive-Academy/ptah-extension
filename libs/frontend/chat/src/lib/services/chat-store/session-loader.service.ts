@@ -8,6 +8,10 @@
  * - Managing pending session resolutions
  *
  * Part of ChatStore refactoring (Facade pattern) - ChatStore delegates here.
+ *
+ * TASK_2025_086 FIX: Handles both legacy ExecutionNode format AND new
+ * FlatStreamEventUnion format in stored messages. The backend stores raw
+ * streaming events, which this service reconstructs into proper messages.
  */
 
 import { Injectable, signal, inject } from '@angular/core';
@@ -19,23 +23,29 @@ import {
   ExecutionNode,
   createExecutionChatMessage,
   createExecutionNode,
+  FlatStreamEventUnion,
 } from '@ptah-extension/shared';
 import { SessionManager } from '../session-manager.service';
 import { TabManagerService } from '../tab-manager.service';
-import { PendingSessionManagerService } from '../pending-session-manager.service';
 
 /**
  * StoredSessionMessage format from SDK backend storage
  * This is the format returned by session:load RPC when using SDK path
  *
- * Note: This replaces the old JSONLMessage format which was used for CLI-based sessions.
- * With the SDK migration, all session storage uses this format.
+ * IMPORTANT (TASK_2025_086):
+ * The `content` field may contain EITHER:
+ * - ExecutionNode[] (legacy format - has `type` field)
+ * - FlatStreamEventUnion[] (SDK format - has `eventType` field)
+ *
+ * This happens because stream-transformer.ts stores raw streaming events.
+ * The session loader must detect and handle both formats.
  */
 interface StoredSessionMessage {
   readonly id: string;
   readonly parentId: string | null;
   readonly role: 'user' | 'assistant' | 'system';
-  readonly content: ExecutionNode[];
+  /** May be ExecutionNode[] or FlatStreamEventUnion[] depending on storage path */
+  readonly content: (ExecutionNode | FlatStreamEventUnion)[];
   readonly timestamp: number;
   readonly model: string;
   readonly tokens?: { input: number; output: number };
@@ -48,7 +58,6 @@ export class SessionLoaderService {
   private readonly vscodeService = inject(VSCodeService);
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
-  private readonly pendingSessionManager = inject(PendingSessionManagerService);
 
   // ============================================================================
   // STATE SIGNALS
@@ -176,6 +185,22 @@ export class SessionLoaderService {
   }
 
   // ============================================================================
+  // SESSION REMOVAL (TASK_2025_086)
+  // ============================================================================
+
+  /**
+   * Remove a session from the local list (UI only)
+   * Called after successful backend deletion to update UI state
+   */
+  removeSessionFromList(sessionId: SessionId): void {
+    this._sessions.update((current) =>
+      current.filter((s) => s.id !== sessionId)
+    );
+    this._totalSessions.update((count) => Math.max(0, count - 1));
+    console.log('[SessionLoaderService] Removed session from list:', sessionId);
+  }
+
+  // ============================================================================
   // SESSION SWITCHING
   // ============================================================================
 
@@ -213,10 +238,11 @@ export class SessionLoaderService {
         // Convert SDK storage format to UI display format
         const messages = this.convertStoredMessages(storedMessages, sessionId);
 
-        // Open or switch to tab for this session (prevents duplicate tabs)
-        const title =
-          messages[0]?.rawContent?.substring(0, 50) ||
-          sessionId.substring(0, 50);
+        // Get session name from the sessions list (global store)
+        // This preserves the user-set or auto-generated session name
+        const session = this._sessions().find((s) => s.id === sessionId);
+        const title = session?.name || sessionId.substring(0, 50);
+
         const activeTabId = this.tabManager.openSessionTab(sessionId, title);
 
         // Update tab with loaded messages
@@ -224,7 +250,9 @@ export class SessionLoaderService {
           messages,
           streamingState: null,
           status: 'loaded',
+          // Use session.name for both title and name to ensure consistency
           title,
+          name: title,
         });
 
         // Update SessionManager state (no node maps needed for SDK storage format)
@@ -254,15 +282,451 @@ export class SessionLoaderService {
   /**
    * Convert StoredSessionMessage[] to ExecutionChatMessage[]
    *
-   * StoredSessionMessage format (from SDK storage):
-   * - content: ExecutionNode[] (already processed nodes)
-   * - role: 'user' | 'assistant' | 'system'
+   * TASK_2025_086 FIX: Handles MIXED storage formats per-message:
    *
-   * ExecutionChatMessage format (for UI display):
-   * - streamingState: StreamingState | null (flat events for assistant)
-   * - rawContent: string (for user messages)
+   * Sessions may contain BOTH formats:
+   * - User messages often use ExecutionNode format (type: 'text')
+   * - Assistant messages often use FlatStreamEventUnion format (eventType: 'text_delta')
+   *
+   * This method detects format PER MESSAGE, not per session.
    */
   private convertStoredMessages(
+    storedMessages: StoredSessionMessage[],
+    sessionId: string
+  ): ExecutionChatMessage[] {
+    console.log(
+      '[SessionLoaderService] Converting',
+      storedMessages.length,
+      'stored messages (mixed format detection)'
+    );
+
+    const messages: ExecutionChatMessage[] = [];
+
+    // Filter to chat messages only
+    const chatMessages = storedMessages.filter(
+      (msg) => msg.role === 'user' || msg.role === 'assistant'
+    );
+
+    for (const stored of chatMessages) {
+      if (!stored.content || stored.content.length === 0) {
+        continue;
+      }
+
+      // Detect format for THIS message by checking its content
+      const firstContent = stored.content[0];
+      const isFlatEventFormat = 'eventType' in firstContent;
+
+      console.log(
+        `[SessionLoaderService] Message ${stored.id} (${stored.role}): format=${
+          isFlatEventFormat ? 'FlatStreamEventUnion' : 'ExecutionNode'
+        }`
+      );
+
+      if (isFlatEventFormat) {
+        // FlatStreamEventUnion format - convert events to ExecutionNode tree
+        const events = stored.content as FlatStreamEventUnion[];
+        const converted = this.convertSingleFlatEventMessage(
+          stored,
+          events,
+          sessionId
+        );
+        if (converted) {
+          messages.push(converted);
+        }
+      } else {
+        // ExecutionNode format - use directly
+        const nodes = stored.content as ExecutionNode[];
+        const converted = this.convertSingleLegacyMessage(
+          stored,
+          nodes,
+          sessionId
+        );
+        if (converted) {
+          messages.push(converted);
+        }
+      }
+    }
+
+    // Sort by timestamp
+    messages.sort((a, b) => a.timestamp - b.timestamp);
+
+    console.log(
+      '[SessionLoaderService] Converted to',
+      messages.length,
+      'chat messages'
+    );
+    return messages;
+  }
+
+  /**
+   * Convert a single message with FlatStreamEventUnion[] content
+   */
+  private convertSingleFlatEventMessage(
+    stored: StoredSessionMessage,
+    events: FlatStreamEventUnion[],
+    sessionId: string
+  ): ExecutionChatMessage | null {
+    // Sort events by timestamp
+    const sortedEvents = [...events].sort((a, b) => a.timestamp - b.timestamp);
+
+    // Find message_complete for metrics
+    const completeEvent = sortedEvents.find(
+      (e) => e.eventType === 'message_complete'
+    );
+    const tokens =
+      completeEvent && 'tokenUsage' in completeEvent
+        ? completeEvent.tokenUsage
+        : stored.tokens;
+    const cost =
+      completeEvent && 'cost' in completeEvent
+        ? (completeEvent.cost as number)
+        : stored.cost;
+
+    if (stored.role === 'user') {
+      // User messages: aggregate text_delta events
+      const textDeltas = sortedEvents.filter(
+        (e) => e.eventType === 'text_delta'
+      );
+      const rawContent = textDeltas
+        .map((e) => ('delta' in e ? e.delta : ''))
+        .join('');
+
+      return createExecutionChatMessage({
+        id: stored.id,
+        role: 'user',
+        rawContent: rawContent || '(user message)',
+        sessionId,
+        timestamp: stored.timestamp,
+      });
+    } else {
+      // Assistant messages: build ExecutionNode tree from events
+      const children = this.buildExecutionNodesFromEvents(sortedEvents);
+
+      // Only create message if there's content
+      if (children.length === 0) {
+        console.log(
+          '[SessionLoaderService] Skipping empty assistant message:',
+          stored.id
+        );
+        return null;
+      }
+
+      const streamingState = createExecutionNode({
+        id: stored.id,
+        type: 'message',
+        status: 'complete',
+        children,
+      });
+
+      return createExecutionChatMessage({
+        id: stored.id,
+        role: 'assistant',
+        streamingState,
+        sessionId,
+        timestamp: stored.timestamp,
+        tokens,
+        cost,
+      });
+    }
+  }
+
+  /**
+   * Convert a single message with ExecutionNode[] content (legacy format)
+   */
+  private convertSingleLegacyMessage(
+    stored: StoredSessionMessage,
+    content: ExecutionNode[],
+    sessionId: string
+  ): ExecutionChatMessage | null {
+    if (stored.role === 'user') {
+      // User message: extract text content from ExecutionNode[]
+      const textContent = content
+        .filter((node) => node.type === 'text')
+        .map((node) => node.content || '')
+        .join('\n');
+
+      return createExecutionChatMessage({
+        id: stored.id,
+        role: 'user',
+        rawContent: textContent || '(user message)',
+        sessionId,
+        timestamp: stored.timestamp,
+      });
+    } else {
+      // Assistant message: filter out system type nodes from content
+      const filteredContent = content.filter((node) => node.type !== 'system');
+
+      // Only create message if there's actual content
+      if (filteredContent.length === 0) {
+        return null;
+      }
+
+      // Wrap ExecutionNode[] in a root node
+      const streamingState = createExecutionNode({
+        id: stored.id,
+        type: 'message',
+        status: 'complete',
+        children: filteredContent,
+      });
+
+      return createExecutionChatMessage({
+        id: stored.id,
+        role: 'assistant',
+        streamingState,
+        sessionId,
+        timestamp: stored.timestamp,
+        tokens: stored.tokens,
+        cost: stored.cost,
+      });
+    }
+  }
+
+  /**
+   * Convert FlatStreamEventUnion format to ExecutionChatMessage[]
+   *
+   * The backend stores each streaming event as a separate "message".
+   * We need to:
+   * 1. Group events by messageId
+   * 2. Aggregate text_delta into full text
+   * 3. Build proper ExecutionNode trees
+   */
+  private convertFlatEventsToMessages(
+    storedMessages: StoredSessionMessage[],
+    sessionId: string
+  ): ExecutionChatMessage[] {
+    // Collect all flat events from all stored messages
+    const allEvents: FlatStreamEventUnion[] = [];
+    for (const stored of storedMessages) {
+      for (const item of stored.content) {
+        if ('eventType' in item) {
+          allEvents.push(item as FlatStreamEventUnion);
+        }
+      }
+    }
+
+    console.log(
+      '[SessionLoaderService] Collected',
+      allEvents.length,
+      'flat events'
+    );
+
+    // Group events by messageId
+    const eventsByMessage = new Map<string, FlatStreamEventUnion[]>();
+    for (const event of allEvents) {
+      const msgId = event.messageId;
+      if (!eventsByMessage.has(msgId)) {
+        eventsByMessage.set(msgId, []);
+      }
+      eventsByMessage.get(msgId)!.push(event);
+    }
+
+    console.log(
+      '[SessionLoaderService] Grouped into',
+      eventsByMessage.size,
+      'messages'
+    );
+
+    // Convert each message group to ExecutionChatMessage
+    const messages: ExecutionChatMessage[] = [];
+
+    for (const [messageId, events] of eventsByMessage) {
+      // Sort events by timestamp
+      events.sort((a, b) => a.timestamp - b.timestamp);
+
+      // Find message_start to determine role
+      const startEvent = events.find((e) => e.eventType === 'message_start');
+      const role =
+        startEvent && 'role' in startEvent
+          ? startEvent.role
+          : ('assistant' as const);
+
+      // Get timestamp from first event
+      const timestamp = events[0]?.timestamp || Date.now();
+
+      // Find message_complete for metrics
+      const completeEvent = events.find(
+        (e) => e.eventType === 'message_complete'
+      );
+      const tokens =
+        completeEvent && 'tokenUsage' in completeEvent
+          ? completeEvent.tokenUsage
+          : undefined;
+      const cost =
+        completeEvent && 'cost' in completeEvent
+          ? (completeEvent.cost as number)
+          : undefined;
+
+      if (role === 'user') {
+        // User messages: aggregate text_delta events
+        const textDeltas = events.filter((e) => e.eventType === 'text_delta');
+        const rawContent = textDeltas
+          .map((e) => ('delta' in e ? e.delta : ''))
+          .join('');
+
+        messages.push(
+          createExecutionChatMessage({
+            id: messageId,
+            role: 'user',
+            rawContent: rawContent || '(user message)',
+            sessionId,
+            timestamp,
+          })
+        );
+      } else {
+        // Assistant messages: build ExecutionNode tree from events
+        const children = this.buildExecutionNodesFromEvents(events);
+
+        // Only create message if there's content
+        if (children.length === 0) {
+          console.log(
+            '[SessionLoaderService] Skipping empty assistant message:',
+            messageId
+          );
+          continue;
+        }
+
+        const streamingState = createExecutionNode({
+          id: messageId,
+          type: 'message',
+          status: 'complete',
+          children,
+        });
+
+        messages.push(
+          createExecutionChatMessage({
+            id: messageId,
+            role: 'assistant',
+            streamingState,
+            sessionId,
+            timestamp,
+            tokens,
+            cost,
+          })
+        );
+      }
+    }
+
+    // Sort by timestamp
+    messages.sort((a, b) => a.timestamp - b.timestamp);
+
+    console.log(
+      '[SessionLoaderService] Converted to',
+      messages.length,
+      'chat messages'
+    );
+    return messages;
+  }
+
+  /**
+   * Build ExecutionNode[] from flat events for a single message
+   */
+  private buildExecutionNodesFromEvents(
+    events: FlatStreamEventUnion[]
+  ): ExecutionNode[] {
+    const nodes: ExecutionNode[] = [];
+
+    // Aggregate text by blockIndex
+    const textBlocks = new Map<number, string>();
+    const thinkingBlocks = new Map<number, string>();
+    const toolNodes = new Map<string, ExecutionNode>();
+
+    for (const event of events) {
+      switch (event.eventType) {
+        case 'text_delta': {
+          const idx = event.blockIndex ?? 0;
+          const existing = textBlocks.get(idx) || '';
+          textBlocks.set(idx, existing + event.delta);
+          break;
+        }
+        case 'thinking_start': {
+          const idx = event.blockIndex ?? 0;
+          if (!thinkingBlocks.has(idx)) {
+            thinkingBlocks.set(idx, '');
+          }
+          break;
+        }
+        case 'thinking_delta': {
+          const idx = event.blockIndex ?? 0;
+          const existing = thinkingBlocks.get(idx) || '';
+          thinkingBlocks.set(idx, existing + event.delta);
+          break;
+        }
+        case 'tool_start': {
+          const toolId = event.toolCallId;
+          toolNodes.set(
+            toolId,
+            createExecutionNode({
+              id: toolId,
+              type: event.isTaskTool ? 'agent' : 'tool',
+              status: 'streaming',
+              toolName: event.toolName,
+              toolInput: event.toolInput,
+              toolCallId: toolId,
+              agentType: event.agentType,
+              agentDescription: event.agentDescription,
+            })
+          );
+          break;
+        }
+        case 'tool_result': {
+          const toolId = event.toolCallId;
+          const existing = toolNodes.get(toolId);
+          if (existing) {
+            toolNodes.set(toolId, {
+              ...existing,
+              status: event.isError ? 'error' : 'complete',
+              toolOutput: event.output,
+              error: event.isError ? String(event.output) : undefined,
+              isPermissionRequest: event.isPermissionRequest,
+            });
+          }
+          break;
+        }
+        // Skip other event types (message_start, message_complete handled above)
+      }
+    }
+
+    // Build thinking nodes first
+    for (const [idx, content] of thinkingBlocks) {
+      if (content) {
+        nodes.push(
+          createExecutionNode({
+            id: `thinking-${idx}`,
+            type: 'thinking',
+            status: 'complete',
+            content,
+          })
+        );
+      }
+    }
+
+    // Build text nodes
+    for (const [idx, content] of textBlocks) {
+      if (content) {
+        nodes.push(
+          createExecutionNode({
+            id: `text-${idx}`,
+            type: 'text',
+            status: 'complete',
+            content,
+          })
+        );
+      }
+    }
+
+    // Add tool nodes
+    for (const [, node] of toolNodes) {
+      nodes.push(node);
+    }
+
+    return nodes;
+  }
+
+  /**
+   * Convert legacy ExecutionNode format to ExecutionChatMessage[]
+   * (Original implementation for backwards compatibility)
+   */
+  private convertLegacyNodesToMessages(
     storedMessages: StoredSessionMessage[],
     sessionId: string
   ): ExecutionChatMessage[] {
@@ -273,9 +737,12 @@ export class SessionLoaderService {
 
     return chatMessages
       .map((stored) => {
+        // Type assertion for legacy format
+        const content = stored.content as ExecutionNode[];
+
         if (stored.role === 'user') {
           // User message: extract text content from ExecutionNode[]
-          const textContent = stored.content
+          const textContent = content
             .filter((node) => node.type === 'text')
             .map((node) => node.content || '')
             .join('\n');
@@ -289,7 +756,7 @@ export class SessionLoaderService {
           });
         } else {
           // Assistant message: filter out system type nodes from content
-          const filteredContent = stored.content.filter(
+          const filteredContent = content.filter(
             (node) => node.type !== 'system'
           );
 
@@ -323,63 +790,4 @@ export class SessionLoaderService {
   // ============================================================================
   // SESSION ID RESOLUTION
   // ============================================================================
-
-  /**
-   * Handle session ID resolution from backend
-   * Called when backend resolves the real Claude session UUID from SDK streaming
-   *
-   * Uses atomic resolution via TabManager.resolveSessionId to prevent race conditions.
-   * Implements backward compatibility by validating UUID v4 format.
-   */
-  handleSessionIdResolved(
-    placeholderSessionId: string,
-    actualSessionId: string
-  ): void {
-    console.log('[SessionLoaderService] Session ID resolved:', {
-      placeholderSessionId,
-      actualSessionId,
-    });
-
-    // Backward compatibility: Ignore legacy non-UUID placeholders (msg_* format)
-    const uuidRegex =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(placeholderSessionId)) {
-      console.warn('[SessionLoaderService] Skipping legacy placeholder ID', {
-        placeholderSessionId,
-        format: 'non-UUID (legacy msg_* format)',
-      });
-      return;
-    }
-
-    // ✅ Atomic resolution via TabManager (uses placeholder-based lookup)
-    // This prevents race conditions during tab switching
-    this.tabManager.resolveSessionId(placeholderSessionId, actualSessionId);
-
-    // Clean up pending resolution tracking
-    const targetTabId = this.pendingSessionManager.get(placeholderSessionId);
-    if (targetTabId) {
-      this.pendingSessionManager.remove(placeholderSessionId);
-      console.log(
-        '[SessionLoaderService] Cleaned up pending resolution for tab:',
-        targetTabId
-      );
-    }
-
-    // Update SessionManager - use new confirmSessionId() API
-    // Type assertion safe here: actualSessionId is validated by backend and originates from Claude CLI
-    this.sessionManager.confirmSessionId(actualSessionId as SessionId);
-
-    console.log('[SessionLoaderService] Session ID resolved atomically:', {
-      placeholderSessionId,
-      actualSessionId,
-    });
-
-    // Refresh session list to show new session in sidebar
-    this.loadSessions().catch((err) => {
-      console.warn(
-        '[SessionLoaderService] Failed to refresh sessions after ID resolution:',
-        err
-      );
-    });
-  }
 }
