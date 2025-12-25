@@ -6,9 +6,11 @@
  * - AuthManager: Authentication setup and validation
  * - SessionLifecycleManager: Session tracking and cleanup
  * - ConfigWatcher: Config change detection and re-initialization
- * - SdkQueryBuilder: SDK query options construction
- * - UserMessageStreamFactory: Async message stream creation
  * - StreamTransformer: SDK message to ExecutionNode transformation
+ * - SessionMetadataStore: UI metadata storage (names, timestamps, costs)
+ *
+ * Note: Query building and user message stream creation are inlined as private
+ * methods rather than injected services (TASK_2025_088 simplification).
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -33,6 +35,7 @@ import {
   SDKMessage,
   UserMessageContent,
   TextBlock,
+  CanUseTool,
 } from './types/sdk-types/claude-sdk.types';
 import {
   AuthManager,
@@ -44,6 +47,7 @@ import {
   type SessionIdResolvedCallback,
   type ResultStatsCallback,
   type ContentBlock,
+  type Query,
 } from './helpers';
 import {
   ClaudeCliDetector,
@@ -179,8 +183,7 @@ export class SdkAgentAdapter implements IAIProvider {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mcpServers: Record<string, any>;
       permissionMode: 'default' | 'acceptEdits' | 'bypassPermissions';
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      canUseTool: any;
+      canUseTool?: CanUseTool;
       includePartialMessages: boolean;
       settingSources?: Array<'user' | 'project' | 'local'>;
       env?: Record<string, string | undefined>;
@@ -214,7 +217,10 @@ export class SdkAgentAdapter implements IAIProvider {
         };
 
     // CRITICAL: Create canUseTool callback
-    const canUseToolCallback = this.permissionHandler.createCallback();
+    // Note: Our CanUseTool type is structurally identical to SDK's but TypeScript sees them as incompatible
+    // Use type assertion (eslint-disable to allow any for SDK interop)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const canUseToolCallback = this.permissionHandler.createCallback() as any;
 
     // Default port for Ptah HTTP MCP server (from vscode-lm-tools/CodeExecutionMCP)
     const PTAH_MCP_PORT = 51820;
@@ -650,11 +656,15 @@ export class SdkAgentAdapter implements IAIProvider {
     });
 
     // Start SDK query
-    const sdkQuery = query(queryOptions);
+    // Type assertion needed because SDK's query() expects SDK types, not our local types
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sdkQuery = query(queryOptions as any);
     const initialModel = queryOptions.options.model;
 
     // Set the SDK query on the pre-registered session
-    this.sessionLifecycle.setSessionQuery(sessionId, sdkQuery);
+    // Type assertion needed because SDK types are structurally identical but seen as different
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    this.sessionLifecycle.setSessionQuery(sessionId, sdkQuery as any);
 
     // Return transformed stream
     // Note: sdkQuery yields SDK's SDKMessage (from @anthropic-ai/claude-agent-sdk)
@@ -747,11 +757,15 @@ export class SdkAgentAdapter implements IAIProvider {
     });
 
     // Start SDK query with resume
-    const sdkQuery = query(queryOptions);
+    // Type assertion needed because SDK's query() expects SDK types, not our local types
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sdkQuery = query(queryOptions as any);
     const initialModel = queryOptions.options.model;
 
     // Set the SDK query on the pre-registered session
-    this.sessionLifecycle.setSessionQuery(sessionId, sdkQuery);
+    // Type assertion needed because SDK types are structurally identical but seen as different
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    this.sessionLifecycle.setSessionQuery(sessionId, sdkQuery as any);
 
     this.logger.info(`[SdkAgentAdapter] Session resumed: ${sessionId}`);
 

@@ -651,3 +651,142 @@ export function isInputJsonDelta(delta: Delta): delta is InputJsonDelta {
 export function isThinkingDelta(delta: Delta): delta is ThinkingDelta {
   return delta.type === 'thinking_delta';
 }
+
+// =============================================================================
+// PERMISSION SYSTEM TYPES
+// =============================================================================
+
+/**
+ * Permission update destination
+ */
+export type PermissionUpdateDestination =
+  | 'userSettings'
+  | 'projectSettings'
+  | 'localSettings'
+  | 'session'
+  | 'cliArg';
+
+/**
+ * Permission behavior
+ */
+export type PermissionBehavior = 'allow' | 'deny' | 'ask';
+
+/**
+ * Permission rule value
+ */
+export interface PermissionRuleValue {
+  toolName: string;
+  ruleContent?: string;
+}
+
+/**
+ * Permission update suggestion - complete SDK union type
+ */
+export type PermissionUpdate =
+  | {
+      type: 'addRules';
+      rules: PermissionRuleValue[];
+      behavior: PermissionBehavior;
+      destination: PermissionUpdateDestination;
+    }
+  | {
+      type: 'replaceRules';
+      rules: PermissionRuleValue[];
+      behavior: PermissionBehavior;
+      destination: PermissionUpdateDestination;
+    }
+  | {
+      type: 'removeRules';
+      rules: PermissionRuleValue[];
+      behavior: PermissionBehavior;
+      destination: PermissionUpdateDestination;
+    }
+  | {
+      type: 'setMode';
+      mode: PermissionMode;
+      destination: PermissionUpdateDestination;
+    }
+  | {
+      type: 'addDirectories';
+      directories: string[];
+      destination: PermissionUpdateDestination;
+    }
+  | {
+      type: 'removeDirectories';
+      directories: string[];
+      destination: PermissionUpdateDestination;
+    };
+
+/**
+ * Permission result returned from canUseTool callback
+ * This is a discriminated union with 'behavior' as the discriminator
+ */
+export type PermissionResult =
+  | {
+      behavior: 'allow';
+      /**
+       * Updated tool input to use, if any changes are needed.
+       */
+      updatedInput: Record<string, unknown>;
+      /**
+       * Permissions updates to be applied as part of accepting this tool use.
+       * Typically from the `suggestions` field from the CanUseTool callback.
+       */
+      updatedPermissions?: PermissionUpdate[];
+      /**
+       * The tool use ID. Supplied and used internally.
+       */
+      toolUseID?: string;
+    }
+  | {
+      behavior: 'deny';
+      /**
+       * Message indicating the reason for denial, or guidance of what the
+       * model should do instead.
+       */
+      message: string;
+      /**
+       * If true, interrupt execution and do not continue.
+       */
+      interrupt?: boolean;
+      /**
+       * The tool use ID. Supplied and used internally.
+       */
+      toolUseID?: string;
+    };
+
+/**
+ * Tool permission callback (from official SDK)
+ *
+ * Called by SDK when a tool needs permission to execute.
+ * Must return PermissionResult indicating approval/denial.
+ *
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:145-171
+ */
+export type CanUseTool = (
+  toolName: string,
+  input: Record<string, unknown>,
+  options: {
+    /** Signaled if the operation should be aborted. */
+    signal: AbortSignal;
+    /**
+     * Suggestions for updating permissions so that the user will not be
+     * prompted again for this tool during this session.
+     */
+    suggestions?: PermissionUpdate[];
+    /**
+     * The file path that triggered the permission request, if applicable.
+     * For example, when a Bash command tries to access a path outside allowed directories.
+     */
+    blockedPath?: string;
+    /** Explains why this permission request was triggered. */
+    decisionReason?: string;
+    /**
+     * Unique identifier for this specific tool call within the assistant message.
+     * Multiple tool calls in the same assistant message will have different toolUseIDs.
+     */
+    toolUseID: string;
+    /** If running within the context of a sub-agent, the sub-agent's ID. */
+    agentID?: string;
+  }
+) => Promise<PermissionResult>;

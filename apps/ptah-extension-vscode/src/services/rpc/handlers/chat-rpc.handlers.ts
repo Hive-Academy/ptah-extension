@@ -25,6 +25,8 @@ import {
   ChatContinueResult,
   ChatAbortParams,
   ChatAbortResult,
+  ChatResumeParams,
+  ChatResumeResult,
   MESSAGE_TYPES,
 } from '@ptah-extension/shared';
 
@@ -53,10 +55,11 @@ export class ChatRpcHandlers {
   register(): void {
     this.registerChatStart();
     this.registerChatContinue();
+    this.registerChatResume();
     this.registerChatAbort();
 
     this.logger.debug('Chat RPC handlers registered', {
-      methods: ['chat:start', 'chat:continue', 'chat:abort'],
+      methods: ['chat:start', 'chat:continue', 'chat:resume', 'chat:abort'],
     });
   }
 
@@ -186,6 +189,58 @@ export class ChatRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: chat:continue failed',
+            error instanceof Error ? error : new Error(String(error))
+          );
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+    );
+  }
+
+  /**
+   * chat:resume - Resume session and replay history (no new message)
+   *
+   * Used when user clicks a session from sidebar to load conversation history.
+   * The SDK will stream replayed events with isReplay: true.
+   *
+   * TASK_2025_089: Added standalone resume method (previously was only in chat:continue)
+   */
+  private registerChatResume(): void {
+    this.rpcHandler.registerMethod<ChatResumeParams, ChatResumeResult>(
+      'chat:resume',
+      async (params) => {
+        try {
+          const { sessionId, workspacePath, model } = params;
+          this.logger.debug('RPC: chat:resume called', { sessionId });
+
+          // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
+          const currentModel =
+            model ||
+            this.configManager.getWithDefault<string>(
+              'model.selected',
+              'claude-sonnet-4-20250514'
+            );
+
+          // Resume the session to replay conversation history
+          const stream = await this.sdkAdapter.resumeSession(sessionId, {
+            projectPath: workspacePath,
+            model: currentModel,
+          });
+
+          // Stream replayed events to webview (background - don't await)
+          this.streamExecutionNodesToWebview(sessionId, stream);
+
+          this.logger.info(
+            `[RPC] Session ${sessionId} resumed for history replay`
+          );
+
+          return { success: true };
+        } catch (error) {
+          this.logger.error(
+            'RPC: chat:resume failed',
             error instanceof Error ? error : new Error(String(error))
           );
           return {

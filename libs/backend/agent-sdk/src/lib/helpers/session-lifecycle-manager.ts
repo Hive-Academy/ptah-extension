@@ -8,10 +8,10 @@
  * - Session cleanup
  *
  * NOTE: This manager does NOT handle session persistence.
- * The SDK handles persistence natively to ~/.claude/projects/
- * UI metadata (names, timestamps) is managed by SessionMetadataStore.
+ * The SDK handles message persistence natively to ~/.claude/projects/
+ * UI metadata (names, timestamps, costs) is managed by SessionMetadataStore.
  *
- * @see TASK_2025_088 - Simplified to remove redundant storage
+ * @see TASK_2025_088 - Simplified to remove redundant storage layers
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -19,6 +19,7 @@ import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { SessionId, AISessionConfig } from '@ptah-extension/shared';
 import {
   SDKUserMessage,
+  SDKMessage,
   UUID,
   UserMessageContent,
   ContentBlock,
@@ -29,12 +30,13 @@ export type { SDKUserMessage, ContentBlock };
 
 /**
  * Query interface - matches SDK's Query runtime structure
+ * Properly typed with SDKMessage instead of any
  */
 export interface Query {
-  [Symbol.asyncIterator](): AsyncIterator<any, void>;
-  next(...args: any[]): Promise<IteratorResult<any, void>>;
-  return?(value?: any): Promise<IteratorResult<any, void>>;
-  throw?(e?: any): Promise<IteratorResult<any, void>>;
+  [Symbol.asyncIterator](): AsyncIterator<SDKMessage, void>;
+  next(): Promise<IteratorResult<SDKMessage, void>>;
+  return?(value?: void): Promise<IteratorResult<SDKMessage, void>>;
+  throw?(e?: unknown): Promise<IteratorResult<SDKMessage, void>>;
   interrupt(): Promise<void>;
   setPermissionMode(mode: string): Promise<void>;
   setModel(model?: string): Promise<void>;

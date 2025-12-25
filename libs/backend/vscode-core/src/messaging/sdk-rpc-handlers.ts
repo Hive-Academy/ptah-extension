@@ -34,9 +34,18 @@ interface SdkAgentAdapter {
   sendMessageToSession(sessionId: SessionId, content: string): Promise<void>;
 }
 
-// SDK session storage interface (avoid circular import)
-interface SdkSessionStorage {
-  deleteSession(sessionId: SessionId): Promise<void>;
+// SDK session metadata store interface (avoid circular import)
+interface SessionMetadataStore {
+  delete(sessionId: string): Promise<void>;
+  get(sessionId: string): Promise<{
+    sessionId: string;
+    name: string;
+    workspaceId: string;
+    createdAt: number;
+    lastActiveAt: number;
+    totalCost: number;
+    totalTokens: { input: number; output: number };
+  } | null>;
 }
 
 // SDK permission handler interface
@@ -83,8 +92,8 @@ export class SdkRpcHandlers {
     @inject('SdkAgentAdapter') private readonly sdkAdapter: SdkAgentAdapter,
     @inject('SdkPermissionHandler')
     private readonly permissionHandler: SdkPermissionHandler,
-    @inject('SdkSessionStorage')
-    private readonly sessionStorage: SdkSessionStorage
+    @inject('SessionMetadataStore')
+    private readonly metadataStore: SessionMetadataStore
   ) {
     // Wire up permission handler to send events to webview
     this.initializePermissionEmitter();
@@ -243,22 +252,40 @@ export class SdkRpcHandlers {
 
   /**
    * RPC: sdk:getSession
-   * Get session data from storage
+   * Get session metadata from storage
    */
-  async handleGetSession(params: { sessionId: SessionId }): Promise<any> {
+  async handleGetSession(params: { sessionId: SessionId }): Promise<{
+    sessionId: string;
+    name: string;
+    workspaceId: string;
+    createdAt: number;
+    lastActiveAt: number;
+    totalCost: number;
+    totalTokens: { input: number; output: number };
+  } | null> {
     try {
-      this.logger.debug('[SdkRpcHandlers] Getting SDK session', {
+      this.logger.debug('[SdkRpcHandlers] Getting SDK session metadata', {
         sessionId: params.sessionId,
       });
 
-      // TODO: Return session data from storage
-      this.logger.warn('[SdkRpcHandlers] Get session not yet implemented', {
+      // Get session metadata from store
+      const metadata = await this.metadataStore.get(params.sessionId as string);
+
+      if (!metadata) {
+        this.logger.debug('[SdkRpcHandlers] Session metadata not found', {
+          sessionId: params.sessionId,
+        });
+        return null;
+      }
+
+      this.logger.debug('[SdkRpcHandlers] Retrieved session metadata', {
         sessionId: params.sessionId,
+        name: metadata.name,
       });
 
-      return null;
+      return metadata;
     } catch (error) {
-      this.logger.error('[SdkRpcHandlers] Failed to get session', {
+      this.logger.error('[SdkRpcHandlers] Failed to get session metadata', {
         error,
         sessionId: params.sessionId,
       });
@@ -268,25 +295,28 @@ export class SdkRpcHandlers {
 
   /**
    * RPC: sdk:deleteSession
-   * Delete session from storage (TASK_2025_086)
+   * Delete session metadata from storage (TASK_2025_086)
    */
   async handleDeleteSession(params: {
     sessionId: SessionId;
   }): Promise<{ success: boolean; error?: string }> {
     try {
-      this.logger.info('[SdkRpcHandlers] Deleting SDK session', {
+      this.logger.info('[SdkRpcHandlers] Deleting SDK session metadata', {
         sessionId: params.sessionId,
       });
 
       // Remove from active sessions map if present
       this.activeSessions.delete(params.sessionId as string);
 
-      // Delete from storage
-      await this.sessionStorage.deleteSession(params.sessionId);
+      // Delete metadata from store (async method)
+      await this.metadataStore.delete(params.sessionId as string);
 
-      this.logger.info('[SdkRpcHandlers] SDK session deleted successfully', {
-        sessionId: params.sessionId,
-      });
+      this.logger.info(
+        '[SdkRpcHandlers] SDK session metadata deleted successfully',
+        {
+          sessionId: params.sessionId,
+        }
+      );
 
       // Notify webview of deletion
       await this.webviewManager.sendMessage('ptah.main', 'sdk:sessionDeleted', {
@@ -295,7 +325,7 @@ export class SdkRpcHandlers {
 
       return { success: true };
     } catch (error) {
-      this.logger.error('[SdkRpcHandlers] Failed to delete session', {
+      this.logger.error('[SdkRpcHandlers] Failed to delete session metadata', {
         error,
         sessionId: params.sessionId,
       });

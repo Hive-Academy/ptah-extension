@@ -13,6 +13,19 @@ export interface AgentSpawnInfo {
 }
 
 /**
+ * Tool use block structure for creating tool nodes
+ * Matches the structure from ContentBlockJSON with type 'tool_use'
+ */
+export interface ToolUseBlock {
+  /** Tool use ID (optional - generated if not provided) */
+  readonly id?: string;
+  /** Tool name (e.g., 'Read', 'Write', 'Bash', 'Task') */
+  readonly name: string;
+  /** Tool input parameters */
+  readonly input: Record<string, unknown>;
+}
+
+/**
  * ExecutionTreeBuilder - Builds and manipulates ExecutionNode trees
  *
  * Single Responsibility: Tree construction and manipulation only.
@@ -208,7 +221,7 @@ export class ExecutionTreeBuilder {
    * });
    * ```
    */
-  appendToolUse(tree: ExecutionNode, block: any): ExecutionNode {
+  appendToolUse(tree: ExecutionNode, block: ToolUseBlock): ExecutionNode {
     const toolNode = createExecutionNode({
       id: block.id || this.generateId(),
       type: 'tool',

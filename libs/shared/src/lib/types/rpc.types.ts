@@ -73,6 +73,23 @@ export interface ChatAbortResult {
   error?: string;
 }
 
+/** Parameters for chat:resume RPC method */
+export interface ChatResumeParams {
+  /** Session ID to resume */
+  sessionId: SessionId;
+  /** Workspace path (needed for session context) */
+  workspacePath?: string;
+  /** Model to use (if different from session's original model) */
+  model?: string;
+}
+
+/** Response from chat:resume RPC method */
+export interface ChatResumeResult {
+  success: boolean;
+  sessionId?: SessionId;
+  error?: string;
+}
+
 // ============================================================
 // Session RPC Types
 // ============================================================
@@ -100,11 +117,19 @@ export interface SessionLoadParams {
   sessionId: SessionId;
 }
 
-/** Response from session:load RPC method */
+/**
+ * Response from session:load RPC method
+ *
+ * NOTE: This is metadata-only validation. Actual conversation messages
+ * are loaded via chat:resume, which triggers SDK to replay history.
+ * The empty messages array is intentional - see TASK_2025_088.
+ */
 export interface SessionLoadResult {
   sessionId: SessionId;
-  messages: unknown[]; // StoredSessionMessage[] - keeping unknown to avoid circular deps
-  agentSessions: unknown[];
+  /** Always empty - messages come from chat:resume RPC call */
+  messages: [];
+  /** Always empty - SDK handles all session data */
+  agentSessions: [];
 }
 
 /** Parameters for session:delete RPC method (TASK_2025_086) */
@@ -482,6 +507,7 @@ export interface RpcMethodRegistry {
   // ---- Chat Methods ----
   'chat:start': { params: ChatStartParams; result: ChatStartResult };
   'chat:continue': { params: ChatContinueParams; result: ChatContinueResult };
+  'chat:resume': { params: ChatResumeParams; result: ChatResumeResult };
   'chat:abort': { params: ChatAbortParams; result: ChatAbortResult };
 
   // ---- Session Methods ----
@@ -615,6 +641,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'chat:start',
   'chat:continue',
   'chat:abort',
+  'chat:resume',
 
   // Session Methods
   'session:list',

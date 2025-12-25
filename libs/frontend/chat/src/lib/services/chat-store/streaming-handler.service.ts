@@ -16,6 +16,7 @@ import {
   createExecutionChatMessage,
   calculateMessageCost,
   MessageCompleteEvent,
+  assertNever,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
@@ -239,6 +240,12 @@ export class StreamingHandlerService {
           break;
         }
 
+        case 'thinking_start': {
+          // Thinking block started - currently no action needed
+          // Future: Could initialize thinking block state here
+          break;
+        }
+
         case 'thinking_delta': {
           // TASK_2025_085: Skip thinking_delta if this message was already finalized
           const sessionMsgIds2 = this.processedMessageIds.get(event.sessionId);
@@ -315,9 +322,41 @@ export class StreamingHandlerService {
           break;
         }
 
-        case 'message_complete':
+        case 'tool_result': {
+          // Tool result received - stored in events map
+          // Tree builder will construct final result from event data
+          break;
+        }
+
+        case 'agent_start': {
+          // Agent spawned via Task tool - stored in events map
+          // Tree builder will construct agent node from event data
+          break;
+        }
+
+        case 'message_complete': {
           state.currentTokenUsage = event.tokenUsage || null;
           break;
+        }
+
+        case 'message_delta': {
+          // Cumulative token usage during streaming - update current usage
+          state.currentTokenUsage = event.tokenUsage;
+          break;
+        }
+
+        case 'signature_delta': {
+          // Extended thinking signature verification - currently no action needed
+          // Future: Could store signature for verification
+          break;
+        }
+
+        default:
+          // TASK_2025_090: Exhaustiveness check - compile-time error if new event type added but not handled
+          assertNever(
+            event,
+            `Unhandled event type: ${(event as FlatStreamEventUnion).eventType}`
+          );
       }
 
       // 5. Trigger reactivity by updating tab

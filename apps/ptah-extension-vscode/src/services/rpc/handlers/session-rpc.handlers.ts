@@ -104,11 +104,14 @@ export class SessionRpcHandlers {
   }
 
   /**
-   * session:load - Return session metadata for resumption
-   * SDK handles actual message loading via resume option
+   * session:load - Validate session exists (metadata-only)
    *
-   * NOTE: This now returns minimal metadata. To get actual messages,
-   * the frontend should call chat:resume which triggers SDK to replay history.
+   * This is a lightweight check that returns immediately with empty arrays.
+   * To load conversation history, frontend must call chat:resume after this.
+   *
+   * Flow: session:load (validate) → chat:resume (trigger SDK replay)
+   *
+   * TASK_2025_089: Clarified that this is validation only, not data loading
    */
   private registerSessionLoad(): void {
     this.rpcHandler.registerMethod<SessionLoadParams, SessionLoadResult>(
@@ -117,20 +120,29 @@ export class SessionRpcHandlers {
         try {
           const { sessionId } = params;
 
-          this.logger.debug('RPC: session:load called', { sessionId });
+          this.logger.debug('RPC: session:load called (metadata validation)', {
+            sessionId,
+          });
 
-          // Get session metadata
+          // Validate session exists in metadata store
           const metadata = await this.metadataStore.get(sessionId as string);
 
           if (!metadata) {
             throw new Error(`Session not found: ${sessionId}`);
           }
 
-          // Return minimal result - SDK will stream messages via resume
+          this.logger.debug(
+            'RPC: session:load validated - call chat:resume next',
+            {
+              sessionId,
+            }
+          );
+
+          // Return empty arrays - actual messages loaded via chat:resume
           return {
             sessionId: metadata.sessionId as SessionId,
-            messages: [], // SDK handles messages via resume - don't store them
-            agentSessions: [],
+            messages: [], // Empty by design - see SessionLoadResult docs
+            agentSessions: [], // Empty by design - SDK handles everything
           };
         } catch (error) {
           this.logger.error(

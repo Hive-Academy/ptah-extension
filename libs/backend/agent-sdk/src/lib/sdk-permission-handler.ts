@@ -19,38 +19,9 @@ import {
   ContentBlock,
   ToolUseBlock,
   isToolUseBlock,
+  CanUseTool,
+  PermissionResult,
 } from './types/sdk-types/claude-sdk.types';
-
-/**
- * Permission result type
- * Structurally matches SDK's PermissionResult from @anthropic-ai/claude-agent-sdk
- */
-type PermissionResult =
-  | {
-      behavior: 'allow';
-      updatedInput: Record<string, unknown>;
-      updatedPermissions?: Array<unknown>;
-      toolUseID?: string;
-    }
-  | {
-      behavior: 'deny';
-      message: string;
-      interrupt?: boolean;
-      toolUseID?: string;
-    };
-
-/**
- * Callback type for permission checking
- * Structurally matches SDK's CanUseTool type
- */
-type CanUseTool = (
-  toolName: string,
-  input: Record<string, unknown>,
-  options: {
-    signal: AbortSignal;
-    suggestions?: Array<unknown>;
-  }
-) => Promise<PermissionResult>;
 
 /**
  * Permission request payload for RPC event
@@ -60,7 +31,7 @@ interface PermissionRequest {
   /** Unique request ID - matches shared type's 'id' field */
   id: string;
   toolName: string;
-  toolInput: any;
+  toolInput: Record<string, unknown>;
   /** Claude's tool_use_id for correlation with ExecutionNode.toolCallId */
   toolUseId?: string;
   timestamp: number;
@@ -75,7 +46,7 @@ interface PermissionRequest {
  */
 interface PermissionResponse {
   approved: boolean;
-  modifiedInput?: any;
+  modifiedInput?: Record<string, unknown>;
   reason?: string;
 }
 
@@ -130,7 +101,9 @@ export class SdkPermissionHandler {
    * In a real implementation, this would use EventBus or RPC system
    * For now, storing reference to be called by external RPC handler
    */
-  private eventEmitter: ((event: string, payload: any) => void) | null = null;
+  private eventEmitter:
+    | ((event: string, payload: PermissionRequest) => void)
+    | null = null;
 
   constructor(@inject(TOKENS.LOGGER) private logger: Logger) {}
 
@@ -138,7 +111,9 @@ export class SdkPermissionHandler {
    * Set event emitter for permission requests
    * Called during initialization to wire up RPC event system
    */
-  setEventEmitter(emitter: (event: string, payload: any) => void): void {
+  setEventEmitter(
+    emitter: (event: string, payload: PermissionRequest) => void
+  ): void {
     this.eventEmitter = emitter;
   }
 
@@ -154,8 +129,15 @@ export class SdkPermissionHandler {
   createCallback(): CanUseTool {
     return async (
       toolName: string,
-      input: any,
-      _options?: { signal?: AbortSignal; suggestions?: any[] }
+      input: Record<string, unknown>,
+      _options: {
+        signal: AbortSignal;
+        suggestions?: Array<unknown>;
+        blockedPath?: string;
+        decisionReason?: string;
+        toolUseID: string;
+        agentID?: string;
+      }
     ): Promise<PermissionResult> => {
       // CRITICAL: Log every canUseTool invocation for debugging
       this.logger.info(
@@ -215,7 +197,7 @@ export class SdkPermissionHandler {
    */
   private async requestUserPermission(
     toolName: string,
-    input: any
+    input: Record<string, unknown>
   ): Promise<PermissionResult> {
     // Generate unique request ID
     const requestId = this.generateRequestId();
@@ -352,7 +334,9 @@ export class SdkPermissionHandler {
    * Removes sensitive data like API keys, tokens, credentials.
    * Prevents accidental exposure of secrets in permission prompts.
    */
-  private sanitizeToolInput(input: any): any {
+  private sanitizeToolInput(
+    input: Record<string, unknown>
+  ): Record<string, unknown> {
     if (!input || typeof input !== 'object') {
       return input;
     }
@@ -360,8 +344,10 @@ export class SdkPermissionHandler {
     const sanitized = { ...input };
 
     // Sanitize environment variables
-    if (sanitized.env && typeof sanitized.env === 'object') {
-      sanitized.env = Object.keys(sanitized.env).reduce((acc, key) => {
+    const env = sanitized['env'];
+    if (env && typeof env === 'object' && !Array.isArray(env)) {
+      const envRecord = env as Record<string, unknown>;
+      sanitized['env'] = Object.keys(envRecord).reduce((acc, key) => {
         // Redact keys that likely contain secrets
         const isSecret =
           key.toUpperCase().includes('KEY') ||
@@ -370,20 +356,21 @@ export class SdkPermissionHandler {
           key.toUpperCase().includes('PASSWORD') ||
           key.toUpperCase().includes('API');
 
-        acc[key] = isSecret ? '***REDACTED***' : sanitized.env[key];
+        acc[key] = isSecret ? '***REDACTED***' : envRecord[key];
         return acc;
-      }, {} as Record<string, string>);
+      }, {} as Record<string, unknown>);
     }
 
     // Sanitize command strings that might contain secrets
-    if (sanitized.command && typeof sanitized.command === 'string') {
+    const command = sanitized['command'];
+    if (command && typeof command === 'string') {
       // Simple heuristic: if command contains key-like patterns, warn user
       if (
-        sanitized.command.includes('KEY=') ||
-        sanitized.command.includes('TOKEN=') ||
-        sanitized.command.includes('PASSWORD=')
+        command.includes('KEY=') ||
+        command.includes('TOKEN=') ||
+        command.includes('PASSWORD=')
       ) {
-        sanitized._securityWarning =
+        sanitized['_securityWarning'] =
           'Command may contain sensitive credentials';
       }
     }
@@ -404,7 +391,10 @@ export class SdkPermissionHandler {
    * Creates a meaningful description based on tool type and input parameters.
    * Used in the webview permission UI to help users understand what's being requested.
    */
-  private generateDescription(toolName: string, input: any): string {
+  private generateDescription(
+    toolName: string,
+    input: Record<string, unknown>
+  ): string {
     // Handle MCP tools (format: mcp__server-name__tool-name)
     if (isMcpTool(toolName)) {
       const parts = toolName.split('__');
@@ -418,8 +408,8 @@ export class SdkPermissionHandler {
 
     switch (toolName) {
       case 'Bash': {
-        const command = input?.command;
-        if (command) {
+        const command = input['command'];
+        if (command && typeof command === 'string') {
           // Truncate long commands
           const truncated =
             command.length > 100 ? `${command.substring(0, 100)}...` : command;
@@ -429,48 +419,48 @@ export class SdkPermissionHandler {
       }
 
       case 'Write': {
-        const filePath = input?.file_path;
-        if (filePath) {
+        const filePath = input['file_path'];
+        if (filePath && typeof filePath === 'string') {
           return `Write to file: ${filePath}`;
         }
         return 'Write to a file';
       }
 
       case 'Edit': {
-        const filePath = input?.file_path;
-        if (filePath) {
+        const filePath = input['file_path'];
+        if (filePath && typeof filePath === 'string') {
           return `Edit file: ${filePath}`;
         }
         return 'Edit a file';
       }
 
       case 'NotebookEdit': {
-        const notebookPath = input?.notebook_path;
-        if (notebookPath) {
+        const notebookPath = input['notebook_path'];
+        if (notebookPath && typeof notebookPath === 'string') {
           return `Edit notebook: ${notebookPath}`;
         }
         return 'Edit a Jupyter notebook';
       }
 
       case 'Read': {
-        const filePath = input?.file_path;
-        if (filePath) {
+        const filePath = input['file_path'];
+        if (filePath && typeof filePath === 'string') {
           return `Read file: ${filePath}`;
         }
         return 'Read a file';
       }
 
       case 'Grep': {
-        const pattern = input?.pattern;
-        if (pattern) {
+        const pattern = input['pattern'];
+        if (pattern && typeof pattern === 'string') {
           return `Search for pattern: ${pattern}`;
         }
         return 'Search file contents';
       }
 
       case 'Glob': {
-        const pattern = input?.pattern;
-        if (pattern) {
+        const pattern = input['pattern'];
+        if (pattern && typeof pattern === 'string') {
           return `Find files matching: ${pattern}`;
         }
         return 'Find files';
