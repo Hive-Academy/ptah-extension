@@ -2,10 +2,12 @@
  * Authentication Manager - Handles SDK authentication configuration
  *
  * Responsibilities:
- * - OAuth token and API key detection
+ * - OpenRouter, OAuth token and API key detection
  * - Environment variable setup
  * - Token format validation
- * - Authentication priority logic
+ * - Authentication priority logic (OpenRouter > OAuth > API Key)
+ *
+ * TASK_2025_091: Added OpenRouter as highest-priority auth method
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -23,7 +25,7 @@ export interface AuthResult {
 }
 
 export interface AuthConfig {
-  method: 'oauth' | 'apiKey' | 'auto';
+  method: 'oauth' | 'apiKey' | 'openrouter' | 'auto';
 }
 
 /**
@@ -48,7 +50,22 @@ export class AuthManager {
     let authConfigured = false;
     const authDetails: string[] = [];
 
-    // Try OAuth token (from Claude Max/Pro subscription)
+    // TASK_2025_091: Priority 1 - OpenRouter (takes precedence over all other auth)
+    // OpenRouter provides access to 200+ models via unified API
+    if (authMethod === 'openrouter' || authMethod === 'auto') {
+      const openRouterResult = await this.configureOpenRouter();
+      if (openRouterResult.configured) {
+        authConfigured = true;
+        authDetails.push(...openRouterResult.details);
+        // Skip OAuth and API key when OpenRouter is configured
+        this.logger.info(
+          `[AuthManager] Authentication configured: ${authDetails.join(', ')}`
+        );
+        return { configured: true, details: authDetails };
+      }
+    }
+
+    // Priority 2: OAuth token (from Claude Max/Pro subscription)
     // NOTE: As of SDK v0.1.8+, CLAUDE_CODE_OAUTH_TOKEN is supported and will use your subscription
     // Get token via: claude setup-token
     if (authMethod === 'oauth' || authMethod === 'auto') {
@@ -59,7 +76,7 @@ export class AuthManager {
       }
     }
 
-    // Try API key (pay-per-token billing, separate from subscription)
+    // Priority 3: API key (pay-per-token billing, separate from subscription)
     // NOTE: API key takes precedence over OAuth token if both are set
     // In 'auto' mode with OAuth token, we skip API key to use subscription
     const hasOAuthToken = authDetails.some((d) => d.includes('OAuth token'));
@@ -79,13 +96,16 @@ export class AuthManager {
     // Validate at least one auth method is available
     if (!authConfigured) {
       const errorMsg =
-        'No authentication configured. Set either: (1) OAuth token from "claude setup-token" for Claude Max/Pro subscription, OR (2) API key from console.anthropic.com for pay-per-token billing.';
+        'No authentication configured. Set either: (1) OpenRouter API key for multi-model access, (2) OAuth token from "claude setup-token" for Claude Max/Pro subscription, OR (3) API key from console.anthropic.com for pay-per-token billing.';
       this.logger.error(`[AuthManager] ${errorMsg}`);
       this.logger.error(
-        '[AuthManager] Option 1 (Subscription): Run "claude setup-token" and paste the token'
+        '[AuthManager] Option 1 (OpenRouter): Get from https://openrouter.ai/keys'
       );
       this.logger.error(
-        '[AuthManager] Option 2 (API Key): Get from https://console.anthropic.com/settings/keys'
+        '[AuthManager] Option 2 (Subscription): Run "claude setup-token" and paste the token'
+      );
+      this.logger.error(
+        '[AuthManager] Option 3 (API Key): Get from https://console.anthropic.com/settings/keys'
       );
       return {
         configured: false,
@@ -183,6 +203,74 @@ export class AuthManager {
   }
 
   /**
+   * Configure OpenRouter authentication (TASK_2025_091)
+   *
+   * OpenRouter provides an "Anthropic Skin" that allows Claude SDK to
+   * communicate directly with OpenRouter using its native protocol.
+   *
+   * Environment variables set:
+   * - ANTHROPIC_BASE_URL: https://openrouter.ai/api
+   * - ANTHROPIC_AUTH_TOKEN: OpenRouter API key
+   * - ANTHROPIC_API_KEY: Empty (must be cleared to prevent conflicts)
+   *
+   * @see https://openrouter.ai/docs/guides/claude-code-integration
+   */
+  private async configureOpenRouter(): Promise<AuthResult> {
+    const openRouterKey = await this.authSecrets.getCredential('openrouterKey');
+    const details: string[] = [];
+
+    if (openRouterKey?.trim()) {
+      const keyPrefix = openRouterKey.substring(0, 10);
+      const keyLength = openRouterKey.length;
+      const isValidFormat = openRouterKey.startsWith('sk-or-');
+
+      this.logger.info(
+        `[AuthManager] Found OpenRouter key in SecretStorage (length: ${keyLength}, prefix: ${keyPrefix}..., valid format: ${isValidFormat})`
+      );
+
+      if (!isValidFormat) {
+        this.logger.warn(
+          '[AuthManager] WARNING: OpenRouter key does not start with "sk-or-". Expected format: sk-or-v1-...'
+        );
+        this.logger.warn(
+          '[AuthManager] Get valid OpenRouter keys from: https://openrouter.ai/keys'
+        );
+      }
+
+      // CRITICAL: Configure environment for OpenRouter "Anthropic Skin"
+      // This allows Claude SDK to route through OpenRouter
+      process.env['ANTHROPIC_BASE_URL'] = 'https://openrouter.ai/api';
+      process.env['ANTHROPIC_AUTH_TOKEN'] = openRouterKey.trim();
+
+      // MUST clear API key and OAuth token to prevent conflicts
+      process.env['ANTHROPIC_API_KEY'] = '';
+      delete process.env['CLAUDE_CODE_OAUTH_TOKEN'];
+
+      this.logger.info(
+        '[AuthManager] Using OpenRouter API key (routing via openrouter.ai)'
+      );
+      this.logger.info(
+        '[AuthManager] Set ANTHROPIC_BASE_URL=https://openrouter.ai/api'
+      );
+      this.logger.info(
+        '[AuthManager] Cleared ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN to use OpenRouter'
+      );
+
+      details.push(
+        `OpenRouter API key (routing via openrouter.ai${
+          !isValidFormat ? ', format may be invalid' : ''
+        })`
+      );
+      return { configured: true, details };
+    } else {
+      this.logger.debug(
+        '[AuthManager] No OpenRouter key found in SecretStorage'
+      );
+      return { configured: false, details: [] };
+    }
+  }
+
+  /**
    * Configure API key authentication
    * Reads from SecretStorage (primary) or environment (fallback)
    */
@@ -250,6 +338,9 @@ export class AuthManager {
   clearAuthentication(): void {
     delete process.env['ANTHROPIC_API_KEY'];
     delete process.env['CLAUDE_CODE_OAUTH_TOKEN'];
+    // TASK_2025_091: Clear OpenRouter environment variables
+    delete process.env['ANTHROPIC_BASE_URL'];
+    delete process.env['ANTHROPIC_AUTH_TOKEN'];
     this.logger.debug(
       '[AuthManager] Cleared authentication environment variables'
     );

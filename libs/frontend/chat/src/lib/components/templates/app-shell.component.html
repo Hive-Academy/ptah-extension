@@ -45,11 +45,11 @@
       />
 
       <!-- New session popover -->
-      <ptah-popover
+      <ptah-native-popover
         [isOpen]="sessionNamePopoverOpen()"
-        [position]="'below'"
+        [placement]="'bottom'"
         [hasBackdrop]="true"
-        [backdropClass]="'cdk-overlay-transparent-backdrop'"
+        [backdropClass]="'transparent'"
         (closed)="handleCancelSession()"
       >
         <!-- Trigger: New Session button -->
@@ -96,7 +96,7 @@
             </button>
           </div>
         </div>
-      </ptah-popover>
+      </ptah-native-popover>
     </div>
 
     <!-- Session list (scrollable) -->

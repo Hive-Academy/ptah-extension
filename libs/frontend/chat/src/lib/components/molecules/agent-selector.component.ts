@@ -30,7 +30,11 @@ import {
 
 @Component({
   selector: 'ptah-agent-selector',
-  imports: [LucideAngularModule, NativeDropdownComponent, NativeOptionComponent],
+  imports: [
+    LucideAngularModule,
+    NativeDropdownComponent,
+    NativeOptionComponent,
+  ],
   providers: [KeyboardNavigationService],
   template: `
     <ptah-native-dropdown

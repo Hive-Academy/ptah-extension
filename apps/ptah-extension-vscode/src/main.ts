@@ -68,11 +68,36 @@ export async function activate(
       '[Activate] Step 3.8: SDK authentication initialization complete'
     );
 
-    // Step 3.9: Initialize SDK RPC handlers (wires up permission event emitter)
-    console.log('[Activate] Step 3.9: Initializing SDK RPC handlers...');
-    DIContainer.resolve(TOKENS.SDK_RPC_HANDLERS);
-    logger.info('SDK RPC handlers initialized');
-    console.log('[Activate] Step 3.9: SDK RPC handlers initialized');
+    // Step 3.9: DELETED in TASK_2025_092
+    // SdkRpcHandlers was dead code - only used for permission emitter initialization
+    // Permission emitter now initialized directly in SdkPermissionHandler constructor
+    // (resolved as part of registerSdkServices in DIContainer.setup)
+
+    // Step 3.10: Import existing Claude Code sessions (TASK_2025_091)
+    console.log('[Activate] Step 3.10: Importing existing sessions...');
+    const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (workspacePath) {
+      try {
+        const { SDK_TOKENS } = require('@ptah-extension/agent-sdk');
+        const sessionImporter = DIContainer.getContainer().resolve(
+          SDK_TOKENS.SDK_SESSION_IMPORTER
+        ) as {
+          scanAndImport: (path: string, limit?: number) => Promise<number>;
+        };
+        const imported = await sessionImporter.scanAndImport(workspacePath, 5);
+        if (imported > 0) {
+          logger.info(`Imported ${imported} existing Claude Code sessions`);
+        }
+      } catch (importError) {
+        logger.debug('Session import skipped (no existing sessions or error)', {
+          error:
+            importError instanceof Error
+              ? importError.message
+              : String(importError),
+        });
+      }
+    }
+    console.log('[Activate] Step 3.10: Session import complete');
 
     // Initialize main extension controller
     console.log('[Activate] Step 4: Creating PtahExtension instance...');

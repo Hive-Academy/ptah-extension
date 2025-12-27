@@ -10,7 +10,7 @@
  * Part of ChatStore refactoring (Facade pattern) - ChatStore delegates here.
  */
 
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, inject, signal, Injector } from '@angular/core';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import {
   ChatSessionSummary,
@@ -31,6 +31,7 @@ export class ConversationService {
   private readonly sessionManager = inject(SessionManager);
   private readonly sessionLoader = inject(SessionLoaderService);
   private readonly validator = inject(MessageValidationService);
+  private readonly injector = inject(Injector); // For lazy injection to avoid circular dependency
 
   // ============================================================================
   // STATE SIGNALS
@@ -64,9 +65,10 @@ export class ConversationService {
   // ============================================================================
 
   /**
-   * Generate unique ID for messages/sessions
+   * Generate unique ID for messages
+   * NOTE: No longer used for session IDs - SDK provides real UUIDs
    */
-  private generateId(): string {
+  private generateMessageId(): string {
     return `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   }
 
@@ -240,7 +242,13 @@ export class ConversationService {
 
   /**
    * Start a brand new conversation with Claude
-   * Creates a new session ID and calls chat:start
+   * Uses tabId for frontend correlation - real sessionId comes from SDK
+   *
+   * Flow:
+   * 1. Frontend sends chat:start with tabId (no placeholder sessionId)
+   * 2. Backend starts SDK, SDK generates real UUID
+   * 3. Backend tags ALL events with tabId + real sessionId
+   * 4. Frontend receives first event, stores real sessionId on tab
    */
   async startNewConversation(content: string, files?: string[]): Promise<void> {
     try {
@@ -266,7 +274,7 @@ export class ConversationService {
         return;
       }
 
-      // Get or create active tab
+      // Get or create active tab - tabId is used for event routing
       let activeTabId = this.tabManager.activeTabId();
       if (!activeTabId) {
         activeTabId = this.tabManager.createTab();
@@ -276,27 +284,24 @@ export class ConversationService {
       // Clear previous node maps to prevent stale references
       this.sessionManager.clearNodeMaps();
 
-      // Generate placeholder session ID for new conversation
-      const sessionId = this.generateId();
-
-      // Update tab with draft status
+      // Update tab with draft status (claudeSessionId stays null until SDK responds)
       this.tabManager.updateTab(activeTabId, {
         title: content.substring(0, 50) || 'New Chat',
         status: 'draft',
         isDirty: false,
+        claudeSessionId: null, // Explicitly null - will be set when real UUID arrives
       });
 
-      // Update SessionManager state - use new state machine API
-      this.sessionManager.setSessionId(sessionId, 'draft'); // Start in draft state
-      this.sessionManager.setStatus('draft'); // Start in draft status (no real session ID yet)
+      // Update SessionManager state - no sessionId yet, just status
+      this.sessionManager.setStatus('draft');
 
-      // Add user message immediately (with empty sessionId - will be updated when resolved)
+      // Add user message immediately (sessionId empty until resolved)
       const userMessage = createExecutionChatMessage({
-        id: this.generateId(),
+        id: this.generateMessageId(),
         role: 'user',
         rawContent: content,
         files,
-        sessionId: '' as SessionId, // Will be updated when session:id-resolved arrives
+        sessionId: '' as SessionId, // Will be updated when real sessionId arrives
       });
 
       // Update tab with user message
@@ -306,18 +311,15 @@ export class ConversationService {
         currentMessageId: null, // Reset per-tab message ID for new conversation
       });
 
-      // Session ID will be initialized by StreamingHandler on first event
-      // No tracking needed - removed PendingSessionManager
-
       console.log('[ConversationService] Starting NEW conversation:', {
-        sessionId,
         tabId: activeTabId,
+        // No placeholder sessionId - backend will use SDK's real UUID
       });
 
-      // Call RPC to start NEW chat
+      // Call RPC to start NEW chat - using tabId for correlation
       const result = await this.claudeRpcService.call('chat:start', {
         prompt: content,
-        sessionId: sessionId as SessionId,
+        tabId: activeTabId, // Frontend correlation ID
         workspacePath,
         options: files ? { files } : undefined,
       });
@@ -335,25 +337,12 @@ export class ConversationService {
           result.data
         );
 
-        // TASK_2025_087: Set status to 'streaming' after successful chat:start
-        // Events will start arriving and StreamingHandlerService will initialize sessionId
+        // Set status to 'streaming' after successful chat:start
+        // Real sessionId will arrive with first streaming event
         this.tabManager.updateTab(activeTabId, { status: 'streaming' });
         this.sessionManager.setStatus('streaming');
 
-        // Add placeholder session immediately for UI responsiveness
-        const now = Date.now();
-        const newSession: ChatSessionSummary = {
-          id: sessionId,
-          name: content.substring(0, 50) || 'New Session',
-          createdAt: now,
-          lastActivityAt: now,
-          messageCount: 1,
-          isActive: true,
-        };
-
-        // Update sessions list (access internal signal via SessionLoaderService)
-        // Note: This is a temporary workaround - ideally SessionLoaderService should expose an addSession method
-        // For now, we'll call loadSessions to refresh from backend
+        // Sessions list will be refreshed when real sessionId is stored
         this.sessionLoader.loadSessions().catch((err) => {
           console.warn(
             '[ConversationService] Failed to refresh sessions:',
@@ -380,7 +369,7 @@ export class ConversationService {
 
   /**
    * Continue an existing conversation with Claude
-   * Uses the current session ID and calls chat:continue with --resume flag
+   * Uses the real session ID (SDK UUID) for resume, tabId for event routing
    */
   async continueConversation(content: string, files?: string[]): Promise<void> {
     try {
@@ -417,7 +406,7 @@ export class ConversationService {
         return this.startNewConversation(content, files);
       }
 
-      // Get active tab
+      // Get active tab ID for event routing
       const activeTabId = this.tabManager.activeTabId();
       if (!activeTabId) {
         console.warn(
@@ -434,7 +423,7 @@ export class ConversationService {
 
       // Add user message immediately
       const userMessage = createExecutionChatMessage({
-        id: this.generateId(),
+        id: this.generateMessageId(),
         role: 'user',
         rawContent: content,
         files,
@@ -448,12 +437,15 @@ export class ConversationService {
 
       console.log('[ConversationService] Continuing EXISTING session:', {
         sessionId,
+        tabId: activeTabId,
       });
 
       // Call RPC to CONTINUE existing chat (uses --resume flag)
+      // Both sessionId (for SDK) and tabId (for event routing) are required
       const result = await this.claudeRpcService.call('chat:continue', {
         prompt: content,
         sessionId: sessionId as SessionId,
+        tabId: activeTabId, // For event routing
         workspacePath,
       });
 
@@ -486,6 +478,9 @@ export class ConversationService {
   /**
    * Abort current message
    * Handles queued content restoration and calls backend to stop Claude CLI process
+   *
+   * IMPORTANT: On abort, we finalize any partial streaming content so it's not lost.
+   * Uses lazy injection of StreamingHandlerService to avoid circular dependency.
    */
   async abortCurrentMessage(): Promise<void> {
     try {
@@ -549,8 +544,35 @@ export class ConversationService {
         );
       }
 
-      // Finalize current message regardless of RPC result
-      this.finalizeCurrentMessage();
+      // ========== PRESERVE PARTIAL MESSAGE ON ABORT ==========
+      // Lazy inject StreamingHandlerService to avoid circular dependency
+      // This finalizes any partial streaming content into a persisted message
+      const activeTabId = this.tabManager.activeTabId();
+      const tab = activeTabId
+        ? this.tabManager.tabs().find((t) => t.id === activeTabId)
+        : null;
+
+      if (tab?.streamingState) {
+        console.log(
+          '[ConversationService] Finalizing partial streaming message on abort',
+          {
+            tabId: activeTabId,
+            hasStreamingState: !!tab.streamingState,
+            eventCount: tab.streamingState.events?.size ?? 0,
+          }
+        );
+
+        // Dynamic import to avoid circular dependency
+        const { StreamingHandlerService } = await import(
+          './streaming-handler.service'
+        );
+        const streamingHandler = this.injector.get(StreamingHandlerService);
+        streamingHandler.finalizeCurrentMessage(activeTabId ?? undefined);
+      } else {
+        // No streaming state, just update status
+        this.finalizeCurrentMessage();
+      }
+      // ========== END PRESERVE MESSAGE ==========
     } catch (error) {
       console.error('[ConversationService] Failed to abort message:', error);
     } finally {

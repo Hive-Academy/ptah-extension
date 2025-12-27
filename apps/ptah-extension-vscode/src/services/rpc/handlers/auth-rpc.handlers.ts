@@ -97,19 +97,23 @@ export class AuthRpcHandlers {
           'oauthToken'
         );
         const hasApiKey = await this.authSecretsService.hasCredential('apiKey');
+        const hasOpenRouterKey = await this.authSecretsService.hasCredential(
+          'openrouterKey'
+        );
 
         // Get auth method from ConfigManager (non-sensitive)
         const authMethod = this.configManager.getWithDefault<
-          'oauth' | 'apiKey' | 'auto'
+          'oauth' | 'apiKey' | 'openrouter' | 'auto'
         >('authMethod', 'auto');
 
         this.logger.debug('RPC: auth:getAuthStatus result', {
           hasOAuthToken,
           hasApiKey,
+          hasOpenRouterKey,
           authMethod,
         });
 
-        return { hasOAuthToken, hasApiKey, authMethod };
+        return { hasOAuthToken, hasApiKey, hasOpenRouterKey, authMethod };
       } catch (error) {
         this.logger.error(
           'RPC: auth:getAuthStatus failed',
@@ -125,9 +129,10 @@ export class AuthRpcHandlers {
    */
   private registerSaveSettings(): void {
     const AuthSettingsSchema = z.object({
-      authMethod: z.enum(['oauth', 'apiKey', 'auto']),
+      authMethod: z.enum(['oauth', 'apiKey', 'openrouter', 'auto']),
       claudeOAuthToken: z.string().optional(),
       anthropicApiKey: z.string().optional(),
+      openrouterApiKey: z.string().optional(),
     });
 
     this.rpcHandler.registerMethod<
@@ -151,6 +156,12 @@ export class AuthRpcHandlers {
                   typeof params.anthropicApiKey === 'string' &&
                   params.anthropicApiKey
                     ? `***${params.anthropicApiKey.slice(-4)}`
+                    : undefined,
+                openrouterApiKey:
+                  'openrouterApiKey' in params &&
+                  typeof params.openrouterApiKey === 'string' &&
+                  params.openrouterApiKey
+                    ? `***${params.openrouterApiKey.slice(-4)}`
                     : undefined,
               }
             : params;
@@ -186,6 +197,19 @@ export class AuthRpcHandlers {
           } else {
             // Empty string = clear the credential
             await this.authSecretsService.deleteCredential('apiKey');
+          }
+        }
+
+        // TASK_2025_091: OpenRouter API key handling
+        if (validated.openrouterApiKey !== undefined) {
+          if (validated.openrouterApiKey.trim()) {
+            await this.authSecretsService.setCredential(
+              'openrouterKey',
+              validated.openrouterApiKey
+            );
+          } else {
+            // Empty string = clear the credential
+            await this.authSecretsService.deleteCredential('openrouterKey');
           }
         }
 

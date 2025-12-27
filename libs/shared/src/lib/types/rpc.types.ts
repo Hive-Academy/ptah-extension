@@ -18,8 +18,12 @@ import type { ChatSessionSummary } from './execution-node.types';
 export interface ChatStartParams {
   /** Initial prompt to send (optional) */
   prompt?: string;
-  /** Session ID for the chat */
-  sessionId: SessionId;
+  /**
+   * Tab ID for frontend correlation (REQUIRED for new conversations)
+   * Backend uses this to route streaming events back to the correct tab.
+   * This replaces the previous placeholder sessionId pattern.
+   */
+  tabId: string;
   /** User-provided session name (optional) */
   name?: string;
   /** Workspace path for context */
@@ -42,8 +46,13 @@ export interface ChatStartResult {
 export interface ChatContinueParams {
   /** Message content to send */
   prompt: string;
-  /** Session ID to continue */
+  /** Session ID to continue (REQUIRED - must be real SDK UUID for resume) */
   sessionId: SessionId;
+  /**
+   * Tab ID for frontend correlation (REQUIRED)
+   * Backend uses this to route streaming events back to the correct tab.
+   */
+  tabId: string;
   /** User-provided session name (optional - for late naming) */
   name?: string;
   /** Workspace path (needed for session resumption if session is not active) */
@@ -77,6 +86,12 @@ export interface ChatAbortResult {
 export interface ChatResumeParams {
   /** Session ID to resume */
   sessionId: SessionId;
+  /**
+   * Tab ID for frontend correlation (REQUIRED)
+   * Backend uses this to route streaming events back to the correct tab.
+   * TASK_2025_092: Added for consistent event routing.
+   */
+  tabId: string;
   /** Workspace path (needed for session context) */
   workspacePath?: string;
   /** Model to use (if different from session's original model) */
@@ -87,6 +102,16 @@ export interface ChatResumeParams {
 export interface ChatResumeResult {
   success: boolean;
   sessionId?: SessionId;
+  /**
+   * Complete history messages (for session resume/replay)
+   * TASK_2025_092: Returns complete messages directly instead of streaming events
+   */
+  messages?: {
+    id: string;
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp: number;
+  }[];
   error?: string;
 }
 
@@ -329,9 +354,11 @@ export interface AuthGetHealthResponse {
 
 /** Parameters for auth:saveSettings RPC method */
 export interface AuthSaveSettingsParams {
-  authMethod: 'oauth' | 'apiKey' | 'auto';
+  authMethod: 'oauth' | 'apiKey' | 'openrouter' | 'auto';
   claudeOAuthToken?: string;
   anthropicApiKey?: string;
+  /** OpenRouter API key (takes precedence over OAuth and API key) */
+  openrouterApiKey?: string;
 }
 
 /** Response from auth:saveSettings RPC method */
@@ -374,8 +401,84 @@ export interface AuthGetAuthStatusResponse {
   hasOAuthToken: boolean;
   /** Whether API key is configured in SecretStorage */
   hasApiKey: boolean;
+  /** Whether OpenRouter API key is configured in SecretStorage */
+  hasOpenRouterKey: boolean;
   /** Current auth method preference */
-  authMethod: 'oauth' | 'apiKey' | 'auto';
+  authMethod: 'oauth' | 'apiKey' | 'openrouter' | 'auto';
+}
+
+// ============================================================
+// OpenRouter Model RPC Types (TASK_2025_091 Phase 2)
+// ============================================================
+
+/** Model tier for OpenRouter model mapping */
+export type OpenRouterModelTier = 'sonnet' | 'opus' | 'haiku';
+
+/** OpenRouter model information */
+export interface OpenRouterModelInfo {
+  /** Model ID (e.g., "anthropic/claude-3.5-sonnet") */
+  id: string;
+  /** Display name (e.g., "Claude 3.5 Sonnet") */
+  name: string;
+  /** Model description */
+  description: string;
+  /** Maximum context length in tokens */
+  contextLength: number;
+  /** Whether the model supports tool use (required for Claude Code) */
+  supportsToolUse: boolean;
+}
+
+/** Parameters for openrouter:listModels RPC method */
+export interface OpenRouterListModelsParams {
+  /** Filter to only show models supporting tool use */
+  toolUseOnly?: boolean;
+}
+
+/** Response from openrouter:listModels RPC method */
+export interface OpenRouterListModelsResult {
+  /** Available models */
+  models: OpenRouterModelInfo[];
+  /** Total count before filtering */
+  totalCount: number;
+}
+
+/** Parameters for openrouter:setModelTier RPC method */
+export interface OpenRouterSetModelTierParams {
+  /** Which tier to set (sonnet, opus, haiku) */
+  tier: OpenRouterModelTier;
+  /** Model ID to use for this tier (e.g., "openai/gpt-5.1-codex-max") */
+  modelId: string;
+}
+
+/** Response from openrouter:setModelTier RPC method */
+export interface OpenRouterSetModelTierResult {
+  success: boolean;
+  error?: string;
+}
+
+/** Parameters for openrouter:getModelTiers RPC method */
+export type OpenRouterGetModelTiersParams = Record<string, never>;
+
+/** Response from openrouter:getModelTiers RPC method */
+export interface OpenRouterGetModelTiersResult {
+  /** Model ID mapped to Sonnet tier (null if using default) */
+  sonnet: string | null;
+  /** Model ID mapped to Opus tier (null if using default) */
+  opus: string | null;
+  /** Model ID mapped to Haiku tier (null if using default) */
+  haiku: string | null;
+}
+
+/** Parameters for openrouter:clearModelTier RPC method */
+export interface OpenRouterClearModelTierParams {
+  /** Which tier to clear (reset to default) */
+  tier: OpenRouterModelTier;
+}
+
+/** Response from openrouter:clearModelTier RPC method */
+export interface OpenRouterClearModelTierResult {
+  success: boolean;
+  error?: string;
 }
 
 // ============================================================
@@ -619,6 +722,24 @@ export interface RpcMethodRegistry {
     params: LlmListVsCodeModelsParams;
     result: unknown[];
   };
+
+  // ---- OpenRouter Model Methods (TASK_2025_091 Phase 2) ----
+  'openrouter:listModels': {
+    params: OpenRouterListModelsParams;
+    result: OpenRouterListModelsResult;
+  };
+  'openrouter:setModelTier': {
+    params: OpenRouterSetModelTierParams;
+    result: OpenRouterSetModelTierResult;
+  };
+  'openrouter:getModelTiers': {
+    params: OpenRouterGetModelTiersParams;
+    result: OpenRouterGetModelTiersResult;
+  };
+  'openrouter:clearModelTier': {
+    params: OpenRouterClearModelTierParams;
+    result: OpenRouterClearModelTierResult;
+  };
 }
 
 /**
@@ -686,6 +807,12 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'llm:getDefaultProvider',
   'llm:validateApiKeyFormat',
   'llm:listVsCodeModels',
+
+  // OpenRouter Model Methods (TASK_2025_091 Phase 2)
+  'openrouter:listModels',
+  'openrouter:setModelTier',
+  'openrouter:getModelTiers',
+  'openrouter:clearModelTier',
 ] as const;
 
 /**

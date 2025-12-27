@@ -29,7 +29,6 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import {
   Logger,
   OutputManager,
-  SdkRpcHandlers,
   LlmRpcHandlers,
 } from '@ptah-extension/vscode-core';
 
@@ -46,6 +45,7 @@ import {
   SetupRpcHandlers,
   LicenseRpcHandlers,
   LlmRpcHandlers as AppLlmRpcHandlers,
+  OpenRouterRpcHandlers,
 } from '../services/rpc';
 
 // Import agent-sdk services (TASK_2025_044 Batch 3)
@@ -155,6 +155,11 @@ export class DIContainer {
         ),
     });
 
+    // OpenRouterRpcHandlers requires SDK_OPENROUTER_MODELS which is registered in Phase 2.7
+    // Must be registered after agent-sdk services but resolved lazily
+    // Temporarily register as placeholder - will be re-registered after agent-sdk
+    container.registerSingleton(OpenRouterRpcHandlers);
+
     // RPC Method Registration Service (orchestrator - requires container instance)
     // TASK_2025_074: Refactored to use domain-specific handler classes
     // TASK_2025_079: Added LicenseRpcHandlers for premium feature gating
@@ -178,6 +183,7 @@ export class DIContainer {
           c.resolve(SetupRpcHandlers),
           c.resolve(LicenseRpcHandlers),
           c.resolve(AppLlmRpcHandlers),
+          c.resolve(OpenRouterRpcHandlers),
           c // Pass container instance
         );
       },
@@ -197,10 +203,9 @@ export class DIContainer {
     // PHASE 2.7: Agent SDK Integration (TASK_2025_044 Batch 3)
     // ========================================
     // Register Agent SDK services (adapter, storage, permission handler)
+    // TASK_2025_092: SdkPermissionHandler now handles permission emitter directly
+    // (SdkRpcHandlers deleted - was dead code, only initializePermissionEmitter() was used)
     registerSdkServices(container, context, logger);
-
-    // Register SDK RPC handlers
-    container.registerSingleton(TOKENS.SDK_RPC_HANDLERS, SdkRpcHandlers);
 
     // Register adapter with main TOKENS symbol (TASK_2025_057 Batch 1)
     // This allows main.ts to resolve adapter using TOKENS.SDK_AGENT_ADAPTER

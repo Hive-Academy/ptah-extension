@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { LucideAngularModule, ArrowLeft, Sparkles, Lock } from 'lucide-angular';
 import { AuthConfigComponent } from './auth-config.component';
+import { OpenRouterModelSelectorComponent } from './openrouter-model-selector.component';
 import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
 import type {
   AuthGetAuthStatusResponse,
@@ -36,7 +37,11 @@ import type {
 @Component({
   selector: 'ptah-settings',
   standalone: true,
-  imports: [AuthConfigComponent, LucideAngularModule],
+  imports: [
+    AuthConfigComponent,
+    OpenRouterModelSelectorComponent,
+    LucideAngularModule,
+  ],
   templateUrl: './settings.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -52,6 +57,8 @@ export class SettingsComponent implements OnInit {
   // Auth status signals
   readonly hasOAuthToken = signal(false);
   readonly hasApiKey = signal(false);
+  // TASK_2025_091: OpenRouter key status
+  readonly hasOpenRouterKey = signal(false);
   readonly isLoadingAuthStatus = signal(true);
 
   // License status signals
@@ -64,7 +71,7 @@ export class SettingsComponent implements OnInit {
    * Shows additional settings sections when true
    */
   readonly hasAnyCredential = computed(
-    () => this.hasOAuthToken() || this.hasApiKey()
+    () => this.hasOAuthToken() || this.hasApiKey() || this.hasOpenRouterKey()
   );
 
   /**
@@ -115,6 +122,8 @@ export class SettingsComponent implements OnInit {
         const data = result.data as AuthGetAuthStatusResponse;
         this.hasOAuthToken.set(data.hasOAuthToken);
         this.hasApiKey.set(data.hasApiKey);
+        // TASK_2025_091: OpenRouter status
+        this.hasOpenRouterKey.set(data.hasOpenRouterKey);
       }
     } catch (error) {
       console.error('[SettingsComponent] Failed to fetch auth status:', error);

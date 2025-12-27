@@ -8,11 +8,9 @@ export {
 // ChatStore - Signal-based reactive store (TASK_2025_023)
 export { ChatStore } from './chat.store';
 
-// ExecutionTreeBuilder - Immutable tree construction (TASK_2025_023 Phase 2)
-export {
-  ExecutionTreeBuilder,
-  type AgentSpawnInfo,
-} from './tree-builder.service';
+// ExecutionTreeBuilderService - Builds ExecutionNode tree from flat streaming events
+// TASK_2025_090: Removed dead tree-builder.service.ts (ExecutionTreeBuilder was unused)
+export { ExecutionTreeBuilderService } from './execution-tree-builder.service';
 
 // SessionManager - Session lifecycle and node map management (TASK_2025_023 Phase 4)
 export { SessionManager } from './session-manager.service';

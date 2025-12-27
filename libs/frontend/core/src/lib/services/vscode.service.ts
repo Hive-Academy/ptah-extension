@@ -185,24 +185,27 @@ export class VSCodeService {
       }
 
       // Route chat:chunk messages to ChatStore (SDK path only)
+      // TASK_2025_092: Now uses tabId for routing, sessionId is real SDK UUID
       if (message.type === MESSAGE_TYPES.CHAT_CHUNK) {
         console.log('[VSCodeService] CHAT_CHUNK received!', {
           hasPayload: !!message.payload,
           hasChatStore: !!this.chatStore,
         });
         if (message.payload && this.chatStore) {
-          // TASK_2025_086 FIX: Extract event from payload object
-          // Backend sends { sessionId, event }, not just the event directly
-          const { sessionId, event } = message.payload as {
+          // Extract tabId for routing and sessionId (real SDK UUID) from payload
+          const { tabId, sessionId, event } = message.payload as {
+            tabId: string;
             sessionId: string;
             event: FlatStreamEventUnion;
           };
           console.log('[VSCodeService] Processing CHAT_CHUNK event', {
+            tabId,
             sessionId,
             eventType: event?.eventType,
             messageId: event?.messageId,
           });
-          this.chatStore.processStreamEvent(event);
+          // Pass tabId and sessionId to ChatStore for routing and session linking
+          this.chatStore.processStreamEvent(event, tabId, sessionId);
         } else if (!message.payload) {
           console.warn(
             '[VSCodeService] chat:chunk received but payload is undefined!'
@@ -215,12 +218,21 @@ export class VSCodeService {
       }
 
       // Handle chat completion - CRITICAL for resetting streaming state
+      // TASK_2025_092: Now uses tabId for routing
       if (message.type === MESSAGE_TYPES.CHAT_COMPLETE) {
-        const { sessionId, code } = message.payload ?? {};
-        console.log('[VSCodeService] Chat complete:', { sessionId, code });
+        const { tabId, sessionId, code } = message.payload ?? {};
+        console.log('[VSCodeService] Chat complete:', {
+          tabId,
+          sessionId,
+          code,
+        });
         if (this.chatStore) {
           // Call ChatStore to reset streaming state and finalize message
-          this.chatStore.handleChatComplete({ sessionId, code: code ?? 0 });
+          this.chatStore.handleChatComplete({
+            tabId,
+            sessionId,
+            code: code ?? 0,
+          });
         } else {
           console.warn(
             '[VSCodeService] chat:complete received but ChatStore not registered!'
@@ -229,12 +241,18 @@ export class VSCodeService {
       }
 
       // Handle chat errors - CRITICAL for resetting streaming state on error
+      // TASK_2025_092: Now uses tabId for routing
       if (message.type === MESSAGE_TYPES.CHAT_ERROR) {
-        const { sessionId, error } = message.payload ?? {};
-        console.error('[VSCodeService] Chat error:', { sessionId, error });
+        const { tabId, sessionId, error } = message.payload ?? {};
+        console.error('[VSCodeService] Chat error:', {
+          tabId,
+          sessionId,
+          error,
+        });
         if (this.chatStore) {
           // Call ChatStore to reset streaming state
           this.chatStore.handleChatError({
+            tabId,
             sessionId,
             error: error ?? 'Unknown error',
           });
@@ -293,6 +311,33 @@ export class VSCodeService {
             {
               sessionId: message.payload?.sessionId,
             }
+          );
+        }
+      }
+
+      // Handle session ID resolution - CRITICAL for session resume
+      // Backend sends real SDK UUID after SDK returns it from system init message
+      // Without this, tabs store placeholder IDs (msg_XXX) which SDK rejects on resume
+      if (message.type === MESSAGE_TYPES.SESSION_ID_RESOLVED) {
+        const { sessionId, realSessionId } = message.payload ?? {};
+        console.log('[VSCodeService] Session ID resolved:', {
+          sessionId,
+          realSessionId,
+        });
+
+        if (realSessionId && this.chatStore) {
+          // Delegate to ChatStore which will update the tab's claudeSessionId
+          this.chatStore.handleSessionIdResolved({
+            sessionId: sessionId as string,
+            realSessionId: realSessionId as string,
+          });
+        } else if (!realSessionId) {
+          console.warn(
+            '[VSCodeService] session:id-resolved received but realSessionId is undefined!'
+          );
+        } else {
+          console.warn(
+            '[VSCodeService] session:id-resolved received but ChatStore not registered!'
           );
         }
       }

@@ -84,9 +84,24 @@ function isMcpTool(toolName: string): boolean {
 }
 
 /**
+ * WebviewManager interface (avoid circular import)
+ */
+interface WebviewManager {
+  sendMessage<T = unknown>(
+    viewType: string,
+    type: string,
+    payload: T
+  ): Promise<void>;
+}
+
+/**
  * SDK Permission Handler
  *
  * Implements SDK canUseTool callback interface with webview coordination.
+ *
+ * TASK_2025_092: Refactored to inject WebviewManager directly and create
+ * permission emitter internally. Previously this was done via SdkRpcHandlers
+ * which was dead code (RPC methods never registered).
  */
 @injectable()
 export class SdkPermissionHandler {
@@ -97,24 +112,67 @@ export class SdkPermissionHandler {
   private pendingRequests = new Map<string, PendingRequest>();
 
   /**
-   * Event emitter for permission requests
-   * In a real implementation, this would use EventBus or RPC system
-   * For now, storing reference to be called by external RPC handler
+   * Flag to track if emitter has been initialized
    */
-  private eventEmitter:
-    | ((event: string, payload: PermissionRequest) => void)
-    | null = null;
+  private emitterInitialized = false;
 
-  constructor(@inject(TOKENS.LOGGER) private logger: Logger) {}
+  constructor(
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(TOKENS.WEBVIEW_MANAGER)
+    private readonly webviewManager: WebviewManager
+  ) {
+    // Initialize permission emitter on construction
+    this.initializePermissionEmitter();
+  }
 
   /**
-   * Set event emitter for permission requests
-   * Called during initialization to wire up RPC event system
+   * Initialize permission event emitter
+   *
+   * TASK_2025_092: Moved from dead-code SdkRpcHandlers to here.
+   * Creates the emitter that sends permission requests to webview.
    */
-  setEventEmitter(
-    emitter: (event: string, payload: PermissionRequest) => void
-  ): void {
-    this.eventEmitter = emitter;
+  private initializePermissionEmitter(): void {
+    if (this.emitterInitialized) {
+      return;
+    }
+
+    this.logger.info(
+      '[SdkPermissionHandler] Initializing permission event emitter...'
+    );
+
+    this.emitterInitialized = true;
+
+    this.logger.info(
+      '[SdkPermissionHandler] Permission event emitter initialized successfully'
+    );
+  }
+
+  /**
+   * Send permission request to webview
+   * TASK_2025_092: Replaced external emitter pattern with direct webview messaging
+   */
+  private sendPermissionRequest(payload: PermissionRequest): void {
+    this.logger.info(`[SdkPermissionHandler] Permission event emitter called`, {
+      payloadId: payload.id,
+      payloadToolName: payload.toolName,
+      payloadToolUseId: payload.toolUseId,
+    });
+
+    // Send to webview - fire and forget (async but we don't await)
+    this.webviewManager
+      .sendMessage('ptah.main', MESSAGE_TYPES.PERMISSION_REQUEST, payload)
+      .then(() => {
+        this.logger.info(
+          `[SdkPermissionHandler] Permission event sent to webview`,
+          { requestId: payload.id }
+        );
+      })
+      .catch((error) => {
+        this.logger.error(
+          `[SdkPermissionHandler] Failed to send permission event`,
+          { error }
+        );
+      });
   }
 
   /**
@@ -130,7 +188,7 @@ export class SdkPermissionHandler {
     return async (
       toolName: string,
       input: Record<string, unknown>,
-      _options: {
+      options: {
         signal: AbortSignal;
         suggestions?: Array<unknown>;
         blockedPath?: string;
@@ -144,6 +202,7 @@ export class SdkPermissionHandler {
         `[SdkPermissionHandler] canUseTool invoked: ${toolName}`,
         {
           toolName,
+          toolUseID: options.toolUseID,
           inputKeys: input ? Object.keys(input) : [],
           isSafe: SAFE_TOOLS.includes(toolName),
           isDangerous: DANGEROUS_TOOLS.includes(toolName),
@@ -167,7 +226,11 @@ export class SdkPermissionHandler {
         this.logger.info(
           `[SdkPermissionHandler] Requesting user permission for dangerous tool: ${toolName}`
         );
-        return await this.requestUserPermission(toolName, input);
+        return await this.requestUserPermission(
+          toolName,
+          input,
+          options.toolUseID
+        );
       }
 
       // MCP tools require user approval (can execute arbitrary code)
@@ -175,7 +238,11 @@ export class SdkPermissionHandler {
         this.logger.info(
           `[SdkPermissionHandler] Requesting user permission for MCP tool: ${toolName}`
         );
-        return await this.requestUserPermission(toolName, input);
+        return await this.requestUserPermission(
+          toolName,
+          input,
+          options.toolUseID
+        );
       }
 
       // Unknown tools default to deny (fail-safe)
@@ -194,10 +261,15 @@ export class SdkPermissionHandler {
    *
    * Emits permission request event to webview and awaits response.
    * Implements 30-second timeout with auto-deny.
+   *
+   * @param toolName - Name of the tool requiring permission
+   * @param input - Tool input parameters
+   * @param toolUseId - SDK's tool_use ID for correlation with ExecutionNode
    */
   private async requestUserPermission(
     toolName: string,
-    input: Record<string, unknown>
+    input: Record<string, unknown>,
+    toolUseId?: string
   ): Promise<PermissionResult> {
     // Generate unique request ID
     const requestId = this.generateRequestId();
@@ -214,31 +286,34 @@ export class SdkPermissionHandler {
 
     // Emit permission request event
     // Note: All fields match shared/permission.types.ts PermissionRequest interface
+    // toolUseId is critical for correlating permission with ExecutionNode.toolCallId
     const request: PermissionRequest = {
       id: requestId,
       toolName,
       toolInput: sanitizedInput,
+      toolUseId, // CRITICAL: Enables frontend to show permission inline with tool node
       timestamp: now,
       description,
       timeoutAt,
     };
 
-    if (!this.eventEmitter) {
-      this.logger.error(
-        '[SdkPermissionHandler] Event emitter not set - cannot request permission'
-      );
-      return {
-        behavior: 'deny' as const,
-        message: 'Permission system not initialized',
-      };
-    }
-
-    // Emit SDK permission request event (webview will show permission prompt)
+    // Send SDK permission request event (webview will show permission prompt)
     // Uses MESSAGE_TYPES.PERMISSION_REQUEST which is shared by both SDK and MCP systems
-    this.eventEmitter(MESSAGE_TYPES.PERMISSION_REQUEST, request);
+    // TASK_2025_092: Now uses direct webview messaging instead of external emitter
+    this.logger.info(
+      `[SdkPermissionHandler] Sending permission request to webview`,
+      {
+        requestId,
+        toolName,
+        toolUseId,
+        messageType: MESSAGE_TYPES.PERMISSION_REQUEST,
+      }
+    );
 
-    this.logger.debug(
-      `[SdkPermissionHandler] Emitted permission request ${requestId} for tool ${toolName}`
+    this.sendPermissionRequest(request);
+
+    this.logger.info(
+      `[SdkPermissionHandler] Permission request emitted successfully: ${requestId} for ${toolName}`
     );
 
     // Await user response with timeout

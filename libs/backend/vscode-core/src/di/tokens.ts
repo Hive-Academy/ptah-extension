@@ -44,7 +44,7 @@ export const RPC_HANDLER = Symbol.for('RpcHandler');
 export const RPC_METHOD_REGISTRATION_SERVICE = Symbol.for(
   'RpcMethodRegistrationService'
 );
-export const SDK_RPC_HANDLERS = Symbol.for('SdkRpcHandlers');
+// SDK_RPC_HANDLERS - DELETED in TASK_2025_092 (dead code - permission emitter moved to SdkPermissionHandler)
 export const AGENT_SESSION_WATCHER_SERVICE = Symbol.for(
   'AgentSessionWatcherService'
 );
@@ -231,7 +231,7 @@ export const TOKENS = {
   CONTEXT_MANAGER,
   RPC_HANDLER,
   RPC_METHOD_REGISTRATION_SERVICE,
-  SDK_RPC_HANDLERS,
+  // SDK_RPC_HANDLERS - DELETED in TASK_2025_092
   AGENT_SESSION_WATCHER_SERVICE,
 
   // ========================================

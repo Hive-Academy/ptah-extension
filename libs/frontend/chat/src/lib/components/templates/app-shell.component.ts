@@ -119,17 +119,9 @@ export class AppShellComponent {
   readonly sessionNamePopoverOpen = this._sessionNamePopoverOpen.asReadonly();
   readonly sessionNameInput = signal('');
 
-  // Tab bar popover state (separate for correct positioning)
-  private readonly _tabBarPopoverOpen = signal(false);
-  readonly tabBarPopoverOpen = this._tabBarPopoverOpen.asReadonly();
-  readonly tabBarSessionNameInput = signal('');
-
   // ViewChild for session name input (programmatic focus)
   @ViewChild('sessionNameInputRef')
   sessionNameInputRef?: ElementRef<HTMLInputElement>;
-
-  @ViewChild('tabBarSessionNameInputRef')
-  tabBarSessionNameInputRef?: ElementRef<HTMLInputElement>;
 
   constructor() {
     // Focus sidebar input when popover opens
@@ -137,15 +129,6 @@ export class AppShellComponent {
       if (this.sessionNamePopoverOpen()) {
         setTimeout(() => {
           this.sessionNameInputRef?.nativeElement.focus();
-        }, 0);
-      }
-    });
-
-    // Focus tab bar input when popover opens
-    effect(() => {
-      if (this.tabBarPopoverOpen()) {
-        setTimeout(() => {
-          this.tabBarSessionNameInputRef?.nativeElement.focus();
         }, 0);
       }
     });
@@ -206,36 +189,6 @@ export class AppShellComponent {
   handleCancelSession(): void {
     this._sessionNamePopoverOpen.set(false);
     this.sessionNameInput.set('');
-  }
-
-  /**
-   * Open tab bar session name popover
-   */
-  createTabBarSession(): void {
-    this.tabBarSessionNameInput.set('');
-    this._tabBarPopoverOpen.set(true);
-  }
-
-  /**
-   * Handle tab bar session creation from popover
-   */
-  handleCreateTabBarSession(): void {
-    const name = this.tabBarSessionNameInput().trim();
-    const sessionName = name || this.generateDefaultSessionName();
-
-    // Create new tab with name (createTab already switches to the new tab)
-    this.tabManager.createTab(sessionName);
-
-    // Close popover
-    this._tabBarPopoverOpen.set(false);
-  }
-
-  /**
-   * Handle tab bar popover close (backdrop click or ESC)
-   */
-  handleCancelTabBarSession(): void {
-    this._tabBarPopoverOpen.set(false);
-    this.tabBarSessionNameInput.set('');
   }
 
   /**

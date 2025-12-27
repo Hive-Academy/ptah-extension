@@ -11,6 +11,8 @@ export const SDK_TOKENS = {
   // Core services
   SDK_AGENT_ADAPTER: 'SdkAgentAdapter',
   SDK_SESSION_METADATA_STORE: 'SessionMetadataStore',
+  SDK_SESSION_IMPORTER: 'SdkSessionImporter',
+  SDK_SESSION_HISTORY_READER: 'SdkSessionHistoryReader',
   SDK_PERMISSION_HANDLER: 'SdkPermissionHandler',
   SDK_MESSAGE_TRANSFORMER: 'SdkMessageTransformer',
 
@@ -21,6 +23,9 @@ export const SDK_TOKENS = {
   SDK_STREAM_TRANSFORMER: 'SdkStreamTransformer',
   SDK_CLI_DETECTOR: 'SdkCliDetector',
   SDK_ATTACHMENT_PROCESSOR: Symbol('SdkAttachmentProcessor'),
+
+  // OpenRouter services (TASK_2025_091 Phase 2)
+  SDK_OPENROUTER_MODELS: 'SdkOpenRouterModels',
 } as const;
 
 /**

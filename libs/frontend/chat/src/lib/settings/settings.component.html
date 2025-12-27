@@ -60,7 +60,7 @@
         <p class="text-xs text-base-content/70 mb-3">
           Configure your authentication method to connect with Claude Code.
         </p>
-        <ptah-auth-config />
+        <ptah-auth-config (authStatusChanged)="refreshAuthStatus()" />
       </div>
     </div>
 
@@ -84,6 +84,25 @@
         </div>
       </div>
     </div>
+
+    <!-- OpenRouter Model Mapping Section - Only visible when OpenRouter is configured -->
+    @if (hasOpenRouterKey()) {
+    <div class="border border-info/30 rounded-md bg-info/5">
+      <div class="p-3">
+        <div class="flex items-center gap-1.5 mb-2">
+          <span class="text-sm">🌐</span>
+          <h2 class="text-xs font-medium uppercase tracking-wide">
+            OpenRouter Models
+          </h2>
+        </div>
+        <p class="text-xs text-base-content/70 mb-3">
+          Override default Anthropic models with alternatives from OpenRouter's
+          200+ models.
+        </p>
+        <ptah-openrouter-model-selector />
+      </div>
+    </div>
+    }
 
     <!-- Autopilot Configuration Section -->
     <div class="border border-base-300 rounded-md bg-base-200/50">

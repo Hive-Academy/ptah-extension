@@ -223,13 +223,17 @@ export class SessionLoaderService {
 
       console.log(
         '[SessionLoaderService] Triggering SDK resume for session:',
-        sessionId
+        sessionId,
+        'tabId:',
+        activeTabId
       );
 
       // 6. Trigger SDK resume - this streams replayed messages via chat:chunk
       // The existing ExecutionTreeBuilder → ChatStore flow will process them
+      // TASK_2025_092: Include tabId for event routing
       const resumeResult = await this.claudeRpcService.call('chat:resume', {
         sessionId: sessionId as SessionId,
+        tabId: activeTabId,
         workspacePath,
       });
 

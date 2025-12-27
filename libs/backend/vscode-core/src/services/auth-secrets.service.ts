@@ -17,7 +17,7 @@ import { TOKENS } from '../di/tokens';
 /**
  * Auth credential types supported by this service
  */
-export type AuthCredentialType = 'oauthToken' | 'apiKey';
+export type AuthCredentialType = 'oauthToken' | 'apiKey' | 'openrouterKey';
 
 /**
  * Interface for auth secrets management
@@ -102,6 +102,7 @@ export class AuthSecretsService implements IAuthSecretsService {
   private readonly KEY_MAP: Record<AuthCredentialType, string> = {
     oauthToken: 'claudeOAuthToken',
     apiKey: 'anthropicApiKey',
+    openrouterKey: 'openrouterApiKey',
   };
 
   constructor(

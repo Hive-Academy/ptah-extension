@@ -217,17 +217,14 @@ export class ChatStore {
   // ============================================================================
 
   /**
-   * Clear current session to start a new conversation
-   * Creates a new tab instead of clearing state
+   * Clear current session state
+   *
+   * IMPORTANT: This method only clears session state - it does NOT create new tabs.
+   * UI components (e.g., popovers, buttons) are responsible for creating tabs before calling this.
+   * This separation prevents duplicate tab creation bugs.
    */
   clearCurrentSession(): void {
-    console.log('[ChatStore] Clearing current session for new conversation');
-
-    // Create new tab instead of just clearing state
-    const newTabId = this.tabManager.createTab('New Chat');
-    this.tabManager.switchTab(newTabId);
-
-    // New tab starts with no currentMessageId (handled by TabState default)
+    console.log('[ChatStore] Clearing current session state');
     this.sessionManager.clearSession();
   }
 
@@ -466,15 +463,23 @@ export class ChatStore {
   /**
    * Process flat streaming event from SDK
    * Delegates to StreamingHandlerService (Phase 7 extraction)
+   *
+   * TASK_2025_092: Now accepts tabId for routing and sessionId (real SDK UUID)
+   * - tabId: Used to find the correct tab to route the event to
+   * - sessionId: Real SDK UUID to store on the tab for future resume
    */
-  processStreamEvent(event: FlatStreamEventUnion): void {
-    // TASK_2025_087: Log event receipt in ChatStore
+  processStreamEvent(
+    event: FlatStreamEventUnion,
+    tabId?: string,
+    sessionId?: string
+  ): void {
     console.log('[ChatStore] processStreamEvent called:', {
+      tabId,
+      sessionId,
       eventType: event.eventType,
-      sessionId: event.sessionId,
       messageId: event.messageId,
     });
-    this.streamingHandler.processStreamEvent(event);
+    this.streamingHandler.processStreamEvent(event, tabId, sessionId);
   }
 
   /**
@@ -554,42 +559,45 @@ export class ChatStore {
   /**
    * Handle chat completion signal from backend
    * Called when Claude CLI process exits (success or error)
-   * Routes to correct tab by sessionId for proper multi-tab support.
+   *
+   * TASK_2025_092: Now routes by tabId (primary) instead of sessionId lookup
+   * - tabId: Direct tab routing (preferred)
+   * - sessionId: Real SDK UUID for reference
+   *
    * Ensures UI state is reset to 'loaded' regardless of exit code.
    * FIX #1: Queue cleared AFTER auto-send starts (in .then callback)
    * FIX #6: Guard against recursive auto-send
    */
-  handleChatComplete(data: { sessionId: string; code: number }): void {
+  handleChatComplete(data: {
+    tabId?: string;
+    sessionId?: string;
+    code: number;
+  }): void {
     console.log('[ChatStore] Chat complete:', data);
 
-    // Find the target tab by session ID (proper multi-tab routing)
+    // TASK_2025_092: Route by tabId (primary) or fall back to sessionId lookup
     let targetTab: TabState | null = null;
     let targetTabId: string | null = null;
 
-    if (data.sessionId) {
+    // Primary: Use tabId for direct routing
+    if (data.tabId) {
+      targetTabId = data.tabId;
+      targetTab =
+        this.tabManager.tabs().find((t) => t.id === data.tabId) ?? null;
+    }
+
+    // Fallback: Find by sessionId if tabId not available (legacy support)
+    if (!targetTab && data.sessionId) {
       targetTab = this.tabManager.findTabBySessionId(data.sessionId);
       if (targetTab) {
         targetTabId = targetTab.id;
       }
     }
 
-    // Fall back to active tab if no matching tab found
+    // Last resort: Use active tab
     if (!targetTab) {
       targetTabId = this.tabManager.activeTabId();
       targetTab = this.tabManager.activeTab();
-
-      // Warn if session ID doesn't match active tab
-      if (
-        data.sessionId &&
-        targetTab?.claudeSessionId &&
-        targetTab.claudeSessionId !== data.sessionId
-      ) {
-        console.warn('[ChatStore] Completion for unknown session', {
-          sessionId: data.sessionId,
-          activeTabSessionId: targetTab.claudeSessionId,
-        });
-        return;
-      }
     }
 
     if (!targetTabId || !targetTab) {
@@ -655,26 +663,99 @@ export class ChatStore {
   }
 
   /**
+   * Handle session ID resolution from backend
+   * Backend sends real SDK UUID after SDK returns it from system init message
+   * Without this, tabs store placeholder IDs (msg_XXX) which SDK rejects on resume
+   *
+   * Flow:
+   * 1. User sends message → claudeSessionId set to placeholder msg_XXX
+   * 2. Backend SDK returns real UUID → sends SESSION_ID_RESOLVED event
+   * 3. This method updates tab's claudeSessionId to real UUID
+   * 4. Future resume attempts use valid UUID format
+   */
+  handleSessionIdResolved(data: {
+    sessionId: string;
+    realSessionId: string;
+  }): void {
+    const { sessionId, realSessionId } = data;
+    console.log('[ChatStore] Session ID resolved:', {
+      sessionId,
+      realSessionId,
+    });
+
+    // Find the tab with the placeholder session ID
+    const targetTab = this.tabManager.findTabBySessionId(sessionId);
+
+    if (targetTab) {
+      // Update the tab with the real session ID
+      this.tabManager.updateTab(targetTab.id, {
+        claudeSessionId: realSessionId,
+      });
+      console.log('[ChatStore] Tab updated with real session ID:', {
+        tabId: targetTab.id,
+        oldId: sessionId,
+        newId: realSessionId,
+      });
+    } else {
+      // Fallback: Check active tab if it's streaming without a real session ID
+      const activeTab = this.tabManager.activeTab();
+      if (
+        activeTab &&
+        (activeTab.status === 'streaming' || activeTab.status === 'draft')
+      ) {
+        this.tabManager.updateTab(activeTab.id, {
+          claudeSessionId: realSessionId,
+        });
+        console.log('[ChatStore] Active tab updated with real session ID:', {
+          tabId: activeTab.id,
+          newId: realSessionId,
+        });
+      } else {
+        console.warn('[ChatStore] No tab found for session ID resolution:', {
+          sessionId,
+          realSessionId,
+        });
+      }
+    }
+  }
+
+  /**
    * Handle chat error signal from backend
    * Called when an error occurs during chat (CLI error, network error, etc.)
-   * Routes to correct tab by sessionId for proper multi-tab support.
+   *
+   * TASK_2025_092: Now routes by tabId (primary) instead of sessionId lookup
+   * - tabId: Direct tab routing (preferred)
+   * - sessionId: Real SDK UUID for reference and fallback
+   *
    * Resets streaming state and optionally displays error.
    */
-  handleChatError(data: { sessionId: string; error: string }): void {
+  handleChatError(data: {
+    tabId?: string;
+    sessionId?: string;
+    error: string;
+  }): void {
     console.error('[ChatStore] Chat error:', data);
 
-    // Find the target tab by session ID (proper multi-tab routing)
+    // TASK_2025_092: Route by tabId (primary) or fall back to sessionId lookup
     let targetTab: TabState | null = null;
     let targetTabId: string | null = null;
 
-    if (data.sessionId) {
+    // Primary: Use tabId for direct routing
+    if (data.tabId) {
+      targetTabId = data.tabId;
+      targetTab =
+        this.tabManager.tabs().find((t) => t.id === data.tabId) ?? null;
+    }
+
+    // Fallback: Find by sessionId if tabId not available (legacy support)
+    if (!targetTab && data.sessionId) {
       targetTab = this.tabManager.findTabBySessionId(data.sessionId);
       if (targetTab) {
         targetTabId = targetTab.id;
       }
     }
 
-    // Fall back to active tab if no matching tab found
+    // Last resort: Use active tab
     if (!targetTab) {
       targetTabId = this.tabManager.activeTabId();
       targetTab = this.tabManager.activeTab();
@@ -693,7 +774,7 @@ export class ChatStore {
       }
     }
 
-    if (!targetTabId) {
+    if (!targetTabId || !targetTab) {
       console.warn('[ChatStore] No target tab for chat error');
       return;
     }

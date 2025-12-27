@@ -53,7 +53,8 @@ export class ConfigWatcher {
     this.secretsDisposable = this.context.secrets.onDidChange((event) => {
       if (
         event.key === 'ptah.auth.claudeOAuthToken' ||
-        event.key === 'ptah.auth.anthropicApiKey'
+        event.key === 'ptah.auth.anthropicApiKey' ||
+        event.key === 'ptah.auth.openrouterApiKey' // TASK_2025_091: OpenRouter key
       ) {
         this.logger.info('[ConfigWatcher] Secret changed', { key: event.key });
         // Use the same callback as config changes

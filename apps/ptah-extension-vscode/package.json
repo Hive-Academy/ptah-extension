@@ -112,7 +112,58 @@
         }
       ]
     },
-    "keybindings": []
+    "keybindings": [],
+    "configuration": {
+      "title": "Ptah",
+      "properties": {
+        "ptah.authMethod": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "oauth",
+            "apiKey",
+            "openrouter"
+          ],
+          "default": "auto",
+          "description": "Authentication method for Claude Code. 'auto' will try OpenRouter first, then OAuth, then API key."
+        },
+        "ptah.model.selected": {
+          "type": "string",
+          "default": "claude-sonnet-4-20250514",
+          "description": "Default Claude model for new chat sessions."
+        },
+        "ptah.autopilot.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable autopilot mode for automatic file edits."
+        },
+        "ptah.autopilot.permissionLevel": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "auto-edit",
+            "yolo"
+          ],
+          "default": "ask",
+          "description": "Permission level for autopilot mode."
+        },
+        "ptah.openrouter.modelTier.sonnet": {
+          "type": "string",
+          "default": null,
+          "description": "OpenRouter model override for Sonnet tier."
+        },
+        "ptah.openrouter.modelTier.opus": {
+          "type": "string",
+          "default": null,
+          "description": "OpenRouter model override for Opus tier."
+        },
+        "ptah.openrouter.modelTier.haiku": {
+          "type": "string",
+          "default": null,
+          "description": "OpenRouter model override for Haiku tier."
+        }
+      }
+    }
   },
   "devDependencies": {
     "@types/node": "16.x",

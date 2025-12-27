@@ -13,9 +13,10 @@
 
 import { DependencyContainer, Lifecycle } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { TOKENS } from '@ptah-extension/vscode-core';
 import { SdkAgentAdapter } from '../sdk-agent-adapter';
 import { SessionMetadataStore } from '../session-metadata-store';
+import { SessionImporterService } from '../session-importer.service';
+import { SessionHistoryReaderService } from '../session-history-reader.service';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
 import { SdkMessageTransformer } from '../sdk-message-transformer';
 import { ClaudeCliDetector } from '../detector/claude-cli-detector';
@@ -27,6 +28,7 @@ import {
   AttachmentProcessorService,
 } from '../helpers';
 import { SDK_TOKENS } from './tokens';
+import { OpenRouterModelsService } from '../openrouter-models.service';
 import * as vscode from 'vscode';
 
 /**
@@ -57,6 +59,20 @@ export function registerSdkServices(
     (() => {
       return new SessionMetadataStore(context.workspaceState, logger);
     })()
+  );
+
+  // Session importer - scans existing Claude Code sessions
+  container.register(
+    SDK_TOKENS.SDK_SESSION_IMPORTER,
+    { useClass: SessionImporterService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Session history reader - reads JSONL files and converts to stream events
+  container.register(
+    SDK_TOKENS.SDK_SESSION_HISTORY_READER,
+    { useClass: SessionHistoryReaderService },
+    { lifecycle: Lifecycle.Singleton }
   );
 
   // ============================================================
@@ -116,6 +132,13 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_ATTACHMENT_PROCESSOR,
     { useClass: AttachmentProcessorService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // OpenRouter models service - depends on Logger, ConfigManager (TASK_2025_091 Phase 2)
+  container.register(
+    SDK_TOKENS.SDK_OPENROUTER_MODELS,
+    { useClass: OpenRouterModelsService },
     { lifecycle: Lifecycle.Singleton }
   );
 

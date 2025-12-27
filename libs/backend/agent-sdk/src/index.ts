@@ -24,11 +24,20 @@ export { SdkMessageTransformer } from './lib/sdk-message-transformer';
 export { SessionMetadataStore } from './lib/session-metadata-store';
 export type { SessionMetadata } from './lib/session-metadata-store';
 
+// Session importer (imports existing Claude Code sessions)
+export { SessionImporterService } from './lib/session-importer.service';
+
+// Session history reader (reads JSONL files for session replay)
+export { SessionHistoryReaderService } from './lib/session-history-reader.service';
+
 // SDK type exports (centralized SDK types)
 export * from './lib/types/sdk-types/claude-sdk.types';
 
 // Permission handler exports
 export { SdkPermissionHandler } from './lib/sdk-permission-handler';
+
+// OpenRouter models service (TASK_2025_091 Phase 2)
+export { OpenRouterModelsService } from './lib/openrouter-models.service';
 
 // DI registration exports
 export { registerSdkServices } from './lib/di/register';

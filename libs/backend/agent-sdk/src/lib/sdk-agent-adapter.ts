@@ -669,11 +669,17 @@ export class SdkAgentAdapter implements IAIProvider {
     // Return transformed stream
     // Note: sdkQuery yields SDK's SDKMessage (from @anthropic-ai/claude-agent-sdk)
     // We structurally match it with our SDKMessage type (from claude-sdk.types.ts)
+    // Create callback that saves metadata AND notifies webview
+    const sessionIdCallback = this.createSessionIdCallback(
+      config?.projectPath || process.cwd(),
+      config?.name || `Session ${new Date().toLocaleDateString()}`
+    );
+
     return this.streamTransformer.transform({
       sdkQuery: sdkQuery as unknown as AsyncIterable<SDKMessage>,
       sessionId,
       initialModel,
-      onSessionIdResolved: this.sessionIdResolvedCallback || undefined,
+      onSessionIdResolved: sessionIdCallback,
       onResultStats: this.resultStatsCallback || undefined,
     });
   }
@@ -772,11 +778,19 @@ export class SdkAgentAdapter implements IAIProvider {
     // Return transformed stream - SDK will replay history messages
     // Note: sdkQuery yields SDK's SDKMessage (from @anthropic-ai/claude-agent-sdk)
     // We structurally match it with our SDKMessage type (from claude-sdk.types.ts)
+    // For resumed sessions, just update lastActiveAt (metadata already exists)
+    const resumeCallback = async (realSessionId: string) => {
+      await this.metadataStore.touch(realSessionId);
+      if (this.sessionIdResolvedCallback) {
+        this.sessionIdResolvedCallback(realSessionId);
+      }
+    };
+
     return this.streamTransformer.transform({
       sdkQuery: sdkQuery as unknown as AsyncIterable<SDKMessage>,
       sessionId,
       initialModel,
-      onSessionIdResolved: this.sessionIdResolvedCallback || undefined,
+      onSessionIdResolved: resumeCallback,
       onResultStats: this.resultStatsCallback || undefined,
     });
   }
@@ -786,6 +800,30 @@ export class SdkAgentAdapter implements IAIProvider {
    */
   isSessionActive(sessionId: SessionId): boolean {
     return this.sessionLifecycle.getActiveSession(sessionId) !== undefined;
+  }
+
+  /**
+   * Create a session ID callback that saves metadata and notifies webview
+   * @param workspaceId - Workspace path for this session
+   * @param sessionName - User-friendly session name
+   */
+  private createSessionIdCallback(
+    workspaceId: string,
+    sessionName: string
+  ): (realSessionId: string) => void {
+    return async (realSessionId: string) => {
+      this.logger.info(
+        `[SdkAgentAdapter] Saving session metadata for ${realSessionId}`
+      );
+
+      // Save session metadata to persistent storage
+      await this.metadataStore.create(realSessionId, workspaceId, sessionName);
+
+      // Notify webview of the resolved session ID
+      if (this.sessionIdResolvedCallback) {
+        this.sessionIdResolvedCallback(realSessionId);
+      }
+    };
   }
 
   /**

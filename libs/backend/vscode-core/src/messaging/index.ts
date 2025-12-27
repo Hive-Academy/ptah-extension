@@ -13,5 +13,6 @@
 export { RpcHandler } from './rpc-handler';
 export type { RpcMessage, RpcResponse, RpcMethodHandler } from './rpc-types';
 
-// SDK RPC Handlers (TASK_2025_044 Batch 3)
-export { SdkRpcHandlers } from './sdk-rpc-handlers';
+// SDK RPC Handlers - DELETED in TASK_2025_092
+// SdkRpcHandlers was dead code - only initializePermissionEmitter() was active
+// Permission emitter now handled directly in SdkPermissionHandler

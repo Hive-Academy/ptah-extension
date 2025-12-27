@@ -43,6 +43,16 @@ export interface StreamingState {
 
   /** Pre-indexed events by messageId for O(1) lookup (eliminates O(n²) iteration) */
   eventsByMessage: Map<string, FlatStreamEventUnion[]>;
+
+  /**
+   * Pending session stats to apply during finalization.
+   * Stores stats that arrive before finalizeCurrentMessage is called.
+   */
+  pendingStats?: {
+    cost: number;
+    tokens: { input: number; output: number };
+    duration: number;
+  } | null;
 }
 
 /**
@@ -59,6 +69,7 @@ export function createEmptyStreamingState(): StreamingState {
     currentMessageId: null,
     currentTokenUsage: null,
     eventsByMessage: new Map(),
+    pendingStats: null,
   };
 }
 

@@ -29,7 +29,11 @@ import { SessionId } from '@ptah-extension/shared';
 
 @Component({
   selector: 'ptah-model-selector',
-  imports: [LucideAngularModule, NativeDropdownComponent, NativeOptionComponent],
+  imports: [
+    LucideAngularModule,
+    NativeDropdownComponent,
+    NativeOptionComponent,
+  ],
   providers: [KeyboardNavigationService],
   template: `
     <ptah-native-dropdown

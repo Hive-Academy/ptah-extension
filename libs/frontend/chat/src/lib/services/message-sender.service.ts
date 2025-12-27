@@ -246,14 +246,15 @@ export class MessageSenderService {
       // No tracking needed - removed PendingSessionManager
 
       console.log('[MessageSender] Starting NEW conversation:', {
-        sessionId,
         tabId: activeTabId,
+        // No placeholder sessionId - backend will use SDK's real UUID
       });
 
       // Call RPC to start NEW chat
+      // TASK_2025_092: Use tabId for frontend correlation instead of placeholder sessionId
       const result = await this.claudeRpcService.call('chat:start', {
         prompt: content,
-        sessionId: sessionId as SessionId,
+        tabId: activeTabId, // Frontend correlation ID
         name: activeTab?.name, // ✅ Send session name to backend
         workspacePath,
         options: {
@@ -363,12 +364,15 @@ export class MessageSenderService {
 
       console.log('[MessageSender] Continuing EXISTING session:', {
         sessionId,
+        tabId: activeTabId,
       });
 
       // Call RPC to CONTINUE existing chat (uses --resume flag)
+      // TASK_2025_092: Include tabId for event routing
       const result = await this.claudeRpcService.call('chat:continue', {
         prompt: content,
         sessionId,
+        tabId: activeTabId, // For event routing
         name: activeTab?.name, // ✅ Send session name (support late naming)
         workspacePath,
         model: this.modelState.currentModel(),

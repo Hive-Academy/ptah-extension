@@ -1,4 +1,4 @@
-import { Injectable, signal, computed, inject } from '@angular/core';
+import { Injectable, signal, computed, inject, Injector } from '@angular/core';
 import { TabState } from './chat.types';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 
@@ -24,6 +24,7 @@ export class TabManagerService {
   // ============================================================================
 
   private readonly confirmationDialog = inject(ConfirmationDialogService);
+  private readonly injector = inject(Injector);
 
   // ============================================================================
   // PRIVATE STATE SIGNALS
@@ -188,6 +189,16 @@ export class TabManagerService {
         console.log('[TabManager] Tab close cancelled by user');
         return;
       }
+    }
+
+    // TASK_2025_090: Clean up deduplication state to prevent memory leaks
+    // Use lazy injection to avoid circular dependency (StreamingHandler depends on TabManager)
+    if (tab.claudeSessionId) {
+      const { StreamingHandlerService } = await import(
+        './chat-store/streaming-handler.service'
+      );
+      const streamingHandler = this.injector.get(StreamingHandlerService);
+      streamingHandler.cleanupSessionDeduplication(tab.claudeSessionId);
     }
 
     const tabIndex = tabs.findIndex((t) => t.id === tabId);

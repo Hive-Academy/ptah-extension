@@ -3,6 +3,7 @@ import {
   inject,
   signal,
   computed,
+  output,
   ChangeDetectionStrategy,
   OnInit,
 } from '@angular/core';
@@ -70,14 +71,26 @@ export class AuthConfigComponent implements OnInit {
   readonly Trash2Icon = Trash2;
 
   // Form state signals
-  readonly authMethod = signal<'oauth' | 'apiKey' | 'auto'>('auto');
+  readonly authMethod = signal<'oauth' | 'apiKey' | 'openrouter' | 'auto'>(
+    'auto'
+  );
   readonly oauthToken = signal('');
   readonly apiKey = signal('');
+  // TASK_2025_091: OpenRouter API key
+  readonly openrouterKey = signal('');
 
   // Credential status signals (TASK_2025_076)
   readonly hasExistingOAuthToken = signal(false);
   readonly hasExistingApiKey = signal(false);
+  // TASK_2025_091: OpenRouter status
+  readonly hasExistingOpenRouterKey = signal(false);
   readonly isLoadingStatus = signal(true);
+
+  /**
+   * Event emitted when auth status changes (after successful save)
+   * Parent components should refresh their auth state when this fires
+   */
+  readonly authStatusChanged = output<void>();
 
   // Connection status signals
   readonly connectionStatus = signal<
@@ -94,14 +107,21 @@ export class AuthConfigComponent implements OnInit {
     const method = this.authMethod();
     const oauth = this.oauthToken().trim();
     const apiKeyValue = this.apiKey().trim();
+    const openrouterKeyValue = this.openrouterKey().trim();
 
     switch (method) {
       case 'oauth':
         return oauth.length > 0;
       case 'apiKey':
         return apiKeyValue.length > 0;
+      case 'openrouter':
+        return openrouterKeyValue.length > 0;
       case 'auto':
-        return oauth.length > 0 || apiKeyValue.length > 0;
+        return (
+          oauth.length > 0 ||
+          apiKeyValue.length > 0 ||
+          openrouterKeyValue.length > 0
+        );
       default:
         return false;
     }
@@ -137,6 +157,8 @@ export class AuthConfigComponent implements OnInit {
       if (result.isSuccess() && result.data) {
         this.hasExistingOAuthToken.set(result.data.hasOAuthToken);
         this.hasExistingApiKey.set(result.data.hasApiKey);
+        // TASK_2025_091: OpenRouter status
+        this.hasExistingOpenRouterKey.set(result.data.hasOpenRouterKey);
         this.authMethod.set(result.data.authMethod);
       }
     } catch (error) {
@@ -177,6 +199,7 @@ export class AuthConfigComponent implements OnInit {
       const method = this.authMethod();
       const oauth = this.oauthToken().trim();
       const apiKeyValue = this.apiKey().trim();
+      const openrouterKeyValue = this.openrouterKey().trim();
 
       // Validation
       if (method === 'oauth' && !oauth) {
@@ -193,7 +216,16 @@ export class AuthConfigComponent implements OnInit {
         return;
       }
 
-      if (method === 'auto' && !oauth && !apiKeyValue) {
+      // TASK_2025_091: OpenRouter validation
+      if (method === 'openrouter' && !openrouterKeyValue) {
+        this.connectionStatus.set('error');
+        this.errorMessage.set(
+          'OpenRouter API key is required for OpenRouter authentication'
+        );
+        return;
+      }
+
+      if (method === 'auto' && !oauth && !apiKeyValue && !openrouterKeyValue) {
         this.connectionStatus.set('error');
         this.errorMessage.set(
           'At least one credential is required for Auto-detect mode'
@@ -206,6 +238,8 @@ export class AuthConfigComponent implements OnInit {
         authMethod: method,
         claudeOAuthToken: oauth || undefined,
         anthropicApiKey: apiKeyValue || undefined,
+        // TASK_2025_091: Include OpenRouter key
+        openrouterApiKey: openrouterKeyValue || undefined,
       };
 
       const saveResult = await this.rpcService.call(
@@ -249,6 +283,8 @@ export class AuthConfigComponent implements OnInit {
           this.errorMessage.set('');
           // Refetch status to update configured badges (TASK_2025_076)
           await this.fetchAuthStatus();
+          // Notify parent components to refresh their auth state
+          this.authStatusChanged.emit();
         } else {
           // Connection test failed
           this.connectionStatus.set('error');
@@ -283,7 +319,7 @@ export class AuthConfigComponent implements OnInit {
   /**
    * Update auth method selection
    */
-  onAuthMethodChange(method: 'oauth' | 'apiKey' | 'auto'): void {
+  onAuthMethodChange(method: 'oauth' | 'apiKey' | 'openrouter' | 'auto'): void {
     this.authMethod.set(method);
     // Reset status when user changes method
     this.connectionStatus.set('idle');
@@ -358,6 +394,46 @@ export class AuthConfigComponent implements OnInit {
     } catch (error) {
       this.errorMessage.set(
         error instanceof Error ? error.message : 'Failed to remove API key'
+      );
+      this.connectionStatus.set('error');
+    }
+  }
+
+  /**
+   * Delete OpenRouter key from SecretStorage (TASK_2025_091)
+   */
+  async deleteOpenRouterKey(): Promise<void> {
+    this.connectionStatus.set('saving');
+    this.errorMessage.set('');
+    this.successMessage.set('');
+
+    try {
+      const saveParams: AuthSaveSettingsParams = {
+        authMethod: this.authMethod(),
+        openrouterApiKey: '', // Empty string triggers deletion
+      };
+
+      const result = await this.rpcService.call(
+        'auth:saveSettings',
+        saveParams
+      );
+
+      if (result.isSuccess()) {
+        this.successMessage.set('OpenRouter key removed successfully');
+        this.connectionStatus.set('success');
+        this.openrouterKey.set('');
+        await this.fetchAuthStatus();
+      } else {
+        this.errorMessage.set(
+          result.error || 'Failed to remove OpenRouter key'
+        );
+        this.connectionStatus.set('error');
+      }
+    } catch (error) {
+      this.errorMessage.set(
+        error instanceof Error
+          ? error.message
+          : 'Failed to remove OpenRouter key'
       );
       this.connectionStatus.set('error');
     }

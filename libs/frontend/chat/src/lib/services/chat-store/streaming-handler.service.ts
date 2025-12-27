@@ -35,12 +35,6 @@ export class StreamingHandlerService {
   private readonly treeBuilder = inject(ExecutionTreeBuilderService);
 
   /**
-   * Tracks active session IDs to early-exit for deleted sessions.
-   * Prevents wasted CPU on events for closed tabs.
-   */
-  private activeSessionIds = new Set<string>();
-
-  /**
    * Tracks processed messageIds per session to prevent duplicate message_start events.
    * TASK_2025_085: SDK sends both streaming events AND complete messages - we must deduplicate.
    * Map key = sessionId, value = Set of processed messageIds.
@@ -55,27 +49,19 @@ export class StreamingHandlerService {
   private processedToolCallIds = new Map<string, Set<string>>();
 
   /**
-   * Register a session as active.
-   * Call when creating a new tab/session or loading an existing session.
+   * Clean up deduplication state for a session.
+   * MUST be called when closing/deleting a session to prevent memory leaks.
+   * TASK_2025_090: Integrated cleanup into tab close flow.
    *
-   * @param sessionId - Session ID to register
+   * @param sessionId - Session ID to clean up
    */
-  registerActiveSession(sessionId: string): void {
-    this.activeSessionIds.add(sessionId);
-  }
-
-  /**
-   * Unregister a session as active.
-   * Call when deleting a tab or closing a session.
-   * Also cleans up deduplication tracking state.
-   *
-   * @param sessionId - Session ID to unregister
-   */
-  unregisterActiveSession(sessionId: string): void {
-    this.activeSessionIds.delete(sessionId);
-    // TASK_2025_085: Clean up deduplication state to prevent memory leaks
+  cleanupSessionDeduplication(sessionId: string): void {
     this.processedMessageIds.delete(sessionId);
     this.processedToolCallIds.delete(sessionId);
+    console.log(
+      '[StreamingHandlerService] Cleaned up deduplication state for session:',
+      sessionId
+    );
   }
 
   /**
@@ -83,29 +69,57 @@ export class StreamingHandlerService {
    *
    * Stores events in flat Maps instead of building ExecutionNode trees.
    * Tree building is deferred to render time.
+   *
+   * TASK_2025_092: Now accepts tabId for routing and sessionId (real SDK UUID)
+   * - tabId: Used to find the correct tab to route the event to
+   * - sessionId: Real SDK UUID to store on the tab for future resume
+   *
+   * @param event - The flat streaming event from SDK
+   * @param tabId - Optional tab ID for direct routing (preferred)
+   * @param sessionId - Optional real SDK UUID for session linking
    */
-  processStreamEvent(event: FlatStreamEventUnion): void {
+  processStreamEvent(
+    event: FlatStreamEventUnion,
+    tabId?: string,
+    sessionId?: string
+  ): void {
     // TASK_2025_087: Comprehensive diagnostic logging
     console.log('[StreamingHandlerService] processStreamEvent called:', {
       eventType: event.eventType,
       sessionId: event.sessionId,
       messageId: event.messageId,
+      tabId,
+      providedSessionId: sessionId,
     });
 
     try {
-      // NOTE: Removed early exit check for activeSessionIds (TASK_2025_086)
-      // The activeSessionIds mechanism was never properly integrated - registerActiveSession
-      // is never called. For now, we rely on findTabBySessionId returning null as the filter.
-      // TODO: Properly integrate registerActiveSession calls if optimization is needed.
+      // TASK_2025_090: Removed dead activeSessionIds tracking (never used).
+      // We rely on findTabBySessionId returning null for closed/unknown sessions.
 
-      // 1. Find target tab by event.sessionId
-      let targetTab = this.tabManager.findTabBySessionId(event.sessionId);
-      console.log('[StreamingHandlerService] findTabBySessionId result:', {
-        found: !!targetTab,
-        sessionId: event.sessionId,
-        targetTabId: targetTab?.id,
-        targetTabClaudeSessionId: targetTab?.claudeSessionId,
-      });
+      // TASK_2025_092: Use provided tabId for direct routing (primary), fall back to sessionId lookup
+      let targetTab: TabState | undefined;
+
+      // Primary: Use tabId for direct routing
+      if (tabId) {
+        targetTab = this.tabManager.tabs().find((t) => t.id === tabId);
+        console.log('[StreamingHandlerService] findTabByTabId result:', {
+          found: !!targetTab,
+          tabId,
+          targetTabClaudeSessionId: targetTab?.claudeSessionId,
+        });
+      }
+
+      // Fallback: Find target tab by event.sessionId
+      if (!targetTab) {
+        targetTab =
+          this.tabManager.findTabBySessionId(event.sessionId) ?? undefined;
+        console.log('[StreamingHandlerService] findTabBySessionId result:', {
+          found: !!targetTab,
+          sessionId: event.sessionId,
+          targetTabId: targetTab?.id,
+          targetTabClaudeSessionId: targetTab?.claudeSessionId,
+        });
+      }
 
       // 2. If no tab found, check if active tab needs session ID initialization
       if (!targetTab) {
@@ -120,6 +134,7 @@ export class StreamingHandlerService {
             activeTabStatus: activeTab?.status,
             activeTabClaudeSessionId: activeTab?.claudeSessionId,
             eventSessionId: event.sessionId,
+            providedTabId: tabId,
           }
         );
 
@@ -136,27 +151,30 @@ export class StreamingHandlerService {
             activeTab.status === 'streaming' ||
             activeTab.status === 'draft')
         ) {
+          // TASK_2025_092: Use the real SDK sessionId if provided, otherwise fall back to event.sessionId
+          const realSessionId = sessionId || event.sessionId;
+
           console.log(
             '[StreamingHandlerService] INITIALIZING session ID for active tab:',
             {
               tabId: activeTab.id,
-              sessionId: event.sessionId,
+              sessionId: realSessionId,
               tabStatus: activeTab.status,
             }
           );
 
           // Set the session ID and transition to streaming status
           this.tabManager.updateTab(activeTab.id, {
-            claudeSessionId: event.sessionId,
+            claudeSessionId: realSessionId,
             status: 'streaming',
           });
 
           // Update SessionManager
-          this.sessionManager.setSessionId(event.sessionId);
+          this.sessionManager.setSessionId(realSessionId);
           this.sessionManager.setStatus('streaming');
 
-          // Retry finding tab - should succeed now
-          targetTab = this.tabManager.findTabBySessionId(event.sessionId);
+          // Use the active tab as target
+          targetTab = this.tabManager.activeTab() ?? undefined;
         }
 
         // If still not found, log warning and return
@@ -169,13 +187,28 @@ export class StreamingHandlerService {
         }
       }
 
+      // TASK_2025_092: If tab doesn't have claudeSessionId yet, set it with real SDK UUID
+      if (targetTab && sessionId && !targetTab.claudeSessionId) {
+        console.log(
+          '[StreamingHandlerService] Setting claudeSessionId from event:',
+          {
+            tabId: targetTab.id,
+            sessionId,
+          }
+        );
+        this.tabManager.updateTab(targetTab.id, { claudeSessionId: sessionId });
+      }
+
       // 2. Initialize streaming state if null
       if (!targetTab.streamingState) {
         this.tabManager.updateTab(targetTab.id, {
           streamingState: createEmptyStreamingState(),
         });
-        // TASK_2025_086 FIX: Re-read tab after update - targetTab was stale!
-        targetTab = this.tabManager.findTabBySessionId(event.sessionId)!;
+        // TASK_2025_092 FIX: Re-read tab by its own ID, not event.sessionId
+        // After session:id-resolved, tab's claudeSessionId is real UUID but
+        // event.sessionId may still be temp ID, so findTabBySessionId fails.
+        // Using tab's own ID is reliable since we already found it above.
+        targetTab = this.tabManager.tabs().find((t) => t.id === targetTab!.id)!;
       }
 
       const state = targetTab.streamingState!;
@@ -193,8 +226,11 @@ export class StreamingHandlerService {
       // 4. Handle by event type
       switch (event.eventType) {
         case 'message_start': {
-          // TASK_2025_085: Deduplicate message_start events
-          // SDK sends both streaming events AND complete messages - we must skip duplicates
+          // TASK_2025_091: Handle duplicate message_start by CLEARING accumulators
+          // SDK sends both streaming events AND complete assistant messages.
+          // When assistant complete arrives after streaming, its message_start
+          // should RESET the accumulated content so the complete content replaces
+          // the streamed content. This is the systematic deduplication solution.
           let sessionMessageIds = this.processedMessageIds.get(event.sessionId);
           if (!sessionMessageIds) {
             sessionMessageIds = new Set<string>();
@@ -202,15 +238,30 @@ export class StreamingHandlerService {
           }
 
           if (sessionMessageIds.has(event.messageId)) {
+            // TASK_2025_091: Clear accumulators for this messageId to allow replacement
+            // This handles the case where SDK sends streaming events followed by
+            // a complete assistant message with the same messageId
             console.debug(
-              '[StreamingHandlerService] Skipping duplicate message_start',
+              '[StreamingHandlerService] Duplicate message_start - clearing accumulators for replacement',
               { messageId: event.messageId, sessionId: event.sessionId }
             );
-            return; // Skip duplicate - already processed this message
+
+            // Clear text accumulators for this messageId (all block indices)
+            for (const key of state.textAccumulators.keys()) {
+              if (
+                key.startsWith(`text:${event.messageId}:`) ||
+                key.startsWith(`thinking:${event.messageId}:`)
+              ) {
+                state.textAccumulators.delete(key);
+              }
+            }
+
+            // Don't return - continue processing to update currentMessageId
+          } else {
+            sessionMessageIds.add(event.messageId);
+            state.messageEventIds.push(event.messageId);
           }
 
-          sessionMessageIds.add(event.messageId);
-          state.messageEventIds.push(event.messageId);
           state.currentMessageId = event.messageId;
           break;
         }
@@ -412,6 +463,7 @@ export class StreamingHandlerService {
       eventsByMessage: new Map(
         [...state.eventsByMessage.entries()].map(([k, v]) => [k, [...v]])
       ),
+      pendingStats: state.pendingStats ? { ...state.pendingStats } : null,
     };
   }
 
@@ -488,14 +540,30 @@ export class StreamingHandlerService {
     }
 
     // Create finalized chat message with tree
+    // Apply pendingStats if message_complete event wasn't found but we have stored stats
+    const pendingStats = stateCopy.pendingStats;
+    const finalTokens =
+      tokens ?? (pendingStats ? pendingStats.tokens : undefined);
+    const finalCost = cost ?? (pendingStats ? pendingStats.cost : undefined);
+    const finalDuration =
+      duration ?? (pendingStats ? pendingStats.duration : undefined);
+
+    if (pendingStats && !tokens) {
+      console.log('[StreamingHandlerService] ✅ Applied pending stats:', {
+        tokens: pendingStats.tokens,
+        cost: pendingStats.cost,
+        duration: pendingStats.duration,
+      });
+    }
+
     const assistantMessage = createExecutionChatMessage({
       id: messageId,
       role: 'assistant',
       streamingState: finalTree[0] || null, // Single root message
       sessionId: targetTab?.claudeSessionId ?? undefined,
-      tokens,
-      cost,
-      duration,
+      tokens: finalTokens,
+      cost: finalCost,
+      duration: finalDuration,
     });
 
     console.log('[StreamingHandlerService] 📝 Created assistant message:', {
@@ -537,10 +605,100 @@ export class StreamingHandlerService {
     console.log('[StreamingHandlerService] Received session stats:', stats);
 
     // Find the target tab by session ID
-    const targetTab = this.tabManager.findTabBySessionId(stats.sessionId);
+    let targetTab = this.tabManager.findTabBySessionId(stats.sessionId);
+
+    // TASK_2025_092: If no tab found by sessionId, use active tab as fallback
+    // This handles cases where:
+    // 1. Stats arrive before session ID was set on tab
+    // 2. Stats have temp ID but tab has real UUID (legacy edge case)
+    // 3. Single-conversation flow where active tab is the stats target
     if (!targetTab) {
-      console.warn('[StreamingHandlerService] No tab found for session', {
-        sessionId: stats.sessionId,
+      const activeTab = this.tabManager.activeTab();
+
+      console.log(
+        '[StreamingHandlerService] No tab found for stats, checking active tab:',
+        {
+          hasActiveTab: !!activeTab,
+          activeTabId: activeTab?.id,
+          activeTabStatus: activeTab?.status,
+          activeTabClaudeSessionId: activeTab?.claudeSessionId,
+          statsSessionId: stats.sessionId,
+        }
+      );
+
+      // Initialize session ID for active tab if it's awaiting initialization
+      if (
+        activeTab &&
+        !activeTab.claudeSessionId &&
+        (activeTab.status === 'fresh' ||
+          activeTab.status === 'streaming' ||
+          activeTab.status === 'draft')
+      ) {
+        console.log(
+          '[StreamingHandlerService] INITIALIZING session ID from stats for active tab:',
+          {
+            tabId: activeTab.id,
+            sessionId: stats.sessionId,
+            tabStatus: activeTab.status,
+          }
+        );
+
+        // Set the session ID (keep current status - streaming event will set 'streaming' if needed)
+        this.tabManager.updateTab(activeTab.id, {
+          claudeSessionId: stats.sessionId,
+        });
+
+        // Update SessionManager
+        this.sessionManager.setSessionId(stats.sessionId);
+
+        targetTab = activeTab;
+      } else if (
+        activeTab &&
+        (activeTab.status === 'streaming' || activeTab.status === 'loaded')
+      ) {
+        // TASK_2025_092: Use active tab as fallback for stats in single-conversation flow
+        // Active tab already has a session ID, and stats belong to current conversation
+        console.log(
+          '[StreamingHandlerService] Using active tab as fallback for stats:',
+          {
+            tabId: activeTab.id,
+            activeTabClaudeSessionId: activeTab.claudeSessionId,
+            statsSessionId: stats.sessionId,
+          }
+        );
+        targetTab = activeTab;
+      }
+
+      // If still not found after fallback attempts, log warning and return
+      if (!targetTab) {
+        console.warn('[StreamingHandlerService] No tab found for session', {
+          sessionId: stats.sessionId,
+        });
+        return;
+      }
+    }
+
+    // Check if streaming is still in progress
+    // If so, store stats as pendingStats to be applied during finalization
+    if (targetTab.streamingState && targetTab.status === 'streaming') {
+      console.log(
+        '[StreamingHandlerService] Streaming still in progress, storing pending stats',
+        {
+          sessionId: stats.sessionId,
+          tabId: targetTab.id,
+        }
+      );
+
+      const state = targetTab.streamingState;
+      state.pendingStats = {
+        cost: stats.cost,
+        tokens: stats.tokens,
+        duration: stats.duration,
+      };
+
+      // Trigger reactivity
+      this.tabManager.updateTab(targetTab.id, {
+        streamingState: { ...state },
       });
       return;
     }
