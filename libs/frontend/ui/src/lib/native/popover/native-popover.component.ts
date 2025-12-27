@@ -65,7 +65,7 @@ import { FloatingUIService } from '../shared';
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [FloatingUIService],
   host: {
-    '(keydown.escape)': 'handleEscapeKey($event)',
+    '(keydown)': 'handleHostKeyDown($event)',
   },
   template: `
     <!-- Trigger element (always rendered) -->
@@ -75,28 +75,27 @@ import { FloatingUIService } from '../shared';
 
     <!-- Popover panel (conditionally rendered) -->
     @if (isOpen()) {
-      <!-- Backdrop (optional) -->
-      @if (hasBackdrop()) {
-        <div
-          class="fixed inset-0 z-40"
-          [class.bg-black/50]="backdropClass() === 'dark'"
-          (click)="handleBackdropClick()"
-          (keydown.escape)="handleBackdropClick()"
-          tabindex="-1"
-          role="presentation"
-          aria-hidden="true"
-        ></div>
-      }
+    <!-- Backdrop (optional) -->
+    @if (hasBackdrop()) {
+    <div
+      class="fixed inset-0 z-40"
+      [class]="backdropClass() === 'dark' ? 'bg-black/50' : ''"
+      (click)="handleBackdropClick()"
+      tabindex="-1"
+      role="presentation"
+      aria-hidden="true"
+    ></div>
+    }
 
-      <!-- Floating content - starts hidden until positioned -->
-      <div
-        #floatingRef
-        class="popover-panel bg-base-200 border border-base-300 rounded-lg shadow-xl z-50"
-        style="visibility: hidden;"
-        tabindex="-1"
-      >
-        <ng-content select="[content]" />
-      </div>
+    <!-- Floating content - starts hidden until positioned -->
+    <div
+      #floatingRef
+      class="popover-panel bg-base-200 border border-base-300 rounded-lg shadow-xl z-50"
+      style="visibility: hidden;"
+      tabindex="-1"
+    >
+      <ng-content select="[content]" />
+    </div>
     }
   `,
   styles: [
@@ -215,10 +214,11 @@ export class NativePopoverComponent implements OnDestroy {
     this.floatingUI.cleanup();
 
     // Restore focus to the element that had focus before opening
-    if (this.previousActiveElement) {
+    // Check isConnected to ensure element is still in DOM before focusing
+    if (this.previousActiveElement?.isConnected) {
       this.previousActiveElement.focus();
-      this.previousActiveElement = null;
     }
+    this.previousActiveElement = null;
   }
 
   /**
@@ -231,11 +231,11 @@ export class NativePopoverComponent implements OnDestroy {
   }
 
   /**
-   * Handle Escape key press to close popover.
-   * Bound via host listener to capture escape anywhere in component.
+   * Handle keyboard events on host element.
+   * Escape key closes the popover.
    */
-  handleEscapeKey(event: KeyboardEvent): void {
-    if (this.isOpen()) {
+  handleHostKeyDown(event: KeyboardEvent): void {
+    if (event.key === 'Escape' && this.isOpen()) {
       event.preventDefault();
       event.stopPropagation();
       this.closed.emit();
@@ -245,9 +245,10 @@ export class NativePopoverComponent implements OnDestroy {
   ngOnDestroy(): void {
     this.floatingUI.cleanup();
     // Ensure focus restoration if component destroyed while open
-    if (this.previousActiveElement) {
+    // Check isConnected to ensure element is still in DOM before focusing
+    if (this.previousActiveElement?.isConnected) {
       this.previousActiveElement.focus();
-      this.previousActiveElement = null;
     }
+    this.previousActiveElement = null;
   }
 }

@@ -60,7 +60,6 @@ import { FloatingUIService, KeyboardNavigationService } from '../shared';
  */
 @Component({
   selector: 'ptah-native-autocomplete',
-  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [NativeOptionComponent, NgTemplateOutlet],
   providers: [FloatingUIService, KeyboardNavigationService],

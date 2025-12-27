@@ -86,9 +86,16 @@ export class FloatingUIService {
   private readonly destroyRef = inject(DestroyRef);
   private cleanupFn: (() => void) | null = null;
 
+  /**
+   * Flag to track if the service has been destroyed.
+   * Used to prevent position updates after component destruction.
+   */
+  private isDestroyed = false;
+
   constructor() {
     // Ensure cleanup on component destroy
     this.destroyRef.onDestroy(() => {
+      this.isDestroyed = true;
       this.cleanup();
     });
   }
@@ -138,6 +145,9 @@ export class FloatingUIService {
       middleware,
     });
 
+    // Don't apply if destroyed during async computation
+    if (this.isDestroyed) return;
+
     // Apply position styles
     this.applyPosition(floatingEl, x, y);
 
@@ -147,6 +157,8 @@ export class FloatingUIService {
         placement,
         middleware,
       });
+      // Don't apply if destroyed during async computation
+      if (this.isDestroyed) return;
       this.applyPosition(floatingEl, result.x, result.y);
     });
   }

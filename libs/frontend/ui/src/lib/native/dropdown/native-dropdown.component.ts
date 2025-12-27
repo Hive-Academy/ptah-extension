@@ -46,6 +46,7 @@ import {
   inject,
   effect,
   OnDestroy,
+  HostListener,
 } from '@angular/core';
 import { Placement } from '@floating-ui/dom';
 import { FloatingUIService } from '../shared';
@@ -69,27 +70,27 @@ import { FloatingUIService } from '../shared';
 
     <!-- Dropdown panel (conditionally rendered) -->
     @if (isOpen()) {
-      <!-- Backdrop for click-outside detection -->
-      @if (hasBackdrop()) {
-        <div
-          class="fixed inset-0 z-40"
-          [class.bg-black/20]="backdropClass() === 'dark'"
-          (click)="handleBackdropClick()"
-          (keydown.escape)="handleBackdropClick()"
-          tabindex="-1"
-          role="presentation"
-          aria-hidden="true"
-        ></div>
-      }
+    <!-- Backdrop for click-outside detection -->
+    @if (hasBackdrop()) {
+    <div
+      class="fixed inset-0 z-40"
+      [class]="backdropClass() === 'dark' ? 'bg-black/20' : ''"
+      (click)="handleBackdropClick()"
+      tabindex="-1"
+      role="presentation"
+      aria-hidden="true"
+    ></div>
+    }
 
-      <!-- Floating content - starts hidden until positioned -->
-      <div
-        #floatingRef
-        class="dropdown-panel bg-base-200 border border-base-300 rounded-lg shadow-lg z-50"
-        style="visibility: hidden;"
-      >
-        <ng-content select="[content]" />
-      </div>
+    <!-- Floating content - starts hidden until positioned -->
+    <div
+      #floatingRef
+      class="dropdown-panel bg-base-200 border border-base-300 rounded-lg shadow-lg z-50"
+      style="visibility: hidden;"
+      role="listbox"
+    >
+      <ng-content select="[content]" />
+    </div>
     }
   `,
   styles: [
@@ -103,6 +104,12 @@ import { FloatingUIService } from '../shared';
 })
 export class NativeDropdownComponent implements OnDestroy {
   private readonly floatingUI = inject(FloatingUIService);
+
+  /**
+   * Flag to track pending microtask positioning.
+   * Used to cancel positioning if dropdown closes before microtask executes.
+   */
+  private positioningPending = false;
 
   /**
    * Whether the dropdown is open.
@@ -169,8 +176,15 @@ export class NativeDropdownComponent implements OnDestroy {
       const isOpen = this.isOpen();
       if (isOpen) {
         // Schedule positioning for next microtask to ensure DOM is ready
-        queueMicrotask(() => this.positionDropdown());
+        this.positioningPending = true;
+        queueMicrotask(() => {
+          if (this.positioningPending && this.isOpen()) {
+            this.positionDropdown();
+          }
+          this.positioningPending = false;
+        });
       } else {
+        this.positioningPending = false;
         this.floatingUI.cleanup();
       }
     });
@@ -203,6 +217,28 @@ export class NativeDropdownComponent implements OnDestroy {
   handleBackdropClick(): void {
     this.backdropClicked.emit();
     if (this.closeOnBackdropClick()) {
+      this.closed.emit();
+    }
+  }
+
+  /**
+   * Handle outside clicks when hasBackdrop is false.
+   * Closes dropdown if click is outside trigger and floating panel.
+   */
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent): void {
+    if (!this.isOpen() || this.hasBackdrop()) return;
+
+    const target = event.target as HTMLElement;
+    const trigger = this.triggerRef()?.nativeElement;
+    const floating = this.floatingRef()?.nativeElement;
+
+    if (
+      trigger &&
+      !trigger.contains(target) &&
+      floating &&
+      !floating.contains(target)
+    ) {
       this.closed.emit();
     }
   }

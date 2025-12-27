@@ -7,7 +7,6 @@ import {
   input,
   OnDestroy,
   output,
-  signal,
   viewChild,
   viewChildren,
 } from '@angular/core';
@@ -121,7 +120,6 @@ export class UnifiedSuggestionsDropdownComponent implements OnDestroy {
   // Outputs
   readonly suggestionSelected = output<SuggestionItem>();
   readonly closed = output<void>();
-  readonly filterChanged = output<string>(); // Emit filter changes to parent
 
   // ViewChild for floating panel
   private readonly floatingPanel =

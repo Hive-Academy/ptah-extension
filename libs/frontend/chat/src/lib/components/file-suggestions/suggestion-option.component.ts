@@ -5,6 +5,7 @@ import {
   ChangeDetectionStrategy,
   ElementRef,
   inject,
+  computed,
 } from '@angular/core';
 import type { CommandSuggestion } from '@ptah-extension/core';
 import type { FileSuggestion } from '../../services/file-picker.service';
@@ -36,49 +37,47 @@ export type SuggestionItem =
  */
 @Component({
   selector: 'ptah-suggestion-option',
-  standalone: true,
+  host: {
+    '[id]': 'optionId()',
+    class:
+      'flex items-start gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors',
+    '[class.bg-primary]': 'isActive()',
+    '[class.text-primary-content]': 'isActive()',
+    '[class.hover:bg-base-300]': '!isActive()',
+    '(click)': 'handleClick()',
+    '(mouseenter)': 'handleMouseEnter()',
+    role: 'option',
+    '[attr.aria-selected]': 'isActive()',
+    tabindex: '-1',
+  },
   template: `
-    <div
-      [id]="optionId()"
-      class="flex items-start gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors"
-      [class.bg-primary]="isActive()"
-      [class.text-primary-content]="isActive()"
-      [class.hover:bg-base-300]="!isActive()"
-      (click)="handleClick()"
-      (mouseenter)="handleMouseEnter()"
-      role="option"
-      [attr.aria-selected]="isActive()"
-    >
-      <!-- Icon -->
-      <span class="shrink-0 w-4 h-4 flex items-center justify-center text-sm">
-        {{ suggestion().icon }}
-      </span>
+    <!-- Icon -->
+    <span class="shrink-0 w-4 h-4 flex items-center justify-center text-sm">
+      {{ suggestion().icon }}
+    </span>
 
-      <!-- Content area -->
-      <div class="flex-1 min-w-0 flex flex-col gap-0.5">
-        @if (suggestion().type === 'file') {
-        <!-- Files/Folders: Name prominent, directory secondary -->
+    <!-- Content area -->
+    <div class="flex-1 min-w-0 flex flex-col gap-0.5">
+      @if (suggestion().type === 'file') {
+      <!-- Files/Folders: Name prominent, directory secondary -->
+      <span class="font-medium text-xs truncate">{{ suggestion().name }}</span>
+      <span class="text-[11px] opacity-70 truncate">{{
+        suggestion().description
+      }}</span>
+      } @else if (suggestion().type === 'command') {
+      <!-- Commands: Name with badge styling -->
+      <div class="flex items-center gap-2">
         <span class="font-medium text-xs truncate">{{
           suggestion().name
         }}</span>
-        <span class="text-[11px] opacity-70 truncate">{{
-          suggestion().description
-        }}</span>
-        } @else if (suggestion().type === 'command') {
-        <!-- Commands: Name with badge styling -->
-        <div class="flex items-center gap-2">
-          <span class="font-medium text-xs truncate">{{
-            suggestion().name
-          }}</span>
-          @if (isBuiltinCommand()) {
-          <span class="badge badge-accent badge-xs">Built-in</span>
-          }
-        </div>
-        <span class="text-[11px] opacity-70 truncate">{{
-          suggestion().description
-        }}</span>
+        @if (isBuiltinCommand()) {
+        <span class="badge badge-accent badge-xs">Built-in</span>
         }
       </div>
+      <span class="text-[11px] opacity-70 truncate">{{
+        suggestion().description
+      }}</span>
+      }
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -101,21 +100,21 @@ export class SuggestionOptionComponent {
   readonly selected = output<SuggestionItem>();
   readonly hovered = output<void>();
 
+  /**
+   * Computed signal to check if this is a built-in command.
+   * Uses type narrowing to safely access scope property.
+   */
+  readonly isBuiltinCommand = computed(() => {
+    const suggestion = this.suggestion();
+    return suggestion.type === 'command' && suggestion.scope === 'builtin';
+  });
+
   handleClick(): void {
     this.selected.emit(this.suggestion());
   }
 
   handleMouseEnter(): void {
     this.hovered.emit();
-  }
-
-  /**
-   * Check if this is a built-in command
-   * Uses type narrowing to safely access scope property
-   */
-  isBuiltinCommand(): boolean {
-    const suggestion = this.suggestion();
-    return suggestion.type === 'command' && suggestion.scope === 'builtin';
   }
 
   /**

@@ -49,14 +49,18 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     '[id]': 'optionId()',
-    class: 'block px-3 py-2 rounded-md cursor-pointer transition-colors',
-    '[class.bg-primary]': 'isActive()',
-    '[class.text-primary-content]': 'isActive()',
-    '[class.hover:bg-base-300]': '!isActive()',
+    class: 'block px-3 py-2 rounded-md transition-colors',
+    '[class.cursor-pointer]': '!disabled()',
+    '[class.cursor-not-allowed]': 'disabled()',
+    '[class.opacity-50]': 'disabled()',
+    '[class.bg-primary]': 'isActive() && !disabled()',
+    '[class.text-primary-content]': 'isActive() && !disabled()',
+    '[class.hover:bg-base-300]': '!isActive() && !disabled()',
     '(click)': 'handleClick()',
     '(mouseenter)': 'handleMouseEnter()',
     role: 'option',
     '[attr.aria-selected]': 'isActive()',
+    '[attr.aria-disabled]': 'disabled()',
     tabindex: '-1',
   },
   template: `<ng-content />`,
@@ -82,6 +86,12 @@ export class NativeOptionComponent<T = unknown> {
    * Parent passes this based on keyboard navigation state.
    */
   readonly isActive = input<boolean>(false);
+
+  /**
+   * Whether this option is disabled.
+   * Disabled options cannot be selected or hovered.
+   */
+  readonly disabled = input<boolean>(false);
 
   /**
    * Emitted when the option is clicked/selected.
@@ -111,16 +121,20 @@ export class NativeOptionComponent<T = unknown> {
   /**
    * Handle click events on the option.
    * Emits selected output with the current value.
+   * Does nothing if disabled.
    */
   handleClick(): void {
+    if (this.disabled()) return;
     this.selected.emit(this.value());
   }
 
   /**
    * Handle mouse enter events.
    * Emits hovered output for parent to update active index.
+   * Does nothing if disabled.
    */
   handleMouseEnter(): void {
+    if (this.disabled()) return;
     this.hovered.emit();
   }
 
