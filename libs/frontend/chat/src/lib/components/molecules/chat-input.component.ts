@@ -9,7 +9,6 @@ import {
   ElementRef,
 } from '@angular/core';
 import { LucideAngularModule, Send, Zap, Square, Clock } from 'lucide-angular';
-import { CdkOverlayOrigin } from '@angular/cdk/overlay';
 import { ChatStore } from '../../services/chat.store';
 import {
   AutopilotStateService,
@@ -52,6 +51,11 @@ import { AgentSelectorComponent } from './agent-selector.component';
  * - Disable during streaming
  * - Auto-resize textarea
  *
+ * MIGRATION NOTE (TASK_2025_092 Batch 4):
+ * - Removed CdkOverlayOrigin - now using native ElementRef for overlay positioning
+ * - UnifiedSuggestionsDropdownComponent uses Floating UI instead of CDK Overlay
+ * - Overlay origin now passed as { elementRef } object instead of CdkOverlayOrigin
+ *
  * SOLID Principles:
  * - Single Responsibility: Message input and bottom bar controls
  * - Dependency Inversion: Injects ChatStore abstraction
@@ -60,7 +64,6 @@ import { AgentSelectorComponent } from './agent-selector.component';
   selector: 'ptah-chat-input',
   imports: [
     LucideAngularModule,
-    CdkOverlayOrigin,
     ModelSelectorComponent,
     AutopilotPopoverComponent,
     UnifiedSuggestionsDropdownComponent,
@@ -86,8 +89,6 @@ import { AgentSelectorComponent } from './agent-selector.component';
         <div class="relative flex-1">
           <textarea
             #inputElement
-            cdkOverlayOrigin
-            #textareaOrigin="cdkOverlayOrigin"
             class="textarea textarea-bordered flex-1 min-h-[2.5rem] max-h-[10rem] resize-none transition-colors w-full"
             [class.border-warning]="autopilotState.enabled()"
             [class.border-2]="autopilotState.enabled()"
@@ -112,10 +113,10 @@ import { AgentSelectorComponent } from './agent-selector.component';
           ></textarea>
 
           <!-- File/Folder Suggestions Dropdown - positioned above textarea -->
-          @if (showSuggestions() && textareaOriginRef()) {
+          @if (showSuggestions() && textareaOrigin()) {
           <ptah-unified-suggestions-dropdown
             #suggestionsDropdown
-            [overlayOrigin]="textareaOriginRef()!"
+            [overlayOrigin]="textareaOrigin()!"
             [suggestions]="filteredSuggestions()"
             [isLoading]="isLoadingSuggestions()"
             (suggestionSelected)="handleSuggestionSelected($event)"
@@ -206,7 +207,17 @@ export class ChatInputComponent {
   // Signal-based viewChild references (Angular 20+ pattern)
   private readonly textareaRef =
     viewChild<ElementRef<HTMLTextAreaElement>>('inputElement');
-  readonly textareaOriginRef = viewChild<CdkOverlayOrigin>('textareaOrigin');
+
+  /**
+   * Textarea origin for Floating UI positioning.
+   * Returns an object with elementRef to match the expected interface.
+   * Replaces CdkOverlayOrigin which was removed in the native migration.
+   */
+  readonly textareaOrigin = computed(() => {
+    const ref = this.textareaRef();
+    return ref ? { elementRef: ref } : null;
+  });
+
   private readonly dropdownRef = viewChild<UnifiedSuggestionsDropdownComponent>(
     'suggestionsDropdown'
   );

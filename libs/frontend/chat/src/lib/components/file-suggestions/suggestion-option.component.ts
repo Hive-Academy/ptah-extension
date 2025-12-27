@@ -5,9 +5,7 @@ import {
   ChangeDetectionStrategy,
   ElementRef,
   inject,
-  signal,
 } from '@angular/core';
-import { Highlightable } from '@angular/cdk/a11y';
 import type { CommandSuggestion } from '@ptah-extension/core';
 import type { FileSuggestion } from '../../services/file-picker.service';
 
@@ -25,8 +23,11 @@ export type SuggestionItem =
 /**
  * SuggestionOptionComponent - Single Option in Autocomplete Dropdown
  *
- * Implements Highlightable interface for ActiveDescendantKeyManager.
- * This allows keyboard navigation while focus stays on the textarea.
+ * MIGRATION NOTE (TASK_2025_092 Batch 4):
+ * - Removed Highlightable interface (was causing signal dependency loops)
+ * - Removed setActiveStyles/setInactiveStyles methods
+ * - Active state now controlled via isActive INPUT signal from parent
+ * - This pattern avoids the CDK ActiveDescendantKeyManager signal issues
  *
  * ARIA Pattern:
  * - role="option" on the option element
@@ -40,13 +41,13 @@ export type SuggestionItem =
     <div
       [id]="optionId()"
       class="flex items-start gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors"
-      [class.bg-primary]="isActive"
-      [class.text-primary-content]="isActive"
-      [class.hover:bg-base-300]="!isActive"
+      [class.bg-primary]="isActive()"
+      [class.text-primary-content]="isActive()"
+      [class.hover:bg-base-300]="!isActive()"
       (click)="handleClick()"
       (mouseenter)="handleMouseEnter()"
       role="option"
-      [attr.aria-selected]="isActive"
+      [attr.aria-selected]="isActive()"
     >
       <!-- Icon -->
       <span class="shrink-0 w-4 h-4 flex items-center justify-center text-sm">
@@ -82,41 +83,23 @@ export type SuggestionItem =
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class SuggestionOptionComponent implements Highlightable {
+export class SuggestionOptionComponent {
   private readonly elementRef = inject(ElementRef);
 
   // Inputs
   readonly suggestion = input.required<SuggestionItem>();
   readonly optionId = input.required<string>();
 
+  /**
+   * Whether this option is currently active/highlighted.
+   * CONTROLLED BY PARENT - not self-managed like CDK Highlightable.
+   * Parent passes this based on keyboard navigation state (i === activeIndex).
+   */
+  readonly isActive = input<boolean>(false);
+
   // Outputs
   readonly selected = output<SuggestionItem>();
   readonly hovered = output<void>();
-
-  // Highlightable interface state
-  private readonly _isActive = signal(false);
-  get isActive() {
-    return this._isActive();
-  }
-
-  /**
-   * Highlightable interface - called by ActiveDescendantKeyManager
-   * Sets visual active state without moving focus
-   *
-   * FIX: Removed scrollIntoView() - scroll handling moved to parent component's
-   * keyManager.change subscription. This prevents scroll hijacking on programmatic resets.
-   */
-  setActiveStyles(): void {
-    this._isActive.set(true);
-  }
-
-  /**
-   * Highlightable interface - called by ActiveDescendantKeyManager
-   * Removes visual active state
-   */
-  setInactiveStyles(): void {
-    this._isActive.set(false);
-  }
 
   handleClick(): void {
     this.selected.emit(this.suggestion());
@@ -133,6 +116,17 @@ export class SuggestionOptionComponent implements Highlightable {
   isBuiltinCommand(): boolean {
     const suggestion = this.suggestion();
     return suggestion.type === 'command' && suggestion.scope === 'builtin';
+  }
+
+  /**
+   * Scroll this option into view.
+   * Called by parent when this becomes active via keyboard navigation.
+   */
+  scrollIntoView(): void {
+    this.elementRef.nativeElement.scrollIntoView({
+      block: 'nearest',
+      behavior: 'smooth',
+    });
   }
 
   /**
