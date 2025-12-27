@@ -9,7 +9,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule, Plus, Check, X } from 'lucide-angular';
-import { PopoverComponent } from '@ptah-extension/ui';
+import { NativePopoverComponent } from '@ptah-extension/ui';
 import { TabItemComponent } from '../molecules/tab-item.component';
 import { TabManagerService } from '../../services/tab-manager.service';
 import { ChatStore } from '../../services/chat.store';
@@ -30,7 +30,7 @@ import { ChatStore } from '../../services/chat.store';
   imports: [
     TabItemComponent,
     LucideAngularModule,
-    PopoverComponent,
+    NativePopoverComponent,
     FormsModule,
   ],
   template: `
@@ -46,11 +46,11 @@ import { ChatStore } from '../../services/chat.store';
       }
 
       <!-- New tab button with popover -->
-      <ptah-popover
+      <ptah-native-popover
         [isOpen]="popoverOpen()"
-        [position]="'below'"
+        [placement]="'bottom'"
         [hasBackdrop]="true"
-        [backdropClass]="'cdk-overlay-transparent-backdrop'"
+        [backdropClass]="'transparent'"
         (closed)="handleCancelSession()"
       >
         <!-- Trigger: New tab button -->
@@ -96,7 +96,7 @@ import { ChatStore } from '../../services/chat.store';
             </button>
           </div>
         </div>
-      </ptah-popover>
+      </ptah-native-popover>
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -148,14 +148,11 @@ export class TabBarComponent {
     const name = this.sessionNameInput().trim();
     const sessionName = name || this.generateDefaultSessionName();
 
-    // Create new tab with name
+    // Create new tab with name (createTab already switches to the new tab)
     this.tabManager.createTab(sessionName);
 
-    // Clear current session (activates new tab)
-    this.chatStore.clearCurrentSession();
-
-    // Refresh sessions list
-    this.chatStore.loadSessions();
+    // Note: Don't call clearCurrentSession() here - createTab already creates and switches to new tab
+    // clearCurrentSession() would create a SECOND tab ("New Chat"), causing the duplicate tab bug
 
     // Close popover
     this._popoverOpen.set(false);

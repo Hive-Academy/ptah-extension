@@ -5,8 +5,8 @@
  * Separated from @ trigger to provide cleaner UX - @ is now for files/folders only.
  *
  * Pattern: Signal-based state from AgentDiscoveryFacade
- * UI: lib-dropdown from @ptah-extension/ui with CDK Overlay portal rendering
- * Keyboard Navigation: Handled by lib-option components (no manual implementation needed)
+ * UI: NativeDropdownComponent from @ptah-extension/ui with Floating UI positioning
+ * Keyboard Navigation: Parent manages activeIndex signal for NativeOptionComponent
  */
 
 import {
@@ -22,13 +22,18 @@ import {
   AgentDiscoveryFacade,
   type AgentSuggestion,
 } from '@ptah-extension/core';
-import { DropdownComponent, OptionComponent } from '@ptah-extension/ui';
+import {
+  NativeDropdownComponent,
+  NativeOptionComponent,
+  KeyboardNavigationService,
+} from '@ptah-extension/ui';
 
 @Component({
   selector: 'ptah-agent-selector',
-  imports: [LucideAngularModule, DropdownComponent, OptionComponent],
+  imports: [LucideAngularModule, NativeDropdownComponent, NativeOptionComponent],
+  providers: [KeyboardNavigationService],
   template: `
-    <ptah-dropdown
+    <ptah-native-dropdown
       [isOpen]="isOpen()"
       [closeOnBackdropClick]="true"
       (closed)="closeDropdown()"
@@ -81,10 +86,12 @@ import { DropdownComponent, OptionComponent } from '@ptah-extension/ui';
           class="flex flex-col overflow-y-auto overflow-x-hidden max-h-64 p-1"
         >
           @for (agent of agents(); track agent.name; let i = $index) {
-          <ptah-option
+          <ptah-native-option
             [optionId]="'agent-' + i"
             [value]="agent"
+            [isActive]="i === activeIndex()"
             (selected)="selectAgent($event)"
+            (hovered)="onHover(i)"
           >
             <div class="flex items-start gap-3 py-0.5">
               <!-- Icon -->
@@ -107,18 +114,19 @@ import { DropdownComponent, OptionComponent } from '@ptah-extension/ui';
                 }}</span>
               </div>
             </div>
-          </ptah-option>
+          </ptah-native-option>
           }
         </div>
         }
       </div>
-    </ptah-dropdown>
+    </ptah-native-dropdown>
   `,
   styles: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AgentSelectorComponent implements OnInit {
   private readonly agentDiscovery = inject(AgentDiscoveryFacade);
+  private readonly keyboardNav = inject(KeyboardNavigationService);
 
   // Lucide icons
   readonly UsersIcon = Users;
@@ -136,6 +144,9 @@ export class AgentSelectorComponent implements OnInit {
   readonly isLoading = this._isLoading.asReadonly();
   readonly agents = this._agents.asReadonly();
   readonly isOpen = this._isOpen.asReadonly();
+
+  // Keyboard navigation - expose activeIndex for template
+  readonly activeIndex = this.keyboardNav.activeIndex;
 
   ngOnInit(): void {
     // Pre-load agents on component init for better UX
@@ -191,10 +202,17 @@ export class AgentSelectorComponent implements OnInit {
 
   /**
    * Select an agent and emit the event
-   * Called by lib-option (selected) output
+   * Called by NativeOptionComponent (selected) output
    */
   selectAgent(agent: AgentSuggestion): void {
     this.closeDropdown();
     this.agentSelected.emit(agent.name);
+  }
+
+  /**
+   * Handle hover on option - update active index
+   */
+  onHover(index: number): void {
+    this.keyboardNav.setActiveIndex(index);
   }
 }

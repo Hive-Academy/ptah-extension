@@ -1,13 +1,14 @@
 /**
  * AutopilotPopoverComponent - Elegant Autopilot Toggle with Confirmation
  * TASK_2025_048: Migrate to CDK Overlay with dark backdrop and keyboard navigation
+ * TASK_2025_092: Migrate to Native components (Floating UI)
  *
  * A sleek popover component for toggling autopilot mode with a confirmation step.
  * Features dark backdrop (modal-like UX) and keyboard navigation for permission levels.
  *
  * Pattern: Signal-based state from AutopilotStateService
- * UI: lib-popover from @ptah-extension/ui with CDK Overlay portal rendering
- * Keyboard Navigation: Handled by lib-option components (ArrowUp/Down/Enter/Escape)
+ * UI: NativePopoverComponent from @ptah-extension/ui with Floating UI positioning
+ * Keyboard Navigation: Parent manages activeIndex signal for NativeOptionComponent
  * New Features: Dark backdrop, keyboard navigation for permission level selection
  */
 
@@ -27,21 +28,21 @@ import {
 import { AutopilotStateService } from '@ptah-extension/core';
 import { type PermissionLevel } from '@ptah-extension/shared';
 import {
-  PopoverComponent,
-  OptionComponent,
-  POPOVER_POSITION_END_MAP,
+  NativePopoverComponent,
+  NativeOptionComponent,
+  KeyboardNavigationService,
 } from '@ptah-extension/ui';
 
 @Component({
   selector: 'ptah-autopilot-popover',
-  imports: [LucideAngularModule, PopoverComponent, OptionComponent],
+  imports: [LucideAngularModule, NativePopoverComponent, NativeOptionComponent],
+  providers: [KeyboardNavigationService],
   template: `
-    <ptah-popover
+    <ptah-native-popover
       [isOpen]="isOpen()"
-      [position]="'above'"
-      [positions]="popoverPositions"
+      [placement]="'top-end'"
       [hasBackdrop]="true"
-      [backdropClass]="'cdk-overlay-dark-backdrop'"
+      [backdropClass]="'dark'"
       (closed)="closePopover()"
       (backdropClicked)="closePopover()"
     >
@@ -98,10 +99,12 @@ import {
             </span>
             <div class="flex flex-col gap-1">
               @for (level of permissionLevels; track level.id; let i = $index) {
-              <ptah-option
+              <ptah-native-option
                 [optionId]="'level-' + i"
                 [value]="level"
+                [isActive]="i === activeIndex()"
                 (selected)="selectLevel($event.id)"
+                (hovered)="onHover(i)"
               >
                 <div class="flex items-start gap-2 py-0.5">
                   <div class="flex flex-col items-start flex-1 min-w-0">
@@ -116,7 +119,7 @@ import {
                   >
                   }
                 </div>
-              </ptah-option>
+              </ptah-native-option>
               }
             </div>
           </div>
@@ -183,12 +186,13 @@ import {
           }
         </div>
       </div>
-    </ptah-popover>
+    </ptah-native-popover>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AutopilotPopoverComponent {
   readonly autopilotState = inject(AutopilotStateService);
+  private readonly keyboardNav = inject(KeyboardNavigationService);
 
   // Lucide icons
   readonly ZapIcon = Zap;
@@ -196,12 +200,12 @@ export class AutopilotPopoverComponent {
   readonly ChevronDownIcon = ChevronDown;
   readonly AlertTriangleIcon = AlertTriangle;
 
-  // Popover positions (right-aligned for sidebar)
-  readonly popoverPositions = POPOVER_POSITION_END_MAP['above'];
-
   // Local state for popover visibility
   private readonly _isOpen = signal(false);
   readonly isOpen = this._isOpen.asReadonly();
+
+  // Keyboard navigation - expose activeIndex for template
+  readonly activeIndex = this.keyboardNav.activeIndex;
 
   // Permission levels for selector
   readonly permissionLevels: {
@@ -238,10 +242,17 @@ export class AutopilotPopoverComponent {
 
   /**
    * Select permission level before enabling autopilot
-   * Called by lib-option (selected) output with keyboard navigation support
+   * Called by NativeOptionComponent (selected) output with keyboard navigation support
    */
   selectLevel(level: PermissionLevel): void {
     this.selectedLevel.set(level);
+  }
+
+  /**
+   * Handle hover on option - update active index
+   */
+  onHover(index: number): void {
+    this.keyboardNav.setActiveIndex(index);
   }
 
   /**

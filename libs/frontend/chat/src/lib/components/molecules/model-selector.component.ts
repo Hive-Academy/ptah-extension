@@ -1,13 +1,14 @@
 /**
  * ModelSelectorComponent - Elegant AI Model Selection Dropdown
  * TASK_2025_048: Migrate to CDK Overlay with keyboard navigation
+ * TASK_2025_092: Migrate to Native components (Floating UI)
  *
  * A standalone dropdown component for selecting Claude AI models.
  * Features rich model metadata display with title, description, and recommended badge.
  *
  * Pattern: Signal-based state from ModelStateService
- * UI: lib-dropdown from @ptah-extension/ui with CDK Overlay portal rendering
- * Keyboard Navigation: Handled by lib-option components (ArrowUp/Down/Enter/Escape)
+ * UI: NativeDropdownComponent from @ptah-extension/ui with Floating UI positioning
+ * Keyboard Navigation: Parent manages activeIndex signal for NativeOptionComponent
  */
 
 import {
@@ -19,20 +20,21 @@ import {
 import { LucideAngularModule, ChevronDown, Check } from 'lucide-angular';
 import { ModelStateService } from '@ptah-extension/core';
 import {
-  DropdownComponent,
-  OptionComponent,
-  DROPDOWN_POSITIONS_END,
+  NativeDropdownComponent,
+  NativeOptionComponent,
+  KeyboardNavigationService,
 } from '@ptah-extension/ui';
 import { ChatStore } from '../../services/chat.store';
 import { SessionId } from '@ptah-extension/shared';
 
 @Component({
   selector: 'ptah-model-selector',
-  imports: [LucideAngularModule, DropdownComponent, OptionComponent],
+  imports: [LucideAngularModule, NativeDropdownComponent, NativeOptionComponent],
+  providers: [KeyboardNavigationService],
   template: `
-    <ptah-dropdown
+    <ptah-native-dropdown
       [isOpen]="isOpen()"
-      [positions]="dropdownPositions"
+      [placement]="'bottom-end'"
       [closeOnBackdropClick]="true"
       (closed)="closeDropdown()"
       (backdropClicked)="closeDropdown()"
@@ -71,10 +73,12 @@ import { SessionId } from '@ptah-extension/shared';
         >
           @for (model of modelState.availableModels(); track model.id; let i =
           $index) {
-          <ptah-option
+          <ptah-native-option
             [optionId]="'model-' + i"
             [value]="model"
+            [isActive]="i === activeIndex()"
             (selected)="selectModel($event.id)"
+            (hovered)="onHover(i)"
           >
             <div class="flex items-start gap-3 py-0.5">
               <!-- Checkmark for selected -->
@@ -99,28 +103,29 @@ import { SessionId } from '@ptah-extension/shared';
                 </span>
               </div>
             </div>
-          </ptah-option>
+          </ptah-native-option>
           }
         </div>
       </div>
-    </ptah-dropdown>
+    </ptah-native-dropdown>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ModelSelectorComponent {
   readonly modelState = inject(ModelStateService);
   private readonly chatStore = inject(ChatStore);
+  private readonly keyboardNav = inject(KeyboardNavigationService);
 
   // Lucide icons
   readonly ChevronDownIcon = ChevronDown;
   readonly CheckIcon = Check;
 
-  // Dropdown positions (right-aligned for sidebar)
-  readonly dropdownPositions = DROPDOWN_POSITIONS_END;
-
   // Local state for dropdown visibility
   private readonly _isOpen = signal(false);
   readonly isOpen = this._isOpen.asReadonly();
+
+  // Keyboard navigation - expose activeIndex for template
+  readonly activeIndex = this.keyboardNav.activeIndex;
 
   /**
    * Toggle dropdown visibility
@@ -140,7 +145,7 @@ export class ModelSelectorComponent {
    * Select AI model for chat sessions.
    * Fires async RPC call - errors are logged but do not block UI.
    * Race condition protection is handled by ModelStateService.
-   * Called by lib-option (selected) output.
+   * Called by NativeOptionComponent (selected) output.
    *
    * @param model - The model ID to switch to (API name like 'claude-sonnet-4-20250514')
    */
@@ -152,5 +157,12 @@ export class ModelSelectorComponent {
     this.modelState.switchModel(model, sessionId).catch((error) => {
       console.error('[ModelSelectorComponent] Failed to switch model:', error);
     });
+  }
+
+  /**
+   * Handle hover on option - update active index
+   */
+  onHover(index: number): void {
+    this.keyboardNav.setActiveIndex(index);
   }
 }

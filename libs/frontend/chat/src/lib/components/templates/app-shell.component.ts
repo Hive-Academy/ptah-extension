@@ -24,7 +24,7 @@ import { ChatViewComponent } from './chat-view.component';
 import { TabBarComponent } from '../organisms/tab-bar.component';
 import { ConfirmationDialogComponent } from '../molecules/confirmation-dialog.component';
 import { SettingsComponent } from '../../settings/settings.component';
-import { PopoverComponent } from '@ptah-extension/ui';
+import { NativePopoverComponent } from '@ptah-extension/ui';
 import { WizardViewComponent } from '@ptah-extension/setup-wizard';
 import { ChatStore } from '../../services/chat.store';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
@@ -78,7 +78,7 @@ import { ConfirmationDialogService } from '../../services/confirmation-dialog.se
     NgOptimizedImage,
     LucideAngularModule,
     FormsModule,
-    PopoverComponent,
+    NativePopoverComponent,
   ],
   templateUrl: './app-shell.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -193,16 +193,8 @@ export class AppShellComponent {
     const name = this.sessionNameInput().trim();
     const sessionName = name || this.generateDefaultSessionName();
 
-    // Create new tab with name
+    // Create new tab with name (createTab already switches to the new tab)
     this.tabManager.createTab(sessionName);
-
-    // Clear current session (activates new tab)
-    this.chatStore.clearCurrentSession();
-
-    // Refresh sessions list to show new session in sidebar (once backend confirms it)
-    // Note: Session won't appear until first message is sent and SDK creates it
-    // This ensures sidebar stays in sync with backend state
-    this.chatStore.loadSessions();
 
     // Close popover
     this._sessionNamePopoverOpen.set(false);
@@ -231,14 +223,8 @@ export class AppShellComponent {
     const name = this.tabBarSessionNameInput().trim();
     const sessionName = name || this.generateDefaultSessionName();
 
-    // Create new tab with name
+    // Create new tab with name (createTab already switches to the new tab)
     this.tabManager.createTab(sessionName);
-
-    // Clear current session (activates new tab)
-    this.chatStore.clearCurrentSession();
-
-    // Refresh sessions list
-    this.chatStore.loadSessions();
 
     // Close popover
     this._tabBarPopoverOpen.set(false);
