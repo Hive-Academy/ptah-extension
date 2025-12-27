@@ -14,6 +14,10 @@ import { Highlightable } from '@angular/cdk/a11y';
  * Implements Highlightable interface for ActiveDescendantKeyManager.
  * Content projection allows custom option layouts.
  *
+ * @deprecated Use NativeOptionComponent from '@ptah-extension/ui' instead.
+ * This component uses CDK A11y (Highlightable interface) which has conflicts with VS Code webview sandboxing.
+ * Migration: Replace <ptah-option> with <ptah-native-option> and pass [isActive] input instead of relying on setActiveStyles().
+ *
  * @example
  * <ptah-option
  *   [optionId]="'option-' + index"

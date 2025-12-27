@@ -19,6 +19,10 @@ import { POPOVER_POSITION_MAP } from '../shared/overlay-positions';
  * - Focus trapped within popover content
  * - Escape key closes and returns focus to trigger
  *
+ * @deprecated Use NativePopoverComponent from '@ptah-extension/ui' instead.
+ * This component uses CDK Overlay/A11y which has conflicts with VS Code webview sandboxing.
+ * Migration: Replace <ptah-popover> with <ptah-native-popover>.
+ *
  * @example
  * <ptah-popover
  *   [isOpen]="isOpen()"

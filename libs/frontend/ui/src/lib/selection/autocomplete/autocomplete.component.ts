@@ -27,6 +27,10 @@ import { AUTOCOMPLETE_POSITIONS } from '../../overlays/shared/overlay-positions'
  * CRITICAL: Portal rendering solves textarea keyboard interception bug.
  * Dropdown renders in cdk-overlay-container at body level, NOT in component tree.
  *
+ * @deprecated Use NativeAutocompleteComponent from '@ptah-extension/ui' instead.
+ * This component uses CDK Overlay/A11y which has conflicts with VS Code webview sandboxing.
+ * Migration: Replace <ptah-autocomplete> with <ptah-native-autocomplete> and use KeyboardNavigationService signals.
+ *
  * @example
  * <ptah-autocomplete
  *   [suggestions]="suggestions()"

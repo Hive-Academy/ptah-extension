@@ -9,6 +9,10 @@ import { DROPDOWN_POSITIONS } from '../shared/overlay-positions';
  * Renders dropdown in portal at document body level.
  * Supports backdrop click-outside detection.
  *
+ * @deprecated Use NativeDropdownComponent from '@ptah-extension/ui' instead.
+ * This component uses CDK Overlay which has conflicts with VS Code webview sandboxing.
+ * Migration: Replace <ptah-dropdown> with <ptah-native-dropdown>.
+ *
  * @example
  * <ptah-dropdown
  *   [isOpen]="isOpen()"
