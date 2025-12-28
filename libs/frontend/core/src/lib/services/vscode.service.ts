@@ -204,6 +204,14 @@ export class VSCodeService {
             eventType: event?.eventType,
             messageId: event?.messageId,
           });
+          // DIAGNOSTIC: Extra logging for tool_result events
+          if (event?.eventType === 'tool_result') {
+            console.log('[VSCodeService] TOOL_RESULT event received!', {
+              toolCallId: (event as { toolCallId?: string }).toolCallId,
+              tabId,
+              sessionId,
+            });
+          }
           // Pass tabId and sessionId to ChatStore for routing and session linking
           this.chatStore.processStreamEvent(event, tabId, sessionId);
         } else if (!message.payload) {

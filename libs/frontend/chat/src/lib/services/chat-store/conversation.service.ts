@@ -421,6 +421,28 @@ export class ConversationService {
       // Update tab status
       this.tabManager.updateTab(activeTabId, { status: 'resuming' });
 
+      // TASK_2025_093 FIX: Finalize any existing streaming state before starting new turn.
+      // This converts the streaming content into a proper message in tab.messages.
+      // Without this, the streaming message would persist alongside new messages.
+      if (activeTab?.streamingState) {
+        console.log(
+          '[ConversationService] Finalizing previous streaming state before new message'
+        );
+        // Lazy import to avoid circular dependency
+        const { StreamingHandlerService } = await import(
+          './streaming-handler.service'
+        );
+        const streamingHandler = this.injector.get(StreamingHandlerService);
+        streamingHandler.finalizeCurrentMessage(activeTabId);
+        // Re-fetch the tab after finalization to get updated messages
+        // Note: The tab's messages array now includes the finalized assistant message
+      }
+
+      // Re-fetch tab after potential finalization to get updated messages
+      const currentTab = this.tabManager
+        .tabs()
+        .find((t) => t.id === activeTabId);
+
       // Add user message immediately
       const userMessage = createExecutionChatMessage({
         id: this.generateMessageId(),
@@ -430,9 +452,9 @@ export class ConversationService {
         sessionId,
       });
 
-      // Update tab with user message (reuse activeTab from above)
+      // Update tab with user message (use currentTab to include finalized messages)
       this.tabManager.updateTab(activeTabId, {
-        messages: [...(activeTab?.messages ?? []), userMessage],
+        messages: [...(currentTab?.messages ?? []), userMessage],
       });
 
       console.log('[ConversationService] Continuing EXISTING session:', {

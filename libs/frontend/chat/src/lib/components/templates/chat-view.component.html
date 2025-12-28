@@ -10,11 +10,15 @@
     }
 
     <!-- Streaming assistant message (live execution tree) -->
-    @if (chatStore.isStreaming()) { @if (streamingMessage(); as msg) {
-    <!-- Tree exists: show message bubble with streaming indicators -->
-    <ptah-message-bubble [message]="msg" [isStreaming]="true" />
-    } @else {
-    <!-- Tree NOT started: show skeleton placeholder -->
+    <!-- TASK_2025_093 FIX: Show streaming message when content exists, not just when streaming.
+         This ensures the assistant's response remains visible after chat:complete.
+         The streaming state persists and continues to accumulate events (like tool_result).
+         isStreaming controls visual indicators (animations), not visibility. -->
+    @if (streamingMessage(); as msg) {
+    <!-- Tree exists: show message bubble (streaming indicators based on status) -->
+    <ptah-message-bubble [message]="msg" [isStreaming]="chatStore.isStreaming()" />
+    } @else if (chatStore.isStreaming()) {
+    <!-- Tree NOT started but streaming: show skeleton placeholder -->
     <div class="chat chat-start">
       <div class="chat-image avatar">
         <div class="w-8 h-8 rounded-full overflow-hidden">
@@ -27,10 +31,11 @@
         <div class="skeleton h-4 w-56"></div>
       </div>
     </div>
-    } }
+    }
 
     <!-- Empty state - Egyptian themed welcome -->
-    @if (chatStore.messages().length === 0 && !chatStore.isStreaming()) {
+    <!-- TASK_2025_093: Also check for streamingMessage to avoid showing empty state while content exists -->
+    @if (chatStore.messages().length === 0 && !chatStore.isStreaming() && !streamingMessage()) {
     <ptah-chat-empty-state />
     }
   </div>

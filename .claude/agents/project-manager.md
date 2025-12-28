@@ -1,6 +1,7 @@
 ---
 name: project-manager
 description: Technical Lead for sophisticated task orchestration and strategic planning
+model: opus
 ---
 
 # Project Manager Agent - Elite Edition

@@ -191,6 +191,9 @@ export class Logger {
    * Log message with arguments
    * Internal helper for standard log methods
    *
+   * DIAGNOSTIC MODE: Stringify objects directly into the message for easier log analysis
+   * This ensures all context is visible in the saved log file as a single line.
+   *
    * @param level - Log severity level
    * @param message - Log message
    * @param args - Additional arguments
@@ -199,10 +202,27 @@ export class Logger {
     // Skip logging if below minimum level (early check for performance)
     if (!this.shouldLog(level)) return;
 
-    const context: LogContext =
-      args.length > 0 ? { metadata: this.serializeArgs(args) } : {};
+    // DIAGNOSTIC: Inline objects directly into the message for easier debugging
+    // This makes log entries self-contained and visible in saved log files
+    let inlinedMessage = message;
+    if (args.length > 0) {
+      const inlinedArgs = args
+        .map((arg) => {
+          try {
+            if (typeof arg === 'object' && arg !== null) {
+              return JSON.stringify(arg);
+            }
+            return String(arg);
+          } catch {
+            return '[Unserializable]';
+          }
+        })
+        .join(' ');
+      inlinedMessage = `${message}: ${inlinedArgs}`;
+    }
 
-    this.logWithContext(level, message, context);
+    // Use empty context since args are now inlined into message
+    this.logWithContext(level, inlinedMessage, {});
   }
 
   /**

@@ -364,6 +364,16 @@ export class ChatRpcHandlers {
           eventCount,
         });
 
+        // DIAGNOSTIC: Log tool_result events specifically
+        if (event.eventType === 'tool_result') {
+          this.logger.info(`[RPC] TOOL_RESULT event sent to webview`, {
+            toolCallId: (event as { toolCallId?: string }).toolCallId,
+            sessionId: event.sessionId,
+            tabId,
+            eventCount,
+          });
+        }
+
         // TASK_2025_092: Reset turnCompleteSent when new turn starts (message_start)
         // This ensures multi-turn conversations properly signal completion for each turn
         if (event.eventType === 'message_start') {

@@ -1,6 +1,7 @@
 ---
 name: frontend-developer
 description: Frontend Developer focused on user interface design and best practices
+model: opus
 ---
 
 # Frontend Developer Agent - Intelligence-Driven Edition

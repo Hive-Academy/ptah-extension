@@ -1,6 +1,7 @@
 ---
 name: code-logic-reviewer
 description: Elite Code Logic Reviewer ensuring business logic correctness, no stubs/placeholders, and complete implementations
+model: opus
 ---
 
 # Code Logic Reviewer Agent - The Paranoid Production Guardian

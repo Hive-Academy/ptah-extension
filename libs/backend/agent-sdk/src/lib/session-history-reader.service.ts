@@ -336,7 +336,7 @@ export class SessionHistoryReaderService {
    */
   private async loadAgentSessions(
     sessionsDir: string,
-    _parentSessionId: string
+    parentSessionId: string
   ): Promise<AgentSessionData[]> {
     const agentSessions: AgentSessionData[] = [];
 
@@ -353,9 +353,10 @@ export class SessionHistoryReaderService {
         try {
           const messages = await this.readJsonlMessages(filePath);
 
-          // Check if this agent belongs to parent session by checking first message
+          // Check if this agent belongs to parent session by checking sessionId in first message
+          // Agent files have sessionId pointing to their parent main session
           const firstMsg = messages[0] as unknown as JsonlMessageLine;
-          if (firstMsg?.slug || messages.length > 0) {
+          if (firstMsg?.sessionId === parentSessionId) {
             agentSessions.push({
               agentId,
               filePath,
@@ -399,7 +400,13 @@ export class SessionHistoryReaderService {
 
     // Process messages
     let currentMessageId: string | null = null;
+    let currentMessageTimestamp: number = Date.now();
     let blockIndex = 0;
+    // CRITICAL: Track sequence within message to preserve event ordering
+    // When events share the same timestamp, frontend sorts by timestamp which is undefined.
+    // Add micro-offsets (0.001ms per event) to preserve creation order while keeping
+    // events grouped by their original message time.
+    let messageSequence = 0;
 
     for (const msg of mainMessages) {
       const rawMsg = msg as unknown as JsonlMessageLine;
@@ -428,19 +435,22 @@ export class SessionHistoryReaderService {
             this.createMessageComplete(
               sessionId,
               currentMessageId,
-              eventIndex++
+              eventIndex++,
+              currentMessageTimestamp + messageSequence++ * 0.001
             )
           );
           currentMessageId = null;
           blockIndex = 0;
+          messageSequence = 0; // Reset for new message
         }
 
-        // Create user message events
+        // Create user message events (user messages are self-contained, use local sequence)
         const messageId = rawMsg.uuid || this.generateId();
         const content = this.extractTextContent(msg.message.content);
         const timestamp = rawMsg.timestamp
           ? new Date(rawMsg.timestamp).getTime()
           : Date.now();
+        let userSeq = 0;
 
         events.push(
           this.createMessageStart(
@@ -448,36 +458,52 @@ export class SessionHistoryReaderService {
             messageId,
             'user',
             eventIndex++,
-            timestamp
+            timestamp + userSeq++ * 0.001
           )
         );
         if (content) {
           events.push(
-            this.createTextDelta(sessionId, messageId, content, 0, eventIndex++)
+            this.createTextDelta(
+              sessionId,
+              messageId,
+              content,
+              0,
+              eventIndex++,
+              timestamp + userSeq++ * 0.001
+            )
           );
         }
         events.push(
-          this.createMessageComplete(sessionId, messageId, eventIndex++)
+          this.createMessageComplete(
+            sessionId,
+            messageId,
+            eventIndex++,
+            timestamp + userSeq++ * 0.001
+          )
         );
       } else if (msg.type === 'assistant' && msg.message?.content) {
+        // Get message timestamp from JSONL
+        const msgTimestamp = rawMsg.timestamp
+          ? new Date(rawMsg.timestamp).getTime()
+          : Date.now();
+
         // Initialize message if needed
         if (!currentMessageId) {
           currentMessageId = rawMsg.uuid || this.generateId();
-          const timestamp = rawMsg.timestamp
-            ? new Date(rawMsg.timestamp).getTime()
-            : Date.now();
+          currentMessageTimestamp = msgTimestamp;
+          messageSequence = 0; // Reset sequence for new message
           events.push(
             this.createMessageStart(
               sessionId,
               currentMessageId,
               'assistant',
               eventIndex++,
-              timestamp
+              currentMessageTimestamp + messageSequence++ * 0.001
             )
           );
         }
 
-        // Process content blocks
+        // Process content blocks - add micro-offset to each event for correct ordering
         const content = msg.message.content;
         if (Array.isArray(content)) {
           for (const block of content as ContentBlock[]) {
@@ -488,7 +514,8 @@ export class SessionHistoryReaderService {
                   currentMessageId,
                   block.text,
                   blockIndex++,
-                  eventIndex++
+                  eventIndex++,
+                  currentMessageTimestamp + messageSequence++ * 0.001
                 )
               );
             } else if (block.type === 'thinking' && block.thinking) {
@@ -498,7 +525,8 @@ export class SessionHistoryReaderService {
                   currentMessageId,
                   block.thinking,
                   blockIndex++,
-                  eventIndex++
+                  eventIndex++,
+                  currentMessageTimestamp + messageSequence++ * 0.001
                 )
               );
             } else if (block.type === 'tool_use') {
@@ -517,7 +545,8 @@ export class SessionHistoryReaderService {
                     currentMessageId,
                     block.id || this.generateId(),
                     block.input,
-                    eventIndex++
+                    eventIndex++,
+                    currentMessageTimestamp + messageSequence++ * 0.001
                   )
                 );
 
@@ -530,8 +559,11 @@ export class SessionHistoryReaderService {
                     sessionId,
                     currentMessageId,
                     block.id || this.generateId(),
-                    agentData.executionMessages
+                    agentData.executionMessages,
+                    currentMessageTimestamp + messageSequence++ * 0.001
                   );
+                  // Update sequence based on nested event count
+                  messageSequence += nestedEvents.length;
                   events.push(...nestedEvents);
                 }
 
@@ -544,7 +576,8 @@ export class SessionHistoryReaderService {
                       block.id || '',
                       toolResult.content,
                       toolResult.isError,
-                      eventIndex++
+                      eventIndex++,
+                      currentMessageTimestamp + messageSequence++ * 0.001
                     )
                   );
                 }
@@ -557,7 +590,8 @@ export class SessionHistoryReaderService {
                     block.id || this.generateId(),
                     block.name || 'unknown',
                     block.input,
-                    eventIndex++
+                    eventIndex++,
+                    currentMessageTimestamp + messageSequence++ * 0.001
                   )
                 );
 
@@ -569,7 +603,8 @@ export class SessionHistoryReaderService {
                       block.id || '',
                       toolResult.content,
                       toolResult.isError,
-                      eventIndex++
+                      eventIndex++,
+                      currentMessageTimestamp + messageSequence++ * 0.001
                     )
                   );
                 }
@@ -583,7 +618,12 @@ export class SessionHistoryReaderService {
     // Close final message
     if (currentMessageId) {
       events.push(
-        this.createMessageComplete(sessionId, currentMessageId, eventIndex++)
+        this.createMessageComplete(
+          sessionId,
+          currentMessageId,
+          eventIndex++,
+          currentMessageTimestamp + messageSequence++ * 0.001
+        )
       );
     }
 
@@ -597,10 +637,14 @@ export class SessionHistoryReaderService {
     sessionId: string,
     parentMessageId: string,
     parentToolUseId: string,
-    messages: JSONLMessage[]
+    messages: JSONLMessage[],
+    parentTimestamp: number
   ): FlatStreamEventUnion[] {
     const events: FlatStreamEventUnion[] = [];
     let blockIndex = 0;
+    let eventIndex = 0;
+    // Use micro-offsets for nested events to preserve order within agent
+    let sequence = 0;
 
     // Extract tool results from agent messages
     const toolResults = this.extractAllToolResults(messages);
@@ -612,23 +656,25 @@ export class SessionHistoryReaderService {
       if (!Array.isArray(content)) continue;
 
       for (const block of content as ContentBlock[]) {
+        const eventTimestamp = parentTimestamp + sequence++ * 0.0001; // Smaller offset for nested
+
         if (block.type === 'text' && block.text) {
           events.push({
             eventType: 'text_delta',
-            id: this.generateId(),
+            id: `evt_agent_${eventIndex++}_${Math.floor(eventTimestamp)}`,
             sessionId,
             messageId: parentMessageId,
             parentToolUseId,
             blockIndex: blockIndex++,
             delta: block.text,
-            timestamp: Date.now(),
+            timestamp: eventTimestamp,
           } as TextDeltaEvent);
         } else if (block.type === 'tool_use') {
           const toolResult = block.id ? toolResults.get(block.id) : undefined;
 
           events.push({
             eventType: 'tool_start',
-            id: this.generateId(),
+            id: `evt_agent_${eventIndex++}_${Math.floor(eventTimestamp)}`,
             sessionId,
             messageId: parentMessageId,
             parentToolUseId,
@@ -636,20 +682,21 @@ export class SessionHistoryReaderService {
             toolName: block.name || 'unknown',
             toolInput: block.input,
             isTaskTool: block.name === 'Task',
-            timestamp: Date.now(),
+            timestamp: eventTimestamp,
           } as ToolStartEvent);
 
           if (toolResult) {
+            const resultTimestamp = parentTimestamp + sequence++ * 0.0001;
             events.push({
               eventType: 'tool_result',
-              id: this.generateId(),
+              id: `evt_agent_${eventIndex++}_${Math.floor(resultTimestamp)}`,
               sessionId,
               messageId: parentMessageId,
               parentToolUseId,
               toolCallId: block.id || '',
               output: toolResult.content,
               isError: toolResult.isError,
-              timestamp: Date.now(),
+              timestamp: resultTimestamp,
             } as ToolResultEvent);
           }
         }
@@ -827,7 +874,7 @@ export class SessionHistoryReaderService {
   ): MessageStartEvent {
     return {
       eventType: 'message_start',
-      id: `evt_${index}_${Date.now()}`,
+      id: `evt_${index}_${timestamp}`,
       sessionId,
       messageId,
       role,
@@ -840,16 +887,17 @@ export class SessionHistoryReaderService {
     messageId: string,
     text: string,
     blockIndex: number,
-    index: number
+    index: number,
+    timestamp: number
   ): TextDeltaEvent {
     return {
       eventType: 'text_delta',
-      id: `evt_${index}_${Date.now()}`,
+      id: `evt_${index}_${timestamp}`,
       sessionId,
       messageId,
       blockIndex,
       delta: text,
-      timestamp: Date.now(),
+      timestamp,
     };
   }
 
@@ -858,16 +906,17 @@ export class SessionHistoryReaderService {
     messageId: string,
     thinking: string,
     blockIndex: number,
-    index: number
+    index: number,
+    timestamp: number
   ): ThinkingDeltaEvent {
     return {
       eventType: 'thinking_delta',
-      id: `evt_${index}_${Date.now()}`,
+      id: `evt_${index}_${timestamp}`,
       sessionId,
       messageId,
       blockIndex,
       delta: thinking,
-      timestamp: Date.now(),
+      timestamp,
     };
   }
 
@@ -877,18 +926,19 @@ export class SessionHistoryReaderService {
     toolCallId: string,
     toolName: string,
     toolInput: Record<string, unknown> | undefined,
-    index: number
+    index: number,
+    timestamp: number
   ): ToolStartEvent {
     return {
       eventType: 'tool_start',
-      id: `evt_${index}_${Date.now()}`,
+      id: `evt_${index}_${timestamp}`,
       sessionId,
       messageId,
       toolCallId,
       toolName,
       toolInput,
       isTaskTool: toolName === 'Task',
-      timestamp: Date.now(),
+      timestamp,
     };
   }
 
@@ -897,18 +947,19 @@ export class SessionHistoryReaderService {
     messageId: string,
     toolCallId: string,
     input: Record<string, unknown>,
-    index: number
+    index: number,
+    timestamp: number
   ): AgentStartEvent {
     return {
       eventType: 'agent_start',
-      id: `evt_${index}_${Date.now()}`,
+      id: `evt_${index}_${timestamp}`,
       sessionId,
       messageId,
       toolCallId,
       agentType: (input['subagent_type'] as string) || 'unknown',
       agentDescription: input['description'] as string | undefined,
       agentPrompt: input['prompt'] as string | undefined,
-      timestamp: Date.now(),
+      timestamp,
     };
   }
 
@@ -918,31 +969,33 @@ export class SessionHistoryReaderService {
     toolCallId: string,
     output: string,
     isError: boolean,
-    index: number
+    index: number,
+    timestamp: number
   ): ToolResultEvent {
     return {
       eventType: 'tool_result',
-      id: `evt_${index}_${Date.now()}`,
+      id: `evt_${index}_${timestamp}`,
       sessionId,
       messageId,
       toolCallId,
       output,
       isError,
-      timestamp: Date.now(),
+      timestamp,
     };
   }
 
   private createMessageComplete(
     sessionId: string,
     messageId: string,
-    index: number
+    index: number,
+    timestamp: number
   ): MessageCompleteEvent {
     return {
       eventType: 'message_complete',
-      id: `evt_${index}_${Date.now()}`,
+      id: `evt_${index}_${timestamp}`,
       sessionId,
       messageId,
-      timestamp: Date.now(),
+      timestamp,
     };
   }
 

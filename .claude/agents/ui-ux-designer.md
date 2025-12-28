@@ -1,6 +1,7 @@
 ---
 name: ui-ux-designer
-description: UI/UX Designer agent that orchestrates visual design workflows using the ui-ux-designer skill. Creates design systems, generates assets, and produces developer handoffs.
+description: UI/UX Designer agent that orchestrates visual design workflows using the ui-ux-designer skill. Creates design systems, generates assets, and produces developer handoffs
+model: opus
 ---
 
 # UI/UX Designer Agent

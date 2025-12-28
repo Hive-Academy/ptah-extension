@@ -380,6 +380,15 @@ export class StreamingHandlerService {
         case 'tool_result': {
           // Tool result received - stored in events map
           // Tree builder will construct final result from event data
+          // DIAGNOSTIC: Log tool_result event reception
+          console.log('[StreamingHandlerService] TOOL_RESULT received!', {
+            toolCallId: event.toolCallId,
+            messageId: event.messageId,
+            sessionId: event.sessionId,
+            outputLength:
+              typeof event.output === 'string' ? event.output.length : 0,
+            isError: event.isError,
+          });
           break;
         }
 

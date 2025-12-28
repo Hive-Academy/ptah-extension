@@ -179,9 +179,15 @@ export class SdkMessageTransformer {
       // ========== MESSAGE LIFECYCLE ==========
 
       case 'message_start': {
-        // Capture UUID from message.id - this is the canonical message ID
+        // TASK_2025_093 FIX: Use SDK's `uuid` as canonical message ID for consistency
+        // The SDK provides `uuid` on ALL message types (stream_event, assistant, user)
+        // Previously we used `message.id` (Anthropic API ID) which differs between
+        // streaming events and complete messages, causing messageId mismatch bugs.
+        //
+        // Priority: SDK uuid > Anthropic message.id > generated fallback
         const message = (event as { message?: { id?: string } }).message;
-        const messageId = message?.id || `stream-msg-${Date.now()}`;
+        const messageId =
+          sdkMessage.uuid || message?.id || `stream-msg-${Date.now()}`;
 
         // Track current message ID (simple variable tracking)
         this.currentMessageId = messageId;
@@ -484,11 +490,14 @@ export class SdkMessageTransformer {
     // Extract content blocks from Anthropic SDK message
     const content = message.content || [];
 
-    // TASK_2025_087 FIX: Use message.id (Anthropic API ID) for consistency with stream_event
-    // Stream events use event.message.id, so we must match that for deduplication to work.
-    // The SDK's internal `uuid` is different for stream_event vs assistant messages,
-    // but `message.id` (Anthropic API ID like msg_xxx) is consistent across both.
-    const messageId = message?.id || uuid;
+    // TASK_2025_093 FIX: Use SDK's `uuid` as canonical message ID
+    // The SDK guide confirms `uuid` is the stable identifier across ALL message types
+    // (stream_event, assistant, user). This matches the change in transformStreamEventToFlatEvents.
+    //
+    // Previous TASK_2025_087 approach of using `message.id` was incorrect because:
+    // - `message.id` might be missing or different between stream_event and assistant
+    // - SDK's `uuid` is guaranteed to be consistent across the entire message lifecycle
+    const messageId = uuid || message?.id;
 
     // 1. Emit message_start
     const messageStartEvent: MessageStartEvent = {
@@ -649,6 +658,20 @@ export class SdkMessageTransformer {
   ): FlatStreamEventUnion[] {
     const { uuid, message, parent_tool_use_id } = sdkMessage;
 
+    // DIAGNOSTIC: Log user message processing
+    this.logger.info(
+      '[SdkMessageTransformer] transformUserToFlatEvents called',
+      {
+        uuid,
+        sessionId,
+        contentType: typeof message.content,
+        isArray: Array.isArray(message.content),
+        contentLength: Array.isArray(message.content)
+          ? message.content.length
+          : 0,
+      }
+    );
+
     const events: FlatStreamEventUnion[] = [];
     const messageId = uuid || `user-${Date.now()}`;
 
@@ -694,6 +717,15 @@ export class SdkMessageTransformer {
 
       // If we found tool_result blocks, return them without creating empty user message bubbles
       if (events.length > 0) {
+        this.logger.info(
+          '[SdkMessageTransformer] Extracted tool_result events from user message',
+          {
+            eventCount: events.length,
+            toolCallIds: events
+              .filter((e) => e.eventType === 'tool_result')
+              .map((e) => (e as ToolResultEvent).toolCallId),
+          }
+        );
         return events;
       }
     }

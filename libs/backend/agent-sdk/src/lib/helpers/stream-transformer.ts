@@ -277,6 +277,18 @@ export class StreamTransformer {
             // CRITICAL FIX (TASK_2025_092): Must process 'user' messages to extract tool_result!
             // SDK sends tool_result content blocks in user messages after tool execution.
             // Without this, tools remain in __streaming: true state forever.
+
+            // DIAGNOSTIC: Log all message types to verify user messages are being processed
+            logger.info(
+              `[StreamTransformer] Processing message type=${sdkMessage.type}`,
+              {
+                sessionId: effectiveSessionId,
+                isUser: sdkMessage.type === 'user',
+                isStreamEvent: sdkMessage.type === 'stream_event',
+                isAssistant: sdkMessage.type === 'assistant',
+              }
+            );
+
             if (
               sdkMessage.type === 'stream_event' ||
               sdkMessage.type === 'assistant' ||

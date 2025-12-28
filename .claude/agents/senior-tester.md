@@ -1,6 +1,7 @@
 ---
 name: senior-tester
 description: Elite Senior Tester for comprehensive quality assurance and test mastery
+model: opus
 ---
 
 # Senior Tester Agent - Elite Testing Infrastructure & Quality Assurance Expert

@@ -267,28 +267,64 @@ export class ExecutionTreeBuilderService {
   ): ExecutionNode[] {
     const tools: ExecutionNode[] = [];
 
-    // Find all tool_start events for this message (root level, no parentToolUseId)
-    const toolStarts = [...state.events.values()].filter(
-      (e) =>
-        e.eventType === 'tool_start' &&
-        e.messageId === messageId &&
-        !e.parentToolUseId
+    // Find all root-level tool_start events (no parentToolUseId)
+    const allRootToolStarts = [...state.events.values()].filter(
+      (e) => e.eventType === 'tool_start' && !e.parentToolUseId
     ) as ToolStartEvent[];
 
-    // DIAGNOSTIC: Log tool collection for debugging session history loading
-    const allToolStarts = [...state.events.values()].filter(
-      (e) => e.eventType === 'tool_start'
-    );
-    if (allToolStarts.length > 0 || toolStarts.length > 0) {
+    // Find tools with exact messageId match
+    let toolStarts = allRootToolStarts.filter((e) => e.messageId === messageId);
+
+    // MESSAGEEID MISMATCH FIX (TASK_2025_093):
+    // When SDK sends both streaming events AND complete assistant messages,
+    // the messageIds may differ:
+    // - Streaming message_start uses API's message.id (e.g., "msg_xxx")
+    // - Complete assistant message might use SDK's uuid as fallback
+    //
+    // This causes tools to have different messageId than what's in messageEventIds.
+    // Fix: If no tools found with exact match AND there are orphan tools,
+    // associate them with this message if it's the only message or most recent.
+    if (toolStarts.length === 0 && allRootToolStarts.length > 0) {
+      // Get all unique messageIds from tool_starts
+      const toolMessageIds = new Set(allRootToolStarts.map((e) => e.messageId));
+
+      // Check if all tools have the SAME messageId (different from ours)
+      // This indicates a messageId mismatch, not multiple different messages
+      if (toolMessageIds.size === 1) {
+        const actualToolMessageId = [...toolMessageIds][0];
+
+        // Only associate if:
+        // 1. This is a single-message conversation (only 1 messageEventId), OR
+        // 2. The tool's messageId is not in messageEventIds (orphan tools)
+        const isSingleMessage = state.messageEventIds.length === 1;
+        const isOrphanToolMessageId =
+          !state.messageEventIds.includes(actualToolMessageId);
+
+        if (isSingleMessage || isOrphanToolMessageId) {
+          console.log(
+            '[ExecutionTreeBuilder] MESSAGEID MISMATCH FIX - associating tools:',
+            {
+              searchedMessageId: messageId,
+              actualToolMessageId,
+              toolCount: allRootToolStarts.length,
+              reason: isSingleMessage ? 'single-message' : 'orphan-tools',
+            }
+          );
+
+          // Associate these tools with the current message
+          toolStarts = allRootToolStarts;
+        }
+      }
+    }
+
+    // DIAGNOSTIC: Log tool collection
+    if (allRootToolStarts.length > 0) {
       console.log('[ExecutionTreeBuilder] collectTools:', {
-        messageId,
+        searchingForMessageId: messageId,
         toolStartsFound: toolStarts.length,
-        totalToolStartsInState: allToolStarts.length,
-        toolStartMessageIds: allToolStarts.map((e) => e.messageId),
-        matchingTools: toolStarts.map((t) => ({
-          toolName: t.toolName,
-          toolCallId: t.toolCallId,
-        })),
+        totalRootToolStarts: allRootToolStarts.length,
+        storedToolStartMessageIds: allRootToolStarts.map((e) => e.messageId),
+        messageEventIds: [...state.messageEventIds],
       });
     }
 
@@ -337,6 +373,23 @@ export class ExecutionTreeBuilderService {
         e.eventType === 'tool_result' && e.toolCallId === toolStart.toolCallId
     ) as ToolResultEvent | undefined;
 
+    // DIAGNOSTIC: Log tool result lookup for debugging streaming disconnection issue
+    const allToolResultEvents = [...state.events.values()].filter(
+      (e) => e.eventType === 'tool_result'
+    );
+    console.log(
+      '[ExecutionTreeBuilder] buildToolNode - looking for tool_result:',
+      {
+        toolName: toolStart.toolName,
+        toolCallId: toolStart.toolCallId,
+        foundResult: !!resultEvent,
+        totalToolResultsInState: allToolResultEvents.length,
+        toolResultToolCallIds: allToolResultEvents.map(
+          (e) => (e as { toolCallId?: string }).toolCallId
+        ),
+      }
+    );
+
     // Get accumulated input
     const inputKey = `${toolStart.toolCallId}-input`;
     const inputString = state.toolInputAccumulators.get(inputKey) || '';
@@ -370,6 +423,14 @@ export class ExecutionTreeBuilderService {
         __rawSnippet:
           inputString.substring(0, 50) + (inputString.length > 50 ? '...' : ''),
       } as Record<string, unknown>;
+    } else if (
+      toolStart.toolInput &&
+      Object.keys(toolStart.toolInput).length > 0
+    ) {
+      // Fallback to toolStart.toolInput for historical sessions
+      // Historical session loading (SessionHistoryReaderService) populates
+      // toolInput directly on ToolStartEvent - no accumulator parsing needed
+      toolInput = toolStart.toolInput;
     } else {
       toolInput = undefined;
     }

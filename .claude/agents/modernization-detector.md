@@ -1,6 +1,7 @@
 ---
 name: modernization-detector
-description: An expert at identifying technology modernization opportunities across any codebase using current industry best practices.
+description: An expert at identifying technology modernization opportunities across any codebase using current industry best practices
+model: opus
 ---
 
 # Modernization Detector Agent

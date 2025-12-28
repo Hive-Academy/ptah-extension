@@ -1,6 +1,7 @@
 ---
 name: backend-developer
 description: Backend Developer focused on scalable server-side architecture and best practices
+model: opus
 ---
 
 # Backend Developer Agent - Intelligence-Driven Edition

@@ -1,463 +1,306 @@
-# Claude Domain Library Documentation
+## Deep Dive: How Claude Domain Library Reads Subagent Executions from JSONL Sessions
 
-## Overview
+### Architecture Overview
 
-The **Claude Domain Library** (`libs/backend/claude-domain`) is the core module responsible for integrating with the Claude CLI. It handles reading JSONL message files, parsing session data, and communicating with the UI layer.
-
-## Architecture Diagram
+The system uses a **multi-layer architecture** to load session data and reconstruct subagent (Task tool) executions:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Claude Domain Library                              │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌─────────────────┐         ┌─────────────────────────────────────────┐    │
-│  │   JSONL Files   │         │           JsonlSessionParser            │    │
-│  │  (~/. claude/    │ ──────► │  • parseSessionFile() - metadata        │    │
-│  │   projects/     │         │  • parseSessionMessages() - all msgs    │    │
-│  │   {workspace}/  │         │  • Uses streaming (readline)            │    │
-│  │   {session}.     │         │  • Memory efficient                     │    │
-│  │   jsonl)        │         └─────────────────────────────────────────┘    │
-│  └─────────────────┘                           │                             │
-│                                                ▼                             │
-│                               ┌─────────────────────────────────────────┐    │
-│                               │         MessageNormalizer               │    │
-│                               │  • Converts content → contentBlocks     │    │
-│                               │  • Handles:  text, tool_use, thinking    │    │
-│                               │  • Graceful error handling              │    │
-│                               └─────────────────────────────────────────┘    │
-│                                                │                             │
-│                                                ▼                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                     StrictChatMessage[]                              │    │
-│  │  { id, sessionId, type, contentBlocks[], timestamp, streaming }     │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-│                                                │                             │
-│        ┌───────────────────────────────────────┼────────────────────────┐    │
-│        ▼                                       ▼                        ▼    │
-│  ┌───────────────┐                   ┌───────────────┐          ┌──────────┐│
-│  │ClaudeProcess  │                   │ClaudeFileService          │ EventBus ││
-│  │(Real-time CLI)│                   │(Frontend Direct)│         │(Events)  ││
-│  └───────────────┘                   └───────────────┘          └──────────┘│
-│                                                                              │
+│                              FRONTEND                                       │
+│  ┌─────────────────┐    ┌──────────────────────┐    ┌───────────────────┐  │
+│  │   ChatStore     │───►│  ClaudeRpcService    │───►│ SessionReplayService│ │
+│  │ switchSession() │    │  session:load RPC    │    │ replaySession()   │  │
+│  └─────────────────┘    └──────────────────────┘    └───────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼ RPC
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              BACKEND                                        │
+│  ┌──────────────────────────────┐    ┌─────────────────────────────────┐   │
+│  │ RpcMethodRegistrationService │───►│   SessionDiscoveryService       │   │
+│  │   session:load handler       │    │   loadSession()                 │   │
+│  └──────────────────────────────┘    │   findLinkedAgentSessions()     │   │
+│                                      └─────────────────────────────────┘   │
+│                                                     │                       │
+│  ┌──────────────────────────────┐                  │                       │
+│  │   JsonlSessionParser         │◄─────────────────┘                       │
+│  │   (claude-domain library)    │                                          │
+│  └──────────────────────────────┘                                          │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 1. JSONL File Format
+### Phase 1: Backend Discovery - Finding Agent Sessions
 
-Claude CLI stores conversation data in JSONL (JSON Lines) format. Each session has a dedicated `.jsonl` file.
+The **`SessionDiscoveryService`** ([session-discovery.service.ts](https://github.com/Hive-Academy/ptah-extension/blob/e669f6e9cf26031e4bbfe112d3d274be04a4fa53/libs/backend/vscode-core/src/services/session-discovery.service.ts)) is responsible for:
 
-### File Location
+#### 1.1 Loading the Main Session
 
+```typescript
+// libs/backend/vscode-core/src/services/session-discovery. service.ts:169-211
+async loadSession(sessionId: string, workspacePath: string): Promise<SessionData> {
+  const sessionsDir = await this.findSessionsDirectory(workspacePath);
+  const sessionFile = path.join(sessionsDir, `${sessionId}.jsonl`);
+
+  // Read and parse main session JSONL file
+  const content = await fs.readFile(sessionFile, 'utf-8');
+  const lines = content.split('\n').filter((line) => line.trim());
+  const mainMessages = lines.map((line) => JSON.parse(line)).filter(Boolean);
+
+  // Find all agent sessions that belong to this main session
+  const agentSessions = await this.findLinkedAgentSessions(sessionsDir, sessionId);
+
+  return { sessionId, messages: mainMessages, agentSessions };
+}
 ```
-~/.claude/projects/{encodedWorkspace}/{sessionId}.jsonl
+
+#### 1.2 Finding Linked Agent Sessions
+
+The key method **`findLinkedAgentSessions`** scans for `agent-*.jsonl` files and matches them to the parent session:
+
+```typescript
+// libs/backend/vscode-core/src/services/session-discovery.service.ts:389-446
+async findLinkedAgentSessions(
+  sessionsDir:  string,
+  mainSessionId: string
+): Promise<LinkedAgentSession[]> {
+  const files = await fs.readdir(sessionsDir);
+  const agentFiles = files.filter((f) => f.startsWith('agent-'));  // ← Filter agent files
+  const linkedAgents:  LinkedAgentSession[] = [];
+
+  for (const agentFile of agentFiles) {
+    const agentPath = path.join(sessionsDir, agentFile);
+    const content = await fs.readFile(agentPath, 'utf-8');
+    const lines = content.split('\n').filter((line) => line.trim());
+
+    const firstMsg = JSON.parse(lines[0]);
+
+    // Agent sessions have sessionId pointing to parent main session
+    if (firstMsg.sessionId === mainSessionId) {  // ← Key linking logic
+      const agentId = firstMsg.agentId || agentFile.replace('agent-', '').replace('.jsonl', '');
+      const messages = lines.map((line) => JSON.parse(line)).filter(Boolean);
+      linkedAgents.push({ agentId, messages });
+    }
+  }
+  return linkedAgents;
+}
 ```
 
-**Examples:**
+**Key Insight**: Agent files are linked to parent sessions via the `sessionId` field in their first message.
 
-- Windows: `C:\Users\username\. claude\projects\d--projects-ptah\abc-123.jsonl`
-- Unix: `/home/username/.claude/projects/d--projects-ptah/abc-123.jsonl`
+---
 
-### JSONL Structure
+### Phase 2: The JSONL File Format
+
+#### Main Session File (`{uuid}.jsonl`)
 
 ```jsonl
 {"type":"summary","summary":"Implement feature X","leafUuid":"msg-123"}
-{"uuid":"msg-1","sessionId":"abc-123","timestamp":"2025-01-21T10:30:00.000Z","message": {"role":"user","content":"Hello"}}
-{"uuid":"msg-2","sessionId":"abc-123","timestamp":"2025-01-21T10:31:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Hi there! "}]}}
+{"uuid":"msg-1","sessionId":"abc-123","timestamp":"... ","message":{"role":"user","content":"..."}}
+{"uuid":"msg-2","sessionId":"abc-123","timestamp":"...","message":{"role":"assistant","content":[
+  {"type":"text","text":"I'll help you... "},
+  {"type":"tool_use","id":"toolu_01ABC","name":"Task","input":{"subagent_type":"code","description":"..."}}
+]}}
 ```
 
-| Line Type               | Description                     |
-| ----------------------- | ------------------------------- |
-| `summary`               | First line - session name/title |
-| `user`                  | User messages                   |
-| `assistant`             | Claude responses                |
-| `queue-operation`       | Internal operations (skipped)   |
-| `file-history-snapshot` | File state (skipped)            |
+#### Agent Session File (`agent-{id}.jsonl`)
+
+```jsonl
+{"agentId":"abc12345","sessionId":"parent-uuid","isSidechain":true,"slug":"code_analysis",... }
+{"type":"assistant","message":{"content":[{"type":"text","text":"I'll analyze... "}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_02ABC","name":"Glob","input":{}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_02ABC","content":"... "}]}}
+```
+
+**Key Fields for Linking**:
+
+| Field          | Location                   | Purpose                                                  |
+| -------------- | -------------------------- | -------------------------------------------------------- |
+| `tool_use. id` | Main session's `Task` tool | ID of Task tool that spawned agent                       |
+| `sessionId`    | First line of agent file   | Links back to parent main session                        |
+| `agentId`      | Agent file first line      | 8-char identifier for agent                              |
+| `isSidechain`  | Agent file                 | Indicates this is a sub-agent session                    |
+| `slug`         | Agent messages             | Session-scoped identifier (used to filter warmup agents) |
 
 ---
 
-## 2. Core Components
+### Phase 3: Frontend Replay - `SessionReplayService`
 
-### 2.1 JsonlSessionParser
+The **`SessionReplayService`** ([session-replay.service.ts](https://github.com/Hive-Academy/ptah-extension/blob/e669f6e9cf26031e4bbfe112d3d274be04a4fa53/libs/frontend/chat/src/lib/services/session-replay.service.ts)) handles the complex task of reconstructing the UI representation:
 
-**Location:** `libs/backend/claude-domain/src/session/jsonl-session-parser.ts`
-
-The main parser for reading and parsing JSONL session files.
-
-#### Key Methods
-
-##### `parseSessionFile(filePath: string): Promise<SessionUIData>`
-
-Extracts session metadata efficiently (< 10ms per file).
+#### 3.1 Multi-Phase Processing
 
 ```typescript
-const metadata = await JsonlSessionParser.parseSessionFile('C:\\Users\\user\\.claude\\projects\\workspace\\session-123.jsonl');
-// Returns: { name, messageCount, lastActiveAt, createdAt, tokenUsage, isActive }
-```
+// libs/frontend/chat/src/lib/services/session-replay.service.ts:66-104
+replaySession(
+  mainMessages: JSONLMessage[],
+  agentSessions: AgentSessionData[]
+): { messages: ExecutionChatMessage[]; nodeMaps: NodeMaps } {
 
-**Strategy:**
+  // PHASE 1: Build agent data map by agentId (filters warmup agents - no slug)
+  const agentDataMap = this.buildAgentDataMap(agentSessions);
 
-1. Read **first line** → Session name (from summary)
-2. Read **last line** → Last activity timestamp
-3. Count lines → Message count (excluding summary)
+  // PHASE 2: Extract Task tool_use info from main session
+  const taskToolUses = this.extractTaskToolUses(mainMessages);
 
-##### `parseSessionMessages(filePath: string): Promise<StrictChatMessage[]>`
+  // PHASE 3: Correlate agents to Tasks via TIMESTAMP PROXIMITY
+  const taskToAgentMap = this.correlateAgentsToTasks(taskToolUses, agentDataMap);
 
-Parses all messages from a session file with content normalization.
+  // PHASE 4: Extract tool results for completion detection
+  const taskToolResults = this.extractTaskToolResults(mainMessages);
+  const allToolResults = this.extractAllToolResults(mainMessages);
 
-```typescript
-const messages = await JsonlSessionParser.parseSessionMessages('C:\\Users\\user\\.claude\\projects\\workspace\\session-123.jsonl');
-// Returns: [{ id, sessionId, type, contentBlocks, timestamp, streaming, isComplete }]
-```
-
-**Processing Flow:**
-
-```
-JSONL Line → JSON. parse() → Filter (user/assistant only) → MessageNormalizer → StrictChatMessage
-```
-
-#### Parsing Logic
-
-```typescript
-// For each JSONL line:
-for await (const line of reader) {
-  const jsonlLine = JSON.parse(line);
-
-  // Skip non-message types
-  if (jsonlLine.type !== 'user' && jsonlLine.type !== 'assistant') {
-    continue;
-  }
-
-  // Normalize content format
-  const normalized = MessageNormalizer.normalize(jsonlLine.message);
-
-  // Build StrictChatMessage
-  const message: StrictChatMessage = {
-    id: jsonlLine.uuid,
-    sessionId: extractedFromFilename,
-    type: jsonlLine.message.role,
-    contentBlocks: normalized.contentBlocks,
-    timestamp: new Date(jsonlLine.timestamp).getTime(),
-    streaming: false,
-    isComplete: true,
-  };
+  // PHASE 5: Process main messages, injecting agent nodes INLINE
+  // ...  (creates ExecutionChatMessage[])
 }
 ```
 
----
+#### 3.2 Agent-to-Task Correlation via Timestamp
 
-### 2.2 MessageNormalizer
-
-**Location:** `libs/shared/src/lib/utils/message-normalizer.ts`
-
-Converts various message content formats to a unified `contentBlocks[]` array.
-
-#### Supported Content Types
-
-| Input Format                                       | Output ContentBlock                                         |
-| -------------------------------------------------- | ----------------------------------------------------------- |
-| `content:  "string"`                               | `[{ type: 'text', text: 'string' }]`                        |
-| `content: [{ type: 'text', text: '...' }]`         | Passed through                                              |
-| `content: [{ type: 'thinking', thinking: '...' }]` | `[{ type: 'thinking', thinking: '...' }]`                   |
-| `content: [{ type: 'tool_use', ...  }]`            | `[{ type: 'tool_use', id, name, input }]`                   |
-| `content: [{ type: 'tool_result', ... }]`          | `[{ type: 'tool_result', tool_use_id, content, is_error }]` |
-| `content: null/undefined`                          | `[{ type: 'text', text: '' }]`                              |
-
-#### Usage Example
+Since there's no direct ID linking between a `Task` tool_use and its agent file, the system uses **timestamp proximity**:
 
 ```typescript
-import { MessageNormalizer } from '@ptah-extension/shared';
+// libs/frontend/chat/src/lib/services/session-replay.service. ts:387-442
+private correlateAgentsToTasks(
+  taskToolUses: Array<{ toolUseId: string; timestamp: number; subagentType: string }>,
+  agentDataMap:  Map<string, { agentId: string; timestamp: number; ...  }>
+): Map<string, string> {  // Returns toolUseId → agentId
 
-// String content (legacy format)
-const result1 = MessageNormalizer.normalize({
-  role: 'user',
-  content: 'Hello world',
-});
-// → { contentBlocks: [{ type:  'text', text: 'Hello world' }] }
+  const taskToAgentMap = new Map<string, string>();
+  const usedAgents = new Set<string>();
 
-// Array content (Claude CLI format)
-const result2 = MessageNormalizer.normalize({
-  role: 'assistant',
-  content: [
-    { type: 'thinking', thinking: 'Analyzing the question...' },
-    { type: 'text', text: 'Here is my response.' },
-    { type: 'tool_use', id: 'tool-1', name: 'read_file', input: { path: '/test.ts' } },
-  ],
-});
-// → { contentBlocks: [... all three blocks normalized... ] }
-```
+  // Sort both by timestamp
+  const sortedTasks = [...taskToolUses].sort((a, b) => a.timestamp - b. timestamp);
+  const sortedAgents = [...agentDataMap. values()].sort((a, b) => a.timestamp - b.timestamp);
 
----
+  // Match each task to the closest agent that starts after it
+  for (const task of sortedTasks) {
+    for (const agent of sortedAgents) {
+      if (usedAgents.has(agent.agentId)) continue;
 
-### 2.3 ClaudeProcess
-
-**Location:** `libs/backend/claude-domain/src/cli/claude-process.ts`
-
-Event-driven wrapper for spawning Claude CLI processes in real-time.
-
-#### Philosophy
-
-```
-Direct spawn pattern - no complex state machines:
-1. Spawn claude CLI with --output-format stream-json
-2. Write prompt to stdin, close stdin
-3. Parse stdout JSONL line-by-line
-4. Emit events for each message
-```
-
-#### Events Emitted
-
-| Event     | Payload          | Description                     |
-| --------- | ---------------- | ------------------------------- |
-| `message` | `JSONLMessage`   | JSONL message received from CLI |
-| `error`   | `Error`          | Process or parse error          |
-| `close`   | `number \| null` | Process exit code               |
-
-#### Usage Example
-
-```typescript
-import { ClaudeProcess } from '@ptah-extension/claude-domain';
-
-const claudeProcess = new ClaudeProcess('/usr/local/bin/claude', '/project/path');
-
-// Listen for messages
-claudeProcess.on('message', (msg: JSONLMessage) => {
-  console.log('Received:', msg);
-  // Forward to UI...
-});
-
-claudeProcess.on('error', (err) => {
-  console.error('Process error:', err);
-});
-
-claudeProcess.on('close', (code) => {
-  console.log('Process exited with code:', code);
-});
-
-// Start new conversation
-await claudeProcess.start('Explain this code', { model: 'sonnet' });
-
-// Or resume existing session
-await claudeProcess.resume('session-123', 'Continue where we left off');
-```
-
-#### JSONL Parsing (Real-time)
-
-```typescript
-private processChunk(chunk: Buffer | string): void {
-  this.buffer += chunk. toString('utf8');
-  const lines = this.buffer.split('\n');
-
-  // Keep incomplete line in buffer
-  this.buffer = lines.pop() || '';
-
-  // Parse complete lines
-  for (const line of lines) {
-    if (line.trim()) {
-      const parsed = JSON.parse(line) as JSONLMessage;
-      this.emit('message', parsed);
+      const timeDiff = agent.timestamp - task.timestamp;
+      // Allow agents that start within 60 seconds after the task
+      if (timeDiff >= -1000 && timeDiff < 60000) {
+        taskToAgentMap.set(task.toolUseId, agent. agentId);
+        usedAgents.add(agent.agentId);
+        break;
+      }
     }
   }
+  return taskToAgentMap;
 }
 ```
 
----
+#### 3.3 Creating Inline Agent Nodes
 
-### 2.4 ClaudeFileService (Frontend)
-
-**Location:** `libs/frontend/core/src/lib/services/claude-file. service.ts`
-
-Direct JSONL file reader for the frontend (Angular) - bypasses backend caching.
-
-#### Benefits
-
-- No caching layers (eliminates message duplication)
-- No backend roundtrip (faster session loading)
-- Single source of truth (`.jsonl` files)
-- Simpler architecture (1 hop vs 15+)
-
-#### Usage Example
+Agents are rendered as **inline nodes** within the assistant message tree (not separate bubbles):
 
 ```typescript
-import { ClaudeFileService } from '@ptah-extension/frontend-core';
+// libs/frontend/chat/src/lib/services/session-replay.service.ts:522-578
+private createInlineAgentNode(
+  block: any,  // Task tool_use block from main session
+  agentId: string | null,
+  agentDataMap: Map<string, {... }>,
+  taskToolResults: Set<string>,
+  nodeMaps: NodeMaps
+): ExecutionNode {
 
-@Component({... })
-export class ChatComponent {
-  constructor(private claudeFileService: ClaudeFileService) {}
+  const agentData = agentId ? agentDataMap.get(agentId) : null;
+  const agentMessages = agentData?.executionMessages || [];
 
-  async loadSession(sessionId: SessionId) {
-    const messages = await this.claudeFileService.readSessionFile(sessionId);
-    // messages:  StrictChatMessage[]
+  // Build INTERLEAVED children (text + tools in chronological order)
+  const interleavedChildren = this.buildInterleavedAgentChildren(agentMessages, nodeMaps);
+
+  const agentNode = createExecutionNode({
+    id: block.id,
+    type: 'agent',
+    status: 'complete',
+    agentType: block.input?. ['subagent_type'],
+    agentDescription: block.input?.['description'],
+    agentModel: block.input?.['model'],
+    children: interleavedChildren,  // ← Agent's tool calls and text responses
+  });
+
+  nodeMaps.agents.set(block.id, agentNode);  // Register for streaming bridge
+  return agentNode;
+}
+```
+
+#### 3.4 Building Interleaved Agent Children
+
+The agent's internal execution (text + tool calls) is processed chronologically:
+
+```typescript
+// libs/frontend/chat/src/lib/services/session-replay.service.ts:590-668
+private buildInterleavedAgentChildren(
+  messages: JSONLMessage[],
+  nodeMaps: NodeMaps
+): readonly ExecutionNode[] {
+
+  // First pass: collect all tool results
+  const toolResults = new Map<string, { content: string; isError: boolean }>();
+  for (const msg of messages) {
+    if (msg.type === 'user' && msg.message?.content) {
+      for (const block of msg.message.content) {
+        if (block.type === 'tool_result' && block.tool_use_id) {
+          toolResults.set(block.tool_use_id, { content: block.content, isError: block.is_error });
+        }
+      }
+    }
   }
+
+  // Second pass: create interleaved text + tool nodes
+  const children: ExecutionNode[] = [];
+  for (const msg of messages) {
+    if (msg.type === 'assistant' && msg.message?.content) {
+      for (const block of msg.message. content) {
+        if (block.type === 'text') {
+          children.push(createExecutionNode({ type: 'text', content: block.text }));
+        } else if (block.type === 'tool_use') {
+          const toolResult = toolResults.get(block. id);
+          children.push(createExecutionNode({
+            type: 'tool',
+            toolName: block.name,
+            toolInput: block.input,
+            toolOutput: toolResult?.content,  // ← Linked result
+            status: toolResult?.isError ? 'error' : 'complete',
+          }));
+        }
+      }
+    }
+  }
+  return children;
 }
 ```
 
 ---
 
-## 3. Data Flow: File → UI
+### Key Observations
 
-### Flow Diagram
+1. **No Direct Agent ID Linking**: The JSONL format doesn't directly link `Task` tool_use IDs to agent file IDs. The system relies on **timestamp proximity** to correlate them.
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                         DATA FLOW:  JSONL → UI                            │
-├──────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│  1. SESSION FILE                                                         │
-│     ~/. claude/projects/{workspace}/{session}.jsonl                       │
-│                          │                                               │
-│                          ▼                                               │
-│  2. JSONL PARSING (Backend:  JsonlSessionParser)                          │
-│     ┌─────────────────────────────────────────────────────────────┐      │
-│     │ • createReadStream() + readline interface                    │      │
-│     │ • For each line: JSON.parse()                                │      │
-│     │ • Filter:  only 'user' and 'assistant' types                  │      │
-│     │ • Normalize: MessageNormalizer.normalize(message)            │      │
-│     └─────────────────────────────────────────────────────────────┘      │
-│                          │                                               │
-│                          ▼                                               │
-│  3. MESSAGE NORMALIZATION                                                │
-│     ┌─────────────────────────────────────────────────────────────┐      │
-│     │ content:  string  →  contentBlocks:  [{type:'text', text}]    │      │
-│     │ content: Array   →  contentBlocks: [... mapped blocks]       │      │
-│     │ content: null    →  contentBlocks: [{type:'text', text:''}] │      │
-│     └─────────────────────────────────────────────────────────────┘      │
-│                          │                                               │
-│                          ▼                                               │
-│  4. STRICT CHAT MESSAGE                                                  │
-│     ┌─────────────────────────────────────────────────────────────┐      │
-│     │ {                                                            │      │
-│     │   id: MessageId,                                             │      │
-│     │   sessionId: SessionId,                                      │      │
-│     │   type: 'user' | 'assistant',                                │      │
-│     │   contentBlocks: ContentBlock[],                             │      │
-│     │   timestamp: number,                                         │      │
-│     │   streaming: false,                                          │      │
-│     │   isComplete: true                                           │      │
-│     │ }                                                            │      │
-│     └─────────────────────────────────────────────────────────────┘      │
-│                          │                                               │
-│          ┌───────────────┴───────────────┐                               │
-│          ▼                               ▼                               │
-│  5A. BACKEND → FRONTEND            5B. FRONTEND DIRECT                   │
-│      (RPC/Events)                       (ClaudeFileService)              │
-│      ┌────────────────┐                 ┌────────────────────┐           │
-│      │ EventBus emit  │                 │ VS Code FS API     │           │
-│      │ webview. post() │                 │ Parse JSONL inline │           │
-│      └────────────────┘                 └────────────────────┘           │
-│                          │                                               │
-│                          ▼                                               │
-│  6. ANGULAR UI COMPONENTS                                                │
-│     ┌─────────────────────────────────────────────────────────────┐      │
-│     │ ChatMessageComponent renders contentBlocks                   │      │
-│     │ • TextContentBlock → <p>text</p>                            │      │
-│     │ • ThinkingContentBlock → <details>thinking</details>        │      │
-│     │ • ToolUseContentBlock → <code-block>tool call</code-block>  │      │
-│     └─────────────────────────────────────────────────────────────┘      │
-│                                                                          │
-└──────────────────────────────────────────────────────────────────────────┘
-```
+2. **Warmup Agent Filtering**: Agents without a `slug` field are considered "warmup" agents and are filtered out:
+
+   ```typescript
+   if (!slug) continue; // Filter out warmup agents
+   ```
+
+3. **Interleaved Representation**: Agent children are displayed as a chronological timeline of text + tool calls, matching the streaming behavior.
+
+4. **NodeMaps for Streaming Bridge**: The `nodeMaps` structure enables streaming messages to connect to historical agent/tool nodes when resuming a session.
+
+5. **Two-Pass Tool Result Linking**: Tool results are collected first, then linked to their corresponding tool_use blocks in a second pass.
 
 ---
 
-## 4. ContentBlock Types
+### File Structure Reference
 
-```typescript
-// Text content
-interface TextContentBlock {
-  type: 'text';
-  text: string;
-}
+| Component                    | Path                                                                     | Responsibility                                   |
+| ---------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------ |
+| `JsonlSessionParser`         | `libs/backend/claude-domain/src/session/jsonl-session-parser.ts`         | Parse JSONL files for metadata and messages      |
+| `SessionDiscoveryService`    | `libs/backend/vscode-core/src/services/session-discovery.service.ts`     | Find sessions and linked agent files             |
+| `SessionReplayService`       | `libs/frontend/chat/src/lib/services/session-replay.service.ts`          | Reconstruct UI from JSONL data                   |
+| `AgentSessionWatcherService` | `libs/backend/vscode-core/src/services/agent-session-watcher.service.ts` | Real-time agent file monitoring during streaming |
 
-// Thinking/reasoning (Claude's internal thought process)
-interface ThinkingContentBlock {
-  type: 'thinking';
-  thinking: string;
-}
-
-// Tool usage request
-interface ToolUseContentBlock {
-  type: 'tool_use';
-  id: string;
-  name: string;
-  input: Record<string, unknown>;
-}
-
-// Tool execution result
-interface ToolResultContentBlock {
-  type: 'tool_result';
-  tool_use_id: string;
-  content: string;
-  is_error: boolean;
-}
-
-// Union type
-type ContentBlock = TextContentBlock | ThinkingContentBlock | ToolUseContentBlock | ToolResultContentBlock;
-```
-
----
-
-## 5. Error Handling
-
-### JsonlSessionParser
-
-- **Corrupt lines:** Logged and skipped (graceful failure)
-- **Empty files:** Returns empty array
-- **Invalid JSON:** Warning logged, line skipped
-
-### ClaudeProcess
-
-- **Parse errors:** Emits `error` event with details
-- **Process errors:** Emits `error` event
-- **Timeout:** Manual `kill()` required
-
-### ClaudeFileService
-
-- **File not found:** Returns empty array
-- **Read errors:** Logged, returns empty array
-
----
-
-## 6. Exports Summary
-
-```typescript
-// From @ptah-extension/claude-domain
-export { JsonlSessionParser } from './session/jsonl-session-parser';
-export { ClaudeProcess } from './cli/claude-process';
-export type { ClaudeProcessOptions } from './cli/claude-process';
-
-// From @ptah-extension/shared
-export { MessageNormalizer } from './utils/message-normalizer';
-export type { ContentBlock, TextContentBlock, ThinkingContentBlock, ToolUseContentBlock, ToolResultContentBlock } from './types/content-block. types';
-
-// From @ptah-extension/frontend-core
-export { ClaudeFileService } from './services/claude-file.service';
-```
-
----
-
-## 7. Performance Characteristics
-
-| Operation                             | Performance          | Memory                         |
-| ------------------------------------- | -------------------- | ------------------------------ |
-| `parseSessionFile()`                  | < 10ms               | Minimal (first+last line only) |
-| `parseSessionMessages()`              | < 1s for 1000 msgs   | Streaming (readline)           |
-| `ClaudeProcess.parseLine()`           | < 1ms per line       | Buffer-based                   |
-| `ClaudeFileService.readSessionFile()` | Depends on file size | Full file in memory            |
-
----
-
-## 8. Testing
-
-```bash
-# Run unit tests
-nx test claude-domain
-nx test shared
-
-# Build
-nx build claude-domain
-```
-
-**Test Coverage Target:** 80% minimum
+This analysis should give you a comprehensive understanding of how subagent executions are read and reconstructed. Would you like me to dive deeper into any specific aspect?

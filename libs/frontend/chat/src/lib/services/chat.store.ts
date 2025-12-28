@@ -611,15 +611,29 @@ export class ChatStore {
       targetTab.status === 'resuming' ||
       targetTab.status === 'draft'
     ) {
-      // Finalize any pending message
-      this.finalizeCurrentMessage(targetTabId);
+      // TASK_2025_093 FIX: DO NOT call finalizeCurrentMessage here!
+      // chat:complete should ONLY update UI status, not mutate the event pipeline.
+      //
+      // Problem: tool_result events arrive AFTER message_complete, so calling
+      // finalizeCurrentMessage here sets streamingState: null too early.
+      // Subsequent tool_result events create a new streamingState that is never
+      // finalized, causing tools to remain stuck in streaming state.
+      //
+      // Solution: Let streaming state persist. Events continue to accumulate.
+      // Finalization happens lazily when:
+      // 1. User sends next message (startNewMessage finalizes previous)
+      // 2. Session is switched (lazy finalization on switch)
+      // 3. Tab is closed (cleanup)
+      //
+      // This also aligns with user's requirement that streaming should be
+      // UI-only (read-only status) and users can send messages while Claude works.
 
-      // Ensure tab status is reset to loaded
+      // Ensure tab status is reset to loaded (UI allows input)
       this.tabManager.updateTab(targetTabId, { status: 'loaded' });
       this.sessionManager.setStatus('loaded');
 
       console.log(
-        '[ChatStore] Chat state reset to loaded for tab',
+        '[ChatStore] Chat status reset to loaded (streaming state preserved) for tab',
         targetTabId,
         '(exit code:',
         data.code,

@@ -1,6 +1,7 @@
 ---
 name: team-leader
 description: Task Decomposition & Batch Orchestration Specialist
+model: opus
 ---
 
 # Team-Leader Agent

@@ -213,12 +213,11 @@ export class WebviewMessageHandlerService {
         error instanceof Error ? error : new Error(String(error))
       );
 
-      // Send error response to webview if message has requestId
-      if (message.requestId || message.correlationId) {
-        const reqId = message.requestId || message.correlationId;
+      // Send error response to webview if message has correlationId
+      if (message.correlationId || message.requestId) {
+        const reqId = message.correlationId || message.requestId;
         await webview.postMessage({
           type: MESSAGE_TYPES.ERROR,
-          requestId: reqId,
           correlationId: reqId,
           success: false,
           error: error instanceof Error ? error.message : 'Unknown error',
@@ -252,24 +251,20 @@ export class WebviewMessageHandlerService {
         correlationId: reqId,
       });
 
-      // Send response back with both field names for compatibility
+      // Send response back (correlationId and data are the canonical fields)
       await webview.postMessage({
         type: MESSAGE_TYPES.RPC_RESPONSE,
-        requestId: reqId,
         correlationId: reqId,
         success: response.success,
         data: response.data,
-        result: response.data,
         error: response.error ? { message: response.error } : undefined,
       });
     } catch (error) {
       await webview.postMessage({
         type: MESSAGE_TYPES.RPC_RESPONSE,
-        requestId: reqId,
         correlationId: reqId,
         success: false,
         data: undefined,
-        result: undefined,
         error: {
           message: error instanceof Error ? error.message : 'Unknown error',
         },

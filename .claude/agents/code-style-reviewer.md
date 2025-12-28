@@ -1,6 +1,7 @@
 ---
 name: code-style-reviewer
 description: Elite Code Style Reviewer focusing on coding standards, patterns, and best practices enforcement
+model: opus
 ---
 
 # Code Style Reviewer Agent - The Skeptical Senior Engineer
