@@ -9,7 +9,10 @@
 
 import type { SessionId } from './branded.types';
 import type { PermissionLevel } from './model-autopilot.types';
-import type { ChatSessionSummary } from './execution-node.types';
+import type {
+  ChatSessionSummary,
+  FlatStreamEventUnion,
+} from './execution-node.types';
 
 // ============================================================
 // Chat RPC Types
@@ -105,6 +108,7 @@ export interface ChatResumeResult {
   /**
    * Complete history messages (for session resume/replay)
    * TASK_2025_092: Returns complete messages directly instead of streaming events
+   * @deprecated Use `events` instead - messages only contain text, not tool calls
    */
   messages?: {
     id: string;
@@ -112,6 +116,12 @@ export interface ChatResumeResult {
     content: string;
     timestamp: number;
   }[];
+  /**
+   * Full streaming events for session history replay
+   * TASK_2025_092 FIX: Includes tool_start, tool_result, thinking, agent_start events
+   * Frontend processes these through StreamingHandler to build ExecutionNode tree
+   */
+  events?: FlatStreamEventUnion[];
   error?: string;
 }
 
@@ -192,6 +202,8 @@ export interface ContextGetFileSuggestionsParams {
 /** File info returned by context:getAllFiles */
 export interface ContextFileInfo {
   uri: string;
+  /** Actual file system path for attachment processing (e.g., D:\path\file.ts or /path/file.ts) */
+  fsPath: string;
   relativePath: string;
   fileName: string;
   fileType: string;

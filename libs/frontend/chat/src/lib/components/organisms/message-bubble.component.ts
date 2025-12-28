@@ -12,6 +12,10 @@ import {
   ThumbsUp,
   ThumbsDown,
   User,
+  FileText,
+  Image,
+  Folder,
+  Paperclip,
 } from 'lucide-angular';
 import { ExecutionNodeComponent } from './execution-node.component';
 import { TypingCursorComponent } from '../atoms/typing-cursor.component';
@@ -71,6 +75,10 @@ export class MessageBubbleComponent {
   readonly ThumbsUpIcon = ThumbsUp;
   readonly ThumbsDownIcon = ThumbsDown;
   readonly UserIcon = User;
+  readonly FileTextIcon = FileText;
+  readonly ImageIcon = Image;
+  readonly FolderIcon = Folder;
+  readonly PaperclipIcon = Paperclip;
   readonly ptahIconUri = this.vscode.getPtahIconUri();
 
   /**
@@ -102,5 +110,53 @@ export class MessageBubbleComponent {
 
   protected formatDateTime(timestamp: number): string {
     return new Date(timestamp).toISOString();
+  }
+
+  /**
+   * Extract file name from a full path
+   */
+  protected getFileName(filePath: string): string {
+    // Handle both Windows and Unix paths
+    const parts = filePath.split(/[/\\]/);
+    return parts[parts.length - 1] || filePath;
+  }
+
+  /**
+   * Determine the appropriate icon for a file based on its extension
+   * Returns the icon reference for lucide-angular
+   */
+  protected getFileIcon(
+    filePath: string
+  ): typeof FileText | typeof Image | typeof Folder {
+    const ext = filePath.split('.').pop()?.toLowerCase() || '';
+    const imageExts = [
+      'jpg',
+      'jpeg',
+      'png',
+      'gif',
+      'svg',
+      'webp',
+      'bmp',
+      'ico',
+    ];
+    const isDirectory =
+      !filePath.includes('.') ||
+      filePath.endsWith('/') ||
+      filePath.endsWith('\\');
+
+    if (isDirectory) return Folder;
+    if (imageExts.includes(ext)) return Image;
+    return FileText;
+  }
+
+  /**
+   * Check if the file path represents a folder
+   */
+  protected isFolder(filePath: string): boolean {
+    return (
+      !filePath.includes('.') ||
+      filePath.endsWith('/') ||
+      filePath.endsWith('\\')
+    );
   }
 }

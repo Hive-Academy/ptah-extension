@@ -16,7 +16,9 @@ import {
   createExecutionChatMessage,
   calculateMessageCost,
   MessageCompleteEvent,
+  MessageStartEvent,
   assertNever,
+  ExecutionChatMessage,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
@@ -247,10 +249,12 @@ export class StreamingHandlerService {
             );
 
             // Clear text accumulators for this messageId (all block indices)
+            // FIX: Use correct key format matching AccumulatorKeys.textBlock/thinkingBlock
+            // Old format was "text:msgId:" but actual keys are "msgId-block-N" and "msgId-thinking-N"
             for (const key of state.textAccumulators.keys()) {
               if (
-                key.startsWith(`text:${event.messageId}:`) ||
-                key.startsWith(`thinking:${event.messageId}:`)
+                key.startsWith(`${event.messageId}-block-`) ||
+                key.startsWith(`${event.messageId}-thinking-`)
               ) {
                 state.textAccumulators.delete(key);
               }
@@ -586,6 +590,159 @@ export class StreamingHandlerService {
 
     // Update SessionManager status
     this.sessionManager.setStatus('loaded');
+  }
+
+  /**
+   * Finalize session history - builds messages for ALL messages in streaming state
+   *
+   * TASK_2025_092 FIX: Unlike finalizeCurrentMessage which only handles the
+   * current streaming message, this method processes ALL messages from session
+   * history replay. It handles both user and assistant messages, building
+   * execution trees for assistant messages that include tool calls.
+   *
+   * @param tabId - Tab ID to finalize
+   * @returns Array of ExecutionChatMessage for all messages in history
+   */
+  finalizeSessionHistory(tabId: string): ExecutionChatMessage[] {
+    const targetTab = this.tabManager.tabs().find((t) => t.id === tabId);
+    const streamingState = targetTab?.streamingState;
+
+    if (!streamingState || streamingState.messageEventIds.length === 0) {
+      console.warn(
+        '[StreamingHandlerService] No streaming state or messages for history finalization',
+        { tabId }
+      );
+      return [];
+    }
+
+    console.log('[StreamingHandlerService] Finalizing session history', {
+      tabId,
+      messageCount: streamingState.messageEventIds.length,
+      eventCount: streamingState.events.size,
+    });
+
+    // Deep-copy state to prevent race conditions
+    const stateCopy = this.deepCopyStreamingState(streamingState);
+
+    // Build full tree for all messages
+    const allTrees = this.treeBuilder.buildTree(stateCopy);
+
+    const messages: ExecutionChatMessage[] = [];
+
+    // Process each messageId to create appropriate message type
+    for (const messageId of stateCopy.messageEventIds) {
+      // Find message_start event to determine role
+      const messageStartEvent = [...stateCopy.events.values()].find(
+        (e) => e.eventType === 'message_start' && e.messageId === messageId
+      ) as MessageStartEvent | undefined;
+
+      if (!messageStartEvent) {
+        console.warn(
+          '[StreamingHandlerService] No message_start event for messageId',
+          { messageId }
+        );
+        continue;
+      }
+
+      const role = messageStartEvent.role;
+
+      // Find corresponding tree node for this message
+      const treeNode = allTrees.find(
+        (node) => node.id === messageStartEvent.id
+      );
+
+      // Find message_complete event for metadata
+      const completeEvent = [...stateCopy.events.values()].find(
+        (e) => e.eventType === 'message_complete' && e.messageId === messageId
+      ) as MessageCompleteEvent | undefined;
+
+      // Extract tokens/cost/duration from complete event
+      let tokens:
+        | { input: number; output: number; cacheHit?: number }
+        | undefined;
+      let cost: number | undefined;
+      let duration: number | undefined;
+
+      if (completeEvent?.tokenUsage) {
+        tokens = {
+          input: completeEvent.tokenUsage.input,
+          output: completeEvent.tokenUsage.output,
+        };
+        cost = completeEvent.cost;
+        duration = completeEvent.duration;
+      }
+
+      if (role === 'user') {
+        // User message: extract accumulated text content
+        const textContent = this.extractTextForMessage(stateCopy, messageId);
+
+        messages.push(
+          createExecutionChatMessage({
+            id: messageId,
+            role: 'user',
+            rawContent: textContent,
+            sessionId: targetTab?.claudeSessionId ?? undefined,
+            timestamp: messageStartEvent.timestamp,
+          })
+        );
+      } else {
+        // Assistant message: use execution tree
+        messages.push(
+          createExecutionChatMessage({
+            id: messageId,
+            role: 'assistant',
+            streamingState: treeNode || null,
+            sessionId: targetTab?.claudeSessionId ?? undefined,
+            tokens,
+            cost,
+            duration,
+            timestamp: messageStartEvent.timestamp,
+          })
+        );
+      }
+    }
+
+    console.log('[StreamingHandlerService] Session history finalized', {
+      tabId,
+      totalMessages: messages.length,
+      userMessages: messages.filter((m) => m.role === 'user').length,
+      assistantMessages: messages.filter((m) => m.role === 'assistant').length,
+    });
+
+    // Update tab with finalized messages and clear streaming state
+    this.tabManager.updateTab(tabId, {
+      messages,
+      streamingState: null,
+      status: 'loaded',
+    });
+
+    return messages;
+  }
+
+  /**
+   * Extract accumulated text content for a specific message
+   *
+   * @param state - Streaming state
+   * @param messageId - Message ID to extract text for
+   * @returns Accumulated text content
+   */
+  private extractTextForMessage(
+    state: StreamingState,
+    messageId: string
+  ): string {
+    const textParts: { blockIndex: number; text: string }[] = [];
+
+    // Find all text accumulator entries for this message
+    for (const [key, text] of state.textAccumulators.entries()) {
+      if (key.startsWith(`${messageId}-block-`)) {
+        const blockIndex = parseInt(key.split('-block-')[1], 10) || 0;
+        textParts.push({ blockIndex, text });
+      }
+    }
+
+    // Sort by block index and join
+    textParts.sort((a, b) => a.blockIndex - b.blockIndex);
+    return textParts.map((p) => p.text).join('\n');
   }
 
   /**

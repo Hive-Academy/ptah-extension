@@ -51,6 +51,7 @@ export class AttachmentProcessorService {
    * Process a list of files into content blocks
    * - Images are converted to base64 blocks
    * - Text files are read and wrapped in XML tags
+   * - Folders are passed as references (agent will explore using its tools)
    */
   async processAttachments(
     files: readonly string[]
@@ -60,7 +61,13 @@ export class AttachmentProcessorService {
     for (const file of files) {
       try {
         const stats = await fs.stat(file);
-        if (!stats.isFile()) continue;
+
+        // Handle folders - pass path as reference for agent to explore
+        if (stats.isDirectory()) {
+          const folderBlock = this.processFolderReference(file);
+          blocks.push(folderBlock);
+          continue;
+        }
 
         const ext = path.extname(file).toLowerCase();
 
@@ -82,6 +89,21 @@ export class AttachmentProcessorService {
     }
 
     return blocks;
+  }
+
+  /**
+   * Process folder reference - don't read contents, just pass path for agent to explore
+   * The agent will use its tools (Read, Glob, Grep) to explore the folder as needed
+   */
+  private processFolderReference(folderPath: string): UserMessageContentBlock {
+    this.logger.debug(
+      `[AttachmentProcessor] Processing folder reference: ${folderPath}`
+    );
+
+    return {
+      type: 'text',
+      text: `<folder path="${folderPath}">\nThis is a folder reference. Please explore its contents using your tools (Read, Glob, Grep) as needed.\n</folder>`,
+    };
   }
 
   private async processImage(

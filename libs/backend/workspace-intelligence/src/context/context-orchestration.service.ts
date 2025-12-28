@@ -182,10 +182,13 @@ export interface SearchImagesResult {
 
 /**
  * Helper function to convert FileSearchResult to serializable format
+ * FIXED: Added fsPath for file system path (required by attachment processor)
+ * The uri field contains URI string (file:///...), fsPath contains actual file system path
  */
 function formatFileResult(result: FileSearchResult) {
   return {
     uri: result.uri.toString(),
+    fsPath: result.uri.fsPath, // Actual file system path for attachment processing
     relativePath: result.relativePath,
     fileName: result.fileName,
     fileType: result.fileType,

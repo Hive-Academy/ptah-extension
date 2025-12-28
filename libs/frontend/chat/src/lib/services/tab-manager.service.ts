@@ -33,6 +33,10 @@ export class TabManagerService {
   private readonly _tabs = signal<TabState[]>([]);
   private readonly _activeTabId = signal<string | null>(null);
 
+  // Debounce timer for localStorage saves (reduces spam during streaming)
+  private _saveTimeout: ReturnType<typeof setTimeout> | null = null;
+  private readonly SAVE_DEBOUNCE_MS = 500;
+
   // ============================================================================
   // PUBLIC READONLY SIGNALS
   // ============================================================================
@@ -401,9 +405,26 @@ export class TabManagerService {
 
   /**
    * Save tab state to browser localStorage (temporary)
+   * Uses debouncing to reduce write frequency during streaming.
    * TODO: Integrate with VS Code workspace state API
    */
   saveTabState(): void {
+    // Cancel any pending save
+    if (this._saveTimeout) {
+      clearTimeout(this._saveTimeout);
+    }
+
+    // Schedule debounced save (reduces 220+ writes to just a few during streaming)
+    this._saveTimeout = setTimeout(() => {
+      this._saveTimeout = null;
+      this._doSaveTabState();
+    }, this.SAVE_DEBOUNCE_MS);
+  }
+
+  /**
+   * Actually perform the localStorage save (called after debounce)
+   */
+  private _doSaveTabState(): void {
     try {
       const state = {
         tabs: this._tabs(),

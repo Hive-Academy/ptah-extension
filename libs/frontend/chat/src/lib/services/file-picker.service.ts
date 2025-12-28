@@ -179,7 +179,9 @@ export class FilePickerService {
               : file.relativePath; // Use full path if no slash or at root
 
           return {
-            path: file.uri,
+            // FIXED: Use fsPath (actual file system path) instead of uri (file:///... string)
+            // The attachment processor needs a real file system path to read files
+            path: file.fsPath || file.uri,
             name: file.fileName,
             directory,
             type: file.isDirectory ? 'directory' : 'file',

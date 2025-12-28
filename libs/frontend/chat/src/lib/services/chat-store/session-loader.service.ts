@@ -16,9 +16,15 @@
 
 import { Injectable, signal, inject } from '@angular/core';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
-import { ChatSessionSummary, SessionId } from '@ptah-extension/shared';
+import {
+  ChatSessionSummary,
+  SessionId,
+  FlatStreamEventUnion,
+} from '@ptah-extension/shared';
 import { SessionManager } from '../session-manager.service';
 import { TabManagerService } from '../tab-manager.service';
+import { StreamingHandlerService } from './streaming-handler.service';
+import { createEmptyStreamingState } from '../chat.types';
 
 @Injectable({ providedIn: 'root' })
 export class SessionLoaderService {
@@ -26,6 +32,7 @@ export class SessionLoaderService {
   private readonly vscodeService = inject(VSCodeService);
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
+  private readonly streamingHandler = inject(StreamingHandlerService);
 
   // ============================================================================
   // STATE SIGNALS
@@ -173,11 +180,13 @@ export class SessionLoaderService {
   // ============================================================================
 
   /**
-   * Switch to a different session and trigger SDK resume to load history
+   * Switch to a different session and load its history
    *
-   * TASK_2025_089: Fixed to use SDK resume flow instead of trying to load
-   * messages from session:load. The SDK will stream replayed events via
-   * chat:chunk, which the existing ExecutionTreeBuilder will process.
+   * TASK_2025_092 FIX: Now processes `events` array through StreamingHandler
+   * to build ExecutionNode tree with tool calls, thinking blocks, etc.
+   *
+   * The backend returns FlatStreamEventUnion[] which we process exactly
+   * like live streaming events, building the same execution tree.
    */
   async switchSession(sessionId: string): Promise<void> {
     try {
@@ -207,10 +216,11 @@ export class SessionLoaderService {
       // 4. Set tab to resuming state (show loading indicator)
       this.tabManager.updateTab(activeTabId, {
         messages: [],
-        streamingState: null,
+        streamingState: createEmptyStreamingState(),
         status: 'resuming',
         title,
         name: title,
+        claudeSessionId: sessionId,
       });
 
       // 5. Update SessionManager state
@@ -222,33 +232,106 @@ export class SessionLoaderService {
       this.sessionManager.setStatus('resuming');
 
       console.log(
-        '[SessionLoaderService] Triggering SDK resume for session:',
+        '[SessionLoaderService] Loading session history:',
         sessionId,
         'tabId:',
         activeTabId
       );
 
-      // 6. Trigger SDK resume - this streams replayed messages via chat:chunk
-      // The existing ExecutionTreeBuilder → ChatStore flow will process them
-      // TASK_2025_092: Include tabId for event routing
+      // 5.1. CRITICAL: Clear deduplication state before processing history events
+      // Without this, processedMessageIds/processedToolCallIds from previous loads
+      // would cause all events to be rejected as "duplicates"
+      this.streamingHandler.cleanupSessionDeduplication(sessionId);
+
+      // 6. Load history via RPC - returns events for execution tree
       const resumeResult = await this.claudeRpcService.call('chat:resume', {
         sessionId: sessionId as SessionId,
         tabId: activeTabId,
         workspacePath,
       });
 
-      if (resumeResult.success) {
-        console.log('[SessionLoaderService] SDK resume triggered successfully');
-        // Messages will arrive via chat:chunk events and be processed by
-        // the existing streaming infrastructure (ExecutionTreeBuilder → ChatStore)
+      const events = resumeResult.data?.events;
+      const messages = resumeResult.data?.messages;
+
+      // TASK_2025_092 FIX: Process events to build execution tree with tool calls
+      if (resumeResult.success && events && events.length > 0) {
+        // DIAGNOSTIC: Log event types received for debugging
+        const eventTypeCounts = events.reduce(
+          (acc: Record<string, number>, e: FlatStreamEventUnion) => {
+            acc[e.eventType] = (acc[e.eventType] || 0) + 1;
+            return acc;
+          },
+          {}
+        );
+        console.log('[SessionLoaderService] Session history loaded', {
+          eventCount: events.length,
+          messageCount: messages?.length ?? 0,
+          eventTypeCounts,
+          toolStartEvents: events.filter(
+            (e: FlatStreamEventUnion) => e.eventType === 'tool_start'
+          ).length,
+        });
+
+        // Process each event through StreamingHandler to build execution tree
+        // This populates the streamingState with all events
+        for (const event of events) {
+          this.streamingHandler.processStreamEvent(
+            event as FlatStreamEventUnion,
+            activeTabId,
+            sessionId
+          );
+        }
+
+        // Finalize session history - builds messages for ALL messages in history
+        // (not just the current one like finalizeCurrentMessage does)
+        const historyMessages =
+          this.streamingHandler.finalizeSessionHistory(activeTabId);
+
+        this.sessionManager.setStatus('loaded');
+
+        console.log(
+          '[SessionLoaderService] Session loaded with execution tree',
+          {
+            messageCount: historyMessages.length,
+          }
+        );
+      } else if (resumeResult.success && messages && messages.length > 0) {
+        // Fallback: Use simple messages if no events (backward compatibility)
+        console.log(
+          '[SessionLoaderService] Fallback: Using simple messages (no events)',
+          {
+            messageCount: messages.length,
+          }
+        );
+
+        // Convert simple messages to ExecutionChatMessage format
+        const executionMessages = messages.map((msg) => ({
+          id: msg.id,
+          role: msg.role as 'user' | 'assistant',
+          timestamp: msg.timestamp,
+          streamingState: null, // No execution tree for simple messages
+          rawContent: msg.content,
+          sessionId,
+        }));
+
+        // Set messages directly on tab
+        this.tabManager.updateTab(activeTabId, {
+          messages: executionMessages,
+          status: 'loaded',
+          streamingState: null,
+        });
+        this.sessionManager.setStatus('loaded');
+
+        console.log('[SessionLoaderService] Session loaded (simple messages)');
       } else {
         console.error(
           '[SessionLoaderService] Failed to resume session:',
-          resumeResult.error
+          resumeResult.error || 'No messages or events found'
         );
         // Resume failed - revert to loaded state with empty messages
         this.tabManager.updateTab(activeTabId, {
           status: 'loaded',
+          streamingState: null,
         });
         this.sessionManager.setStatus('loaded');
       }

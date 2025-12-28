@@ -105,6 +105,20 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
   },
 
   // ============================================================================
+  // OpenRouter Model ID Aliases
+  // These map OpenRouter's naming convention to the same pricing
+  // ============================================================================
+
+  // OpenRouter Claude Haiku 4.5 alias
+  'anthropic/claude-haiku-4.5': {
+    inputCostPerToken: 0.8e-6, // Same as claude-3-5-haiku-20241022
+    outputCostPerToken: 4e-6,
+    cacheReadCostPerToken: 0.08e-6,
+    cacheCreationCostPerToken: 1e-6,
+    provider: 'anthropic',
+  },
+
+  // ============================================================================
   // OpenAI Models (VS Code Copilot / LM API)
   // ============================================================================
 

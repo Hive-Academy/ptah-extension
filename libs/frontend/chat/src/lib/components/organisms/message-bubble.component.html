@@ -136,5 +136,31 @@
       class="prose prose-sm prose-invert max-w-none"
     />
   </div>
+
+  <!-- File attachments indicator -->
+  @if (message().files && message().files!.length > 0) {
+  <div class="chat-footer mt-1.5">
+    <div class="flex flex-wrap gap-1.5 items-center">
+      <lucide-angular
+        [img]="PaperclipIcon"
+        class="w-3 h-3 text-base-content/50"
+      />
+      @for (filePath of message().files; track filePath) {
+      <div
+        class="badge badge-sm bg-base-200/80 text-base-content/70 gap-1 py-2.5"
+        [title]="filePath"
+      >
+        <lucide-angular
+          [img]="getFileIcon(filePath)"
+          class="w-3 h-3"
+        />
+        <span class="text-xs max-w-[120px] truncate">{{
+          getFileName(filePath)
+        }}</span>
+      </div>
+      }
+    </div>
+  </div>
+  }
 </div>
 }

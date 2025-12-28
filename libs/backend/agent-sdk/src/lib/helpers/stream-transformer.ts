@@ -266,15 +266,21 @@ export class StreamTransformer {
             // TASK_2025_091: Process BOTH stream_event AND assistant messages
             // - stream_event: Real-time streaming deltas (native Anthropic API)
             // - assistant: Complete messages (some providers send these)
+            // - user: Contains tool_result blocks after tool execution (TASK_2025_092)
             //
             // DEDUPLICATION STRATEGY:
             // Backend sends ALL messages. Frontend handles deduplication by messageId.
             // When duplicate message_start arrives (same messageId), frontend CLEARS
             // accumulators so complete content REPLACES streamed content.
             // This is the systematic solution that works for all providers/scenarios.
+            //
+            // CRITICAL FIX (TASK_2025_092): Must process 'user' messages to extract tool_result!
+            // SDK sends tool_result content blocks in user messages after tool execution.
+            // Without this, tools remain in __streaming: true state forever.
             if (
               sdkMessage.type === 'stream_event' ||
-              sdkMessage.type === 'assistant'
+              sdkMessage.type === 'assistant' ||
+              sdkMessage.type === 'user'
             ) {
               // TASK_2025_092: Use effectiveSessionId (real UUID) for events
               // This ensures events have the real sessionId for proper routing

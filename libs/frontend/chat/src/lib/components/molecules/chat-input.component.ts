@@ -228,6 +228,9 @@ export class ChatInputComponent {
   readonly SquareIcon = Square;
   readonly ClockIcon = Clock;
 
+  // Session tracking for proper change detection (avoid clearing cache on every stream event)
+  private _lastSessionId: string | null = null;
+
   // Local state
   private readonly _currentMessage = signal('');
 
@@ -706,17 +709,25 @@ export class ChatInputComponent {
     });
 
     // Session change monitoring - clear command cache on session change
+    // FIX: Track session ID (primitive) to avoid clearing cache on every stream event
+    // Previously, watching activeTab() cleared cache 220+ times per streaming session
+    // because updateTab() causes activeTab() to return a new object reference
     effect(
       () => {
         const activeTab = this.chatStore.activeTab();
+        const currentSessionId = activeTab?.id ?? null;
 
-        if (activeTab) {
-          // Clear command autocomplete cache when session changes
-          this.commandDiscovery.clearCache();
-
-          console.log('[ChatInputComponent] Session changed, cache cleared', {
-            sessionId: activeTab.id,
-          });
+        // Only clear cache when session ID actually changes
+        if (currentSessionId !== this._lastSessionId) {
+          if (this._lastSessionId !== null && currentSessionId !== null) {
+            // Clear command autocomplete cache on session switch
+            this.commandDiscovery.clearCache();
+            console.log('[ChatInputComponent] Session changed, cache cleared', {
+              from: this._lastSessionId,
+              to: currentSessionId,
+            });
+          }
+          this._lastSessionId = currentSessionId;
         }
       },
       { allowSignalWrites: true }

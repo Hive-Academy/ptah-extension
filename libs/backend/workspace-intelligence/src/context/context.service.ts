@@ -487,22 +487,29 @@ export class ContextService {
     try {
       this.logger.debug('Refreshing all files cache');
 
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-      if (!workspaceFolder) {
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (!workspaceFolders || workspaceFolders.length === 0) {
         return [];
       }
 
       // Find all files excluding common ignore patterns
+      // FIXED: Removed '**/.*/**' which was too aggressive (excluded all hidden folders)
+      // Keep explicit patterns for common hidden folders we want to exclude
       const excludePatterns = [
         '**/node_modules/**',
-        '**/.*/**',
         '**/.git/**',
+        '**/.svn/**',
+        '**/.hg/**',
         '**/dist/**',
         '**/build/**',
         '**/out/**',
         '**/*.log',
+        '**/.DS_Store',
+        '**/coverage/**',
+        '**/.nyc_output/**',
       ];
 
+      // FIXED: Search ALL workspace folders, not just the first one
       const files = await vscode.workspace.findFiles(
         '**/*',
         `{${excludePatterns.join(',')}}`,
@@ -510,13 +517,15 @@ export class ContextService {
       );
 
       const results: FileSearchResult[] = [];
-      const workspacePath = workspaceFolder.uri.fsPath;
+      // Use first workspace folder as base for relative paths (for display)
+      const primaryWorkspacePath = workspaceFolders[0].uri.fsPath;
 
       // Process files
       for (const file of files) {
         try {
           const stat = await vscode.workspace.fs.stat(file);
-          const relativePath = path.relative(workspacePath, file.fsPath);
+          // Calculate relative path from primary workspace root
+          const relativePath = path.relative(primaryWorkspacePath, file.fsPath);
           const fileName = path.basename(file.fsPath);
           const fileType = this.detectFileType(fileName);
 
@@ -535,13 +544,15 @@ export class ContextService {
         }
       }
 
-      // Also discover directories (VS Code findFiles doesn't return directories)
-      const directories = await this.discoverDirectories(
-        workspaceFolder.uri,
-        workspacePath,
-        excludePatterns
-      );
-      results.push(...directories);
+      // Also discover directories from ALL workspace folders
+      for (const folder of workspaceFolders) {
+        const directories = await this.discoverDirectories(
+          folder.uri,
+          primaryWorkspacePath,
+          excludePatterns
+        );
+        results.push(...directories);
+      }
 
       // Sort by relevance (recently modified first)
       results.sort((a, b) => b.lastModified - a.lastModified);
@@ -551,7 +562,7 @@ export class ContextService {
       this.allFilesCacheTimestamp = now;
 
       this.logger.info(
-        `Cached ${results.length} workspace files and directories`
+        `Cached ${results.length} workspace files and directories from ${workspaceFolders.length} folder(s)`
       );
 
       return this.paginateResults(results, offset, limit, includeImages);

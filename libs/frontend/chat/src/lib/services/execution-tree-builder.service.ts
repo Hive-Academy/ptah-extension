@@ -275,6 +275,23 @@ export class ExecutionTreeBuilderService {
         !e.parentToolUseId
     ) as ToolStartEvent[];
 
+    // DIAGNOSTIC: Log tool collection for debugging session history loading
+    const allToolStarts = [...state.events.values()].filter(
+      (e) => e.eventType === 'tool_start'
+    );
+    if (allToolStarts.length > 0 || toolStarts.length > 0) {
+      console.log('[ExecutionTreeBuilder] collectTools:', {
+        messageId,
+        toolStartsFound: toolStarts.length,
+        totalToolStartsInState: allToolStarts.length,
+        toolStartMessageIds: allToolStarts.map((e) => e.messageId),
+        matchingTools: toolStarts.map((t) => ({
+          toolName: t.toolName,
+          toolCallId: t.toolCallId,
+        })),
+      });
+    }
+
     for (const toolStart of toolStarts) {
       tools.push(this.buildToolNode(toolStart, state, depth));
     }
@@ -314,14 +331,23 @@ export class ExecutionTreeBuilderService {
     state: StreamingState,
     depth = 0
   ): ExecutionNode {
+    // Find tool result FIRST - we only parse input when tool is complete
+    const resultEvent = [...state.events.values()].find(
+      (e) =>
+        e.eventType === 'tool_result' && e.toolCallId === toolStart.toolCallId
+    ) as ToolResultEvent | undefined;
+
     // Get accumulated input
     const inputKey = `${toolStart.toolCallId}-input`;
     const inputString = state.toolInputAccumulators.get(inputKey) || '';
 
-    // Parse JSON into toolInput field
-    // TASK_2025_088 Batch 2 Task 2.2: Use safe parser instead of unsafe try/catch
+    // Parse JSON into toolInput field ONLY when tool is complete
+    // FIX: During streaming, input JSON is incomplete (e.g., '{"file_path": "d:\\proje')
+    // Attempting to parse causes ~15+ SyntaxError warnings per tool call
+    // Solution: Defer parsing until tool_result arrives
     let toolInput: Record<string, unknown> | undefined;
-    if (inputString) {
+    if (inputString && resultEvent) {
+      // Tool completed - safe to parse full JSON
       const result = this.parseToolInput(inputString);
       if (result.success) {
         toolInput = result.data;
@@ -337,15 +363,16 @@ export class ExecutionTreeBuilderService {
           raw: result.raw?.substring(0, 100), // Log first 100 chars
         });
       }
+    } else if (inputString) {
+      // Tool still streaming - don't parse, show raw snippet for debugging
+      toolInput = {
+        __streaming: true,
+        __rawSnippet:
+          inputString.substring(0, 50) + (inputString.length > 50 ? '...' : ''),
+      } as Record<string, unknown>;
     } else {
       toolInput = undefined;
     }
-
-    // Find tool result
-    const resultEvent = [...state.events.values()].find(
-      (e) =>
-        e.eventType === 'tool_result' && e.toolCallId === toolStart.toolCallId
-    ) as ToolResultEvent | undefined;
 
     // Build nested children (RECURSIVE - sub-agent messages!)
     const children = this.buildToolChildren(toolStart.toolCallId, state, depth);

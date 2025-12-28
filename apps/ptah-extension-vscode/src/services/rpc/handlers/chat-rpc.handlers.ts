@@ -222,10 +222,13 @@ export class ChatRpcHandlers {
    * chat:resume - Load session history from JSONL files
    *
    * Used when user clicks a session from sidebar to load conversation history.
-   * Returns complete messages directly in RPC response (not streaming).
+   * Returns full streaming events for building ExecutionNode tree with tool calls.
    *
-   * TASK_2025_092: Fixed infinite loading - Returns complete messages instead
-   * of streaming events. Frontend sets messages directly on tab.
+   * TASK_2025_092 FIX: Now returns `events` array with FlatStreamEventUnion
+   * including tool_start, tool_result, thinking, agent_start events.
+   * Frontend processes these through StreamingHandler to build execution tree.
+   *
+   * Also returns `messages` for backward compatibility (deprecated).
    */
   private registerChatResume(): void {
     this.rpcHandler.registerMethod<ChatResumeParams, ChatResumeResult>(
@@ -235,18 +238,28 @@ export class ChatRpcHandlers {
           const { sessionId, workspacePath } = params;
           this.logger.debug('RPC: chat:resume called', { sessionId });
 
-          // Read JSONL session history as complete messages
+          const resolvedWorkspacePath = workspacePath || process.cwd();
+
+          // TASK_2025_092 FIX: Read full session history as FlatStreamEventUnion[]
+          // This includes tool calls, thinking blocks, agent spawns, etc.
+          const events = await this.historyReader.readSessionHistory(
+            sessionId,
+            resolvedWorkspacePath
+          );
+
+          // Also read simple messages for backward compatibility
           const messages = await this.historyReader.readHistoryAsMessages(
             sessionId,
-            workspacePath || process.cwd()
+            resolvedWorkspacePath
           );
 
           this.logger.info('[RPC] Session history loaded from JSONL', {
             sessionId,
             messageCount: messages.length,
+            eventCount: events.length,
           });
 
-          return { success: true, messages };
+          return { success: true, messages, events };
         } catch (error) {
           this.logger.error(
             'RPC: chat:resume failed',

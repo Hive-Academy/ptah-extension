@@ -637,17 +637,66 @@ export class SdkMessageTransformer {
    * Emits:
    * - message_start
    * - text_delta (with full text)
+   * - tool_result events (for tool_result content blocks)
    * - message_complete
    *
    * TASK_2025_086: Skips empty user messages (SDK sends these for tool result confirmations)
+   * TASK_2025_092: Now extracts tool_result blocks from user messages
    */
   private transformUserToFlatEvents(
     sdkMessage: SDKUserMessage,
     sessionId?: SessionId
   ): FlatStreamEventUnion[] {
-    const { uuid, message } = sdkMessage;
+    const { uuid, message, parent_tool_use_id } = sdkMessage;
 
     const events: FlatStreamEventUnion[] = [];
+    const messageId = uuid || `user-${Date.now()}`;
+
+    // TASK_2025_092: First, check for tool_result blocks in user messages
+    // SDK sends tool execution results as user messages with tool_result content blocks
+    // We MUST emit these as tool_result events, otherwise tools remain in streaming state
+    //
+    // Note: UserMessageContent type is different from ContentBlock - it includes image blocks
+    // but excludes ThinkingBlock. We use inline type check instead of isToolResultBlock guard.
+    if (Array.isArray(message.content)) {
+      for (const block of message.content) {
+        // Inline type check for tool_result (UserMessageContent != ContentBlock)
+        if (
+          typeof block === 'object' &&
+          block !== null &&
+          'type' in block &&
+          block.type === 'tool_result' &&
+          'tool_use_id' in block
+        ) {
+          const toolResultBlock = block as ToolResultBlock;
+          const toolResultEvent: ToolResultEvent = {
+            id: generateEventId(),
+            eventType: 'tool_result',
+            timestamp: Date.now(),
+            sessionId: sessionId || '',
+            messageId,
+            toolCallId: toolResultBlock.tool_use_id,
+            output: toolResultBlock.content,
+            isError: toolResultBlock.is_error ?? false,
+            parentToolUseId: parent_tool_use_id ?? undefined,
+          };
+          events.push(toolResultEvent);
+          this.logger.debug(
+            '[SdkMessageTransformer] Extracted tool_result from user message',
+            {
+              uuid,
+              toolCallId: toolResultBlock.tool_use_id,
+              isError: toolResultBlock.is_error,
+            }
+          );
+        }
+      }
+
+      // If we found tool_result blocks, return them without creating empty user message bubbles
+      if (events.length > 0) {
+        return events;
+      }
+    }
 
     // Extract text content from user message
     let textContent = '';
@@ -669,7 +718,7 @@ export class SdkMessageTransformer {
         .join('\n');
     }
 
-    // TASK_2025_086: Skip empty user messages (SDK sends these for tool result confirmations)
+    // TASK_2025_086: Skip empty user messages (no text content AND no tool_result blocks)
     // This prevents empty "You" bubbles from appearing in the UI
     if (!textContent || !textContent.trim()) {
       this.logger.debug('[SdkMessageTransformer] Skipping empty user message', {
