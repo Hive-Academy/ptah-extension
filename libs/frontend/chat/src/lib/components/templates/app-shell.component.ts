@@ -11,9 +11,14 @@ import {
   Plus,
   PanelLeftClose,
   PanelLeftOpen,
+  ChevronDown,
 } from 'lucide-angular';
 import { ChatViewComponent } from './chat-view.component';
+import { TabBarComponent } from '../organisms/tab-bar.component';
+import { ConfirmationDialogComponent } from '../molecules/confirmation-dialog.component';
 import { ChatStore } from '../../services/chat.store';
+import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
+import { TabManagerService } from '../../services/tab-manager.service';
 import type { ChatSessionSummary } from '@ptah-extension/shared';
 
 /**
@@ -30,12 +35,22 @@ import type { ChatSessionSummary } from '@ptah-extension/shared';
 @Component({
   selector: 'ptah-app-shell',
   standalone: true,
-  imports: [ChatViewComponent, DatePipe, LucideAngularModule],
+  imports: [
+    ChatViewComponent,
+    TabBarComponent,
+    ConfirmationDialogComponent,
+    DatePipe,
+    LucideAngularModule,
+  ],
   templateUrl: './app-shell.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AppShellComponent {
+  // Initialize keyboard shortcuts (constructor injection triggers setup)
+  private readonly keyboardShortcuts = inject(KeyboardShortcutsService);
+
   readonly chatStore = inject(ChatStore);
+  private readonly tabManager = inject(TabManagerService);
 
   // Sidebar state (default hidden for VS Code sidebar space efficiency)
   private readonly _sidebarOpen = signal(false);
@@ -46,6 +61,7 @@ export class AppShellComponent {
   readonly PlusIcon = Plus;
   readonly PanelLeftCloseIcon = PanelLeftClose;
   readonly PanelLeftOpenIcon = PanelLeftOpen;
+  readonly ChevronDownIcon = ChevronDown;
 
   /**
    * Toggle sidebar visibility
@@ -94,5 +110,13 @@ export class AppShellComponent {
     }
 
     return name;
+  }
+
+  /**
+   * Check if a session has an open tab
+   * Used to highlight sessions in the sidebar
+   */
+  isSessionOpen(sessionId: string): boolean {
+    return this.tabManager.findTabBySessionId(sessionId) !== null;
   }
 }

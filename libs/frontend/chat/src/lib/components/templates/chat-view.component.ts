@@ -8,9 +8,12 @@ import {
   effect,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { NgOptimizedImage } from '@angular/common';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { ChatInputComponent } from '../molecules/chat-input.component';
+import { PermissionRequestCardComponent } from '../molecules/permission-request-card.component';
 import { ChatStore } from '../../services/chat.store';
+import { VSCodeService } from '@ptah-extension/core';
 import { createExecutionChatMessage } from '@ptah-extension/shared';
 
 /**
@@ -37,13 +40,19 @@ import { createExecutionChatMessage } from '@ptah-extension/shared';
 @Component({
   selector: 'ptah-chat-view',
   standalone: true,
-  imports: [MessageBubbleComponent, ChatInputComponent],
+  imports: [
+    NgOptimizedImage,
+    MessageBubbleComponent,
+    ChatInputComponent,
+    PermissionRequestCardComponent,
+  ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ChatViewComponent {
   readonly chatStore = inject(ChatStore);
+  private readonly vscodeService = inject(VSCodeService);
 
   @ViewChild('messageContainer') messageContainer?: ElementRef<HTMLElement>;
 
@@ -53,6 +62,11 @@ export class ChatViewComponent {
   // Welcome screen mode selection (Vibe/Spec)
   private readonly _selectedMode = signal<'vibe' | 'spec'>('vibe');
   readonly selectedMode = this._selectedMode.asReadonly();
+
+  /**
+   * Ptah icon URI for skeleton avatar placeholder
+   */
+  readonly ptahIconUri = computed(() => this.vscodeService.getPtahIconUri());
 
   /**
    * Computed signal that creates a temporary ExecutionChatMessage
@@ -112,6 +126,14 @@ export class ChatViewComponent {
 
   selectMode(mode: 'vibe' | 'spec'): void {
     this._selectedMode.set(mode);
+  }
+
+  /**
+   * Cancel queued message (user-requested cancellation)
+   */
+  cancelQueue(): void {
+    this.chatStore.clearQueuedContent();
+    console.log('[ChatViewComponent] Queued content cancelled by user');
   }
 
   private scrollToBottom(): void {

@@ -1,3 +1,6 @@
+<!-- Global confirmation dialog (replaces window.confirm) -->
+<ptah-confirmation-dialog />
+
 <!-- Main layout - No drawer, simple sidebar + content -->
 <div class="flex h-full">
   <!-- Session Sidebar (always visible, fixed width) -->
@@ -25,11 +28,16 @@
         <li>
           <button
             type="button"
-            class="flex flex-col items-start gap-0.5 py-1.5 px-2 w-full text-left rounded-lg"
+            class="flex flex-col items-start gap-0.5 py-1.5 px-2 w-full text-left rounded-lg border border-transparent"
             [class.active]="session.id === chatStore.currentSession()?.id"
             [class.bg-primary]="session.id === chatStore.currentSession()?.id"
             [class.text-primary-content]="
               session.id === chatStore.currentSession()?.id
+            "
+            [class.border-primary!]="isSessionOpen(session.id)"
+            [class.text-primary]="
+              isSessionOpen(session.id) &&
+              session.id !== chatStore.currentSession()?.id
             "
             (click)="chatStore.switchSession(session.id)"
           >
@@ -59,6 +67,27 @@
         </li>
         }
       </ul>
+
+      <!-- Load More button -->
+      @if (chatStore.hasMoreSessions()) {
+      <div class="p-2 pt-1">
+        <button
+          class="btn btn-ghost btn-xs w-full"
+          [class.loading]="chatStore.isLoadingMoreSessions()"
+          [disabled]="chatStore.isLoadingMoreSessions()"
+          (click)="chatStore.loadMoreSessions()"
+        >
+          @if (chatStore.isLoadingMoreSessions()) {
+          <span class="loading loading-spinner loading-xs"></span>
+          Loading... } @else {
+          <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3" />
+          Load More ({{
+            chatStore.totalSessions() - chatStore.sessions().length
+          }}
+          more) }
+        </button>
+      </div>
+      }
     </div>
   </aside>
 
@@ -93,7 +122,12 @@
       </div>
     </div>
 
-    <!-- Chat View -->
-    <ptah-chat-view class="flex-1 overflow-hidden" />
+    <!-- Tab bar at top -->
+    <ptah-tab-bar />
+
+    <!-- Chat View takes remaining space -->
+    <div class="flex-1 overflow-hidden">
+      <ptah-chat-view />
+    </div>
   </div>
 </div>

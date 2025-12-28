@@ -125,6 +125,13 @@ export interface ExecutionNode {
   /** Full prompt sent to agent */
   readonly agentPrompt?: string;
 
+  /**
+   * Summary content for agent nodes - Real-time text updates from agent session.
+   * This is populated during streaming by the AgentSessionWatcherService,
+   * which tails the agent's JSONL file for text blocks.
+   */
+  readonly summaryContent?: string;
+
   // ---- Metrics ----
 
   /** Execution start timestamp (Unix epoch ms) */
@@ -141,6 +148,9 @@ export interface ExecutionNode {
     readonly input: number;
     readonly output: number;
   };
+
+  /** Model ID used for this execution (e.g., 'claude-opus-4-5-20251101') */
+  readonly model?: string;
 
   /** Tool execution count (for agents) */
   readonly toolCount?: number;
@@ -217,6 +227,18 @@ export interface AgentInfo {
    * This happens when loading historical sessions that were not completed.
    */
   readonly isInterrupted?: boolean;
+
+  /**
+   * True while agent is actively streaming.
+   * Used to show streaming indicators (typing cursor, loading spinner).
+   */
+  readonly isStreaming?: boolean;
+
+  /**
+   * Links to parent Task tool_use ID for message updates.
+   * Used during streaming to route nested content to the correct agent bubble.
+   */
+  readonly toolUseId?: string;
 }
 
 /**
@@ -258,6 +280,21 @@ export interface ExecutionChatMessage {
    * When present, this message is an agent execution extracted as a separate bubble.
    */
   readonly agentInfo?: AgentInfo;
+
+  // ---- Usage Metrics (TASK_2025_047) ----
+
+  /** Token usage for this message */
+  readonly tokens?: {
+    readonly input: number;
+    readonly output: number;
+    readonly cacheHit?: number;
+  };
+
+  /** Cost in USD for this message */
+  readonly cost?: number;
+
+  /** Duration in milliseconds for this message */
+  readonly duration?: number;
 }
 
 // ============================================================================
@@ -333,6 +370,11 @@ export interface JSONLMessage {
   readonly message?: {
     readonly content?: readonly ContentBlockJSON[];
     readonly stop_reason?: string;
+    readonly usage?: {
+      readonly input_tokens?: number;
+      readonly output_tokens?: number;
+    };
+    readonly model?: string;
   };
 
   // ---- Tool message fields ----
@@ -353,6 +395,9 @@ export interface JSONLMessage {
 
   // ---- Metadata ----
   readonly timestamp?: string;
+  readonly isMeta?: boolean;
+  readonly uuid?: string;
+  readonly sessionId?: string;
 }
 
 /**
@@ -414,6 +459,7 @@ export const ExecutionNodeSchema: z.ZodType<ExecutionNode> = z.lazy(() =>
     agentModel: z.string().optional(),
     agentDescription: z.string().optional(),
     agentPrompt: z.string().optional(),
+    summaryContent: z.string().optional(),
     startTime: z.number().optional(),
     endTime: z.number().optional(),
     duration: z.number().optional(),
@@ -438,6 +484,8 @@ export const AgentInfoSchema = z.object({
   hasSummary: z.boolean().optional(),
   hasExecution: z.boolean().optional(),
   isInterrupted: z.boolean().optional(),
+  isStreaming: z.boolean().optional(),
+  toolUseId: z.string().optional(),
 });
 
 export const ExecutionChatMessageSchema = z.object({

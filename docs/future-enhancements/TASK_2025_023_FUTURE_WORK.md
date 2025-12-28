@@ -511,16 +511,16 @@ this.rpcHandler.registerMethod('session:load', async (params: any) => {
 
 ## Implementation Order Recommendation
 
-| Phase | Enhancement                         | Priority | Effort   |
-| ----- | ----------------------------------- | -------- | -------- |
-| 1     | Security: Path Traversal Validation | Medium   | 1 hour   |
-| 2     | Autocomplete Re-Integration         | High     | 3-4 days |
-| 3     | Model Selector & Autopilot          | High     | 2-3 days |
-| 4     | DaisyUI Component Modernization     | Medium   | 2 days   |
-| 5     | AST Analysis Implementation         | Medium   | 2-3 days |
-| 6     | Analytics Backend Integration       | Low      | 1-2 days |
+| Phase | Enhancement                         | Priority | Effort   | Status            |
+| ----- | ----------------------------------- | -------- | -------- | ----------------- |
+| 1     | Security: Path Traversal Validation | Medium   | 1 hour   | ✅ COMPLETE       |
+| 2     | Autocomplete Re-Integration         | High     | 3-4 days | See TASK_2025_036 |
+| 3     | Model Selector & Autopilot          | High     | 2-3 days | See TASK_2025_035 |
+| 4     | DaisyUI Component Modernization     | Medium   | 2 days   | See TASK_2025_036 |
+| 5     | AST Analysis Implementation         | Medium   | 2-3 days | ✅ COMPLETE       |
+| 6     | Analytics Backend Integration       | Low      | 1-2 days | ❌ REMOVED        |
 
-**Total Estimated Effort**: 10-15 days
+**Remaining Effort**: ~5-7 days (TASK_2025_035 + TASK_2025_036)
 
 ---
 
@@ -544,6 +544,39 @@ Each enhancement should include:
 
 ---
 
-**Document Version**: 1.0
+**Document Version**: 1.1
 **Created**: 2025-11-25
+**Updated**: 2025-12-01
 **Author**: Code Analysis Agent
+
+---
+
+## Completion Log
+
+### 2025-12-01: Security Fix + AST Analysis
+
+**Completed by**: Orchestrator
+
+**Changes Made**:
+
+1. **Security: Path Traversal Validation** (Category 5)
+
+   - File: `libs/backend/vscode-core/src/messaging/rpc-method-registration.service.ts`
+   - Added sessionId format validation regex: `/^[a-zA-Z0-9_-]+$/`
+   - Prevents path traversal attacks via malicious sessionId values
+
+2. **AST Analysis Implementation** (Category 1)
+
+   - File: `libs/backend/workspace-intelligence/src/ast/ast-analysis.service.ts`
+   - Implemented full AST traversal to extract functions, classes, imports
+   - Added support for: function declarations, arrow functions, method definitions, class declarations
+   - Enhanced interfaces with optional fields: startLine, endLine, isAsync, isExported, methods
+   - File: `libs/backend/workspace-intelligence/src/ast/ast-analysis.interfaces.ts`
+   - Added ExportInfo interface for future export tracking
+
+3. **Task Tracking Created**:
+
+   - TASK_2025_035: Model Selector & Autopilot Integration (planned)
+   - TASK_2025_036: File Suggestions Integration & DaisyUI Styling (planned)
+
+4. **Removed**: Analytics Backend Integration (Category 4) - per user request

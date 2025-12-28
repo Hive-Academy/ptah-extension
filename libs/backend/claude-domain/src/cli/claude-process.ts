@@ -10,7 +10,7 @@
  * Batch 4 - TASK_2025_023
  */
 
-import { JSONLMessage } from '@ptah-extension/shared';
+import { JSONLMessage, PermissionLevel } from '@ptah-extension/shared';
 import { ChildProcess, spawn } from 'child_process';
 import { EventEmitter } from 'events';
 import * as os from 'os';
@@ -25,6 +25,12 @@ export interface ClaudeProcessOptions {
   resumeSessionId?: string;
   /** Enable verbose output */
   verbose?: boolean;
+  /** Allowed MCP tools (space-separated or comma-separated list) */
+  allowedTools?: string[];
+  /** TASK_2025_035: Autopilot enabled flag */
+  autopilotEnabled?: boolean;
+  /** TASK_2025_035: Permission level when autopilot enabled */
+  permissionLevel?: PermissionLevel;
 }
 
 /**
@@ -32,6 +38,7 @@ export interface ClaudeProcessOptions {
  *
  * Events:
  * - 'message': (msg: JSONLMessage) => void - JSONL message received
+ * - 'session-id': (sessionId: string) => void - Session UUID extracted from JSONL
  * - 'error': (error: Error) => void - Process or parse error
  * - 'close': (code: number | null) => void - Process closed
  */
@@ -61,21 +68,74 @@ export class ClaudeProcess extends EventEmitter {
   /**
    * Resume existing session with new prompt
    */
-  async resume(sessionId: string, prompt: string): Promise<void> {
+  async resume(
+    sessionId: string,
+    prompt: string,
+    options?: Omit<ClaudeProcessOptions, 'resumeSessionId'>
+  ): Promise<void> {
     if (this.process) {
       throw new Error('ClaudeProcess already running. Call kill() first.');
     }
 
-    const args = this.buildArgs({ resumeSessionId: sessionId, verbose: true });
+    const args = this.buildArgs({
+      ...options,
+      resumeSessionId: sessionId,
+      verbose: true,
+    });
     this.spawnProcess(args, prompt);
   }
 
   /**
    * Kill the active process
+   *
+   * TASK_2025_040: Changed to SIGINT for graceful mid-response interruption.
+   * SIGINT allows Claude CLI to finalize current message before exiting.
+   * Falls back to SIGTERM after 2 seconds if process doesn't respond.
+   *
+   * Memory leak fix: Timeout is cleared if process exits before 2 seconds.
    */
   kill(): void {
     if (this.process && !this.process.killed) {
-      this.process.kill('SIGTERM');
+      console.log('[ClaudeProcess] Sending SIGINT to process');
+
+      // Capture process reference before nulling
+      const processRef = this.process;
+
+      // Try SIGINT first (graceful interrupt)
+      try {
+        this.process.kill('SIGINT');
+
+        // Set timeout for SIGTERM fallback (Windows may not support SIGINT)
+        const timeoutId = setTimeout(() => {
+          if (processRef && !processRef.killed) {
+            console.warn(
+              '[ClaudeProcess] SIGINT failed, falling back to SIGTERM'
+            );
+            try {
+              processRef.kill('SIGTERM');
+            } catch (e) {
+              // Process may have already exited
+              console.error('[ClaudeProcess] SIGTERM failed:', e);
+            }
+          }
+        }, 2000); // 2 second timeout
+
+        // Clear timeout if process exits quickly (prevents memory leak)
+        processRef.once('exit', () => {
+          clearTimeout(timeoutId);
+        });
+      } catch (error) {
+        // If SIGINT fails (e.g., on Windows), immediately use SIGTERM
+        console.error('[ClaudeProcess] SIGINT failed:', error);
+        console.log('[ClaudeProcess] Falling back to SIGTERM');
+        try {
+          this.process.kill('SIGTERM');
+        } catch (e) {
+          // Process may have already exited
+          console.error('[ClaudeProcess] SIGTERM failed:', e);
+        }
+      }
+
       this.process = null;
     }
   }
@@ -98,13 +158,47 @@ export class ClaudeProcess extends EventEmitter {
       '--verbose',
     ];
 
+    // Add permission prompt tool (TASK_2025_026 Batch 4)
+    args.push('--permission-prompt-tool', 'mcp__ptah__approval_prompt');
+
+    // TASK_2025_035: Add model flag (only if not default)
     if (options?.model && options.model !== 'sonnet') {
       args.push('--model', options.model);
+    }
+
+    // TASK_2025_035: Add autopilot/permission flags based on configuration
+    const autopilotEnabled = options?.autopilotEnabled ?? false;
+    const permissionLevel = options?.permissionLevel ?? 'ask';
+
+    // Handle YOLO mode separately (uses different flag)
+    if (autopilotEnabled && permissionLevel === 'yolo') {
+      // YOLO mode: Skip ALL permission prompts (DANGEROUS)
+      args.push('--dangerously-skip-permissions');
     }
 
     if (options?.resumeSessionId) {
       args.push('--resume', options.resumeSessionId);
     }
+
+    // Allow MCP tools - always include mcp__ptah (all tools within ptah server are auto-allowed)
+    // The approval_prompt tool is internal to ptah server, no need to list separately
+    // Additional tools can be passed via options.allowedTools
+    // Auto-edit mode adds Edit,Write tools to allowedTools Set (not separate flag)
+    // Format: --allowedTools "tool1,tool2" or --allowedTools tool1 tool2
+    const allowedTools = new Set<string>(['mcp__ptah']);
+
+    // Add autopilot tools to the Set (not separate flag) - QA FIX for duplicate --allowedTools
+    if (autopilotEnabled && permissionLevel === 'auto-edit') {
+      allowedTools.add('Edit');
+      allowedTools.add('Write');
+    }
+
+    if (options?.allowedTools) {
+      options.allowedTools.forEach((tool) => allowedTools.add(tool));
+    }
+
+    // Single --allowedTools flag at the end
+    args.push('--allowedTools', Array.from(allowedTools).join(','));
 
     return args;
   }
@@ -255,6 +349,12 @@ export class ClaudeProcess extends EventEmitter {
   private parseLine(line: string): void {
     try {
       const parsed = JSON.parse(line) as JSONLMessage;
+
+      // Extract session UUID from system messages (emit BEFORE message event)
+      if (parsed.type === 'system' && parsed.session_id) {
+        this.emit('session-id', parsed.session_id);
+      }
+
       this.emit('message', parsed);
     } catch (error) {
       this.emit(

@@ -321,6 +321,39 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         return;
       }
 
+      // TASK_2025_026 Batch 4: Handle permission:response messages
+      if (message.type === 'permission:response') {
+        try {
+          // Service injection pending Batch 5 DI registration
+          // When registered, resolve from container and call resolveRequest
+          const PERMISSION_PROMPT_SERVICE = Symbol.for(
+            'PermissionPromptService'
+          );
+          const { container } = await import('tsyringe');
+
+          if (container.isRegistered(PERMISSION_PROMPT_SERVICE)) {
+            const permissionService = container.resolve<any>(
+              PERMISSION_PROMPT_SERVICE
+            );
+            permissionService.resolveRequest(message.payload);
+            this.logger.info('Permission response processed', {
+              requestId: (message.payload as any)?.id,
+            });
+          } else {
+            this.logger.warn(
+              'PermissionPromptService not registered (Batch 5 pending)',
+              { payload: message.payload }
+            );
+          }
+        } catch (error) {
+          this.logger.error(
+            'Failed to process permission response',
+            error instanceof Error ? error : new Error(String(error))
+          );
+        }
+        return;
+      }
+
       // Handle RPC requests (support both 'rpc:request' and 'rpc:call' for compatibility)
       if (message.type === 'rpc:request' || message.type === 'rpc:call') {
         // Frontend wraps RPC data in 'payload' object, so unwrap it

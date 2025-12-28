@@ -1,0 +1,49 @@
+/* Tailwind CSS imports */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom CSS Variables for Landing Page */
+@layer base {
+  :root {
+    /* Mystical Shadow Effects */
+    --shadow-glow-gold: 0 0 40px rgba(212, 175, 55, 0.3);
+    --shadow-glow-blue: 0 0 40px rgba(30, 58, 138, 0.3);
+
+    /* Gradient Variables */
+    --gradient-divine: linear-gradient(135deg, #1e3a8a, #d4af37);
+    --gradient-cta: linear-gradient(135deg, #d4af37, #fbbf24);
+    --gradient-hero: linear-gradient(
+      180deg,
+      rgba(212, 175, 55, 0.15),
+      transparent 50%
+    );
+
+    /* Glass Effects */
+    --glass-panel: rgba(42, 42, 42, 0.7);
+    --glass-border: rgba(212, 175, 55, 0.2);
+  }
+}
+
+/* Smooth Scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Custom Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(10, 10, 10, 0.8);
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, #d4af37, #fbbf24);
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #d4af37;
+}

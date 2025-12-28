@@ -1,0 +1,41 @@
+/**
+ * Namespace Builders Index
+ *
+ * Re-exports all namespace builder functions and their dependency interfaces.
+ */
+
+// AST namespace
+export {
+  buildAstNamespace,
+  type AstNamespaceDependencies,
+} from './ast-namespace.builder';
+
+// Analysis namespaces (context, project, relevance)
+export {
+  buildContextNamespace,
+  buildProjectNamespace,
+  buildRelevanceNamespace,
+  type AnalysisNamespaceDependencies,
+} from './analysis-namespace.builders';
+
+// Core namespaces (workspace, search, symbols, diagnostics, git)
+export {
+  buildWorkspaceNamespace,
+  buildSearchNamespace,
+  buildSymbolsNamespace,
+  buildDiagnosticsNamespace,
+  buildGitNamespace,
+  type CoreNamespaceDependencies,
+} from './core-namespace.builders';
+
+// System namespaces (ai, files, commands) + help method
+export {
+  buildAINamespace,
+  buildFilesNamespace,
+  buildCommandsNamespace,
+  buildHelpMethod,
+  type SystemNamespaceDependencies,
+} from './system-namespace.builders';
+
+// IDE namespace (lsp, editor, actions, testing)
+export { buildIDENamespace } from './ide-namespace.builder';

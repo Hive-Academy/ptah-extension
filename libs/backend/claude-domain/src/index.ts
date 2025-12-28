@@ -17,7 +17,10 @@ export { JsonlSessionParser } from './session/jsonl-session-parser';
 export { ClaudeCliService } from './cli/claude-cli.service';
 export { ProcessManager } from './cli/process-manager';
 export type { ProcessMetadata } from './cli/process-manager';
-export { MCPRegistrationService } from './cli/mcp-registration.service';
+export { MCPConfigManagerService } from './cli/mcp-config-manager.service';
+
+// Pricing Service (LiteLLM integration)
+export { PricingService } from './pricing/pricing.service';
 
 // ClaudeProcess - NEW (Batch 4 - TASK_2025_023)
 export { ClaudeProcess } from './cli/claude-process';

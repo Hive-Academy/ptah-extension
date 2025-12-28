@@ -13,13 +13,13 @@ export {
 export * from './app-state.service';
 export * from './webview-navigation.service';
 
-// Analytics Layer (system analytics and metrics)
+// Model & Autopilot State Services (TASK_2025_035)
 export {
-  AnalyticsService,
-  type AnalyticsData,
-  type PerformanceData,
-  type ActivityItem,
-} from './analytics.service';
+  ModelStateService,
+  type SelectableClaudeModel,
+  type ModelInfoWithSelection,
+} from './model-state.service';
+export { AutopilotStateService } from './autopilot-state.service';
 
 // RPC Services (Phase 2 - TASK_2025_021)
 export {
@@ -36,8 +36,14 @@ export {
   AgentDiscoveryFacade,
   type AgentSuggestion,
 } from './agent-discovery.facade';
-export { MCPDiscoveryFacade, type MCPSuggestion } from './mcp-discovery.facade';
 export {
   CommandDiscoveryFacade,
   type CommandSuggestion,
 } from './command-discovery.facade';
+
+// UI Interaction Services
+export {
+  DropdownInteractionService,
+  type KeyboardNavConfig,
+  type AutoManageConfig,
+} from './dropdown-interaction.service';

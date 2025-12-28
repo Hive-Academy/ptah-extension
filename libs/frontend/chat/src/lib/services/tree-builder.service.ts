@@ -61,11 +61,12 @@ export class ExecutionTreeBuilder {
    * // Returns: { id: 'msg_abc123', type: 'message', status: 'streaming', children: [] }
    * ```
    */
-  createMessageTree(messageId: string): ExecutionNode {
+  createMessageTree(messageId: string, model?: string): ExecutionNode {
     return createExecutionNode({
       id: messageId,
       type: 'message',
       status: 'streaming',
+      model,
     });
   }
 

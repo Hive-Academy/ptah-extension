@@ -2,6 +2,7 @@ import {
   Component,
   input,
   signal,
+  computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import {
@@ -15,6 +16,7 @@ import {
 } from 'lucide-angular';
 import { AgentSummaryComponent } from '../molecules/agent-summary.component';
 import { ExecutionNodeComponent } from './execution-node.component';
+import { TypingCursorComponent } from '../atoms/typing-cursor.component';
 import type { ExecutionNode, AgentInfo } from '@ptah-extension/shared';
 
 /**
@@ -43,7 +45,12 @@ import type { ExecutionNode, AgentInfo } from '@ptah-extension/shared';
 @Component({
   selector: 'ptah-agent-execution',
   standalone: true,
-  imports: [LucideAngularModule, AgentSummaryComponent, ExecutionNodeComponent],
+  imports: [
+    LucideAngularModule,
+    AgentSummaryComponent,
+    ExecutionNodeComponent,
+    TypingCursorComponent,
+  ],
   template: `
     <div class="flex flex-col gap-2">
       <!-- Summary Section -->
@@ -64,15 +71,14 @@ import type { ExecutionNode, AgentInfo } from '@ptah-extension/shared';
             [img]="FileTextIcon"
             class="w-3.5 h-3.5 text-purple-400"
           />
-          <span class="text-[11px] font-medium text-base-content/70"
-            >Summary</span
-          >
-          @if (!agentInfo().summaryContent && agentInfo().hasSummary) {
-          <lucide-angular
-            [img]="LoaderIcon"
-            class="w-3 h-3 text-base-content/40 animate-spin ml-auto"
-          />
-          }
+          <span class="text-[11px] font-medium text-base-content/70">
+            Summary @if (isStreaming() && !agentInfo().summaryContent) {
+            <lucide-angular
+              [img]="LoaderIcon"
+              class="w-3 h-3 animate-spin ml-1 inline-block"
+            />
+            }
+          </span>
         </button>
 
         <!-- Summary Content -->
@@ -80,7 +86,9 @@ import type { ExecutionNode, AgentInfo } from '@ptah-extension/shared';
         <div class="px-2.5 py-2 max-h-64 overflow-y-auto">
           @if (agentInfo().summaryContent) {
           <ptah-agent-summary [content]="agentInfo().summaryContent!" />
-          } @else {
+          @if (isStreaming()) {
+          <ptah-typing-cursor colorClass="text-base-content/50" />
+          } } @else {
           <div
             class="flex items-center gap-2 text-[11px] text-base-content/40 italic"
           >
@@ -112,13 +120,18 @@ import type { ExecutionNode, AgentInfo } from '@ptah-extension/shared';
             class="w-3.5 h-3.5 text-blue-400"
           />
           <span class="text-[11px] font-medium text-base-content/70">
-            Execution @if (executionTree()?.children?.length) {
+            Execution @if (isStreaming()) {
             <span class="text-base-content/40 ml-1"
-              >({{ executionTree()?.children?.length }} tools)</span
+              >({{ toolCount() }} tools running...)</span
+            >
+            } @else if (toolCount() > 0) {
+            <span class="text-base-content/40 ml-1"
+              >({{ toolCount() }} tools)</span
             >
             }
           </span>
-          @if (!hasExecutionNodes() && agentInfo().hasExecution) {
+          @if (!hasExecutionNodes() && agentInfo().hasExecution &&
+          isStreaming()) {
           <lucide-angular
             [img]="LoaderIcon"
             class="w-3 h-3 text-base-content/40 animate-spin ml-auto"
@@ -131,7 +144,7 @@ import type { ExecutionNode, AgentInfo } from '@ptah-extension/shared';
         <div class="px-2.5 py-2 max-h-96 overflow-y-auto">
           @if (hasExecutionNodes()) { @for (child of executionTree()?.children
           || []; track child.id) {
-          <ptah-execution-node [node]="child" />
+          <ptah-execution-node [node]="child" [isStreaming]="isStreaming()" />
           } } @else {
           <div
             class="flex items-center gap-2 text-[11px] text-base-content/40 italic"
@@ -156,13 +169,20 @@ import type { ExecutionNode, AgentInfo } from '@ptah-extension/shared';
         <lucide-angular [img]="AlertCircleIcon" class="w-3.5 h-3.5" />
         <span>Agent execution was interrupted</span>
       </div>
-      } @else {
-      <!-- In-progress state (live streaming) -->
+      } @else if (isStreaming()) {
+      <!-- Streaming but no content yet -->
       <div
         class="flex items-center gap-2 text-[11px] text-base-content/40 italic px-2 py-3"
       >
         <lucide-angular [img]="LoaderIcon" class="w-3.5 h-3.5 animate-spin" />
         <span>Agent execution in progress...</span>
+      </div>
+      } @else {
+      <!-- Completed with no content (unusual) -->
+      <div
+        class="flex items-center gap-2 text-[11px] text-base-content/40 italic px-2 py-3"
+      >
+        <span>No execution data available</span>
       </div>
       } }
     </div>
@@ -184,6 +204,14 @@ export class AgentExecutionComponent {
   // Section collapse state
   readonly summaryCollapsed = signal(false);
   readonly executionCollapsed = signal(false);
+
+  // Computed signals for streaming state
+  readonly isStreaming = computed(() => this.agentInfo().isStreaming === true);
+
+  readonly toolCount = computed(() => {
+    const tree = this.executionTree();
+    return tree?.children?.filter((c) => c.type === 'tool').length ?? 0;
+  });
 
   protected toggleSummary(): void {
     this.summaryCollapsed.update((v) => !v);

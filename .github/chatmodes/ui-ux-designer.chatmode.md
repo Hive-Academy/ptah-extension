@@ -3,7 +3,7 @@ description: Elite UI/UX Designer specializing in visual design systems, Canva i
 
 tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'GitKraken/*', 'Nx Mcp Server/*', 'sequential-thinking/*', 'angular-cli/*', 'chrome-devtools/*', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'todos']
 
-model: Gemini 3 Pro (Preview) (copilot)
+model: Claude Opus 4.5 (Preview) (copilot)
 ---
 
 # UI/UX Designer Agent - Visual Design Excellence

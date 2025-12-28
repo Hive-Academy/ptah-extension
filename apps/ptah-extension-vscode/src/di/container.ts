@@ -33,6 +33,7 @@ import {
   RpcHandler,
   RpcMethodRegistrationService,
   SessionDiscoveryService,
+  AgentSessionWatcherService,
 } from '@ptah-extension/vscode-core';
 
 // Import workspace-intelligence services
@@ -56,21 +57,17 @@ import {
   TreeSitterParserService,
   AstAnalysisService,
   AgentDiscoveryService,
-  MCPDiscoveryService,
   CommandDiscoveryService,
 } from '@ptah-extension/workspace-intelligence';
 
-// Import VS Code Language Model Tools
+// Import Code Execution MCP services (TASK_2025_025)
+// DELETED: AnalyzeWorkspaceTool, SearchFilesTool, GetRelevantFilesTool,
+// GetDiagnosticsTool, FindSymbolTool, GetGitStatusTool, LMToolsRegistrationService
+// (These languageModelTools only worked with Copilot, not Claude CLI)
 import {
-  AnalyzeWorkspaceTool,
-  SearchFilesTool,
-  GetRelevantFilesTool,
-  GetDiagnosticsTool,
-  FindSymbolTool,
-  GetGitStatusTool,
-  LMToolsRegistrationService,
   PtahAPIBuilder,
   CodeExecutionMCP,
+  PermissionPromptService,
 } from '@ptah-extension/vscode-lm-tools';
 
 // Import claude-domain services
@@ -78,10 +75,12 @@ import {
   ClaudeCliDetector,
   ProcessManager,
   ClaudeCliService,
-  MCPRegistrationService,
+  MCPConfigManagerService,
   ClaudeProcess,
+  PricingService,
   // DELETED in TASK_2025_023 purge: SessionManager, InteractiveSessionManager, ClaudeCliLauncher
   // DELETED: PermissionService, InMemoryPermissionRulesStore (over-engineered, unused)
+  // DELETED in TASK_2025_025: MCPRegistrationService (replaced by MCPConfigManagerService)
 } from '@ptah-extension/claude-domain';
 
 // Import webview support services
@@ -142,6 +141,12 @@ export class DIContainer {
     container.registerSingleton(
       TOKENS.SESSION_DISCOVERY_SERVICE,
       SessionDiscoveryService
+    );
+
+    // Agent Session Watcher (real-time summary streaming during agent execution)
+    container.registerSingleton(
+      TOKENS.AGENT_SESSION_WATCHER_SERVICE,
+      AgentSessionWatcherService
     );
 
     // ClaudeProcess factory (Batch 4 - TASK_2025_023)
@@ -235,45 +240,26 @@ export class DIContainer {
       AgentDiscoveryService
     );
     container.registerSingleton(
-      TOKENS.MCP_DISCOVERY_SERVICE,
-      MCPDiscoveryService
-    );
-    container.registerSingleton(
       TOKENS.COMMAND_DISCOVERY_SERVICE,
       CommandDiscoveryService
     );
 
     // ========================================
-    // PHASE 2.5: VS Code Language Model Tools
+    // PHASE 2.5: Code Execution MCP (TASK_2025_025)
     // ========================================
-    // These tools expose workspace-intelligence to GitHub Copilot and other LLMs
+    // DELETED: Individual languageModelTools registrations (only worked with Copilot)
+    // DELETED: ANALYZE_WORKSPACE_TOOL, SEARCH_FILES_TOOL, GET_RELEVANT_FILES_TOOL,
+    // GET_DIAGNOSTICS_TOOL, FIND_SYMBOL_TOOL, GET_GIT_STATUS_TOOL, LM_TOOLS_REGISTRATION_SERVICE
 
-    // Register individual tools
-    container.registerSingleton(
-      TOKENS.ANALYZE_WORKSPACE_TOOL,
-      AnalyzeWorkspaceTool
-    );
-    container.registerSingleton(TOKENS.SEARCH_FILES_TOOL, SearchFilesTool);
-    container.registerSingleton(
-      TOKENS.GET_RELEVANT_FILES_TOOL,
-      GetRelevantFilesTool
-    );
-    container.registerSingleton(
-      TOKENS.GET_DIAGNOSTICS_TOOL,
-      GetDiagnosticsTool
-    );
-    container.registerSingleton(TOKENS.FIND_SYMBOL_TOOL, FindSymbolTool);
-    container.registerSingleton(TOKENS.GET_GIT_STATUS_TOOL, GetGitStatusTool);
-
-    // Register the tools registration service
-    container.registerSingleton(
-      TOKENS.LM_TOOLS_REGISTRATION_SERVICE,
-      LMToolsRegistrationService
-    );
-
-    // Code Execution MCP services
+    // Code Execution MCP services (expose workspace-intelligence to Claude CLI)
     container.registerSingleton(TOKENS.PTAH_API_BUILDER, PtahAPIBuilder);
     container.registerSingleton(TOKENS.CODE_EXECUTION_MCP, CodeExecutionMCP);
+
+    // Permission Prompt Service (TASK_2025_026)
+    container.registerSingleton(
+      TOKENS.PERMISSION_PROMPT_SERVICE,
+      PermissionPromptService
+    );
 
     // ========================================
     // PHASE 3: Claude Domain Services
@@ -292,6 +278,9 @@ export class DIContainer {
     };
     container.register(TOKENS.STORAGE_SERVICE, { useValue: storageAdapter });
 
+    // Global state adapter (for pricing cache - uses globalState for cross-workspace persistence)
+    container.register(TOKENS.GLOBAL_STATE, { useValue: context.globalState });
+
     // NOTE: CONFIGURATION_PROVIDER is NOW registered during Phase 1 (line 121)
     // It was moved from main.ts to fix dependency injection order issues.
 
@@ -300,9 +289,12 @@ export class DIContainer {
     container.registerSingleton(TOKENS.PROCESS_MANAGER, ProcessManager);
     container.registerSingleton(TOKENS.CLAUDE_CLI_SERVICE, ClaudeCliService);
     container.registerSingleton(
-      TOKENS.MCP_REGISTRATION_SERVICE,
-      MCPRegistrationService
+      TOKENS.MCP_CONFIG_MANAGER_SERVICE,
+      MCPConfigManagerService
     );
+
+    // Pricing service (fetches pricing from LiteLLM, caches in globalState)
+    container.registerSingleton(TOKENS.PRICING_SERVICE, PricingService);
 
     // Session management - DELETED in TASK_2025_023 purge + cleanup
     // SessionManager, InteractiveSessionManager, ClaudeCliLauncher removed

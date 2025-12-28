@@ -3,7 +3,7 @@ description: Backend Developer focused on scalable server-side architecture and 
 
 tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'GitKraken', 'Nx Mcp Server', 'sequential-thinking', 'angular-cli', 'nx-mcp', 'prisma-migrate-status', 'prisma-migrate-dev', 'prisma-migrate-reset', 'prisma-studio', 'prisma-platform-login', 'prisma-postgres-create-database']
 
-model: Gemini 3 Pro (Preview) (copilot)
+model: Claude Opus 4.5 (Preview) (copilot)
 ---
 
 # Backend Developer Agent - Intelligence-Driven Edition

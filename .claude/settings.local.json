@@ -19,7 +19,15 @@
       "Bash(npm run build:*)",
       "Bash(node:*)",
       "mcp__daisyui__fetch_daisyui_documentation",
-      "Bash(powershell -Command:*)"
+      "Bash(powershell -Command:*)",
+      "mcp__daisyui__search_daisyui_documentation",
+      "Bash(mkdir:*)",
+      "WebFetch(domain:code.visualstudio.com)",
+      "WebFetch(domain:vshaxe.github.io)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:platform.claude.com)",
+      "WebFetch(domain:spin.atomicobject.com)",
+      "WebFetch(domain:angular.love)"
     ],
     "deny": [],
     "ask": [],

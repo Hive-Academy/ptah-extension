@@ -16,15 +16,35 @@ export class CommandDiscoveryFacade {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly _isLoading = signal(false);
   private readonly _commands = signal<CommandSuggestion[]>([]);
+  private readonly _isCached = signal(false);
+  private readonly _error = signal<string | null>(null);
 
   readonly isLoading = computed(() => this._isLoading());
   readonly commands = computed(() => this._commands());
+  readonly isCached = computed(() => this._isCached());
+  readonly error = computed(() => this._error());
 
   /**
    * Fetch all commands from backend
    */
   async fetchCommands(): Promise<void> {
+    // Cache check - skip RPC if already cached
+    if (this._isCached()) {
+      console.log('[CommandDiscoveryFacade] Cache hit, skipping RPC');
+      return;
+    }
+
+    // Prevent duplicate in-flight requests
+    if (this._isLoading()) {
+      console.log(
+        '[CommandDiscoveryFacade] Request in-flight, skipping duplicate'
+      );
+      return;
+    }
+
+    console.log('[CommandDiscoveryFacade] fetchCommands called');
     this._isLoading.set(true);
+    this._error.set(null);
 
     try {
       const result = await this.rpc.call<{
@@ -43,6 +63,10 @@ export class CommandDiscoveryFacade {
             icon: this.getCommandIcon(c.scope),
           }))
         );
+        // Only mark cache as valid when we have actual data
+        if (result.data.commands.length > 0) {
+          this._isCached.set(true);
+        }
       } else if (result.error) {
         console.warn(
           '[CommandDiscoveryFacade] Discovery failed:',
@@ -51,6 +75,9 @@ export class CommandDiscoveryFacade {
         this._commands.set([]);
       }
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to fetch commands';
+      this._error.set(message);
       console.error(
         '[CommandDiscoveryFacade] Failed to fetch commands:',
         error
@@ -65,18 +92,30 @@ export class CommandDiscoveryFacade {
    * Search commands by query
    */
   searchCommands(query: string): CommandSuggestion[] {
+    const allCommands = this._commands();
+    console.log('[CommandDiscoveryFacade] searchCommands called', {
+      query,
+      totalCommands: allCommands.length,
+    });
+
     if (!query) {
-      return this._commands().slice(0, 10);
+      console.log('[CommandDiscoveryFacade] Returning all commands', {
+        count: allCommands.length,
+      });
+      return allCommands;
     }
 
     const lowerQuery = query.toLowerCase();
-    return this._commands()
-      .filter(
-        (c) =>
-          c.name.toLowerCase().includes(lowerQuery) ||
-          c.description.toLowerCase().includes(lowerQuery)
-      )
-      .slice(0, 20);
+    const results = allCommands.filter(
+      (c) =>
+        c.name.toLowerCase().includes(lowerQuery) ||
+        c.description.toLowerCase().includes(lowerQuery)
+    );
+
+    console.log('[CommandDiscoveryFacade] Filtered results', {
+      count: results.length,
+    });
+    return results;
   }
 
   private getCommandIcon(scope: string): string {
@@ -92,5 +131,15 @@ export class CommandDiscoveryFacade {
       default:
         return '❓';
     }
+  }
+
+  /**
+   * Clear cached commands and force refetch on next request
+   */
+  clearCache(): void {
+    this._isCached.set(false);
+    this._commands.set([]);
+    this._error.set(null);
+    console.log('[CommandDiscoveryFacade] Cache cleared');
   }
 }

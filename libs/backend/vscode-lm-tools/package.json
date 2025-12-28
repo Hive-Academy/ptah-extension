@@ -10,6 +10,7 @@
     "tsyringe": "^4.10.0",
     "@ptah-extension/vscode-core": "0.0.1",
     "@ptah-extension/shared": "0.0.1",
-    "@ptah-extension/workspace-intelligence": "0.0.1"
+    "@ptah-extension/workspace-intelligence": "0.0.1",
+    "minimatch": "9.0.3"
   }
 }

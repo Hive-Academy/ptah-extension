@@ -21,7 +21,8 @@
 - ✅ Fixing bugs (use team-leader → developers → senior-tester)
 - ✅ Refactoring code (use software-architect → team-leader → developers)
 - ✅ Testing functionality (use senior-tester)
-- ✅ Reviewing code quality (use code-reviewer)
+- ✅ Reviewing code style and patterns (use code-style-reviewer)
+- ✅ Reviewing business logic and completeness (use code-logic-reviewer)
 - ✅ Researching technical solutions (use researcher-expert)
 - ✅ Designing architecture (use software-architect)
 - ✅ Planning tasks (use project-manager)
@@ -88,7 +89,7 @@ npm run typecheck:all
    - DECOMPOSITION mode: Breaks implementation plans into atomic tasks
    - ASSIGNMENT mode: Assigns tasks to developers with git verification
    - COMPLETION mode: Validates all tasks complete, triggers final review
-4. **Specialist Agents**: project-manager, researcher, architect, developers, testers, reviewers
+4. **Specialist Agents**: project-manager, researcher, architect, developers, senior-tester, code-style-reviewer, code-logic-reviewer
 
 **Key Insight**: No separate orchestrator agent. Main thread (you) has all orchestration logic built-in, making decisions directly using tools.
 
@@ -144,9 +145,9 @@ Team Leader: Final verification, all tasks complete ✅
   ↓
 You: Ask USER for QA choice ✋
   ↓
-User: "both" (tester + reviewer)
+User: "all" (tester + style-reviewer + logic-reviewer)
   ↓
-You: Invoke senior-tester AND code-reviewer in PARALLEL
+You: Invoke senior-tester AND code-style-reviewer AND code-logic-reviewer in PARALLEL
   ↓
 You: Guide user through git operations
   ↓
@@ -157,10 +158,10 @@ You: Present final summary - WORKFLOW COMPLETE 🎯
 
 ### Dynamic Task-Type Strategies
 
-- **FEATURE**: PM → USER VALIDATES → [Research] → [UI/UX Designer] → Architect → USER VALIDATES → Team Leader (3 modes) → USER CHOOSES QA → Modernization
+- **FEATURE**: PM → USER VALIDATES → [Research] → [UI/UX Designer] → Architect → USER VALIDATES → Team Leader (3 modes) → USER CHOOSES QA (tester/style/logic/all) → Modernization
 - **BUGFIX**: Team Leader (3 modes) → USER CHOOSES QA (skip PM/Architect - requirements clear)
 - **REFACTORING**: Architect → USER VALIDATES → Team Leader (3 modes) → USER CHOOSES QA
-- **DOCUMENTATION**: PM → USER VALIDATES → Developer → Reviewer
+- **DOCUMENTATION**: PM → USER VALIDATES → Developer → Style Reviewer
 - **RESEARCH**: Researcher → [conditional implementation]
 
 ### Usage
@@ -228,7 +229,7 @@ You: Present final summary - WORKFLOW COMPLETE 🎯
 - ❌ **NEVER** design architecture yourself → Use software-architect
 - ❌ **NEVER** plan features yourself → Use project-manager
 - ❌ **NEVER** write tests yourself → Use senior-tester
-- ❌ **NEVER** review code yourself → Use code-reviewer
+- ❌ **NEVER** review code yourself → Use code-style-reviewer and/or code-logic-reviewer
 
 **YOUR RESPONSIBILITIES**:
 
@@ -247,7 +248,8 @@ You: Present final summary - WORKFLOW COMPLETE 🎯
 | Implement X  | project-manager → architect → team-leader → dev | New features        |
 | Fix bug      | team-leader → dev → test → review               | Bug reports         |
 | Research X   | researcher-expert → architect                   | Technical questions |
-| Review code  | code-reviewer                                   | Quality checks      |
+| Review style | code-style-reviewer                             | Pattern checks      |
+| Review logic | code-logic-reviewer                             | Completeness checks |
 | Test X       | senior-tester                                   | Testing             |
 | Architecture | software-architect                              | Design              |
 
@@ -307,6 +309,7 @@ task-tracking/
 
 - `webview`: Webview (Angular SPA) changes
 - `vscode`: VS Code extension changes
+- `vscode-lm-tools`: VS Code LM tools library changes
 - `deps`: Dependency updates
 - `release`: Release-related changes
 - `ci`: CI/CD changes

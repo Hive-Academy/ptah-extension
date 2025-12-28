@@ -45,6 +45,9 @@ export const RPC_METHOD_REGISTRATION_SERVICE = Symbol.for(
   'RpcMethodRegistrationService'
 );
 export const SESSION_DISCOVERY_SERVICE = Symbol.for('SessionDiscoveryService');
+export const AGENT_SESSION_WATCHER_SERVICE = Symbol.for(
+  'AgentSessionWatcherService'
+);
 
 // ========================================
 // Workspace Intelligence Service Tokens
@@ -84,7 +87,6 @@ export const CONTEXT_ORCHESTRATION_SERVICE = Symbol.for(
 export const TREE_SITTER_PARSER_SERVICE = Symbol.for('TreeSitterParserService');
 export const AST_ANALYSIS_SERVICE = Symbol.for('AstAnalysisService');
 export const AGENT_DISCOVERY_SERVICE = Symbol.for('AgentDiscoveryService');
-export const MCP_DISCOVERY_SERVICE = Symbol.for('MCPDiscoveryService');
 export const COMMAND_DISCOVERY_SERVICE = Symbol.for('CommandDiscoveryService');
 
 // ========================================
@@ -107,22 +109,16 @@ export const TEMPLATE_GENERATOR_SERVICE = Symbol.for(
 );
 
 // ========================================
-// VS Code Language Model Tools
+// Code Execution MCP (TASK_2025_025)
 // ========================================
-export const ANALYZE_WORKSPACE_TOOL = Symbol.for('AnalyzeWorkspaceTool');
-export const SEARCH_FILES_TOOL = Symbol.for('SearchFilesTool');
-export const GET_RELEVANT_FILES_TOOL = Symbol.for('GetRelevantFilesTool');
-export const GET_DIAGNOSTICS_TOOL = Symbol.for('GetDiagnosticsTool');
-export const FIND_SYMBOL_TOOL = Symbol.for('FindSymbolTool');
-export const GET_GIT_STATUS_TOOL = Symbol.for('GetGitStatusTool');
-export const LM_TOOLS_REGISTRATION_SERVICE = Symbol.for(
-  'LMToolsRegistrationService'
-);
+// DELETED in TASK_2025_025: ANALYZE_WORKSPACE_TOOL, SEARCH_FILES_TOOL, GET_RELEVANT_FILES_TOOL,
+// GET_DIAGNOSTICS_TOOL, FIND_SYMBOL_TOOL, GET_GIT_STATUS_TOOL, LM_TOOLS_REGISTRATION_SERVICE
+// (These languageModelTools only worked with Copilot, not Claude CLI)
 
-// Code Execution API
 export const PTAH_API_BUILDER = Symbol.for('PtahAPIBuilder');
 export const CODE_EXECUTION_MCP = Symbol.for('CodeExecutionMCP');
-export const MCP_REGISTRATION_SERVICE = Symbol.for('MCPRegistrationService');
+export const MCP_CONFIG_MANAGER_SERVICE = Symbol.for('MCPConfigManagerService');
+export const PERMISSION_PROMPT_SERVICE = Symbol.for('PermissionPromptService');
 
 // ========================================
 // AI Providers Core Tokens (DELETED - library removed)
@@ -139,6 +135,10 @@ export const MCP_REGISTRATION_SERVICE = Symbol.for('MCPRegistrationService');
 export const CLAUDE_CLI_DETECTOR = Symbol.for('ClaudeCliDetector');
 export const CLAUDE_CLI_SERVICE = Symbol.for('ClaudeCliService');
 export const PROCESS_MANAGER = Symbol.for('ProcessManager');
+export const PRICING_SERVICE = Symbol.for('PricingService');
+
+// VS Code Memento for pricing cache
+export const GLOBAL_STATE = Symbol.for('GlobalState');
 // PERMISSION_SERVICE - DELETED (over-engineered, unused)
 
 // DELETED tokens (TASK_2025_023 purge)
@@ -211,6 +211,7 @@ export const TOKENS = {
   RPC_HANDLER,
   RPC_METHOD_REGISTRATION_SERVICE,
   SESSION_DISCOVERY_SERVICE,
+  AGENT_SESSION_WATCHER_SERVICE,
 
   // ========================================
   // Workspace Intelligence
@@ -236,7 +237,6 @@ export const TOKENS = {
   TREE_SITTER_PARSER_SERVICE,
   AST_ANALYSIS_SERVICE,
   AGENT_DISCOVERY_SERVICE,
-  MCP_DISCOVERY_SERVICE,
   COMMAND_DISCOVERY_SERVICE,
 
   // ========================================
@@ -257,18 +257,14 @@ export const TOKENS = {
   TEMPLATE_GENERATOR_SERVICE,
 
   // ========================================
-  // VS Code Language Model Tools
+  // Code Execution MCP (TASK_2025_025)
   // ========================================
-  ANALYZE_WORKSPACE_TOOL,
-  SEARCH_FILES_TOOL,
-  GET_RELEVANT_FILES_TOOL,
-  GET_DIAGNOSTICS_TOOL,
-  FIND_SYMBOL_TOOL,
-  GET_GIT_STATUS_TOOL,
-  LM_TOOLS_REGISTRATION_SERVICE,
+  // DELETED: ANALYZE_WORKSPACE_TOOL, SEARCH_FILES_TOOL, GET_RELEVANT_FILES_TOOL,
+  // GET_DIAGNOSTICS_TOOL, FIND_SYMBOL_TOOL, GET_GIT_STATUS_TOOL, LM_TOOLS_REGISTRATION_SERVICE
   PTAH_API_BUILDER,
   CODE_EXECUTION_MCP,
-  MCP_REGISTRATION_SERVICE,
+  MCP_CONFIG_MANAGER_SERVICE,
+  PERMISSION_PROMPT_SERVICE,
 
   // ========================================
   // AI Providers Core (DELETED - library removed)
@@ -284,6 +280,8 @@ export const TOKENS = {
   CLAUDE_CLI_DETECTOR,
   CLAUDE_CLI_SERVICE,
   PROCESS_MANAGER,
+  PRICING_SERVICE,
+  GLOBAL_STATE,
   STORAGE_SERVICE,
   CONFIGURATION_PROVIDER,
   // PERMISSION_SERVICE - DELETED (over-engineered, unused)

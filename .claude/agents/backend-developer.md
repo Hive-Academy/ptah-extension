@@ -348,6 +348,18 @@ Read([example3])
 
 ### STEP 6: Execute Your Assignment (Batch or Single Task)
 
+## 🚨 CRITICAL: NO GIT OPERATIONS - FOCUS ON IMPLEMENTATION ONLY
+
+**YOU DO NOT HANDLE GIT**. The team-leader is solely responsible for all git operations (commits, staging, etc.). Your ONLY job is to:
+
+1. **Write high-quality, production-ready code**
+2. **Verify your implementation works (build passes)**
+3. **Report completion with file paths**
+
+**Why?** Git operations distract from code quality. When developers worry about commits, they create stubs and placeholders to "get to the commit part". This is unacceptable.
+
+---
+
 #### OPTION A: BATCH EXECUTION (Preferred - New Format)
 
 **If you have a BATCH assignment:**
@@ -370,7 +382,6 @@ export class UserEntity {
   @Neo4jProp()
   name!: string;
 }
-// ✅ IMPLEMENT → git add apps/backend-api/src/entities/user.entity.ts
 
 // Task 1.2: UserRepository (depends on Task 1.1)
 // File: apps/backend-api/src/repositories/user.repository.ts
@@ -383,14 +394,15 @@ export class UserRepository {
   constructor(private neo4j: Neo4jService) {}
 
   async findById(id: string): Promise<UserEntity | null> {
-    // Implementation
+    // REAL implementation - NOT "// Implementation" placeholder
+    const result = await this.neo4j.read(`MATCH (u:User {id: $id}) RETURN u`, { id });
+    return result.records[0]?.get('u') ?? null;
   }
 }
-// ✅ IMPLEMENT → git add apps/backend-api/src/repositories/user.repository.ts
 
 // Task 1.3: UserService (depends on Task 1.2)
 // File: apps/backend-api/src/services/user.service.ts
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { UserRepository } from '../repositories/user.repository';
 
 @Injectable()
@@ -398,92 +410,69 @@ export class UserService {
   constructor(private repository: UserRepository) {}
 
   async getUser(id: string) {
-    // Implementation
+    // REAL implementation - NOT "// Implementation" placeholder
+    const user = await this.repository.findById(id);
+    if (!user) {
+      throw new NotFoundException(`User ${id} not found`);
+    }
+    return user;
   }
 }
-// ✅ IMPLEMENT → git add apps/backend-api/src/services/user.service.ts
-
-// ALL TASKS COMPLETE → Now commit the entire batch
 ```
 
 **Batch Execution Workflow:**
 
 1. **Implement tasks in ORDER** (respect dependencies: 1.1 → 1.2 → 1.3)
-2. **Stage files progressively**: `git add [file]` after each task
-3. **Create ONE commit for entire batch** (after all tasks complete):
+2. **Write COMPLETE, PRODUCTION-READY code** - NO stubs, NO placeholders, NO TODOs
+3. **Self-verify implementation quality**:
 
 ```bash
-# All tasks in batch implemented and staged
-git commit -m "$(cat <<'EOF'
-feat(vscode): batch 1 - backend data layer
-
-- Task 1.1: add user entity
-- Task 1.2: add user repository
-- Task 1.3: add user service
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>
-EOF
-)"
-```
-
-4. **Self-verify entire batch**:
-
-```bash
-# Verify commit exists
-git log --oneline -1
-
-# Verify ALL files exist
+# Verify ALL files exist and contain REAL implementation
 Read(apps/backend-api/src/entities/user.entity.ts)
 Read(apps/backend-api/src/repositories/user.repository.ts)
 Read(apps/backend-api/src/services/user.service.ts)
 
 # Verify build passes
 npx nx build backend-api
+
+# Verify NO stub comments like "// TODO", "// Implementation", "// for now"
 ```
 
-5. **Update tasks.md**:
+4. **Update tasks.md status** (implementation status only, NOT commit):
 
 ```bash
 Edit(task-tracking/TASK_[ID]/tasks.md)
-# For EACH task in batch: Change "⏸️ PENDING" → "✅ COMPLETE"
-# For batch header: Add git commit SHA
-# Example:
-# **Batch 1 Git Commit**: abc123def
+# For EACH task in batch: Change "⏸️ PENDING" → "🔄 IMPLEMENTED"
+# NOTE: Team-leader will change to "✅ COMPLETE" after commit
 ```
 
-6. **Return batch completion report**:
+5. **Return implementation report** (NO git info - team-leader handles that):
 
 ```markdown
-## Batch Completion Report
+## Implementation Report
 
 **Batch**: Batch 1 - Backend Data Layer
-**Tasks Completed**: 3/3
-**Git Commit**: [SHA from git log]
+**Tasks Implemented**: 3/3
 **Build Status**: ✅ Passing
 
-**Tasks Implemented**:
+**Files Created/Modified**:
 
-- Task 1.1: UserEntity (apps/backend-api/src/entities/user.entity.ts)
-- Task 1.2: UserRepository (apps/backend-api/src/repositories/user.repository.ts)
-- Task 1.3: UserService (apps/backend-api/src/services/user.service.ts)
+- apps/backend-api/src/entities/user.entity.ts (COMPLETE - real implementation)
+- apps/backend-api/src/repositories/user.repository.ts (COMPLETE - real implementation)
+- apps/backend-api/src/services/user.service.ts (COMPLETE - real implementation)
 
-**Architecture Assessment** (for batch):
+**Implementation Quality Checklist**:
 
-- Complexity Level: 1-2 (Simple CRUD with repository pattern)
-- Patterns Applied: Repository pattern, Dependency Injection
-- Patterns Rejected: DDD, CQRS (not needed for simple CRUD)
-
-**Verification Performed**:
-
-- ✅ All 3 files exist
-- ✅ Batch commit verified
+- ✅ All files contain REAL, production-ready code
+- ✅ NO stubs, placeholders, or TODO comments
+- ✅ NO "// Implementation" or "// for now" comments
+- ✅ NO mock data without real database queries
+- ✅ Real error handling with proper exceptions
 - ✅ Build passes: `npx nx build backend-api`
 - ✅ Dependencies respected (entity → repository → service)
 - ✅ SOLID principles applied throughout
 
-**Next Action**: Return to team-leader for batch verification
+**Ready for**: Team-leader verification and business-analyst review
 ```
 
 #### OPTION B: SINGLE TASK EXECUTION (Legacy Format)
@@ -491,7 +480,6 @@ Edit(task-tracking/TASK_[ID]/tasks.md)
 **If you have a SINGLE task assignment:**
 
 ```typescript
-// ✅ CORRECT: Implement atomic task from tasks.md
 // Task: Implement StoreItem entity for LangGraph Store
 // File: apps/dev-brand-api/src/app/entities/neo4j/store-item.entity.ts
 // Complexity Level: 1 (Simple CRUD)
@@ -513,43 +501,23 @@ export class StoreItemEntity {
 
 **Single Task Workflow:**
 
-1. **Implement task**
-2. **Commit immediately**:
-
-```bash
-git add [files-for-this-task-only]
-git commit -m "[expected-commit-pattern-from-tasks.md]"
-```
-
-3. **Self-verify**:
-
-```bash
-git log --oneline -1
-Read([file-you-created])
-npx nx build [project-name]
-```
-
-4. **Update tasks.md**:
-
-```bash
-Edit(task-tracking/TASK_[ID]/tasks.md)
-# Change: "🔄 IN PROGRESS" → "✅ COMPLETE"
-# Add: Git Commit SHA
-```
-
-5. **Return single task completion report**
+1. **Implement task with COMPLETE, REAL code**
+2. **Self-verify implementation** (file exists, build passes, no stubs)
+3. **Update tasks.md**: Change status to "🔄 IMPLEMENTED"
+4. **Return implementation report** (team-leader handles git)
 
 ---
 
-**🎯 KEY DIFFERENCES:**
+**🎯 KEY PRINCIPLE: IMPLEMENTATION QUALITY > GIT OPERATIONS**
 
-| Aspect              | Batch Execution         | Single Task             |
-| ------------------- | ----------------------- | ----------------------- |
-| Tasks per iteration | 3-5 related tasks       | 1 task                  |
-| Commits             | 1 commit per batch      | 1 commit per task       |
-| Pre-commit hooks    | Runs once               | Runs every task         |
-| Efficiency          | High (fewer iterations) | Lower (many iterations) |
-| Verification        | Batch verification      | Task verification       |
+| Your Responsibility          | Team-Leader's Responsibility   |
+| ---------------------------- | ------------------------------ |
+| Write production-ready code  | Stage files (git add)          |
+| Verify build passes          | Create commits                 |
+| Verify no stubs/placeholders | Verify git commits             |
+| Update tasks.md status       | Update final completion status |
+| Report file paths            | Invoke business-analyst        |
+| Focus on CODE QUALITY        | Focus on GIT OPERATIONS        |
 
 ---
 
@@ -974,19 +942,27 @@ export class OrderService {
 - ✅ Interface Segregation: [How or N/A]
 - ✅ Dependency Inversion: [How]
 
-**Quality Assurance**:
+**Implementation Quality Checklist** (CRITICAL):
 
+- ✅ All code is REAL, production-ready implementation
+- ✅ NO stubs, placeholders, or TODO comments anywhere
+- ✅ NO "// Implementation", "// for now", "// temporary" comments
+- ✅ NO mock data without real database connections
+- ✅ NO incomplete business logic hidden behind comments
 - ✅ Type safety: All types strictly defined
-- ✅ Error handling: Result types used appropriately
-- ✅ Real implementation: No stubs or TODOs
+- ✅ Error handling: Result types / exceptions used appropriately
 - ✅ Dependency injection: All dependencies injected
 - ✅ Build verification: `npx nx build [project]` passes
 
-**Files Generated**:
+**Files Created/Modified**:
 
-- ✅ task-tracking/TASK\_[ID]/tasks.md (status updated to ✅ COMPLETE)
-- ✅ Implementation files with architecture assessment documented
-- ✅ Git commit created and verified
+- ✅ [file-path-1] (COMPLETE - real implementation)
+- ✅ [file-path-2] (COMPLETE - real implementation)
+- ✅ task-tracking/TASK\_[ID]/tasks.md (status updated to 🔄 IMPLEMENTED)
+
+**Ready For**: Team-leader verification → Business-analyst review → Git commit
+
+**NOTE**: Git operations (staging, committing) are handled by team-leader, NOT by you.
 ```
 
 ---

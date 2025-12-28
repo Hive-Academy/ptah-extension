@@ -6,10 +6,16 @@ import {
   ExecutionNode,
   JSONLMessage,
   createExecutionChatMessage,
+  createExecutionNode,
+  PermissionRequest,
+  PermissionResponse,
+  calculateMessageCost,
 } from '@ptah-extension/shared';
 import { SessionReplayService } from './session-replay.service';
 import { SessionManager } from './session-manager.service';
 import { JsonlMessageProcessor } from './jsonl-processor.service';
+import { TabManagerService } from './tab-manager.service';
+import { TabState } from './chat.types';
 
 /**
  * ChatStore - Signal-based reactive store for chat state
@@ -47,6 +53,7 @@ export class ChatStore {
   private readonly sessionReplay = inject(SessionReplayService);
   private readonly sessionManager = inject(SessionManager);
   private readonly jsonlProcessor = inject(JsonlMessageProcessor);
+  private readonly tabManager = inject(TabManagerService);
 
   // Signal to track service initialization state
   private readonly _servicesReady = signal(false);
@@ -100,48 +107,198 @@ export class ChatStore {
   // ============================================================================
 
   private readonly _sessions = signal<readonly ChatSessionSummary[]>([]);
-  private readonly _currentSessionId = signal<string | null>(null);
-  private readonly _messages = signal<readonly ExecutionChatMessage[]>([]);
-  private readonly _isStreaming = signal(false);
 
-  // Current execution tree being built (for streaming assistant messages)
-  private readonly _currentExecutionTree = signal<ExecutionNode | null>(null);
+  // Pagination state for sessions
+  private readonly _hasMoreSessions = signal(false);
+  private readonly _totalSessions = signal(0);
+  private readonly _sessionsOffset = signal(0);
+  private readonly _isLoadingMoreSessions = signal(false);
+  private static readonly SESSIONS_PAGE_SIZE = 10;
+
+  // Track pending session ID resolutions: placeholder sessionId -> tabId
+  // This ensures session:id-resolved goes to the correct tab even if user switches tabs
+  private readonly pendingSessionResolutions = new Map<string, string>();
+
+  // Signal for queue-to-input restoration (with tab ID validation)
+  private readonly _queueRestoreSignal = signal<{
+    tabId: string;
+    content: string;
+  } | null>(null);
+  readonly queueRestoreContent = this._queueRestoreSignal.asReadonly();
+
+  // Guard signals for preventing race conditions
+  private readonly _isStopping = signal(false);
+  private readonly _isAutoSending = signal(false);
 
   // ============================================================================
   // PUBLIC READONLY SIGNALS
   // ============================================================================
 
   readonly sessions = this._sessions.asReadonly();
-  readonly currentSessionId = this._currentSessionId.asReadonly();
-  readonly messages = this._messages.asReadonly();
-  readonly isStreaming = this._isStreaming.asReadonly();
-  readonly currentExecutionTree = this._currentExecutionTree.asReadonly();
+
+  // Active tab accessor (delegated to TabManager)
+  readonly activeTab = computed(() => this.tabManager.activeTab());
+
+  // Computed from active tab (delegated to TabManager)
+  readonly currentSessionId = computed(
+    () => this.tabManager.activeTab()?.claudeSessionId ?? null
+  );
+  readonly messages = computed(
+    () => this.tabManager.activeTab()?.messages ?? []
+  );
+  readonly currentExecutionTree = computed(
+    () => this.tabManager.activeTab()?.executionTree ?? null
+  );
+  readonly isStreaming = computed(() => {
+    const tab = this.tabManager.activeTab();
+    return tab?.status === 'streaming' || tab?.status === 'resuming';
+  });
+
+  readonly hasMoreSessions = this._hasMoreSessions.asReadonly();
+  readonly totalSessions = this._totalSessions.asReadonly();
+  readonly isLoadingMoreSessions = this._isLoadingMoreSessions.asReadonly();
+
+  // Permission requests
+  private readonly _permissionRequests = signal<PermissionRequest[]>([]);
+  readonly permissionRequests = this._permissionRequests.asReadonly();
+
+  /**
+   * Computed lookup: toolUseId → PermissionRequest
+   * Enables O(1) lookup for embedding permissions in tool cards
+   */
+  readonly permissionRequestsByToolId = computed(() => {
+    const requests = this._permissionRequests();
+    const map = new Map<string, PermissionRequest>();
+
+    requests.forEach((req) => {
+      if (req.toolUseId) {
+        map.set(req.toolUseId, req);
+      }
+    });
+
+    return map;
+  });
+
+  /**
+   * Get permission request for a specific tool by its toolCallId
+   * @param toolCallId The tool's unique identifier (from ExecutionNode.toolCallId)
+   * @returns PermissionRequest if one exists for this tool, null otherwise
+   */
+  getPermissionForTool(
+    toolCallId: string | undefined
+  ): PermissionRequest | null {
+    if (!toolCallId) return null;
+
+    const permission = this.permissionRequestsByToolId().get(toolCallId);
+
+    // Debug logging for ID correlation issues
+    if (!permission && this._permissionRequests().length > 0) {
+      console.debug('[ChatStore] Permission lookup miss:', {
+        lookupKey: toolCallId,
+        availableKeys: Array.from(this.permissionRequestsByToolId().keys()),
+        pendingCount: this._permissionRequests().length,
+      });
+    }
+
+    return permission ?? null;
+  }
+
+  /**
+   * Set of all toolCallIds currently present in execution trees.
+   * Used to determine which permissions are matched vs unmatched.
+   *
+   * Scans both:
+   * 1. Current streaming execution tree (tools being executed now)
+   * 2. All finalized messages' execution trees (completed tools)
+   */
+  private readonly toolIdsInExecutionTree = computed(() => {
+    const toolIds = new Set<string>();
+    const messages = this.messages();
+    const currentTree = this.currentExecutionTree();
+
+    const collectToolIds = (node: ExecutionNode | null): void => {
+      if (!node) return;
+
+      // Collect this node's toolCallId if it's a tool
+      if (node.type === 'tool' && node.toolCallId) {
+        toolIds.add(node.toolCallId);
+      }
+
+      // Recurse into children
+      if (node.children) {
+        for (const child of node.children) {
+          collectToolIds(child);
+        }
+      }
+    };
+
+    // Scan current streaming tree
+    collectToolIds(currentTree);
+
+    // Scan all finalized messages' execution trees
+    for (const msg of messages) {
+      if (msg.executionTree) {
+        collectToolIds(msg.executionTree);
+      }
+    }
+
+    return toolIds;
+  });
+
+  /**
+   * Permissions that couldn't be matched to any tool in the execution tree.
+   * These need fallback display to ensure user can always respond.
+   *
+   * A permission is "unmatched" if:
+   * 1. It has no toolUseId (can never match), OR
+   * 2. Its toolUseId doesn't exist in any tool's toolCallId in the execution tree
+   */
+  readonly unmatchedPermissions = computed(() => {
+    const allPermissions = this._permissionRequests();
+    if (allPermissions.length === 0) return [];
+
+    const toolIdsInTree = this.toolIdsInExecutionTree();
+
+    return allPermissions.filter((req) => {
+      // No toolUseId = can never match
+      if (!req.toolUseId) return true;
+
+      // Check if any tool in the execution tree has this permission's toolUseId as its toolCallId
+      // If not found in tree, it's unmatched and needs fallback display
+      return !toolIdsInTree.has(req.toolUseId);
+    });
+  });
 
   // ============================================================================
   // DERIVED COMPUTED SIGNALS
   // ============================================================================
 
   readonly currentSession = computed(() => {
-    const sessionId = this._currentSessionId();
+    const sessionId = this.currentSessionId();
     return this._sessions().find((s) => s.id === sessionId) ?? null;
   });
 
-  readonly messageCount = computed(() => this._messages().length);
+  readonly messageCount = computed(() => this.messages().length);
 
   /**
-   * Check if we have an active session loaded from disk (not a fresh one)
+   * Check if the active tab has an existing session that can be continued
    * Used to determine whether to start new or continue existing conversation
+   *
+   * IMPORTANT: Reads from active TAB state, not global SessionManager,
+   * to ensure correct behavior in multi-tab scenarios
    */
   readonly hasExistingSession = computed(() => {
-    return this.sessionManager.shouldContinueSession();
+    const tab = this.tabManager.activeTab();
+    // Has existing session if tab has a real Claude session ID and is in 'loaded' state
+    return tab?.claudeSessionId !== null && tab?.status === 'loaded';
   });
 
   // ============================================================================
   // STREAMING STATE TRACKING
   // ============================================================================
 
-  // Track currently building message
-  private currentMessageId: string | null = null;
+  // NOTE: currentMessageId is now tracked per-tab in TabState.currentMessageId
+  // This enables proper multi-tab streaming support
 
   // ============================================================================
   // ACTIONS
@@ -149,22 +306,22 @@ export class ChatStore {
 
   /**
    * Clear current session to start a new conversation
-   * Does not load anything from backend - just resets local state
+   * Creates a new tab instead of clearing state
    */
   clearCurrentSession(): void {
     console.log('[ChatStore] Clearing current session for new conversation');
-    this._currentSessionId.set(null);
-    this._messages.set([]);
-    this._isStreaming.set(false);
-    this._currentExecutionTree.set(null);
-    this.currentMessageId = null;
 
-    // Clear SessionManager state
+    // Create new tab instead of just clearing state
+    const newTabId = this.tabManager.createTab('New Chat');
+    this.tabManager.switchTab(newTabId);
+
+    // New tab starts with no currentMessageId (handled by TabState default)
     this.sessionManager.clearSession();
   }
 
   /**
-   * Load all sessions from backend via RPC
+   * Load sessions from backend via RPC (with pagination)
+   * Resets pagination and loads first page
    */
   async loadSessions(): Promise<void> {
     try {
@@ -193,19 +350,91 @@ export class ChatStore {
         return;
       }
 
-      const result = await this.claudeRpcService.call<ChatSessionSummary[]>(
-        'session:list',
-        { workspacePath }
-      );
+      // Reset pagination state
+      this._sessionsOffset.set(0);
+
+      const result = await this.claudeRpcService.call<{
+        sessions: ChatSessionSummary[];
+        total: number;
+        hasMore: boolean;
+      }>('session:list', {
+        workspacePath,
+        limit: ChatStore.SESSIONS_PAGE_SIZE,
+        offset: 0,
+      });
 
       if (result.success && result.data) {
-        this._sessions.set(result.data);
-        console.log('[ChatStore] Loaded sessions:', result.data.length);
+        this._sessions.set(result.data.sessions);
+        this._totalSessions.set(result.data.total);
+        this._hasMoreSessions.set(result.data.hasMore);
+        this._sessionsOffset.set(result.data.sessions.length);
+        console.log(
+          '[ChatStore] Loaded sessions:',
+          result.data.sessions.length,
+          'of',
+          result.data.total
+        );
       } else {
         console.error('[ChatStore] Failed to load sessions:', result.error);
       }
     } catch (error) {
       console.error('[ChatStore] Failed to load sessions:', error);
+    }
+  }
+
+  /**
+   * Load more sessions (pagination)
+   */
+  async loadMoreSessions(): Promise<void> {
+    if (!this._hasMoreSessions() || this._isLoadingMoreSessions()) {
+      return;
+    }
+
+    try {
+      this._isLoadingMoreSessions.set(true);
+
+      if (!this.claudeRpcService || !this.vscodeService) {
+        console.error('[ChatStore] Services not available');
+        return;
+      }
+
+      const workspacePath = this.vscodeService.config().workspaceRoot;
+      if (!workspacePath) {
+        return;
+      }
+
+      const currentOffset = this._sessionsOffset();
+
+      const result = await this.claudeRpcService.call<{
+        sessions: ChatSessionSummary[];
+        total: number;
+        hasMore: boolean;
+      }>('session:list', {
+        workspacePath,
+        limit: ChatStore.SESSIONS_PAGE_SIZE,
+        offset: currentOffset,
+      });
+
+      if (result.success && result.data) {
+        // Append new sessions to existing
+        this._sessions.update((current) => [
+          ...current,
+          ...result.data!.sessions,
+        ]);
+        this._totalSessions.set(result.data.total);
+        this._hasMoreSessions.set(result.data.hasMore);
+        this._sessionsOffset.set(currentOffset + result.data.sessions.length);
+        console.log(
+          '[ChatStore] Loaded more sessions:',
+          result.data.sessions.length,
+          ', total now:',
+          this._sessions().length
+        );
+      }
+    } catch (error) {
+      console.error('[ChatStore] Failed to load more sessions:', error);
+    } finally {
+      this._isLoadingMoreSessions.set(false);
     }
   }
 
@@ -239,12 +468,7 @@ export class ChatStore {
         return;
       }
 
-      this._currentSessionId.set(sessionId);
-
-      // Clear streaming state before loading
-      this._isStreaming.set(false);
-      this._currentExecutionTree.set(null);
-      this.currentMessageId = null;
+      // Note: currentMessageId is now per-tab, cleared when tab is updated below
 
       // Load messages for this session via RPC
       const result = await this.claudeRpcService.call<{
@@ -268,7 +492,19 @@ export class ChatStore {
           result.data.agentSessions ?? []
         );
 
-        this._messages.set(messages);
+        // Open or switch to tab for this session (prevents duplicate tabs)
+        const title =
+          messages[0]?.rawContent?.substring(0, 50) ||
+          sessionId.substring(0, 50);
+        const activeTabId = this.tabManager.openSessionTab(sessionId, title);
+
+        // Update tab with loaded messages
+        this.tabManager.updateTab(activeTabId, {
+          messages,
+          executionTree: null,
+          status: 'loaded',
+          title,
+        });
 
         // Update SessionManager with node maps and state
         this.sessionManager.setNodeMaps(nodeMaps);
@@ -286,11 +522,9 @@ export class ChatStore {
         );
       } else {
         console.error('[ChatStore] Failed to load session:', result.error);
-        this._messages.set([]);
       }
     } catch (error) {
       console.error('[ChatStore] Failed to switch session:', error);
-      this._messages.set([]);
     }
   }
 
@@ -303,6 +537,27 @@ export class ChatStore {
       return this.continueConversation(content, files);
     } else {
       return this.startNewConversation(content, files);
+    }
+  }
+
+  /**
+   * FIX #8: Smart send or queue routing (Single Responsibility - store handles the logic)
+   * Automatically queues if streaming, sends normally if not
+   * @param content - Message content
+   * @param filePaths - Optional file paths to include
+   */
+  async sendOrQueueMessage(
+    content: string,
+    filePaths?: string[]
+  ): Promise<void> {
+    if (this.isStreaming()) {
+      // Queue the message instead of sending
+      this.queueOrAppendMessage(content);
+      console.log('[ChatStore] Message queued during streaming');
+    } else {
+      // Normal send flow
+      await this.sendMessage(content, filePaths);
+      console.log('[ChatStore] Message sent normally');
     }
   }
 
@@ -337,36 +592,55 @@ export class ChatStore {
         return;
       }
 
-      // Clear previous session state including node maps
-      // This prevents stale agent/tool references from a previously loaded session
-      this._messages.set([]);
-      this._currentExecutionTree.set(null);
-      this.currentMessageId = null;
+      // Get or create active tab
+      let activeTabId = this.tabManager.activeTabId();
+      if (!activeTabId) {
+        activeTabId = this.tabManager.createTab();
+        this.tabManager.switchTab(activeTabId);
+      }
+
+      // Clear previous node maps to prevent stale references
       this.sessionManager.clearNodeMaps();
 
-      // Generate new session ID for new conversation
+      // Generate placeholder session ID for new conversation
       const sessionId = this.generateId();
-      this._currentSessionId.set(sessionId);
+
+      // Update tab with draft status
+      this.tabManager.updateTab(activeTabId, {
+        title: content.substring(0, 50) || 'New Chat',
+        status: 'draft',
+        isDirty: false,
+      });
 
       // Update SessionManager state
       this.sessionManager.setSessionId(sessionId);
-      this.sessionManager.setStatus('streaming');
+      this.sessionManager.clearClaudeSessionId(); // Clear previous real ID
+      this.sessionManager.setStatus('draft'); // Start in draft state (no real session ID yet)
 
-      // Add user message immediately
+      // Add user message immediately (with null sessionId - will be updated when resolved)
       const userMessage = createExecutionChatMessage({
         id: this.generateId(),
         role: 'user',
         rawContent: content,
         files,
-        sessionId,
+        sessionId: null as any, // Will be updated when session:id-resolved arrives
       });
 
-      this._messages.update((msgs) => [...msgs, userMessage]);
+      // Update tab with user message
+      const activeTab = this.tabManager.activeTab();
+      this.tabManager.updateTab(activeTabId, {
+        messages: [...(activeTab?.messages ?? []), userMessage],
+        currentMessageId: null, // Reset per-tab message ID for new conversation
+      });
 
-      // Start streaming
-      this._isStreaming.set(true);
+      // Track this tab for session ID resolution
+      // When session:id-resolved arrives, we'll know which tab initiated this conversation
+      this.pendingSessionResolutions.set(sessionId, activeTabId);
 
-      console.log('[ChatStore] Starting NEW conversation:', { sessionId });
+      console.log('[ChatStore] Starting NEW conversation:', {
+        sessionId,
+        tabId: activeTabId,
+      });
 
       // Call RPC to start NEW chat
       const result = await this.claudeRpcService.call<{ sessionId: string }>(
@@ -381,7 +655,10 @@ export class ChatStore {
 
       if (!result.success) {
         console.error('[ChatStore] Failed to start chat:', result.error);
-        this._isStreaming.set(false);
+        // Clean up pending resolution since chat failed
+        this.pendingSessionResolutions.delete(sessionId);
+        // Update tab status to loaded (failed)
+        this.tabManager.updateTab(activeTabId, { status: 'loaded' });
       } else {
         console.log('[ChatStore] New conversation started:', result.data);
 
@@ -404,7 +681,11 @@ export class ChatStore {
       }
     } catch (error) {
       console.error('[ChatStore] Failed to start new conversation:', error);
-      this._isStreaming.set(false);
+      // Update tab status to loaded (error)
+      const activeTabId = this.tabManager.activeTabId();
+      if (activeTabId) {
+        this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+      }
     }
   }
 
@@ -439,16 +720,29 @@ export class ChatStore {
         return;
       }
 
-      // Get existing session ID
-      const sessionId = this._currentSessionId();
+      // Get REAL Claude session ID from the ACTIVE TAB (not global SessionManager)
+      // This is critical for multi-tab support - each tab has its own session
+      const activeTab = this.tabManager.activeTab();
+      const sessionId = activeTab?.claudeSessionId;
       if (!sessionId) {
-        console.error('[ChatStore] No session selected - cannot continue');
-        // Fall back to starting new conversation
+        console.warn(
+          '[ChatStore] No Claude session ID on active tab - starting new conversation'
+        );
+        return this.startNewConversation(content, files);
+      }
+
+      // Get active tab
+      const activeTabId = this.tabManager.activeTabId();
+      if (!activeTabId) {
+        console.warn('[ChatStore] No active tab for continuing conversation');
         return this.startNewConversation(content, files);
       }
 
       // Update SessionManager state
       this.sessionManager.setStatus('resuming');
+
+      // Update tab status
+      this.tabManager.updateTab(activeTabId, { status: 'resuming' });
 
       // Add user message immediately
       const userMessage = createExecutionChatMessage({
@@ -459,10 +753,10 @@ export class ChatStore {
         sessionId,
       });
 
-      this._messages.update((msgs) => [...msgs, userMessage]);
-
-      // Start streaming
-      this._isStreaming.set(true);
+      // Update tab with user message (reuse activeTab from above)
+      this.tabManager.updateTab(activeTabId, {
+        messages: [...(activeTab?.messages ?? []), userMessage],
+      });
 
       console.log('[ChatStore] Continuing EXISTING session:', { sessionId });
 
@@ -478,32 +772,264 @@ export class ChatStore {
 
       if (!result.success) {
         console.error('[ChatStore] Failed to continue chat:', result.error);
-        this._isStreaming.set(false);
+        this.tabManager.updateTab(activeTabId, { status: 'loaded' });
       } else {
         console.log('[ChatStore] Conversation continued:', result.data);
         this.sessionManager.setStatus('streaming');
+        this.tabManager.updateTab(activeTabId, { status: 'streaming' });
       }
     } catch (error) {
       console.error('[ChatStore] Failed to continue conversation:', error);
-      this._isStreaming.set(false);
+      const activeTabId = this.tabManager.activeTabId();
+      if (activeTabId) {
+        this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+      }
     }
   }
 
   /**
+   * Handle session ID resolution from backend
+   * Called when backend extracts real Claude CLI session UUID from JSONL stream
+   */
+  handleSessionIdResolved(data: {
+    sessionId: string;
+    realSessionId: string;
+  }): void {
+    console.log('[ChatStore] Session ID resolved:', data);
+
+    const { sessionId: placeholderSessionId, realSessionId } = data;
+
+    // Find the tab that initiated this conversation using the pending resolutions map
+    let targetTabId = this.pendingSessionResolutions.get(placeholderSessionId);
+
+    if (targetTabId) {
+      // Remove from pending resolutions
+      this.pendingSessionResolutions.delete(placeholderSessionId);
+      console.log('[ChatStore] Found pending resolution for tab:', targetTabId);
+    } else {
+      // Fall back to active tab (for backwards compatibility)
+      targetTabId = this.tabManager.activeTabId() ?? undefined;
+      console.log(
+        '[ChatStore] No pending resolution found, using active tab:',
+        targetTabId
+      );
+    }
+
+    if (!targetTabId) {
+      console.warn('[ChatStore] No target tab for session ID resolution');
+      return;
+    }
+
+    // Get the target tab
+    const targetTab = this.tabManager.tabs().find((t) => t.id === targetTabId);
+    if (!targetTab) {
+      console.warn('[ChatStore] Target tab not found:', targetTabId);
+      return;
+    }
+
+    if (targetTab.status !== 'draft') {
+      console.warn(
+        '[ChatStore] Ignoring session ID resolution for non-draft tab',
+        { tabId: targetTabId, status: targetTab.status }
+      );
+      return;
+    }
+
+    // Update tab with real session ID
+    this.tabManager.resolveSessionId(targetTabId, realSessionId);
+
+    // Update messages with real session ID
+    const updatedMessages = targetTab.messages.map((msg) => ({
+      ...msg,
+      sessionId: msg.sessionId === null ? realSessionId : msg.sessionId,
+    }));
+
+    this.tabManager.updateTab(targetTabId, {
+      messages: updatedMessages,
+    });
+
+    // Update SessionManager
+    this.sessionManager.setClaudeSessionId(realSessionId);
+
+    console.log('[ChatStore] Session ID resolved for tab:', {
+      tabId: targetTabId,
+      placeholderSessionId,
+      realSessionId,
+    });
+
+    // Refresh session list to show new session in sidebar
+    this.loadSessions().catch((err) => {
+      console.warn(
+        '[ChatStore] Failed to refresh sessions after ID resolution:',
+        err
+      );
+    });
+  }
+
+  /**
+   * Handle agent summary chunk from backend file watcher
+   *
+   * This is called when the AgentSessionWatcherService detects new content
+   * in an agent's JSONL file during streaming. The summary content is
+   * extracted from text blocks and appended to the agent node.
+   *
+   * @param payload - Contains toolUseId and summaryDelta
+   */
+  handleAgentSummaryChunk(payload: {
+    toolUseId: string;
+    summaryDelta: string;
+  }): void {
+    const { toolUseId, summaryDelta } = payload;
+
+    console.log('[ChatStore] Agent summary chunk received:', {
+      toolUseId,
+      deltaLength: summaryDelta.length,
+    });
+
+    // Find the agent node by toolUseId
+    const agentNode = this.sessionManager.getAgent(toolUseId);
+    if (!agentNode) {
+      console.warn(
+        '[ChatStore] Agent node not found for summary chunk:',
+        toolUseId
+      );
+      return;
+    }
+
+    // Update agent node with appended summary content
+    const updatedAgent: ExecutionNode = {
+      ...agentNode,
+      summaryContent: (agentNode.summaryContent || '') + summaryDelta,
+    };
+
+    // Register updated agent
+    this.sessionManager.registerAgent(toolUseId, updatedAgent);
+
+    // Update the agent in the current message's execution tree
+    const activeTab = this.tabManager.activeTab();
+    if (!activeTab) return;
+
+    const currentMessages = activeTab.messages;
+    if (currentMessages.length === 0) return;
+
+    // Find the last assistant message and update the agent node in its tree
+    const lastMsgIndex = currentMessages.length - 1;
+    const lastMsg = currentMessages[lastMsgIndex];
+
+    if (lastMsg.role !== 'assistant' || !lastMsg.executionTree) return;
+
+    // Replace the agent node in the tree
+    const updatedTree = this.replaceNodeInTree(
+      lastMsg.executionTree,
+      toolUseId,
+      updatedAgent
+    );
+
+    if (updatedTree !== lastMsg.executionTree) {
+      // Update the message with the new tree
+      const updatedMessages = [...currentMessages];
+      updatedMessages[lastMsgIndex] = {
+        ...lastMsg,
+        executionTree: updatedTree,
+      };
+
+      this.tabManager.updateTab(activeTab.id, {
+        messages: updatedMessages,
+      });
+
+      console.log('[ChatStore] Agent summary updated in tree:', {
+        toolUseId,
+        summaryLength: updatedAgent.summaryContent?.length || 0,
+      });
+    }
+  }
+
+  /**
+   * Recursively replace a node in the execution tree by ID
+   *
+   * @param tree - Root node of the tree
+   * @param nodeId - ID of the node to replace
+   * @param replacement - New node to insert
+   * @returns Updated tree (new reference if changed)
+   */
+  private replaceNodeInTree(
+    tree: ExecutionNode,
+    nodeId: string,
+    replacement: ExecutionNode
+  ): ExecutionNode {
+    // Check if this is the node to replace
+    if (tree.id === nodeId || tree.toolCallId === nodeId) {
+      return replacement;
+    }
+
+    // Recursively check children
+    let childrenChanged = false;
+    const newChildren = tree.children.map((child) => {
+      const updated = this.replaceNodeInTree(child, nodeId, replacement);
+      if (updated !== child) {
+        childrenChanged = true;
+      }
+      return updated;
+    });
+
+    // Return same reference if nothing changed
+    if (!childrenChanged) {
+      return tree;
+    }
+
+    // Return new tree with updated children
+    return {
+      ...tree,
+      children: newChildren,
+    };
+  }
+
+  /**
    * Abort current streaming message via RPC
+   * FIX #5: Guard against multiple stop clicks causing signal thrashing
    */
   async abortCurrentMessage(): Promise<void> {
     try {
+      // FIX #5: Prevent multiple simultaneous abort calls
+      if (this._isStopping()) {
+        console.log('[ChatStore] Abort already in progress, skipping');
+        return;
+      }
+      this._isStopping.set(true);
+
       if (!this.claudeRpcService) {
         console.warn('[ChatStore] RPC service not initialized');
+        this._isStopping.set(false);
         return;
       }
 
-      const sessionId = this._currentSessionId();
+      const sessionId = this.currentSessionId();
       if (!sessionId) {
         console.warn('[ChatStore] No active session to abort');
+        this._isStopping.set(false);
         return;
       }
+
+      // ========== HANDLE QUEUED CONTENT BEFORE ABORT ==========
+      const activeTab = this.tabManager.activeTab();
+      const queuedContent = activeTab?.queuedContent;
+
+      if (queuedContent && queuedContent.trim()) {
+        console.log('[ChatStore] Queued content detected during stop', {
+          tabId: activeTab?.id,
+          length: queuedContent.length,
+        });
+
+        // FIX #3: Include tab ID in restoration signal for validation
+        this._queueRestoreSignal.set({
+          tabId: activeTab.id,
+          content: queuedContent,
+        });
+
+        // Clear queue (will be moved to input by ChatInputComponent)
+        this.clearQueuedContent();
+      }
+      // ========== END QUEUE HANDLING ==========
 
       // Call RPC to abort
       const result = await this.claudeRpcService.call<void>('chat:abort', {
@@ -517,12 +1043,91 @@ export class ChatStore {
       }
 
       // Finalize current message regardless of RPC result
-      this._isStreaming.set(false);
       this.finalizeCurrentMessage();
     } catch (error) {
       console.error('[ChatStore] Failed to abort message:', error);
-      this._isStreaming.set(false);
+    } finally {
+      // Always reset stopping flag
+      this._isStopping.set(false);
     }
+  }
+
+  /**
+   * Queue or append message content to active tab
+   * If content already queued, append with newline separator
+   * FIX #4: Whitespace-only queue validation
+   * FIX #7: Double newline prevention
+   */
+  queueOrAppendMessage(content: string): void {
+    const activeTabId = this.tabManager.activeTabId();
+    if (!activeTabId) return;
+
+    // FIX #4: Trim and validate before storing
+    const trimmedContent = content.trim();
+    if (!trimmedContent) {
+      console.log('[ChatStore] Skipping whitespace-only queue content');
+      return;
+    }
+
+    const activeTab = this.tabManager.activeTab();
+    const existing = activeTab?.queuedContent;
+
+    // FIX #7: Trim trailing newlines before appending to prevent double newlines
+    const trimmedExisting = existing ? existing.replace(/\n+$/, '') : '';
+    const newContent = trimmedExisting
+      ? `${trimmedExisting}\n${trimmedContent}`
+      : trimmedContent;
+
+    this.tabManager.updateTab(activeTabId, {
+      queuedContent: newContent,
+    });
+
+    console.log('[ChatStore] Message queued/appended', {
+      tabId: activeTabId,
+      newLength: newContent.length,
+    });
+  }
+
+  /**
+   * Clear queued content for active tab
+   */
+  clearQueuedContent(): void {
+    const activeTabId = this.tabManager.activeTabId();
+    if (!activeTabId) return;
+
+    this.tabManager.updateTab(activeTabId, {
+      queuedContent: null,
+    });
+
+    console.log('[ChatStore] Queued content cleared', { tabId: activeTabId });
+  }
+
+  /**
+   * Move queued content to caller (for input restoration) and clear queue
+   * FIX #3: Include tab ID in return value for validation
+   * @returns Object with tabId and content, or null if no content queued
+   */
+  moveQueueToInput(): { tabId: string; content: string } | null {
+    const activeTab = this.tabManager.activeTab();
+    const content = activeTab?.queuedContent ?? null;
+
+    if (content && activeTab) {
+      this.clearQueuedContent();
+      console.log('[ChatStore] Queued content moved to input', {
+        tabId: activeTab.id,
+        length: content.length,
+      });
+      return { tabId: activeTab.id, content };
+    }
+
+    return null;
+  }
+
+  /**
+   * Clear the queue restore signal after content has been restored to input
+   */
+  clearQueueRestoreSignal(): void {
+    this._queueRestoreSignal.set(null);
   }
 
   // ============================================================================
@@ -532,27 +1137,73 @@ export class ChatStore {
   /**
    * Process a JSONL chunk from Claude CLI
    *
-   * Delegates to JsonlMessageProcessor and updates state based on result.
+   * Delegates to JsonlMessageProcessor and updates the target tab's execution tree.
+   * Routes messages to the correct tab by sessionId, not just the active tab.
+   * Also handles agent bubble lifecycle signals for unified visual hierarchy.
    */
-  processJsonlChunk(chunk: JSONLMessage): void {
+  processJsonlChunk(chunk: JSONLMessage, fromSessionId?: string): void {
     try {
+      // Find the target tab by session ID (proper multi-tab routing)
+      let targetTab: TabState | null = null;
+      let targetTabId: string | null = null;
+
+      if (fromSessionId) {
+        // First, try to find tab by Claude session ID
+        targetTab = this.tabManager.findTabBySessionId(fromSessionId);
+        if (targetTab) {
+          targetTabId = targetTab.id;
+        }
+      }
+
+      // Fall back to active tab if no session ID provided or tab not found
+      // (for backwards compatibility with draft tabs that don't have claudeSessionId yet)
+      if (!targetTab) {
+        targetTabId = this.tabManager.activeTabId();
+        targetTab = this.tabManager.activeTab();
+
+        // If we have a session ID but couldn't find the tab, and active tab doesn't match, warn
+        if (
+          fromSessionId &&
+          targetTab?.claudeSessionId &&
+          targetTab.claudeSessionId !== fromSessionId
+        ) {
+          console.warn('[ChatStore] Ignoring chunk - no matching tab found', {
+            sessionId: fromSessionId,
+            activeTabSessionId: targetTab.claudeSessionId,
+          });
+          return;
+        }
+      }
+
+      if (!targetTabId || !targetTab) {
+        console.warn('[ChatStore] No target tab for JSONL processing');
+        return;
+      }
+
       // Delegate to JsonlMessageProcessor
+      // Note: Agents are now nested inside the main execution tree (not separate messages)
+      // The processor updates the agent node in-tree, and we just update the tree state
       const result = this.jsonlProcessor.processChunk(
         chunk,
-        this._currentExecutionTree()
+        targetTab.executionTree ?? null
       );
 
       // Update state based on result
       if (result.newMessageStarted) {
-        this.currentMessageId = result.messageId ?? null;
+        // Track currentMessageId per-tab for multi-tab streaming support
+        this.tabManager.updateTab(targetTabId, {
+          currentMessageId: result.messageId ?? null,
+        });
       }
 
-      if (result.tree !== this._currentExecutionTree()) {
-        this._currentExecutionTree.set(result.tree);
+      if (result.tree !== targetTab.executionTree) {
+        this.tabManager.updateTab(targetTabId, {
+          executionTree: result.tree,
+        });
       }
 
       if (result.streamComplete) {
-        this.finalizeCurrentMessage();
+        this.finalizeCurrentMessage(targetTabId);
       }
     } catch (error) {
       console.error('[ChatStore] Error processing JSONL chunk:', error, chunk);
@@ -562,12 +1213,24 @@ export class ChatStore {
   /**
    * Finalize the current streaming message
    *
-   * Converts the execution tree to a chat message and adds it to the message list.
-   * This method stays in ChatStore because it directly updates signals.
+   * Converts the execution tree to a chat message and adds it to the target tab's messages.
+   * Uses per-tab currentMessageId for proper multi-tab streaming support.
+   * @param tabId - Optional tab ID to finalize. Falls back to active tab if not provided.
    */
-  private finalizeCurrentMessage(): void {
-    const tree = this._currentExecutionTree();
-    if (!tree || !this.currentMessageId) return;
+  private finalizeCurrentMessage(tabId?: string): void {
+    // Use provided tabId or fall back to active tab
+    const targetTabId = tabId ?? this.tabManager.activeTabId();
+    if (!targetTabId) return;
+
+    // Get the target tab (by ID if provided, otherwise active)
+    const targetTab = tabId
+      ? this.tabManager.tabs().find((t) => t.id === tabId)
+      : this.tabManager.activeTab();
+
+    const tree = targetTab?.executionTree;
+    const messageId = targetTab?.currentMessageId;
+
+    if (!tree || !messageId) return;
 
     // Mark all streaming nodes as complete
     const finalizeNode = (node: ExecutionNode): ExecutionNode => ({
@@ -578,21 +1241,73 @@ export class ChatStore {
 
     const finalTree = finalizeNode(tree);
 
-    // Create chat message with execution tree
-    const assistantMessage = createExecutionChatMessage({
-      id: this.currentMessageId,
-      role: 'assistant',
-      executionTree: finalTree,
-      sessionId: this._currentSessionId() ?? undefined,
+    // Extract token usage and calculate cost from finalized tree
+    let tokens:
+      | { input: number; output: number; cacheHit?: number }
+      | undefined;
+    let cost: number | undefined;
+    let duration: number | undefined;
+
+    console.log('[ChatStore] 📊 Finalizing message - tree data:', {
+      hasTokenUsage: !!finalTree.tokenUsage,
+      tokenUsage: finalTree.tokenUsage,
+      model: finalTree.model,
+      duration: finalTree.duration,
     });
 
-    // Add to messages list
-    this._messages.update((msgs) => [...msgs, assistantMessage]);
+    if (finalTree.tokenUsage) {
+      tokens = {
+        input: finalTree.tokenUsage.input,
+        output: finalTree.tokenUsage.output,
+        // cacheHit: Future enhancement when ExecutionNode.tokenUsage includes cache
+      };
+      // Use model from tree root (set during init) for accurate pricing
+      try {
+        const modelId = finalTree.model ?? 'default';
+        cost = calculateMessageCost(modelId, tokens);
+        console.log('[ChatStore] ✅ Cost calculated:', {
+          modelId,
+          tokens,
+          cost,
+        });
+      } catch (error) {
+        console.error('[ChatStore] Cost calculation failed', error);
+        cost = undefined;
+      }
+    } else {
+      console.warn('[ChatStore] ⚠️ No tokenUsage found on finalized tree!');
+    }
 
-    // Clear streaming state
-    this._isStreaming.set(false);
-    this._currentExecutionTree.set(null);
-    this.currentMessageId = null;
+    if (finalTree.duration !== undefined) {
+      duration = finalTree.duration;
+    }
+
+    // Create chat message with execution tree and token/cost metadata
+    const assistantMessage = createExecutionChatMessage({
+      id: messageId,
+      role: 'assistant',
+      executionTree: finalTree,
+      sessionId: targetTab?.claudeSessionId ?? undefined,
+      tokens,
+      cost,
+      duration,
+    });
+
+    console.log('[ChatStore] 📝 Created assistant message:', {
+      messageId,
+      hasTokens: !!assistantMessage.tokens,
+      tokens: assistantMessage.tokens,
+      cost: assistantMessage.cost,
+      duration: assistantMessage.duration,
+    });
+
+    // Add to target tab's messages and clear streaming state
+    this.tabManager.updateTab(targetTabId, {
+      messages: [...(targetTab?.messages ?? []), assistantMessage],
+      executionTree: null,
+      status: 'loaded',
+      currentMessageId: null,
+    });
 
     // Update SessionManager status
     this.sessionManager.setStatus('loaded');
@@ -626,5 +1341,216 @@ export class ChatStore {
     }
 
     return true;
+  }
+
+  // ============================================================================
+  // PERMISSION REQUEST HANDLING
+  // ============================================================================
+
+  /**
+   * Handle incoming permission request from backend
+   * Adds request to pending permission requests list
+   */
+  handlePermissionRequest(request: PermissionRequest): void {
+    console.log('[ChatStore] Permission request received:', request);
+    this._permissionRequests.update((requests) => [...requests, request]);
+  }
+
+  /**
+   * Handle user response to permission request
+   * Removes request from pending list and sends response to backend
+   */
+  handlePermissionResponse(response: PermissionResponse): void {
+    console.log('[ChatStore] Permission response:', response);
+
+    // Remove from pending requests
+    this._permissionRequests.update((requests) =>
+      requests.filter((r) => r.id !== response.id)
+    );
+
+    // Send to backend via VSCodeService
+    // Access the private vscode API via type assertion (same pattern as ClaudeRpcService)
+    const vscodeService = this.vscodeService as any;
+    if (vscodeService?.vscode) {
+      vscodeService.vscode.postMessage({
+        type: 'permission:response',
+        payload: response,
+      });
+    } else {
+      console.error(
+        '[ChatStore] VSCodeService not available for permission response'
+      );
+    }
+  }
+
+  // ============================================================================
+  // CHAT COMPLETION HANDLING
+  // ============================================================================
+
+  /**
+   * Handle chat completion signal from backend
+   * Called when Claude CLI process exits (success or error)
+   * Routes to correct tab by sessionId for proper multi-tab support.
+   * Ensures UI state is reset to 'loaded' regardless of exit code.
+   * FIX #1: Queue cleared AFTER auto-send starts (in .then callback)
+   * FIX #6: Guard against recursive auto-send
+   */
+  handleChatComplete(data: { sessionId: string; code: number }): void {
+    console.log('[ChatStore] Chat complete:', data);
+
+    // Find the target tab by session ID (proper multi-tab routing)
+    let targetTab: TabState | null = null;
+    let targetTabId: string | null = null;
+
+    if (data.sessionId) {
+      targetTab = this.tabManager.findTabBySessionId(data.sessionId);
+      if (targetTab) {
+        targetTabId = targetTab.id;
+      }
+    }
+
+    // Fall back to active tab if no matching tab found
+    if (!targetTab) {
+      targetTabId = this.tabManager.activeTabId();
+      targetTab = this.tabManager.activeTab();
+
+      // Warn if session ID doesn't match active tab
+      if (
+        data.sessionId &&
+        targetTab?.claudeSessionId &&
+        targetTab.claudeSessionId !== data.sessionId
+      ) {
+        console.warn('[ChatStore] Completion for unknown session', {
+          sessionId: data.sessionId,
+          activeTabSessionId: targetTab.claudeSessionId,
+        });
+        return;
+      }
+    }
+
+    if (!targetTabId || !targetTab) {
+      console.warn('[ChatStore] No target tab for chat completion');
+      return;
+    }
+
+    // Only reset if tab is still in streaming/resuming state
+    if (
+      targetTab.status === 'streaming' ||
+      targetTab.status === 'resuming' ||
+      targetTab.status === 'draft'
+    ) {
+      // Finalize any pending message
+      this.finalizeCurrentMessage(targetTabId);
+
+      // Ensure tab status is reset to loaded
+      this.tabManager.updateTab(targetTabId, { status: 'loaded' });
+      this.sessionManager.setStatus('loaded');
+
+      console.log(
+        '[ChatStore] Chat state reset to loaded for tab',
+        targetTabId,
+        '(exit code:',
+        data.code,
+        ')'
+      );
+
+      // ========== AUTO-SEND QUEUED CONTENT ==========
+      // FIX #6: Guard against recursive auto-send
+      if (this._isAutoSending()) {
+        console.log('[ChatStore] Auto-send already in progress, skipping');
+        return;
+      }
+
+      // Check if this tab has queued content
+      const queuedContent = targetTab.queuedContent;
+      if (queuedContent && queuedContent.trim()) {
+        console.log('[ChatStore] Auto-sending queued content', {
+          tabId: targetTabId,
+          length: queuedContent.length,
+        });
+
+        // FIX #6: Set auto-sending flag
+        this._isAutoSending.set(true);
+
+        // FIX #1: Clear queue AFTER send starts successfully (in .then)
+        // Auto-send via continueConversation (async, don't await)
+        this.continueConversation(queuedContent)
+          .then(() => {
+            // Clear queue only after successful send start
+            this.tabManager.updateTab(targetTabId!, { queuedContent: null });
+            console.log('[ChatStore] Auto-send started, queue cleared');
+          })
+          .catch((error) => {
+            console.error(
+              '[ChatStore] Failed to auto-send queued content:',
+              error
+            );
+            // Keep content in queue on error (no data loss)
+            // No need to restore - it was never cleared
+          })
+          .finally(() => {
+            // Always reset auto-sending flag
+            this._isAutoSending.set(false);
+          });
+      }
+      // ========== END AUTO-SEND ==========
+    }
+  }
+
+  /**
+   * Handle chat error signal from backend
+   * Called when an error occurs during chat (CLI error, network error, etc.)
+   * Routes to correct tab by sessionId for proper multi-tab support.
+   * Resets streaming state and optionally displays error.
+   */
+  handleChatError(data: { sessionId: string; error: string }): void {
+    console.error('[ChatStore] Chat error:', data);
+
+    // Find the target tab by session ID (proper multi-tab routing)
+    let targetTab: TabState | null = null;
+    let targetTabId: string | null = null;
+
+    if (data.sessionId) {
+      targetTab = this.tabManager.findTabBySessionId(data.sessionId);
+      if (targetTab) {
+        targetTabId = targetTab.id;
+      }
+    }
+
+    // Fall back to active tab if no matching tab found
+    if (!targetTab) {
+      targetTabId = this.tabManager.activeTabId();
+      targetTab = this.tabManager.activeTab();
+
+      // Warn if session ID doesn't match active tab
+      if (
+        data.sessionId &&
+        targetTab?.claudeSessionId &&
+        targetTab.claudeSessionId !== data.sessionId
+      ) {
+        console.warn('[ChatStore] Error for unknown session', {
+          sessionId: data.sessionId,
+          activeTabSessionId: targetTab.claudeSessionId,
+        });
+        return;
+      }
+    }
+
+    if (!targetTabId) {
+      console.warn('[ChatStore] No target tab for chat error');
+      return;
+    }
+
+    // Reset streaming state (including per-tab currentMessageId)
+    this.tabManager.updateTab(targetTabId, {
+      status: 'loaded',
+      currentMessageId: null,
+    });
+    this.sessionManager.setStatus('loaded');
+
+    console.log(
+      '[ChatStore] Chat state reset due to error for tab',
+      targetTabId
+    );
   }
 }

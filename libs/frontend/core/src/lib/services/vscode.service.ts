@@ -172,8 +172,8 @@ export class VSCodeService {
       // Route chat:chunk messages to ChatStore (TASK_2025_023)
       if (message.type === 'chat:chunk') {
         if (message.payload && this.chatStore) {
-          const { message: jsonlMessage } = message.payload;
-          this.chatStore.processJsonlChunk(jsonlMessage);
+          const { sessionId, message: jsonlMessage } = message.payload;
+          this.chatStore.processJsonlChunk(jsonlMessage, sessionId);
         } else if (!message.payload) {
           console.warn(
             '[VSCodeService] chat:chunk received but payload is undefined!'
@@ -185,35 +185,83 @@ export class VSCodeService {
         }
       }
 
-      // Handle chat completion
+      // Handle chat completion - CRITICAL for resetting streaming state
       if (message.type === 'chat:complete') {
-        if (message.payload) {
-          const { sessionId, code } = message.payload;
-          console.log('[VSCodeService] Chat complete:', { sessionId, code });
-          // ChatStore will finalize the message when it receives result JSONL
+        const { sessionId, code } = message.payload ?? {};
+        console.log('[VSCodeService] Chat complete:', { sessionId, code });
+        if (this.chatStore) {
+          // Call ChatStore to reset streaming state and finalize message
+          this.chatStore.handleChatComplete({ sessionId, code: code ?? 0 });
         } else {
           console.warn(
-            '[VSCodeService] chat:complete received but payload is undefined!'
+            '[VSCodeService] chat:complete received but ChatStore not registered!'
           );
         }
       }
 
-      // Handle chat errors
+      // Handle chat errors - CRITICAL for resetting streaming state on error
       if (message.type === 'chat:error') {
-        if (message.payload) {
-          const { sessionId, error } = message.payload;
-          console.error('[VSCodeService] Chat error:', { sessionId, error });
-          if (this.chatStore) {
-            // Set error state in ChatStore
-            this.chatStore._isStreaming?.set(false);
-          }
+        const { sessionId, error } = message.payload ?? {};
+        console.error('[VSCodeService] Chat error:', { sessionId, error });
+        if (this.chatStore) {
+          // Call ChatStore to reset streaming state
+          this.chatStore.handleChatError({
+            sessionId,
+            error: error ?? 'Unknown error',
+          });
         } else {
           console.warn(
-            '[VSCodeService] chat:error received but payload is undefined!'
+            '[VSCodeService] chat:error received but ChatStore not registered!'
           );
-          if (this.chatStore) {
-            this.chatStore._isStreaming?.set(false);
-          }
+        }
+      }
+
+      // Handle session ID resolution (TASK_2025_027 Batch 2)
+      if (message.type === 'session:id-resolved') {
+        if (message.payload && this.chatStore) {
+          this.chatStore.handleSessionIdResolved(message.payload);
+        } else if (!message.payload) {
+          console.warn(
+            '[VSCodeService] session:id-resolved received but payload is undefined!'
+          );
+        } else {
+          console.warn(
+            '[VSCodeService] session:id-resolved received but ChatStore not registered!'
+          );
+        }
+      }
+
+      // Handle permission request (TASK_2025_026)
+      if (message.type === 'permission:request') {
+        if (message.payload && this.chatStore) {
+          console.log(
+            '[VSCodeService] Permission request received:',
+            message.payload
+          );
+          this.chatStore.handlePermissionRequest(message.payload);
+        } else if (!message.payload) {
+          console.warn(
+            '[VSCodeService] permission:request received but payload is undefined!'
+          );
+        } else {
+          console.warn(
+            '[VSCodeService] permission:request received but ChatStore not registered!'
+          );
+        }
+      }
+
+      // Handle agent summary chunk (real-time agent summary streaming)
+      if (message.type === 'agent:summary-chunk') {
+        if (message.payload && this.chatStore) {
+          this.chatStore.handleAgentSummaryChunk(message.payload);
+        } else if (!message.payload) {
+          console.warn(
+            '[VSCodeService] agent:summary-chunk received but payload is undefined!'
+          );
+        } else {
+          console.warn(
+            '[VSCodeService] agent:summary-chunk received but ChatStore not registered!'
+          );
         }
       }
     });

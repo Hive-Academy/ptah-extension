@@ -21,6 +21,7 @@ export interface NodeMaps {
  */
 export type SessionStatus =
   | 'fresh'
+  | 'draft'
   | 'loaded'
   | 'streaming'
   | 'resuming'
@@ -102,4 +103,49 @@ export interface ProcessedChunk {
     /** ID of tool call for tool-related chunks */
     toolCallId?: string;
   };
+}
+
+/**
+ * Represents a single tab/session in the multi-session UI
+ */
+export interface TabState {
+  /** Unique tab identifier (frontend-generated) */
+  id: string;
+
+  /** Real Claude CLI session UUID (null if draft) */
+  claudeSessionId: string | null;
+
+  /** Display title for the tab */
+  title: string;
+
+  /** Tab order position */
+  order: number;
+
+  /** Current session status */
+  status: SessionStatus;
+
+  /** Whether session has unsent input */
+  isDirty: boolean;
+
+  /** Timestamp of last activity */
+  lastActivityAt: number;
+
+  /** Messages for this session */
+  messages: ExecutionChatMessage[];
+
+  /** Current execution tree (if streaming) */
+  executionTree: ExecutionNode | null;
+
+  /**
+   * ID of the message currently being built during streaming.
+   * Per-tab tracking enables proper multi-tab streaming support.
+   */
+  currentMessageId?: string | null;
+
+  /**
+   * Single queued message content (appended on multiple sends).
+   * When user sends messages during streaming, content is appended here.
+   * Auto-sent via continueConversation() when streaming completes.
+   */
+  queuedContent?: string | null;
 }

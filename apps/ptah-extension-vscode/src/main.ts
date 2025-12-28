@@ -35,20 +35,17 @@ export async function activate(
     console.log('[Activate] Step 3.6: RPC methods registered');
 
     // Initialize autocomplete discovery watchers (TASK_2025_019 Phase 2)
+    // NOTE: MCP discovery service was planned but never implemented - only agent and command discovery exist
     console.log('[Activate] Step 3.7: Initializing autocomplete watchers...');
     const agentDiscovery = DIContainer.resolve(
       TOKENS.AGENT_DISCOVERY_SERVICE
-    ) as any;
-    const mcpDiscovery = DIContainer.resolve(
-      TOKENS.MCP_DISCOVERY_SERVICE
-    ) as any;
+    ) as { initializeWatchers: () => void };
     const commandDiscovery = DIContainer.resolve(
       TOKENS.COMMAND_DISCOVERY_SERVICE
-    ) as any;
+    ) as { initializeWatchers: () => void };
     agentDiscovery.initializeWatchers();
-    mcpDiscovery.initializeWatchers();
     commandDiscovery.initializeWatchers();
-    logger.info('Autocomplete discovery watchers initialized (3 services)');
+    logger.info('Autocomplete discovery watchers initialized (2 services)');
     console.log('[Activate] Step 3.7: Autocomplete watchers initialized');
 
     // Initialize main extension controller
@@ -73,18 +70,18 @@ export async function activate(
     await ptahExtension.registerAll();
     console.log('[Activate] Step 7: ptahExtension.registerAll() complete');
 
-    // Register Language Model Tools with VS Code
-    console.log('[Activate] Step 8: Registering Language Model Tools...');
-    const lmToolsService = DIContainer.resolve(
-      TOKENS.LM_TOOLS_REGISTRATION_SERVICE
-    );
-    (
-      lmToolsService as {
-        registerAll: (context: vscode.ExtensionContext) => void;
-      }
-    ).registerAll(context);
-    logger.info('Language Model Tools registered (6 tools)');
-    console.log('[Activate] Step 8: Language Model Tools registered');
+    // Initialize Pricing Service (fetches LiteLLM pricing, caches in globalState)
+    console.log('[Activate] Step 8: Initializing Pricing Service...');
+    const pricingService = DIContainer.resolve(TOKENS.PRICING_SERVICE) as {
+      initialize: () => Promise<void>;
+    };
+    // Run in background - don't block activation
+    pricingService.initialize().catch((error) => {
+      logger.warn('[PricingService] Background initialization failed', {
+        error,
+      });
+    });
+    console.log('[Activate] Step 8: Pricing Service initialization started');
 
     // Start Code Execution MCP Server
     console.log('[Activate] Step 9: Starting Code Execution MCP Server...');
@@ -98,38 +95,37 @@ export async function activate(
       `[Activate] Step 9: Code Execution MCP Server started (port ${mcpPort})`
     );
 
-    // Register Ptah MCP server with Claude CLI (one-time)
-    console.log(
-      '[Activate] Step 10: Registering MCP server with Claude CLI...'
-    );
+    // Write Ptah MCP server to .mcp.json file
+    console.log('[Activate] Step 10: Writing MCP config to .mcp.json...');
 
     try {
-      const mcpRegistration = DIContainer.resolve(
-        TOKENS.MCP_REGISTRATION_SERVICE
+      const mcpConfigManager = DIContainer.resolve(
+        TOKENS.MCP_CONFIG_MANAGER_SERVICE
       );
 
       await (
-        mcpRegistration as { registerPtahMCPServer: () => Promise<void> }
-      ).registerPtahMCPServer();
+        mcpConfigManager as {
+          ensurePtahMCPConfig: (port: number) => Promise<void>;
+        }
+      ).ensurePtahMCPConfig(mcpPort);
 
-      logger.info('MCP server registered with Claude CLI', {
+      logger.info('MCP server registered in .mcp.json', {
         context: 'Extension Activation',
         status: 'registered',
-        scope: 'local',
-        url: 'http://localhost:${PTAH_MCP_PORT}',
+        port: mcpPort,
+        url: `http://localhost:${mcpPort}`,
       });
-      console.log('[Activate] Step 10: MCP server registered with Claude CLI');
+      console.log('[Activate] Step 10: MCP server registered in .mcp.json');
     } catch (error) {
-      // Fix: Logger.error now takes 2 params: (message, errorOrContext)
       logger.error(
-        'Failed to register MCP server (non-blocking)',
+        'Failed to write MCP config (non-blocking)',
         error instanceof Error ? error : new Error(String(error))
       );
       console.warn(
-        '[Activate] Step 10: MCP registration failed (non-blocking)',
+        '[Activate] Step 10: MCP config write failed (non-blocking)',
         error
       );
-      // Don't block extension activation if MCP registration fails
+      // Don't block extension activation if MCP config fails
     }
 
     logger.info('Ptah extension activated successfully');
@@ -164,6 +160,11 @@ export async function activate(
 export function deactivate(): void {
   const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
   logger.info('Deactivating Ptah extension');
+
+  // NOTE: We intentionally do NOT remove ptah from .mcp.json on deactivation.
+  // The MCP config must persist so that resumed Claude sessions can find
+  // the permission-prompt-tool. The port gets updated on next activation.
+
   ptahExtension?.dispose();
   ptahExtension = undefined;
   DIContainer.clear();

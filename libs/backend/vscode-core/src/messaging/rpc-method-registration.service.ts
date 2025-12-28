@@ -14,7 +14,19 @@ import { injectable, inject } from 'tsyringe';
 import type { Logger } from '../logging/logger';
 import type { RpcHandler } from './rpc-handler';
 import type { SessionDiscoveryService } from '../services/session-discovery.service';
+import type {
+  AgentSessionWatcherService,
+  AgentSummaryChunk,
+} from '../services/agent-session-watcher.service';
 import { TOKENS } from '../di/tokens';
+import type { ConfigManager } from '../config/config-manager';
+import {
+  ClaudeModel,
+  PermissionLevel,
+  AVAILABLE_MODELS,
+  ModelInfo,
+} from '@ptah-extension/shared';
+import * as vscode from 'vscode';
 
 // Import domain service types
 interface ContextOrchestrationService {
@@ -52,10 +64,11 @@ import { JSONLMessage } from '@ptah-extension/shared';
 // ClaudeProcess interface (avoid importing class from claude-domain)
 interface ClaudeProcessInterface {
   on(event: 'message', listener: (msg: JSONLMessage) => void): void;
+  on(event: 'session-id', listener: (sessionId: string) => void): void;
   on(event: 'error', listener: (error: Error) => void): void;
   on(event: 'close', listener: (code: number | null) => void): void;
   start(prompt: string, options?: any): Promise<void>;
-  resume(sessionId: string, prompt: string): Promise<void>;
+  resume(sessionId: string, prompt: string, options?: any): Promise<void>;
   kill(): void;
   isRunning(): boolean;
 }
@@ -83,8 +96,6 @@ export class RpcMethodRegistrationService {
     private readonly contextOrchestration: ContextOrchestrationService,
     @inject(TOKENS.AGENT_DISCOVERY_SERVICE)
     private readonly agentDiscovery: AgentDiscoveryService,
-    @inject(TOKENS.MCP_DISCOVERY_SERVICE)
-    private readonly mcpDiscovery: MCPDiscoveryService,
     @inject(TOKENS.COMMAND_DISCOVERY_SERVICE)
     private readonly commandDiscovery: CommandDiscoveryService,
     @inject(TOKENS.CLAUDE_CLI_DETECTOR)
@@ -94,8 +105,34 @@ export class RpcMethodRegistrationService {
     @inject('ClaudeProcessFactory')
     private readonly createClaudeProcess: ClaudeProcessFactory,
     @inject(TOKENS.SESSION_DISCOVERY_SERVICE)
-    private readonly sessionDiscovery: SessionDiscoveryService
-  ) {}
+    private readonly sessionDiscovery: SessionDiscoveryService,
+    @inject(TOKENS.AGENT_SESSION_WATCHER_SERVICE)
+    private readonly agentWatcher: AgentSessionWatcherService,
+    @inject(TOKENS.CONFIG_MANAGER)
+    private readonly configManager: ConfigManager
+  ) {
+    // Setup agent watcher summary chunk listener
+    this.setupAgentWatcherListeners();
+  }
+
+  /**
+   * Setup listeners for agent session watcher events
+   */
+  private setupAgentWatcherListeners(): void {
+    (this.agentWatcher as any).on(
+      'summary-chunk',
+      (chunk: AgentSummaryChunk) => {
+        this.webviewManager
+          .sendMessage('ptah.main', 'agent:summary-chunk', chunk)
+          .catch((error) => {
+            this.logger.error(
+              'Failed to send agent summary chunk to webview',
+              error
+            );
+          });
+      }
+    );
+  }
 
   /**
    * Register all RPC methods
@@ -107,6 +144,8 @@ export class RpcMethodRegistrationService {
     this.registerContextMethods();
     this.registerAutocompleteMethods();
     this.registerFileMethods();
+    // TASK_2025_035 Batch 3: Model and autopilot RPC handlers
+    this.registerModelAndAutopilotMethods();
 
     this.logger.info(
       'RPC methods registered (TASK_2025_023 Batch 4 complete)',
@@ -141,11 +180,74 @@ export class RpcMethodRegistrationService {
           workspacePath
         );
 
+        // TASK_2025_035: Read model and autopilot configuration
+        const selectedModel = this.configManager.getWithDefault<ClaudeModel>(
+          'model.selected',
+          'sonnet'
+        );
+
+        // QA FIX: Validate model is selectable (not 'default') before passing to CLI
+        const validModels: ClaudeModel[] = ['opus', 'sonnet', 'haiku'];
+        const safeModel: ClaudeModel = validModels.includes(selectedModel)
+          ? selectedModel
+          : 'sonnet';
+
+        const autopilotEnabled = this.configManager.getWithDefault<boolean>(
+          'autopilot.enabled',
+          false
+        );
+        const permissionLevelRaw =
+          this.configManager.getWithDefault<PermissionLevel>(
+            'autopilot.permissionLevel',
+            'ask'
+          );
+
+        // QA FIX ISSUE 4: Validate permission level before passing to CLI
+        const validLevels: PermissionLevel[] = ['ask', 'auto-edit', 'yolo'];
+        const safePermissionLevel: PermissionLevel = validLevels.includes(
+          permissionLevelRaw
+        )
+          ? permissionLevelRaw
+          : 'ask';
+
+        // Build enhanced options with config values
+        const processOptions = {
+          model: safeModel, // Use validated model
+          autopilotEnabled,
+          permissionLevel: safePermissionLevel, // Use validated permission level
+          // Merge with any existing options from params
+          ...(options || {}),
+        };
+
+        // Track the effective session ID - starts as placeholder, updated when real ID resolved
+        let effectiveSessionId = sessionId;
+
+        // Extract session UUID from JSONL stream (emitted BEFORE message event)
+        process.on('session-id', (realSessionId: string) => {
+          this.logger.debug('Session UUID extracted from JSONL', {
+            sessionId,
+            realSessionId,
+          });
+          // Update effective session ID to use real Claude UUID for subsequent messages
+          effectiveSessionId = realSessionId;
+          this.webviewManager
+            .sendMessage('ptah.main', 'session:id-resolved', {
+              sessionId,
+              realSessionId,
+            })
+            .catch((error) => {
+              this.logger.error('Failed to send session ID to webview', error);
+            });
+        });
+
         // Setup message streaming to webview
         process.on('message', (msg: JSONLMessage) => {
+          // Detect Task tool_use (agent spawn) and start watching for agent file
+          this.detectAndWatchAgents(msg, effectiveSessionId, workspacePath);
+
           this.webviewManager
             .sendMessage('ptah.main', 'chat:chunk', {
-              sessionId,
+              sessionId: effectiveSessionId,
               message: msg,
             })
             .catch((error) => {
@@ -158,7 +260,7 @@ export class RpcMethodRegistrationService {
           this.logger.error('ClaudeProcess error', error);
           this.webviewManager
             .sendMessage('ptah.main', 'chat:error', {
-              sessionId,
+              sessionId: effectiveSessionId,
               error: error.message,
             })
             .catch((err) => {
@@ -168,11 +270,14 @@ export class RpcMethodRegistrationService {
 
         // Handle close
         process.on('close', (code: number | null) => {
-          this.logger.debug('ClaudeProcess closed', { sessionId, code });
+          this.logger.debug('ClaudeProcess closed', {
+            sessionId: effectiveSessionId,
+            code,
+          });
           this.activeProcesses.delete(sessionId);
           this.webviewManager
             .sendMessage('ptah.main', 'chat:complete', {
-              sessionId,
+              sessionId: effectiveSessionId,
               code,
             })
             .catch((err) => {
@@ -180,11 +285,11 @@ export class RpcMethodRegistrationService {
             });
         });
 
-        // Store process reference
+        // Store process reference (keep using placeholder for internal tracking)
         this.activeProcesses.set(sessionId, process);
 
-        // Start the process
-        await process.start(prompt, options);
+        // Start the process with enhanced options
+        await process.start(prompt, processOptions);
 
         return { success: true, sessionId };
       } catch (error) {
@@ -205,6 +310,15 @@ export class RpcMethodRegistrationService {
         const { prompt, sessionId, workspacePath } = params;
         this.logger.debug('RPC: chat:continue called', { sessionId });
 
+        // Validate session ID format (Claude CLI expects UUID)
+        const uuidPattern =
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!uuidPattern.test(sessionId)) {
+          throw new Error(
+            `Invalid session ID format: ${sessionId}. Expected UUID format (e.g., 550e8400-e29b-41d4-a716-446655440000). Use session:id-resolved to get the real session ID from Claude CLI.`
+          );
+        }
+
         // Get Claude CLI path
         const installation = await this.cliDetector.findExecutable();
         if (!installation) {
@@ -217,8 +331,48 @@ export class RpcMethodRegistrationService {
           workspacePath
         );
 
+        // TASK_2025_035: Read model and autopilot configuration
+        const selectedModel = this.configManager.getWithDefault<ClaudeModel>(
+          'model.selected',
+          'sonnet'
+        );
+
+        // QA FIX: Validate model is selectable (not 'default') before passing to CLI
+        const validModels: ClaudeModel[] = ['opus', 'sonnet', 'haiku'];
+        const safeModel: ClaudeModel = validModels.includes(selectedModel)
+          ? selectedModel
+          : 'sonnet';
+
+        const autopilotEnabled = this.configManager.getWithDefault<boolean>(
+          'autopilot.enabled',
+          false
+        );
+        const permissionLevelRaw =
+          this.configManager.getWithDefault<PermissionLevel>(
+            'autopilot.permissionLevel',
+            'ask'
+          );
+
+        // QA FIX ISSUE 4: Validate permission level before passing to CLI
+        const validLevels: PermissionLevel[] = ['ask', 'auto-edit', 'yolo'];
+        const safePermissionLevel: PermissionLevel = validLevels.includes(
+          permissionLevelRaw
+        )
+          ? permissionLevelRaw
+          : 'ask';
+
+        // Build enhanced options with config values (omit resumeSessionId since it's a separate parameter)
+        const processOptions = {
+          model: safeModel, // Use validated model
+          autopilotEnabled,
+          permissionLevel: safePermissionLevel, // Use validated permission level
+        };
+
         // Setup message streaming
         process.on('message', (msg: JSONLMessage) => {
+          // Detect Task tool_use (agent spawn) and start watching for agent file
+          this.detectAndWatchAgents(msg, sessionId, workspacePath);
+
           this.webviewManager
             .sendMessage('ptah.main', 'chat:chunk', {
               sessionId,
@@ -257,8 +411,8 @@ export class RpcMethodRegistrationService {
         // Store process reference
         this.activeProcesses.set(sessionId, process);
 
-        // Resume the session
-        await process.resume(sessionId, prompt);
+        // Resume the session with enhanced options
+        await process.resume(sessionId, prompt, processOptions);
 
         return { success: true, sessionId };
       } catch (error) {
@@ -305,13 +459,21 @@ export class RpcMethodRegistrationService {
    * Delegated to SessionDiscoveryService for better separation of concerns
    */
   private registerSessionMethods(): void {
-    // session:list - List all sessions for workspace
+    // session:list - List all sessions for workspace (with pagination)
     this.rpcHandler.registerMethod('session:list', async (params: any) => {
       try {
-        const { workspacePath } = params;
-        this.logger.debug('RPC: session:list called', { workspacePath });
+        const { workspacePath, limit = 10, offset = 0 } = params;
+        this.logger.debug('RPC: session:list called', {
+          workspacePath,
+          limit,
+          offset,
+        });
 
-        return await this.sessionDiscovery.listSessions(workspacePath);
+        return await this.sessionDiscovery.listSessions(
+          workspacePath,
+          limit,
+          offset
+        );
       } catch (error) {
         this.logger.error(
           'RPC: session:list failed',
@@ -329,6 +491,18 @@ export class RpcMethodRegistrationService {
     this.rpcHandler.registerMethod('session:load', async (params: any) => {
       try {
         const { sessionId, workspacePath } = params;
+
+        // Security: Validate sessionId format to prevent path traversal attacks
+        // Only allow alphanumeric characters, hyphens, and underscores
+        if (!sessionId || !/^[a-zA-Z0-9_-]+$/.test(sessionId)) {
+          this.logger.warn('RPC: session:load - Invalid sessionId format', {
+            sessionId,
+          });
+          throw new Error(
+            'Invalid session ID format. Only alphanumeric characters, hyphens, and underscores are allowed.'
+          );
+        }
+
         this.logger.debug('RPC: session:load called', {
           sessionId,
           workspacePath,
@@ -444,34 +618,6 @@ export class RpcMethodRegistrationService {
       }
     );
 
-    // autocomplete:mcps - Search for MCP servers
-    this.rpcHandler.registerMethod('autocomplete:mcps', async (params: any) => {
-      try {
-        const { query, maxResults, includeOffline } = params;
-        this.logger.debug('RPC: autocomplete:mcps called', {
-          query,
-          maxResults,
-          includeOffline,
-        });
-        const result = await this.mcpDiscovery.searchMCPServers({
-          query: query || '',
-          maxResults,
-          includeOffline,
-        });
-        return result;
-      } catch (error) {
-        this.logger.error(
-          'RPC: autocomplete:mcps failed',
-          error instanceof Error ? error : new Error(String(error))
-        );
-        throw new Error(
-          `Failed to search MCP servers: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
-      }
-    });
-
     // autocomplete:commands - Search for commands
     this.rpcHandler.registerMethod(
       'autocomplete:commands',
@@ -556,6 +702,251 @@ export class RpcMethodRegistrationService {
           success: false,
           error: error instanceof Error ? error.message : String(error),
         };
+      }
+    });
+  }
+
+  /**
+   * Detect Task tool_use (agent spawn) and tool_result (agent complete) in JSONL messages.
+   * Starts/stops watching for agent session files accordingly.
+   *
+   * @param msg - JSONL message from Claude CLI stream
+   * @param sessionId - Current session ID
+   * @param workspacePath - Workspace path for locating agent files
+   */
+  private detectAndWatchAgents(
+    msg: JSONLMessage,
+    sessionId: string,
+    workspacePath: string
+  ): void {
+    // Detect Task tool_use (agent spawn)
+    if (msg.type === 'assistant' && msg.message?.content) {
+      for (const block of msg.message.content) {
+        if (block.type === 'tool_use' && block.name === 'Task' && block.id) {
+          this.logger.debug('Detected Task tool_use, starting agent watch', {
+            toolUseId: block.id,
+            sessionId,
+          });
+          this.agentWatcher.startWatching(block.id, sessionId, workspacePath);
+        }
+      }
+    }
+
+    // Detect tool_result for Task tools (agent complete)
+    if (msg.type === 'user' && msg.message?.content) {
+      for (const block of msg.message.content) {
+        if (block.type === 'tool_result' && block.tool_use_id) {
+          // Check if this is a result for a watched agent
+          // The watcher will ignore if not tracked
+          this.agentWatcher.stopWatching(block.tool_use_id);
+        }
+      }
+    }
+  }
+
+  /**
+   * Model and Autopilot RPC methods (TASK_2025_035 Batch 3)
+   * Handles model selection and autopilot configuration persistence
+   */
+  private registerModelAndAutopilotMethods(): void {
+    // config:model-switch - Switch AI model
+    this.rpcHandler.registerMethod(
+      'config:model-switch',
+      async (params: any) => {
+        try {
+          const { model } = params;
+
+          // QA FIX ISSUE 1: Validate BEFORE type assertion
+          const validModels = ['opus', 'sonnet', 'haiku'] as const;
+          if (
+            typeof model !== 'string' ||
+            !validModels.includes(model as any)
+          ) {
+            throw new Error(
+              `Invalid model: ${model}. Must be one of: ${validModels.join(
+                ', '
+              )}`
+            );
+          }
+          // Now safe to use model as ClaudeModel
+          const validatedModel = model as ClaudeModel;
+
+          this.logger.debug('RPC: config:model-switch called', {
+            model: validatedModel,
+          });
+
+          // QA FIX ISSUE 3: Note on ConfigurationTarget.Workspace coupling
+          // Note: Using Workspace scope to persist per-workspace settings
+          // ConfigManager is VS Code-specific, so this coupling is acceptable
+          await this.configManager.set('model.selected', validatedModel, {
+            target: vscode.ConfigurationTarget.Workspace,
+          });
+
+          this.logger.info('Model switched successfully', {
+            model: validatedModel,
+          });
+
+          // Return just the data - RpcHandler wraps with { success, data, correlationId }
+          return { model: validatedModel };
+        } catch (error) {
+          this.logger.error(
+            'RPC: config:model-switch failed',
+            error instanceof Error ? error : new Error(String(error))
+          );
+          // Re-throw to let RpcHandler handle error response
+          throw error;
+        }
+      }
+    );
+
+    // config:model-get - Get current model selection
+    this.rpcHandler.registerMethod('config:model-get', async () => {
+      try {
+        this.logger.debug('RPC: config:model-get called');
+
+        // Read from workspace configuration with default
+        const model = this.configManager.getWithDefault<ClaudeModel>(
+          'model.selected',
+          'sonnet'
+        );
+
+        // Return just the data - RpcHandler wraps with { success, data, correlationId }
+        return { model };
+      } catch (error) {
+        this.logger.error(
+          'RPC: config:model-get failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        // Re-throw to let RpcHandler handle error response
+        throw error;
+      }
+    });
+
+    // config:autopilot-toggle - Toggle autopilot and set permission level
+    this.rpcHandler.registerMethod(
+      'config:autopilot-toggle',
+      async (params: any) => {
+        try {
+          const { enabled, permissionLevel } = params;
+
+          // QA FIX ISSUE 1: Validate BEFORE type assertion
+          const validLevels = ['ask', 'auto-edit', 'yolo'] as const;
+          if (typeof enabled !== 'boolean') {
+            throw new Error(
+              `Invalid enabled value: ${enabled}. Must be a boolean.`
+            );
+          }
+          if (
+            typeof permissionLevel !== 'string' ||
+            !validLevels.includes(permissionLevel as any)
+          ) {
+            throw new Error(
+              `Invalid permission level: ${permissionLevel}. Must be one of: ${validLevels.join(
+                ', '
+              )}`
+            );
+          }
+          // Now safe to use permissionLevel as PermissionLevel
+          const validatedPermissionLevel = permissionLevel as PermissionLevel;
+
+          this.logger.debug('RPC: config:autopilot-toggle called', {
+            enabled,
+            permissionLevel: validatedPermissionLevel,
+          });
+
+          // Warn if YOLO mode is enabled (dangerous operation)
+          if (enabled && validatedPermissionLevel === 'yolo') {
+            this.logger.warn(
+              'YOLO mode enabled - DANGEROUS: All permission prompts will be skipped',
+              { enabled, permissionLevel: validatedPermissionLevel }
+            );
+          }
+
+          // QA FIX ISSUE 3: Note on ConfigurationTarget.Workspace coupling
+          // Note: Using Workspace scope to persist per-workspace settings
+          // ConfigManager is VS Code-specific, so this coupling is acceptable
+          await this.configManager.set('autopilot.enabled', enabled, {
+            target: vscode.ConfigurationTarget.Workspace,
+          });
+          await this.configManager.set(
+            'autopilot.permissionLevel',
+            validatedPermissionLevel,
+            {
+              target: vscode.ConfigurationTarget.Workspace,
+            }
+          );
+
+          this.logger.info('Autopilot state updated', {
+            enabled,
+            permissionLevel: validatedPermissionLevel,
+          });
+
+          // Return just the data - RpcHandler wraps with { success, data, correlationId }
+          return { enabled, permissionLevel: validatedPermissionLevel };
+        } catch (error) {
+          this.logger.error(
+            'RPC: config:autopilot-toggle failed',
+            error instanceof Error ? error : new Error(String(error))
+          );
+          // Re-throw to let RpcHandler handle error response
+          throw error;
+        }
+      }
+    );
+
+    // config:autopilot-get - Get current autopilot state
+    this.rpcHandler.registerMethod('config:autopilot-get', async () => {
+      try {
+        this.logger.debug('RPC: config:autopilot-get called');
+
+        // Read from workspace configuration with defaults
+        const enabled = this.configManager.getWithDefault<boolean>(
+          'autopilot.enabled',
+          false
+        );
+        const permissionLevel =
+          this.configManager.getWithDefault<PermissionLevel>(
+            'autopilot.permissionLevel',
+            'ask'
+          );
+
+        // Return just the data - RpcHandler wraps with { success, data, correlationId }
+        return { enabled, permissionLevel };
+      } catch (error) {
+        this.logger.error(
+          'RPC: config:autopilot-get failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        // Re-throw to let RpcHandler handle error response
+        throw error;
+      }
+    });
+
+    // config:models-list - Get available models with metadata
+    this.rpcHandler.registerMethod('config:models-list', async () => {
+      try {
+        this.logger.debug('RPC: config:models-list called');
+
+        // Get current selected model to mark it in the response
+        const selectedModel = this.configManager.getWithDefault<ClaudeModel>(
+          'model.selected',
+          'sonnet'
+        );
+
+        // Return models from shared constant with selection state
+        const models: (ModelInfo & { isSelected: boolean })[] =
+          AVAILABLE_MODELS.map((model) => ({
+            ...model,
+            isSelected: model.id === selectedModel,
+          }));
+
+        return { models };
+      } catch (error) {
+        this.logger.error(
+          'RPC: config:models-list failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        throw error;
       }
     });
   }

@@ -1,16 +1,22 @@
 import {
   Component,
   input,
+  output,
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
 import { LucideAngularModule, Info } from 'lucide-angular';
-import { AgentCardComponent } from '../molecules/agent-card.component';
+import { InlineAgentBubbleComponent } from './inline-agent-bubble.component';
 import { AgentSummaryComponent } from '../molecules/agent-summary.component';
 import { ThinkingBlockComponent } from '../molecules/thinking-block.component';
 import { ToolCallItemComponent } from '../molecules/tool-call-item.component';
-import type { ExecutionNode } from '@ptah-extension/shared';
+import { StreamingTextRevealComponent } from '../atoms/streaming-text-reveal.component';
+import type {
+  ExecutionNode,
+  PermissionRequest,
+  PermissionResponse,
+} from '@ptah-extension/shared';
 
 /**
  * ExecutionNodeComponent - THE KEY RECURSIVE COMPONENT
@@ -36,39 +42,77 @@ import type { ExecutionNode } from '@ptah-extension/shared';
   imports: [
     MarkdownModule,
     LucideAngularModule,
-    AgentCardComponent,
+    InlineAgentBubbleComponent, // Required in imports even with @defer - Angular needs to know about it
     AgentSummaryComponent,
     ThinkingBlockComponent,
     ToolCallItemComponent,
+    StreamingTextRevealComponent,
   ],
   template: `
     @switch (node().type) { @case ('text') { @if (isAgentSummaryContent()) {
     <!-- Agent summary with XML-like format (function_calls, thinking, etc.) -->
-    <ptah-agent-summary [content]="node().content || ''" />
+    <ptah-agent-summary
+      [content]="node().content || ''"
+      [class.animate-pulse]="isStreaming()"
+    />
+    } @else { @if (isStreaming()) {
+    <!-- DUAL-PHASE: Phase 1 - Typewriter effect with progressive character reveal -->
+    <div
+      class="prose prose-sm prose-invert max-w-none my-2 transition-opacity duration-300"
+    >
+      <ptah-streaming-text-reveal
+        [content]="node().content || ''"
+        [isStreaming]="isStreaming()"
+        [revealSpeed]="18"
+        cursorColor="text-neutral-content/70"
+      />
+    </div>
     } @else {
-    <div class="prose prose-sm prose-invert max-w-none my-2">
+    <!-- DUAL-PHASE: Phase 2 - Full markdown after completion -->
+    <div
+      class="prose prose-sm prose-invert max-w-none my-2 transition-opacity duration-300"
+    >
       <markdown [data]="node().content || ''" />
     </div>
-    } } @case ('thinking') {
+    } } } @case ('thinking') {
     <ptah-thinking-block [node]="node()" />
     } @case ('tool') {
-    <ptah-tool-call-item [node]="node()">
+    <ptah-tool-call-item
+      [node]="node()"
+      [permission]="getPermissionForTool()?.(node().toolCallId ?? '') ?? undefined"
+      (permissionResponded)="permissionResponded.emit($event)"
+    >
       <!-- RECURSIVE: Render nested children (tool results, sub-tools) -->
       @for (child of node().children; track child.id) {
-      <ptah-execution-node [node]="child" />
+      <ptah-execution-node
+        [node]="child"
+        [isStreaming]="isStreaming()"
+        [getPermissionForTool]="getPermissionForTool()"
+        (permissionResponded)="permissionResponded.emit($event)"
+      />
       }
     </ptah-tool-call-item>
     } @case ('agent') {
-    <ptah-agent-card [node]="node()">
-      <!-- RECURSIVE: Render agent's children (tools, nested agents) -->
-      @for (child of node().children; track child.id) {
-      <ptah-execution-node [node]="child" />
-      }
-    </ptah-agent-card>
-    } @case ('message') {
+    <!-- Use @defer to break circular dependency and lazy-load InlineAgentBubbleComponent -->
+    @defer {
+    <ptah-inline-agent-bubble
+      [node]="node()"
+      [getPermissionForTool]="getPermissionForTool()"
+      (permissionResponded)="permissionResponded.emit($event)"
+    />
+    } @placeholder {
+    <div class="flex items-center gap-2 text-[10px] text-base-content/40 py-2">
+      <span>Loading agent...</span>
+    </div>
+    } } @case ('message') {
     <!-- Message node unwraps to its children -->
     @for (child of node().children; track child.id) {
-    <ptah-execution-node [node]="child" />
+    <ptah-execution-node
+      [node]="child"
+      [isStreaming]="isStreaming()"
+      [getPermissionForTool]="getPermissionForTool()"
+      (permissionResponded)="permissionResponded.emit($event)"
+    />
     } } @case ('system') {
     <!-- System messages (session init, etc.) -->
     <div class="alert alert-info my-2 text-xs">
@@ -81,6 +125,23 @@ import type { ExecutionNode } from '@ptah-extension/shared';
 })
 export class ExecutionNodeComponent {
   readonly node = input.required<ExecutionNode>();
+
+  /** Global streaming state passed from parent */
+  readonly isStreaming = input<boolean>(false);
+
+  /**
+   * Permission lookup function forwarded from parent
+   * Enables tool cards to check if they have pending permissions
+   */
+  readonly getPermissionForTool = input<
+    ((toolCallId: string) => PermissionRequest | null) | undefined
+  >();
+
+  /**
+   * Emits when user responds to permission request
+   * Bubbles up from tool-call-item through component tree
+   */
+  readonly permissionResponded = output<PermissionResponse>();
 
   // Lucide icons
   readonly InfoIcon = Info;
