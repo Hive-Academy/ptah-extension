@@ -127,26 +127,31 @@ export class RpcMethodRegistrationService {
 
   /**
    * Setup callback to notify frontend when real Claude session ID is resolved
-   * TASK_2025_088: Single sessionId architecture - SDK returns the real UUID
+   * TASK_2025_095: Now uses tabId for direct routing - no temp ID lookup needed.
    */
   private setupSessionIdResolvedCallback(): void {
-    this.sdkAdapter.setSessionIdResolvedCallback((realSessionId: string) => {
-      this.logger.info(`[RPC] Session ID resolved from SDK: ${realSessionId}`);
+    this.sdkAdapter.setSessionIdResolvedCallback(
+      (tabId: string | undefined, realSessionId: string) => {
+        this.logger.info(
+          `[RPC] Session ID resolved from SDK: tabId=${tabId} -> real=${realSessionId}`
+        );
 
-      // Notify frontend of the real session ID
-      // With single sessionId architecture, this confirms the SDK's UUID
-      this.webviewManager
-        .sendMessage('ptah.main', MESSAGE_TYPES.SESSION_ID_RESOLVED, {
-          sessionId: realSessionId as SessionId,
-          realSessionId: realSessionId,
-        })
-        .catch((error) => {
-          this.logger.error(
-            'Failed to send session:id-resolved to webview',
-            error instanceof Error ? error : new Error(String(error))
-          );
-        });
-    });
+        // Notify frontend with tabId for direct routing
+        // tabId: used to find the tab directly (no temp ID lookup needed)
+        // realSessionId: the actual SDK UUID to store on the tab
+        this.webviewManager
+          .sendMessage('ptah.main', MESSAGE_TYPES.SESSION_ID_RESOLVED, {
+            tabId,
+            realSessionId: realSessionId,
+          })
+          .catch((error) => {
+            this.logger.error(
+              'Failed to send session:id-resolved to webview',
+              error instanceof Error ? error : new Error(String(error))
+            );
+          });
+      }
+    );
   }
 
   /**

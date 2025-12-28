@@ -86,6 +86,12 @@ export interface AISessionConfig {
   readonly systemPrompt?: string;
   readonly model?: string;
   readonly temperature?: number;
+  /**
+   * TASK_2025_095: Frontend tab ID for direct event routing.
+   * Used to route session:id-resolved events directly to the correct tab
+   * without needing temp session ID lookup.
+   */
+  readonly tabId?: string;
 }
 
 /**

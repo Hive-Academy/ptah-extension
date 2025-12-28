@@ -157,11 +157,24 @@ export class ChatStore {
   readonly messages = computed(
     () => this.tabManager.activeTab()?.messages ?? []
   );
+  /**
+   * PERFORMANCE OPTIMIZATION: Computed signal for current execution tree
+   *
+   * Uses memoized tree building in ExecutionTreeBuilderService.
+   * The tree builder caches results based on streaming state fingerprint,
+   * so this computed signal can be called frequently without rebuilding
+   * the tree unless the underlying data has actually changed.
+   *
+   * Cache key is based on tab ID to allow per-tab caching.
+   */
   readonly currentExecutionTree = computed(() => {
     const activeTab = this.tabManager.activeTab();
     if (!activeTab?.streamingState) return null;
 
-    const rootNodes = this.treeBuilder.buildTree(activeTab.streamingState);
+    // PERFORMANCE: Use tab-specific cache key for memoization
+    // This allows the tree builder to skip rebuilding when data hasn't changed
+    const cacheKey = `tab-${activeTab.id}`;
+    const rootNodes = this.treeBuilder.buildTree(activeTab.streamingState, cacheKey);
     return rootNodes.length > 0 ? rootNodes[0] : null;
   });
   readonly isStreaming = computed(() => {
@@ -681,24 +694,26 @@ export class ChatStore {
    * Backend sends real SDK UUID after SDK returns it from system init message
    * Without this, tabs store placeholder IDs (msg_XXX) which SDK rejects on resume
    *
+   * TASK_2025_095: Now uses tabId for direct routing - no temp ID lookup needed.
+   *
    * Flow:
-   * 1. User sends message → claudeSessionId set to placeholder msg_XXX
-   * 2. Backend SDK returns real UUID → sends SESSION_ID_RESOLVED event
-   * 3. This method updates tab's claudeSessionId to real UUID
+   * 1. User sends message → backend creates stream with tabId
+   * 2. Backend SDK returns real UUID → sends SESSION_ID_RESOLVED with tabId
+   * 3. This method finds tab directly by tabId and updates claudeSessionId
    * 4. Future resume attempts use valid UUID format
    */
   handleSessionIdResolved(data: {
-    sessionId: string;
+    tabId: string;
     realSessionId: string;
   }): void {
-    const { sessionId, realSessionId } = data;
+    const { tabId, realSessionId } = data;
     console.log('[ChatStore] Session ID resolved:', {
-      sessionId,
+      tabId,
       realSessionId,
     });
 
-    // Find the tab with the placeholder session ID
-    const targetTab = this.tabManager.findTabBySessionId(sessionId);
+    // TASK_2025_095: Find tab directly by tabId - no temp ID lookup needed
+    const targetTab = this.tabManager.tabs().find((t) => t.id === tabId);
 
     if (targetTab) {
       // Update the tab with the real session ID
@@ -707,7 +722,6 @@ export class ChatStore {
       });
       console.log('[ChatStore] Tab updated with real session ID:', {
         tabId: targetTab.id,
-        oldId: sessionId,
         newId: realSessionId,
       });
     } else {
@@ -726,7 +740,7 @@ export class ChatStore {
         });
       } else {
         console.warn('[ChatStore] No tab found for session ID resolution:', {
-          sessionId,
+          tabId,
           realSessionId,
         });
       }

@@ -665,6 +665,20 @@ export function isNestedToolMessage(msg: JSONLMessage): boolean {
 // ============================================================================
 
 /**
+ * EventSource - Indicates the origin of a streaming event
+ *
+ * TASK_2025_095: Used to distinguish streaming preview events from
+ * definitive complete message events for proper deduplication.
+ *
+ * - 'stream': Real-time streaming delta from SDK stream_event
+ * - 'complete': Definitive data from complete assistant/user messages
+ * - 'history': Event reconstructed from session JSONL history
+ *
+ * Priority: history > complete > stream (higher priority overwrites lower)
+ */
+export type EventSource = 'stream' | 'complete' | 'history';
+
+/**
  * Flat streaming event types - replaces ExecutionNode during streaming
  * Events contain relationship IDs instead of nested children
  *
@@ -702,6 +716,14 @@ export interface FlatStreamEvent {
 
   /** Session ID this event belongs to */
   readonly sessionId: string;
+
+  /**
+   * TASK_2025_095: Event source for deduplication and priority handling.
+   * - 'stream': Real-time streaming delta (may be incomplete)
+   * - 'complete': Definitive data from complete messages
+   * - 'history': Reconstructed from session JSONL history
+   */
+  readonly source?: EventSource;
 
   // ---- Relationship IDs for tree building ----
 

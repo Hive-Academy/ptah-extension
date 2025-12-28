@@ -19,6 +19,7 @@ import {
   MessageStartEvent,
   assertNever,
   ExecutionChatMessage,
+  EventSource,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
@@ -51,6 +52,108 @@ export class StreamingHandlerService {
   private processedToolCallIds = new Map<string, Set<string>>();
 
   /**
+   * PERFORMANCE OPTIMIZATION: Batched UI updates using requestAnimationFrame
+   * Instead of updating TabManager 100+ times/sec, we batch updates and flush once per frame.
+   * This dramatically reduces signal updates and change detection cycles.
+   */
+  private pendingTabUpdates = new Map<string, StreamingState>();
+  private rafId: number | null = null;
+
+  /**
+   * TASK_2025_095: Source priority for event deduplication.
+   * Higher priority sources should replace lower priority sources.
+   * - 'history': Loaded from JSONL files (highest priority - definitive)
+   * - 'complete': From complete assistant/user messages (high priority - definitive)
+   * - 'stream': From streaming events (low priority - preview only)
+   */
+  private getSourcePriority(source: EventSource | undefined): number {
+    switch (source) {
+      case 'history':
+        return 3;
+      case 'complete':
+        return 2;
+      case 'stream':
+        return 1;
+      default:
+        return 0;
+    }
+  }
+
+  /**
+   * TASK_2025_095: Check if new event should replace existing event based on source priority.
+   * Returns true if new event has higher or equal priority.
+   */
+  private shouldReplaceEvent(
+    existingSource: EventSource | undefined,
+    newSource: EventSource | undefined
+  ): boolean {
+    return this.getSourcePriority(newSource) >= this.getSourcePriority(existingSource);
+  }
+
+  /**
+   * TASK_2025_095: Replace stream events with higher priority events for the same toolCallId.
+   * When a 'complete' or 'history' source event arrives, it should replace any existing
+   * 'stream' source events for the same tool call.
+   *
+   * @param state - The streaming state to update
+   * @param toolCallId - The tool call ID to match
+   * @param eventType - The event type to match ('tool_start' or 'tool_result')
+   * @param newSource - The source of the new event
+   * @returns The existing event if it should NOT be replaced, undefined if new event should be stored
+   */
+  private replaceStreamEventIfNeeded(
+    state: StreamingState,
+    toolCallId: string,
+    eventType: 'tool_start' | 'tool_result',
+    newSource: EventSource | undefined
+  ): FlatStreamEventUnion | undefined {
+    // Find existing event with same toolCallId and eventType
+    let existingEvent: FlatStreamEventUnion | undefined;
+
+    for (const event of state.events.values()) {
+      if (event.eventType === eventType && 'toolCallId' in event && event.toolCallId === toolCallId) {
+        existingEvent = event;
+        break;
+      }
+    }
+
+    if (!existingEvent) {
+      // No existing event, new event should be stored
+      return undefined;
+    }
+
+    const existingSource = (existingEvent as FlatStreamEventUnion & { source?: EventSource }).source;
+
+    if (this.shouldReplaceEvent(existingSource, newSource)) {
+      // New event has higher priority, remove old event
+      state.events.delete(existingEvent.id);
+      console.debug(
+        '[StreamingHandlerService] TASK_2025_095: Replacing stream event with higher priority event',
+        {
+          toolCallId,
+          eventType,
+          oldSource: existingSource,
+          newSource,
+          oldEventId: existingEvent.id,
+        }
+      );
+      return undefined; // Allow new event to be stored
+    }
+
+    // Existing event has higher priority, skip new event
+    console.debug(
+      '[StreamingHandlerService] TASK_2025_095: Skipping lower priority event',
+      {
+        toolCallId,
+        eventType,
+        existingSource,
+        newSource,
+      }
+    );
+    return existingEvent;
+  }
+
+  /**
    * Clean up deduplication state for a session.
    * MUST be called when closing/deleting a session to prevent memory leaks.
    * TASK_2025_090: Integrated cleanup into tab close flow.
@@ -64,6 +167,57 @@ export class StreamingHandlerService {
       '[StreamingHandlerService] Cleaned up deduplication state for session:',
       sessionId
     );
+  }
+
+  /**
+   * PERFORMANCE OPTIMIZATION: Schedule batched UI update
+   * Instead of calling tabManager.updateTab() on every event (100+/sec),
+   * we accumulate changes and flush once per animation frame (~60/sec max).
+   *
+   * @param tabId - Tab ID to update
+   * @param state - Current streaming state (will be cloned on flush)
+   */
+  private scheduleTabUpdate(tabId: string, state: StreamingState): void {
+    // Store reference to current state (we'll clone it on flush)
+    this.pendingTabUpdates.set(tabId, state);
+
+    // Schedule flush if not already scheduled
+    if (this.rafId === null) {
+      this.rafId = requestAnimationFrame(() => this.flushPendingUpdates());
+    }
+  }
+
+  /**
+   * PERFORMANCE OPTIMIZATION: Flush all pending tab updates
+   * Called once per animation frame to batch multiple streaming events
+   * into a single signal update.
+   */
+  private flushPendingUpdates(): void {
+    this.rafId = null;
+
+    // Process all pending updates
+    for (const [tabId, state] of this.pendingTabUpdates) {
+      // Create shallow copy of state to trigger signal change detection
+      // This happens once per frame instead of 100+ times per frame
+      this.tabManager.updateTab(tabId, {
+        streamingState: { ...state },
+      });
+    }
+
+    // Clear pending updates
+    this.pendingTabUpdates.clear();
+  }
+
+  /**
+   * Force immediate flush of pending updates
+   * Use when you need the UI to update immediately (e.g., before finalization)
+   */
+  flushUpdatesSync(): void {
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+    this.flushPendingUpdates();
   }
 
   /**
@@ -215,19 +369,26 @@ export class StreamingHandlerService {
 
       const state = targetTab.streamingState!;
 
-      // 3. Store event by ID
-      state.events.set(event.id, event);
-
-      // 3.1. Pre-index event by messageId for O(1) lookup (TASK_2025_084 Batch 1 Task 1.2)
-      if (event.messageId) {
-        const messageEvents = state.eventsByMessage.get(event.messageId) || [];
-        messageEvents.push(event);
-        state.eventsByMessage.set(event.messageId, messageEvents);
-      }
-
-      // 4. Handle by event type
+      // 3. Handle by event type
+      // TASK_2025_095 FIX: For tool_start and tool_result, check for duplicates BEFORE storing
+      // to prevent the bug where we find and delete the event we just stored.
       switch (event.eventType) {
         case 'message_start': {
+          // Store event first
+          state.events.set(event.id, event);
+          this.indexEventByMessage(state, event);
+
+          // DIAGNOSTIC: Log message_start with parentToolUseId info (JSON.stringify for log file visibility)
+          const msgStartEvent = event as MessageStartEvent;
+          console.log('[StreamingHandlerService] MESSAGE_START received!', JSON.stringify({
+            id: event.id,
+            messageId: event.messageId,
+            parentToolUseId: msgStartEvent.parentToolUseId,
+            isNestedAgentMessage: !!msgStartEvent.parentToolUseId,
+            role: msgStartEvent.role,
+            sessionId: event.sessionId,
+          }));
+
           // TASK_2025_091: Handle duplicate message_start by CLEARING accumulators
           // SDK sends both streaming events AND complete assistant messages.
           // When assistant complete arrives after streaming, its message_start
@@ -286,6 +447,10 @@ export class StreamingHandlerService {
             return;
           }
 
+          // Store event
+          state.events.set(event.id, event);
+          this.indexEventByMessage(state, event);
+
           const blockIndex = event.blockIndex ?? 0; // Default to 0
           const blockKey = AccumulatorKeys.textBlock(
             event.messageId,
@@ -296,6 +461,9 @@ export class StreamingHandlerService {
         }
 
         case 'thinking_start': {
+          // Store event
+          state.events.set(event.id, event);
+          this.indexEventByMessage(state, event);
           // Thinking block started - currently no action needed
           // Future: Could initialize thinking block state here
           break;
@@ -316,6 +484,10 @@ export class StreamingHandlerService {
             return;
           }
 
+          // Store event
+          state.events.set(event.id, event);
+          this.indexEventByMessage(state, event);
+
           const blockIndex = event.blockIndex ?? 0; // Default to 0
           const thinkKey = AccumulatorKeys.thinkingBlock(
             event.messageId,
@@ -326,6 +498,38 @@ export class StreamingHandlerService {
         }
 
         case 'tool_start': {
+          // DIAGNOSTIC: Log tool_start for Task tools especially (JSON.stringify for log file visibility)
+          console.log('[StreamingHandlerService] TOOL_START received!', JSON.stringify({
+            id: event.id,
+            toolName: event.toolName,
+            toolCallId: event.toolCallId,
+            messageId: event.messageId,
+            parentToolUseId: event.parentToolUseId,
+            isTaskTool: event.toolName === 'Task',
+            isTaskToolFlag: event.isTaskTool,
+            sessionId: event.sessionId,
+            source: event.source,
+          }));
+
+          // TASK_2025_095 FIX: Check for duplicates BEFORE storing
+          // Previously, the event was stored first, then replaceStreamEventIfNeeded
+          // would find and DELETE the event we just stored!
+          const existingToolStart = this.replaceStreamEventIfNeeded(
+            state,
+            event.toolCallId,
+            'tool_start',
+            event.source
+          );
+
+          if (existingToolStart) {
+            // Existing event has higher priority, skip this one entirely
+            return;
+          }
+
+          // NOW store the event (after duplicate check passed)
+          state.events.set(event.id, event);
+          this.indexEventByMessage(state, event);
+
           // TASK_2025_085: Deduplicate tool_start events
           // Prevents duplicate agent cards when SDK sends both streaming and complete events
           let sessionToolCallIds = this.processedToolCallIds.get(
@@ -336,12 +540,14 @@ export class StreamingHandlerService {
             this.processedToolCallIds.set(event.sessionId, sessionToolCallIds);
           }
 
+          // TASK_2025_095: Only skip if same source priority or lower
+          // Allow higher priority sources to replace existing
           if (sessionToolCallIds.has(event.toolCallId)) {
+            // Already processed - but we passed the source check above, so this is a replacement
             console.debug(
-              '[StreamingHandlerService] Skipping duplicate tool_start',
-              { toolCallId: event.toolCallId, sessionId: event.sessionId }
+              '[StreamingHandlerService] Replacing tool_start with higher priority source',
+              { toolCallId: event.toolCallId, source: event.source }
             );
-            return; // Skip duplicate - already processed this tool
           }
 
           sessionToolCallIds.add(event.toolCallId);
@@ -368,6 +574,10 @@ export class StreamingHandlerService {
             return;
           }
 
+          // Store event
+          state.events.set(event.id, event);
+          this.indexEventByMessage(state, event);
+
           const inputKey = AccumulatorKeys.toolInput(event.toolCallId);
           this.accumulateDelta(
             state.toolInputAccumulators,
@@ -378,8 +588,6 @@ export class StreamingHandlerService {
         }
 
         case 'tool_result': {
-          // Tool result received - stored in events map
-          // Tree builder will construct final result from event data
           // DIAGNOSTIC: Log tool_result event reception
           console.log('[StreamingHandlerService] TOOL_RESULT received!', {
             toolCallId: event.toolCallId,
@@ -388,28 +596,71 @@ export class StreamingHandlerService {
             outputLength:
               typeof event.output === 'string' ? event.output.length : 0,
             isError: event.isError,
+            source: event.source,
           });
+
+          // TASK_2025_095 FIX: Check for duplicates BEFORE storing
+          // Same fix as tool_start - previously the event was stored first,
+          // then replaceStreamEventIfNeeded would find and DELETE it!
+          const existingToolResult = this.replaceStreamEventIfNeeded(
+            state,
+            event.toolCallId,
+            'tool_result',
+            event.source
+          );
+
+          if (existingToolResult) {
+            // Existing event has higher priority, skip this one entirely
+            return;
+          }
+
+          // NOW store the event (after duplicate check passed)
+          state.events.set(event.id, event);
+          this.indexEventByMessage(state, event);
           break;
         }
 
         case 'agent_start': {
-          // Agent spawned via Task tool - stored in events map
+          // Store event
+          state.events.set(event.id, event);
+          this.indexEventByMessage(state, event);
+
+          // Agent spawned via Task tool
           // Tree builder will construct agent node from event data
+          console.log('[StreamingHandlerService] AGENT_START received!', {
+            id: event.id,
+            toolCallId: event.toolCallId,
+            parentToolUseId: event.parentToolUseId,
+            agentType: event.agentType,
+            sessionId: event.sessionId,
+          });
           break;
         }
 
         case 'message_complete': {
+          // Store event
+          state.events.set(event.id, event);
+          this.indexEventByMessage(state, event);
+
           state.currentTokenUsage = event.tokenUsage || null;
           break;
         }
 
         case 'message_delta': {
+          // Store event
+          state.events.set(event.id, event);
+          this.indexEventByMessage(state, event);
+
           // Cumulative token usage during streaming - update current usage
           state.currentTokenUsage = event.tokenUsage;
           break;
         }
 
         case 'signature_delta': {
+          // Store event
+          state.events.set(event.id, event);
+          this.indexEventByMessage(state, event);
+
           // Extended thinking signature verification - currently no action needed
           // Future: Could store signature for verification
           break;
@@ -423,16 +674,35 @@ export class StreamingHandlerService {
           );
       }
 
-      // 5. Trigger reactivity by updating tab
-      this.tabManager.updateTab(targetTab.id, {
-        streamingState: { ...state },
-      });
+      // 5. PERFORMANCE OPTIMIZATION: Schedule batched UI update
+      // Instead of updating TabManager 100+ times/sec, we batch updates
+      // and flush once per animation frame (~60/sec max).
+      // This dramatically reduces signal updates and change detection cycles.
+      this.scheduleTabUpdate(targetTab.id, state);
     } catch (error) {
       console.error(
         '[StreamingHandlerService] Error processing stream event:',
         error,
         event
       );
+    }
+  }
+
+  /**
+   * Helper to index event by messageId for O(1) lookup.
+   * TASK_2025_095: Extracted to share across all event handlers.
+   *
+   * @param state - Streaming state
+   * @param event - Event to index
+   */
+  private indexEventByMessage(
+    state: StreamingState,
+    event: FlatStreamEventUnion
+  ): void {
+    if (event.messageId) {
+      const messageEvents = state.eventsByMessage.get(event.messageId) || [];
+      messageEvents.push(event);
+      state.eventsByMessage.set(event.messageId, messageEvents);
     }
   }
 
@@ -490,6 +760,10 @@ export class StreamingHandlerService {
    * @param tabId - Optional tab ID to finalize. Falls back to active tab if not provided.
    */
   finalizeCurrentMessage(tabId?: string): void {
+    // PERFORMANCE: Flush any pending batched updates before finalization
+    // This ensures we have the complete streaming state before building final tree
+    this.flushUpdatesSync();
+
     // Use provided tabId or fall back to active tab
     const targetTabId = tabId ?? this.tabManager.activeTabId();
     if (!targetTabId) return;
@@ -519,7 +793,9 @@ export class StreamingHandlerService {
     const stateCopy = this.deepCopyStreamingState(streamingState);
 
     // Build final tree using ExecutionTreeBuilderService (TASK_2025_082 Batch 6)
-    const finalTree = this.treeBuilder.buildTree(stateCopy);
+    // PERFORMANCE: Use unique cache key for finalization to avoid stale cache
+    const cacheKey = `finalize-${targetTabId}-${Date.now()}`;
+    const finalTree = this.treeBuilder.buildTree(stateCopy, cacheKey);
 
     // Find message_complete event for metadata
     const completeEvent = [...streamingState.events.values()].find(
@@ -613,6 +889,10 @@ export class StreamingHandlerService {
    * @returns Array of ExecutionChatMessage for all messages in history
    */
   finalizeSessionHistory(tabId: string): ExecutionChatMessage[] {
+    // PERFORMANCE: Flush any pending batched updates before finalization
+    // This ensures we have the complete streaming state before building final tree
+    this.flushUpdatesSync();
+
     const targetTab = this.tabManager.tabs().find((t) => t.id === tabId);
     const streamingState = targetTab?.streamingState;
 
@@ -634,7 +914,9 @@ export class StreamingHandlerService {
     const stateCopy = this.deepCopyStreamingState(streamingState);
 
     // Build full tree for all messages
-    const allTrees = this.treeBuilder.buildTree(stateCopy);
+    // PERFORMANCE: Use unique cache key for history finalization
+    const cacheKey = `history-${tabId}-${Date.now()}`;
+    const allTrees = this.treeBuilder.buildTree(stateCopy, cacheKey);
 
     const messages: ExecutionChatMessage[] = [];
 
@@ -649,6 +931,21 @@ export class StreamingHandlerService {
         console.warn(
           '[StreamingHandlerService] No message_start event for messageId',
           { messageId }
+        );
+        continue;
+      }
+
+      // TASK_2025_093 FIX: Skip nested agent messages - they're already inside parent tool's tree
+      // Messages with parentToolUseId are sub-agent messages nested within Task tool nodes.
+      // They're already rendered as children of the tool node, so adding them as root
+      // messages causes duplicate empty bubbles.
+      if (messageStartEvent.parentToolUseId) {
+        console.debug(
+          '[StreamingHandlerService] Skipping nested agent message',
+          {
+            messageId,
+            parentToolUseId: messageStartEvent.parentToolUseId,
+          }
         );
         continue;
       }
@@ -862,10 +1159,9 @@ export class StreamingHandlerService {
         duration: stats.duration,
       };
 
-      // Trigger reactivity
-      this.tabManager.updateTab(targetTab.id, {
-        streamingState: { ...state },
-      });
+      // PERFORMANCE: Use batched update for pending stats during streaming
+      // Stats updates during streaming don't need immediate UI feedback
+      this.scheduleTabUpdate(targetTab.id, state);
       return;
     }
 

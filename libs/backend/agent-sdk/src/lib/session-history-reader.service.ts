@@ -31,6 +31,7 @@ import {
   MessageCompleteEvent,
   FlatStreamEventUnion,
   JSONLMessage,
+  EventSource,
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
@@ -39,8 +40,10 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 // INTERFACES
 // ============================================================================
 
-// JsonlSummaryLine interface removed - not needed for replay
-
+/**
+ * Raw JSONL message line from Claude session files.
+ * This is the actual format stored in .jsonl files.
+ */
 interface JsonlMessageLine {
   uuid: string;
   sessionId: string;
@@ -53,6 +56,22 @@ interface JsonlMessageLine {
   };
   isMeta?: boolean;
   slug?: string;
+}
+
+/**
+ * Extended message type for session history processing.
+ * Extends the base JSONLMessage with fields needed for:
+ * - Session matching (sessionId)
+ * - Correlation (timestamp)
+ * - Warmup filtering (slug, isMeta)
+ * - Message tracking (uuid)
+ */
+interface SessionHistoryMessage extends JSONLMessage {
+  readonly uuid?: string;
+  readonly sessionId?: string;
+  readonly timestamp?: string;
+  readonly isMeta?: boolean;
+  readonly slug?: string;
 }
 
 interface ContentBlock {
@@ -70,7 +89,7 @@ interface ContentBlock {
 interface AgentSessionData {
   agentId: string;
   filePath: string;
-  messages: JSONLMessage[];
+  messages: SessionHistoryMessage[];
 }
 
 interface ToolResultData {
@@ -290,8 +309,10 @@ export class SessionHistoryReaderService {
   /**
    * Read all messages from a JSONL file
    */
-  private async readJsonlMessages(filePath: string): Promise<JSONLMessage[]> {
-    const messages: JSONLMessage[] = [];
+  private async readJsonlMessages(
+    filePath: string
+  ): Promise<SessionHistoryMessage[]> {
+    const messages: SessionHistoryMessage[] = [];
     const stream = createReadStream(filePath, { encoding: 'utf8' });
     const reader = createInterface({ input: stream });
 
@@ -301,8 +322,8 @@ export class SessionHistoryReaderService {
 
         try {
           const parsed = JSON.parse(line) as JsonlMessageLine;
-          // Convert to JSONLMessage format
-          messages.push(this.convertToJSONLMessage(parsed));
+          // Convert to SessionHistoryMessage format (preserves extra fields)
+          messages.push(this.convertToSessionHistoryMessage(parsed));
         } catch {
           // Skip malformed lines
         }
@@ -318,16 +339,19 @@ export class SessionHistoryReaderService {
   /**
    * Convert JsonlMessageLine to JSONLMessage format
    */
-  private convertToJSONLMessage(line: JsonlMessageLine): JSONLMessage {
+  private convertToSessionHistoryMessage(
+    line: JsonlMessageLine
+  ): SessionHistoryMessage {
     return {
       type: (line.type ||
         line.message?.role ||
-        'unknown') as JSONLMessage['type'],
+        'unknown') as SessionHistoryMessage['type'],
       uuid: line.uuid,
       sessionId: line.sessionId,
       timestamp: line.timestamp,
       isMeta: line.isMeta,
-      message: line.message as JSONLMessage['message'],
+      slug: line.slug,
+      message: line.message as SessionHistoryMessage['message'],
     };
   }
 
@@ -346,6 +370,12 @@ export class SessionHistoryReaderService {
         (f) => f.startsWith('agent-') && f.endsWith('.jsonl')
       );
 
+      this.logger.info('[SessionHistoryReader] Scanning for agent files', {
+        sessionsDir,
+        parentSessionId,
+        agentFilesFound: agentFiles.length,
+      });
+
       for (const file of agentFiles) {
         const filePath = path.join(sessionsDir, file);
         const agentId = file.replace('.jsonl', '');
@@ -355,18 +385,36 @@ export class SessionHistoryReaderService {
 
           // Check if this agent belongs to parent session by checking sessionId in first message
           // Agent files have sessionId pointing to their parent main session
-          const firstMsg = messages[0] as unknown as JsonlMessageLine;
+          const firstMsg = messages[0];
+
+          this.logger.debug('[SessionHistoryReader] Checking agent file', {
+            file,
+            firstMsgSessionId: firstMsg?.sessionId,
+            parentSessionId,
+            matches: firstMsg?.sessionId === parentSessionId,
+          });
+
           if (firstMsg?.sessionId === parentSessionId) {
             agentSessions.push({
               agentId,
               filePath,
               messages,
             });
+            this.logger.info('[SessionHistoryReader] Agent matched', {
+              agentId,
+              messageCount: messages.length,
+            });
           }
         } catch {
           // Skip unreadable agent files
         }
       }
+
+      this.logger.info('[SessionHistoryReader] Agent sessions loaded', {
+        parentSessionId,
+        agentSessionsLoaded: agentSessions.length,
+        agentIds: agentSessions.map((s) => s.agentId),
+      });
     } catch {
       // No agent files found
     }
@@ -383,7 +431,7 @@ export class SessionHistoryReaderService {
    */
   private replayToStreamEvents(
     sessionId: string,
-    mainMessages: JSONLMessage[],
+    mainMessages: SessionHistoryMessage[],
     agentSessions: AgentSessionData[]
   ): FlatStreamEventUnion[] {
     const events: FlatStreamEventUnion[] = [];
@@ -409,15 +457,13 @@ export class SessionHistoryReaderService {
     let messageSequence = 0;
 
     for (const msg of mainMessages) {
-      const rawMsg = msg as unknown as JsonlMessageLine;
-
       // Skip non-message types
       if (!msg.type || !['user', 'assistant'].includes(msg.type)) {
         continue;
       }
 
       if (msg.type === 'user' && msg.message?.content) {
-        if (rawMsg.isMeta === true) continue;
+        if (msg.isMeta === true) continue;
 
         // Skip tool_result messages
         const contentRaw = msg.message.content;
@@ -445,10 +491,10 @@ export class SessionHistoryReaderService {
         }
 
         // Create user message events (user messages are self-contained, use local sequence)
-        const messageId = rawMsg.uuid || this.generateId();
+        const messageId = msg.uuid || this.generateId();
         const content = this.extractTextContent(msg.message.content);
-        const timestamp = rawMsg.timestamp
-          ? new Date(rawMsg.timestamp).getTime()
+        const timestamp = msg.timestamp
+          ? new Date(msg.timestamp).getTime()
           : Date.now();
         let userSeq = 0;
 
@@ -483,13 +529,13 @@ export class SessionHistoryReaderService {
         );
       } else if (msg.type === 'assistant' && msg.message?.content) {
         // Get message timestamp from JSONL
-        const msgTimestamp = rawMsg.timestamp
-          ? new Date(rawMsg.timestamp).getTime()
+        const msgTimestamp = msg.timestamp
+          ? new Date(msg.timestamp).getTime()
           : Date.now();
 
         // Initialize message if needed
         if (!currentMessageId) {
-          currentMessageId = rawMsg.uuid || this.generateId();
+          currentMessageId = msg.uuid || this.generateId();
           currentMessageTimestamp = msgTimestamp;
           messageSequence = 0; // Reset sequence for new message
           events.push(
@@ -535,18 +581,35 @@ export class SessionHistoryReaderService {
                 : undefined;
 
               if (block.name === 'Task' && block.input) {
-                // Agent spawn
+                // Agent spawn - create tool_start first (Task is a tool call)
+                const toolCallId = block.id || this.generateId();
+
+                events.push(
+                  this.createToolStart(
+                    sessionId,
+                    currentMessageId,
+                    toolCallId,
+                    'Task',
+                    block.input,
+                    eventIndex++,
+                    currentMessageTimestamp + messageSequence++ * 0.001
+                  )
+                );
+
+                // Then create agent_start with parentToolUseId linking to the tool
                 const agentId = block.id
                   ? taskToAgentMap.get(block.id) || null
                   : null;
+
                 events.push(
                   this.createAgentStart(
                     sessionId,
                     currentMessageId,
-                    block.id || this.generateId(),
+                    toolCallId,
                     block.input,
                     eventIndex++,
-                    currentMessageTimestamp + messageSequence++ * 0.001
+                    currentMessageTimestamp + messageSequence++ * 0.001,
+                    toolCallId // parentToolUseId - links to parent Task tool
                   )
                 );
 
@@ -554,15 +617,15 @@ export class SessionHistoryReaderService {
                 const agentData = agentId
                   ? agentDataMap.get(agentId)
                   : undefined;
+
                 if (agentData) {
                   const nestedEvents = this.processAgentMessages(
                     sessionId,
                     currentMessageId,
-                    block.id || this.generateId(),
+                    toolCallId,
                     agentData.executionMessages,
                     currentMessageTimestamp + messageSequence++ * 0.001
                   );
-                  // Update sequence based on nested event count
                   messageSequence += nestedEvents.length;
                   events.push(...nestedEvents);
                 }
@@ -573,7 +636,7 @@ export class SessionHistoryReaderService {
                     this.createToolResult(
                       sessionId,
                       currentMessageId,
-                      block.id || '',
+                      toolCallId,
                       toolResult.content,
                       toolResult.isError,
                       eventIndex++,
@@ -632,16 +695,18 @@ export class SessionHistoryReaderService {
 
   /**
    * Process agent session messages and convert to nested events
+   *
+   * CRITICAL: Must create message_start/message_complete events for each assistant message
+   * so the frontend's buildToolChildren can find them via parentToolUseId.
    */
   private processAgentMessages(
     sessionId: string,
-    parentMessageId: string,
+    _parentMessageId: string, // Unused - each agent message gets its own ID
     parentToolUseId: string,
-    messages: JSONLMessage[],
+    messages: SessionHistoryMessage[],
     parentTimestamp: number
   ): FlatStreamEventUnion[] {
     const events: FlatStreamEventUnion[] = [];
-    let blockIndex = 0;
     let eventIndex = 0;
     // Use micro-offsets for nested events to preserve order within agent
     let sequence = 0;
@@ -655,19 +720,37 @@ export class SessionHistoryReaderService {
       const content = msg.message.content;
       if (!Array.isArray(content)) continue;
 
+      // Generate unique message ID for this agent message
+      const agentMessageId = `agent_msg_${eventIndex}_${Math.floor(parentTimestamp)}`;
+      const messageTimestamp = parentTimestamp + sequence++ * 0.0001;
+      let blockIndex = 0;
+
+      // Create message_start for this agent message (CRITICAL for frontend detection)
+      events.push({
+        eventType: 'message_start',
+        id: `evt_agent_${eventIndex++}_${Math.floor(messageTimestamp)}`,
+        sessionId,
+        messageId: agentMessageId,
+        parentToolUseId, // Links to parent Task tool
+        role: 'assistant',
+        timestamp: messageTimestamp,
+        source: 'history',
+      } as MessageStartEvent);
+
       for (const block of content as ContentBlock[]) {
-        const eventTimestamp = parentTimestamp + sequence++ * 0.0001; // Smaller offset for nested
+        const eventTimestamp = parentTimestamp + sequence++ * 0.0001;
 
         if (block.type === 'text' && block.text) {
           events.push({
             eventType: 'text_delta',
             id: `evt_agent_${eventIndex++}_${Math.floor(eventTimestamp)}`,
             sessionId,
-            messageId: parentMessageId,
+            messageId: agentMessageId,
             parentToolUseId,
             blockIndex: blockIndex++,
             delta: block.text,
             timestamp: eventTimestamp,
+            source: 'history',
           } as TextDeltaEvent);
         } else if (block.type === 'tool_use') {
           const toolResult = block.id ? toolResults.get(block.id) : undefined;
@@ -676,13 +759,14 @@ export class SessionHistoryReaderService {
             eventType: 'tool_start',
             id: `evt_agent_${eventIndex++}_${Math.floor(eventTimestamp)}`,
             sessionId,
-            messageId: parentMessageId,
+            messageId: agentMessageId,
             parentToolUseId,
             toolCallId: block.id || this.generateId(),
             toolName: block.name || 'unknown',
             toolInput: block.input,
             isTaskTool: block.name === 'Task',
             timestamp: eventTimestamp,
+            source: 'history',
           } as ToolStartEvent);
 
           if (toolResult) {
@@ -691,16 +775,29 @@ export class SessionHistoryReaderService {
               eventType: 'tool_result',
               id: `evt_agent_${eventIndex++}_${Math.floor(resultTimestamp)}`,
               sessionId,
-              messageId: parentMessageId,
+              messageId: agentMessageId,
               parentToolUseId,
               toolCallId: block.id || '',
               output: toolResult.content,
               isError: toolResult.isError,
               timestamp: resultTimestamp,
+              source: 'history',
             } as ToolResultEvent);
           }
         }
       }
+
+      // Create message_complete for this agent message
+      const completeTimestamp = parentTimestamp + sequence++ * 0.0001;
+      events.push({
+        eventType: 'message_complete',
+        id: `evt_agent_${eventIndex++}_${Math.floor(completeTimestamp)}`,
+        sessionId,
+        messageId: agentMessageId,
+        parentToolUseId,
+        timestamp: completeTimestamp,
+        source: 'history',
+      } as MessageCompleteEvent);
     }
 
     return events;
@@ -714,40 +811,82 @@ export class SessionHistoryReaderService {
     agentSessions: AgentSessionData[]
   ): Map<
     string,
-    { agentId: string; timestamp: number; executionMessages: JSONLMessage[] }
+    {
+      agentId: string;
+      timestamp: number;
+      executionMessages: SessionHistoryMessage[];
+    }
   > {
     const map = new Map<
       string,
-      { agentId: string; timestamp: number; executionMessages: JSONLMessage[] }
+      {
+        agentId: string;
+        timestamp: number;
+        executionMessages: SessionHistoryMessage[];
+      }
     >();
 
     for (const agent of agentSessions) {
       let slug: string | null = null;
-      let timestamp = Date.now();
+      let timestamp: number | null = null;
 
       for (const msg of agent.messages) {
-        const rawMsg = msg as unknown as JsonlMessageLine;
-        if (rawMsg.slug && !slug) slug = rawMsg.slug;
-        if (rawMsg.timestamp && timestamp === Date.now()) {
-          timestamp = new Date(rawMsg.timestamp).getTime();
+        if (msg.slug && !slug) slug = msg.slug;
+        // Only extract timestamp from first message that has it
+        if (msg.timestamp && timestamp === null) {
+          timestamp = new Date(msg.timestamp).getTime();
         }
       }
 
-      // Filter warmup agents (no slug)
-      if (!slug) continue;
+      // Default to current time if no timestamp found
+      if (timestamp === null) {
+        timestamp = Date.now();
+      }
+
+      // Filter warmup agents by checking first message content
+      // Warmup agents have first user message content = "Warmup"
+      // Real agents have first user message content = actual task prompt
+      const firstMsg = agent.messages[0];
+      // Cast to unknown first since actual JSONL format has string content for user messages
+      // but the JSONLMessage type expects ContentBlock[]
+      const msgContent = firstMsg?.message?.content as unknown;
+      let firstMsgContent = '';
+      if (typeof msgContent === 'string') {
+        firstMsgContent = msgContent.trim().toLowerCase();
+      }
+      const isWarmupAgent = firstMsgContent === 'warmup';
+
+      if (isWarmupAgent) {
+        this.logger.debug('[SessionHistoryReader] Skipping warmup agent', {
+          agentId: agent.agentId,
+          messageCount: agent.messages.length,
+          firstMsgContent: firstMsgContent.substring(0, 50),
+        });
+        continue;
+      }
 
       map.set(agent.agentId, {
         agentId: agent.agentId,
         timestamp,
         executionMessages: agent.messages,
       });
+
+      this.logger.debug('[SessionHistoryReader] Agent added to map', {
+        agentId: agent.agentId,
+        messageCount: agent.messages.length,
+        hasSlug: !!slug,
+      });
     }
+
+    this.logger.info('[SessionHistoryReader] Agent data map built', {
+      totalAgents: map.size,
+    });
 
     return map;
   }
 
   private extractTaskToolUses(
-    messages: JSONLMessage[]
+    messages: SessionHistoryMessage[]
   ): Array<{ toolUseId: string; timestamp: number; subagentType: string }> {
     const tasks: Array<{
       toolUseId: string;
@@ -756,11 +895,10 @@ export class SessionHistoryReaderService {
     }> = [];
 
     for (const msg of messages) {
-      const rawMsg = msg as unknown as JsonlMessageLine;
       if (msg.type !== 'assistant' || !msg.message?.content) continue;
 
-      const timestamp = rawMsg.timestamp
-        ? new Date(rawMsg.timestamp).getTime()
+      const timestamp = msg.timestamp
+        ? new Date(msg.timestamp).getTime()
         : Date.now();
 
       const content = msg.message.content;
@@ -802,6 +940,11 @@ export class SessionHistoryReaderService {
       (a, b) => a.timestamp - b.timestamp
     );
 
+    this.logger.info('[SessionHistoryReader] Correlating agents to tasks', {
+      taskCount: sortedTasks.length,
+      agentCount: sortedAgents.length,
+    });
+
     for (const task of sortedTasks) {
       let bestMatch: string | null = null;
       let bestTimeDiff = Infinity;
@@ -819,14 +962,26 @@ export class SessionHistoryReaderService {
       if (bestMatch) {
         map.set(task.toolUseId, bestMatch);
         usedAgents.add(bestMatch);
+        this.logger.info('[SessionHistoryReader] Task-Agent correlated', {
+          toolUseId: task.toolUseId,
+          agentId: bestMatch,
+        });
+      } else {
+        this.logger.warn('[SessionHistoryReader] No agent for task', {
+          toolUseId: task.toolUseId,
+        });
       }
     }
+
+    this.logger.info('[SessionHistoryReader] Correlation complete', {
+      correlationsFound: map.size,
+    });
 
     return map;
   }
 
   private extractAllToolResults(
-    messages: JSONLMessage[]
+    messages: SessionHistoryMessage[]
   ): Map<string, ToolResultData> {
     const results = new Map<string, ToolResultData>();
 
@@ -879,6 +1034,7 @@ export class SessionHistoryReaderService {
       messageId,
       role,
       timestamp,
+      source: 'history',
     };
   }
 
@@ -898,6 +1054,7 @@ export class SessionHistoryReaderService {
       blockIndex,
       delta: text,
       timestamp,
+      source: 'history',
     };
   }
 
@@ -917,6 +1074,7 @@ export class SessionHistoryReaderService {
       blockIndex,
       delta: thinking,
       timestamp,
+      source: 'history',
     };
   }
 
@@ -939,6 +1097,7 @@ export class SessionHistoryReaderService {
       toolInput,
       isTaskTool: toolName === 'Task',
       timestamp,
+      source: 'history',
     };
   }
 
@@ -948,7 +1107,8 @@ export class SessionHistoryReaderService {
     toolCallId: string,
     input: Record<string, unknown>,
     index: number,
-    timestamp: number
+    timestamp: number,
+    parentToolUseId?: string
   ): AgentStartEvent {
     return {
       eventType: 'agent_start',
@@ -960,6 +1120,8 @@ export class SessionHistoryReaderService {
       agentDescription: input['description'] as string | undefined,
       agentPrompt: input['prompt'] as string | undefined,
       timestamp,
+      parentToolUseId,
+      source: 'history',
     };
   }
 
@@ -981,6 +1143,7 @@ export class SessionHistoryReaderService {
       output,
       isError,
       timestamp,
+      source: 'history',
     };
   }
 
@@ -996,6 +1159,7 @@ export class SessionHistoryReaderService {
       sessionId,
       messageId,
       timestamp,
+      source: 'history',
     };
   }
 

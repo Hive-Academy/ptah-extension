@@ -325,18 +325,19 @@ export class VSCodeService {
 
       // Handle session ID resolution - CRITICAL for session resume
       // Backend sends real SDK UUID after SDK returns it from system init message
-      // Without this, tabs store placeholder IDs (msg_XXX) which SDK rejects on resume
+      // TASK_2025_095: Now uses tabId for direct routing - no temp ID lookup needed
       if (message.type === MESSAGE_TYPES.SESSION_ID_RESOLVED) {
-        const { sessionId, realSessionId } = message.payload ?? {};
+        const { tabId, realSessionId } = message.payload ?? {};
         console.log('[VSCodeService] Session ID resolved:', {
-          sessionId,
+          tabId,
           realSessionId,
         });
 
         if (realSessionId && this.chatStore) {
           // Delegate to ChatStore which will update the tab's claudeSessionId
+          // TASK_2025_095: Now uses tabId for direct tab lookup
           this.chatStore.handleSessionIdResolved({
-            sessionId: sessionId as string,
+            tabId: tabId as string,
             realSessionId: realSessionId as string,
           });
         } else if (!realSessionId) {

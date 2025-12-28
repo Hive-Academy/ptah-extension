@@ -24,6 +24,7 @@ import {
   SignatureDeltaEvent,
   SessionId,
   calculateMessageCost,
+  EventSource,
 } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
@@ -205,6 +206,7 @@ export class SdkMessageTransformer {
           eventType: 'message_start',
           timestamp: Date.now(),
           sessionId: sessionId || '',
+          source: 'stream' as EventSource,
           messageId,
           role: 'assistant',
           parentToolUseId,
@@ -230,6 +232,7 @@ export class SdkMessageTransformer {
           eventType: 'message_delta',
           timestamp: Date.now(),
           sessionId: sessionId || '',
+          source: 'stream' as EventSource,
           messageId: this.currentMessageId,
           tokenUsage: {
             input: usage.input_tokens ?? 0,
@@ -256,6 +259,7 @@ export class SdkMessageTransformer {
             eventType: 'message_complete',
             timestamp: Date.now(),
             sessionId: sessionId || '',
+            source: 'stream' as EventSource,
             messageId: this.currentMessageId,
             // Note: token usage comes from message_delta events, not message_stop
             parentToolUseId,
@@ -300,6 +304,7 @@ export class SdkMessageTransformer {
             eventType: 'thinking_start',
             timestamp: Date.now(),
             sessionId: sessionId || '',
+            source: 'stream' as EventSource,
             messageId: this.currentMessageId,
             blockIndex,
             parentToolUseId,
@@ -324,6 +329,7 @@ export class SdkMessageTransformer {
             eventType: 'tool_start',
             timestamp: Date.now(),
             sessionId: sessionId || '',
+            source: 'stream' as EventSource,
             messageId: this.currentMessageId,
             toolCallId: contentBlock.id,
             toolName: contentBlock.name,
@@ -331,7 +337,26 @@ export class SdkMessageTransformer {
             parentToolUseId,
           };
 
-          return [toolStartEvent];
+          const events: FlatStreamEventUnion[] = [toolStartEvent];
+
+          // TASK_2025_095: Emit agent_start during streaming for Task tools
+          // This allows the UI to show the agent bubble immediately
+          if (isTaskTool) {
+            const agentStartEvent: AgentStartEvent = {
+              id: generateEventId(),
+              eventType: 'agent_start',
+              timestamp: Date.now(),
+              sessionId: sessionId || '',
+              source: 'stream' as EventSource,
+              messageId: this.currentMessageId,
+              toolCallId: contentBlock.id,
+              agentType: 'unknown', // Will be updated when input_json_delta arrives
+              parentToolUseId: contentBlock.id, // Link to parent Task tool
+            };
+            events.push(agentStartEvent);
+          }
+
+          return events;
         }
 
         // Text blocks don't emit on start (wait for delta)
@@ -364,6 +389,7 @@ export class SdkMessageTransformer {
               eventType: 'text_delta',
               timestamp: Date.now(),
               sessionId: sessionId || '',
+              source: 'stream' as EventSource,
               messageId: this.currentMessageId,
               delta: delta.text,
               blockIndex,
@@ -386,6 +412,7 @@ export class SdkMessageTransformer {
               eventType: 'tool_delta',
               timestamp: Date.now(),
               sessionId: sessionId || '',
+              source: 'stream' as EventSource,
               messageId: this.currentMessageId,
               toolCallId: realToolCallId,
               delta: delta.partial_json,
@@ -403,6 +430,7 @@ export class SdkMessageTransformer {
               eventType: 'thinking_delta',
               timestamp: Date.now(),
               sessionId: sessionId || '',
+              source: 'stream' as EventSource,
               messageId: this.currentMessageId,
               delta: delta.thinking,
               blockIndex,
@@ -423,6 +451,7 @@ export class SdkMessageTransformer {
               eventType: 'signature_delta',
               timestamp: Date.now(),
               sessionId: sessionId || '',
+              source: 'stream' as EventSource,
               messageId: this.currentMessageId,
               blockIndex,
               signature: delta.signature,
@@ -505,6 +534,7 @@ export class SdkMessageTransformer {
       eventType: 'message_start',
       timestamp: Date.now(),
       sessionId: sessionId || '',
+      source: 'complete' as EventSource,
       messageId,
       role: 'assistant',
       parentToolUseId: parent_tool_use_id ?? undefined,
@@ -522,6 +552,7 @@ export class SdkMessageTransformer {
           eventType: 'text_delta',
           timestamp: Date.now(),
           sessionId: sessionId || '',
+          source: 'complete' as EventSource,
           messageId,
           delta: block.text,
           blockIndex: textBlockIndex,
@@ -562,6 +593,7 @@ export class SdkMessageTransformer {
           eventType: 'tool_start',
           timestamp: Date.now(),
           sessionId: sessionId || '',
+          source: 'complete' as EventSource,
           messageId,
           toolCallId: block.id,
           toolName: block.name,
@@ -574,18 +606,21 @@ export class SdkMessageTransformer {
         };
 
         // Emit agent_start event for Task tools
+        // TASK_2025_095: parentToolUseId must link to the Task tool's toolCallId (block.id)
+        // This allows the frontend tree builder to find the agent via parentToolUseId
         if (isTaskTool) {
           const agentStartEvent: AgentStartEvent = {
             id: generateEventId(),
             eventType: 'agent_start',
             timestamp: Date.now(),
             sessionId: sessionId || '',
+            source: 'complete' as EventSource,
             messageId,
             toolCallId: block.id,
             agentType: agentType || 'unknown',
             agentDescription,
             agentPrompt,
-            parentToolUseId: parent_tool_use_id ?? undefined,
+            parentToolUseId: block.id, // Link to parent Task tool
           };
           events.push(agentStartEvent);
         }
@@ -598,6 +633,7 @@ export class SdkMessageTransformer {
           eventType: 'tool_result',
           timestamp: Date.now(),
           sessionId: sessionId || '',
+          source: 'complete' as EventSource,
           messageId,
           toolCallId: block.tool_use_id,
           output: block.content,
@@ -628,6 +664,7 @@ export class SdkMessageTransformer {
       eventType: 'message_complete',
       timestamp: Date.now(),
       sessionId: sessionId || '',
+      source: 'complete' as EventSource,
       messageId,
       stopReason: message.stop_reason ?? undefined,
       tokenUsage,
@@ -697,6 +734,7 @@ export class SdkMessageTransformer {
             eventType: 'tool_result',
             timestamp: Date.now(),
             sessionId: sessionId || '',
+            source: 'complete' as EventSource,
             messageId,
             toolCallId: toolResultBlock.tool_use_id,
             output: toolResultBlock.content,
@@ -765,6 +803,7 @@ export class SdkMessageTransformer {
       eventType: 'message_start',
       timestamp: Date.now(),
       sessionId: sessionId || '',
+      source: 'complete' as EventSource,
       messageId: uuid || `user-${Date.now()}`,
       role: 'user',
     };
@@ -776,6 +815,7 @@ export class SdkMessageTransformer {
       eventType: 'text_delta',
       timestamp: Date.now(),
       sessionId: sessionId || '',
+      source: 'complete' as EventSource,
       messageId: uuid || `user-${Date.now()}`,
       delta: textContent,
       blockIndex: 0,
@@ -788,6 +828,7 @@ export class SdkMessageTransformer {
       eventType: 'message_complete',
       timestamp: Date.now(),
       sessionId: sessionId || '',
+      source: 'complete' as EventSource,
       messageId: uuid || `user-${Date.now()}`,
     };
     events.push(messageCompleteEvent);

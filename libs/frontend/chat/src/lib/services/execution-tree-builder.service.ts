@@ -18,11 +18,8 @@
 import { Injectable } from '@angular/core';
 import type {
   ExecutionNode,
-  FlatStreamEventUnion,
   MessageStartEvent,
   MessageCompleteEvent,
-  TextDeltaEvent,
-  ThinkingDeltaEvent,
   ToolStartEvent,
   ToolResultEvent,
   AgentStartEvent,
@@ -47,22 +44,90 @@ interface ParseResult<T> {
   raw?: string;
 }
 
+/**
+ * PERFORMANCE OPTIMIZATION: Cache entry for memoized tree building
+ * Stores the built tree along with the event count used to build it.
+ * When event count matches, we return cached tree instead of rebuilding.
+ */
+interface TreeCacheEntry {
+  eventCount: number;
+  messageEventIdsLength: number;
+  textAccumulatorsSize: number;
+  toolInputAccumulatorsSize: number;
+  tree: ExecutionNode[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class ExecutionTreeBuilderService {
   /**
+   * PERFORMANCE OPTIMIZATION: Memoization cache for tree building
+   * Key: Unique identifier for the streaming state (could be session-based)
+   * Value: Cached tree and the state snapshot used to build it
+   *
+   * This prevents rebuilding the entire tree 100+ times/sec during streaming.
+   * Tree is only rebuilt when the underlying data actually changes.
+   */
+  private readonly treeCache = new Map<string, TreeCacheEntry>();
+
+  /**
+   * Maximum cache entries to prevent memory leaks
+   * Old entries are evicted when limit is reached (LRU-like behavior)
+   */
+  private readonly MAX_CACHE_SIZE = 50;
+  /**
    * Build ExecutionNode tree from flat events at render time
    *
+   * PERFORMANCE OPTIMIZATION: Memoized tree building
+   * - Uses cache keyed by streaming state fingerprint
+   * - Only rebuilds when event count or accumulator sizes change
+   * - Reduces tree building from 100+/sec to only when data changes
+   *
    * Algorithm:
-   * 1. Group events by messageId (root messages)
-   * 2. For each message, build tree using parentToolUseId for nesting
-   * 3. Use toolCallId to link tool_result to tool_start
-   * 4. Use blockIndex for ordering text/thinking blocks
-   * 5. Accumulate text deltas into full content
+   * 1. Check cache using state fingerprint (event count + accumulator sizes)
+   * 2. Return cached tree if fingerprint matches
+   * 3. Otherwise, build tree and cache result
+   * 4. Group events by messageId (root messages)
+   * 5. For each message, build tree using parentToolUseId for nesting
+   * 6. Use toolCallId to link tool_result to tool_start
+   * 7. Use blockIndex for ordering text/thinking blocks
+   * 8. Accumulate text deltas into full content
    *
    * @param streamingState - Flat event storage
+   * @param cacheKey - Optional cache key (defaults to 'default')
    * @returns Array of root ExecutionNode objects
    */
-  buildTree(streamingState: StreamingState): ExecutionNode[] {
+  buildTree(streamingState: StreamingState, cacheKey = 'default'): ExecutionNode[] {
+    // DIAGNOSTIC: Log buildTree call
+    console.log('[ExecutionTreeBuilderService] buildTree called:', JSON.stringify({
+      cacheKey,
+      eventCount: streamingState.events.size,
+      messageEventIdsLength: streamingState.messageEventIds.length,
+      messageIds: streamingState.messageEventIds,
+    }));
+
+    // PERFORMANCE: Calculate state fingerprint for cache validation
+    // These values change when new events arrive or accumulators update
+    const eventCount = streamingState.events.size;
+    const messageEventIdsLength = streamingState.messageEventIds.length;
+    const textAccumulatorsSize = streamingState.textAccumulators.size;
+    const toolInputAccumulatorsSize = streamingState.toolInputAccumulators.size;
+
+    // Check cache for existing tree with matching fingerprint
+    const cached = this.treeCache.get(cacheKey);
+    if (
+      cached &&
+      cached.eventCount === eventCount &&
+      cached.messageEventIdsLength === messageEventIdsLength &&
+      cached.textAccumulatorsSize === textAccumulatorsSize &&
+      cached.toolInputAccumulatorsSize === toolInputAccumulatorsSize
+    ) {
+      // Cache hit - return existing tree without rebuilding
+      console.log('[ExecutionTreeBuilderService] buildTree cache HIT - skipping rebuild');
+      return cached.tree;
+    }
+
+    console.log('[ExecutionTreeBuilderService] buildTree cache MISS - building tree');
+    // Cache miss - build new tree
     const rootNodes: ExecutionNode[] = [];
 
     for (const messageId of streamingState.messageEventIds) {
@@ -72,7 +137,36 @@ export class ExecutionTreeBuilderService {
       }
     }
 
+    // Evict old cache entries if at capacity (simple LRU-like eviction)
+    if (this.treeCache.size >= this.MAX_CACHE_SIZE) {
+      const firstKey = this.treeCache.keys().next().value;
+      if (firstKey) {
+        this.treeCache.delete(firstKey);
+      }
+    }
+
+    // Cache the result
+    this.treeCache.set(cacheKey, {
+      eventCount,
+      messageEventIdsLength,
+      textAccumulatorsSize,
+      toolInputAccumulatorsSize,
+      tree: rootNodes,
+    });
+
     return rootNodes;
+  }
+
+  /**
+   * Clear cache for a specific key or all entries
+   * Call this when a session is closed or switched
+   */
+  clearCache(cacheKey?: string): void {
+    if (cacheKey) {
+      this.treeCache.delete(cacheKey);
+    } else {
+      this.treeCache.clear();
+    }
   }
 
   /**
@@ -267,72 +361,120 @@ export class ExecutionTreeBuilderService {
   ): ExecutionNode[] {
     const tools: ExecutionNode[] = [];
 
-    // Find all root-level tool_start events (no parentToolUseId)
-    const allRootToolStarts = [...state.events.values()].filter(
-      (e) => e.eventType === 'tool_start' && !e.parentToolUseId
-    ) as ToolStartEvent[];
+    // TASK_2025_095 FIX: Collect tools based on messageId AND context depth
+    // - For root-level messages (depth 0): Only collect tools WITHOUT parentToolUseId
+    //   These are direct tool calls from the main assistant message.
+    // - For nested messages (depth > 0): Collect tools WITH parentToolUseId
+    //   These are tool calls from within agent messages, linked to parent Task tool.
+    const toolStarts = [...state.events.values()].filter((e) => {
+      if (e.eventType !== 'tool_start') return false;
+      if (e.messageId !== messageId) return false;
 
-    // Find tools with exact messageId match
-    let toolStarts = allRootToolStarts.filter((e) => e.messageId === messageId);
+      // Root-level: only tools without parentToolUseId (direct tools)
+      // Nested: collect any tools (they have parentToolUseId linking to Task)
+      if (depth === 0 && e.parentToolUseId) return false;
 
-    // MESSAGEEID MISMATCH FIX (TASK_2025_093):
-    // When SDK sends both streaming events AND complete assistant messages,
-    // the messageIds may differ:
-    // - Streaming message_start uses API's message.id (e.g., "msg_xxx")
-    // - Complete assistant message might use SDK's uuid as fallback
-    //
-    // This causes tools to have different messageId than what's in messageEventIds.
-    // Fix: If no tools found with exact match AND there are orphan tools,
-    // associate them with this message if it's the only message or most recent.
-    if (toolStarts.length === 0 && allRootToolStarts.length > 0) {
-      // Get all unique messageIds from tool_starts
-      const toolMessageIds = new Set(allRootToolStarts.map((e) => e.messageId));
+      return true;
+    }) as ToolStartEvent[];
 
-      // Check if all tools have the SAME messageId (different from ours)
-      // This indicates a messageId mismatch, not multiple different messages
-      if (toolMessageIds.size === 1) {
-        const actualToolMessageId = [...toolMessageIds][0];
-
-        // Only associate if:
-        // 1. This is a single-message conversation (only 1 messageEventId), OR
-        // 2. The tool's messageId is not in messageEventIds (orphan tools)
-        const isSingleMessage = state.messageEventIds.length === 1;
-        const isOrphanToolMessageId =
-          !state.messageEventIds.includes(actualToolMessageId);
-
-        if (isSingleMessage || isOrphanToolMessageId) {
-          console.log(
-            '[ExecutionTreeBuilder] MESSAGEID MISMATCH FIX - associating tools:',
-            {
-              searchedMessageId: messageId,
-              actualToolMessageId,
-              toolCount: allRootToolStarts.length,
-              reason: isSingleMessage ? 'single-message' : 'orphan-tools',
-            }
-          );
-
-          // Associate these tools with the current message
-          toolStarts = allRootToolStarts;
-        }
-      }
-    }
-
-    // DIAGNOSTIC: Log tool collection
-    if (allRootToolStarts.length > 0) {
-      console.log('[ExecutionTreeBuilder] collectTools:', {
-        searchingForMessageId: messageId,
-        toolStartsFound: toolStarts.length,
-        totalRootToolStarts: allRootToolStarts.length,
-        storedToolStartMessageIds: allRootToolStarts.map((e) => e.messageId),
-        messageEventIds: [...state.messageEventIds],
-      });
-    }
+    // DIAGNOSTIC: Log ALL tool_start events in state for debugging
+    const allToolStarts = [...state.events.values()].filter(e => e.eventType === 'tool_start');
+    console.log('[ExecutionTreeBuilderService] collectTools:', JSON.stringify({
+      messageId,
+      depth,
+      toolStartsFound: toolStarts.length,
+      toolNames: toolStarts.map(t => ({ name: t.toolName, id: t.toolCallId, hasParentToolUseId: !!t.parentToolUseId })),
+      // Debug: show ALL tool_start events in state
+      allToolStartsInState: allToolStarts.map(t => ({
+        id: t.id,
+        toolName: (t as ToolStartEvent).toolName,
+        messageId: t.messageId,
+        parentToolUseId: (t as ToolStartEvent).parentToolUseId,
+      })),
+    }));
 
     for (const toolStart of toolStarts) {
+      // TASK_2025_095: For Task tools that spawn agents, show agent directly instead of Task wrapper
+      // This prevents the duplication: Task tool → Agent → tools
+      // User should see only: Agent → tools
+      if (toolStart.isTaskTool || toolStart.toolName === 'Task') {
+        // Check if this Task tool has an agent child
+        const agentStarts = [...state.events.values()].filter(
+          (e) => e.eventType === 'agent_start' && e.parentToolUseId === toolStart.toolCallId
+        ) as AgentStartEvent[];
+
+        if (agentStarts.length > 0) {
+          // Build agent nodes directly (skip the Task tool wrapper)
+          for (const agentStart of agentStarts) {
+            const agentNode = this.buildAgentNode(agentStart, toolStart.toolCallId, state, depth);
+            if (agentNode) {
+              tools.push(agentNode);
+            }
+          }
+          continue; // Skip building the Task tool node
+        }
+      }
+
+      // Normal tool - build tool node as usual
       tools.push(this.buildToolNode(toolStart, state, depth));
     }
 
     return tools;
+  }
+
+  /**
+   * Build an agent node directly (for Task tools that spawn agents)
+   * TASK_2025_095: Used to show agent bubble without Task tool wrapper
+   *
+   * @param agentStart - Agent start event
+   * @param toolCallId - Parent tool call ID (for finding nested messages)
+   * @param state - Streaming state
+   * @param depth - Current recursion depth
+   * @returns Agent ExecutionNode or null
+   */
+  private buildAgentNode(
+    agentStart: AgentStartEvent,
+    toolCallId: string,
+    state: StreamingState,
+    depth: number
+  ): ExecutionNode | null {
+    // Early exit if max depth exceeded
+    if (depth >= MAX_DEPTH) {
+      console.warn('[ExecutionTreeBuilderService] Max recursion depth exceeded in buildAgentNode', {
+        toolCallId,
+        depth,
+        maxDepth: MAX_DEPTH,
+      });
+      return null;
+    }
+
+    // Find message_start events for this agent (linked via parentToolUseId)
+    const agentMessageStarts = [...state.events.values()].filter(
+      (e) => e.eventType === 'message_start' && e.parentToolUseId === toolCallId
+    ) as MessageStartEvent[];
+
+    // Build children for the agent node (the nested message content)
+    const agentChildren: ExecutionNode[] = [];
+
+    for (const msgStart of agentMessageStarts) {
+      const messageNode = this.buildMessageNode(msgStart.messageId, state, depth + 1);
+      if (messageNode) {
+        // Unwrap message node - agent shows its content directly
+        agentChildren.push(...messageNode.children);
+      }
+    }
+
+    // Create the AGENT node
+    return createExecutionNode({
+      id: agentStart.id,
+      type: 'agent',
+      status: agentChildren.length > 0 ? 'complete' : 'streaming',
+      content: agentStart.agentDescription || '',
+      children: agentChildren,
+      startTime: agentStart.timestamp,
+      agentType: agentStart.agentType,
+      agentDescription: agentStart.agentDescription,
+    });
   }
 
   /**
@@ -372,23 +514,6 @@ export class ExecutionTreeBuilderService {
       (e) =>
         e.eventType === 'tool_result' && e.toolCallId === toolStart.toolCallId
     ) as ToolResultEvent | undefined;
-
-    // DIAGNOSTIC: Log tool result lookup for debugging streaming disconnection issue
-    const allToolResultEvents = [...state.events.values()].filter(
-      (e) => e.eventType === 'tool_result'
-    );
-    console.log(
-      '[ExecutionTreeBuilder] buildToolNode - looking for tool_result:',
-      {
-        toolName: toolStart.toolName,
-        toolCallId: toolStart.toolCallId,
-        foundResult: !!resultEvent,
-        totalToolResultsInState: allToolResultEvents.length,
-        toolResultToolCallIds: allToolResultEvents.map(
-          (e) => (e as { toolCallId?: string }).toolCallId
-        ),
-      }
-    );
 
     // Get accumulated input
     const inputKey = `${toolStart.toolCallId}-input`;
@@ -487,29 +612,96 @@ export class ExecutionTreeBuilderService {
       (e) => e.eventType === 'agent_start' && e.parentToolUseId === toolCallId
     ) as AgentStartEvent[];
 
-    // For each agent, find its messages and build them (RECURSIVE!)
+    // DIAGNOSTIC: Log agent_start search results (JSON.stringify for log file visibility)
+    console.log('[ExecutionTreeBuilderService] buildToolChildren - searching for agents:', JSON.stringify({
+      toolCallId,
+      depth,
+      totalEvents: state.events.size,
+      agentStartsFound: agentStarts.length,
+      agentStartIds: agentStarts.map(a => ({ id: a.id, parentToolUseId: a.parentToolUseId })),
+    }));
+
+    // For each agent, create an AGENT node containing its messages
     for (const agentStart of agentStarts) {
       // Find message_start events for this agent
-      const agentMessageIds = [...state.events.values()]
+      const agentMessageStarts = [...state.events.values()]
         .filter(
           (e) =>
             e.eventType === 'message_start' && e.parentToolUseId === toolCallId
-        )
-        .map((e) => e.messageId);
+        ) as MessageStartEvent[];
 
-      for (const msgId of agentMessageIds) {
-        const messageNode = this.buildMessageNode(msgId, state, depth + 1);
+      // DIAGNOSTIC: Log message_start search results (JSON.stringify for log file visibility)
+      console.log('[ExecutionTreeBuilderService] buildToolChildren - searching for nested messages:', JSON.stringify({
+        agentId: agentStart.id,
+        toolCallId,
+        agentMessageStartsFound: agentMessageStarts.length,
+        agentMessageStartDetails: agentMessageStarts.map(m => ({
+          id: m.id,
+          messageId: m.messageId,
+          parentToolUseId: m.parentToolUseId,
+          role: m.role,
+        })),
+        // Also log all message_start events in state for comparison
+        allMessageStartsInState: [...state.events.values()]
+          .filter(e => e.eventType === 'message_start')
+          .map(e => ({
+            id: e.id,
+            messageId: (e as MessageStartEvent).messageId,
+            parentToolUseId: (e as MessageStartEvent).parentToolUseId,
+          })),
+      }));
+
+      // Build children for the agent node (the nested message content)
+      const agentChildren: ExecutionNode[] = [];
+
+      for (const msgStart of agentMessageStarts) {
+        const messageNode = this.buildMessageNode(msgStart.messageId, state, depth + 1);
+
+        // DIAGNOSTIC: Log buildMessageNode result (JSON.stringify for log file visibility)
+        console.log('[ExecutionTreeBuilderService] buildToolChildren - buildMessageNode result:', JSON.stringify({
+          messageId: msgStart.messageId,
+          messageNodeExists: !!messageNode,
+          messageNodeChildrenCount: messageNode?.children?.length ?? 0,
+          messageNodeChildren: messageNode?.children?.map(c => ({ id: c.id, type: c.type })) ?? [],
+        }));
+
         if (messageNode) {
-          children.push(messageNode);
-        } else {
-          console.warn('[ExecutionTreeBuilderService] Message node dropped', {
-            messageId: msgId,
-            toolCallId,
-            reason: 'buildMessageNode returned null',
-          });
+          // Unwrap message node - agent shows its content directly
+          // Push the message's children (text, tools, etc.) as agent's children
+          agentChildren.push(...messageNode.children);
         }
       }
+
+      // DIAGNOSTIC: Log agentChildren before creating agent node (JSON.stringify for log file visibility)
+      console.log('[ExecutionTreeBuilderService] buildToolChildren - creating agent node:', JSON.stringify({
+        agentId: agentStart.id,
+        agentType: agentStart.agentType,
+        agentChildrenCount: agentChildren.length,
+        agentChildrenTypes: agentChildren.map(c => ({ id: c.id, type: c.type })),
+      }));
+
+      // Create the AGENT node from agent_start event
+      // This wraps the nested content in a proper agent bubble
+      const agentNode = createExecutionNode({
+        id: agentStart.id,
+        type: 'agent',
+        status: agentChildren.length > 0 ? 'complete' : 'streaming',
+        content: agentStart.agentDescription || '',
+        children: agentChildren,
+        startTime: agentStart.timestamp,
+        agentType: agentStart.agentType,
+        agentDescription: agentStart.agentDescription,
+      });
+
+      children.push(agentNode);
     }
+
+    // DIAGNOSTIC: Log final tool children (JSON.stringify for log file visibility)
+    console.log('[ExecutionTreeBuilderService] buildToolChildren - returning children:', JSON.stringify({
+      toolCallId,
+      childrenCount: children.length,
+      childrenTypes: children.map(c => ({ id: c.id, type: c.type, childCount: c.children?.length })),
+    }));
 
     return children;
   }

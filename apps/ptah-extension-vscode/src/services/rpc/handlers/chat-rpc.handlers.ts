@@ -100,12 +100,14 @@ export class ChatRpcHandlers {
             .substring(2, 9)}` as SessionId;
 
           // Start SDK session with streaming ExecutionNode output
+          // TASK_2025_095: Pass tabId so session:id-resolved can route directly
           const stream = await this.sdkAdapter.startChatSession(tempSessionId, {
             workspaceId: workspacePath,
             model: options?.model || currentModel,
             systemPrompt: options?.systemPrompt,
             projectPath: workspacePath,
             name,
+            tabId, // For direct routing of session:id-resolved
           });
 
           // Log files received for debugging (Phase 2)

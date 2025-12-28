@@ -244,17 +244,46 @@ export class TabManagerService {
 
   /**
    * Update tab properties
+   *
+   * PERFORMANCE OPTIMIZATION: Uses shallow equality check to avoid
+   * unnecessary signal updates when streamingState hasn't actually changed.
+   * This is critical during high-frequency streaming events.
+   *
    * @param tabId - Tab ID to update
    * @param updates - Partial tab state updates
    */
   updateTab(tabId: string, updates: Partial<TabState>): void {
-    this._tabs.update((tabs) =>
-      tabs.map((tab) =>
-        tab.id === tabId
-          ? { ...tab, ...updates, lastActivityAt: Date.now() }
-          : tab
-      )
-    );
+    this._tabs.update((tabs) => {
+      const tabIndex = tabs.findIndex((t) => t.id === tabId);
+      if (tabIndex === -1) return tabs; // Tab not found, no change
+
+      const existingTab = tabs[tabIndex];
+
+      // PERFORMANCE: Skip update if streamingState reference is identical
+      // During batched streaming updates, the state object reference is reused
+      // until flush, so we can skip redundant updates
+      if (
+        updates.streamingState !== undefined &&
+        updates.streamingState === existingTab.streamingState &&
+        Object.keys(updates).length === 1
+      ) {
+        // Only streamingState is being updated and it's the same reference
+        return tabs;
+      }
+
+      // Create new tab with updates
+      const updatedTab = {
+        ...existingTab,
+        ...updates,
+        lastActivityAt: Date.now(),
+      };
+
+      // PERFORMANCE: Create new array only if tab actually changed
+      // Use reference equality for the tab object
+      const newTabs = [...tabs];
+      newTabs[tabIndex] = updatedTab;
+      return newTabs;
+    });
     this.saveTabState();
   }
 

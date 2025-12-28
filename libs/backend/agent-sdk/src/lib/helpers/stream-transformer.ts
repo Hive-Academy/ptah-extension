@@ -25,10 +25,15 @@ import {
 } from '../types/sdk-types/claude-sdk.types';
 
 /**
- * Callback type for notifying when real session ID is received from SDK
- * This is the real SDK UUID that should be used everywhere.
+ * Callback type for notifying when real session ID is received from SDK.
+ * TASK_2025_095: Now includes tabId for direct routing without temp ID lookup.
+ * - tabId: Frontend tab ID for direct routing (undefined for resumed sessions)
+ * - realSessionId: The actual SDK UUID that should be used for all subsequent operations
  */
-export type SessionIdResolvedCallback = (realSessionId: string) => void;
+export type SessionIdResolvedCallback = (
+  tabId: string | undefined,
+  realSessionId: string
+) => void;
 
 /**
  * Callback type for notifying when result message with stats is received
@@ -49,6 +54,11 @@ export interface StreamTransformConfig {
   initialModel: string;
   onSessionIdResolved?: SessionIdResolvedCallback;
   onResultStats?: ResultStatsCallback;
+  /**
+   * TASK_2025_095: Frontend tab ID for direct routing of session:id-resolved.
+   * Passed to callback so frontend can find tab directly without temp ID lookup.
+   */
+  tabId?: string;
 }
 
 /**
@@ -153,7 +163,8 @@ export class StreamTransformer {
   transform(
     config: StreamTransformConfig
   ): AsyncIterable<FlatStreamEventUnion> {
-    const { sdkQuery, sessionId, onSessionIdResolved, onResultStats } = config;
+    const { sdkQuery, sessionId, onSessionIdResolved, onResultStats, tabId } =
+      config;
 
     // Capture references for use in generator
     const logger = this.logger;
@@ -217,9 +228,10 @@ export class StreamTransformer {
               // This ensures stats and events use the real UUID, not temp ID
               effectiveSessionId = realSessionId as SessionId;
 
-              // Notify caller of the real session ID
+              // TASK_2025_095: Notify caller with tabId for direct routing
+              // tabId allows frontend to find tab directly without temp ID lookup
               if (onSessionIdResolved) {
-                onSessionIdResolved(realSessionId);
+                onSessionIdResolved(tabId, realSessionId);
               }
             }
 

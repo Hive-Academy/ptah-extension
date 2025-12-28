@@ -670,9 +670,11 @@ export class SdkAgentAdapter implements IAIProvider {
     // Note: sdkQuery yields SDK's SDKMessage (from @anthropic-ai/claude-agent-sdk)
     // We structurally match it with our SDKMessage type (from claude-sdk.types.ts)
     // Create callback that saves metadata AND notifies webview
+    // TASK_2025_095: Pass tabId for direct routing of session:id-resolved
     const sessionIdCallback = this.createSessionIdCallback(
       config?.projectPath || process.cwd(),
-      config?.name || `Session ${new Date().toLocaleDateString()}`
+      config?.name || `Session ${new Date().toLocaleDateString()}`,
+      config?.tabId
     );
 
     return this.streamTransformer.transform({
@@ -681,6 +683,7 @@ export class SdkAgentAdapter implements IAIProvider {
       initialModel,
       onSessionIdResolved: sessionIdCallback,
       onResultStats: this.resultStatsCallback || undefined,
+      tabId: config?.tabId, // TASK_2025_095: For direct routing
     });
   }
 
@@ -779,10 +782,15 @@ export class SdkAgentAdapter implements IAIProvider {
     // Note: sdkQuery yields SDK's SDKMessage (from @anthropic-ai/claude-agent-sdk)
     // We structurally match it with our SDKMessage type (from claude-sdk.types.ts)
     // For resumed sessions, just update lastActiveAt (metadata already exists)
-    const resumeCallback = async (realSessionId: string) => {
+    // TASK_2025_095: Updated callback signature with tabId for direct routing
+    // Note: Resumed sessions don't have tabId from frontend, so pass undefined
+    const resumeCallback = async (
+      tabId: string | undefined,
+      realSessionId: string
+    ) => {
       await this.metadataStore.touch(realSessionId);
       if (this.sessionIdResolvedCallback) {
-        this.sessionIdResolvedCallback(realSessionId);
+        this.sessionIdResolvedCallback(tabId, realSessionId);
       }
     };
 
@@ -804,24 +812,28 @@ export class SdkAgentAdapter implements IAIProvider {
 
   /**
    * Create a session ID callback that saves metadata and notifies webview
+   * TASK_2025_095: Now uses tabId for direct routing instead of temp ID lookup
    * @param workspaceId - Workspace path for this session
    * @param sessionName - User-friendly session name
+   * @param tabId - Frontend tab ID for direct routing
    */
   private createSessionIdCallback(
     workspaceId: string,
-    sessionName: string
-  ): (realSessionId: string) => void {
-    return async (realSessionId: string) => {
+    sessionName: string,
+    tabId?: string
+  ): (tabId: string | undefined, realSessionId: string) => void {
+    return async (_tabIdFromCallback: string | undefined, realSessionId: string) => {
       this.logger.info(
-        `[SdkAgentAdapter] Saving session metadata for ${realSessionId}`
+        `[SdkAgentAdapter] Saving session metadata for ${realSessionId} (tabId: ${tabId})`
       );
 
       // Save session metadata to persistent storage
       await this.metadataStore.create(realSessionId, workspaceId, sessionName);
 
       // Notify webview of the resolved session ID
+      // TASK_2025_095: Pass tabId so frontend can find tab directly
       if (this.sessionIdResolvedCallback) {
-        this.sessionIdResolvedCallback(realSessionId);
+        this.sessionIdResolvedCallback(tabId, realSessionId);
       }
     };
   }
