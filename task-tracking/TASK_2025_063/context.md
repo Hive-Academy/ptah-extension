@@ -1,5 +1,28 @@
 # Task Context - TASK_2025_063
 
+> **SUPERSEDED BY TASK_2025_097**
+>
+> This task has been superseded. The implementation approach described below was **INCORRECT**.
+>
+> **Why This Task Was Superseded:**
+>
+> - **INCORRECT Approach (this task)**: Auto-approve AskUserQuestion in `canUseTool`, then use a separate `SdkQuestionHandler` class to handle questions
+> - **CORRECT Approach (TASK_2025_097)**: AskUserQuestion enters the `canUseTool` callback like any dangerous tool, prompts the user for answers, and returns answers in `updatedInput.answers` per SDK documentation
+>
+> **Key Differences:**
+>
+> 1. AskUserQuestion is NOT auto-approved - it requires user interaction via the `canUseTool` callback
+> 2. There is no separate `SdkQuestionHandler` class - all handling is unified in `SdkPermissionHandler`
+> 3. The response format uses `updatedInput.answers` to pass answers back to the SDK
+>
+> **See TASK_2025_097** for the correct implementation of:
+>
+> - Permission system UX improvements (race condition fix, collapsed badge UI)
+> - AskUserQuestion tool handling via unified `canUseTool` callback
+> - Timing diagnostics for permission flow
+>
+> ---
+
 ## User Intent
 
 Properly implement SDK permission and user interaction system systematically, including:
