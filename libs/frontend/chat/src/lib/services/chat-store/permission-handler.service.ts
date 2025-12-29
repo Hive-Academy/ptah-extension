@@ -7,9 +7,12 @@
  * - Identifying unmatched permissions for fallback display
  *
  * Part of ChatStore refactoring (Facade pattern) - ChatStore delegates here.
+ *
+ * TASK_2025_097 FIX: Race condition eliminated by reading real-time toolCallMap
+ * instead of tab-change-only cache. Permissions now match within 1 frame of tool_start.
  */
 
-import { Injectable, signal, computed, inject, effect } from '@angular/core';
+import { Injectable, signal, computed, inject } from '@angular/core';
 import {
   PermissionRequest,
   PermissionResponse,
@@ -40,27 +43,7 @@ export class PermissionHandlerService {
   readonly permissionRequests = this._permissionRequests.asReadonly();
 
   /**
-   * Cache for tool IDs to avoid recursive tree traversal on every read
-   */
-  private _toolIdsCache = new Set<string>();
-
-  constructor() {
-    // Update tool IDs cache when tab state changes
-    effect(() => {
-      const activeTab = this.tabManager.activeTab();
-      const messages = activeTab?.messages ?? [];
-
-      this._toolIdsCache.clear();
-      messages.forEach((msg) => {
-        if (msg.streamingState) {
-          this.extractToolIds(msg.streamingState, this._toolIdsCache);
-        }
-      });
-    });
-  }
-
-  /**
-   * Helper to extract tool IDs from execution tree
+   * Helper to extract tool IDs from execution tree (finalized messages)
    */
   private extractToolIds(node: ExecutionNode, set: Set<string>): void {
     if (node.toolCallId) {
@@ -89,15 +72,45 @@ export class PermissionHandlerService {
   }
 
   /**
-   * Set of all toolCallIds currently present in execution trees.
-   * Used to determine which permissions are matched vs unmatched.
+   * TASK_2025_097 FIX: Real-time computed signal for tool IDs in execution tree.
    *
-   * Performance optimized: Uses cached Set instead of recursive traversal.
-   * Cache is updated via effect in constructor when tab state changes.
+   * Replaces the stale _toolIdsCache that only updated on tab changes.
+   * Now reads from BOTH:
+   * 1. Finalized messages (historical tool IDs from msg.streamingState)
+   * 2. Current streaming state (real-time tool IDs from streamingState.toolCallMap)
    *
-   * Extracted from chat.store.ts:222-254
+   * This eliminates the race condition where permissions arrived before tool_start
+   * events were visible in the cache, causing duplicate display (inline AND fallback).
+   *
+   * Pattern source: chat.store.ts:180-188 (currentExecutionTrees computed signal)
    */
-  readonly toolIdsInExecutionTree = computed(() => this._toolIdsCache);
+  readonly toolIdsInExecutionTree = computed(() => {
+    const activeTab = this.tabManager.activeTab();
+    if (!activeTab) return new Set<string>();
+
+    const toolIds = new Set<string>();
+
+    // 1. Extract from finalized messages (historical tool IDs)
+    const messages = activeTab.messages ?? [];
+    messages.forEach((msg) => {
+      if (msg.streamingState) {
+        this.extractToolIds(msg.streamingState, toolIds);
+      }
+    });
+
+    // 2. Extract from current streaming state (real-time tool IDs) - KEY FIX!
+    // This is what eliminates the race condition: toolCallMap is updated
+    // immediately when tool_start events arrive via streaming-handler,
+    // so permissions can match within 1 frame instead of waiting for tab change.
+    const streamingState = activeTab.streamingState;
+    if (streamingState?.toolCallMap) {
+      for (const toolCallId of streamingState.toolCallMap.keys()) {
+        toolIds.add(toolCallId);
+      }
+    }
+
+    return toolIds;
+  });
 
   /**
    * Permissions that couldn't be matched to any tool in the execution tree.
@@ -134,13 +147,38 @@ export class PermissionHandlerService {
    *
    * Adds request to pending list using immutable update pattern.
    *
+   * TASK_2025_097: Added timing diagnostics for latency correlation.
+   * Logs receive timestamp and calculates latency from request.timestamp
+   * to help identify permission flow bottlenecks.
+   *
    * Extracted from chat.store.ts:1335-1338
    */
   handlePermissionRequest(request: PermissionRequest): void {
-    console.log(
-      '[PermissionHandlerService] Permission request received:',
-      request
-    );
+    const receiveTime = Date.now();
+
+    // Calculate latency from backend emission to frontend reception
+    // request.timestamp is set by backend when permission is emitted
+    const latencyMs =
+      request.timestamp !== undefined ? receiveTime - request.timestamp : null;
+
+    console.log('[PermissionHandlerService] Permission request received:', {
+      requestId: request.id,
+      toolName: request.toolName,
+      toolUseId: request.toolUseId,
+      receiveTime,
+      backendTimestamp: request.timestamp ?? 'N/A',
+      latencyMs: latencyMs !== null ? `${latencyMs}ms` : 'N/A',
+      timeoutAt: request.timeoutAt,
+    });
+
+    // Performance warning if latency exceeds expected threshold (100ms)
+    if (latencyMs !== null && latencyMs > 100) {
+      console.warn(
+        '[PermissionHandlerService] High permission latency detected:',
+        `${latencyMs}ms (expected < 100ms)`
+      );
+    }
+
     this._permissionRequests.update((requests) => [...requests, request]);
   }
 
