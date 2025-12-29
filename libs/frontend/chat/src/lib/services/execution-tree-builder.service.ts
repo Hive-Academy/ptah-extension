@@ -140,7 +140,26 @@ export class ExecutionTreeBuilderService {
     // Cache miss - build new tree
     const rootNodes: ExecutionNode[] = [];
 
+    // TASK_2025_096 FIX: Filter out nested messages from root nodes.
+    // Nested messages (those with parentToolUseId) are already rendered as children
+    // of their parent agent node. Rendering them as root nodes causes:
+    // - Duplicate empty message bubbles
+    // - Broken message hierarchy
     for (const messageId of streamingState.messageEventIds) {
+      // Check if this message is nested (has parentToolUseId)
+      const msgStartEvent = this.findMessageStartEvent(
+        streamingState,
+        messageId
+      );
+      if (msgStartEvent?.parentToolUseId) {
+        // Skip nested messages - they'll be rendered inside agent bubbles
+        console.log(
+          '[ExecutionTreeBuilderService] Skipping nested message (has parentToolUseId):',
+          { messageId, parentToolUseId: msgStartEvent.parentToolUseId }
+        );
+        continue;
+      }
+
       const messageNode = this.buildMessageNode(messageId, streamingState);
       if (messageNode) {
         rootNodes.push(messageNode);
@@ -841,5 +860,26 @@ export class ExecutionTreeBuilderService {
     );
 
     return children;
+  }
+
+  /**
+   * TASK_2025_096: Find message_start event for a given messageId.
+   * Used to check if a message is nested (has parentToolUseId) before
+   * deciding whether to render it as a root node.
+   *
+   * @param state - Streaming state
+   * @param messageId - The messageId to search for
+   * @returns The message_start event if found, undefined otherwise
+   */
+  private findMessageStartEvent(
+    state: StreamingState,
+    messageId: string
+  ): MessageStartEvent | undefined {
+    const messageEvents = state.eventsByMessage.get(messageId);
+    if (!messageEvents) return undefined;
+
+    return messageEvents.find((e) => e.eventType === 'message_start') as
+      | MessageStartEvent
+      | undefined;
   }
 }

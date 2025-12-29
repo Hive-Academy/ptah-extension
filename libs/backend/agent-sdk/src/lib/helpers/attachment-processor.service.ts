@@ -26,7 +26,20 @@ type UserMessageContentBlock =
 @injectable()
 export class AttachmentProcessorService {
   private readonly MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
-  private readonly MAX_TEXT_FILE_SIZE = 1 * 1024 * 1024; // 1MB limit for text files to prevent context overflow
+
+  /**
+   * TASK_2025_096: Hybrid file attachment approach
+   * - Small files (< 5KB): Embed content directly (config files, small scripts)
+   * - Large files (>= 5KB): Path reference - Claude uses Read tool on demand
+   *
+   * Benefits of path reference for large files:
+   * - Token efficiency: Only reads when actually needed
+   * - Selective reading: Can read specific lines with offset/limit
+   * - Fresh content: Gets current file state, not stale snapshot
+   * - Large file support: No context overflow issues
+   */
+  private readonly SMALL_FILE_THRESHOLD = 5 * 1024; // 5KB - embed directly
+  private readonly MAX_TEXT_FILE_SIZE = 1 * 1024 * 1024; // 1MB absolute limit
 
   private readonly SUPPORTED_IMAGES = new Set([
     '.jpg',
@@ -102,7 +115,10 @@ export class AttachmentProcessorService {
 
     return {
       type: 'text',
-      text: `<folder path="${folderPath}">\nThis is a folder reference. Please explore its contents using your tools (Read, Glob, Grep) as needed.\n</folder>`,
+      text: `<folder path="${folderPath}">
+This folder is attached for reference. Use Glob to list files and Read to examine contents as needed.
+Example: Glob pattern "${folderPath}/**/*" to see all files.
+</folder>`,
     };
   }
 
@@ -140,18 +156,36 @@ export class AttachmentProcessorService {
     }
   }
 
+  /**
+   * Process text file with hybrid approach:
+   * - Small files (< 5KB): Embed content directly
+   * - Large files (>= 5KB): Path reference for Claude to read on demand
+   */
   private async processTextFile(
     filePath: string,
     size: number
   ): Promise<UserMessageContentBlock | null> {
+    // For files exceeding absolute max, use path reference (Claude can still read with offset/limit)
     if (size > this.MAX_TEXT_FILE_SIZE) {
-      // Just log warning, maybe we want to truncate later, but for now skip
-      this.logger.warn(
-        `[AttachmentProcessor] Text file too large (>1MB): ${filePath}`
+      this.logger.info(
+        `[AttachmentProcessor] Large file (>${
+          this.MAX_TEXT_FILE_SIZE / 1024
+        }KB), using path reference: ${filePath}`
       );
-      return null;
+      return this.processFileReference(filePath, size);
     }
 
+    // TASK_2025_096: Hybrid approach - large files get path reference
+    if (size >= this.SMALL_FILE_THRESHOLD) {
+      this.logger.debug(
+        `[AttachmentProcessor] File >= ${
+          this.SMALL_FILE_THRESHOLD / 1024
+        }KB, using path reference: ${filePath}`
+      );
+      return this.processFileReference(filePath, size);
+    }
+
+    // Small files (< 5KB) - embed content directly
     try {
       // Check for binary content (simple null byte check)
       const buffer = await fs.readFile(filePath);
@@ -164,8 +198,14 @@ export class AttachmentProcessorService {
 
       const content = buffer.toString('utf-8');
 
+      this.logger.debug(
+        `[AttachmentProcessor] Small file (${(size / 1024).toFixed(
+          1
+        )}KB), embedding content: ${filePath}`
+      );
+
       // XML wrapping for clear context
-      const xmlContent = `<document path="${filePath}">\n${content}\n</document>`;
+      const xmlContent = `<file path="${filePath}" size="${size}" embedded="true">\n${content}\n</file>`;
 
       return {
         type: 'text',
@@ -178,6 +218,26 @@ export class AttachmentProcessorService {
       );
       return null;
     }
+  }
+
+  /**
+   * Process file as path reference - Claude will use Read tool to access content
+   * This is more token-efficient for large files and allows selective reading
+   */
+  private processFileReference(
+    filePath: string,
+    size: number
+  ): UserMessageContentBlock {
+    const sizeKB = (size / 1024).toFixed(1);
+    const ext = path.extname(filePath).toLowerCase();
+
+    return {
+      type: 'text',
+      text: `<file path="${filePath}" size="${size}" sizeKB="${sizeKB}" extension="${ext}">
+This file is attached for reference. Use the Read tool to examine its contents when needed.
+You can read specific sections using offset and limit parameters for large files.
+</file>`,
+    };
   }
 
   private getMediaType(ext: string): string {

@@ -98,16 +98,18 @@ export class StreamingHandlerService {
    * When a 'complete' or 'history' source event arrives, it should replace any existing
    * 'stream' source events for the same tool call.
    *
+   * TASK_2025_096: Extended to support agent_start events to prevent duplicate agents.
+   *
    * @param state - The streaming state to update
    * @param toolCallId - The tool call ID to match
-   * @param eventType - The event type to match ('tool_start' or 'tool_result')
+   * @param eventType - The event type to match ('tool_start', 'tool_result', or 'agent_start')
    * @param newSource - The source of the new event
    * @returns The existing event if it should NOT be replaced, undefined if new event should be stored
    */
   private replaceStreamEventIfNeeded(
     state: StreamingState,
     toolCallId: string,
-    eventType: 'tool_start' | 'tool_result',
+    eventType: 'tool_start' | 'tool_result' | 'agent_start',
     newSource: EventSource | undefined
   ): FlatStreamEventUnion | undefined {
     // Find existing event with same toolCallId and eventType
@@ -160,6 +162,25 @@ export class StreamingHandlerService {
       }
     );
     return existingEvent;
+  }
+
+  /**
+   * TASK_2025_096: Find existing message_start event for a given messageId.
+   * Used to check for duplicates before storing a new message_start event.
+   *
+   * @param state - The streaming state to search
+   * @param messageId - The messageId to search for
+   * @returns The existing message_start event if found, undefined otherwise
+   */
+  private findMessageStartEvent(
+    state: StreamingState,
+    messageId: string
+  ): FlatStreamEventUnion | undefined {
+    // Search in eventsByMessage for efficiency
+    const messageEvents = state.eventsByMessage.get(messageId);
+    if (!messageEvents) return undefined;
+
+    return messageEvents.find((e) => e.eventType === 'message_start');
   }
 
   /**
@@ -383,10 +404,6 @@ export class StreamingHandlerService {
       // to prevent the bug where we find and delete the event we just stored.
       switch (event.eventType) {
         case 'message_start': {
-          // Store event first
-          state.events.set(event.id, event);
-          this.indexEventByMessage(state, event);
-
           // DIAGNOSTIC: Log message_start with parentToolUseId info (JSON.stringify for log file visibility)
           const msgStartEvent = event as MessageStartEvent;
           console.log(
@@ -398,31 +415,80 @@ export class StreamingHandlerService {
               isNestedAgentMessage: !!msgStartEvent.parentToolUseId,
               role: msgStartEvent.role,
               sessionId: event.sessionId,
+              source: event.source,
             })
           );
 
-          // TASK_2025_096: Track processed messageIds (for deduplication purposes)
-          // NOTE: We no longer clear accumulators on duplicate message_start.
-          // The text_delta handler now handles replacement based on event.source.
-          // This fixes the bug where tool-only complete messages would clear
-          // text that was just added by text-containing complete messages.
+          // TASK_2025_096 FIX: Track processed messageIds with source priority
+          // Check for duplicates BEFORE storing to prevent multiple message_start events
+          // for the same messageId, which causes empty message bubbles.
           let sessionMessageIds = this.processedMessageIds.get(event.sessionId);
           if (!sessionMessageIds) {
             sessionMessageIds = new Set<string>();
             this.processedMessageIds.set(event.sessionId, sessionMessageIds);
           }
 
-          if (sessionMessageIds.has(event.messageId)) {
-            // Duplicate message_start - just log and continue
-            // Text replacement is handled in text_delta based on event.source
-            console.debug(
-              '[StreamingHandlerService] Duplicate message_start - text_delta will handle replacement if needed',
-              { messageId: event.messageId, sessionId: event.sessionId }
-            );
-            // Don't return - continue processing to update currentMessageId
+          // Check if we already have a message_start for this messageId
+          const existingMsgStart = this.findMessageStartEvent(
+            state,
+            event.messageId
+          );
+
+          if (existingMsgStart) {
+            // We have an existing message_start for this messageId
+            // Check if new event should replace it based on source priority
+            const existingSource = (
+              existingMsgStart as FlatStreamEventUnion & {
+                source?: EventSource;
+              }
+            ).source;
+
+            if (this.shouldReplaceEvent(existingSource, event.source)) {
+              // New event has higher priority - remove old, store new
+              state.events.delete(existingMsgStart.id);
+              // Remove from eventsByMessage (replace array entry)
+              const msgEvents =
+                state.eventsByMessage.get(event.messageId) || [];
+              const filtered = msgEvents.filter(
+                (e) => e.id !== existingMsgStart.id
+              );
+              state.eventsByMessage.set(event.messageId, filtered);
+
+              console.log(
+                '[StreamingHandlerService] TASK_2025_096: Replacing message_start with higher priority',
+                {
+                  oldId: existingMsgStart.id,
+                  newId: event.id,
+                  messageId: event.messageId,
+                  oldSource: existingSource,
+                  newSource: event.source,
+                }
+              );
+
+              // Store new event
+              state.events.set(event.id, event);
+              this.indexEventByMessage(state, event);
+            } else {
+              // Existing has higher priority - skip this event
+              console.debug(
+                '[StreamingHandlerService] TASK_2025_096: Skipping duplicate message_start (lower priority)',
+                {
+                  messageId: event.messageId,
+                  existingSource,
+                  newSource: event.source,
+                }
+              );
+              // Still update currentMessageId for streaming continuity
+              state.currentMessageId = event.messageId;
+              return; // DON'T store this event
+            }
           } else {
+            // First message_start for this messageId - store it
             sessionMessageIds.add(event.messageId);
             state.messageEventIds.push(event.messageId);
+
+            state.events.set(event.id, event);
+            this.indexEventByMessage(state, event);
           }
 
           state.currentMessageId = event.messageId;
@@ -641,7 +707,31 @@ export class StreamingHandlerService {
         }
 
         case 'agent_start': {
-          // Store event
+          // TASK_2025_096 FIX: Check for duplicates BEFORE storing
+          // This prevents duplicate agents (e.g., one with 'unknown' type from streaming,
+          // another with correct type from complete message)
+          const existingAgentStart = this.replaceStreamEventIfNeeded(
+            state,
+            event.toolCallId,
+            'agent_start',
+            event.source
+          );
+
+          if (existingAgentStart) {
+            // Existing event has higher priority, skip this one entirely
+            console.log(
+              '[StreamingHandlerService] AGENT_START skipped (duplicate):',
+              {
+                skippedId: event.id,
+                existingId: existingAgentStart.id,
+                toolCallId: event.toolCallId,
+                agentType: event.agentType,
+              }
+            );
+            return;
+          }
+
+          // NOW store the event (after duplicate check passed)
           state.events.set(event.id, event);
           this.indexEventByMessage(state, event);
 

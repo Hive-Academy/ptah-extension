@@ -342,26 +342,12 @@ export class SdkMessageTransformer {
             parentToolUseId,
           };
 
-          const events: FlatStreamEventUnion[] = [toolStartEvent];
-
-          // TASK_2025_095: Emit agent_start during streaming for Task tools
-          // This allows the UI to show the agent bubble immediately
-          if (isTaskTool) {
-            const agentStartEvent: AgentStartEvent = {
-              id: generateEventId(),
-              eventType: 'agent_start',
-              timestamp: Date.now(),
-              sessionId: sessionId || '',
-              source: 'stream' as EventSource,
-              messageId: this.currentMessageId,
-              toolCallId: contentBlock.id,
-              agentType: 'unknown', // Will be updated when input_json_delta arrives
-              parentToolUseId: contentBlock.id, // Link to parent Task tool
-            };
-            events.push(agentStartEvent);
-          }
-
-          return events;
+          // TASK_2025_096 FIX: Only emit tool_start during streaming.
+          // DO NOT emit agent_start here - we don't have the agentType yet.
+          // agent_start will be emitted when the complete message arrives
+          // (in transformCompleteAssistantMessage) with the correct agentType.
+          // Emitting agent_start here with 'unknown' causes duplicate agents.
+          return [toolStartEvent];
         }
 
         // Text blocks don't emit on start (wait for delta)

@@ -721,17 +721,23 @@ export class SessionHistoryReaderService {
       const content = msg.message.content;
       if (!Array.isArray(content)) continue;
 
-      // Generate unique message ID for this agent message
-      const agentMessageId = `agent_msg_${eventIndex}_${Math.floor(
+      // TASK_2025_096 FIX: Generate unique message ID for this agent message.
+      // CRITICAL: Must include parentToolUseId to prevent collision when multiple
+      // agents are spawned in the same message block. Without this, the second agent's
+      // events would overwrite the first agent's events (same messageId, different parentToolUseId).
+      const agentMessageId = `agent_msg_${parentToolUseId}_${eventIndex}_${Math.floor(
         parentTimestamp
       )}`;
       const messageTimestamp = parentTimestamp + sequence++ * 0.0001;
       let blockIndex = 0;
 
       // Create message_start for this agent message (CRITICAL for frontend detection)
+      // TASK_2025_096 FIX: Include parentToolUseId in event ID to prevent collision
       events.push({
         eventType: 'message_start',
-        id: `evt_agent_${eventIndex++}_${Math.floor(messageTimestamp)}`,
+        id: `evt_agent_${parentToolUseId}_${eventIndex++}_${Math.floor(
+          messageTimestamp
+        )}`,
         sessionId,
         messageId: agentMessageId,
         parentToolUseId, // Links to parent Task tool
@@ -746,7 +752,9 @@ export class SessionHistoryReaderService {
         if (block.type === 'text' && block.text) {
           events.push({
             eventType: 'text_delta',
-            id: `evt_agent_${eventIndex++}_${Math.floor(eventTimestamp)}`,
+            id: `evt_agent_${parentToolUseId}_${eventIndex++}_${Math.floor(
+              eventTimestamp
+            )}`,
             sessionId,
             messageId: agentMessageId,
             parentToolUseId,
@@ -760,7 +768,9 @@ export class SessionHistoryReaderService {
 
           events.push({
             eventType: 'tool_start',
-            id: `evt_agent_${eventIndex++}_${Math.floor(eventTimestamp)}`,
+            id: `evt_agent_${parentToolUseId}_${eventIndex++}_${Math.floor(
+              eventTimestamp
+            )}`,
             sessionId,
             messageId: agentMessageId,
             parentToolUseId,
@@ -776,7 +786,9 @@ export class SessionHistoryReaderService {
             const resultTimestamp = parentTimestamp + sequence++ * 0.0001;
             events.push({
               eventType: 'tool_result',
-              id: `evt_agent_${eventIndex++}_${Math.floor(resultTimestamp)}`,
+              id: `evt_agent_${parentToolUseId}_${eventIndex++}_${Math.floor(
+                resultTimestamp
+              )}`,
               sessionId,
               messageId: agentMessageId,
               parentToolUseId,
@@ -794,7 +806,9 @@ export class SessionHistoryReaderService {
       const completeTimestamp = parentTimestamp + sequence++ * 0.0001;
       events.push({
         eventType: 'message_complete',
-        id: `evt_agent_${eventIndex++}_${Math.floor(completeTimestamp)}`,
+        id: `evt_agent_${parentToolUseId}_${eventIndex++}_${Math.floor(
+          completeTimestamp
+        )}`,
         sessionId,
         messageId: agentMessageId,
         parentToolUseId,
