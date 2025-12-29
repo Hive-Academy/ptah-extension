@@ -5,7 +5,12 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
-import type { ExecutionNode } from '@ptah-extension/shared';
+import {
+  type ExecutionNode,
+  isReadToolInput,
+  isWriteToolInput,
+  isEditToolInput,
+} from '@ptah-extension/shared';
 
 /**
  * CodeOutputComponent - Syntax-highlighted code output with content processing
@@ -128,14 +133,16 @@ export class CodeOutputComponent {
     const toolInput = node.toolInput;
     const output = node.toolOutput;
 
-    // Detect language based on tool type
+    // Detect language based on tool type using type guards
     let language = 'text';
 
-    if (['Read', 'Write', 'Edit'].includes(toolName || '')) {
-      const filePath = toolInput?.['file_path'] as string;
-      if (filePath) {
-        language = this.getLanguageFromPath(filePath);
-      }
+    // Use type guards for type-safe property access
+    if (
+      isReadToolInput(toolInput) ||
+      isWriteToolInput(toolInput) ||
+      isEditToolInput(toolInput)
+    ) {
+      language = this.getLanguageFromPath(toolInput.file_path);
     } else if (toolName === 'Bash') {
       language = 'bash';
     } else if (toolName === 'Grep' || toolName === 'Glob') {

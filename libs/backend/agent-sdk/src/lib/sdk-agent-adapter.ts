@@ -822,7 +822,10 @@ export class SdkAgentAdapter implements IAIProvider {
     sessionName: string,
     tabId?: string
   ): (tabId: string | undefined, realSessionId: string) => void {
-    return async (_tabIdFromCallback: string | undefined, realSessionId: string) => {
+    return async (
+      _tabIdFromCallback: string | undefined,
+      realSessionId: string
+    ) => {
       this.logger.info(
         `[SdkAgentAdapter] Saving session metadata for ${realSessionId} (tabId: ${tabId})`
       );

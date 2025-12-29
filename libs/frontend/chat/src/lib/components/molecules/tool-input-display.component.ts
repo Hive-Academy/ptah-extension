@@ -6,7 +6,7 @@ import {
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
 import { ExpandableContentComponent } from '../atoms/expandable-content.component';
-import type { ExecutionNode } from '@ptah-extension/shared';
+import { type ExecutionNode, isWriteToolInput } from '@ptah-extension/shared';
 
 /**
  * ToolInputDisplayComponent - Display tool input parameters
@@ -217,19 +217,16 @@ export class ToolInputDisplayComponent {
     // Strip system-reminder tags
     content = this.stripSystemReminders(content);
 
-    // For Write tool, detect language from file_path
+    // For Write tool, detect language from file_path using type guard
     const node = this.node();
-    if (node?.toolName === 'Write' && param.key === 'content') {
-      const filePath = node.toolInput?.['file_path'] as string;
-      if (filePath) {
-        const language = this.getLanguageFromPath(filePath);
-        // For markdown files, render as markdown (no code block)
-        if (language === 'markdown') {
-          return content;
-        }
-        // Wrap in code block with detected language
-        return '```' + language + '\n' + content + '\n```';
+    if (param.key === 'content' && isWriteToolInput(node?.toolInput)) {
+      const language = this.getLanguageFromPath(node.toolInput.file_path);
+      // For markdown files, render as markdown (no code block)
+      if (language === 'markdown') {
+        return content;
       }
+      // Wrap in code block with detected language
+      return '```' + language + '\n' + content + '\n```';
     }
 
     // Default: wrap in generic code block

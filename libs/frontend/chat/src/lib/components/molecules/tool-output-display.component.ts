@@ -10,7 +10,11 @@ import {
 } from './todo-list-display.component';
 import { CodeOutputComponent } from './code-output.component';
 import { ErrorAlertComponent } from '../atoms/error-alert.component';
-import type { ExecutionNode } from '@ptah-extension/shared';
+import {
+  type ExecutionNode,
+  isTodoWriteToolInput,
+  type TodoWriteToolInput,
+} from '@ptah-extension/shared';
 
 /**
  * ToolOutputDisplayComponent - Output section orchestrator
@@ -39,8 +43,8 @@ import type { ExecutionNode } from '@ptah-extension/shared';
         Output
       </div>
 
-      @if (isTodoWriteTool() && node().toolInput) {
-      <ptah-todo-list-display [toolInput]="getTodoInput()" />
+      @if (todoInput()) {
+      <ptah-todo-list-display [toolInput]="todoInput()!" />
       } @else {
       <ptah-code-output [node]="node()" />
       }
@@ -55,18 +59,13 @@ export class ToolOutputDisplayComponent {
   readonly node = input.required<ExecutionNode>();
 
   /**
-   * Computed: Detect TodoWrite tool
-   * TodoWrite gets specialized rendering with task list UI
+   * Computed: Get typed TodoWrite input using type guard
+   * Returns null if not a TodoWrite tool or input is invalid
    */
-  readonly isTodoWriteTool = computed(() => {
+  readonly todoInput = computed((): TodoWriteToolInput | null => {
     const node = this.node();
-    return node?.toolName === 'TodoWrite';
+    if (node?.toolName !== 'TodoWrite') return null;
+    if (!isTodoWriteToolInput(node.toolInput)) return null;
+    return node.toolInput;
   });
-
-  /**
-   * Get properly typed TodoWrite input
-   */
-  getTodoInput(): TodoWriteInput {
-    return this.node().toolInput as unknown as TodoWriteInput;
-  }
 }

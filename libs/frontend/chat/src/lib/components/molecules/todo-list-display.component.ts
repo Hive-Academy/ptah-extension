@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   Loader2,
 } from 'lucide-angular';
+import type { TodoItem, TodoWriteToolInput } from '@ptah-extension/shared';
 
 /**
  * TodoListDisplayComponent - Specialized display for TodoWrite tool
@@ -25,15 +26,10 @@ import {
  * - Pending tasks show circle icon with low opacity
  */
 
-export interface TodoItem {
-  content: string;
-  status: 'pending' | 'in_progress' | 'completed';
-  activeForm: string;
-}
-
-export interface TodoWriteInput {
-  todos: TodoItem[];
-}
+// Re-export for backwards compatibility - use `TodoWriteToolInput` instead
+/** @deprecated Use TodoWriteToolInput from @ptah-extension/shared */
+export type TodoWriteInput = TodoWriteToolInput;
+export type { TodoItem };
 
 @Component({
   selector: 'ptah-todo-list-display',
@@ -100,13 +96,13 @@ export interface TodoWriteInput {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TodoListDisplayComponent {
-  readonly toolInput = input.required<TodoWriteInput>();
+  readonly toolInput = input.required<TodoWriteToolInput>();
 
   // Computed signals for reactive data
   readonly todos = computed(() => this.toolInput().todos);
   readonly totalCount = computed(() => this.todos().length);
   readonly completedCount = computed(
-    () => this.todos().filter((t) => t.status === 'completed').length
+    () => this.todos().filter((t: TodoItem) => t.status === 'completed').length
   );
   readonly progressPercentage = computed(() =>
     this.totalCount() > 0

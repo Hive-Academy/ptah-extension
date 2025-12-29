@@ -3,52 +3,55 @@
   <div class="form-control">
     <div class="label py-1">
       <span class="label-text text-xs font-medium">Authentication Method</span>
+      @if (isSwitchingMethod()) {
+      <span class="loading loading-spinner loading-xs text-primary"></span>
+      }
     </div>
-    <div class="flex flex-wrap gap-3">
-      <label class="label cursor-pointer gap-1.5 p-0">
-        <input
-          type="radio"
-          name="authMethod"
-          value="openrouter"
-          [checked]="authMethod() === 'openrouter'"
-          (change)="onAuthMethodChange('openrouter')"
-          class="radio radio-primary radio-xs"
-        />
-        <span class="label-text text-xs">OpenRouter</span>
-      </label>
-      <label class="label cursor-pointer gap-1.5 p-0">
-        <input
-          type="radio"
-          name="authMethod"
-          value="oauth"
-          [checked]="authMethod() === 'oauth'"
-          (change)="onAuthMethodChange('oauth')"
-          class="radio radio-primary radio-xs"
-        />
-        <span class="label-text text-xs">OAuth Token</span>
-      </label>
-      <label class="label cursor-pointer gap-1.5 p-0">
-        <input
-          type="radio"
-          name="authMethod"
-          value="apiKey"
-          [checked]="authMethod() === 'apiKey'"
-          (change)="onAuthMethodChange('apiKey')"
-          class="radio radio-primary radio-xs"
-        />
-        <span class="label-text text-xs">API Key</span>
-      </label>
-      <label class="label cursor-pointer gap-1.5 p-0">
-        <input
-          type="radio"
-          name="authMethod"
-          value="auto"
-          [checked]="authMethod() === 'auto'"
-          (change)="onAuthMethodChange('auto')"
-          class="radio radio-primary radio-xs"
-        />
-        <span class="label-text text-xs">Auto-detect</span>
-      </label>
+    <div role="tablist" class="tabs tabs-box tabs-sm w-full">
+      <button
+        type="button"
+        role="tab"
+        class="tab text-xs font-medium whitespace-nowrap"
+        [class.tab-active]="authMethod() === 'openrouter'"
+        (click)="onAuthMethodChange('openrouter')"
+        [disabled]="isSwitchingMethod()"
+        [attr.aria-selected]="authMethod() === 'openrouter'"
+      >
+        OpenRouter
+      </button>
+      <button
+        type="button"
+        role="tab"
+        class="tab text-xs font-medium whitespace-nowrap"
+        [class.tab-active]="authMethod() === 'oauth'"
+        (click)="onAuthMethodChange('oauth')"
+        [disabled]="isSwitchingMethod()"
+        [attr.aria-selected]="authMethod() === 'oauth'"
+      >
+        OAuth
+      </button>
+      <button
+        type="button"
+        role="tab"
+        class="tab text-xs font-medium whitespace-nowrap"
+        [class.tab-active]="authMethod() === 'apiKey'"
+        (click)="onAuthMethodChange('apiKey')"
+        [disabled]="isSwitchingMethod()"
+        [attr.aria-selected]="authMethod() === 'apiKey'"
+      >
+        API Key
+      </button>
+      <button
+        type="button"
+        role="tab"
+        class="tab text-xs font-medium whitespace-nowrap"
+        [class.tab-active]="authMethod() === 'auto'"
+        (click)="onAuthMethodChange('auto')"
+        [disabled]="isSwitchingMethod()"
+        [attr.aria-selected]="authMethod() === 'auto'"
+      >
+        Auto
+      </button>
     </div>
     <div class="label py-0.5">
       <span class="label-text-alt text-[10px] opacity-70">

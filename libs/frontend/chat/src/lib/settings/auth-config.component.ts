@@ -99,6 +99,9 @@ export class AuthConfigComponent implements OnInit {
   readonly errorMessage = signal('');
   readonly successMessage = signal('');
 
+  // Method switching state (for loading indicator during auth method change)
+  readonly isSwitchingMethod = signal(false);
+
   /**
    * Computed signal to determine if Save & Test button should be enabled
    * Button is enabled when there's a new credential value entered based on auth method
@@ -317,14 +320,86 @@ export class AuthConfigComponent implements OnInit {
   }
 
   /**
-   * Update auth method selection
+   * Update auth method selection and persist to backend
+   *
+   * When user changes auth method:
+   * 1. Update local signal immediately for responsive UI
+   * 2. Call auth:saveSettings to persist preference and reinitialize provider
+   * 3. Refresh auth status to reflect new state
+   * 4. Notify parent components of the change
    */
-  onAuthMethodChange(method: 'oauth' | 'apiKey' | 'openrouter' | 'auto'): void {
+  async onAuthMethodChange(
+    method: 'oauth' | 'apiKey' | 'openrouter' | 'auto'
+  ): Promise<void> {
+    // Skip if same method selected
+    if (this.authMethod() === method) {
+      return;
+    }
+
+    // Update local state immediately for responsive UI
     this.authMethod.set(method);
     // Reset status when user changes method
     this.connectionStatus.set('idle');
     this.errorMessage.set('');
     this.successMessage.set('');
+
+    // Call backend to persist preference and reinitialize provider
+    this.isSwitchingMethod.set(true);
+    try {
+      const saveParams: AuthSaveSettingsParams = {
+        authMethod: method,
+        // Don't send credentials - just update the method preference
+      };
+
+      const result = await this.rpcService.call(
+        'auth:saveSettings',
+        saveParams
+      );
+
+      if (result.isSuccess()) {
+        // Refresh status to reflect new provider state
+        await this.fetchAuthStatus();
+        // Notify parent components
+        this.authStatusChanged.emit();
+        this.successMessage.set(
+          `Switched to ${this.getMethodDisplayName(method)}`
+        );
+        this.connectionStatus.set('success');
+      } else {
+        this.errorMessage.set(
+          result.error || 'Failed to switch authentication method'
+        );
+        this.connectionStatus.set('error');
+      }
+    } catch (error) {
+      console.error(
+        '[AuthConfigComponent] Failed to switch auth method:',
+        error
+      );
+      this.errorMessage.set(
+        error instanceof Error
+          ? error.message
+          : 'Failed to switch authentication method'
+      );
+      this.connectionStatus.set('error');
+    } finally {
+      this.isSwitchingMethod.set(false);
+    }
+  }
+
+  /**
+   * Get human-readable display name for auth method
+   */
+  private getMethodDisplayName(
+    method: 'oauth' | 'apiKey' | 'openrouter' | 'auto'
+  ): string {
+    const displayNames: Record<typeof method, string> = {
+      openrouter: 'OpenRouter',
+      oauth: 'OAuth Token',
+      apiKey: 'API Key',
+      auto: 'Auto-detect',
+    };
+    return displayNames[method];
   }
 
   /**

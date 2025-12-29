@@ -180,15 +180,20 @@ export class SdkMessageTransformer {
       // ========== MESSAGE LIFECYCLE ==========
 
       case 'message_start': {
-        // TASK_2025_093 FIX: Use SDK's `uuid` as canonical message ID for consistency
-        // The SDK provides `uuid` on ALL message types (stream_event, assistant, user)
-        // Previously we used `message.id` (Anthropic API ID) which differs between
-        // streaming events and complete messages, causing messageId mismatch bugs.
+        // TASK_2025_094 FIX: Use Anthropic API's message.id for stable message correlation
         //
-        // Priority: SDK uuid > Anthropic message.id > generated fallback
+        // Log evidence proves message.id (like "gen-1766961093-H9nAcWY4jRlYPHnMLdIi")
+        // IS CONSISTENT across stream_event AND assistant messages for the same response.
+        //
+        // The SDK's uuid is DIFFERENT for each SDK message, which breaks:
+        // 1. Tool linking: tool_start and tool_result end up with different messageIds
+        // 2. Deduplication: same content gets added twice with different messageIds
+        // 3. Tree building: events for same message scattered across multiple messageIds
+        //
+        // Priority: Anthropic message.id > SDK uuid > generated fallback
         const message = (event as { message?: { id?: string } }).message;
         const messageId =
-          sdkMessage.uuid || message?.id || `stream-msg-${Date.now()}`;
+          message?.id || sdkMessage.uuid || `stream-msg-${Date.now()}`;
 
         // Track current message ID (simple variable tracking)
         this.currentMessageId = messageId;
@@ -519,14 +524,14 @@ export class SdkMessageTransformer {
     // Extract content blocks from Anthropic SDK message
     const content = message.content || [];
 
-    // TASK_2025_093 FIX: Use SDK's `uuid` as canonical message ID
-    // The SDK guide confirms `uuid` is the stable identifier across ALL message types
-    // (stream_event, assistant, user). This matches the change in transformStreamEventToFlatEvents.
+    // TASK_2025_094 FIX: Use Anthropic API's message.id for stable message correlation
     //
-    // Previous TASK_2025_087 approach of using `message.id` was incorrect because:
-    // - `message.id` might be missing or different between stream_event and assistant
-    // - SDK's `uuid` is guaranteed to be consistent across the entire message lifecycle
-    const messageId = uuid || message?.id;
+    // Log evidence proves message.id IS CONSISTENT across stream_event AND assistant.
+    // Using uuid causes tool_start and tool_result to have DIFFERENT messageIds,
+    // breaking tree builder tool collection (collectTools filters by messageId).
+    //
+    // Priority: Anthropic message.id > SDK uuid
+    const messageId = message?.id || uuid;
 
     // 1. Emit message_start
     const messageStartEvent: MessageStartEvent = {
