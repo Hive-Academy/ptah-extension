@@ -280,6 +280,9 @@ export class SdkPermissionHandler {
     input: Record<string, unknown>,
     toolUseId?: string
   ): Promise<PermissionResult> {
+    // TASK_2025_097: Timing diagnostics - capture start time for latency measurement
+    const startTime = Date.now();
+
     // Generate unique request ID
     const requestId = this.generateRequestId();
 
@@ -321,12 +324,23 @@ export class SdkPermissionHandler {
 
     this.sendPermissionRequest(request);
 
-    this.logger.info(
-      `[SdkPermissionHandler] Permission request emitted successfully: ${requestId} for ${toolName}`
-    );
+    // TASK_2025_097: Log emit latency for timing diagnostics
+    this.logger.info(`[SdkPermissionHandler] Permission request emitted`, {
+      requestId,
+      toolName,
+      toolUseId,
+      emitLatency: Date.now() - startTime,
+    });
 
     // Await user response with timeout
     const response = await this.awaitResponse(requestId, PERMISSION_TIMEOUT_MS);
+
+    // TASK_2025_097: Log total latency for timing diagnostics (includes user decision time)
+    this.logger.info(`[SdkPermissionHandler] Permission response received`, {
+      requestId,
+      totalLatency: Date.now() - startTime,
+      approved: response?.approved ?? false,
+    });
 
     if (!response) {
       // Timeout - auto-deny
