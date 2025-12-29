@@ -14,7 +14,16 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import {
+  isBashToolInput,
+  isEditToolInput,
+  isGlobToolInput,
+  isGrepToolInput,
+  isNotebookEditToolInput,
+  isReadToolInput,
+  isWriteToolInput,
+  MESSAGE_TYPES,
+} from '@ptah-extension/shared';
 import {
   ContentBlock,
   ToolUseBlock,
@@ -483,60 +492,54 @@ export class SdkPermissionHandler {
 
     switch (toolName) {
       case 'Bash': {
-        const command = input['command'];
-        if (command && typeof command === 'string') {
-          // Truncate long commands
+        if (isBashToolInput(input)) {
           const truncated =
-            command.length > 100 ? `${command.substring(0, 100)}...` : command;
+            input.command.length > 100
+              ? `${input.command.substring(0, 100)}...`
+              : input.command;
           return `Execute bash command: ${truncated}`;
         }
         return 'Execute a bash command';
       }
 
       case 'Write': {
-        const filePath = input['file_path'];
-        if (filePath && typeof filePath === 'string') {
-          return `Write to file: ${filePath}`;
+        if (isWriteToolInput(input)) {
+          return `Write to file: ${input.file_path}`;
         }
         return 'Write to a file';
       }
 
       case 'Edit': {
-        const filePath = input['file_path'];
-        if (filePath && typeof filePath === 'string') {
-          return `Edit file: ${filePath}`;
+        if (isEditToolInput(input)) {
+          return `Edit file: ${input.file_path}`;
         }
         return 'Edit a file';
       }
 
       case 'NotebookEdit': {
-        const notebookPath = input['notebook_path'];
-        if (notebookPath && typeof notebookPath === 'string') {
-          return `Edit notebook: ${notebookPath}`;
+        if (isNotebookEditToolInput(input)) {
+          return `Edit notebook: ${input.notebook_path}`;
         }
         return 'Edit a Jupyter notebook';
       }
 
       case 'Read': {
-        const filePath = input['file_path'];
-        if (filePath && typeof filePath === 'string') {
-          return `Read file: ${filePath}`;
+        if (isReadToolInput(input)) {
+          return `Read file: ${input.file_path}`;
         }
         return 'Read a file';
       }
 
       case 'Grep': {
-        const pattern = input['pattern'];
-        if (pattern && typeof pattern === 'string') {
-          return `Search for pattern: ${pattern}`;
+        if (isGrepToolInput(input)) {
+          return `Search for pattern: ${input.pattern}`;
         }
         return 'Search file contents';
       }
 
       case 'Glob': {
-        const pattern = input['pattern'];
-        if (pattern && typeof pattern === 'string') {
-          return `Find files matching: ${pattern}`;
+        if (isGlobToolInput(input)) {
+          return `Find files matching: ${input.pattern}`;
         }
         return 'Find files';
       }
