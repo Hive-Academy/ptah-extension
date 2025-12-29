@@ -87,7 +87,10 @@ export class StreamingHandlerService {
     existingSource: EventSource | undefined,
     newSource: EventSource | undefined
   ): boolean {
-    return this.getSourcePriority(newSource) >= this.getSourcePriority(existingSource);
+    return (
+      this.getSourcePriority(newSource) >=
+      this.getSourcePriority(existingSource)
+    );
   }
 
   /**
@@ -111,7 +114,11 @@ export class StreamingHandlerService {
     let existingEvent: FlatStreamEventUnion | undefined;
 
     for (const event of state.events.values()) {
-      if (event.eventType === eventType && 'toolCallId' in event && event.toolCallId === toolCallId) {
+      if (
+        event.eventType === eventType &&
+        'toolCallId' in event &&
+        event.toolCallId === toolCallId
+      ) {
         existingEvent = event;
         break;
       }
@@ -122,7 +129,9 @@ export class StreamingHandlerService {
       return undefined;
     }
 
-    const existingSource = (existingEvent as FlatStreamEventUnion & { source?: EventSource }).source;
+    const existingSource = (
+      existingEvent as FlatStreamEventUnion & { source?: EventSource }
+    ).source;
 
     if (this.shouldReplaceEvent(existingSource, newSource)) {
       // New event has higher priority, remove old event
@@ -380,20 +389,23 @@ export class StreamingHandlerService {
 
           // DIAGNOSTIC: Log message_start with parentToolUseId info (JSON.stringify for log file visibility)
           const msgStartEvent = event as MessageStartEvent;
-          console.log('[StreamingHandlerService] MESSAGE_START received!', JSON.stringify({
-            id: event.id,
-            messageId: event.messageId,
-            parentToolUseId: msgStartEvent.parentToolUseId,
-            isNestedAgentMessage: !!msgStartEvent.parentToolUseId,
-            role: msgStartEvent.role,
-            sessionId: event.sessionId,
-          }));
+          console.log(
+            '[StreamingHandlerService] MESSAGE_START received!',
+            JSON.stringify({
+              id: event.id,
+              messageId: event.messageId,
+              parentToolUseId: msgStartEvent.parentToolUseId,
+              isNestedAgentMessage: !!msgStartEvent.parentToolUseId,
+              role: msgStartEvent.role,
+              sessionId: event.sessionId,
+            })
+          );
 
-          // TASK_2025_091: Handle duplicate message_start by CLEARING accumulators
-          // SDK sends both streaming events AND complete assistant messages.
-          // When assistant complete arrives after streaming, its message_start
-          // should RESET the accumulated content so the complete content replaces
-          // the streamed content. This is the systematic deduplication solution.
+          // TASK_2025_096: Track processed messageIds (for deduplication purposes)
+          // NOTE: We no longer clear accumulators on duplicate message_start.
+          // The text_delta handler now handles replacement based on event.source.
+          // This fixes the bug where tool-only complete messages would clear
+          // text that was just added by text-containing complete messages.
           let sessionMessageIds = this.processedMessageIds.get(event.sessionId);
           if (!sessionMessageIds) {
             sessionMessageIds = new Set<string>();
@@ -401,26 +413,12 @@ export class StreamingHandlerService {
           }
 
           if (sessionMessageIds.has(event.messageId)) {
-            // TASK_2025_091: Clear accumulators for this messageId to allow replacement
-            // This handles the case where SDK sends streaming events followed by
-            // a complete assistant message with the same messageId
+            // Duplicate message_start - just log and continue
+            // Text replacement is handled in text_delta based on event.source
             console.debug(
-              '[StreamingHandlerService] Duplicate message_start - clearing accumulators for replacement',
+              '[StreamingHandlerService] Duplicate message_start - text_delta will handle replacement if needed',
               { messageId: event.messageId, sessionId: event.sessionId }
             );
-
-            // Clear text accumulators for this messageId (all block indices)
-            // FIX: Use correct key format matching AccumulatorKeys.textBlock/thinkingBlock
-            // Old format was "text:msgId:" but actual keys are "msgId-block-N" and "msgId-thinking-N"
-            for (const key of state.textAccumulators.keys()) {
-              if (
-                key.startsWith(`${event.messageId}-block-`) ||
-                key.startsWith(`${event.messageId}-thinking-`)
-              ) {
-                state.textAccumulators.delete(key);
-              }
-            }
-
             // Don't return - continue processing to update currentMessageId
           } else {
             sessionMessageIds.add(event.messageId);
@@ -456,7 +454,20 @@ export class StreamingHandlerService {
             event.messageId,
             blockIndex
           );
-          this.accumulateDelta(state.textAccumulators, blockKey, event.delta);
+
+          // TASK_2025_096 FIX: For 'complete' or 'history' sources, REPLACE text instead of appending.
+          // The SDK sends complete assistant messages that should replace streamed content.
+          // Previously, duplicate message_start would clear accumulators, but when multiple
+          // complete messages arrive with the same messageId (some with text, some without),
+          // the tool-only message would clear text that was just added.
+          // Now we handle replacement at the text_delta level instead.
+          if (event.source === 'complete' || event.source === 'history') {
+            // Replace: clear existing and set new value
+            state.textAccumulators.set(blockKey, event.delta);
+          } else {
+            // Stream: append delta
+            this.accumulateDelta(state.textAccumulators, blockKey, event.delta);
+          }
           break;
         }
 
@@ -493,23 +504,32 @@ export class StreamingHandlerService {
             event.messageId,
             blockIndex
           );
-          this.accumulateDelta(state.textAccumulators, thinkKey, event.delta);
+
+          // TASK_2025_096 FIX: Same as text_delta - replace instead of append for complete/history
+          if (event.source === 'complete' || event.source === 'history') {
+            state.textAccumulators.set(thinkKey, event.delta);
+          } else {
+            this.accumulateDelta(state.textAccumulators, thinkKey, event.delta);
+          }
           break;
         }
 
         case 'tool_start': {
           // DIAGNOSTIC: Log tool_start for Task tools especially (JSON.stringify for log file visibility)
-          console.log('[StreamingHandlerService] TOOL_START received!', JSON.stringify({
-            id: event.id,
-            toolName: event.toolName,
-            toolCallId: event.toolCallId,
-            messageId: event.messageId,
-            parentToolUseId: event.parentToolUseId,
-            isTaskTool: event.toolName === 'Task',
-            isTaskToolFlag: event.isTaskTool,
-            sessionId: event.sessionId,
-            source: event.source,
-          }));
+          console.log(
+            '[StreamingHandlerService] TOOL_START received!',
+            JSON.stringify({
+              id: event.id,
+              toolName: event.toolName,
+              toolCallId: event.toolCallId,
+              messageId: event.messageId,
+              parentToolUseId: event.parentToolUseId,
+              isTaskTool: event.toolName === 'Task',
+              isTaskToolFlag: event.isTaskTool,
+              sessionId: event.sessionId,
+              source: event.source,
+            })
+          );
 
           // TASK_2025_095 FIX: Check for duplicates BEFORE storing
           // Previously, the event was stored first, then replaceStreamEventIfNeeded

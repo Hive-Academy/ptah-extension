@@ -17,7 +17,7 @@ import { ChatStore } from '../../services/chat.store';
 import { VSCodeService } from '@ptah-extension/core';
 import {
   createExecutionChatMessage,
-  createExecutionNode,
+  ExecutionChatMessage,
 } from '@ptah-extension/shared';
 
 /**
@@ -71,22 +71,28 @@ export class ChatViewComponent {
   readonly ptahIconUri = computed(() => this.vscodeService.getPtahIconUri());
 
   /**
-   * Computed signal that creates a temporary ExecutionChatMessage
-   * from the currentExecutionTree (ExecutionNode) for live streaming display.
+   * TASK_2025_096 FIX: Computed signal that creates ExecutionChatMessages
+   * from ALL currentExecutionTrees (not just the first one).
    *
-   * This allows the message-bubble component to render the in-progress
-   * execution tree without waiting for finalization.
+   * When Claude uses tools, the SDK sends multiple assistant messages in one turn:
+   * - Message 1: Contains tool calls (e.g., Glob)
+   * - Message 2: Contains follow-up text and more tools after tool results
+   *
+   * Previously, only the first tree was rendered, causing subsequent messages to be LOST!
+   * Now we return ALL trees as messages so they can all be rendered.
    */
-  readonly streamingMessage = computed(() => {
-    const tree = this.chatStore.currentExecutionTree();
-    if (!tree) return null;
+  readonly streamingMessages = computed((): ExecutionChatMessage[] => {
+    const trees = this.chatStore.currentExecutionTrees();
+    if (trees.length === 0) return [];
 
-    return createExecutionChatMessage({
-      id: tree.id,
-      role: 'assistant',
-      streamingState: tree,
-      sessionId: this.chatStore.currentSessionId() ?? undefined,
-    });
+    return trees.map((tree) =>
+      createExecutionChatMessage({
+        id: tree.id,
+        role: 'assistant',
+        streamingState: tree,
+        sessionId: this.chatStore.currentSessionId() ?? undefined,
+      })
+    );
   });
 
   constructor() {
@@ -95,12 +101,12 @@ export class ChatViewComponent {
       // Track these signals to trigger effect
       const messages = this.chatStore.messages();
       const isStreaming = this.chatStore.isStreaming();
-      const currentTree = this.chatStore.currentExecutionTree();
+      const currentTrees = this.chatStore.currentExecutionTrees();
 
       // Only auto-scroll if user hasn't manually scrolled up
       if (
         !this.userScrolledUp &&
-        (messages.length > 0 || isStreaming || currentTree)
+        (messages.length > 0 || isStreaming || currentTrees.length > 0)
       ) {
         // Use setTimeout to ensure DOM has updated
         setTimeout(() => this.scrollToBottom(), 0);

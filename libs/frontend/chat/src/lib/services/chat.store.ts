@@ -167,15 +167,33 @@ export class ChatStore {
    *
    * Cache key is based on tab ID to allow per-tab caching.
    */
-  readonly currentExecutionTree = computed(() => {
+  /**
+   * TASK_2025_096 FIX: Return ALL root nodes, not just the first one!
+   *
+   * When Claude uses tools, the SDK sends multiple assistant messages in one turn:
+   * - Message 1: Contains tool calls (e.g., Glob)
+   * - Message 2: Contains follow-up text and more tools after tool results
+   *
+   * Previously, only rootNodes[0] was returned, causing subsequent messages to be LOST!
+   * Now we return ALL root nodes so they can all be rendered.
+   */
+  readonly currentExecutionTrees = computed((): ExecutionNode[] => {
     const activeTab = this.tabManager.activeTab();
-    if (!activeTab?.streamingState) return null;
+    if (!activeTab?.streamingState) return [];
 
     // PERFORMANCE: Use tab-specific cache key for memoization
     // This allows the tree builder to skip rebuilding when data hasn't changed
     const cacheKey = `tab-${activeTab.id}`;
-    const rootNodes = this.treeBuilder.buildTree(activeTab.streamingState, cacheKey);
-    return rootNodes.length > 0 ? rootNodes[0] : null;
+    return this.treeBuilder.buildTree(activeTab.streamingState, cacheKey);
+  });
+
+  /**
+   * @deprecated Use currentExecutionTrees for all root nodes.
+   * This only returns the first root node for backwards compatibility.
+   */
+  readonly currentExecutionTree = computed((): ExecutionNode | null => {
+    const trees = this.currentExecutionTrees();
+    return trees.length > 0 ? trees[0] : null;
   });
   readonly isStreaming = computed(() => {
     const tab = this.tabManager.activeTab();
