@@ -788,6 +788,13 @@ export class SdkMessageTransformer {
       return [];
     }
 
+    // TASK_2025_096 FIX: Include parentToolUseId on user message events.
+    // When SDK invokes an agent, it sends a user message with the agent's prompt.
+    // This message has parent_tool_use_id set, linking it to the parent Task tool.
+    // We MUST include parentToolUseId so frontend filters these as nested messages.
+    // Without this, the agent's internal prompt appears as a separate user bubble.
+    const parentToolUseId = parent_tool_use_id ?? undefined;
+
     // 1. Emit message_start
     const messageStartEvent: MessageStartEvent = {
       id: generateEventId(),
@@ -797,6 +804,7 @@ export class SdkMessageTransformer {
       source: 'complete' as EventSource,
       messageId: uuid || `user-${Date.now()}`,
       role: 'user',
+      parentToolUseId,
     };
     events.push(messageStartEvent);
 
@@ -810,6 +818,7 @@ export class SdkMessageTransformer {
       messageId: uuid || `user-${Date.now()}`,
       delta: textContent,
       blockIndex: 0,
+      parentToolUseId,
     };
     events.push(textDeltaEvent);
 
@@ -821,6 +830,7 @@ export class SdkMessageTransformer {
       sessionId: sessionId || '',
       source: 'complete' as EventSource,
       messageId: uuid || `user-${Date.now()}`,
+      parentToolUseId,
     };
     events.push(messageCompleteEvent);
 

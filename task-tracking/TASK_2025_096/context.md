@@ -373,6 +373,166 @@ id: `evt_agent_${parentToolUseId}_${eventIndex++}_${Math.floor(messageTimestamp)
 - `libs/backend/agent-sdk/src/lib/sdk-message-transformer.ts` - Earlier fixes
 - `libs/backend/agent-sdk/src/lib/session-history-reader.service.ts` - **messageId collision fix**
 
+## Session 4 - Stop Button UI Fix (2025-12-29)
+
+### Issue Reported
+
+User reported the stop/interrupt button not visible during streaming. Investigation revealed the button implementation EXISTS and is properly connected to Claude Agent SDK's interrupt() method, but the UI design replaced the send button with the stop button (toggle behavior) instead of showing both.
+
+### Root Cause
+
+The template used `@if`/`@else` to toggle between stop and send buttons:
+
+- During streaming: Only stop button visible
+- During idle: Only send button visible
+
+User wanted: Stop button to appear ABOVE the send button during streaming (both visible).
+
+### Fix Implemented
+
+**File:** `libs/frontend/chat/src/lib/components/molecules/chat-input.component.ts`
+
+Changed from toggle behavior to stacked layout:
+
+```typescript
+<!-- Button Stack: Stop (streaming only) + Send -->
+<div class="flex flex-col gap-1">
+  <!-- Stop Button (above send during streaming) -->
+  @if (chatStore.isStreaming()) {
+  <button
+    class="btn btn-error btn-sm"
+    (click)="handleStop()"
+    title="Stop generating"
+    type="button"
+  >
+    <lucide-angular [img]="SquareIcon" class="w-4 h-4" />
+  </button>
+  }
+  <!-- Send Button (always visible) -->
+  <button
+    class="btn btn-primary"
+    [disabled]="!canSend() || chatStore.isStreaming()"
+    (click)="handleSend()"
+    type="button"
+  >
+    <lucide-angular [img]="SendIcon" class="w-5 h-5" />
+  </button>
+</div>
+```
+
+**Key Changes:**
+
+1. Wrapped buttons in a vertical flex container (`flex-col`)
+2. Stop button now appears ABOVE send button during streaming
+3. Send button is always visible but disabled during streaming
+4. Stop button uses `btn-sm` for smaller size to fit the stack
+
+### Backend Interrupt Flow (Verified Working)
+
+```
+User clicks Stop button
+  → ChatInputComponent.handleStop()
+  → ChatStore.abortCurrentMessage()
+  → ConversationService.abortCurrentMessage()
+  → ClaudeRpcService.call('chat:abort', { sessionId })
+  → RpcMethodRegistrationService.handleAbort()
+  → SdkAgentAdapter.interruptSession(sessionId)
+  → session.query.interrupt()  // Claude Agent SDK
+```
+
+### Files Modified (Session 4)
+
+- `libs/frontend/chat/src/lib/components/molecules/chat-input.component.ts` - Stop button UI layout fix
+
+## Session 5 - Consecutive Assistant Message Merging & Agent Prompt Filter (2025-12-29)
+
+### Issues Reported
+
+1. **Each chunk as separate bubble** - Tool calls and text appeared as individual message bubbles instead of grouped in one "turn"
+2. **Agent invocation prompt visible** - The internal prompt sent to subagents (e.g., "You are the workflow-orchestrator agent...") appeared as a separate user message bubble
+
+### Root Causes
+
+**Issue 1 - Each chunk as separate bubble:**
+
+- SDK sends multiple assistant messages in one "turn" (between user messages)
+- Each message has a unique `messageId`
+- UI was rendering each as a separate bubble
+
+**Issue 2 - Agent prompt visible:**
+
+- When SDK invokes an agent, it sends a user message to the agent with the prompt
+- `transformUserToFlatEvents()` in `sdk-message-transformer.ts` was NOT setting `parentToolUseId` on user message events
+- Frontend's `buildTree()` filter only skips messages with `parentToolUseId`
+- Result: Agent's internal prompt appeared as a separate user bubble
+
+### Fixes Implemented (Session 5)
+
+**Fix 1: Merge consecutive assistant messages**
+
+File: `libs/frontend/chat/src/lib/services/execution-tree-builder.service.ts`
+
+```typescript
+// Track last assistant node for merging
+let lastAssistantNode: ExecutionNode | null = null;
+
+for (const messageId of streamingState.messageEventIds) {
+  // ... filter nested messages ...
+
+  const isAssistant = msgStartEvent?.role === 'assistant';
+
+  if (isAssistant && lastAssistantNode) {
+    // MERGE consecutive assistant messages into ONE visual bubble
+    const mergedChildren = [...lastAssistantNode.children, ...messageNode.children];
+    const mergedNode: ExecutionNode = { ...lastAssistantNode, children: mergedChildren };
+    rootNodes[lastIndex] = mergedNode;
+    lastAssistantNode = mergedNode;
+  } else {
+    rootNodes.push(messageNode);
+    if (isAssistant) lastAssistantNode = messageNode;
+    else lastAssistantNode = null; // User message resets tracking
+  }
+}
+```
+
+**Fix 2: Include parentToolUseId on user message events**
+
+File: `libs/backend/agent-sdk/src/lib/sdk-message-transformer.ts`
+
+```typescript
+// TASK_2025_096 FIX: Include parentToolUseId on user message events.
+// When SDK invokes an agent, it sends a user message with the agent's prompt.
+// This message has parent_tool_use_id set, linking it to the parent Task tool.
+// We MUST include parentToolUseId so frontend filters these as nested messages.
+// Without this, the agent's internal prompt appears as a separate user bubble.
+const parentToolUseId = parent_tool_use_id ?? undefined;
+
+const messageStartEvent: MessageStartEvent = {
+  // ...
+  parentToolUseId, // <-- ADDED
+};
+
+const textDeltaEvent: TextDeltaEvent = {
+  // ...
+  parentToolUseId, // <-- ADDED
+};
+
+const messageCompleteEvent: MessageCompleteEvent = {
+  // ...
+  parentToolUseId, // <-- ADDED
+};
+```
+
+### Files Modified (Session 5)
+
+- `libs/frontend/chat/src/lib/services/execution-tree-builder.service.ts` - Merge consecutive assistant messages
+- `libs/backend/agent-sdk/src/lib/sdk-message-transformer.ts` - Add `parentToolUseId` to user message events
+
+### Result
+
+1. **Grouped turn content** - All tool calls and text from one assistant "turn" now appear in ONE visual bubble
+2. **Hidden agent prompts** - Internal agent invocation prompts are filtered out (they have `parentToolUseId` set)
+
 ## Remaining Unstaged Files
 
 - `vscode-app-1766939225426.log` - Debug log file (don't commit)

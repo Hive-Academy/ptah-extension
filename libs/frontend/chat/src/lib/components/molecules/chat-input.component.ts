@@ -125,28 +125,29 @@ import { AgentSelectorComponent } from './agent-selector.component';
           }
         </div>
 
-        <!-- Send/Stop Button (toggle based on streaming state) -->
-        @if (chatStore.isStreaming()) {
-        <!-- Stop Button (during streaming) -->
-        <button
-          class="btn btn-error"
-          (click)="handleStop()"
-          title="Stop generating"
-          type="button"
-        >
-          <lucide-angular [img]="SquareIcon" class="w-5 h-5" />
-        </button>
-        } @else {
-        <!-- Send Button (when idle) -->
-        <button
-          class="btn btn-primary"
-          [disabled]="!canSend()"
-          (click)="handleSend()"
-          type="button"
-        >
-          <lucide-angular [img]="SendIcon" class="w-5 h-5" />
-        </button>
-        }
+        <!-- Button Stack: Stop (streaming only) + Send -->
+        <div class="flex flex-col gap-1">
+          <!-- Stop Button (above send during streaming) -->
+          @if (chatStore.isStreaming()) {
+          <button
+            class="btn btn-error btn-sm"
+            (click)="handleStop()"
+            title="Stop generating"
+            type="button"
+          >
+            <lucide-angular [img]="SquareIcon" class="w-4 h-4" />
+          </button>
+          }
+          <!-- Send Button (always functional - queues message during streaming) -->
+          <button
+            class="btn btn-primary"
+            [disabled]="!canSend()"
+            (click)="handleSend()"
+            type="button"
+          >
+            <lucide-angular [img]="SendIcon" class="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       <!-- Queued Message Indicator -->

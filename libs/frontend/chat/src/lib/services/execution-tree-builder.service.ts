@@ -140,11 +140,16 @@ export class ExecutionTreeBuilderService {
     // Cache miss - build new tree
     const rootNodes: ExecutionNode[] = [];
 
-    // TASK_2025_096 FIX: Filter out nested messages from root nodes.
-    // Nested messages (those with parentToolUseId) are already rendered as children
-    // of their parent agent node. Rendering them as root nodes causes:
-    // - Duplicate empty message bubbles
-    // - Broken message hierarchy
+    // TASK_2025_096 FIX: Filter out nested messages and MERGE consecutive assistant messages.
+    // Problem: SDK sends multiple assistant messages in one "turn" (between user messages).
+    // Each message has a unique messageId, but users expect them in ONE bubble.
+    //
+    // Solution: Merge consecutive assistant messages into one root node.
+    // - User messages always start a new root node
+    // - Assistant messages following another assistant: MERGE children into previous node
+    // - This keeps the data intact while providing correct visual grouping
+    let lastAssistantNode: ExecutionNode | null = null;
+
     for (const messageId of streamingState.messageEventIds) {
       // Check if this message is nested (has parentToolUseId)
       const msgStartEvent = this.findMessageStartEvent(
@@ -161,8 +166,51 @@ export class ExecutionTreeBuilderService {
       }
 
       const messageNode = this.buildMessageNode(messageId, streamingState);
-      if (messageNode) {
+      if (!messageNode) continue;
+
+      // Determine if this is a user or assistant message
+      const isAssistant = msgStartEvent?.role === 'assistant';
+
+      if (isAssistant && lastAssistantNode) {
+        // MERGE: Consecutive assistant message - add children to previous node
+        // This groups all content from one "turn" into one visual bubble
+        console.log(
+          '[ExecutionTreeBuilderService] Merging consecutive assistant message:',
+          {
+            mergeIntoId: lastAssistantNode.id,
+            newMessageId: messageId,
+            childrenToAdd: messageNode.children?.length ?? 0,
+          }
+        );
+
+        // Add this message's children to the previous assistant node
+        // Since children is readonly, we create a new merged node and replace in array
+        if (messageNode.children && messageNode.children.length > 0) {
+          const mergedChildren = [
+            ...(lastAssistantNode.children || []),
+            ...messageNode.children,
+          ];
+          const mergedNode: ExecutionNode = {
+            ...lastAssistantNode,
+            children: mergedChildren,
+          };
+          // Replace the last assistant node in rootNodes with merged version
+          const lastIndex = rootNodes.length - 1;
+          rootNodes[lastIndex] = mergedNode;
+          lastAssistantNode = mergedNode;
+        }
+        // Don't add as separate root - it's merged
+      } else {
+        // NEW ROOT: User message OR first assistant message in turn
         rootNodes.push(messageNode);
+
+        // Track for potential merging
+        if (isAssistant) {
+          lastAssistantNode = messageNode;
+        } else {
+          // User message resets the merge tracking
+          lastAssistantNode = null;
+        }
       }
     }
 

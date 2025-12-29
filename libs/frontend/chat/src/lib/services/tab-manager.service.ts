@@ -33,6 +33,13 @@ export class TabManagerService {
   private readonly _tabs = signal<TabState[]>([]);
   private readonly _activeTabId = signal<string | null>(null);
 
+  /**
+   * Streaming indicator signal - tracks which tabs are currently streaming.
+   * This is a VISUAL-ONLY indicator, completely isolated from tab.status state machine.
+   * Does not affect session management, message sending, or any backend communication.
+   */
+  private readonly _streamingTabIds = signal<Set<string>>(new Set());
+
   // Debounce timer for localStorage saves (reduces spam during streaming)
   private _saveTimeout: ReturnType<typeof setTimeout> | null = null;
   private readonly SAVE_DEBOUNCE_MS = 500;
@@ -43,6 +50,9 @@ export class TabManagerService {
 
   readonly tabs = this._tabs.asReadonly();
   readonly activeTabId = this._activeTabId.asReadonly();
+
+  /** Read-only signal of tab IDs that are currently streaming (visual indicator only) */
+  readonly streamingTabIds = this._streamingTabIds.asReadonly();
 
   // ============================================================================
   // COMPUTED SIGNALS
@@ -507,6 +517,37 @@ export class TabManagerService {
     } catch (error) {
       console.warn('[TabManager] Failed to load tab state:', error);
     }
+  }
+
+  // ============================================================================
+  // STREAMING INDICATOR (Visual Only - No Side Effects)
+  // ============================================================================
+
+  /**
+   * Mark a tab as streaming (shows spinner in tab bar).
+   * This is VISUAL ONLY - does not affect tab.status or any state machine.
+   */
+  markTabStreaming(tabId: string): void {
+    this._streamingTabIds.update((set) => new Set([...set, tabId]));
+  }
+
+  /**
+   * Mark a tab as idle (hides spinner in tab bar).
+   * This is VISUAL ONLY - does not block any actions or affect state.
+   */
+  markTabIdle(tabId: string): void {
+    this._streamingTabIds.update((set) => {
+      const newSet = new Set(set);
+      newSet.delete(tabId);
+      return newSet;
+    });
+  }
+
+  /**
+   * Check if a tab is currently streaming (for visual indicator).
+   */
+  isTabStreaming(tabId: string): boolean {
+    return this._streamingTabIds().has(tabId);
   }
 
   // ============================================================================
