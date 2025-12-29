@@ -32,6 +32,7 @@ import {
   FlatStreamEventUnion,
   JSONLMessage,
   EventSource,
+  isTaskToolInput,
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
@@ -721,7 +722,9 @@ export class SessionHistoryReaderService {
       if (!Array.isArray(content)) continue;
 
       // Generate unique message ID for this agent message
-      const agentMessageId = `agent_msg_${eventIndex}_${Math.floor(parentTimestamp)}`;
+      const agentMessageId = `agent_msg_${eventIndex}_${Math.floor(
+        parentTimestamp
+      )}`;
       const messageTimestamp = parentTimestamp + sequence++ * 0.0001;
       let blockIndex = 0;
 
@@ -807,9 +810,7 @@ export class SessionHistoryReaderService {
   // CORRELATION HELPERS (Ported from SessionReplayService)
   // ==========================================================================
 
-  private buildAgentDataMap(
-    agentSessions: AgentSessionData[]
-  ): Map<
+  private buildAgentDataMap(agentSessions: AgentSessionData[]): Map<
     string,
     {
       agentId: string;
@@ -906,11 +907,14 @@ export class SessionHistoryReaderService {
 
       for (const block of content as ContentBlock[]) {
         if (block.type === 'tool_use' && block.name === 'Task' && block.id) {
+          let subagentType = 'unknown';
+          if (block.input && isTaskToolInput(block.input)) {
+            subagentType = block.input.subagent_type;
+          }
           tasks.push({
             toolUseId: block.id,
             timestamp,
-            subagentType:
-              (block.input?.['subagent_type'] as string) || 'unknown',
+            subagentType,
           });
         }
       }
@@ -1110,15 +1114,25 @@ export class SessionHistoryReaderService {
     timestamp: number,
     parentToolUseId?: string
   ): AgentStartEvent {
+    let agentType = 'unknown';
+    let agentDescription: string | undefined;
+    let agentPrompt: string | undefined;
+
+    if (isTaskToolInput(input)) {
+      agentType = input.subagent_type;
+      agentDescription = input.description;
+      agentPrompt = input.prompt;
+    }
+
     return {
       eventType: 'agent_start',
       id: `evt_${index}_${timestamp}`,
       sessionId,
       messageId,
       toolCallId,
-      agentType: (input['subagent_type'] as string) || 'unknown',
-      agentDescription: input['description'] as string | undefined,
-      agentPrompt: input['prompt'] as string | undefined,
+      agentType,
+      agentDescription,
+      agentPrompt,
       timestamp,
       parentToolUseId,
       source: 'history',
