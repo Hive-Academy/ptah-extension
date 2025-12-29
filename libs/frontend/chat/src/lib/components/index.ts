@@ -34,6 +34,7 @@ export * from './molecules/agent-summary.component';
 export * from './molecules/chat-input.component';
 export * from './molecules/session-cost-summary.component';
 export * from './molecules/setup-status-widget.component';
+export * from './molecules/permission-badge.component';
 
 // ============================================================================
 // ORGANISMS - Complex sections

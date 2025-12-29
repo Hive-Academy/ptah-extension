@@ -3,15 +3,17 @@ import {
   inject,
   signal,
   computed,
-  ViewChild,
+  viewChild,
   ElementRef,
   effect,
   ChangeDetectionStrategy,
+  afterNextRender,
+  Injector,
 } from '@angular/core';
 import { NgOptimizedImage } from '@angular/common';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { ChatInputComponent } from '../molecules/chat-input.component';
-import { PermissionRequestCardComponent } from '../molecules/permission-request-card.component';
+import { PermissionBadgeComponent } from '../molecules/permission-badge.component';
 import { ChatEmptyStateComponent } from '../molecules/chat-empty-state.component';
 import { ChatStore } from '../../services/chat.store';
 import { VSCodeService } from '@ptah-extension/core';
@@ -44,12 +46,11 @@ import {
  */
 @Component({
   selector: 'ptah-chat-view',
-  standalone: true,
   imports: [
     NgOptimizedImage,
     MessageBubbleComponent,
     ChatInputComponent,
-    PermissionRequestCardComponent,
+    PermissionBadgeComponent,
     ChatEmptyStateComponent,
   ],
   templateUrl: './chat-view.component.html',
@@ -59,11 +60,20 @@ import {
 export class ChatViewComponent {
   readonly chatStore = inject(ChatStore);
   private readonly vscodeService = inject(VSCodeService);
+  private readonly injector = inject(Injector);
 
-  @ViewChild('messageContainer') messageContainer?: ElementRef<HTMLElement>;
+  /**
+   * Signal-based viewChild (Angular 20+ pattern)
+   * Replaces @ViewChild decorator for better reactivity
+   */
+  private readonly messageContainerRef =
+    viewChild<ElementRef<HTMLElement>>('messageContainer');
 
-  // Auto-scroll is enabled by default, disabled when user scrolls up
-  private userScrolledUp = false;
+  /**
+   * Auto-scroll state as signal for reactive tracking.
+   * Disabled when user scrolls up, re-enabled when user scrolls to bottom.
+   */
+  private readonly userScrolledUp = signal(false);
 
   /**
    * Ptah icon URI for skeleton avatar placeholder
@@ -95,21 +105,53 @@ export class ChatViewComponent {
     );
   });
 
+  /**
+   * TASK_2025_096 FIX: Track total node count across all execution trees.
+   * This ensures auto-scroll triggers when children are added to existing trees,
+   * not just when new trees are created.
+   *
+   * Previously, effect only tracked `currentTrees.length` which doesn't change
+   * when children/tools are added to existing message trees.
+   */
+  private readonly totalNodeCount = computed(() => {
+    const trees = this.chatStore.currentExecutionTrees();
+    return trees.reduce((sum, tree) => sum + this.countNodes(tree), 0);
+  });
+
+  /**
+   * Count total nodes in an execution tree (recursive)
+   */
+  private countNodes(node: { children?: readonly unknown[] }): number {
+    const childCount =
+      node.children?.reduce<number>(
+        (sum: number, child) =>
+          sum + this.countNodes(child as { children?: readonly unknown[] }),
+        0
+      ) ?? 0;
+    return 1 + childCount;
+  }
+
   constructor() {
-    // Effect: Auto-scroll when messages change or streaming state changes
+    // Effect: Auto-scroll when messages change or streaming content changes
     effect(() => {
       // Track these signals to trigger effect
       const messages = this.chatStore.messages();
       const isStreaming = this.chatStore.isStreaming();
-      const currentTrees = this.chatStore.currentExecutionTrees();
+      const nodeCount = this.totalNodeCount(); // Track content depth, not just tree count
 
       // Only auto-scroll if user hasn't manually scrolled up
       if (
-        !this.userScrolledUp &&
-        (messages.length > 0 || isStreaming || currentTrees.length > 0)
+        !this.userScrolledUp() &&
+        (messages.length > 0 || isStreaming || nodeCount > 0)
       ) {
-        // Use setTimeout to ensure DOM has updated
-        setTimeout(() => this.scrollToBottom(), 0);
+        // Use afterNextRender instead of setTimeout for proper lifecycle handling
+        // This ensures DOM is ready and provides automatic cleanup
+        afterNextRender(
+          () => {
+            this.scrollToBottom();
+          },
+          { injector: this.injector }
+        );
       }
     });
   }
@@ -129,7 +171,7 @@ export class ChatViewComponent {
 
     // If user scrolled up, disable auto-scroll
     // If user scrolled back to bottom, re-enable auto-scroll
-    this.userScrolledUp = !isNearBottom;
+    this.userScrolledUp.set(!isNearBottom);
   }
 
   /**
@@ -141,9 +183,10 @@ export class ChatViewComponent {
   }
 
   private scrollToBottom(): void {
-    if (!this.messageContainer) return;
+    const containerRef = this.messageContainerRef();
+    if (!containerRef) return;
 
-    const container = this.messageContainer.nativeElement;
+    const container = containerRef.nativeElement;
     container.scrollTo({
       top: container.scrollHeight,
       behavior: 'smooth',
