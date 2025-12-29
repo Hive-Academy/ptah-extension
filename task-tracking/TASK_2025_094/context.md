@@ -9,11 +9,11 @@ This task covers multiple related issues with streaming and session history:
 
 ## Documents
 
-| Document | Description |
-|----------|-------------|
+| Document                   | Description                                                 |
+| -------------------------- | ----------------------------------------------------------- |
 | `streaming-fix-summary.md` | Fixes for live streaming disconnection and tool_result loss |
-| `investigation-report.md` | Fixes for session history sub-agent rendering |
-| `context.md` | This file - task context and overview |
+| `investigation-report.md`  | Fixes for session history sub-agent rendering               |
+| `context.md`               | This file - task context and overview                       |
 
 ---
 
@@ -22,6 +22,7 @@ This task covers multiple related issues with streaming and session history:
 **Problem:** Frontend UI getting detached from streaming when tool calls executed.
 
 **Root Causes:**
+
 - MessageId mismatch between streaming and complete messages
 - Premature finalization clearing streamingState
 - UI visibility tied to streaming status instead of content existence
@@ -35,6 +36,7 @@ This task covers multiple related issues with streaming and session history:
 **Problem:** Task tools appearing as collapsed normal tools instead of showing agent bubbles with nested execution.
 
 **User Quote:**
+
 > "i do believe its much bigger than what you are trying to fix and is complex and extended from backend to frontend and how we build the executionTree"
 
 **Root Cause:** `buildToolChildren()` created MESSAGE nodes instead of AGENT nodes from `agent_start` events.
@@ -56,14 +58,17 @@ This task covers multiple related issues with streaming and session history:
 ## Key Files
 
 **Backend (Event Creation):**
+
 - `libs/backend/agent-sdk/src/lib/session-history-reader.service.ts` - Creates FlatStreamEventUnion from JSONL
 
 **Frontend (Event Processing & Tree Building):**
+
 - `libs/frontend/chat/src/lib/services/chat-store/streaming-handler.service.ts` - Stores events in StreamingState
 - `libs/frontend/chat/src/lib/services/execution-tree-builder.service.ts` - Builds ExecutionNode tree
 - `libs/frontend/chat/src/lib/services/chat-store/session-loader.service.ts` - Orchestrates session loading
 
 **UI Components:**
+
 - `libs/frontend/chat/src/lib/components/organisms/execution-node.component.ts` - Renders nodes by type
 - `libs/frontend/chat/src/lib/components/organisms/inline-agent-bubble.component.ts` - Renders agent bubbles
 
@@ -72,6 +77,7 @@ This task covers multiple related issues with streaming and session history:
 ## Testing Checklist
 
 ### Streaming (from streaming-fix-summary.md)
+
 - [ ] Basic tool calls complete properly
 - [ ] Multiple tool calls work
 - [ ] Content persists after chat:complete
@@ -79,6 +85,7 @@ This task covers multiple related issues with streaming and session history:
 - [ ] Message queuing works
 
 ### Session History Replay (from investigation-report.md)
+
 - [ ] Load session with single Task tool invocation
 - [ ] Load session with multiple Task tool invocations
 - [ ] Load session with nested Task tools (agent spawning agents)
