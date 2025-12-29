@@ -7,48 +7,48 @@
       <span class="loading loading-spinner loading-xs text-primary"></span>
       }
     </div>
-    <div role="tablist" class="tabs tabs-box tabs-sm w-full">
+    <div class="join w-full">
       <button
         type="button"
-        role="tab"
-        class="tab text-xs font-medium whitespace-nowrap"
-        [class.tab-active]="authMethod() === 'openrouter'"
+        class="join-item btn btn-sm flex-1 text-xs font-medium"
+        [class.btn-primary]="authMethod() === 'openrouter'"
+        [class.btn-ghost]="authMethod() !== 'openrouter'"
         (click)="onAuthMethodChange('openrouter')"
         [disabled]="isSwitchingMethod()"
-        [attr.aria-selected]="authMethod() === 'openrouter'"
+        [attr.aria-pressed]="authMethod() === 'openrouter'"
       >
         OpenRouter
       </button>
       <button
         type="button"
-        role="tab"
-        class="tab text-xs font-medium whitespace-nowrap"
-        [class.tab-active]="authMethod() === 'oauth'"
+        class="join-item btn btn-sm flex-1 text-xs font-medium"
+        [class.btn-primary]="authMethod() === 'oauth'"
+        [class.btn-ghost]="authMethod() !== 'oauth'"
         (click)="onAuthMethodChange('oauth')"
         [disabled]="isSwitchingMethod()"
-        [attr.aria-selected]="authMethod() === 'oauth'"
+        [attr.aria-pressed]="authMethod() === 'oauth'"
       >
         OAuth
       </button>
       <button
         type="button"
-        role="tab"
-        class="tab text-xs font-medium whitespace-nowrap"
-        [class.tab-active]="authMethod() === 'apiKey'"
+        class="join-item btn btn-sm flex-1 text-xs font-medium"
+        [class.btn-primary]="authMethod() === 'apiKey'"
+        [class.btn-ghost]="authMethod() !== 'apiKey'"
         (click)="onAuthMethodChange('apiKey')"
         [disabled]="isSwitchingMethod()"
-        [attr.aria-selected]="authMethod() === 'apiKey'"
+        [attr.aria-pressed]="authMethod() === 'apiKey'"
       >
         API Key
       </button>
       <button
         type="button"
-        role="tab"
-        class="tab text-xs font-medium whitespace-nowrap"
-        [class.tab-active]="authMethod() === 'auto'"
+        class="join-item btn btn-sm flex-1 text-xs font-medium"
+        [class.btn-primary]="authMethod() === 'auto'"
+        [class.btn-ghost]="authMethod() !== 'auto'"
         (click)="onAuthMethodChange('auto')"
         [disabled]="isSwitchingMethod()"
-        [attr.aria-selected]="authMethod() === 'auto'"
+        [attr.aria-pressed]="authMethod() === 'auto'"
       >
         Auto
       </button>
