@@ -1,18 +1,23 @@
 /**
- * PermissionHandlerService - Permission Request Management
+ * PermissionHandlerService - Permission & Question Request Management
  *
  * Extracted from ChatStore to handle permission-related operations:
  * - Managing permission requests (add/remove)
  * - Correlating permissions with tools (via toolUseId → toolCallId)
  * - Identifying unmatched permissions for fallback display
+ * - Managing AskUserQuestion requests (TASK_2025_097 Batch 5)
  *
  * Part of ChatStore refactoring (Facade pattern) - ChatStore delegates here.
  *
  * TASK_2025_097 FIX: Race condition eliminated by reading real-time toolCallMap
  * instead of tab-change-only cache. Permissions now match within 1 frame of tool_start.
+ *
+ * TASK_2025_097 Batch 5: Added AskUserQuestion handling for SDK's interactive
+ * question prompts. Similar to permission requests but expects answers instead
+ * of approve/deny.
  */
 
-import { Injectable, signal, computed, inject } from '@angular/core';
+import { Injectable, signal, computed, inject, effect } from '@angular/core';
 import {
   PermissionRequest,
   PermissionResponse,
@@ -21,6 +26,10 @@ import {
 } from '@ptah-extension/shared';
 import { TabManagerService } from '../tab-manager.service';
 import { VSCodeService } from '@ptah-extension/core';
+import type {
+  AskUserQuestionRequest,
+  AskUserQuestionResponse,
+} from '../../components';
 
 @Injectable({ providedIn: 'root' })
 export class PermissionHandlerService {
@@ -41,6 +50,46 @@ export class PermissionHandlerService {
    * Public readonly access to permission requests
    */
   readonly permissionRequests = this._permissionRequests.asReadonly();
+
+  /**
+   * Active AskUserQuestion requests awaiting user answers
+   * TASK_2025_097 Batch 5: Similar to permission requests but for questions
+   * Private writable signal, exposed as readonly
+   */
+  private readonly _questionRequests = signal<AskUserQuestionRequest[]>([]);
+
+  /**
+   * Public readonly access to question requests
+   */
+  readonly questionRequests = this._questionRequests.asReadonly();
+
+  /**
+   * Constructor - sets up cleanup effect for expired requests
+   */
+  constructor() {
+    // Effect to clean up expired question requests automatically
+    // Runs every time the signal changes, checks for timeouts
+    effect(() => {
+      const requests = this._questionRequests();
+      if (requests.length === 0) return;
+
+      // Schedule cleanup check
+      const now = Date.now();
+      const expiredIds = requests
+        .filter((r) => r.timeoutAt <= now)
+        .map((r) => r.id);
+
+      if (expiredIds.length > 0) {
+        console.log(
+          '[PermissionHandlerService] Cleaning up expired question requests:',
+          expiredIds
+        );
+        this._questionRequests.update((reqs) =>
+          reqs.filter((r) => r.timeoutAt > now)
+        );
+      }
+    });
+  }
 
   /**
    * Helper to extract tool IDs from execution tree (finalized messages)
@@ -231,5 +280,92 @@ export class PermissionHandlerService {
     }
 
     return permission ?? null;
+  }
+
+  // ============================================================================
+  // ASKUSERQUESTION METHODS (TASK_2025_097 Batch 5)
+  // ============================================================================
+
+  /**
+   * Handle incoming AskUserQuestion request from backend
+   *
+   * Adds request to pending list for UI display.
+   * Similar to handlePermissionRequest but for questions.
+   *
+   * TASK_2025_097 Batch 5: Implements SDK's AskUserQuestion tool support
+   *
+   * @param request The question request from backend
+   */
+  handleQuestionRequest(request: AskUserQuestionRequest): void {
+    const receiveTime = Date.now();
+
+    // Calculate latency from backend emission to frontend reception
+    const latencyMs =
+      request.timestamp !== undefined ? receiveTime - request.timestamp : null;
+
+    console.log('[PermissionHandlerService] Question request received:', {
+      id: request.id,
+      questionCount: request.questions.length,
+      toolUseId: request.toolUseId,
+      receiveTime,
+      backendTimestamp: request.timestamp ?? 'N/A',
+      latencyMs: latencyMs !== null ? `${latencyMs}ms` : 'N/A',
+      timeoutAt: request.timeoutAt,
+    });
+
+    // Performance warning if latency exceeds expected threshold (100ms)
+    if (latencyMs !== null && latencyMs > 100) {
+      console.warn(
+        '[PermissionHandlerService] High question request latency detected:',
+        `${latencyMs}ms (expected < 100ms)`
+      );
+    }
+
+    this._questionRequests.update((requests) => [...requests, request]);
+  }
+
+  /**
+   * Handle user response to AskUserQuestion request
+   *
+   * Removes request from pending list and sends response to backend.
+   * Similar to handlePermissionResponse but sends answers instead of approve/deny.
+   *
+   * TASK_2025_097 Batch 5: Sends response via ASK_USER_QUESTION_RESPONSE message type
+   *
+   * @param response The user's answers to the questions
+   */
+  handleQuestionResponse(response: AskUserQuestionResponse): void {
+    console.log('[PermissionHandlerService] Question response sent:', {
+      id: response.id,
+      answerCount: Object.keys(response.answers).length,
+    });
+
+    // Remove from pending requests
+    this._questionRequests.update((requests) =>
+      requests.filter((r) => r.id !== response.id)
+    );
+
+    // Send to backend via VSCodeService
+    this.vscodeService.postMessage({
+      type: MESSAGE_TYPES.ASK_USER_QUESTION_RESPONSE,
+      payload: response,
+    });
+  }
+
+  /**
+   * Get question request for a specific tool by its toolUseId
+   *
+   * @param toolUseId The tool's unique identifier
+   * @returns AskUserQuestionRequest if one exists, null otherwise
+   */
+  getQuestionForTool(
+    toolUseId: string | undefined
+  ): AskUserQuestionRequest | null {
+    if (!toolUseId) return null;
+
+    return (
+      this._questionRequests().find((req) => req.toolUseId === toolUseId) ??
+      null
+    );
   }
 }

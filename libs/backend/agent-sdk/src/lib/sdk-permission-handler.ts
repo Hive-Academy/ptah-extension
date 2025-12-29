@@ -22,7 +22,9 @@ import {
   isNotebookEditToolInput,
   isReadToolInput,
   isWriteToolInput,
+  isAskUserQuestionToolInput,
   MESSAGE_TYPES,
+  type QuestionItem,
 } from '@ptah-extension/shared';
 import {
   ContentBlock,
@@ -64,6 +66,36 @@ interface PermissionResponse {
  */
 interface PendingRequest {
   resolve: (response: PermissionResponse) => void;
+  timer: NodeJS.Timeout;
+}
+
+/**
+ * AskUserQuestion request payload
+ * Sent to webview to prompt user with clarifying questions
+ */
+interface AskUserQuestionRequest {
+  id: string;
+  toolName: 'AskUserQuestion';
+  questions: QuestionItem[];
+  toolUseId?: string;
+  timestamp: number;
+  timeoutAt: number;
+}
+
+/**
+ * AskUserQuestion response from webview
+ * Contains user-selected answers
+ */
+interface AskUserQuestionResponse {
+  id: string;
+  answers: Record<string, string>;
+}
+
+/**
+ * Pending question request tracking
+ */
+interface PendingQuestionRequest {
+  resolve: (response: AskUserQuestionResponse | null) => void;
   timer: NodeJS.Timeout;
 }
 
@@ -119,6 +151,12 @@ export class SdkPermissionHandler {
    * Maps requestId → PendingRequest
    */
   private pendingRequests = new Map<string, PendingRequest>();
+
+  /**
+   * Pending question requests awaiting user answers
+   * Maps requestId → PendingQuestionRequest
+   */
+  private pendingQuestionRequests = new Map<string, PendingQuestionRequest>();
 
   /**
    * Flag to track if emitter has been initialized
@@ -228,6 +266,15 @@ export class SdkPermissionHandler {
           behavior: 'allow' as const,
           updatedInput: input,
         };
+      }
+
+      // Handle AskUserQuestion tool - prompt user with clarifying questions
+      // This must be checked BEFORE dangerous tools to use its specialized handler
+      if (toolName === 'AskUserQuestion') {
+        this.logger.info(
+          `[SdkPermissionHandler] Handling AskUserQuestion tool request`
+        );
+        return await this.handleAskUserQuestion(input, options.toolUseID);
       }
 
       // Dangerous tools require user approval
@@ -403,6 +450,150 @@ export class SdkPermissionHandler {
   }
 
   /**
+   * Handle AskUserQuestion tool - prompt user with clarifying questions
+   *
+   * Unlike permission requests (approve/deny), AskUserQuestion expects
+   * the user to SELECT answers from provided options.
+   *
+   * @param input - AskUserQuestionToolInput containing questions array
+   * @param toolUseId - SDK's tool_use ID for correlation
+   * @returns PermissionResult with updatedInput.answers populated
+   */
+  private async handleAskUserQuestion(
+    input: Record<string, unknown>,
+    toolUseId: string
+  ): Promise<PermissionResult> {
+    // Validate input using type guard
+    if (!isAskUserQuestionToolInput(input)) {
+      this.logger.warn('[SdkPermissionHandler] Invalid AskUserQuestion input', {
+        input,
+      });
+      return {
+        behavior: 'deny' as const,
+        message: 'Invalid AskUserQuestion input format',
+      };
+    }
+
+    const requestId = this.generateRequestId();
+    const now = Date.now();
+    const timeoutAt = now + PERMISSION_TIMEOUT_MS;
+
+    // Build request payload
+    const request: AskUserQuestionRequest = {
+      id: requestId,
+      toolName: 'AskUserQuestion',
+      questions: input.questions,
+      toolUseId,
+      timestamp: now,
+      timeoutAt,
+    };
+
+    this.logger.info('[SdkPermissionHandler] Sending AskUserQuestion request', {
+      requestId,
+      questionCount: input.questions.length,
+      toolUseId,
+    });
+
+    // Send to webview
+    this.webviewManager
+      .sendMessage(
+        'ptah.main',
+        MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
+        request
+      )
+      .then(() => {
+        this.logger.info(
+          `[SdkPermissionHandler] AskUserQuestion request sent to webview`,
+          { requestId }
+        );
+      })
+      .catch((error) => {
+        this.logger.error(
+          `[SdkPermissionHandler] Failed to send AskUserQuestion request`,
+          { error }
+        );
+      });
+
+    // Await user response with timeout
+    const response = await this.awaitQuestionResponse(
+      requestId,
+      PERMISSION_TIMEOUT_MS
+    );
+
+    if (!response) {
+      this.logger.warn('[SdkPermissionHandler] AskUserQuestion timed out', {
+        requestId,
+      });
+      return {
+        behavior: 'deny' as const,
+        message: 'Question request timed out',
+      };
+    }
+
+    this.logger.info('[SdkPermissionHandler] AskUserQuestion answered', {
+      requestId,
+      answerCount: Object.keys(response.answers).length,
+    });
+
+    // Return with answers populated in updatedInput
+    return {
+      behavior: 'allow' as const,
+      updatedInput: {
+        ...input,
+        answers: response.answers,
+      },
+    };
+  }
+
+  /**
+   * Await question response from webview
+   *
+   * Returns null on timeout, AskUserQuestionResponse on user action.
+   */
+  private async awaitQuestionResponse(
+    requestId: string,
+    timeoutMs: number
+  ): Promise<AskUserQuestionResponse | null> {
+    return new Promise<AskUserQuestionResponse | null>((resolve) => {
+      // Set timeout
+      const timer = setTimeout(() => {
+        this.pendingQuestionRequests.delete(requestId);
+        resolve(null); // Timeout - return null
+      }, timeoutMs);
+
+      // Store pending request
+      this.pendingQuestionRequests.set(requestId, {
+        resolve,
+        timer,
+      });
+    });
+  }
+
+  /**
+   * Handle question response from webview
+   *
+   * Called when user submits answers to AskUserQuestion prompts.
+   */
+  handleQuestionResponse(response: AskUserQuestionResponse): void {
+    const pending = this.pendingQuestionRequests.get(response.id);
+    if (!pending) {
+      this.logger.warn(
+        `[SdkPermissionHandler] Received question response for unknown request: ${response.id}`
+      );
+      return;
+    }
+
+    // Clear timeout and resolve pending promise
+    clearTimeout(pending.timer);
+    this.pendingQuestionRequests.delete(response.id);
+    pending.resolve(response);
+
+    this.logger.debug(
+      `[SdkPermissionHandler] Handled question response for request ${response.id}`
+    );
+  }
+
+  /**
    * Await RPC response from webview
    *
    * Returns null on timeout, PermissionResponse on user action.
@@ -569,10 +760,10 @@ export class SdkPermissionHandler {
    */
   dispose(): void {
     this.logger.info(
-      `[SdkPermissionHandler] Disposing ${this.pendingRequests.size} pending permission requests`
+      `[SdkPermissionHandler] Disposing ${this.pendingRequests.size} pending permission requests and ${this.pendingQuestionRequests.size} pending question requests`
     );
 
-    // Clear all timeouts
+    // Clear all permission request timeouts
     for (const [requestId, pending] of this.pendingRequests.entries()) {
       clearTimeout(pending.timer);
       pending.resolve({
@@ -580,7 +771,13 @@ export class SdkPermissionHandler {
         reason: 'Extension deactivated',
       });
     }
-
     this.pendingRequests.clear();
+
+    // Clear all question request timeouts
+    for (const [requestId, pending] of this.pendingQuestionRequests.entries()) {
+      clearTimeout(pending.timer);
+      pending.resolve(null); // Resolve with null on dispose
+    }
+    this.pendingQuestionRequests.clear();
   }
 }

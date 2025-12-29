@@ -310,6 +310,12 @@ export const MESSAGE_TYPES = {
   // ---- Setup Wizard Messages ----
   SETUP_WIZARD_OPEN_AGENTS_FOLDER: 'setup-wizard:open-agents-folder',
   SETUP_WIZARD_START_CHAT: 'setup-wizard:start-chat',
+
+  // ---- AskUserQuestion Messages ----
+  // Used by SDK's AskUserQuestion tool to prompt user with clarifying questions
+  // Similar to permission system but expects answers instead of approve/deny
+  ASK_USER_QUESTION_REQUEST: 'ask-user-question:request',
+  ASK_USER_QUESTION_RESPONSE: 'ask-user-question:response',
 } as const;
 
 /**
