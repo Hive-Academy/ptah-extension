@@ -26,6 +26,7 @@ import { ConfirmationDialogComponent } from '../molecules/confirmation-dialog.co
 import { SettingsComponent } from '../../settings/settings.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { WizardViewComponent } from '@ptah-extension/setup-wizard';
+import { ThemeToggleComponent } from '../atoms/theme-toggle.component';
 import { ChatStore } from '../../services/chat.store';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
 import { TabManagerService } from '../../services/tab-manager.service';
@@ -74,6 +75,7 @@ import { ConfirmationDialogService } from '../../services/confirmation-dialog.se
     WizardViewComponent,
     TabBarComponent,
     ConfirmationDialogComponent,
+    ThemeToggleComponent,
     DatePipe,
     NgOptimizedImage,
     LucideAngularModule,
