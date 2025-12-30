@@ -52,6 +52,7 @@ export type ExecutionStatus =
   | 'pending' // Waiting to execute
   | 'streaming' // Currently receiving content
   | 'complete' // Successfully finished
+  | 'interrupted' // User aborted/stopped (TASK_2025_098)
   | 'error'; // Failed with error
 
 /**

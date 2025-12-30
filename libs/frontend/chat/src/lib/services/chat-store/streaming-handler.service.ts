@@ -696,8 +696,9 @@ export class StreamingHandlerService {
    * Uses per-tab currentMessageId for proper multi-tab streaming support.
    *
    * @param tabId - Optional tab ID to finalize. Falls back to active tab if not provided.
+   * @param isAborted - If true, marks nodes as 'interrupted' instead of 'complete' (TASK_2025_098)
    */
-  finalizeCurrentMessage(tabId?: string): void {
+  finalizeCurrentMessage(tabId?: string, isAborted = false): void {
     // PERFORMANCE: Flush any pending batched updates before finalization
     // This ensures we have the complete streaming state before building final tree
     this.flushUpdatesSync();
@@ -724,7 +725,15 @@ export class StreamingHandlerService {
     // Build final tree using ExecutionTreeBuilderService (TASK_2025_082 Batch 6)
     // PERFORMANCE: Use unique cache key for finalization to avoid stale cache
     const cacheKey = `finalize-${targetTabId}-${Date.now()}`;
-    const finalTree = this.treeBuilder.buildTree(stateCopy, cacheKey);
+    let finalTree = this.treeBuilder.buildTree(stateCopy, cacheKey);
+
+    // TASK_2025_098 FIX: Mark all 'streaming' nodes as 'interrupted' when aborted
+    // This ensures UI shows proper state after user clicks stop button
+    if (isAborted) {
+      finalTree = finalTree.map((tree) =>
+        this.markStreamingNodesAsInterrupted(tree)
+      );
+    }
 
     // Find message_complete event for metadata
     const completeEvent = [...streamingState.events.values()].find(
@@ -896,6 +905,40 @@ export class StreamingHandlerService {
     });
 
     return messages;
+  }
+
+  /**
+   * TASK_2025_098 FIX: Recursively mark all 'streaming' nodes as 'interrupted'
+   * Used when user aborts/interrupts a streaming message to show proper state in UI.
+   *
+   * @param node - ExecutionNode to process
+   * @returns New node with updated status (immutable)
+   */
+  private markStreamingNodesAsInterrupted(node: ExecutionNode): ExecutionNode {
+    // Recursively process children first
+    const updatedChildren = node.children.map((child) =>
+      this.markStreamingNodesAsInterrupted(child)
+    );
+
+    // If this node is streaming, mark it as interrupted
+    if (node.status === 'streaming') {
+      return {
+        ...node,
+        status: 'interrupted',
+        children: updatedChildren,
+      };
+    }
+
+    // If children changed, return new node with updated children
+    if (updatedChildren !== node.children) {
+      return {
+        ...node,
+        children: updatedChildren,
+      };
+    }
+
+    // No changes needed
+    return node;
   }
 
   /**

@@ -531,10 +531,18 @@ export class ConversationService {
           './streaming-handler.service'
         );
         const streamingHandler = this.injector.get(StreamingHandlerService);
-        streamingHandler.finalizeCurrentMessage(activeTabId ?? undefined);
+        // TASK_2025_098 FIX: Pass isAborted=true to mark nodes as interrupted
+        streamingHandler.finalizeCurrentMessage(activeTabId ?? undefined, true);
       } else {
         // No streaming state, just update status
         this.finalizeCurrentMessage();
+      }
+
+      // TASK_2025_098 FIX: Clear visual streaming indicator
+      // Previously, markTabIdle was only called in completion-handler (chat:complete).
+      // On abort, the streaming indicator remained because this was never called.
+      if (activeTabId) {
+        this.tabManager.markTabIdle(activeTabId);
       }
       // ========== END PRESERVE MESSAGE ==========
     } catch (error) {

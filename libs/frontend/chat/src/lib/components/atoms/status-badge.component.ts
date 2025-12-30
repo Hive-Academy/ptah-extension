@@ -11,6 +11,7 @@ import { ExecutionStatus } from '@ptah-extension/shared';
  * - pending → badge-ghost
  * - streaming → badge-info + loading spinner
  * - complete → badge-success
+ * - interrupted → badge-warning (TASK_2025_098)
  * - error → badge-error
  */
 @Component({
@@ -22,6 +23,7 @@ import { ExecutionStatus } from '@ptah-extension/shared';
       [class.badge-ghost]="status() === 'pending'"
       [class.badge-info]="status() === 'streaming'"
       [class.badge-success]="status() === 'complete'"
+      [class.badge-warning]="status() === 'interrupted'"
       [class.badge-error]="status() === 'error'"
     >
       @if (status() === 'streaming') {
@@ -43,6 +45,8 @@ export class StatusBadgeComponent {
         return 'Streaming';
       case 'complete':
         return 'Done';
+      case 'interrupted':
+        return 'Stopped';
       case 'error':
         return 'Error';
     }

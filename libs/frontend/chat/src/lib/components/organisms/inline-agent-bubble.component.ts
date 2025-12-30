@@ -17,6 +17,7 @@ import {
   ChevronDown,
   ChevronRight,
   Loader2,
+  StopCircle,
 } from 'lucide-angular';
 import { ExecutionNodeComponent } from './execution-node.component';
 import { TypingCursorComponent } from '../atoms/typing-cursor.component';
@@ -87,11 +88,16 @@ import type {
           }
         </div>
 
-        <!-- Streaming badge or stats -->
+        <!-- Streaming/Interrupted badge or stats -->
         @if (isStreaming()) {
         <span class="badge badge-xs badge-info gap-1 flex-shrink-0">
           <lucide-angular [img]="LoaderIcon" class="w-2.5 h-2.5 animate-spin" />
           <span class="text-[9px]">Streaming</span>
+        </span>
+        } @else if (isInterrupted()) {
+        <span class="badge badge-xs badge-warning gap-1 flex-shrink-0">
+          <lucide-angular [img]="StopCircleIcon" class="w-2.5 h-2.5" />
+          <span class="text-[9px]">Stopped</span>
         </span>
         } @else if (hasChildren()) {
         <span class="badge badge-xs badge-ghost text-[9px] flex-shrink-0">
@@ -173,6 +179,7 @@ export class InlineAgentBubbleComponent {
   readonly ChevronDownIcon = ChevronDown;
   readonly ChevronRightIcon = ChevronRight;
   readonly LoaderIcon = Loader2;
+  readonly StopCircleIcon = StopCircle;
 
   // Collapse state - expanded by default
   readonly isCollapsed = signal(false);
@@ -214,6 +221,9 @@ export class InlineAgentBubbleComponent {
 
   // Computed: is agent streaming
   readonly isStreaming = computed(() => this.node().status === 'streaming');
+
+  // Computed: was agent interrupted (TASK_2025_098)
+  readonly isInterrupted = computed(() => this.node().status === 'interrupted');
 
   // Computed: agent color based on type
   // Built-in Claude agents get fixed colors for brand consistency
