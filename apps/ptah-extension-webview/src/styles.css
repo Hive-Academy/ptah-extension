@@ -336,16 +336,22 @@ SCROLLBAR STYLING - Anubis Theme
 }
 
 ::-webkit-scrollbar-track {
+  /* Fallback for browsers without oklch support */
   background: rgba(10, 10, 10, 0.6);
+  background: oklch(var(--b1) / 0.6);
 }
 
 ::-webkit-scrollbar-thumb {
+  /* Fallback for browsers without oklch support */
   background: rgba(212, 175, 55, 0.3);
+  background: oklch(var(--s) / 0.3);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
+  /* Fallback for browsers without oklch support */
   background: rgba(212, 175, 55, 0.5);
+  background: oklch(var(--s) / 0.5);
 }
 
 /* ============================================================================
@@ -401,6 +407,30 @@ a:focus:not(:focus-visible) {
 AGENT COLOR BADGES - Egyptian Pantheon
 Theme-aware CSS custom properties for agent badges
 ============================================================================ */
+
+/**
+ * Agent Badge Color System
+ *
+ * These custom properties define colors for the Ptah agent badges.
+ * The color scheme is inspired by the Egyptian god pantheon and
+ * professional roles:
+ *
+ * - architect:   Deep blue (wisdom, stability)
+ * - frontend:    Sky blue (creativity, interface)
+ * - backend:     Forest green (growth, infrastructure)
+ * - tester:      Purple (quality, precision)
+ * - reviewer:    Gold (judgment, excellence)
+ * - leader:      Indigo (leadership, vision)
+ * - pm:          Crimson (action, coordination)
+ * - researcher:  Cyan (discovery, analysis)
+ * - supervisor:  Gold (oversight, guidance)
+ *
+ * Theme Adaptation:
+ * - Dark theme (anubis): Uses vibrant colors against dark backgrounds
+ * - Light theme (anubis-light): Uses slightly darker variants for contrast
+ *
+ * Text colors (--agent-badge-text-*) ensure WCAG AA contrast ratios.
+ */
 
 /* Agent badge colors - Dark theme (default) */
 :root,

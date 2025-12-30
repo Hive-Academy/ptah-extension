@@ -30,6 +30,7 @@ import { ThemeService } from '@ptah-extension/core';
       [attr.aria-label]="
         isDarkMode() ? 'Switch to light mode' : 'Switch to dark mode'
       "
+      [attr.aria-pressed]="isDarkMode()"
     >
       <lucide-angular
         [img]="isDarkMode() ? SunIcon : MoonIcon"
