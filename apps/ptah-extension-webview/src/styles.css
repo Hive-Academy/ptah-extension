@@ -381,51 +381,83 @@ a:focus:not(:focus-visible) {
 
 /* ============================================================================
 AGENT COLOR BADGES - Egyptian Pantheon
+Theme-aware CSS custom properties for agent badges
 ============================================================================ */
 
+/* Agent badge colors - Dark theme (default) */
+:root,
+[data-theme='anubis'] {
+  --agent-architect: #1e3a8a;
+  --agent-frontend: #3b82f6;
+  --agent-backend: #228b22;
+  --agent-tester: #8b5cf6;
+  --agent-reviewer: #d4af37;
+  --agent-leader: #6366f1;
+  --agent-pm: #b22222;
+  --agent-researcher: #06b6d4;
+  --agent-supervisor: #d4af37;
+  --agent-badge-text-light: #f5f5dc;
+  --agent-badge-text-dark: #0a0a0a;
+}
+
+/* Agent badge colors - Light theme (adjusted for contrast) */
+[data-theme='anubis-light'] {
+  --agent-architect: #1e40af;
+  --agent-frontend: #2563eb;
+  --agent-backend: #166534;
+  --agent-tester: #7c3aed;
+  --agent-reviewer: #b8860b;
+  --agent-leader: #4f46e5;
+  --agent-pm: #991b1b;
+  --agent-researcher: #0891b2;
+  --agent-supervisor: #b8860b;
+  --agent-badge-text-light: #ffffff;
+  --agent-badge-text-dark: #0a0a0a;
+}
+
 .badge-agent-architect {
-  background-color: #1e3a8a !important; /* Thoth - Lapis Blue */
-  color: #f5f5dc !important;
+  background-color: var(--agent-architect) !important; /* Thoth - Lapis Blue */
+  color: var(--agent-badge-text-light) !important;
 }
 
 .badge-agent-frontend {
-  background-color: #3b82f6 !important; /* Light Blue */
-  color: #f5f5dc !important;
+  background-color: var(--agent-frontend) !important; /* Light Blue */
+  color: var(--agent-badge-text-light) !important;
 }
 
 .badge-agent-backend {
-  background-color: #228b22 !important; /* Ptah - Malachite Green */
-  color: #f5f5dc !important;
+  background-color: var(--agent-backend) !important; /* Ptah - Malachite Green */
+  color: var(--agent-badge-text-light) !important;
 }
 
 .badge-agent-tester {
-  background-color: #8b5cf6 !important; /* Purple */
-  color: #f5f5dc !important;
+  background-color: var(--agent-tester) !important; /* Purple */
+  color: var(--agent-badge-text-light) !important;
 }
 
 .badge-agent-reviewer {
-  background-color: #d4af37 !important; /* Ma'at - Gold */
-  color: #0a0a0a !important;
+  background-color: var(--agent-reviewer) !important; /* Ma'at - Gold */
+  color: var(--agent-badge-text-dark) !important;
 }
 
 .badge-agent-leader {
-  background-color: #6366f1 !important; /* Indigo */
-  color: #f5f5dc !important;
+  background-color: var(--agent-leader) !important; /* Indigo */
+  color: var(--agent-badge-text-light) !important;
 }
 
 .badge-agent-pm {
-  background-color: #b22222 !important; /* Khnum - Carnelian Red */
-  color: #f5f5dc !important;
+  background-color: var(--agent-pm) !important; /* Khnum - Carnelian Red */
+  color: var(--agent-badge-text-light) !important;
 }
 
 .badge-agent-researcher {
-  background-color: #06b6d4 !important; /* Cyan */
-  color: #0a0a0a !important;
+  background-color: var(--agent-researcher) !important; /* Cyan */
+  color: var(--agent-badge-text-dark) !important;
 }
 
 .badge-agent-supervisor {
-  background-color: #d4af37 !important; /* Anubis - Gold */
-  color: #0a0a0a !important;
+  background-color: var(--agent-supervisor) !important; /* Anubis - Gold */
+  color: var(--agent-badge-text-dark) !important;
 }
 
 /* ============================================================================
@@ -481,18 +513,18 @@ MARKDOWN CONTENT STYLING (for ngx-markdown) - Anubis Theme
 }
 
 .prose code {
-  background-color: #2a2a2a;
+  background-color: oklch(var(--b3)); /* base-300 */
   padding: 0.125rem 0.375rem;
   border-radius: 0.25rem;
   font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Monaco, Consolas,
     monospace;
   font-size: 0.875em;
-  color: #fbbf24;
+  color: oklch(var(--wa)); /* warning (amber) */
 }
 
 .prose pre {
-  background-color: #2a2a2a;
-  border: 1px solid #1a1a1a;
+  background-color: oklch(var(--b3)); /* base-300 */
+  border: 1px solid oklch(var(--b2)); /* base-200 */
   border-radius: 0.375rem;
   padding: 1rem;
   overflow-x: auto;
@@ -502,16 +534,16 @@ MARKDOWN CONTENT STYLING (for ngx-markdown) - Anubis Theme
   background-color: transparent;
   padding: 0;
   border-radius: 0;
-  color: #f5f5dc;
+  color: oklch(var(--bc)); /* base-content */
 }
 
 .prose a {
-  color: #3b82f6;
+  color: oklch(var(--in)); /* info (blue) */
   text-decoration: underline;
 }
 
 .prose a:hover {
-  color: #60a5fa;
+  color: oklch(var(--in) / 0.8); /* info with reduced opacity */
 }
 
 .prose h1,
@@ -520,7 +552,7 @@ MARKDOWN CONTENT STYLING (for ngx-markdown) - Anubis Theme
 .prose h4,
 .prose h5,
 .prose h6 {
-  color: #d4af37;
+  color: oklch(var(--s)); /* secondary (gold) */
   font-weight: 600;
   margin-top: 1.5em;
   margin-bottom: 0.5em;
@@ -528,19 +560,19 @@ MARKDOWN CONTENT STYLING (for ngx-markdown) - Anubis Theme
 }
 
 .prose blockquote {
-  border-left: 4px solid #d4af37;
+  border-left: 4px solid oklch(var(--s)); /* secondary (gold) */
   padding-left: 1rem;
   font-style: italic;
-  color: #9ca3af;
+  color: oklch(var(--bc) / 0.6); /* muted text */
 }
 
 .prose ul,
 .prose ol {
-  color: #f5f5dc;
+  color: oklch(var(--bc)); /* base-content */
 }
 
 .prose strong {
-  color: #f5f5dc;
+  color: oklch(var(--bc)); /* base-content */
   font-weight: 600;
 }
 
