@@ -107,10 +107,6 @@ export class TabManagerService {
     if (existingTab) {
       // Switch to existing tab instead of creating duplicate
       this.switchTab(existingTab.id);
-      console.log(
-        '[TabManager] Switched to existing tab for session:',
-        claudeSessionId
-      );
       return existingTab.id;
     }
 
@@ -134,12 +130,6 @@ export class TabManagerService {
     this._activeTabId.set(id);
     this.saveTabState();
 
-    console.log(
-      '[TabManager] Created new tab for session:',
-      claudeSessionId,
-      '->',
-      id
-    );
     return id;
   }
 
@@ -170,7 +160,6 @@ export class TabManagerService {
     this._activeTabId.set(id);
     this.saveTabState();
 
-    console.log('[TabManager] Tab created (no session yet):', id, sessionName);
     return id;
   }
 
@@ -200,7 +189,6 @@ export class TabManagerService {
       });
 
       if (!confirmed) {
-        console.log('[TabManager] Tab close cancelled by user');
         return;
       }
     }
@@ -233,7 +221,6 @@ export class TabManagerService {
     }
 
     this.saveTabState();
-    console.log('[TabManager] Tab closed:', tabId);
   }
 
   /**
@@ -249,7 +236,6 @@ export class TabManagerService {
 
     this._activeTabId.set(tabId);
     this.saveTabState();
-    console.log('[TabManager] Switched to tab:', tabId);
   }
 
   /**
@@ -312,7 +298,6 @@ export class TabManagerService {
       return result.map((tab, index) => ({ ...tab, order: index }));
     });
     this.saveTabState();
-    console.log('[TabManager] Tabs reordered:', fromIndex, '->', toIndex);
   }
 
   // ============================================================================
@@ -332,7 +317,6 @@ export class TabManagerService {
 
     // If no title provided, this is a no-op (UI should handle input)
     if (!newTitle || newTitle.trim() === '') {
-      console.log('[TabManager] Rename requires newTitle parameter');
       return;
     }
 
@@ -340,7 +324,6 @@ export class TabManagerService {
     const sanitizedTitle = newTitle.trim().substring(0, 100);
 
     this.updateTab(tabId, { title: sanitizedTitle });
-    console.log('[TabManager] Tab renamed:', tabId, '->', sanitizedTitle);
   }
 
   /**
@@ -366,8 +349,6 @@ export class TabManagerService {
     this._tabs.update((tabs) => [...tabs, duplicatedTab]);
     this._activeTabId.set(newTabId);
     this.saveTabState();
-
-    console.log('[TabManager] Tab duplicated:', tabId, '->', newTabId);
   }
 
   /**
@@ -397,8 +378,6 @@ export class TabManagerService {
     this._tabs.set([tab]);
     this._activeTabId.set(tabId);
     this.saveTabState();
-
-    console.log('[TabManager] Closed all other tabs, kept:', tabId);
   }
 
   /**
@@ -435,7 +414,6 @@ export class TabManagerService {
     }
 
     this.saveTabState();
-    console.log('[TabManager] Closed tabs to right of:', tabId);
   }
 
   // ============================================================================
@@ -472,7 +450,6 @@ export class TabManagerService {
       };
 
       localStorage.setItem('ptah.tabs', JSON.stringify(state));
-      console.log('[TabManager] Tab state saved to localStorage');
     } catch (error) {
       console.warn('[TabManager] Failed to save tab state:', error);
     }
@@ -486,7 +463,6 @@ export class TabManagerService {
     try {
       const stored = localStorage.getItem('ptah.tabs');
       if (!stored) {
-        console.log('[TabManager] No saved tab state found');
         return;
       }
 
@@ -508,11 +484,6 @@ export class TabManagerService {
         }));
         this._tabs.set(sanitizedTabs);
         this._activeTabId.set(state.activeTabId);
-        console.log(
-          '[TabManager] Loaded tab state from localStorage:',
-          sanitizedTabs.length,
-          'tabs'
-        );
       }
     } catch (error) {
       console.warn('[TabManager] Failed to load tab state:', error);

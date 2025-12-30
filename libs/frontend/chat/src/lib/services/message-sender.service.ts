@@ -221,6 +221,9 @@ export class MessageSenderService {
         isDirty: false,
       });
 
+      // Show streaming indicator (visual only - no side effects)
+      this.tabManager.markTabStreaming(activeTabId);
+
       // Update SessionManager state - use new state machine API
       // TASK_2025_086: Use 'draft' state (session not yet confirmed by backend)
       // The 'streaming' is a SessionStatus, not SessionState
@@ -382,17 +385,20 @@ export class MessageSenderService {
       if (!result.success) {
         console.error('[MessageSender] Failed to continue chat:', result.error);
         this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+        this.tabManager.markTabIdle(activeTabId);
         this.sessionManager.setStatus('loaded');
       } else {
         console.log('[MessageSender] Conversation continued:', result.data);
         this.sessionManager.setStatus('streaming');
         this.tabManager.updateTab(activeTabId, { status: 'streaming' });
+        this.tabManager.markTabStreaming(activeTabId);
       }
     } catch (error) {
       console.error('[MessageSender] Failed to continue conversation:', error);
       const activeTabId = this.tabManager.activeTabId();
       if (activeTabId) {
         this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+        this.tabManager.markTabIdle(activeTabId);
       }
       this.sessionManager.setStatus('loaded');
     }

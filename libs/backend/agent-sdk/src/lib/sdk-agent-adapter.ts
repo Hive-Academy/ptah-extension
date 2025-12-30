@@ -292,7 +292,6 @@ export class SdkAgentAdapter implements IAIProvider {
   ): AsyncIterable<SDKUserMessage> {
     const sessionLifecycle = this.sessionLifecycle;
     const logger = this.logger;
-    const MESSAGE_TIMEOUT_MS = 5 * 60 * 1000;
 
     return {
       async *[Symbol.asyncIterator]() {
@@ -317,46 +316,45 @@ export class SdkAgentAdapter implements IAIProvider {
             if (abortController.signal.aborted) return;
           }
 
-          // Wait for next message
-          const waitResult = await new Promise<
-            'message' | 'aborted' | 'timeout'
-          >((resolve) => {
-            const abortHandler = () => resolve('aborted');
-            abortController.signal.addEventListener('abort', abortHandler);
+          // Wait for next message (no timeout - sessions run indefinitely per SDK best practices)
+          const waitResult = await new Promise<'message' | 'aborted'>(
+            (resolve) => {
+              const abortHandler = () => resolve('aborted');
+              abortController.signal.addEventListener('abort', abortHandler);
 
-            const currentSession = sessionLifecycle.getActiveSession(sessionId);
-            if (!currentSession) {
-              resolve('aborted');
-              return;
+              const currentSession =
+                sessionLifecycle.getActiveSession(sessionId);
+              if (!currentSession) {
+                resolve('aborted');
+                return;
+              }
+
+              // Check queue again before waiting
+              if (currentSession.messageQueue.length > 0) {
+                abortController.signal.removeEventListener(
+                  'abort',
+                  abortHandler
+                );
+                resolve('message');
+                return;
+              }
+
+              // Set wake callback - called when new message arrives
+              currentSession.resolveNext = () => {
+                abortController.signal.removeEventListener(
+                  'abort',
+                  abortHandler
+                );
+                resolve('message');
+              };
+
+              logger.debug(
+                `[SdkAgentAdapter] Waiting for message (${sessionId})...`
+              );
             }
+          );
 
-            // Check queue again before waiting
-            if (currentSession.messageQueue.length > 0) {
-              abortController.signal.removeEventListener('abort', abortHandler);
-              resolve('message');
-              return;
-            }
-
-            // Set timeout
-            const timeoutId = setTimeout(() => {
-              logger.warn(`[SdkAgentAdapter] Session ${sessionId} timeout`);
-              abortController.signal.removeEventListener('abort', abortHandler);
-              resolve('timeout');
-            }, MESSAGE_TIMEOUT_MS);
-
-            // Set wake callback
-            currentSession.resolveNext = () => {
-              clearTimeout(timeoutId);
-              abortController.signal.removeEventListener('abort', abortHandler);
-              resolve('message');
-            };
-
-            logger.debug(
-              `[SdkAgentAdapter] Waiting for message (${sessionId})...`
-            );
-          });
-
-          if (waitResult === 'aborted' || waitResult === 'timeout') {
+          if (waitResult === 'aborted') {
             logger.debug(`[SdkAgentAdapter] Stream ended: ${waitResult}`);
             return;
           }

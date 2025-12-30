@@ -533,7 +533,169 @@ const messageCompleteEvent: MessageCompleteEvent = {
 1. **Grouped turn content** - All tool calls and text from one assistant "turn" now appear in ONE visual bubble
 2. **Hidden agent prompts** - Internal agent invocation prompts are filtered out (they have `parentToolUseId` set)
 
+## Session 5 Continuation - Subagent Text Streaming Fix (2025-12-29)
+
+### Issue Reported
+
+User reported that subagents only stream tools but no text appears during live streaming. However, if the session is reloaded from history, both tools AND text appear correctly.
+
+### Root Cause Analysis
+
+In `sdk-message-transformer.ts`, `this.currentMessageId` was a **single class-level variable** that gets overwritten when ANY `message_start` arrives.
+
+**The Problem:**
+When main agent and subagent streams interleave:
+
+1. Subagent sends `message_start` → sets `this.currentMessageId = "subagent-msg-id"`
+2. Main agent sends `message_start` → **overwrites** `this.currentMessageId = "main-msg-id"`
+3. Subagent sends `text_delta` → uses wrong `this.currentMessageId` = "main-msg-id"
+
+This caused subagent `text_delta` events to be accumulated under the WRONG `messageId`, so `collectTextBlocks()` couldn't find them when building the agent node.
+
+**Why reload worked:**
+During reload from history, `transformAssistantToFlatEvents()` uses a **local** `messageId` variable for each message, not the shared class variable. Each message's text events were correctly associated.
+
+### Fix Implemented
+
+**File:** `libs/backend/agent-sdk/src/lib/sdk-message-transformer.ts`
+
+Changed from single `currentMessageId` to per-context tracking:
+
+```typescript
+// BEFORE: Single class-level variable (broken for interleaved streams)
+private currentMessageId: string | null = null;
+private toolCallIdByBlockIndex: Map<number, string> = new Map();
+
+// AFTER: Per-context tracking using parentToolUseId as key
+private currentMessageIdByContext: Map<string, string> = new Map();
+private toolCallIdByContextAndBlock: Map<string, string> = new Map();
+```
+
+**Key changes in handlers:**
+
+1. **message_start handler:**
+
+```typescript
+const context = parentToolUseId || '';
+this.currentMessageIdByContext.set(context, messageId);
+
+// Clear tool tracking for this context only
+for (const key of this.toolCallIdByContextAndBlock.keys()) {
+  if (key.startsWith(`${context}:`)) {
+    this.toolCallIdByContextAndBlock.delete(key);
+  }
+}
+```
+
+2. **message_delta, content_block_start, content_block_delta handlers:**
+
+```typescript
+const context = parentToolUseId || '';
+const currentMessageId = this.currentMessageIdByContext.get(context);
+```
+
+3. **message_stop handler:**
+
+```typescript
+const context = parentToolUseId || '';
+const currentMessageId = this.currentMessageIdByContext.get(context);
+// ... emit message_complete ...
+this.currentMessageIdByContext.delete(context);
+// Clear tool tracking for this context only
+```
+
+4. **Tool tracking:**
+
+```typescript
+// BEFORE: this.toolCallIdByBlockIndex.set(blockIndex, contentBlock.id)
+// AFTER:
+const blockKey = `${context}:${blockIndex}`;
+this.toolCallIdByContextAndBlock.set(blockKey, contentBlock.id);
+```
+
+### How Per-Context Tracking Works
+
+Context = `parentToolUseId` (for nested agent messages) or `''` (for root messages)
+
+**Example with two parallel streams:**
+
+- Main agent: context = `''`
+- Subagent under Task tool `toolu_xyz`: context = `'toolu_xyz'`
+
+Both can have separate `currentMessageId` values:
+
+- `currentMessageIdByContext.get('')` → main agent's messageId
+- `currentMessageIdByContext.get('toolu_xyz')` → subagent's messageId
+
+No interference between streams!
+
+### Files Modified (Session 5 Continuation)
+
+- `libs/backend/agent-sdk/src/lib/sdk-message-transformer.ts` - Per-context message ID tracking
+
+## Session 6 - Stop Button Signal Mismatch Fix + Subagent Text Diagnostics (2025-12-29)
+
+### Issue 1: Stop Button Not Showing During Streaming
+
+**Problem**: The stop/interrupt button was not visible during active streaming, even though the tab spinner correctly showed streaming status.
+
+**Root Cause**: Two separate, independent streaming signals that could diverge:
+
+| Signal                       | Used By                                     | Source                  |
+| ---------------------------- | ------------------------------------------- | ----------------------- |
+| `tab.status === 'streaming'` | Stop button (`chatStore.isStreaming()`)     | StreamingHandlerService |
+| `_streamingTabIds` Set       | Tab spinner (`tabManager.isTabStreaming()`) | MessageSenderService    |
+
+When `tab.status` was not set to `'streaming'` but `_streamingTabIds` had the tab marked, the tab showed streaming spinner but the stop button was hidden.
+
+**Fix Implemented**: Modified `chat-input.component.ts` to use the same visual streaming indicator as the tab spinner:
+
+```typescript
+// BEFORE: Used chatStore.isStreaming() which checks tab.status
+@if (chatStore.isStreaming()) {
+
+// AFTER: Uses same signal as tab spinner for consistency
+readonly isActiveTabStreaming = computed(() => {
+  const activeTab = this.chatStore.activeTab();
+  return activeTab ? this.tabManager.isTabStreaming(activeTab.id) : false;
+});
+
+@if (isActiveTabStreaming()) {
+```
+
+**Files Modified**:
+
+- `libs/frontend/chat/src/lib/components/molecules/chat-input.component.ts` - Inject TabManagerService, add `isActiveTabStreaming` computed signal
+
+### Issue 2: Subagent Text Not Streaming (Diagnostic Logging Added)
+
+**Problem**: Sub-agents only show tool calls during streaming, but no text content. Text appears only when reloading from history.
+
+**Hypothesis**: The Claude Agent SDK may not stream text content from subagents in real-time. Tool calls are streamed immediately (needed for permission prompts), but text content is buffered and only sent when the subagent completes.
+
+**Diagnostic logging added** to `sdk-message-transformer.ts`:
+
+1. `message_start received` - Shows `isSubagent: true/false`, `parentToolUseId`
+2. `content_block_delta received` - Shows `deltaType`, `isSubagent`, `parentToolUseId`
+3. `SUBAGENT text_delta emitted` - Shows when subagent text events are actually emitted
+4. `transformAssistantToFlatEvents called` - Shows when complete messages arrive with content types
+
+**How to test**:
+
+1. Reload VS Code extension
+2. Trigger a subagent (e.g., ask Claude to use researcher-expert)
+3. Check Output Panel → Ptah Extension for log messages
+4. Look for `isSubagent: true` entries with `deltaType: text_delta`
+   - If found: SDK does stream subagent text, issue is in frontend
+   - If not found: SDK doesn't stream subagent text (buffered behavior)
+
+### Files Modified (Session 6)
+
+- `libs/frontend/chat/src/lib/components/molecules/chat-input.component.ts` - Stop button signal fix
+- `libs/backend/agent-sdk/src/lib/sdk-message-transformer.ts` - Diagnostic logging for subagent text
+
 ## Remaining Unstaged Files
 
 - `vscode-app-1766939225426.log` - Debug log file (don't commit)
+- `vscode-app-1767038172453.log` - Debug log file (don't commit)
 - `claude-agentsdk-types.md` - Research notes (optional to commit)

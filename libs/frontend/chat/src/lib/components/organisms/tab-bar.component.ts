@@ -24,6 +24,7 @@ import { TabManagerService } from '../../services/tab-manager.service';
       <ptah-tab-item
         [tab]="tab"
         [isActive]="tab.id === activeTabId()"
+        [isStreaming]="tabManager.isTabStreaming(tab.id)"
         (tabSelect)="onSelectTab($event)"
         (tabClose)="onCloseTab($event)"
       />
@@ -33,7 +34,7 @@ import { TabManagerService } from '../../services/tab-manager.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TabBarComponent {
-  private readonly tabManager = inject(TabManagerService);
+  protected readonly tabManager = inject(TabManagerService);
 
   readonly tabs = this.tabManager.tabs;
   readonly activeTabId = this.tabManager.activeTabId;

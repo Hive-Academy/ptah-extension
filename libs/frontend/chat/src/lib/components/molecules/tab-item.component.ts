@@ -5,7 +5,7 @@ import {
   output,
 } from '@angular/core';
 import { NgClass } from '@angular/common';
-import { LucideAngularModule, X, Edit3, Loader2 } from 'lucide-angular';
+import { LucideAngularModule, X } from 'lucide-angular';
 import { TabState } from '../../services/chat.types';
 
 /**
@@ -14,9 +14,12 @@ import { TabState } from '../../services/chat.types';
  * Complexity Level: 1 (Simple component)
  * Patterns: Signal-based inputs/outputs, DaisyUI styling
  *
- * Displays tab title (truncated if too long), status indicator
- * (spinner for streaming, edit icon for draft), close button,
- * and active tab styling (border highlight).
+ * Displays tab title (truncated if too long), streaming indicator
+ * (DaisyUI spinner), close button, and active tab styling.
+ *
+ * NOTE: Streaming indicator uses dedicated `isStreaming` input from
+ * TabManagerService.isTabStreaming() - completely isolated from tab.status
+ * state machine. This is visual-only with zero side effects.
  */
 @Component({
   selector: 'ptah-tab-item',
@@ -31,14 +34,9 @@ import { TabState } from '../../services/chat.types';
       }"
       (click)="tabSelect.emit(tab().id)"
     >
-      <!-- Status indicator -->
-      @if (tab().status === 'streaming' || tab().status === 'resuming') {
-      <lucide-angular
-        [img]="LoaderIcon"
-        class="w-3 h-3 text-primary animate-spin"
-      />
-      } @else if (tab().status === 'draft') {
-      <lucide-angular [img]="EditIcon" class="w-3 h-3 text-warning" />
+      <!-- Streaming indicator (visual only - DaisyUI spinner) -->
+      @if (isStreaming()) {
+      <span class="loading loading-spinner loading-xs text-primary"></span>
       }
 
       <!-- Tab title -->
@@ -61,13 +59,13 @@ import { TabState } from '../../services/chat.types';
 export class TabItemComponent {
   readonly tab = input.required<TabState>();
   readonly isActive = input.required<boolean>();
+  /** Visual streaming indicator - isolated from tab.status state machine */
+  readonly isStreaming = input<boolean>(false);
 
   readonly tabSelect = output<string>();
   readonly tabClose = output<string>();
 
   readonly XIcon = X;
-  readonly EditIcon = Edit3;
-  readonly LoaderIcon = Loader2;
 
   protected onClose(event: Event): void {
     event.stopPropagation();

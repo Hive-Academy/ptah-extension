@@ -100,17 +100,6 @@ export class ExecutionTreeBuilderService {
     streamingState: StreamingState,
     cacheKey = 'default'
   ): ExecutionNode[] {
-    // DIAGNOSTIC: Log buildTree call
-    console.log(
-      '[ExecutionTreeBuilderService] buildTree called:',
-      JSON.stringify({
-        cacheKey,
-        eventCount: streamingState.events.size,
-        messageEventIdsLength: streamingState.messageEventIds.length,
-        messageIds: streamingState.messageEventIds,
-      })
-    );
-
     // PERFORMANCE: Calculate state fingerprint for cache validation
     // These values change when new events arrive or accumulators update
     const eventCount = streamingState.events.size;
@@ -128,15 +117,9 @@ export class ExecutionTreeBuilderService {
       cached.toolInputAccumulatorsSize === toolInputAccumulatorsSize
     ) {
       // Cache hit - return existing tree without rebuilding
-      console.log(
-        '[ExecutionTreeBuilderService] buildTree cache HIT - skipping rebuild'
-      );
       return cached.tree;
     }
 
-    console.log(
-      '[ExecutionTreeBuilderService] buildTree cache MISS - building tree'
-    );
     // Cache miss - build new tree
     const rootNodes: ExecutionNode[] = [];
 
@@ -158,10 +141,6 @@ export class ExecutionTreeBuilderService {
       );
       if (msgStartEvent?.parentToolUseId) {
         // Skip nested messages - they'll be rendered inside agent bubbles
-        console.log(
-          '[ExecutionTreeBuilderService] Skipping nested message (has parentToolUseId):',
-          { messageId, parentToolUseId: msgStartEvent.parentToolUseId }
-        );
         continue;
       }
 
@@ -174,15 +153,6 @@ export class ExecutionTreeBuilderService {
       if (isAssistant && lastAssistantNode) {
         // MERGE: Consecutive assistant message - add children to previous node
         // This groups all content from one "turn" into one visual bubble
-        console.log(
-          '[ExecutionTreeBuilderService] Merging consecutive assistant message:',
-          {
-            mergeIntoId: lastAssistantNode.id,
-            newMessageId: messageId,
-            childrenToAdd: messageNode.children?.length ?? 0,
-          }
-        );
-
         // Add this message's children to the previous assistant node
         // Since children is readonly, we create a new merged node and replace in array
         if (messageNode.children && messageNode.children.length > 0) {
@@ -345,20 +315,6 @@ export class ExecutionTreeBuilderService {
     // Get message events to find first text_delta for timestamp
     const messageEvents = state.eventsByMessage.get(messageId) || [];
 
-    // DIAGNOSTIC: Log textAccumulators keys for this message
-    const keysForMessage = [...state.textAccumulators.keys()].filter((k) =>
-      k.startsWith(`${messageId}-block-`)
-    );
-    console.log(
-      '[ExecutionTreeBuilderService] collectTextBlocks:',
-      JSON.stringify({
-        messageId,
-        textAccumulatorKeysForMessage: keysForMessage,
-        allTextAccumulatorKeys: [...state.textAccumulators.keys()],
-        hasText: keysForMessage.length > 0,
-      })
-    );
-
     // Find all text block keys for this message
     for (const [key, accumulatedText] of state.textAccumulators) {
       if (key.startsWith(`${messageId}-block-`)) {
@@ -468,31 +424,6 @@ export class ExecutionTreeBuilderService {
       return true;
     }) as ToolStartEvent[];
 
-    // DIAGNOSTIC: Log ALL tool_start events in state for debugging
-    const allToolStarts = [...state.events.values()].filter(
-      (e) => e.eventType === 'tool_start'
-    );
-    console.log(
-      '[ExecutionTreeBuilderService] collectTools:',
-      JSON.stringify({
-        messageId,
-        depth,
-        toolStartsFound: toolStarts.length,
-        toolNames: toolStarts.map((t) => ({
-          name: t.toolName,
-          id: t.toolCallId,
-          hasParentToolUseId: !!t.parentToolUseId,
-        })),
-        // Debug: show ALL tool_start events in state
-        allToolStartsInState: allToolStarts.map((t) => ({
-          id: t.id,
-          toolName: (t as ToolStartEvent).toolName,
-          messageId: t.messageId,
-          parentToolUseId: (t as ToolStartEvent).parentToolUseId,
-        })),
-      })
-    );
-
     for (const toolStart of toolStarts) {
       // TASK_2025_095: For Task tools that spawn agents, show agent directly instead of Task wrapper
       // This prevents the duplication: Task tool → Agent → tools
@@ -505,33 +436,9 @@ export class ExecutionTreeBuilderService {
             e.parentToolUseId === toolStart.toolCallId
         ) as AgentStartEvent[];
 
-        // DIAGNOSTIC: Log agent search for Task tools
-        console.log(
-          '[ExecutionTreeBuilderService] Task tool agent search:',
-          JSON.stringify({
-            toolCallId: toolStart.toolCallId,
-            agentStartsFound: agentStarts.length,
-            agentStartIds: agentStarts.map((a) => a.id),
-            allAgentStartsInState: [...state.events.values()]
-              .filter((e) => e.eventType === 'agent_start')
-              .map((e) => ({
-                id: e.id,
-                parentToolUseId: (e as AgentStartEvent).parentToolUseId,
-              })),
-          })
-        );
-
         if (agentStarts.length > 0) {
           // Build agent nodes directly (skip the Task tool wrapper)
           for (const agentStart of agentStarts) {
-            console.log(
-              '[ExecutionTreeBuilderService] Building agent node for Task tool:',
-              JSON.stringify({
-                agentStartId: agentStart.id,
-                toolCallId: toolStart.toolCallId,
-                agentType: agentStart.agentType,
-              })
-            );
             const agentNode = this.buildAgentNode(
               agentStart,
               toolStart.toolCallId,
@@ -539,26 +446,10 @@ export class ExecutionTreeBuilderService {
               depth
             );
             if (agentNode) {
-              console.log(
-                '[ExecutionTreeBuilderService] Agent node created:',
-                JSON.stringify({
-                  nodeId: agentNode.id,
-                  nodeType: agentNode.type,
-                  childrenCount: agentNode.children?.length ?? 0,
-                })
-              );
               tools.push(agentNode);
-            } else {
-              console.warn(
-                '[ExecutionTreeBuilderService] buildAgentNode returned null!'
-              );
             }
           }
           continue; // Skip building the Task tool node
-        } else {
-          console.log(
-            '[ExecutionTreeBuilderService] No agent_starts found for Task tool, building as regular tool'
-          );
         }
       }
 
@@ -599,29 +490,15 @@ export class ExecutionTreeBuilderService {
     }
 
     // Find message_start events for this agent (linked via parentToolUseId)
+    // TASK_2025_096 FIX: Only collect ASSISTANT messages, not user messages.
+    // When SDK invokes an agent, it sends a user message with the prompt.
+    // We don't want to display the agent's prompt as content inside the agent bubble.
     const agentMessageStarts = [...state.events.values()].filter(
-      (e) => e.eventType === 'message_start' && e.parentToolUseId === toolCallId
+      (e) =>
+        e.eventType === 'message_start' &&
+        e.parentToolUseId === toolCallId &&
+        (e as MessageStartEvent).role === 'assistant'
     ) as MessageStartEvent[];
-
-    // DIAGNOSTIC: Log nested message search
-    const allMessageStarts = [...state.events.values()].filter(
-      (e) => e.eventType === 'message_start'
-    ) as MessageStartEvent[];
-    console.log(
-      '[ExecutionTreeBuilderService] buildAgentNode - searching for nested messages:',
-      JSON.stringify({
-        agentStartId: agentStart.id,
-        searchingForParentToolUseId: toolCallId,
-        foundMessageStarts: agentMessageStarts.length,
-        foundMessageIds: agentMessageStarts.map((m) => m.messageId),
-        allMessageStartsWithParentToolUseId: allMessageStarts
-          .filter((m) => m.parentToolUseId)
-          .map((m) => ({
-            messageId: m.messageId,
-            parentToolUseId: m.parentToolUseId,
-          })),
-      })
-    );
 
     // Build children for the agent node (the nested message content)
     const agentChildren: ExecutionNode[] = [];
@@ -786,52 +663,18 @@ export class ExecutionTreeBuilderService {
       (e) => e.eventType === 'agent_start' && e.parentToolUseId === toolCallId
     ) as AgentStartEvent[];
 
-    // DIAGNOSTIC: Log agent_start search results (JSON.stringify for log file visibility)
-    console.log(
-      '[ExecutionTreeBuilderService] buildToolChildren - searching for agents:',
-      JSON.stringify({
-        toolCallId,
-        depth,
-        totalEvents: state.events.size,
-        agentStartsFound: agentStarts.length,
-        agentStartIds: agentStarts.map((a) => ({
-          id: a.id,
-          parentToolUseId: a.parentToolUseId,
-        })),
-      })
-    );
-
     // For each agent, create an AGENT node containing its messages
     for (const agentStart of agentStarts) {
       // Find message_start events for this agent
+      // TASK_2025_096 FIX: Only collect ASSISTANT messages, not user messages.
+      // When SDK invokes an agent, it sends a user message with the prompt.
+      // We don't want to display the agent's prompt as content inside the agent bubble.
       const agentMessageStarts = [...state.events.values()].filter(
         (e) =>
-          e.eventType === 'message_start' && e.parentToolUseId === toolCallId
+          e.eventType === 'message_start' &&
+          e.parentToolUseId === toolCallId &&
+          (e as MessageStartEvent).role === 'assistant'
       ) as MessageStartEvent[];
-
-      // DIAGNOSTIC: Log message_start search results (JSON.stringify for log file visibility)
-      console.log(
-        '[ExecutionTreeBuilderService] buildToolChildren - searching for nested messages:',
-        JSON.stringify({
-          agentId: agentStart.id,
-          toolCallId,
-          agentMessageStartsFound: agentMessageStarts.length,
-          agentMessageStartDetails: agentMessageStarts.map((m) => ({
-            id: m.id,
-            messageId: m.messageId,
-            parentToolUseId: m.parentToolUseId,
-            role: m.role,
-          })),
-          // Also log all message_start events in state for comparison
-          allMessageStartsInState: [...state.events.values()]
-            .filter((e) => e.eventType === 'message_start')
-            .map((e) => ({
-              id: e.id,
-              messageId: (e as MessageStartEvent).messageId,
-              parentToolUseId: (e as MessageStartEvent).parentToolUseId,
-            })),
-        })
-      );
 
       // Build children for the agent node (the nested message content)
       const agentChildren: ExecutionNode[] = [];
@@ -843,39 +686,12 @@ export class ExecutionTreeBuilderService {
           depth + 1
         );
 
-        // DIAGNOSTIC: Log buildMessageNode result (JSON.stringify for log file visibility)
-        console.log(
-          '[ExecutionTreeBuilderService] buildToolChildren - buildMessageNode result:',
-          JSON.stringify({
-            messageId: msgStart.messageId,
-            messageNodeExists: !!messageNode,
-            messageNodeChildrenCount: messageNode?.children?.length ?? 0,
-            messageNodeChildren:
-              messageNode?.children?.map((c) => ({ id: c.id, type: c.type })) ??
-              [],
-          })
-        );
-
         if (messageNode) {
           // Unwrap message node - agent shows its content directly
           // Push the message's children (text, tools, etc.) as agent's children
           agentChildren.push(...messageNode.children);
         }
       }
-
-      // DIAGNOSTIC: Log agentChildren before creating agent node (JSON.stringify for log file visibility)
-      console.log(
-        '[ExecutionTreeBuilderService] buildToolChildren - creating agent node:',
-        JSON.stringify({
-          agentId: agentStart.id,
-          agentType: agentStart.agentType,
-          agentChildrenCount: agentChildren.length,
-          agentChildrenTypes: agentChildren.map((c) => ({
-            id: c.id,
-            type: c.type,
-          })),
-        })
-      );
 
       // Create the AGENT node from agent_start event
       // This wraps the nested content in a proper agent bubble
@@ -892,20 +708,6 @@ export class ExecutionTreeBuilderService {
 
       children.push(agentNode);
     }
-
-    // DIAGNOSTIC: Log final tool children (JSON.stringify for log file visibility)
-    console.log(
-      '[ExecutionTreeBuilderService] buildToolChildren - returning children:',
-      JSON.stringify({
-        toolCallId,
-        childrenCount: children.length,
-        childrenTypes: children.map((c) => ({
-          id: c.id,
-          type: c.type,
-          childCount: c.children?.length,
-        })),
-      })
-    );
 
     return children;
   }

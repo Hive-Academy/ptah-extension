@@ -4,9 +4,14 @@ import {
   output,
   signal,
   computed,
+  effect,
+  viewChild,
+  ElementRef,
   ChangeDetectionStrategy,
+  afterNextRender,
+  inject,
+  Injector,
 } from '@angular/core';
-import { NgStyle } from '@angular/common';
 import {
   LucideAngularModule,
   ChevronDown,
@@ -38,17 +43,11 @@ import type {
  */
 @Component({
   selector: 'ptah-inline-agent-bubble',
-  standalone: true,
-  imports: [
-    NgStyle,
-    LucideAngularModule,
-    ExecutionNodeComponent,
-    TypingCursorComponent,
-  ],
+  imports: [LucideAngularModule, ExecutionNodeComponent, TypingCursorComponent],
   template: `
     <div
       class="my-3 border-l-2 rounded-lg bg-base-200/50 overflow-hidden"
-      [ngStyle]="{ 'border-left-color': agentColor() }"
+      [style.border-left-color]="agentColor()"
     >
       <!-- Agent Header (clickable to toggle) -->
       <button
@@ -66,7 +65,7 @@ import type {
         <!-- Colored avatar -->
         <div
           class="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
-          [ngStyle]="{ 'background-color': agentColor() }"
+          [style.background-color]="agentColor()"
         >
           <span class="text-white text-[10px] font-bold">
             {{ agentInitial() }}
@@ -104,6 +103,7 @@ import type {
       <!-- Collapsible Content: INTERLEAVED TIMELINE (text + tools in order) -->
       @if (!isCollapsed()) {
       <div
+        #contentContainer
         class="px-3 pb-2 max-h-80 overflow-y-auto border-t border-base-300/30"
       >
         @if (hasChildren()) {
@@ -145,6 +145,8 @@ import type {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InlineAgentBubbleComponent {
+  private readonly injector = inject(Injector);
+
   readonly node = input.required<ExecutionNode>();
 
   /**
@@ -160,6 +162,13 @@ export class InlineAgentBubbleComponent {
    */
   readonly permissionResponded = output<PermissionResponse>();
 
+  /**
+   * TASK_2025_096 FIX: ViewChild reference for auto-scroll container.
+   * Uses signal-based viewChild (Angular 20+ pattern).
+   */
+  private readonly contentContainerRef =
+    viewChild<ElementRef<HTMLElement>>('contentContainer');
+
   // Icons
   readonly ChevronDownIcon = ChevronDown;
   readonly ChevronRightIcon = ChevronRight;
@@ -167,6 +176,41 @@ export class InlineAgentBubbleComponent {
 
   // Collapse state - expanded by default
   readonly isCollapsed = signal(false);
+
+  constructor() {
+    // TASK_2025_096 FIX: Auto-scroll agent content when new children arrive
+    effect(() => {
+      const children = this.node().children;
+      const isStreaming = this.node().status === 'streaming';
+      const collapsed = this.isCollapsed();
+
+      // Only scroll when streaming, expanded, and has children
+      if (isStreaming && !collapsed && children && children.length > 0) {
+        // Use afterNextRender instead of setTimeout for proper lifecycle handling
+        // This ensures DOM is ready and provides automatic cleanup
+        afterNextRender(
+          () => {
+            this.scrollAgentContentToBottom();
+          },
+          { injector: this.injector }
+        );
+      }
+    });
+  }
+
+  /**
+   * TASK_2025_096 FIX: Scroll agent content container to bottom
+   */
+  private scrollAgentContentToBottom(): void {
+    const containerRef = this.contentContainerRef();
+    if (!containerRef) return;
+
+    const container = containerRef.nativeElement;
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior: 'smooth',
+    });
+  }
 
   // Computed: is agent streaming
   readonly isStreaming = computed(() => this.node().status === 'streaming');

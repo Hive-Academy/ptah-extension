@@ -78,7 +78,6 @@ export class ChatStore {
   readonly servicesReady = this._servicesReady.asReadonly();
 
   constructor() {
-    console.log('[ChatStore] Initializing...');
     // Eagerly initialize services to avoid race conditions
     this.initializeServices();
   }
@@ -98,7 +97,6 @@ export class ChatStore {
 
       // Mark services as ready
       this._servicesReady.set(true);
-      console.log('[ChatStore] Services initialized and ready');
 
       // Auto-load sessions after services are ready
       this.loadSessions().catch((err) => {
@@ -255,7 +253,6 @@ export class ChatStore {
    * This separation prevents duplicate tab creation bugs.
    */
   clearCurrentSession(): void {
-    console.log('[ChatStore] Clearing current session state');
     this.sessionManager.clearSession();
   }
 
@@ -317,11 +314,9 @@ export class ChatStore {
     if (isStreaming) {
       // Queue the message via ConversationService
       this.conversation.queueOrAppendMessage(content);
-      console.log('[ChatStore] Message queued during streaming');
     } else {
       // Send normally via MessageSender
       await this.messageSender.send(content, filePaths);
-      console.log('[ChatStore] Message sent normally');
     }
   }
 
@@ -355,11 +350,6 @@ export class ChatStore {
     summaryDelta: string;
   }): void {
     const { toolUseId, summaryDelta } = payload;
-
-    console.log('[ChatStore] Agent summary chunk received:', {
-      toolUseId,
-      deltaLength: summaryDelta.length,
-    });
 
     // Find the agent node by toolUseId
     const agentNode = this.sessionManager.getAgent(toolUseId);
@@ -410,11 +400,6 @@ export class ChatStore {
 
       this.tabManager.updateTab(activeTab.id, {
         messages: updatedMessages,
-      });
-
-      console.log('[ChatStore] Agent summary updated in tree:', {
-        toolUseId,
-        summaryLength: updatedAgent.summaryContent?.length || 0,
       });
     }
   }
@@ -504,12 +489,6 @@ export class ChatStore {
     tabId?: string,
     sessionId?: string
   ): void {
-    console.log('[ChatStore] processStreamEvent called:', {
-      tabId,
-      sessionId,
-      eventType: event.eventType,
-      messageId: event.messageId,
-    });
     this.streamingHandler.processStreamEvent(event, tabId, sessionId);
   }
 
@@ -604,8 +583,6 @@ export class ChatStore {
     sessionId?: string;
     code: number;
   }): void {
-    console.log('[ChatStore] Chat complete:', data);
-
     // TASK_2025_092: Route by tabId (primary) or fall back to sessionId lookup
     let targetTab: TabState | null = null;
     let targetTabId: string | null = null;
@@ -663,36 +640,21 @@ export class ChatStore {
       this.tabManager.updateTab(targetTabId, { status: 'loaded' });
       this.sessionManager.setStatus('loaded');
 
-      console.log(
-        '[ChatStore] Chat status reset to loaded (streaming state preserved) for tab',
-        targetTabId,
-        '(exit code:',
-        data.code,
-        ')'
-      );
-
       // ========== AUTO-SEND QUEUED CONTENT ==========
       // FIX #6: Guard against recursive auto-send (via ConversationService signal)
       if (this.conversation.isAutoSending()) {
-        console.log('[ChatStore] Auto-send already in progress, skipping');
         return;
       }
 
       // Check if this tab has queued content
       const queuedContent = targetTab.queuedContent;
       if (queuedContent && queuedContent.trim()) {
-        console.log('[ChatStore] Auto-sending queued content', {
-          tabId: targetTabId,
-          length: queuedContent.length,
-        });
-
         // Auto-send via continueConversation (async, don't await)
         // ConversationService handles the _isAutoSending flag internally
         this.continueConversation(queuedContent)
           .then(() => {
             // Clear queue only after successful send start
             this.tabManager.updateTab(targetTabId!, { queuedContent: null });
-            console.log('[ChatStore] Auto-send started, queue cleared');
           })
           .catch((error) => {
             console.error(
@@ -725,10 +687,6 @@ export class ChatStore {
     realSessionId: string;
   }): void {
     const { tabId, realSessionId } = data;
-    console.log('[ChatStore] Session ID resolved:', {
-      tabId,
-      realSessionId,
-    });
 
     // TASK_2025_095: Find tab directly by tabId - no temp ID lookup needed
     const targetTab = this.tabManager.tabs().find((t) => t.id === tabId);
@@ -737,10 +695,6 @@ export class ChatStore {
       // Update the tab with the real session ID
       this.tabManager.updateTab(targetTab.id, {
         claudeSessionId: realSessionId,
-      });
-      console.log('[ChatStore] Tab updated with real session ID:', {
-        tabId: targetTab.id,
-        newId: realSessionId,
       });
     } else {
       // Fallback: Check active tab if it's streaming without a real session ID
@@ -751,10 +705,6 @@ export class ChatStore {
       ) {
         this.tabManager.updateTab(activeTab.id, {
           claudeSessionId: realSessionId,
-        });
-        console.log('[ChatStore] Active tab updated with real session ID:', {
-          tabId: activeTab.id,
-          newId: realSessionId,
         });
       } else {
         console.warn('[ChatStore] No tab found for session ID resolution:', {
@@ -831,10 +781,5 @@ export class ChatStore {
       currentMessageId: null,
     });
     this.sessionManager.setStatus('loaded');
-
-    console.log(
-      '[ChatStore] Chat state reset due to error for tab',
-      targetTabId
-    );
   }
 }

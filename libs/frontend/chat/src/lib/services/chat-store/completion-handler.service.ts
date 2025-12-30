@@ -105,6 +105,9 @@ export class CompletionHandlerService {
       this.tabManager.updateTab(targetTabId, { status: 'loaded' });
       this.sessionManager.setStatus('loaded');
 
+      // Hide streaming indicator (visual only - no side effects)
+      this.tabManager.markTabIdle(targetTabId);
+
       console.log(
         '[CompletionHandlerService] Chat status reset to loaded (streaming state preserved) for tab',
         targetTabId,
@@ -168,6 +171,9 @@ export class CompletionHandlerService {
       currentMessageId: null,
     });
     this.sessionManager.setStatus('loaded');
+
+    // Hide streaming indicator (visual only - no side effects)
+    this.tabManager.markTabIdle(targetTabId);
 
     console.log(
       '[CompletionHandlerService] Chat state reset due to error for tab',

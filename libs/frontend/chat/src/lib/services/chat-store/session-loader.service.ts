@@ -86,12 +86,6 @@ export class SessionLoaderService {
         this._totalSessions.set(result.data.total);
         this._hasMoreSessions.set(result.data.hasMore);
         this._sessionsOffset.set(result.data.sessions.length);
-        console.log(
-          '[SessionLoaderService] Loaded sessions:',
-          result.data.sessions.length,
-          'of',
-          result.data.total
-        );
       } else {
         console.error(
           '[SessionLoaderService] Failed to load sessions:',
@@ -137,12 +131,6 @@ export class SessionLoaderService {
         this._totalSessions.set(result.data.total);
         this._hasMoreSessions.set(result.data.hasMore);
         this._sessionsOffset.set(currentOffset + result.data.sessions.length);
-        console.log(
-          '[SessionLoaderService] Loaded more sessions:',
-          result.data.sessions.length,
-          ', total now:',
-          this._sessions().length
-        );
       } else {
         console.error(
           '[SessionLoaderService] Failed to load more sessions:',
@@ -172,7 +160,6 @@ export class SessionLoaderService {
       current.filter((s) => s.id !== sessionId)
     );
     this._totalSessions.update((count) => Math.max(0, count - 1));
-    console.log('[SessionLoaderService] Removed session from list:', sessionId);
   }
 
   // ============================================================================
@@ -231,13 +218,6 @@ export class SessionLoaderService {
       this.sessionManager.setSessionId(sessionId);
       this.sessionManager.setStatus('resuming');
 
-      console.log(
-        '[SessionLoaderService] Loading session history:',
-        sessionId,
-        'tabId:',
-        activeTabId
-      );
-
       // 5.1. CRITICAL: Clear deduplication state before processing history events
       // Without this, processedMessageIds/processedToolCallIds from previous loads
       // would cause all events to be rejected as "duplicates"
@@ -255,23 +235,6 @@ export class SessionLoaderService {
 
       // TASK_2025_092 FIX: Process events to build execution tree with tool calls
       if (resumeResult.success && events && events.length > 0) {
-        // DIAGNOSTIC: Log event types received for debugging
-        const eventTypeCounts = events.reduce(
-          (acc: Record<string, number>, e: FlatStreamEventUnion) => {
-            acc[e.eventType] = (acc[e.eventType] || 0) + 1;
-            return acc;
-          },
-          {}
-        );
-        console.log('[SessionLoaderService] Session history loaded', {
-          eventCount: events.length,
-          messageCount: messages?.length ?? 0,
-          eventTypeCounts,
-          toolStartEvents: events.filter(
-            (e: FlatStreamEventUnion) => e.eventType === 'tool_start'
-          ).length,
-        });
-
         // Process each event through StreamingHandler to build execution tree
         // This populates the streamingState with all events
         for (const event of events) {
@@ -288,22 +251,8 @@ export class SessionLoaderService {
           this.streamingHandler.finalizeSessionHistory(activeTabId);
 
         this.sessionManager.setStatus('loaded');
-
-        console.log(
-          '[SessionLoaderService] Session loaded with execution tree',
-          {
-            messageCount: historyMessages.length,
-          }
-        );
       } else if (resumeResult.success && messages && messages.length > 0) {
         // Fallback: Use simple messages if no events (backward compatibility)
-        console.log(
-          '[SessionLoaderService] Fallback: Using simple messages (no events)',
-          {
-            messageCount: messages.length,
-          }
-        );
-
         // Convert simple messages to ExecutionChatMessage format
         const executionMessages = messages.map((msg) => ({
           id: msg.id,
@@ -321,8 +270,6 @@ export class SessionLoaderService {
           streamingState: null,
         });
         this.sessionManager.setStatus('loaded');
-
-        console.log('[SessionLoaderService] Session loaded (simple messages)');
       } else {
         console.error(
           '[SessionLoaderService] Failed to resume session:',

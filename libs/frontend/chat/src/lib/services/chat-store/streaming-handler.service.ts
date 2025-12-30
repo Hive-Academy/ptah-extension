@@ -138,29 +138,10 @@ export class StreamingHandlerService {
     if (this.shouldReplaceEvent(existingSource, newSource)) {
       // New event has higher priority, remove old event
       state.events.delete(existingEvent.id);
-      console.debug(
-        '[StreamingHandlerService] TASK_2025_095: Replacing stream event with higher priority event',
-        {
-          toolCallId,
-          eventType,
-          oldSource: existingSource,
-          newSource,
-          oldEventId: existingEvent.id,
-        }
-      );
       return undefined; // Allow new event to be stored
     }
 
     // Existing event has higher priority, skip new event
-    console.debug(
-      '[StreamingHandlerService] TASK_2025_095: Skipping lower priority event',
-      {
-        toolCallId,
-        eventType,
-        existingSource,
-        newSource,
-      }
-    );
     return existingEvent;
   }
 
@@ -193,10 +174,6 @@ export class StreamingHandlerService {
   cleanupSessionDeduplication(sessionId: string): void {
     this.processedMessageIds.delete(sessionId);
     this.processedToolCallIds.delete(sessionId);
-    console.log(
-      '[StreamingHandlerService] Cleaned up deduplication state for session:',
-      sessionId
-    );
   }
 
   /**
@@ -269,15 +246,6 @@ export class StreamingHandlerService {
     tabId?: string,
     sessionId?: string
   ): void {
-    // TASK_2025_087: Comprehensive diagnostic logging
-    console.log('[StreamingHandlerService] processStreamEvent called:', {
-      eventType: event.eventType,
-      sessionId: event.sessionId,
-      messageId: event.messageId,
-      tabId,
-      providedSessionId: sessionId,
-    });
-
     try {
       // TASK_2025_090: Removed dead activeSessionIds tracking (never used).
       // We rely on findTabBySessionId returning null for closed/unknown sessions.
@@ -288,41 +256,17 @@ export class StreamingHandlerService {
       // Primary: Use tabId for direct routing
       if (tabId) {
         targetTab = this.tabManager.tabs().find((t) => t.id === tabId);
-        console.log('[StreamingHandlerService] findTabByTabId result:', {
-          found: !!targetTab,
-          tabId,
-          targetTabClaudeSessionId: targetTab?.claudeSessionId,
-        });
       }
 
       // Fallback: Find target tab by event.sessionId
       if (!targetTab) {
         targetTab =
           this.tabManager.findTabBySessionId(event.sessionId) ?? undefined;
-        console.log('[StreamingHandlerService] findTabBySessionId result:', {
-          found: !!targetTab,
-          sessionId: event.sessionId,
-          targetTabId: targetTab?.id,
-          targetTabClaudeSessionId: targetTab?.claudeSessionId,
-        });
       }
 
       // 2. If no tab found, check if active tab needs session ID initialization
       if (!targetTab) {
         const activeTab = this.tabManager.activeTab();
-
-        // TASK_2025_087: Log active tab state for debugging
-        console.log(
-          '[StreamingHandlerService] No tab found, checking active tab:',
-          {
-            hasActiveTab: !!activeTab,
-            activeTabId: activeTab?.id,
-            activeTabStatus: activeTab?.status,
-            activeTabClaudeSessionId: activeTab?.claudeSessionId,
-            eventSessionId: event.sessionId,
-            providedTabId: tabId,
-          }
-        );
 
         // Initialize session ID for new tab (first event received)
         // TASK_2025_087: Accept 'fresh', 'streaming', OR 'draft' status
@@ -339,15 +283,6 @@ export class StreamingHandlerService {
         ) {
           // TASK_2025_092: Use the real SDK sessionId if provided, otherwise fall back to event.sessionId
           const realSessionId = sessionId || event.sessionId;
-
-          console.log(
-            '[StreamingHandlerService] INITIALIZING session ID for active tab:',
-            {
-              tabId: activeTab.id,
-              sessionId: realSessionId,
-              tabStatus: activeTab.status,
-            }
-          );
 
           // Set the session ID and transition to streaming status
           this.tabManager.updateTab(activeTab.id, {
@@ -375,13 +310,6 @@ export class StreamingHandlerService {
 
       // TASK_2025_092: If tab doesn't have claudeSessionId yet, set it with real SDK UUID
       if (targetTab && sessionId && !targetTab.claudeSessionId) {
-        console.log(
-          '[StreamingHandlerService] Setting claudeSessionId from event:',
-          {
-            tabId: targetTab.id,
-            sessionId,
-          }
-        );
         this.tabManager.updateTab(targetTab.id, { claudeSessionId: sessionId });
       }
 
@@ -404,21 +332,6 @@ export class StreamingHandlerService {
       // to prevent the bug where we find and delete the event we just stored.
       switch (event.eventType) {
         case 'message_start': {
-          // DIAGNOSTIC: Log message_start with parentToolUseId info (JSON.stringify for log file visibility)
-          const msgStartEvent = event as MessageStartEvent;
-          console.log(
-            '[StreamingHandlerService] MESSAGE_START received!',
-            JSON.stringify({
-              id: event.id,
-              messageId: event.messageId,
-              parentToolUseId: msgStartEvent.parentToolUseId,
-              isNestedAgentMessage: !!msgStartEvent.parentToolUseId,
-              role: msgStartEvent.role,
-              sessionId: event.sessionId,
-              source: event.source,
-            })
-          );
-
           // TASK_2025_096 FIX: Track processed messageIds with source priority
           // Check for duplicates BEFORE storing to prevent multiple message_start events
           // for the same messageId, which causes empty message bubbles.
@@ -454,30 +367,11 @@ export class StreamingHandlerService {
               );
               state.eventsByMessage.set(event.messageId, filtered);
 
-              console.log(
-                '[StreamingHandlerService] TASK_2025_096: Replacing message_start with higher priority',
-                {
-                  oldId: existingMsgStart.id,
-                  newId: event.id,
-                  messageId: event.messageId,
-                  oldSource: existingSource,
-                  newSource: event.source,
-                }
-              );
-
               // Store new event
               state.events.set(event.id, event);
               this.indexEventByMessage(state, event);
             } else {
               // Existing has higher priority - skip this event
-              console.debug(
-                '[StreamingHandlerService] TASK_2025_096: Skipping duplicate message_start (lower priority)',
-                {
-                  messageId: event.messageId,
-                  existingSource,
-                  newSource: event.source,
-                }
-              );
               // Still update currentMessageId for streaming continuity
               state.currentMessageId = event.messageId;
               return; // DON'T store this event
@@ -504,10 +398,6 @@ export class StreamingHandlerService {
             !state.messageEventIds.includes(event.messageId);
 
           if (alreadyProcessed) {
-            console.debug(
-              '[StreamingHandlerService] Skipping text_delta for finalized message',
-              { messageId: event.messageId }
-            );
             return;
           }
 
@@ -554,10 +444,6 @@ export class StreamingHandlerService {
             !state.messageEventIds.includes(event.messageId);
 
           if (alreadyProcessed2) {
-            console.debug(
-              '[StreamingHandlerService] Skipping thinking_delta for finalized message',
-              { messageId: event.messageId }
-            );
             return;
           }
 
@@ -581,22 +467,6 @@ export class StreamingHandlerService {
         }
 
         case 'tool_start': {
-          // DIAGNOSTIC: Log tool_start for Task tools especially (JSON.stringify for log file visibility)
-          console.log(
-            '[StreamingHandlerService] TOOL_START received!',
-            JSON.stringify({
-              id: event.id,
-              toolName: event.toolName,
-              toolCallId: event.toolCallId,
-              messageId: event.messageId,
-              parentToolUseId: event.parentToolUseId,
-              isTaskTool: event.toolName === 'Task',
-              isTaskToolFlag: event.isTaskTool,
-              sessionId: event.sessionId,
-              source: event.source,
-            })
-          );
-
           // TASK_2025_095 FIX: Check for duplicates BEFORE storing
           // Previously, the event was stored first, then replaceStreamEventIfNeeded
           // would find and DELETE the event we just stored!
@@ -628,14 +498,6 @@ export class StreamingHandlerService {
 
           // TASK_2025_095: Only skip if same source priority or lower
           // Allow higher priority sources to replace existing
-          if (sessionToolCallIds.has(event.toolCallId)) {
-            // Already processed - but we passed the source check above, so this is a replacement
-            console.debug(
-              '[StreamingHandlerService] Replacing tool_start with higher priority source',
-              { toolCallId: event.toolCallId, source: event.source }
-            );
-          }
-
           sessionToolCallIds.add(event.toolCallId);
 
           if (!state.toolCallMap.has(event.toolCallId)) {
@@ -653,10 +515,6 @@ export class StreamingHandlerService {
             !state.toolCallMap.has(event.toolCallId);
 
           if (toolAlreadyProcessed) {
-            console.debug(
-              '[StreamingHandlerService] Skipping tool_delta for finalized tool',
-              { toolCallId: event.toolCallId }
-            );
             return;
           }
 
@@ -674,17 +532,6 @@ export class StreamingHandlerService {
         }
 
         case 'tool_result': {
-          // DIAGNOSTIC: Log tool_result event reception
-          console.log('[StreamingHandlerService] TOOL_RESULT received!', {
-            toolCallId: event.toolCallId,
-            messageId: event.messageId,
-            sessionId: event.sessionId,
-            outputLength:
-              typeof event.output === 'string' ? event.output.length : 0,
-            isError: event.isError,
-            source: event.source,
-          });
-
           // TASK_2025_095 FIX: Check for duplicates BEFORE storing
           // Same fix as tool_start - previously the event was stored first,
           // then replaceStreamEventIfNeeded would find and DELETE it!
@@ -719,31 +566,12 @@ export class StreamingHandlerService {
 
           if (existingAgentStart) {
             // Existing event has higher priority, skip this one entirely
-            console.log(
-              '[StreamingHandlerService] AGENT_START skipped (duplicate):',
-              {
-                skippedId: event.id,
-                existingId: existingAgentStart.id,
-                toolCallId: event.toolCallId,
-                agentType: event.agentType,
-              }
-            );
             return;
           }
 
           // NOW store the event (after duplicate check passed)
           state.events.set(event.id, event);
           this.indexEventByMessage(state, event);
-
-          // Agent spawned via Task tool
-          // Tree builder will construct agent node from event data
-          console.log('[StreamingHandlerService] AGENT_START received!', {
-            id: event.id,
-            toolCallId: event.toolCallId,
-            parentToolUseId: event.parentToolUseId,
-            agentType: event.agentType,
-            sessionId: event.sessionId,
-          });
           break;
         }
 
@@ -890,15 +718,6 @@ export class StreamingHandlerService {
 
     if (!streamingState || !messageId) return;
 
-    console.log(
-      '[StreamingHandlerService] 📊 Finalizing message - streaming state:',
-      {
-        messageId,
-        eventCount: streamingState.events.size,
-        hasTokenUsage: !!streamingState.currentTokenUsage,
-      }
-    );
-
     // Deep-copy state to prevent race condition (TASK_2025_084 Batch 1 Task 1.3)
     const stateCopy = this.deepCopyStreamingState(streamingState);
 
@@ -926,16 +745,6 @@ export class StreamingHandlerService {
       };
       cost = completeEvent.cost;
       duration = completeEvent.duration;
-
-      console.log('[StreamingHandlerService] ✅ Metadata extracted:', {
-        tokens,
-        cost,
-        duration,
-      });
-    } else {
-      console.warn(
-        '[StreamingHandlerService] ⚠️ No message_complete event found!'
-      );
     }
 
     // Create finalized chat message with tree
@@ -947,14 +756,6 @@ export class StreamingHandlerService {
     const finalDuration =
       duration ?? (pendingStats ? pendingStats.duration : undefined);
 
-    if (pendingStats && !tokens) {
-      console.log('[StreamingHandlerService] ✅ Applied pending stats:', {
-        tokens: pendingStats.tokens,
-        cost: pendingStats.cost,
-        duration: pendingStats.duration,
-      });
-    }
-
     const assistantMessage = createExecutionChatMessage({
       id: messageId,
       role: 'assistant',
@@ -963,16 +764,6 @@ export class StreamingHandlerService {
       tokens: finalTokens,
       cost: finalCost,
       duration: finalDuration,
-    });
-
-    console.log('[StreamingHandlerService] 📝 Created assistant message:', {
-      messageId,
-      hasTree: !!assistantMessage.streamingState,
-      treeNodeCount: finalTree.length,
-      hasTokens: !!assistantMessage.tokens,
-      tokens: assistantMessage.tokens,
-      cost: assistantMessage.cost,
-      duration: assistantMessage.duration,
     });
 
     // Add to target tab's messages and clear streaming state
@@ -1007,18 +798,8 @@ export class StreamingHandlerService {
     const streamingState = targetTab?.streamingState;
 
     if (!streamingState || streamingState.messageEventIds.length === 0) {
-      console.warn(
-        '[StreamingHandlerService] No streaming state or messages for history finalization',
-        { tabId }
-      );
       return [];
     }
-
-    console.log('[StreamingHandlerService] Finalizing session history', {
-      tabId,
-      messageCount: streamingState.messageEventIds.length,
-      eventCount: streamingState.events.size,
-    });
 
     // Deep-copy state to prevent race conditions
     const stateCopy = this.deepCopyStreamingState(streamingState);
@@ -1038,10 +819,6 @@ export class StreamingHandlerService {
       ) as MessageStartEvent | undefined;
 
       if (!messageStartEvent) {
-        console.warn(
-          '[StreamingHandlerService] No message_start event for messageId',
-          { messageId }
-        );
         continue;
       }
 
@@ -1050,13 +827,6 @@ export class StreamingHandlerService {
       // They're already rendered as children of the tool node, so adding them as root
       // messages causes duplicate empty bubbles.
       if (messageStartEvent.parentToolUseId) {
-        console.debug(
-          '[StreamingHandlerService] Skipping nested agent message',
-          {
-            messageId,
-            parentToolUseId: messageStartEvent.parentToolUseId,
-          }
-        );
         continue;
       }
 
@@ -1118,13 +888,6 @@ export class StreamingHandlerService {
       }
     }
 
-    console.log('[StreamingHandlerService] Session history finalized', {
-      tabId,
-      totalMessages: messages.length,
-      userMessages: messages.filter((m) => m.role === 'user').length,
-      assistantMessages: messages.filter((m) => m.role === 'assistant').length,
-    });
-
     // Update tab with finalized messages and clear streaming state
     this.tabManager.updateTab(tabId, {
       messages,
@@ -1175,8 +938,6 @@ export class StreamingHandlerService {
     tokens: { input: number; output: number };
     duration: number;
   }): void {
-    console.log('[StreamingHandlerService] Received session stats:', stats);
-
     // Find the target tab by session ID
     let targetTab = this.tabManager.findTabBySessionId(stats.sessionId);
 
@@ -1188,17 +949,6 @@ export class StreamingHandlerService {
     if (!targetTab) {
       const activeTab = this.tabManager.activeTab();
 
-      console.log(
-        '[StreamingHandlerService] No tab found for stats, checking active tab:',
-        {
-          hasActiveTab: !!activeTab,
-          activeTabId: activeTab?.id,
-          activeTabStatus: activeTab?.status,
-          activeTabClaudeSessionId: activeTab?.claudeSessionId,
-          statsSessionId: stats.sessionId,
-        }
-      );
-
       // Initialize session ID for active tab if it's awaiting initialization
       if (
         activeTab &&
@@ -1207,15 +957,6 @@ export class StreamingHandlerService {
           activeTab.status === 'streaming' ||
           activeTab.status === 'draft')
       ) {
-        console.log(
-          '[StreamingHandlerService] INITIALIZING session ID from stats for active tab:',
-          {
-            tabId: activeTab.id,
-            sessionId: stats.sessionId,
-            tabStatus: activeTab.status,
-          }
-        );
-
         // Set the session ID (keep current status - streaming event will set 'streaming' if needed)
         this.tabManager.updateTab(activeTab.id, {
           claudeSessionId: stats.sessionId,
@@ -1231,22 +972,11 @@ export class StreamingHandlerService {
       ) {
         // TASK_2025_092: Use active tab as fallback for stats in single-conversation flow
         // Active tab already has a session ID, and stats belong to current conversation
-        console.log(
-          '[StreamingHandlerService] Using active tab as fallback for stats:',
-          {
-            tabId: activeTab.id,
-            activeTabClaudeSessionId: activeTab.claudeSessionId,
-            statsSessionId: stats.sessionId,
-          }
-        );
         targetTab = activeTab;
       }
 
-      // If still not found after fallback attempts, log warning and return
+      // If still not found after fallback attempts, return
       if (!targetTab) {
-        console.warn('[StreamingHandlerService] No tab found for session', {
-          sessionId: stats.sessionId,
-        });
         return;
       }
     }
@@ -1254,14 +984,6 @@ export class StreamingHandlerService {
     // Check if streaming is still in progress
     // If so, store stats as pendingStats to be applied during finalization
     if (targetTab.streamingState && targetTab.status === 'streaming') {
-      console.log(
-        '[StreamingHandlerService] Streaming still in progress, storing pending stats',
-        {
-          sessionId: stats.sessionId,
-          tabId: targetTab.id,
-        }
-      );
-
       const state = targetTab.streamingState;
       state.pendingStats = {
         cost: stats.cost,
@@ -1278,13 +1000,6 @@ export class StreamingHandlerService {
     // Find the last assistant message in the tab
     const messages = targetTab.messages;
     if (messages.length === 0) {
-      console.warn(
-        '[StreamingHandlerService] No messages in tab for stats update',
-        {
-          sessionId: stats.sessionId,
-          tabId: targetTab.id,
-        }
-      );
       return;
     }
 
@@ -1300,23 +1015,8 @@ export class StreamingHandlerService {
     }
 
     if (lastAssistantIndex === -1) {
-      console.warn(
-        '[StreamingHandlerService] No assistant message found for stats update',
-        {
-          sessionId: stats.sessionId,
-          tabId: targetTab.id,
-          messageCount: messages.length,
-          lastMessageRole: messages[messages.length - 1]?.role,
-        }
-      );
       return;
     }
-
-    console.log('[StreamingHandlerService] Found target message for stats', {
-      sessionId: stats.sessionId,
-      messageIndex: lastAssistantIndex,
-      messageCount: messages.length,
-    });
 
     // Update the assistant message with stats
     const updatedMessages = [...messages];
@@ -1330,13 +1030,6 @@ export class StreamingHandlerService {
     // Update the tab with the new messages array
     this.tabManager.updateTab(targetTab.id, {
       messages: updatedMessages,
-    });
-
-    console.log('[StreamingHandlerService] Updated message with stats:', {
-      messageIndex: lastAssistantIndex,
-      tokens: stats.tokens,
-      cost: stats.cost,
-      duration: stats.duration,
     });
   }
 }

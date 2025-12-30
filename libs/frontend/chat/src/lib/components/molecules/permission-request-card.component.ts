@@ -20,7 +20,6 @@ import {
   CheckCircle,
   Clock,
 } from 'lucide-angular';
-import { MarkdownModule } from 'ngx-markdown';
 import { PermissionRequest, PermissionResponse } from '@ptah-extension/shared';
 import {
   isReadToolInput,
@@ -51,101 +50,82 @@ import {
 @Component({
   selector: 'ptah-permission-request-card',
   standalone: true,
-  imports: [LucideAngularModule, MarkdownModule],
+  imports: [LucideAngularModule],
   template: `
     <div
-      class="card bg-base-200 shadow-lg overflow-hidden border border-base-300/50"
+      class="relative bg-base-300/30 rounded border-l-2 overflow-hidden"
+      [style.border-left-color]="getToolColor()"
       role="alert"
     >
-      <!-- Colored left border stripe -->
-      <div
-        class="absolute left-0 top-0 bottom-0 w-1"
-        [style.background-color]="getToolColor()"
-      ></div>
+      <!-- Header row - compact VS Code style -->
+      <div class="py-1.5 px-2 flex items-center gap-1.5 flex-wrap text-[11px]">
+        <!-- Shield icon -->
+        <lucide-angular
+          [img]="ShieldAlertIcon"
+          class="w-3 h-3 text-warning flex-shrink-0"
+        />
 
-      <!-- Header -->
-      <div class="px-4 py-3 pl-5">
-        <!-- Title row -->
-        <div class="flex items-center gap-2 flex-wrap">
-          <!-- Shield icon -->
-          <lucide-angular
-            [img]="ShieldAlertIcon"
-            class="w-4 h-4 text-warning flex-shrink-0"
-          />
+        <!-- Title -->
+        <span class="font-semibold text-base-content/80">Permission</span>
 
-          <!-- Title -->
-          <span class="font-semibold text-sm">Permission Required</span>
+        <!-- Tool badge with icon -->
+        <span
+          class="badge badge-xs font-mono px-1.5 gap-0.5"
+          [style.background-color]="getToolColor()"
+          style="color: white; border: none"
+        >
+          <lucide-angular [img]="getToolIcon()" class="w-2.5 h-2.5" />
+          {{ request().toolName }}
+        </span>
 
-          <span class="text-base-content/40">|</span>
+        <!-- Description inline - compact -->
+        <span
+          class="text-base-content/60 truncate flex-1 font-mono text-[10px]"
+          [title]="getFormattedDescriptionPlain()"
+        >
+          {{ getFormattedDescriptionPlain() }}
+        </span>
 
-          <!-- Tool badge with icon -->
-          <div class="flex items-center gap-1.5">
-            <span class="text-xs text-base-content/60">Tool:</span>
-            <span
-              class="badge badge-sm font-mono gap-1"
-              [style.background-color]="getToolColor()"
-              style="color: white; border: none"
-            >
-              <lucide-angular [img]="getToolIcon()" class="w-3 h-3" />
-              {{ request().toolName }}
-            </span>
-          </div>
-
-          <span class="text-base-content/40">|</span>
-
-          <!-- Expiry badge -->
-          <div class="flex items-center gap-1.5">
-            <span class="text-xs text-base-content/60">Expires:</span>
-            <span
-              class="badge badge-sm font-mono gap-1"
-              [class.badge-warning]="!isExpiringSoon()"
-              [class.badge-error]="isExpiringSoon()"
-            >
-              <lucide-angular [img]="ClockIcon" class="w-3 h-3" />
-              {{ remainingTime() }}
-            </span>
-          </div>
-        </div>
-
-        <!-- Description body with markdown -->
-        <div class="mt-3 text-sm">
-          <markdown
-            [data]="getFormattedDescription()"
-            class="prose prose-sm prose-invert max-w-none [&_code]:bg-base-300 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-warning [&_code]:font-mono [&_code]:text-xs"
-          />
-        </div>
+        <!-- Expiry badge -->
+        <span
+          class="badge badge-xs font-mono px-1.5 gap-0.5 flex-shrink-0"
+          [class.badge-warning]="!isExpiringSoon()"
+          [class.badge-error]="isExpiringSoon()"
+        >
+          <lucide-angular [img]="ClockIcon" class="w-2.5 h-2.5" />
+          {{ remainingTime() }}
+        </span>
       </div>
 
-      <!-- Action buttons -->
+      <!-- Action buttons - compact row -->
       <div
-        class="flex gap-2 px-4 py-3 pl-5 border-t border-base-300/30 bg-base-100/30"
+        class="flex gap-1.5 px-2 py-1.5 border-t border-base-300/30 bg-base-100/20"
       >
         <button
-          class="btn btn-sm flex-1 gap-1"
-          [class.btn-success]="true"
+          class="btn btn-xs btn-success gap-0.5 px-2"
           (click)="respond('allow')"
           type="button"
           aria-label="Allow this request once"
         >
-          <lucide-angular [img]="CheckIcon" class="w-4 h-4" />
+          <lucide-angular [img]="CheckIcon" class="w-3 h-3" />
           Allow
         </button>
         <button
-          class="btn btn-info btn-sm flex-1 gap-1"
+          class="btn btn-xs btn-info gap-0.5 px-2"
           (click)="respond('always_allow')"
           type="button"
           aria-label="Always allow this type of request"
         >
-          <lucide-angular [img]="CheckCircleIcon" class="w-4 h-4" />
-          Always Allow
+          <lucide-angular [img]="CheckCircleIcon" class="w-3 h-3" />
+          Always
         </button>
         <button
-          class="btn btn-error btn-outline btn-sm flex-1 gap-1"
+          class="btn btn-xs btn-error btn-outline gap-0.5 px-2"
           (click)="respond('deny')"
           type="button"
           aria-label="Deny this request"
         >
-          <lucide-angular [img]="XIcon" class="w-4 h-4" />
+          <lucide-angular [img]="XIcon" class="w-3 h-3" />
           Deny
         </button>
       </div>
@@ -327,6 +307,53 @@ export class PermissionRequestCardComponent {
     }
 
     return description;
+  }
+
+  /**
+   * Get plain text description for compact inline display (no markdown)
+   * Used in VS Code-style compact header
+   */
+  protected getFormattedDescriptionPlain(): string {
+    const toolInput = this.request().toolInput;
+
+    // Format based on tool type using type guards - return short plain text
+    if (isBashToolInput(toolInput)) {
+      const cmd = toolInput.command;
+      return cmd.length > 40 ? cmd.substring(0, 40) + '...' : cmd;
+    }
+    if (isReadToolInput(toolInput)) {
+      return this.shortenPath(toolInput.file_path);
+    }
+    if (isWriteToolInput(toolInput)) {
+      return this.shortenPath(toolInput.file_path);
+    }
+    if (isEditToolInput(toolInput)) {
+      return this.shortenPath(toolInput.file_path);
+    }
+    if (isGlobToolInput(toolInput)) {
+      const pattern = toolInput.pattern;
+      return pattern.length > 30 ? pattern.substring(0, 30) + '...' : pattern;
+    }
+    if (isGrepToolInput(toolInput)) {
+      const pattern = toolInput.pattern;
+      return pattern.length > 30 ? pattern.substring(0, 30) + '...' : pattern;
+    }
+
+    // Fallback to original description
+    const description = this.request().description;
+    return description.length > 50
+      ? description.substring(0, 50) + '...'
+      : description;
+  }
+
+  /**
+   * Shorten file path for compact display
+   */
+  private shortenPath(path: string): string {
+    if (!path) return '';
+    const parts = path.replace(/\\/g, '/').split('/');
+    if (parts.length <= 2) return path;
+    return '.../' + parts.slice(-2).join('/');
   }
 
   /**

@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import { LucideAngularModule, Send, Zap, Square, Clock } from 'lucide-angular';
 import { ChatStore } from '../../services/chat.store';
+import { TabManagerService } from '../../services/tab-manager.service';
 import {
   AutopilotStateService,
   CommandDiscoveryFacade,
@@ -128,7 +129,8 @@ import { AgentSelectorComponent } from './agent-selector.component';
         <!-- Button Stack: Stop (streaming only) + Send -->
         <div class="flex flex-col gap-1">
           <!-- Stop Button (above send during streaming) -->
-          @if (chatStore.isStreaming()) {
+          <!-- TASK_2025_096 FIX: Use isActiveTabStreaming() which uses same signal as tab spinner -->
+          @if (isActiveTabStreaming()) {
           <button
             class="btn btn-error btn-sm"
             (click)="handleStop()"
@@ -199,11 +201,24 @@ import { AgentSelectorComponent } from './agent-selector.component';
 })
 export class ChatInputComponent {
   readonly chatStore = inject(ChatStore);
+  readonly tabManager = inject(TabManagerService);
   readonly autopilotState = inject(AutopilotStateService);
 
   // Autocomplete service injections
   readonly filePicker = inject(FilePickerService);
   readonly commandDiscovery = inject(CommandDiscoveryFacade);
+
+  /**
+   * TASK_2025_096 FIX: Use the same streaming indicator as tab spinner.
+   * Previously, stop button used `chatStore.isStreaming()` which checks `tab.status`,
+   * while tab spinner used `tabManager.isTabStreaming()` which uses `_streamingTabIds`.
+   * These two signals could diverge, causing stop button to not appear even when
+   * tab shows streaming spinner. Now both use the visual streaming indicator.
+   */
+  readonly isActiveTabStreaming = computed(() => {
+    const activeTab = this.chatStore.activeTab();
+    return activeTab ? this.tabManager.isTabStreaming(activeTab.id) : false;
+  });
 
   // Signal-based viewChild references (Angular 20+ pattern)
   private readonly textareaRef =

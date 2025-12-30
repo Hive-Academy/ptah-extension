@@ -151,17 +151,9 @@ export class ConversationService {
     if (existingQueue) {
       // Append with newline separator
       newQueuedContent = `${existingQueue}\n${sanitized}`;
-      console.log('[ConversationService] Appending to queue', {
-        existingLength: existingQueue.length,
-        newLength: sanitized.length,
-        totalLength: newQueuedContent.length,
-      });
     } else {
       // First content in queue
       newQueuedContent = sanitized;
-      console.log('[ConversationService] Creating new queue', {
-        length: sanitized.length,
-      });
     }
 
     this.tabManager.updateTab(activeTabId, { queuedContent: newQueuedContent });
@@ -175,7 +167,6 @@ export class ConversationService {
     if (!activeTabId) return;
 
     this.tabManager.updateTab(activeTabId, { queuedContent: '' });
-    console.log('[ConversationService] Cleared queued content');
   }
 
   /**
@@ -195,9 +186,6 @@ export class ConversationService {
       this.tabManager.updateTab(targetTabId, {
         status: 'loaded',
         currentMessageId: null,
-      });
-      console.log('[ConversationService] Finalized message', {
-        tabId: targetTabId,
       });
     }
   }
@@ -232,11 +220,9 @@ export class ConversationService {
     if (this.isStreaming()) {
       // Queue the message instead of sending
       this.queueOrAppendMessage(content);
-      console.log('[ConversationService] Message queued during streaming');
     } else {
       // Normal send flow
       await this.sendMessage(content, filePaths);
-      console.log('[ConversationService] Message sent normally');
     }
   }
 
@@ -311,11 +297,6 @@ export class ConversationService {
         currentMessageId: null, // Reset per-tab message ID for new conversation
       });
 
-      console.log('[ConversationService] Starting NEW conversation:', {
-        tabId: activeTabId,
-        // No placeholder sessionId - backend will use SDK's real UUID
-      });
-
       // Call RPC to start NEW chat - using tabId for correlation
       const result = await this.claudeRpcService.call('chat:start', {
         prompt: content,
@@ -332,11 +313,6 @@ export class ConversationService {
         // Update tab status to loaded (failed)
         this.tabManager.updateTab(activeTabId, { status: 'loaded' });
       } else {
-        console.log(
-          '[ConversationService] New conversation started:',
-          result.data
-        );
-
         // Set status to 'streaming' after successful chat:start
         // Real sessionId will arrive with first streaming event
         this.tabManager.updateTab(activeTabId, { status: 'streaming' });
@@ -425,9 +401,6 @@ export class ConversationService {
       // This converts the streaming content into a proper message in tab.messages.
       // Without this, the streaming message would persist alongside new messages.
       if (activeTab?.streamingState) {
-        console.log(
-          '[ConversationService] Finalizing previous streaming state before new message'
-        );
         // Lazy import to avoid circular dependency
         const { StreamingHandlerService } = await import(
           './streaming-handler.service'
@@ -457,11 +430,6 @@ export class ConversationService {
         messages: [...(currentTab?.messages ?? []), userMessage],
       });
 
-      console.log('[ConversationService] Continuing EXISTING session:', {
-        sessionId,
-        tabId: activeTabId,
-      });
-
       // Call RPC to CONTINUE existing chat (uses --resume flag)
       // Both sessionId (for SDK) and tabId (for event routing) are required
       const result = await this.claudeRpcService.call('chat:continue', {
@@ -478,10 +446,6 @@ export class ConversationService {
         );
         this.tabManager.updateTab(activeTabId, { status: 'loaded' });
       } else {
-        console.log(
-          '[ConversationService] Conversation continued:',
-          result.data
-        );
         this.sessionManager.setStatus('streaming');
         this.tabManager.updateTab(activeTabId, { status: 'streaming' });
       }
@@ -508,9 +472,6 @@ export class ConversationService {
     try {
       // Prevent multiple simultaneous abort calls
       if (this._isStopping()) {
-        console.log(
-          '[ConversationService] Abort already in progress, skipping'
-        );
         return;
       }
       this._isStopping.set(true);
@@ -533,14 +494,6 @@ export class ConversationService {
       const queuedContent = activeTab?.queuedContent;
 
       if (queuedContent && queuedContent.trim()) {
-        console.log(
-          '[ConversationService] Queued content detected during stop',
-          {
-            tabId: activeTab?.id,
-            length: queuedContent.length,
-          }
-        );
-
         // Include tab ID in restoration signal for validation
         this._queueRestoreSignal.set({
           tabId: activeTab.id,
@@ -557,9 +510,7 @@ export class ConversationService {
         sessionId: sessionId as SessionId,
       });
 
-      if (result.success) {
-        console.log('[ConversationService] Chat aborted successfully');
-      } else {
+      if (!result.success) {
         console.error(
           '[ConversationService] Failed to abort chat:',
           result.error
@@ -575,15 +526,6 @@ export class ConversationService {
         : null;
 
       if (tab?.streamingState) {
-        console.log(
-          '[ConversationService] Finalizing partial streaming message on abort',
-          {
-            tabId: activeTabId,
-            hasStreamingState: !!tab.streamingState,
-            eventCount: tab.streamingState.events?.size ?? 0,
-          }
-        );
-
         // Dynamic import to avoid circular dependency
         const { StreamingHandlerService } = await import(
           './streaming-handler.service'
