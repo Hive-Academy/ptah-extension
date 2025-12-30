@@ -36,6 +36,8 @@ import {
   UserMessageContent,
   TextBlock,
   CanUseTool,
+  HookEvent,
+  HookCallbackMatcher,
 } from './types/sdk-types/claude-sdk.types';
 import {
   AuthManager,
@@ -43,6 +45,7 @@ import {
   ConfigWatcher,
   StreamTransformer,
   AttachmentProcessorService,
+  SubagentHookHandler,
   type SDKUserMessage,
   type SessionIdResolvedCallback,
   type ResultStatsCallback,
@@ -151,7 +154,9 @@ export class SdkAgentAdapter implements IAIProvider {
     @inject(SDK_TOKENS.SDK_ATTACHMENT_PROCESSOR)
     private readonly attachmentProcessor: AttachmentProcessorService,
     @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
-    private readonly permissionHandler: SdkPermissionHandler
+    private readonly permissionHandler: SdkPermissionHandler,
+    @inject(SDK_TOKENS.SDK_SUBAGENT_HOOK_HANDLER)
+    private readonly subagentHookHandler: SubagentHookHandler
   ) {}
 
   /**
@@ -188,6 +193,8 @@ export class SdkAgentAdapter implements IAIProvider {
       settingSources?: Array<'user' | 'project' | 'local'>;
       env?: Record<string, string | undefined>;
       stderr?: (data: string) => void;
+      // TASK_2025_099: Subagent lifecycle hooks for real-time streaming
+      hooks?: Partial<Record<HookEvent, HookCallbackMatcher[]>>;
     };
   }> {
     const {
@@ -274,6 +281,9 @@ export class SdkAgentAdapter implements IAIProvider {
         stderr: (data: string) => {
           this.logger.error(`[SdkAgentAdapter] CLI stderr: ${data}`);
         },
+        // TASK_2025_099: Add subagent lifecycle hooks for real-time streaming
+        // Hooks capture SubagentStart/SubagentStop events to enable file watching
+        hooks: this.subagentHookHandler.createHooks(cwd),
       },
     };
   }

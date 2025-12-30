@@ -2,14 +2,14 @@
 
 ## Review Summary
 
-| Metric          | Value         |
-| --------------- | ------------- |
-| Overall Score   | 6.5/10        |
+| Metric          | Value          |
+| --------------- | -------------- |
+| Overall Score   | 6.5/10         |
 | Assessment      | NEEDS_REVISION |
-| Blocking Issues | 2             |
-| Serious Issues  | 5             |
-| Minor Issues    | 4             |
-| Files Reviewed  | 4             |
+| Blocking Issues | 2              |
+| Serious Issues  | 5              |
+| Minor Issues    | 4              |
+| Files Reviewed  | 4              |
 
 ## The 5 Critical Questions
 
@@ -31,7 +31,7 @@
 
 ### 3. What's the hidden complexity cost?
 
-**permission-handler.service.ts:136-162** - The `toolIdsInExecutionTree` computed signal iterates through ALL messages AND streaming state on every tab change. For sessions with 100+ messages, each with streaming state, this is O(n*m) where m is average tool calls per message. No memoization of intermediate results.
+**permission-handler.service.ts:136-162** - The `toolIdsInExecutionTree` computed signal iterates through ALL messages AND streaming state on every tab change. For sessions with 100+ messages, each with streaming state, this is O(n\*m) where m is average tool calls per message. No memoization of intermediate results.
 
 **question-card.component.ts:252-276** - The multi-select option toggle splits and joins comma-separated strings on every toggle. This is O(n) string operations for each checkbox click. The comma-separated format is fragile - what if an option label contains a comma?
 
@@ -39,21 +39,23 @@
 
 ### 4. What pattern inconsistencies exist?
 
-**File:Line** | **Issue**
---- | ---
-permission-badge.component.ts:29-33 | Uses `ChangeDetectionStrategy.OnPush` but component is correct
-permission-request-card.component.ts:154 | Uses `ChangeDetectionStrategy.OnPush` - consistent
-question-card.component.ts:67 | Uses `ChangeDetectionStrategy.OnPush` - consistent, good
-permission-badge.component.ts:108-136 | Class has NO lifecycle hooks, simpler than similar components
-question-card.component.ts:151 | Implements `OnInit, OnDestroy` for timer management
-permission-request-card.component.ts:156 | Uses `effect()` with `onCleanup` instead of lifecycle hooks
+| **File:Line**                            | **Issue**                                                      |
+| ---------------------------------------- | -------------------------------------------------------------- |
+| permission-badge.component.ts:29-33      | Uses `ChangeDetectionStrategy.OnPush` but component is correct |
+| permission-request-card.component.ts:154 | Uses `ChangeDetectionStrategy.OnPush` - consistent             |
+| question-card.component.ts:67            | Uses `ChangeDetectionStrategy.OnPush` - consistent, good       |
+| permission-badge.component.ts:108-136    | Class has NO lifecycle hooks, simpler than similar components  |
+| question-card.component.ts:151           | Implements `OnInit, OnDestroy` for timer management            |
+| permission-request-card.component.ts:156 | Uses `effect()` with `onCleanup` instead of lifecycle hooks    |
 
 **Timer Pattern Inconsistency**:
+
 - `permission-request-card.component.ts` uses `effect()` with `onCleanup` (Angular recommended)
 - `question-card.component.ts` uses `ngOnInit`/`ngOnDestroy` (older pattern)
 - Both achieve the same goal differently - violates consistency
 
 **Type Export Pattern Inconsistency**:
+
 - `permission-badge.component.ts:8` imports from `@ptah-extension/shared` (correct)
 - `permission-handler.service.ts:29-32` imports from `'../../components'` (backwards dependency)
 - `question-card.component.ts:17-42` defines AND exports types (should be in shared)
@@ -177,11 +179,13 @@ permission-request-card.component.ts:156 | Uses `effect()` with `onCleanup` inst
 This is a well-structured component following Angular best practices. It properly uses signal-based state, OnPush change detection, and proper input/output patterns. The component is focused on a single responsibility.
 
 **Specific Concerns**:
+
 1. Line 132-134: The auto-close logic `if (this.permissions().length <= 1)` may have a race condition with signal updates. When `onPermissionResponse` is called, the parent hasn't removed the permission yet.
 2. Line 36: Fixed positioning (`fixed bottom-20 right-4`) may conflict with other UI elements not visible in this review.
 3. No click-outside-to-close behavior documented in implementation plan as "future enhancement" but might be expected by users.
 
 **Positive Observations**:
+
 - Proper use of `input.required<T>()` and `output<T>()`
 - Good ARIA attributes (`aria-expanded`, `aria-label`, `role="dialog"`)
 - Clean template with proper DaisyUI class usage
@@ -196,6 +200,7 @@ This is a well-structured component following Angular best practices. It properl
 This component has structural issues that need addressing. The type definitions should not be in a component file, the track expression is fragile, and the timer pattern is inconsistent with similar components.
 
 **Specific Concerns**:
+
 1. Lines 17-42: Interface definitions should be in `@ptah-extension/shared`, not in a component file.
 2. Line 94: `track question.header` is fragile - headers may not be unique.
 3. Lines 187-202: Uses `ngOnInit`/`ngOnDestroy` while similar component uses `effect()`.
@@ -204,6 +209,7 @@ This component has structural issues that need addressing. The type definitions 
 6. Lines 104-109: `[checked]="isOptionSelected(...)"` calls a method in template which is evaluated on every change detection cycle.
 
 **Positive Observations**:
+
 - Good computed signal for `canSubmit()` validation
 - Proper timer color indication (`timerColorClass` computed signal)
 - Clear separation of single-select vs multi-select UI
@@ -218,13 +224,15 @@ This component has structural issues that need addressing. The type definitions 
 The service handles permission and question requests reasonably well. The main issues are architectural (backwards import from components) and the effect-based cleanup pattern that could miss concurrent updates.
 
 **Specific Concerns**:
+
 1. Lines 29-32: Imports types from `'../../components'` - backwards dependency.
 2. Lines 72-91: Effect-based cleanup may miss concurrent timeouts.
-3. Lines 136-162: `toolIdsInExecutionTree` iterates all messages + streaming state. O(n*m) complexity.
+3. Lines 136-162: `toolIdsInExecutionTree` iterates all messages + streaming state. O(n\*m) complexity.
 4. No caching or memoization of finalized message tool IDs.
 5. Lines 213-221: Uses `console.log` instead of structured logger.
 
 **Positive Observations**:
+
 - Clear separation of permission vs question handling
 - Good diagnostic logging with latency measurement
 - Proper use of computed signals for derived state
@@ -239,12 +247,14 @@ The service handles permission and question requests reasonably well. The main i
 The backend handler is well-structured with clear separation of concerns. The main issue is the type duplication with the frontend. The fire-and-forget async pattern is concerning but has timeout failsafe.
 
 **Specific Concerns**:
+
 1. Lines 76-100: Duplicate interface definitions with frontend.
 2. Lines 497-515: Fire-and-forget `sendMessage()` before awaiting response.
 3. Lines 673-674: Request ID generation uses `Date.now()` + random - could theoretically collide.
 4. No validation that `response.answers` keys match `input.questions` questions.
 
 **Positive Observations**:
+
 - Excellent structured logging throughout
 - Proper timeout handling with cleanup
 - Good separation of permission vs question handling
@@ -255,27 +265,29 @@ The backend handler is well-structured with clear separation of concerns. The ma
 
 ## Pattern Compliance
 
-| Pattern | Status | Concern |
-| --- | --- | --- |
-| Signal-based state | PASS | All components use signals correctly |
-| Type safety | PARTIAL | Type duplication creates drift risk |
-| DI patterns | PASS | Proper `inject()` usage in services |
-| Layer separation | FAIL | Service imports types from component file |
-| OnPush change detection | PASS | All components use OnPush |
-| Input/Output functions | PASS | All use modern `input()` and `output()` |
-| Computed signals | PASS | Derived state uses `computed()` properly |
-| Timer cleanup | PARTIAL | Inconsistent patterns between components |
+| Pattern                 | Status  | Concern                                   |
+| ----------------------- | ------- | ----------------------------------------- |
+| Signal-based state      | PASS    | All components use signals correctly      |
+| Type safety             | PARTIAL | Type duplication creates drift risk       |
+| DI patterns             | PASS    | Proper `inject()` usage in services       |
+| Layer separation        | FAIL    | Service imports types from component file |
+| OnPush change detection | PASS    | All components use OnPush                 |
+| Input/Output functions  | PASS    | All use modern `input()` and `output()`   |
+| Computed signals        | PASS    | Derived state uses `computed()` properly  |
+| Timer cleanup           | PARTIAL | Inconsistent patterns between components  |
 
 ---
 
 ## Technical Debt Assessment
 
 **Introduced**:
+
 - Type duplication between frontend and backend
 - Backwards import dependency (service -> components)
 - Inconsistent timer patterns
 
 **Mitigated**:
+
 - Race condition in permission matching (Fix 1 from implementation plan)
 - Performance timing diagnostics added
 
@@ -322,6 +334,6 @@ A 10/10 implementation would include:
 
 ---
 
-*Review conducted by: Code Style Reviewer Agent*
-*Review date: 2025-12-29*
-*Review methodology: Skeptical Senior Engineer - code guilty until proven innocent*
+_Review conducted by: Code Style Reviewer Agent_
+_Review date: 2025-12-29_
+_Review methodology: Skeptical Senior Engineer - code guilty until proven innocent_

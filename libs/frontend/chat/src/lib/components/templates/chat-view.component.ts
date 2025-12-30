@@ -90,10 +90,18 @@ export class ChatViewComponent {
    *
    * Previously, only the first tree was rendered, causing subsequent messages to be LOST!
    * Now we return ALL trees as messages so they can all be rendered.
+   *
+   * TASK_2025_100 FIX: Include pendingStats from streamingState so stats display
+   * during/after streaming before finalization. Stats may arrive before finalization
+   * and should be shown immediately.
    */
   readonly streamingMessages = computed((): ExecutionChatMessage[] => {
     const trees = this.chatStore.currentExecutionTrees();
     if (trees.length === 0) return [];
+
+    // Get pendingStats from the active tab's streamingState
+    const activeTab = this.chatStore.activeTab();
+    const pendingStats = activeTab?.streamingState?.pendingStats;
 
     return trees.map((tree) =>
       createExecutionChatMessage({
@@ -101,6 +109,12 @@ export class ChatViewComponent {
         role: 'assistant',
         streamingState: tree,
         sessionId: this.chatStore.currentSessionId() ?? undefined,
+        // TASK_2025_100: Include pending stats in streaming message
+        ...(pendingStats && {
+          tokens: pendingStats.tokens,
+          cost: pendingStats.cost,
+          duration: pendingStats.duration,
+        }),
       })
     );
   });

@@ -58,8 +58,9 @@
   <!-- Metadata badges + Action buttons (single row) -->
   <div class="chat-footer flex gap-2 mt-1 items-center">
     <!-- Left side: Metadata badges (always visible when data exists) -->
-    @if (!isStreaming() && (message().tokens || message().cost !== undefined ||
-    message().duration !== undefined)) {
+    <!-- TASK_2025_100 FIX: Always show stats when available, don't hide during streaming -->
+    @if (message().tokens || message().cost !== undefined || message().duration
+    !== undefined) {
     <div class="flex gap-1.5 items-center text-base-content/70">
       @if (message().tokens) {
       <ptah-token-badge
@@ -104,14 +105,15 @@
 } @else {
 <!-- User message (right-aligned) -->
 <div class="chat chat-end">
-  <!-- Avatar with lucide User icon -->
+  <!-- Avatar with User icon -->
   <div class="chat-image avatar">
-    <div
-      class="w-8 h-8 rounded-full flex items-center justify-center border border-base-content/20"
-    >
-      <lucide-angular
-        [img]="UserIcon"
-        class="w-5 h-5 flex text-base-content/70"
+    <div class="w-8 h-8 rounded-full overflow-hidden">
+      <img
+        [ngSrc]="ptahUserIconUri"
+        alt="You"
+        width="32"
+        height="32"
+        class="w-full h-full object-cover"
       />
     </div>
   </div>

@@ -69,7 +69,7 @@ import type { ExecutionNode, AgentInfo } from '@ptah-extension/shared';
           />
           <lucide-angular
             [img]="FileTextIcon"
-            class="w-3.5 h-3.5 text-purple-400"
+            class="w-3.5 h-3.5 text-secondary"
           />
           <span class="text-[11px] font-medium text-base-content/70">
             Summary @if (isStreaming() && !agentInfo().summaryContent) {
@@ -115,10 +115,7 @@ import type { ExecutionNode, AgentInfo } from '@ptah-extension/shared';
             [img]="executionCollapsed() ? ChevronRightIcon : ChevronDownIcon"
             class="w-3.5 h-3.5 text-base-content/50"
           />
-          <lucide-angular
-            [img]="WrenchIcon"
-            class="w-3.5 h-3.5 text-blue-400"
-          />
+          <lucide-angular [img]="WrenchIcon" class="w-3.5 h-3.5 text-info" />
           <span class="text-[11px] font-medium text-base-content/70">
             Execution @if (isStreaming()) {
             <span class="text-base-content/40 ml-1"

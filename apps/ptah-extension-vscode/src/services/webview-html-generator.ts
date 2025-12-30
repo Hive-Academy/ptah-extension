@@ -411,6 +411,12 @@ export class WebviewHtmlGenerator {
           vscode.Uri.joinPath(appDistPathUri, 'images', 'ptah-icon.png')
         )
         .toString() || '';
+    const userIconUri =
+      webview
+        ?.asWebviewUri(
+          vscode.Uri.joinPath(appDistPathUri, 'images', 'user-icon.png')
+        )
+        .toString() || '';
 
     return `
       // Acquire VS Code API
@@ -430,6 +436,7 @@ export class WebviewHtmlGenerator {
         extensionUri: '${this.context.extensionUri.toString()}',
         baseUri: '${baseUri}',
         iconUri: '${iconUri}',
+        userIconUri: '${userIconUri}',
         initialView: ${
           initialView ? `'${this.escapeJsString(initialView)}'` : 'null'
         }

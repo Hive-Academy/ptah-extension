@@ -36,15 +36,15 @@
 
 ### Existing Tests
 
-| File                                               | Status      | Coverage |
-| -------------------------------------------------- | ----------- | -------- |
-| `permission-handler.service.spec.ts`               | NOT FOUND   | 0%       |
-| `permission-badge.component.spec.ts`               | NOT FOUND   | 0%       |
-| `question-card.component.spec.ts`                  | NOT FOUND   | 0%       |
-| `sdk-permission-handler.spec.ts` (backend)         | NOT FOUND   | 0%       |
-| Existing chat library tests                        | 2 files     | Partial  |
-| - `session-manager.service.spec.ts`                | EXISTS      | Good     |
-| - `message-validation.service.spec.ts`             | EXISTS      | Good     |
+| File                                       | Status    | Coverage |
+| ------------------------------------------ | --------- | -------- |
+| `permission-handler.service.spec.ts`       | NOT FOUND | 0%       |
+| `permission-badge.component.spec.ts`       | NOT FOUND | 0%       |
+| `question-card.component.spec.ts`          | NOT FOUND | 0%       |
+| `sdk-permission-handler.spec.ts` (backend) | NOT FOUND | 0%       |
+| Existing chat library tests                | 2 files   | Partial  |
+| - `session-manager.service.spec.ts`        | EXISTS    | Good     |
+| - `message-validation.service.spec.ts`     | EXISTS    | Good     |
 
 **Verdict**: No existing tests cover the permission system. All new functionality lacks test coverage.
 
@@ -557,12 +557,12 @@ describe('AskUserQuestion Flow', () => {
 
 ### Components Testability Score
 
-| Component                    | Score | Issues                                          |
-| ---------------------------- | ----- | ----------------------------------------------- |
-| PermissionHandlerService     | 8/10  | Uses inject(), needs TestBed                    |
-| PermissionBadgeComponent     | 9/10  | Simple inputs/outputs, minimal deps             |
-| QuestionCardComponent        | 8/10  | Timer needs fakeTimers, interval cleanup        |
-| SdkPermissionHandler         | 7/10  | Needs mock WebviewManager, Logger               |
+| Component                | Score | Issues                                   |
+| ------------------------ | ----- | ---------------------------------------- |
+| PermissionHandlerService | 8/10  | Uses inject(), needs TestBed             |
+| PermissionBadgeComponent | 9/10  | Simple inputs/outputs, minimal deps      |
+| QuestionCardComponent    | 8/10  | Timer needs fakeTimers, interval cleanup |
+| SdkPermissionHandler     | 7/10  | Needs mock WebviewManager, Logger        |
 
 ### Mocking Requirements
 
@@ -617,17 +617,17 @@ const mockWebviewManager = {
 
 ### Priority 1: Critical Path (Must Have)
 
-| Test File                              | Estimated Tests | Effort    |
-| -------------------------------------- | --------------- | --------- |
-| permission-handler.service.spec.ts     | 25-30           | 3-4 hours |
-| sdk-permission-handler.spec.ts         | 40-50           | 4-5 hours |
+| Test File                          | Estimated Tests | Effort    |
+| ---------------------------------- | --------------- | --------- |
+| permission-handler.service.spec.ts | 25-30           | 3-4 hours |
+| sdk-permission-handler.spec.ts     | 40-50           | 4-5 hours |
 
 ### Priority 2: UI Components (Should Have)
 
-| Test File                           | Estimated Tests | Effort    |
-| ----------------------------------- | --------------- | --------- |
-| permission-badge.component.spec.ts  | 15-18           | 2-3 hours |
-| question-card.component.spec.ts     | 25-30           | 3-4 hours |
+| Test File                          | Estimated Tests | Effort    |
+| ---------------------------------- | --------------- | --------- |
+| permission-badge.component.spec.ts | 15-18           | 2-3 hours |
+| question-card.component.spec.ts    | 25-30           | 3-4 hours |
 
 ### Priority 3: Integration (Nice to Have)
 
@@ -667,14 +667,14 @@ const mockWebviewManager = {
 
 ## Overall Testability Score
 
-| Aspect                        | Score | Notes                                   |
-| ----------------------------- | ----- | --------------------------------------- |
-| Code Structure                | 9/10  | Clean separation, single responsibility |
-| Dependency Injection          | 9/10  | Angular DI and tsyringe well-used       |
-| State Management              | 8/10  | Signal-based, predictable updates       |
-| Async Handling                | 7/10  | Promises, timeouts need fakeTimers      |
-| Integration Points            | 6/10  | WebviewService, MESSAGE_TYPES need mocks |
-| **Overall Testability Score** | **7.8/10** |                                   |
+| Aspect                        | Score      | Notes                                    |
+| ----------------------------- | ---------- | ---------------------------------------- |
+| Code Structure                | 9/10       | Clean separation, single responsibility  |
+| Dependency Injection          | 9/10       | Angular DI and tsyringe well-used        |
+| State Management              | 8/10       | Signal-based, predictable updates        |
+| Async Handling                | 7/10       | Promises, timeouts need fakeTimers       |
+| Integration Points            | 6/10       | WebviewService, MESSAGE_TYPES need mocks |
+| **Overall Testability Score** | **7.8/10** |                                          |
 
 ---
 

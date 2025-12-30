@@ -1042,6 +1042,24 @@ export class StreamingHandlerService {
 
     // Find the last assistant message in the tab
     const messages = targetTab.messages;
+
+    // TASK_2025_100 FIX: Stats may arrive after chat_complete but before finalization.
+    // In this case, status is 'loaded' but message is still in streamingState, not messages array.
+    // Store as pendingStats to be applied when user sends next message (lazy finalization).
+    if (messages.length === 0 && targetTab.streamingState) {
+      const state = targetTab.streamingState;
+      state.pendingStats = {
+        cost: stats.cost,
+        tokens: stats.tokens,
+        duration: stats.duration,
+      };
+      this.scheduleTabUpdate(targetTab.id, state);
+      console.log(
+        '[StreamingHandlerService] Stats stored as pendingStats (post-completion, pre-finalization)'
+      );
+      return;
+    }
+
     if (messages.length === 0) {
       return;
     }

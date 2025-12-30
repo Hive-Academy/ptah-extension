@@ -38,7 +38,8 @@
           "node_modules/prismjs/components/prism-jsx.min.js",
           "node_modules/prismjs/components/prism-tsx.min.js",
           "node_modules/prismjs/components/prism-go.min.js",
-          "node_modules/prismjs/components/prism-xml-doc.min.js"
+          "node_modules/prismjs/components/prism-xml-doc.min.js",
+          "node_modules/prismjs/components/prism-diff.min.js"
         ]
       },
       "configurations": {

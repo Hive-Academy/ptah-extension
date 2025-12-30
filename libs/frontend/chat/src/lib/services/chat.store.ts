@@ -640,6 +640,12 @@ export class ChatStore {
       this.tabManager.updateTab(targetTabId, { status: 'loaded' });
       this.sessionManager.setStatus('loaded');
 
+      // TASK_2025_100 FIX: Clear visual streaming indicator
+      // markTabIdle clears _streamingTabIds which chat-input and tab-bar use
+      // to show/hide stop button and spinner. Without this, stop button persists
+      // even after chat:complete is received because isTabStreaming() still returns true.
+      this.tabManager.markTabIdle(targetTabId);
+
       // ========== AUTO-SEND QUEUED CONTENT ==========
       // FIX #6: Guard against recursive auto-send (via ConversationService signal)
       if (this.conversation.isAutoSending()) {

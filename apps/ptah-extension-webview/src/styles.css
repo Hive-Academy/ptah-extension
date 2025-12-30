@@ -426,7 +426,9 @@ Theme-aware CSS custom properties for agent badges
 }
 
 .badge-agent-backend {
-  background-color: var(--agent-backend) !important; /* Ptah - Malachite Green */
+  background-color: var(
+    --agent-backend
+  ) !important; /* Ptah - Malachite Green */
   color: var(--agent-badge-text-light) !important;
 }
 

@@ -26,6 +26,7 @@ import {
   ConfigWatcher,
   StreamTransformer,
   AttachmentProcessorService,
+  SubagentHookHandler,
 } from '../helpers';
 import { SDK_TOKENS } from './tokens';
 import { OpenRouterModelsService } from '../openrouter-models.service';
@@ -139,6 +140,14 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_OPENROUTER_MODELS,
     { useClass: OpenRouterModelsService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Subagent hook handler - depends on Logger, AgentSessionWatcherService (TASK_2025_099)
+  // Connects SDK subagent lifecycle hooks to real-time summary streaming
+  container.register(
+    SDK_TOKENS.SDK_SUBAGENT_HOOK_HANDLER,
+    { useClass: SubagentHookHandler },
     { lifecycle: Lifecycle.Singleton }
   );
 

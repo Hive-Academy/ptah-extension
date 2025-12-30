@@ -61,7 +61,7 @@ export type ParsedBlock =
           />
           <lucide-angular
             [img]="BrainIcon"
-            class="w-3.5 h-3.5 text-purple-400"
+            class="w-3.5 h-3.5 text-secondary"
           />
           <span class="font-medium">Thinking...</span>
         </button>
@@ -80,7 +80,7 @@ export type ParsedBlock =
       <div class="flex items-start gap-1.5 py-0.5 text-[11px]">
         <lucide-angular
           [img]="WrenchIcon"
-          class="w-3.5 h-3.5 text-blue-400 mt-0.5 flex-shrink-0"
+          class="w-3.5 h-3.5 text-info mt-0.5 flex-shrink-0"
         />
         <div class="flex-1 min-w-0">
           <span class="badge badge-xs badge-ghost font-mono">{{

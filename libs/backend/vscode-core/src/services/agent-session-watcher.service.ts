@@ -2,15 +2,18 @@
  * Agent Session Watcher Service
  *
  * Watches for agent JSONL files during streaming to provide real-time
- * summary content updates. When an agent (Task tool) starts, this service
- * watches the sessions directory for new agent-*.jsonl files and streams
- * their text content (summary) to the frontend.
+ * summary content updates. When a subagent starts (via SDK SubagentStart hook),
+ * this service watches the sessions directory for new agent-{agent_id}.jsonl
+ * files and streams their text content (summary) to the frontend.
  *
  * Flow:
- * 1. Task tool_use detected → startWatching(toolUseId, sessionId)
- * 2. New agent file appears → match to session, start tailing
- * 3. File grows → extract text blocks, emit summary chunks
- * 4. Task tool_result received → stopWatching(toolUseId)
+ * 1. SubagentStart hook fires -> startWatching(agentId, sessionId, workspacePath, toolUseId?)
+ * 2. New agent file appears -> match by agentId pattern, start tailing
+ * 3. File grows -> extract text blocks, emit summary chunks with toolUseId
+ * 4. SubagentStop hook fires -> setToolUseId(agentId, toolUseId), stopWatching(agentId)
+ *
+ * Note: toolUseId may not be available at SubagentStart but is always
+ * available at SubagentStop. Use setToolUseId() for late binding.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -20,6 +23,22 @@ import * as os from 'os';
 import { EventEmitter } from 'events';
 import type { Logger } from '../logging/logger';
 import { TOKENS } from '../di/tokens';
+
+/**
+ * Configuration constants for agent session watching
+ */
+const AGENT_WATCHER_CONSTANTS = {
+  /** Time window (ms) for matching agent files to active watches */
+  MATCH_WINDOW_MS: 30_000,
+  /** Cleanup timeout (ms) for pending agent files */
+  PENDING_CLEANUP_MS: 60_000,
+  /** Interval (ms) between file tail reads */
+  TAIL_INTERVAL_MS: 200,
+  /** Buffer size (bytes) for reading first line of agent file */
+  FIRST_LINE_BUFFER_SIZE: 4096,
+  /** Delay (ms) after file detection before reading */
+  FILE_DETECTION_DELAY_MS: 100,
+} as const;
 
 /**
  * Summary chunk emitted when new content is found in agent file
@@ -35,9 +54,13 @@ export interface AgentSummaryChunk {
  * Internal tracking for active agent watches
  */
 interface ActiveWatch {
+  /** Unique agent identifier (primary key for Map) */
+  agentId: string;
   /** Main session ID (to match agent files) */
   sessionId: string;
-  /** When the Task tool was detected */
+  /** Task tool_use ID (set later via setToolUseId, may be null) */
+  toolUseId: string | null;
+  /** When the agent was detected */
   startTime: number;
   /** Path to the matched agent file (once found) */
   agentFilePath: string | null;
@@ -51,7 +74,7 @@ interface ActiveWatch {
 
 @injectable()
 export class AgentSessionWatcherService extends EventEmitter {
-  /** Active watches by toolUseId */
+  /** Active watches by agentId (primary key) */
   private readonly activeWatches = new Map<string, ActiveWatch>();
 
   /** Directory watcher instance */
@@ -66,6 +89,9 @@ export class AgentSessionWatcherService extends EventEmitter {
     { filePath: string; sessionId: string; detectedAt: number }
   >();
 
+  /** Tracked timeout IDs for cleanup on dispose (prevents memory leaks) */
+  private readonly pendingCleanupTimeouts = new Set<NodeJS.Timeout>();
+
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {
     super();
   }
@@ -73,26 +99,31 @@ export class AgentSessionWatcherService extends EventEmitter {
   /**
    * Start watching for an agent's session file
    *
-   * Called when a Task tool_use is detected in the main stream.
-   * Starts watching the sessions directory for new agent-*.jsonl files.
+   * Called when SubagentStart hook fires from the SDK.
+   * Starts watching the sessions directory for agent-{agent_id}.jsonl files.
    *
-   * @param toolUseId - The Task tool_use ID
-   * @param sessionId - The main session ID (to match agent files)
+   * @param agentId - The unique agent identifier (primary key)
+   * @param sessionId - The main session ID (for context)
    * @param workspacePath - Workspace path to find sessions directory
+   * @param toolUseId - Optional Task tool_use ID (may be set later via setToolUseId)
    */
   async startWatching(
-    toolUseId: string,
+    agentId: string,
     sessionId: string,
-    workspacePath: string
+    workspacePath: string,
+    toolUseId?: string
   ): Promise<void> {
     this.logger.debug('AgentSessionWatcher: Starting watch', {
-      toolUseId,
+      agentId,
       sessionId,
+      toolUseId: toolUseId ?? null,
     });
 
-    // Create watch entry
-    this.activeWatches.set(toolUseId, {
+    // Create watch entry keyed by agentId
+    this.activeWatches.set(agentId, {
+      agentId,
       sessionId,
+      toolUseId: toolUseId ?? null,
       startTime: Date.now(),
       agentFilePath: null,
       fileOffset: 0,
@@ -103,25 +134,57 @@ export class AgentSessionWatcherService extends EventEmitter {
     // Ensure we're watching the sessions directory
     await this.ensureDirectoryWatcher(workspacePath);
 
-    // Check if there are any pending files that match this session
+    // Check if there are any pending files that match this agent
     // (agent file may have been created before we started watching)
-    this.matchPendingFiles(toolUseId, sessionId);
+    this.matchPendingFiles(agentId, sessionId);
+  }
+
+  /**
+   * Set the toolUseId for an active watch
+   *
+   * Called when SubagentStop hook provides the toolUseId (late binding).
+   * This enables proper UI routing for summary chunks.
+   *
+   * @param agentId - The unique agent identifier
+   * @param toolUseId - The Task tool_use ID to associate
+   */
+  setToolUseId(agentId: string, toolUseId: string): void {
+    const watch = this.activeWatches.get(agentId);
+    if (!watch) {
+      this.logger.debug(
+        'AgentSessionWatcher: setToolUseId called for unknown agent',
+        {
+          agentId,
+          toolUseId,
+        }
+      );
+      return;
+    }
+
+    this.logger.debug('AgentSessionWatcher: Setting toolUseId for agent', {
+      agentId,
+      toolUseId,
+      previousToolUseId: watch.toolUseId,
+    });
+
+    watch.toolUseId = toolUseId;
   }
 
   /**
    * Stop watching for an agent's session file
    *
-   * Called when a Task tool_result is received (agent completed).
+   * Called when SubagentStop hook fires (agent completed).
    * Stops tailing the file and cleans up.
    *
-   * @param toolUseId - The Task tool_use ID
+   * @param agentId - The unique agent identifier
    */
-  stopWatching(toolUseId: string): void {
-    const watch = this.activeWatches.get(toolUseId);
+  stopWatching(agentId: string): void {
+    const watch = this.activeWatches.get(agentId);
     if (!watch) return;
 
     this.logger.debug('AgentSessionWatcher: Stopping watch', {
-      toolUseId,
+      agentId,
+      toolUseId: watch.toolUseId,
       hadFile: !!watch.agentFilePath,
       summaryLength: watch.summaryContent.length,
     });
@@ -132,7 +195,7 @@ export class AgentSessionWatcherService extends EventEmitter {
     }
 
     // Remove from active watches
-    this.activeWatches.delete(toolUseId);
+    this.activeWatches.delete(agentId);
 
     // If no more active watches, stop directory watcher
     if (this.activeWatches.size === 0) {
@@ -217,7 +280,7 @@ export class AgentSessionWatcherService extends EventEmitter {
     });
 
     // Wait a bit for the file to have content
-    await this.delay(100);
+    await this.delay(AGENT_WATCHER_CONSTANTS.FILE_DETECTION_DELAY_MS);
 
     // Try to read the first line to get sessionId
     const sessionId = await this.extractSessionIdFromFile(filePath);
@@ -231,19 +294,22 @@ export class AgentSessionWatcherService extends EventEmitter {
 
     // Find a matching active watch
     let matched = false;
-    for (const [toolUseId, watch] of this.activeWatches) {
+    for (const [agentId, watch] of this.activeWatches) {
       if (watch.sessionId === sessionId && !watch.agentFilePath) {
-        // Check if file was created around the time of the Task tool
-        // (within 30 seconds - generous window)
+        // Check if file was created around the time of the agent start
+        // (within MATCH_WINDOW_MS - generous window)
         const timeDiff = Date.now() - watch.startTime;
-        if (timeDiff < 30000) {
-          this.logger.debug('AgentSessionWatcher: Matched agent file to tool', {
-            toolUseId,
-            filename,
-            timeDiff,
-          });
+        if (timeDiff < AGENT_WATCHER_CONSTANTS.MATCH_WINDOW_MS) {
+          this.logger.debug(
+            'AgentSessionWatcher: Matched agent file to agent',
+            {
+              agentId,
+              filename,
+              timeDiff,
+            }
+          );
           watch.agentFilePath = filePath;
-          this.startTailingFile(toolUseId, filePath);
+          this.startTailingFile(agentId, filePath);
           matched = true;
           break;
         }
@@ -258,10 +324,12 @@ export class AgentSessionWatcherService extends EventEmitter {
         detectedAt: Date.now(),
       });
 
-      // Clean up old pending files after 60 seconds
-      setTimeout(() => {
+      // Clean up old pending files after PENDING_CLEANUP_MS
+      const timeoutId = setTimeout(() => {
         this.pendingAgentFiles.delete(filePath);
-      }, 60000);
+        this.pendingCleanupTimeouts.delete(timeoutId);
+      }, AGENT_WATCHER_CONSTANTS.PENDING_CLEANUP_MS);
+      this.pendingCleanupTimeouts.add(timeoutId);
     }
   }
 
@@ -279,8 +347,8 @@ export class AgentSessionWatcherService extends EventEmitter {
         const filePath = path.join(sessionsDir, filename);
         try {
           const stats = await fs.promises.stat(filePath);
-          // Only consider files created in the last 30 seconds
-          if (now - stats.mtimeMs < 30000) {
+          // Only consider files created within MATCH_WINDOW_MS
+          if (now - stats.mtimeMs < AGENT_WATCHER_CONSTANTS.MATCH_WINDOW_MS) {
             await this.handleNewAgentFile(sessionsDir, filename);
           }
         } catch {
@@ -300,21 +368,21 @@ export class AgentSessionWatcherService extends EventEmitter {
   /**
    * Match pending agent files to a newly started watch
    */
-  private matchPendingFiles(toolUseId: string, sessionId: string): void {
-    const watch = this.activeWatches.get(toolUseId);
+  private matchPendingFiles(agentId: string, sessionId: string): void {
+    const watch = this.activeWatches.get(agentId);
     if (!watch) return;
 
     for (const [filePath, pending] of this.pendingAgentFiles) {
       if (pending.sessionId === sessionId) {
         const timeDiff = Date.now() - pending.detectedAt;
-        if (timeDiff < 30000) {
+        if (timeDiff < AGENT_WATCHER_CONSTANTS.MATCH_WINDOW_MS) {
           this.logger.debug(
-            'AgentSessionWatcher: Matched pending file to tool',
-            { toolUseId, filePath }
+            'AgentSessionWatcher: Matched pending file to agent',
+            { agentId, filePath }
           );
           watch.agentFilePath = filePath;
           this.pendingAgentFiles.delete(filePath);
-          this.startTailingFile(toolUseId, filePath);
+          this.startTailingFile(agentId, filePath);
           break;
         }
       }
@@ -324,8 +392,8 @@ export class AgentSessionWatcherService extends EventEmitter {
   /**
    * Start tailing an agent file for new content
    */
-  private startTailingFile(toolUseId: string, filePath: string): void {
-    const watch = this.activeWatches.get(toolUseId);
+  private startTailingFile(agentId: string, filePath: string): void {
+    const watch = this.activeWatches.get(agentId);
     if (!watch) return;
 
     // Clear existing interval if any
@@ -334,22 +402,22 @@ export class AgentSessionWatcherService extends EventEmitter {
     }
 
     // Read initial content
-    this.readNewContent(toolUseId, filePath);
+    this.readNewContent(agentId, filePath);
 
     // Set up interval to check for new content
     watch.tailInterval = setInterval(() => {
-      this.readNewContent(toolUseId, filePath);
-    }, 200); // Check every 200ms
+      this.readNewContent(agentId, filePath);
+    }, AGENT_WATCHER_CONSTANTS.TAIL_INTERVAL_MS);
   }
 
   /**
    * Read new content from the agent file and emit summary chunks
    */
   private async readNewContent(
-    toolUseId: string,
+    agentId: string,
     filePath: string
   ): Promise<void> {
-    const watch = this.activeWatches.get(toolUseId);
+    const watch = this.activeWatches.get(agentId);
     if (!watch) return;
 
     try {
@@ -387,16 +455,18 @@ export class AgentSessionWatcherService extends EventEmitter {
       if (summaryDelta) {
         watch.summaryContent += summaryDelta;
 
-        // Emit the chunk
+        // Emit the chunk - use watch.toolUseId for UI routing
+        // toolUseId may be null if SubagentStop hasn't fired yet
         const chunk: AgentSummaryChunk = {
-          toolUseId,
+          toolUseId: watch.toolUseId ?? agentId, // Fallback to agentId if toolUseId not yet known
           summaryDelta,
         };
 
         this.emit('summary-chunk', chunk);
 
         this.logger.debug('AgentSessionWatcher: Emitted summary chunk', {
-          toolUseId,
+          agentId,
+          toolUseId: watch.toolUseId,
           deltaLength: summaryDelta.length,
           totalLength: watch.summaryContent.length,
         });
@@ -404,7 +474,7 @@ export class AgentSessionWatcherService extends EventEmitter {
     } catch (error) {
       // File may not exist yet or be locked, ignore
       this.logger.debug('AgentSessionWatcher: Error reading file', {
-        toolUseId,
+        agentId,
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -442,10 +512,17 @@ export class AgentSessionWatcherService extends EventEmitter {
     filePath: string
   ): Promise<string | null> {
     try {
-      // Read first 4KB to get the first line
+      // Read first FIRST_LINE_BUFFER_SIZE bytes to get the first line
       const fd = await fs.promises.open(filePath, 'r');
-      const buffer = Buffer.alloc(4096);
-      const { bytesRead } = await fd.read(buffer, 0, 4096, 0);
+      const buffer = Buffer.alloc(
+        AGENT_WATCHER_CONSTANTS.FIRST_LINE_BUFFER_SIZE
+      );
+      const { bytesRead } = await fd.read(
+        buffer,
+        0,
+        AGENT_WATCHER_CONSTANTS.FIRST_LINE_BUFFER_SIZE,
+        0
+      );
       await fd.close();
 
       if (bytesRead === 0) return null;
@@ -520,7 +597,7 @@ export class AgentSessionWatcherService extends EventEmitter {
    */
   dispose(): void {
     // Stop all tail intervals
-    for (const [toolUseId, watch] of this.activeWatches) {
+    for (const [, watch] of this.activeWatches) {
       if (watch.tailInterval) {
         clearInterval(watch.tailInterval);
       }
@@ -530,7 +607,11 @@ export class AgentSessionWatcherService extends EventEmitter {
     // Stop directory watcher
     this.stopDirectoryWatcher();
 
-    // Clear pending files
+    // Clear pending files and their cleanup timeouts
     this.pendingAgentFiles.clear();
+    for (const timeoutId of this.pendingCleanupTimeouts) {
+      clearTimeout(timeoutId);
+    }
+    this.pendingCleanupTimeouts.clear();
   }
 }

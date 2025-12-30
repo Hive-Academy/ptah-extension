@@ -6,14 +6,14 @@
 
 ## Review Summary
 
-| Metric              | Value                                         |
-| ------------------- | --------------------------------------------- |
-| Overall Score       | 6/10                                          |
-| Assessment          | NEEDS_REVISION                                |
-| Critical Issues     | 2                                             |
-| Serious Issues      | 4                                             |
-| Moderate Issues     | 3                                             |
-| Failure Modes Found | 7                                             |
+| Metric              | Value          |
+| ------------------- | -------------- |
+| Overall Score       | 6/10           |
+| Assessment          | NEEDS_REVISION |
+| Critical Issues     | 2              |
+| Serious Issues      | 4              |
+| Moderate Issues     | 3              |
+| Failure Modes Found | 7              |
 
 ---
 
@@ -49,13 +49,13 @@
 
 ### 4. What happens when dependencies fail?
 
-| Integration                | Failure Mode             | Current Handling                                   | Assessment                                        |
-| -------------------------- | ------------------------ | -------------------------------------------------- | ------------------------------------------------- |
-| WebviewManager.sendMessage | Promise rejection        | `.catch()` logs error but request still pending    | CONCERN: Pending request hangs for 30s            |
-| VSCodeService.postMessage  | Silent failure           | No error handling on question/permission responses | CONCERN: User thinks action succeeded             |
-| TabManager.activeTab()     | Returns null             | Returns empty Set for toolIdsInExecutionTree       | OK: Graceful degradation                          |
-| Effect cleanup             | Component destroyed      | Timer cleared in ngOnDestroy                       | OK: Proper cleanup                                |
-| SDK question validation    | Invalid input            | Returns deny with message                          | OK                                                |
+| Integration                | Failure Mode        | Current Handling                                   | Assessment                             |
+| -------------------------- | ------------------- | -------------------------------------------------- | -------------------------------------- |
+| WebviewManager.sendMessage | Promise rejection   | `.catch()` logs error but request still pending    | CONCERN: Pending request hangs for 30s |
+| VSCodeService.postMessage  | Silent failure      | No error handling on question/permission responses | CONCERN: User thinks action succeeded  |
+| TabManager.activeTab()     | Returns null        | Returns empty Set for toolIdsInExecutionTree       | OK: Graceful degradation               |
+| Effect cleanup             | Component destroyed | Timer cleared in ngOnDestroy                       | OK: Proper cleanup                     |
+| SDK question validation    | Invalid input       | Returns deny with message                          | OK                                     |
 
 ### 5. What's missing that the requirements didn't mention?
 
@@ -100,6 +100,7 @@
 - **Recommendation**: Check should be `this.permissions().length <= 1` AFTER the response is emitted and processed, or use a flag/callback
 
 **Code Evidence** (`permission-badge.component.ts:129-134`):
+
 ```typescript
 protected onPermissionResponse(response: PermissionResponse): void {
   this.responded.emit(response);  // Parent removes permission from array
@@ -119,6 +120,7 @@ protected onPermissionResponse(response: PermissionResponse): void {
 - **Recommendation**: Add explicit check: `return questions.length > 0 && questions.every(...)`
 
 **Code Evidence** (`question-card.component.ts:170-174`):
+
 ```typescript
 protected readonly canSubmit = computed(() => {
   const answers = this.selectedAnswers();
@@ -137,6 +139,7 @@ protected readonly canSubmit = computed(() => {
 - **Recommendation**: Use `question.header` or index as key, or validate no duplicates
 
 **Code Evidence** (`question-card.component.ts:241-242`):
+
 ```typescript
 protected onOptionSelect(question: string, option: string): void {
   this.selectedAnswers.update((a) => ({ ...a, [question]: option }));
@@ -161,10 +164,13 @@ protected onOptionSelect(question: string, option: string): void {
 - **Recommendation**: On send failure, immediately resolve the pending request with deny
 
 **Code Evidence** (`sdk-permission-handler.ts:498-515`):
+
 ```typescript
 this.webviewManager
   .sendMessage('ptah.main', MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST, request)
-  .then(() => { /* success log */ })
+  .then(() => {
+    /* success log */
+  })
   .catch((error) => {
     this.logger.error('Failed to send AskUserQuestion request', { error });
     // BUG: No cleanup of pending request - will hang for 30s
@@ -185,6 +191,7 @@ const response = await this.awaitQuestionResponse(requestId, PERMISSION_TIMEOUT_
 - **Impact**: Feature completely non-functional - users never see questions
 - **Evidence**: Grepped entire `libs/frontend/core` directory for `ASK_USER_QUESTION` - zero matches
 - **Fix**: Add message handler in VSCodeService or ChatStore that routes to `PermissionHandlerService.handleQuestionRequest()`:
+
 ```typescript
 case MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST:
   this.chatStore.permissionHandler.handleQuestionRequest(message.payload);
@@ -198,6 +205,7 @@ case MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST:
 - **Impact**: User answers are lost, SDK receives timeout
 - **Evidence**: `handleQuestionResponse()` exists in `SdkPermissionHandler` but is never called
 - **Fix**: Register handler in backend message router:
+
 ```typescript
 case MESSAGE_TYPES.ASK_USER_QUESTION_RESPONSE:
   sdkPermissionHandler.handleQuestionResponse(message.payload);
@@ -222,6 +230,7 @@ case MESSAGE_TYPES.ASK_USER_QUESTION_RESPONSE:
 - **Scenario**: SDK sends AskUserQuestion with empty questions array
 - **Impact**: Invalid empty answers submitted
 - **Fix**:
+
 ```typescript
 protected readonly canSubmit = computed(() => {
   const questions = this.request().questions;
@@ -244,6 +253,7 @@ protected readonly canSubmit = computed(() => {
 - **Scenario**: `webviewManager.sendMessage()` rejects
 - **Impact**: Request hangs for full 30s timeout
 - **Fix**: Immediately resolve pending request on send failure:
+
 ```typescript
 .catch((error) => {
   this.logger.error('Failed to send AskUserQuestion request', { error });
@@ -323,6 +333,7 @@ VSCodeService.postMessage(SDK_PERMISSION_RESPONSE) --> Backend
 ```
 
 ### Gap Points Identified:
+
 1. **ASK_USER_QUESTION_REQUEST**: Message sent but no listener
 2. **ASK_USER_QUESTION_RESPONSE**: Message sent but no backend handler
 3. **QuestionCardComponent**: Created but never displayed
@@ -332,18 +343,19 @@ VSCodeService.postMessage(SDK_PERMISSION_RESPONSE) --> Backend
 
 ## Requirements Fulfillment
 
-| Requirement | Status | Concern |
-|-------------|--------|---------|
-| Fix race condition (toolCallMap) | COMPLETE | None - computed signal reads real-time |
-| Timing diagnostics | COMPLETE | Logs latency, warns if >100ms |
-| Collapsed badge UI | COMPLETE | Auto-close logic has bug |
-| AskUserQuestion backend handler | PARTIAL | Handler exists but missing message routing |
-| AskUserQuestion frontend handler | MISSING | No message listener registered |
-| AskUserQuestion UI display | MISSING | QuestionCardComponent not used anywhere |
-| 30-second timeout for questions | COMPLETE | Timeout works but sends data to void |
-| Timer cleanup on destroy | COMPLETE | Both components clean up intervals |
+| Requirement                      | Status   | Concern                                    |
+| -------------------------------- | -------- | ------------------------------------------ |
+| Fix race condition (toolCallMap) | COMPLETE | None - computed signal reads real-time     |
+| Timing diagnostics               | COMPLETE | Logs latency, warns if >100ms              |
+| Collapsed badge UI               | COMPLETE | Auto-close logic has bug                   |
+| AskUserQuestion backend handler  | PARTIAL  | Handler exists but missing message routing |
+| AskUserQuestion frontend handler | MISSING  | No message listener registered             |
+| AskUserQuestion UI display       | MISSING  | QuestionCardComponent not used anywhere    |
+| 30-second timeout for questions  | COMPLETE | Timeout works but sends data to void       |
+| Timer cleanup on destroy         | COMPLETE | Both components clean up intervals         |
 
 ### Implicit Requirements NOT Addressed:
+
 1. **End-to-end message routing for AskUserQuestion** - Types and handlers exist but no wiring
 2. **User feedback on question timeout** - No visual indication when question expires
 3. **Keyboard accessibility** - No keyboard navigation support
@@ -354,30 +366,30 @@ VSCodeService.postMessage(SDK_PERMISSION_RESPONSE) --> Backend
 
 ## Edge Case Analysis
 
-| Edge Case | Handled | How | Concern |
-|-----------|---------|-----|---------|
-| Null toolCallId | YES | Returns null from getPermissionForTool | None |
-| Empty questions array | NO | canSubmit() returns true | Submit button enabled |
-| Duplicate question text | NO | Record key collision | Answers overwritten |
-| Timer expiry | PARTIAL | Timer stops but inputs stay enabled | UX issue |
-| Tab switch during question | UNKNOWN | Not tested | May lose question state |
-| Component destroy mid-timer | YES | ngOnDestroy clears interval | None |
-| Multiple permissions at once | YES | Array rendering | None |
-| WebviewManager send failure | NO | Error logged, request hangs | 30s hang |
-| Questions with null options | UNKNOWN | Would throw | Need validation |
-| Permission without toolUseId | YES | Always unmatched | Intentional |
+| Edge Case                    | Handled | How                                    | Concern                 |
+| ---------------------------- | ------- | -------------------------------------- | ----------------------- |
+| Null toolCallId              | YES     | Returns null from getPermissionForTool | None                    |
+| Empty questions array        | NO      | canSubmit() returns true               | Submit button enabled   |
+| Duplicate question text      | NO      | Record key collision                   | Answers overwritten     |
+| Timer expiry                 | PARTIAL | Timer stops but inputs stay enabled    | UX issue                |
+| Tab switch during question   | UNKNOWN | Not tested                             | May lose question state |
+| Component destroy mid-timer  | YES     | ngOnDestroy clears interval            | None                    |
+| Multiple permissions at once | YES     | Array rendering                        | None                    |
+| WebviewManager send failure  | NO      | Error logged, request hangs            | 30s hang                |
+| Questions with null options  | UNKNOWN | Would throw                            | Need validation         |
+| Permission without toolUseId | YES     | Always unmatched                       | Intentional             |
 
 ---
 
 ## Integration Risk Assessment
 
-| Integration | Failure Probability | Impact | Mitigation |
-|-------------|---------------------|--------|------------|
-| ASK_USER_QUESTION_REQUEST routing | HIGH (100%) | CRITICAL | Not wired - needs implementation |
-| ASK_USER_QUESTION_RESPONSE routing | HIGH (100%) | CRITICAL | Not wired - needs implementation |
-| Permission toolCallMap lookup | LOW | MEDIUM | Computed signal handles reactivity |
-| Timer cleanup | LOW | LOW | Proper ngOnDestroy implementation |
-| VSCodeService.postMessage | LOW | MEDIUM | Fire-and-forget pattern |
+| Integration                        | Failure Probability | Impact   | Mitigation                         |
+| ---------------------------------- | ------------------- | -------- | ---------------------------------- |
+| ASK_USER_QUESTION_REQUEST routing  | HIGH (100%)         | CRITICAL | Not wired - needs implementation   |
+| ASK_USER_QUESTION_RESPONSE routing | HIGH (100%)         | CRITICAL | Not wired - needs implementation   |
+| Permission toolCallMap lookup      | LOW                 | MEDIUM   | Computed signal handles reactivity |
+| Timer cleanup                      | LOW                 | LOW      | Proper ngOnDestroy implementation  |
+| VSCodeService.postMessage          | LOW                 | MEDIUM   | Fire-and-forget pattern            |
 
 ---
 
@@ -418,12 +430,12 @@ All code appears to be implemented, but the WIRING between components is missing
 
 ## Files Reviewed
 
-| File | Lines | Assessment |
-|------|-------|------------|
-| `libs/frontend/chat/src/lib/components/molecules/permission-badge.component.ts` | 137 | Working with minor bug |
-| `libs/frontend/chat/src/lib/components/molecules/question-card.component.ts` | 292 | Working but never displayed |
-| `libs/frontend/chat/src/lib/services/chat-store/permission-handler.service.ts` | 371 | Complete but question handlers never called |
-| `libs/backend/agent-sdk/src/lib/sdk-permission-handler.ts` | 784 | Complete but question response handler never wired |
+| File                                                                            | Lines | Assessment                                         |
+| ------------------------------------------------------------------------------- | ----- | -------------------------------------------------- |
+| `libs/frontend/chat/src/lib/components/molecules/permission-badge.component.ts` | 137   | Working with minor bug                             |
+| `libs/frontend/chat/src/lib/components/molecules/question-card.component.ts`    | 292   | Working but never displayed                        |
+| `libs/frontend/chat/src/lib/services/chat-store/permission-handler.service.ts`  | 371   | Complete but question handlers never called        |
+| `libs/backend/agent-sdk/src/lib/sdk-permission-handler.ts`                      | 784   | Complete but question response handler never wired |
 
 ---
 

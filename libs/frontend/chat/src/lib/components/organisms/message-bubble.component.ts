@@ -80,6 +80,7 @@ export class MessageBubbleComponent {
   readonly FolderIcon = Folder;
   readonly PaperclipIcon = Paperclip;
   readonly ptahIconUri = this.vscode.getPtahIconUri();
+  readonly ptahUserIconUri = this.vscode.getPtahUserIconUri();
 
   /**
    * Permission lookup function to pass to execution tree

@@ -139,13 +139,11 @@ export class SessionHistoryReaderService {
       // 3. Read main session messages
       const mainMessages = await this.readJsonlMessages(sessionPath);
 
-
       // 4. Load agent sessions
       const agentSessions = await this.loadAgentSessions(
         sessionsDir,
         sessionId
       );
-
 
       // 5. Replay and convert to stream events
       const events = this.replayToStreamEvents(
@@ -153,8 +151,6 @@ export class SessionHistoryReaderService {
         mainMessages,
         agentSessions
       );
-
-
 
       return events;
     } catch (error) {
@@ -377,22 +373,17 @@ export class SessionHistoryReaderService {
           // Agent files have sessionId pointing to their parent main session
           const firstMsg = messages[0];
 
-
-
           if (firstMsg?.sessionId === parentSessionId) {
             agentSessions.push({
               agentId,
               filePath,
               messages,
             });
-
           }
         } catch {
           // Skip unreadable agent files
         }
       }
-
-
     } catch {
       // No agent files found
     }
@@ -862,10 +853,7 @@ export class SessionHistoryReaderService {
         timestamp,
         executionMessages: agent.messages,
       });
-
-
     }
-
 
     return map;
   }
@@ -928,7 +916,6 @@ export class SessionHistoryReaderService {
       (a, b) => a.timestamp - b.timestamp
     );
 
-
     for (const task of sortedTasks) {
       let bestMatch: string | null = null;
       let bestTimeDiff = Infinity;
@@ -946,14 +933,12 @@ export class SessionHistoryReaderService {
       if (bestMatch) {
         map.set(task.toolUseId, bestMatch);
         usedAgents.add(bestMatch);
-
       } else {
         this.logger.warn('[SessionHistoryReader] No agent for task', {
           toolUseId: task.toolUseId,
         });
       }
     }
-
 
     return map;
   }

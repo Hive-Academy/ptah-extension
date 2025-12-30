@@ -24,6 +24,9 @@ export const SDK_TOKENS = {
   SDK_CLI_DETECTOR: 'SdkCliDetector',
   SDK_ATTACHMENT_PROCESSOR: Symbol('SdkAttachmentProcessor'),
 
+  // Subagent hook handler (TASK_2025_099)
+  SDK_SUBAGENT_HOOK_HANDLER: 'SdkSubagentHookHandler',
+
   // OpenRouter services (TASK_2025_091 Phase 2)
   SDK_OPENROUTER_MODELS: 'SdkOpenRouterModels',
 } as const;

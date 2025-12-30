@@ -790,3 +790,334 @@ export type CanUseTool = (
     agentID?: string;
   }
 ) => Promise<PermissionResult>;
+
+// =============================================================================
+// HOOK SYSTEM TYPES (TASK_2025_099)
+// =============================================================================
+
+/**
+ * Hook event names (from SDK HOOK_EVENTS constant)
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:172
+ */
+export type HookEvent =
+  | 'PreToolUse'
+  | 'PostToolUse'
+  | 'PostToolUseFailure'
+  | 'Notification'
+  | 'UserPromptSubmit'
+  | 'SessionStart'
+  | 'SessionEnd'
+  | 'Stop'
+  | 'SubagentStart'
+  | 'SubagentStop'
+  | 'PreCompact'
+  | 'PermissionRequest';
+
+/**
+ * Async hook output (for hooks that need more time)
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:257-260
+ */
+export interface AsyncHookJSONOutput {
+  async: true;
+  asyncTimeout?: number;
+}
+
+/**
+ * Sync hook output (most common case)
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:261-301
+ */
+export interface SyncHookJSONOutput {
+  continue?: boolean;
+  suppressOutput?: boolean;
+  stopReason?: string;
+  decision?: 'approve' | 'block';
+  systemMessage?: string;
+  reason?: string;
+  hookSpecificOutput?:
+    | {
+        hookEventName: 'PreToolUse';
+        permissionDecision?: 'allow' | 'deny' | 'ask';
+        permissionDecisionReason?: string;
+        updatedInput?: Record<string, unknown>;
+      }
+    | {
+        hookEventName: 'UserPromptSubmit';
+        additionalContext?: string;
+      }
+    | {
+        hookEventName: 'SessionStart';
+        additionalContext?: string;
+      }
+    | {
+        hookEventName: 'SubagentStart';
+        additionalContext?: string;
+      }
+    | {
+        hookEventName: 'PostToolUse';
+        additionalContext?: string;
+        updatedMCPToolOutput?: unknown;
+      }
+    | {
+        hookEventName: 'PostToolUseFailure';
+        additionalContext?: string;
+      }
+    | {
+        hookEventName: 'PermissionRequest';
+        decision:
+          | {
+              behavior: 'allow';
+              updatedInput?: Record<string, unknown>;
+              updatedPermissions?: PermissionUpdate[];
+            }
+          | {
+              behavior: 'deny';
+              message?: string;
+              interrupt?: boolean;
+            };
+      };
+}
+
+/**
+ * Hook JSON output (union of async and sync)
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:302
+ */
+export type HookJSONOutput = AsyncHookJSONOutput | SyncHookJSONOutput;
+
+/**
+ * Hook callback function signature
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:174-176
+ */
+export type HookCallback = (
+  input: HookInput,
+  toolUseID: string | undefined,
+  options: { signal: AbortSignal }
+) => Promise<HookJSONOutput>;
+
+/**
+ * Hook callback matcher configuration
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:177-182
+ */
+export interface HookCallbackMatcher {
+  /** Optional matcher pattern for filtering */
+  matcher?: string;
+  /** Array of hook callbacks to execute */
+  hooks: HookCallback[];
+  /** Timeout in seconds for all hooks in this matcher */
+  timeout?: number;
+}
+
+/**
+ * Base hook input (common fields for all hooks)
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:183-188
+ */
+export interface BaseHookInput {
+  session_id: string;
+  transcript_path: string;
+  cwd: string;
+  permission_mode?: string;
+}
+
+/**
+ * PreToolUse hook input
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:189-194
+ */
+export interface PreToolUseHookInput extends BaseHookInput {
+  hook_event_name: 'PreToolUse';
+  tool_name: string;
+  tool_input: unknown;
+  tool_use_id: string;
+}
+
+/**
+ * PermissionRequest hook input
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:195-200
+ */
+export interface PermissionRequestHookInput extends BaseHookInput {
+  hook_event_name: 'PermissionRequest';
+  tool_name: string;
+  tool_input: unknown;
+  permission_suggestions?: PermissionUpdate[];
+}
+
+/**
+ * PostToolUse hook input
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:201-207
+ */
+export interface PostToolUseHookInput extends BaseHookInput {
+  hook_event_name: 'PostToolUse';
+  tool_name: string;
+  tool_input: unknown;
+  tool_response: unknown;
+  tool_use_id: string;
+}
+
+/**
+ * PostToolUseFailure hook input
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:208-215
+ */
+export interface PostToolUseFailureHookInput extends BaseHookInput {
+  hook_event_name: 'PostToolUseFailure';
+  tool_name: string;
+  tool_input: unknown;
+  tool_use_id: string;
+  error: string;
+  is_interrupt?: boolean;
+}
+
+/**
+ * Notification hook input
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:216-221
+ */
+export interface NotificationHookInput extends BaseHookInput {
+  hook_event_name: 'Notification';
+  message: string;
+  title?: string;
+  notification_type: string;
+}
+
+/**
+ * UserPromptSubmit hook input
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:222-225
+ */
+export interface UserPromptSubmitHookInput extends BaseHookInput {
+  hook_event_name: 'UserPromptSubmit';
+  prompt: string;
+}
+
+/**
+ * SessionStart hook input
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:226-229
+ */
+export interface SessionStartHookInput extends BaseHookInput {
+  hook_event_name: 'SessionStart';
+  source: 'startup' | 'resume' | 'clear' | 'compact';
+}
+
+/**
+ * Stop hook input
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:230-233
+ */
+export interface StopHookInput extends BaseHookInput {
+  hook_event_name: 'Stop';
+  stop_hook_active: boolean;
+}
+
+/**
+ * SubagentStart hook input - fires when a subagent begins execution
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:234-238
+ */
+export interface SubagentStartHookInput extends BaseHookInput {
+  hook_event_name: 'SubagentStart';
+  /** Unique identifier for the subagent */
+  agent_id: string;
+  /** Type of agent (e.g., "software-architect", "backend-developer") */
+  agent_type: string;
+}
+
+/**
+ * SubagentStop hook input - fires when a subagent completes
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:239-244
+ */
+export interface SubagentStopHookInput extends BaseHookInput {
+  hook_event_name: 'SubagentStop';
+  stop_hook_active: boolean;
+  /** Unique identifier for the subagent (matches SubagentStartHookInput.agent_id) */
+  agent_id: string;
+  /** Path to the subagent's transcript JSONL file */
+  agent_transcript_path: string;
+}
+
+/**
+ * PreCompact hook input
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:245-249
+ */
+export interface PreCompactHookInput extends BaseHookInput {
+  hook_event_name: 'PreCompact';
+  trigger: 'manual' | 'auto';
+  custom_instructions: string | null;
+}
+
+/**
+ * SessionEnd hook input
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:252-255
+ */
+export interface SessionEndHookInput extends BaseHookInput {
+  hook_event_name: 'SessionEnd';
+  reason: string;
+}
+
+/**
+ * Hook input union - all possible hook input types
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:256
+ */
+export type HookInput =
+  | PreToolUseHookInput
+  | PostToolUseHookInput
+  | PostToolUseFailureHookInput
+  | NotificationHookInput
+  | UserPromptSubmitHookInput
+  | SessionStartHookInput
+  | SessionEndHookInput
+  | StopHookInput
+  | SubagentStartHookInput
+  | SubagentStopHookInput
+  | PreCompactHookInput
+  | PermissionRequestHookInput;
+
+// =============================================================================
+// HOOK TYPE GUARDS (TASK_2025_099)
+// =============================================================================
+
+/**
+ * Check if hook input is SubagentStart
+ */
+export function isSubagentStartHook(
+  input: HookInput
+): input is SubagentStartHookInput {
+  return input.hook_event_name === 'SubagentStart';
+}
+
+/**
+ * Check if hook input is SubagentStop
+ */
+export function isSubagentStopHook(
+  input: HookInput
+): input is SubagentStopHookInput {
+  return input.hook_event_name === 'SubagentStop';
+}
+
+/**
+ * Check if hook input is PreToolUse
+ */
+export function isPreToolUseHook(
+  input: HookInput
+): input is PreToolUseHookInput {
+  return input.hook_event_name === 'PreToolUse';
+}
+
+/**
+ * Check if hook input is PostToolUse
+ */
+export function isPostToolUseHook(
+  input: HookInput
+): input is PostToolUseHookInput {
+  return input.hook_event_name === 'PostToolUse';
+}
+
+/**
+ * Check if hook input is SessionStart
+ */
+export function isSessionStartHook(
+  input: HookInput
+): input is SessionStartHookInput {
+  return input.hook_event_name === 'SessionStart';
+}
+
+/**
+ * Check if hook input is SessionEnd
+ */
+export function isSessionEndHook(
+  input: HookInput
+): input is SessionEndHookInput {
+  return input.hook_event_name === 'SessionEnd';
+}

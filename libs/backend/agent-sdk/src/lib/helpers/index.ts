@@ -24,3 +24,4 @@ export {
   type StreamTransformConfig,
 } from './stream-transformer';
 export * from './attachment-processor.service';
+export { SubagentHookHandler } from './subagent-hook-handler';
