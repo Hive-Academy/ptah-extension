@@ -13,6 +13,9 @@ export {
 export * from './app-state.service';
 export * from './webview-navigation.service';
 
+// Theme Service (TASK_2025_100)
+export { ThemeService, type ThemeName } from './theme.service';
+
 // Model & Autopilot State Services (TASK_2025_035)
 export {
   ModelStateService,

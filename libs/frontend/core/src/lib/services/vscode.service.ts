@@ -12,6 +12,7 @@ export interface WebviewConfig {
   extensionUri: string;
   baseUri: string;
   iconUri: string;
+  userIconUri: string;
 }
 
 /**
@@ -73,6 +74,7 @@ export class VSCodeService {
     extensionUri: '',
     baseUri: '',
     iconUri: '',
+    userIconUri: '',
   });
 
   private readonly _isConnected = signal(false);
@@ -155,6 +157,15 @@ export class VSCodeService {
   }
 
   /**
+   * Get Ptah user icon URI
+   */
+  getPtahUserIconUri(): string {
+    return (
+      this.config().userIconUri || this.getAssetUri('assets/user-icon.png')
+    );
+  }
+
+  /**
    * Send message to VS Code extension host
    * Public wrapper for vscode.postMessage() to avoid type assertions
    */
@@ -166,6 +177,53 @@ export class VSCodeService {
         '[VSCodeService] postMessage called but VS Code API not available'
       );
     }
+  }
+
+  /**
+   * Get a value from the webview state by key
+   *
+   * VS Code webview state is persisted across webview lifecycles.
+   * This method provides keyed access to the state object.
+   *
+   * @param key - The key to retrieve from state
+   * @returns The value if found, undefined otherwise
+   */
+  public getState<T>(key: string): T | undefined {
+    if (!this.vscode) {
+      return undefined;
+    }
+
+    const state = this.vscode.getState() as Record<string, unknown> | undefined;
+    if (!state) {
+      return undefined;
+    }
+
+    return state[key] as T | undefined;
+  }
+
+  /**
+   * Set a value in the webview state by key
+   *
+   * VS Code webview state is persisted across webview lifecycles.
+   * This method provides keyed access to the state object, merging
+   * with existing state to preserve other keys.
+   *
+   * @param key - The key to set in state
+   * @param value - The value to store
+   */
+  public setState<T>(key: string, value: T): void {
+    if (!this.vscode) {
+      console.warn(
+        '[VSCodeService] setState called but VS Code API not available'
+      );
+      return;
+    }
+
+    // Get existing state and merge with new key-value
+    const currentState =
+      (this.vscode.getState() as Record<string, unknown>) || {};
+    const newState = { ...currentState, [key]: value };
+    this.vscode.setState(newState);
   }
 
   private setupMessageListener(): void {
