@@ -93,7 +93,7 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
   --golden-ratio: 1.618;
 
   /* Animation colors (for keyframes that need theme-awareness) */
-  --aura-color-dim: oklch(70% 0.18 70 / 0.5);    /* Gold glow dim */
+  --aura-color-dim: oklch(70% 0.18 70 / 0.5); /* Gold glow dim */
   --aura-color-bright: oklch(70% 0.18 70 / 0.8); /* Gold glow bright */
 }
 
@@ -104,7 +104,11 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
   --glass-border: rgba(180, 140, 80, 0.25);
 
   /* Divine Gradients - Adjusted for light backgrounds */
-  --gradient-divine: linear-gradient(135deg, oklch(75% 0.12 181), oklch(75% 0.15 70));
+  --gradient-divine: linear-gradient(
+    135deg,
+    oklch(75% 0.12 181),
+    oklch(75% 0.15 70)
+  );
   --gradient-shadow: linear-gradient(
     180deg,
     rgba(180, 140, 80, 0.15),
@@ -117,7 +121,7 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
   );
 
   /* Animation colors - Adjusted for light backgrounds */
-  --aura-color-dim: oklch(65% 0.15 181 / 0.4);    /* Teal glow dim */
+  --aura-color-dim: oklch(65% 0.15 181 / 0.4); /* Teal glow dim */
   --aura-color-bright: oklch(65% 0.15 181 / 0.7); /* Teal glow bright */
 }
 
@@ -476,18 +480,18 @@ Theme-aware CSS custom properties for agent badges
 
 /* Agent badge colors - Light theme (adjusted for contrast on warm cream backgrounds) */
 [data-theme='anubis-light'] {
-  --agent-architect: oklch(45% 0.2 240);   /* Deeper blue for cream background */
-  --agent-frontend: oklch(55% 0.2 237);    /* Vivid blue */
-  --agent-backend: oklch(45% 0.15 162);    /* Rich green */
-  --agent-tester: oklch(50% 0.2 303);      /* Vibrant purple */
-  --agent-reviewer: oklch(60% 0.18 70);    /* Rich gold */
-  --agent-leader: oklch(50% 0.2 270);      /* Deep indigo */
-  --agent-pm: oklch(50% 0.2 25);           /* Rich red */
+  --agent-architect: oklch(45% 0.2 240); /* Deeper blue for cream background */
+  --agent-frontend: oklch(55% 0.2 237); /* Vivid blue */
+  --agent-backend: oklch(45% 0.15 162); /* Rich green */
+  --agent-tester: oklch(50% 0.2 303); /* Vibrant purple */
+  --agent-reviewer: oklch(60% 0.18 70); /* Rich gold */
+  --agent-leader: oklch(50% 0.2 270); /* Deep indigo */
+  --agent-pm: oklch(50% 0.2 25); /* Rich red */
   --agent-researcher: oklch(55% 0.15 200); /* Cyan */
-  --agent-supervisor: oklch(60% 0.18 70);  /* Rich gold */
+  --agent-supervisor: oklch(60% 0.18 70); /* Rich gold */
   /* FIX: In light mode, badge text should be light on dark badge backgrounds */
-  --agent-badge-text-light: oklch(97% 0.01 0);  /* Near-white for dark badges */
-  --agent-badge-text-dark: oklch(20% 0.02 0);   /* Near-black for light badges */
+  --agent-badge-text-light: oklch(97% 0.01 0); /* Near-white for dark badges */
+  --agent-badge-text-dark: oklch(20% 0.02 0); /* Near-black for light badges */
 }
 
 .badge-agent-architect {
