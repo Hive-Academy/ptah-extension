@@ -24,6 +24,7 @@ export * from './atoms/cost-badge.component';
 export * from './atoms/duration-badge.component';
 export * from './atoms/streaming-text-reveal.component';
 export * from './atoms/typing-cursor.component';
+export * from './atoms/theme-toggle.component';
 
 // ============================================================================
 // MOLECULES - Combinations of atoms
