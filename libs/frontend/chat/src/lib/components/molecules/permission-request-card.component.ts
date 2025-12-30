@@ -241,24 +241,26 @@ export class PermissionRequestCardComponent {
 
   /**
    * Get tool-specific color for border and badge
+   * Uses oklch CSS variables for theme-aware styling
+   * TASK_2025_100 Batch 4: Migrated from hardcoded hex to oklch(var(--xxx)) format
    */
   protected getToolColor(): string {
     const toolName = this.request().toolName;
     switch (toolName) {
       case 'Read':
-        return '#60a5fa'; // blue-400
+        return 'oklch(var(--in))'; // info (blue) - file reading
       case 'Write':
-        return '#4ade80'; // green-400
+        return 'oklch(var(--su))'; // success (green) - file creation
       case 'Bash':
-        return '#fbbf24'; // amber-400
+        return 'oklch(var(--wa))'; // warning (amber) - shell commands
       case 'Grep':
-        return '#a855f7'; // purple-400
+        return 'oklch(var(--s))'; // secondary - search operations
       case 'Edit':
-        return '#fb923c'; // orange-400
+        return 'oklch(var(--a))'; // accent - file modifications
       case 'Glob':
-        return '#06b6d4'; // cyan-400
+        return 'oklch(var(--in))'; // info - file pattern matching
       default:
-        return '#f59e0b'; // amber-500 (warning)
+        return 'oklch(var(--wa))'; // warning (amber) - default
     }
   }
 

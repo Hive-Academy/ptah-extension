@@ -251,9 +251,10 @@ export class InlineAgentBubbleComponent {
   /**
    * Generate a consistent HSL color from a string
    * Same string always produces the same color
+   * TASK_2025_100 Batch 4: Updated default fallback to theme-aware oklch format
    */
   private generateColorFromString(str: string): string {
-    if (!str) return '#717171'; // Default gray for empty strings
+    if (!str) return 'oklch(var(--bc) / 0.5)'; // Theme-aware gray for empty strings
 
     // Simple hash function
     let hash = 0;
