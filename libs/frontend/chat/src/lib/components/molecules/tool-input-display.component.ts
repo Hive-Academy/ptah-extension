@@ -158,6 +158,12 @@ export class ToolInputDisplayComponent {
       return false;
     }
 
+    // Hide input for Edit tool - DiffDisplayComponent already shows old/new visually
+    // Showing raw old_string/new_string in input section is redundant
+    if (toolName === 'Edit') {
+      return false;
+    }
+
     // Hide input for simple tools where description shows the key info
     if (['Read'].includes(toolName || '')) {
       // Only show if there are extra params besides file_path

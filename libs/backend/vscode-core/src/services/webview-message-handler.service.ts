@@ -10,7 +10,10 @@
 
 import { injectable, inject } from 'tsyringe';
 import * as vscode from 'vscode';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import {
+  MESSAGE_TYPES,
+  type ISdkPermissionHandler,
+} from '@ptah-extension/shared';
 import { TOKENS } from '../di/tokens';
 import type { Logger } from '../logging';
 import type { RpcHandler } from '../messaging';
@@ -328,23 +331,24 @@ export class WebviewMessageHandlerService {
       const payload = message.payload || message.response;
       const requestId = payload?.id;
 
-      const approved =
-        payload?.decision === 'allow' || payload?.decision === 'always_allow';
-
       const SDK_PERMISSION_HANDLER = 'SdkPermissionHandler';
       if (container.isRegistered(SDK_PERMISSION_HANDLER)) {
-        const permissionHandler = container.resolve<any>(
+        const permissionHandler = container.resolve<ISdkPermissionHandler>(
           SDK_PERMISSION_HANDLER
         );
+        // TASK_2025_101_FIX: Pass correct PermissionResponse structure
+        // Previously passed 'approved' (boolean) which is NOT in PermissionResponse interface
+        // Must pass 'id' and 'decision' fields matching SdkPermissionHandler.PermissionResponse
+        const decision = payload?.decision ?? 'deny';
         permissionHandler.handleResponse(requestId, {
-          approved,
+          id: requestId,
+          decision,
           modifiedInput: payload?.modifiedInput,
           reason: payload?.reason,
         });
         this.logger.info(`[${webviewId}] SDK Permission response processed`, {
           requestId,
-          decision: payload?.decision,
-          approved,
+          decision,
         });
       } else {
         this.logger.warn(`[${webviewId}] SdkPermissionHandler not registered`, {

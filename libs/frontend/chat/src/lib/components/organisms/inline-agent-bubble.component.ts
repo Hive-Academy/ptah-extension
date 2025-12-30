@@ -226,18 +226,19 @@ export class InlineAgentBubbleComponent {
   readonly isInterrupted = computed(() => this.node().status === 'interrupted');
 
   // Computed: agent color based on type
-  // Built-in Claude agents get fixed colors for brand consistency
+  // Built-in Claude agents get fixed oklch colors for theme consistency
   // Custom agents get dynamically generated colors based on name hash
   readonly agentColor = computed(() => {
     const agentType = this.node().agentType || '';
 
-    // Built-in Claude Code agents with fixed brand colors
+    // Built-in Claude Code agents with oklch colors for theme consistency
+    // Using oklch ensures colors work well on both light and dark backgrounds
     const builtinColors: Record<string, string> = {
-      Explore: '#22c55e',
-      Plan: '#a855f7',
-      'general-purpose': '#6366f1',
-      'claude-code-guide': '#0ea5e9',
-      'statusline-setup': '#64748b',
+      Explore: 'oklch(0.6 0.18 145)', // Green
+      Plan: 'oklch(0.55 0.2 300)', // Purple
+      'general-purpose': 'oklch(0.55 0.2 265)', // Indigo
+      'claude-code-guide': 'oklch(0.6 0.18 210)', // Sky blue
+      'statusline-setup': 'oklch(0.55 0.05 250)', // Slate
     };
 
     if (builtinColors[agentType]) {

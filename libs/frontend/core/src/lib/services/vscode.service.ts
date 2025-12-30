@@ -244,18 +244,20 @@ export class VSCodeService {
 
       // Route chat:chunk messages to ChatStore (SDK path only)
       // TASK_2025_092: Now uses tabId for routing, sessionId is real SDK UUID
+      // TASK_2025_100: tabId may be missing for hook-triggered events (agent-start)
+      //                In this case, streaming-handler falls back to sessionId lookup
       if (message.type === MESSAGE_TYPES.CHAT_CHUNK) {
-
         if (message.payload && this.chatStore) {
           // Extract tabId for routing and sessionId (real SDK UUID) from payload
+          // TASK_2025_100: tabId may be undefined for hook-triggered events
           const { tabId, sessionId, event } = message.payload as {
-            tabId: string;
-            sessionId: string;
+            tabId?: string;
+            sessionId?: string;
             event: FlatStreamEventUnion;
           };
 
-
           // Pass tabId and sessionId to ChatStore for routing and session linking
+          // Streaming-handler will fallback to sessionId lookup if tabId is missing
           this.chatStore.processStreamEvent(event, tabId, sessionId);
         } else if (!message.payload) {
           console.warn(
@@ -313,7 +315,6 @@ export class VSCodeService {
       // Handle permission request (TASK_2025_026)
       if (message.type === MESSAGE_TYPES.PERMISSION_REQUEST) {
         if (message.payload && this.chatStore) {
-
           this.chatStore.handlePermissionRequest(message.payload);
         } else if (!message.payload) {
           console.warn(
@@ -328,6 +329,14 @@ export class VSCodeService {
 
       // Handle agent summary chunk (real-time agent summary streaming)
       if (message.type === MESSAGE_TYPES.AGENT_SUMMARY_CHUNK) {
+        // DIAGNOSTIC: Log receipt of summary chunk
+        console.log('[VSCodeService] AGENT_SUMMARY_CHUNK received:', {
+          hasPayload: !!message.payload,
+          hasChatStore: !!this.chatStore,
+          toolUseId: message.payload?.toolUseId,
+          deltaLength: message.payload?.summaryDelta?.length,
+        });
+
         if (message.payload && this.chatStore) {
           this.chatStore.handleAgentSummaryChunk(message.payload);
         } else if (!message.payload) {

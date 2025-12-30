@@ -178,9 +178,7 @@ export class StreamTransformer {
         // Initial value is temp ID from config, updated to real UUID on system init message
         let effectiveSessionId = sessionId;
 
-
         try {
-
           for await (const sdkMessage of sdkQuery) {
             sdkMessageCount++;
 
@@ -204,8 +202,6 @@ export class StreamTransformer {
               const msg = sdkMessage as { message?: { id?: string } };
               messageDetails['messageId'] = msg?.message?.id;
             }
-
-
 
             // Extract real session ID from system 'init' message using type guard
             if (isSystemInit(sdkMessage)) {
@@ -244,8 +240,6 @@ export class StreamTransformer {
                   duration: sdkMessage.duration_ms,
                 };
 
-
-
                 // Validate and notify
                 const validatedStats = validateStats(rawStats, logger);
                 if (validatedStats) {
@@ -254,7 +248,6 @@ export class StreamTransformer {
                 // If validation fails, validateStats already logged warning
               }
             }
-
 
             // CRITICAL FIX (TASK_2025_092): Must process 'user' messages to extract tool_result!
             // SDK sends tool_result content blocks in user messages after tool execution.
@@ -270,8 +263,6 @@ export class StreamTransformer {
                 sdkMessage,
                 effectiveSessionId
               );
-
-
 
               for (const event of flatEvents) {
                 yieldedEventCount++;
@@ -290,40 +281,55 @@ export class StreamTransformer {
           const errorObj =
             error instanceof Error ? error : new Error(String(error));
 
-          logger.error(
-            `[StreamTransformer] Session ${sessionId} error: ${errorObj.message}`,
-            errorObj
-          );
-
-          // Check for auth errors and provide helpful logging
-          // Be specific to avoid false positives (e.g., "Invalid MessageId format" is not an auth error)
+          // Check if this is a user-initiated abort (not a real error)
           const lowerMessage = errorObj.message.toLowerCase();
-          const isAuthError =
-            errorObj.message.includes('401') ||
-            lowerMessage.includes('unauthorized') ||
-            lowerMessage.includes('authentication failed') ||
-            lowerMessage.includes('invalid api key') ||
-            lowerMessage.includes('invalid token') ||
-            lowerMessage.includes('api_key');
+          const isUserAbort =
+            lowerMessage.includes('aborted by user') ||
+            lowerMessage.includes('abort') ||
+            lowerMessage.includes('cancelled') ||
+            lowerMessage.includes('canceled');
 
-          if (isAuthError) {
-            logger.error('[StreamTransformer] AUTHENTICATION ERROR!');
-            logger.error(
-              '[StreamTransformer] SDK requires valid API key from console.anthropic.com'
+          if (isUserAbort) {
+            // User aborts are expected behavior, log at INFO level
+            logger.info(
+              `[StreamTransformer] Session ${sessionId} aborted by user`
             );
+          } else {
+            // Real errors should be logged at ERROR level
             logger.error(
-              '[StreamTransformer] OR OAuth token from "claude setup-token"'
+              `[StreamTransformer] Session ${sessionId} error: ${errorObj.message}`,
+              errorObj
             );
-            logger.error(
-              `[StreamTransformer] Current: ANTHROPIC_API_KEY=${
-                process.env['ANTHROPIC_API_KEY']
-                  ? `SET (${process.env['ANTHROPIC_API_KEY'].substring(
-                      0,
-                      10
-                    )}...)`
-                  : 'NOT SET'
-              }`
-            );
+
+            // Check for auth errors and provide helpful logging
+            // Be specific to avoid false positives (e.g., "Invalid MessageId format" is not an auth error)
+            const isAuthError =
+              errorObj.message.includes('401') ||
+              lowerMessage.includes('unauthorized') ||
+              lowerMessage.includes('authentication failed') ||
+              lowerMessage.includes('invalid api key') ||
+              lowerMessage.includes('invalid token') ||
+              lowerMessage.includes('api_key');
+
+            if (isAuthError) {
+              logger.error('[StreamTransformer] AUTHENTICATION ERROR!');
+              logger.error(
+                '[StreamTransformer] SDK requires valid API key from console.anthropic.com'
+              );
+              logger.error(
+                '[StreamTransformer] OR OAuth token from "claude setup-token"'
+              );
+              logger.error(
+                `[StreamTransformer] Current: ANTHROPIC_API_KEY=${
+                  process.env['ANTHROPIC_API_KEY']
+                    ? `SET (${process.env['ANTHROPIC_API_KEY'].substring(
+                        0,
+                        10
+                      )}...)`
+                    : 'NOT SET'
+                }`
+              );
+            }
           }
 
           throw error;

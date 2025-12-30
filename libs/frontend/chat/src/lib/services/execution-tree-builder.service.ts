@@ -450,6 +450,82 @@ export class ExecutionTreeBuilderService {
             }
           }
           continue; // Skip building the Task tool node
+        } else {
+          // TASK_2025_099 FIX: Create streaming agent placeholder when no agent_start yet.
+          // During streaming, agent_start events only arrive when the complete message comes.
+          // Create a placeholder agent node from accumulated tool input to show the agent is working.
+          const toolResult = [...state.events.values()].find(
+            (e) =>
+              e.eventType === 'tool_result' &&
+              (e as ToolResultEvent).toolCallId === toolStart.toolCallId
+          );
+
+          // Only create placeholder if tool is still streaming (no result yet)
+          if (!toolResult) {
+            // Try to extract agent info from accumulated tool input
+            const inputKey = `${toolStart.toolCallId}-input`;
+            const inputString = state.toolInputAccumulators.get(inputKey) || '';
+
+            // Extract agent type and description from partial JSON
+            // The JSON may be incomplete, so we use regex to extract fields
+            let agentType = 'Task';
+            let agentDescription = 'Agent working...';
+
+            // Try to extract subagent_type from partial JSON
+            const typeMatch = inputString.match(
+              /"subagent_type"\s*:\s*"([^"]+)"/
+            );
+            if (typeMatch) {
+              agentType = typeMatch[1];
+            }
+
+            // Try to extract description from partial JSON
+            const descMatch = inputString.match(
+              /"description"\s*:\s*"([^"]+)"/
+            );
+            if (descMatch) {
+              agentDescription = descMatch[1];
+            }
+
+            // TASK_2025_100 FIX: Build children from sub-agent messages even during streaming.
+            // Previously, placeholder had empty children: []. This caused sub-agent's text and
+            // tool content to not display until agent_start arrived (only with complete messages).
+            // Now we collect children the same way buildAgentNode does.
+            const agentMessageStarts = [...state.events.values()].filter(
+              (e) =>
+                e.eventType === 'message_start' &&
+                e.parentToolUseId === toolStart.toolCallId &&
+                (e as MessageStartEvent).role === 'assistant'
+            ) as MessageStartEvent[];
+
+            const agentChildren: ExecutionNode[] = [];
+            for (const msgStart of agentMessageStarts) {
+              const messageNode = this.buildMessageNode(
+                msgStart.messageId,
+                state,
+                depth + 1
+              );
+              if (messageNode) {
+                // Unwrap message node - agent shows its content directly
+                agentChildren.push(...messageNode.children);
+              }
+            }
+
+            const placeholderAgent = createExecutionNode({
+              id: `agent-placeholder-${toolStart.toolCallId}`,
+              type: 'agent',
+              status: 'streaming',
+              content: agentDescription,
+              children: agentChildren, // Now includes sub-agent content
+              startTime: toolStart.timestamp,
+              agentType: agentType,
+              agentDescription: agentDescription,
+              toolCallId: toolStart.toolCallId,
+            });
+
+            tools.push(placeholderAgent);
+            continue; // Skip building the Task tool node
+          }
         }
       }
 
@@ -586,11 +662,22 @@ export class ExecutionTreeBuilderService {
           __parseError: result.error,
           __raw: result.raw,
         } as Record<string, unknown>;
-        console.warn('[ExecutionTreeBuilderService] Tool input parse failed', {
-          toolCallId: toolStart.toolCallId,
-          error: result.error,
-          raw: result.raw?.substring(0, 100), // Log first 100 chars
-        });
+
+        // TASK_2025_100 FIX: Only warn if JSON looks complete (ends with }).
+        // During rapid tree rebuilds, tool_result may arrive before accumulator
+        // has the complete JSON, causing noisy warnings for incomplete JSON.
+        const trimmed = result.raw?.trim() || '';
+        const looksComplete = trimmed.endsWith('}') || trimmed.endsWith(']');
+        if (looksComplete) {
+          console.warn(
+            '[ExecutionTreeBuilderService] Tool input parse failed',
+            {
+              toolCallId: toolStart.toolCallId,
+              error: result.error,
+              raw: result.raw?.substring(0, 100), // Log first 100 chars
+            }
+          );
+        }
       }
     } else if (inputString) {
       // Tool still streaming - don't parse, show raw snippet for debugging

@@ -396,17 +396,38 @@ export class ChatRpcHandlers {
         );
       }
     } catch (error) {
-      this.logger.error(
-        `[RPC] Error streaming flat events for session ${sessionId}, tabId ${tabId} after ${eventCount} events`,
-        error instanceof Error ? error : new Error(String(error))
-      );
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      const lowerMessage = errorMessage.toLowerCase();
+
+      // Check if this is a user-initiated abort (not a real error)
+      const isUserAbort =
+        lowerMessage.includes('aborted by user') ||
+        lowerMessage.includes('abort') ||
+        lowerMessage.includes('cancelled') ||
+        lowerMessage.includes('canceled');
+
+      if (isUserAbort) {
+        // User aborts are expected behavior, log at INFO level
+        this.logger.info(
+          `[RPC] Session ${sessionId} aborted by user after ${eventCount} events`
+        );
+      } else {
+        // Real errors should be logged at ERROR level
+        this.logger.error(
+          `[RPC] Error streaming flat events for session ${sessionId}, tabId ${tabId} after ${eventCount} events`,
+          error instanceof Error ? error : new Error(String(error))
+        );
+      }
+
+      // Send error to webview (frontend handles abort vs error display)
       await this.webviewManager.sendMessage(
         'ptah.main',
         MESSAGE_TYPES.CHAT_ERROR,
         {
           tabId,
           sessionId,
-          error: error instanceof Error ? error.message : String(error),
+          error: errorMessage,
         }
       );
     }

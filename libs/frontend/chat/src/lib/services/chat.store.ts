@@ -351,15 +351,32 @@ export class ChatStore {
   }): void {
     const { toolUseId, summaryDelta } = payload;
 
+    // DIAGNOSTIC: Log receipt of summary chunk
+    console.log('[ChatStore] handleAgentSummaryChunk called:', {
+      toolUseId,
+      deltaLength: summaryDelta.length,
+      deltaPreview: summaryDelta.slice(0, 50),
+    });
+
     // Find the agent node by toolUseId
     const agentNode = this.sessionManager.getAgent(toolUseId);
     if (!agentNode) {
-      console.warn(
-        '[ChatStore] Agent node not found for summary chunk:',
+      // Buffer the chunk for later - agent node doesn't exist yet (race condition)
+      // When the agent node is registered, buffered chunks will be flushed
+      console.log(
+        '[ChatStore] Agent not found, buffering chunk for:',
         toolUseId
       );
+      this.sessionManager.bufferAgentChunk(toolUseId, summaryDelta);
       return;
     }
+
+    console.log('[ChatStore] Agent found, updating summaryContent:', {
+      toolUseId,
+      currentLength: agentNode.summaryContent?.length || 0,
+      newTotalLength:
+        (agentNode.summaryContent || '').length + summaryDelta.length,
+    });
 
     // Update agent node with appended summary content
     const updatedAgent: ExecutionNode = {
@@ -472,6 +489,51 @@ export class ChatStore {
     // This method exists for backward compatibility only
   }
 
+  /**
+   * Interrupt current execution and send a new message (re-steering)
+   *
+   * TASK_2025_100: This enables mid-execution re-steering. When user sends
+   * a message during streaming, we queue it. On message_complete, we:
+   * 1. Abort/interrupt the current execution (stops Claude's current plan)
+   * 2. Send the queued message (re-steers Claude to new direction)
+   *
+   * Without the interrupt, Claude would continue its previous plan and
+   * potentially ignore or delay processing the new user input.
+   *
+   * @param tabId - Tab to interrupt and send to
+   * @param content - Message content to send after interrupt
+   */
+  private async interruptAndSend(
+    tabId: string,
+    content: string
+  ): Promise<void> {
+    try {
+      console.log('[ChatStore] interruptAndSend: aborting current execution');
+
+      // Clear the queue first to prevent abort from trying to restore it to input
+      this.tabManager.updateTab(tabId, { queuedContent: null });
+
+      // Abort current execution - this signals SDK to stop
+      await this.abortCurrentMessage();
+
+      console.log(
+        '[ChatStore] interruptAndSend: abort complete, sending new message'
+      );
+
+      // Small delay to ensure abort is processed before new message
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Now send the queued message to re-steer Claude
+      await this.messageSender.send(content);
+
+      console.log('[ChatStore] interruptAndSend: re-steering message sent');
+    } catch (error) {
+      console.error('[ChatStore] interruptAndSend failed:', error);
+      // On error, restore content to queue so user doesn't lose it
+      this.tabManager.updateTab(tabId, { queuedContent: content });
+    }
+  }
+
   // ============================================================================
   // EXECUTION NODE PROCESSING (SDK Path)
   // ============================================================================
@@ -489,7 +551,28 @@ export class ChatStore {
     tabId?: string,
     sessionId?: string
   ): void {
-    this.streamingHandler.processStreamEvent(event, tabId, sessionId);
+    const result = this.streamingHandler.processStreamEvent(
+      event,
+      tabId,
+      sessionId
+    );
+
+    // TASK_2025_100: Handle re-steering via queued content on message_complete
+    // When user sends a message during streaming, it's queued. On message_complete,
+    // we INTERRUPT the current execution and send the queued message to re-steer Claude.
+    // Without interrupt, Claude continues its previous plan ignoring the new input.
+    if (result && result.queuedContent) {
+      console.log(
+        '[ChatStore] Re-steering: interrupting and sending queued content'
+      );
+      // Store queued content before abort (abort may clear queue state)
+      const queuedContent = result.queuedContent;
+      const tabId = result.tabId;
+
+      // First: Interrupt current execution so Claude stops its current plan
+      // Then: Send the queued message to re-steer Claude
+      this.interruptAndSend(tabId, queuedContent);
+    }
   }
 
   /**
@@ -559,7 +642,28 @@ export class ChatStore {
     tokens: { input: number; output: number };
     duration: number;
   }): void {
-    this.streamingHandler.handleSessionStats(stats);
+    // StreamingHandler finalizes the message and returns queued content info
+    const result = this.streamingHandler.handleSessionStats(stats);
+
+    // TASK_2025_101: Handle auto-send of queued content here to avoid circular dependency
+    // (StreamingHandler → MessageSender → SessionLoader → StreamingHandler)
+    if (result && result.queuedContent && result.queuedContent.trim()) {
+      console.log('[ChatStore] Auto-sending queued content after finalization');
+      this.messageSender
+        .send(result.queuedContent)
+        .then(() => {
+          // Clear queue only after successful send start
+          this.tabManager.updateTab(result.tabId, { queuedContent: null });
+          console.log('[ChatStore] Auto-send started, queue cleared');
+        })
+        .catch((error) => {
+          console.error(
+            '[ChatStore] Failed to auto-send queued content:',
+            error
+          );
+          // Keep content in queue on error (no data loss)
+        });
+    }
   }
 
   // ============================================================================

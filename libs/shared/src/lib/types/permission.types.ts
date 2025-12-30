@@ -51,8 +51,35 @@ export interface PermissionResponse {
   /** User's decision: allow (once), deny, or always_allow (create rule) */
   readonly decision: 'allow' | 'deny' | 'always_allow';
 
+  /** Modified tool input parameters (optional, user may edit before approval) */
+  readonly modifiedInput?: Readonly<Record<string, unknown>>;
+
   /** Optional reason for deny decision (shown in logs) */
   readonly reason?: string;
+}
+
+/**
+ * Interface for SDK Permission Handler
+ *
+ * Allows vscode-core to call handleResponse without importing agent-sdk directly.
+ * This breaks the circular dependency between vscode-core and agent-sdk.
+ */
+export interface ISdkPermissionHandler {
+  /**
+   * Handle permission response from webview
+   * @param requestId - The permission request ID
+   * @param response - The user's response
+   */
+  handleResponse(requestId: string, response: PermissionResponse): void;
+
+  /**
+   * Handle question response from webview (for AskUserQuestion tool)
+   * @param response - The user's answers
+   */
+  handleQuestionResponse(response: {
+    id: string;
+    answers: Record<string, string>;
+  }): void;
 }
 
 /**
@@ -102,8 +129,9 @@ export const PermissionRequestSchema = z.object({
  * Validates user responses before sending back to MCP server.
  */
 export const PermissionResponseSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string(),
   decision: z.enum(['allow', 'deny', 'always_allow']),
+  modifiedInput: z.record(z.string(), z.unknown()).optional(),
   reason: z.string().optional(),
 });
 

@@ -54,6 +54,8 @@ import {
   template: `
     <div
       class="relative bg-base-300/30 rounded border-l-2 overflow-hidden"
+      [class.animate-glow]="!isExpiringSoon()"
+      [class.animate-glow-urgent]="isExpiringSoon()"
       [style.border-left-color]="getToolColor()"
       role="alert"
     >

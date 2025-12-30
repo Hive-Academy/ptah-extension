@@ -25,6 +25,10 @@ import {
   isAskUserQuestionToolInput,
   MESSAGE_TYPES,
   type QuestionItem,
+  type PermissionResponse,
+  type PermissionRequest as SharedPermissionRequest,
+  type PermissionRule,
+  type ISdkPermissionHandler,
 } from '@ptah-extension/shared';
 import {
   ContentBlock,
@@ -55,12 +59,10 @@ interface PermissionRequest {
 
 /**
  * Permission response from webview RPC
+ * Using shared type from @ptah-extension/shared
+ * See: libs/shared/src/lib/types/permission.types.ts
  */
-interface PermissionResponse {
-  approved: boolean;
-  modifiedInput?: Record<string, unknown>;
-  reason?: string;
-}
+// PermissionResponse is now imported from @ptah-extension/shared
 
 /**
  * Pending request tracking
@@ -101,9 +103,16 @@ interface PendingQuestionRequest {
 }
 
 /**
- * Permission timeout in milliseconds (30 seconds)
+ * Permission timeout in milliseconds (5 minutes)
+ *
+ * NOTE: Claude Code CLI blocks INDEFINITELY until user responds.
+ * We use a 5-minute timeout as a fail-safe to prevent orphaned requests,
+ * but this should be long enough for users to respond in normal usage.
+ *
+ * If you need truly indefinite blocking, consider removing the timeout
+ * and relying on the abort signal from the SDK instead.
  */
-const PERMISSION_TIMEOUT_MS = 30000;
+const PERMISSION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
  * Safe tools that are auto-approved without user prompt
@@ -146,7 +155,7 @@ interface WebviewManager {
  * which was dead code (RPC methods never registered).
  */
 @injectable()
-export class SdkPermissionHandler {
+export class SdkPermissionHandler implements ISdkPermissionHandler {
   /**
    * Pending permission requests awaiting user response
    * Maps requestId → PendingRequest
@@ -158,6 +167,22 @@ export class SdkPermissionHandler {
    * Maps requestId → PendingQuestionRequest
    */
   private pendingQuestionRequests = new Map<string, PendingQuestionRequest>();
+
+  /**
+   * Stored "Always Allow" permission rules
+   * Maps toolName → PermissionRule (auto-approve matching tools)
+   * TASK_2025_FIX: Implements persistent "Always" button functionality
+   */
+  private permissionRules = new Map<string, PermissionRule>();
+
+  /**
+   * Pending request to tool mapping (for storing rules on response)
+   * Maps requestId → { toolName, toolInput }
+   */
+  private pendingRequestContext = new Map<
+    string,
+    { toolName: string; toolInput: Record<string, unknown> }
+  >();
 
   /**
    * Flag to track if emitter has been initialized
@@ -278,6 +303,19 @@ export class SdkPermissionHandler {
         return await this.handleAskUserQuestion(input, options.toolUseID);
       }
 
+      // Check if tool has a stored "Always Allow" rule
+      const storedRule = this.permissionRules.get(toolName);
+      if (storedRule && storedRule.action === 'allow') {
+        this.logger.info(
+          `[SdkPermissionHandler] Auto-approved via "Always Allow" rule: ${toolName}`,
+          { ruleId: storedRule.id }
+        );
+        return {
+          behavior: 'allow' as const,
+          updatedInput: input,
+        };
+      }
+
       // Dangerous tools require user approval
       if (DANGEROUS_TOOLS.includes(toolName)) {
         this.logger.info(
@@ -357,6 +395,9 @@ export class SdkPermissionHandler {
       timeoutAt,
     };
 
+    // Store request context for later rule creation (on always_allow response)
+    this.pendingRequestContext.set(requestId, { toolName, toolInput: input });
+
     // Send SDK permission request event (webview will show permission prompt)
     // Uses MESSAGE_TYPES.PERMISSION_REQUEST which is shared by both SDK and MCP systems
     // TASK_2025_092: Now uses direct webview messaging instead of external emitter
@@ -387,7 +428,7 @@ export class SdkPermissionHandler {
     this.logger.info(`[SdkPermissionHandler] Permission response received`, {
       requestId,
       totalLatency: Date.now() - startTime,
-      approved: response?.approved ?? false,
+      decision: response?.decision ?? 'timeout',
     });
 
     if (!response) {
@@ -401,10 +442,12 @@ export class SdkPermissionHandler {
       };
     }
 
-    // User approved
-    if (response.approved) {
+    // User approved (allow or always_allow)
+    const isApproved =
+      response.decision === 'allow' || response.decision === 'always_allow';
+    if (isApproved) {
       this.logger.info(
-        `[SdkPermissionHandler] Permission request ${requestId} approved for tool ${toolName}`
+        `[SdkPermissionHandler] Permission request ${requestId} approved for tool ${toolName} (decision: ${response.decision})`
       );
       return {
         behavior: 'allow' as const,
@@ -428,6 +471,9 @@ export class SdkPermissionHandler {
    * Handle permission response from webview
    *
    * Called by RPC handler when user approves/denies permission.
+   * Supports three decisions: allow, deny, always_allow
+   *
+   * TASK_2025_FIX: Added always_allow handling to persist permission rules
    */
   handleResponse(requestId: string, response: PermissionResponse): void {
     const pending = this.pendingRequests.get(requestId);
@@ -438,15 +484,42 @@ export class SdkPermissionHandler {
       return;
     }
 
+    // Get request context for rule creation
+    const requestContext = this.pendingRequestContext.get(requestId);
+
+    // Handle "Always Allow" - store permission rule for future auto-approval
+    if (response.decision === 'always_allow' && requestContext) {
+      const rule: PermissionRule = {
+        id: `rule_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        pattern: requestContext.toolName, // Match by tool name
+        toolName: requestContext.toolName,
+        action: 'allow',
+        createdAt: Date.now(),
+        description: `Auto-created from "Always Allow" for ${requestContext.toolName}`,
+      };
+
+      this.permissionRules.set(requestContext.toolName, rule);
+
+      this.logger.info(
+        `[SdkPermissionHandler] Created "Always Allow" rule for tool: ${requestContext.toolName}`,
+        { ruleId: rule.id }
+      );
+    }
+
+    // Clean up request context
+    this.pendingRequestContext.delete(requestId);
+
     // Clear timeout and resolve pending promise
     clearTimeout(pending.timer);
     this.pendingRequests.delete(requestId);
     pending.resolve(response);
 
+    const isApproved =
+      response.decision === 'allow' || response.decision === 'always_allow';
     this.logger.debug(
       `[SdkPermissionHandler] Handled response for request ${requestId}: ${
-        response.approved ? 'approved' : 'denied'
-      }`
+        isApproved ? 'approved' : 'denied'
+      } (decision: ${response.decision})`
     );
   }
 
@@ -761,18 +834,22 @@ export class SdkPermissionHandler {
    */
   dispose(): void {
     this.logger.info(
-      `[SdkPermissionHandler] Disposing ${this.pendingRequests.size} pending permission requests and ${this.pendingQuestionRequests.size} pending question requests`
+      `[SdkPermissionHandler] Disposing ${this.pendingRequests.size} pending permission requests, ${this.pendingQuestionRequests.size} pending question requests, and ${this.permissionRules.size} permission rules`
     );
 
     // Clear all permission request timeouts
     for (const [requestId, pending] of this.pendingRequests.entries()) {
       clearTimeout(pending.timer);
       pending.resolve({
-        approved: false,
+        id: requestId,
+        decision: 'deny',
         reason: 'Extension deactivated',
       });
     }
     this.pendingRequests.clear();
+
+    // Clear request context map
+    this.pendingRequestContext.clear();
 
     // Clear all question request timeouts
     for (const [requestId, pending] of this.pendingQuestionRequests.entries()) {
@@ -780,5 +857,40 @@ export class SdkPermissionHandler {
       pending.resolve(null); // Resolve with null on dispose
     }
     this.pendingQuestionRequests.clear();
+
+    // Clear permission rules (session-scoped - reset on extension deactivation)
+    this.permissionRules.clear();
+  }
+
+  /**
+   * Get all current permission rules
+   * Useful for debugging and UI display
+   */
+  getPermissionRules(): PermissionRule[] {
+    return Array.from(this.permissionRules.values());
+  }
+
+  /**
+   * Clear a specific permission rule
+   */
+  clearPermissionRule(toolName: string): boolean {
+    const deleted = this.permissionRules.delete(toolName);
+    if (deleted) {
+      this.logger.info(
+        `[SdkPermissionHandler] Cleared permission rule for tool: ${toolName}`
+      );
+    }
+    return deleted;
+  }
+
+  /**
+   * Clear all permission rules
+   */
+  clearAllPermissionRules(): void {
+    const count = this.permissionRules.size;
+    this.permissionRules.clear();
+    this.logger.info(
+      `[SdkPermissionHandler] Cleared all ${count} permission rules`
+    );
   }
 }

@@ -159,6 +159,11 @@ export class SubagentHookHandler {
    * Called when a subagent begins execution. Initiates file watching
    * for the agent's JSONL transcript file.
    *
+   * TASK_2025_100 FIX: Now passes agentType to startWatching so that
+   * AgentSessionWatcherService can emit an 'agent-start' event early.
+   * This fixes the race condition where summary chunks arrived before
+   * the agent node was created.
+   *
    * @param input - SubagentStart hook input containing agentId, sessionId, etc.
    * @param toolUseId - Optional Task tool_use ID (may not be available at start)
    * @param workspacePath - Workspace path for finding sessions directory
@@ -178,10 +183,13 @@ export class SubagentHookHandler {
         workspacePath,
       });
 
+      // TASK_2025_100 FIX: Pass agentType so AgentSessionWatcherService can
+      // emit 'agent-start' event with proper agent info
       await this.agentWatcher.startWatching(
         input.agent_id,
         input.session_id,
         workspacePath,
+        input.agent_type,
         toolUseId
       );
 

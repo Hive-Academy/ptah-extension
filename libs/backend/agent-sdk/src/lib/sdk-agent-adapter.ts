@@ -1007,8 +1007,17 @@ export class SdkAgentAdapter implements IAIProvider {
 
   /**
    * Interrupt active session
+   * TASK_2025_100 FIX: Delegates to SessionLifecycleManager.endSession() which:
+   * 1. Aborts the message stream controller (stops waiting for new messages)
+   * 2. Interrupts the SDK query (stops current execution)
+   * 3. Removes the session from active sessions
    */
   async interruptSession(sessionId: SessionId): Promise<void> {
+    this.logger.info(`[SdkAgentAdapter] interruptSession called`, {
+      sessionId,
+      activeSessions: this.sessionLifecycle.getActiveSessionIds(),
+    });
+
     const session = this.sessionLifecycle.getActiveSession(sessionId);
     if (!session) {
       this.logger.warn(
@@ -1017,25 +1026,19 @@ export class SdkAgentAdapter implements IAIProvider {
       return;
     }
 
-    this.logger.info(`[SdkAgentAdapter] Interrupting session: ${sessionId}`);
+    this.logger.info(`[SdkAgentAdapter] Interrupting session: ${sessionId}`, {
+      hasQuery: !!session.query,
+      hasAbortController: !!session.abortController,
+    });
 
-    if (!session.query) {
-      this.logger.warn(
-        `[SdkAgentAdapter] Cannot interrupt - session query not initialized: ${sessionId}`
-      );
-      return;
-    }
-
-    try {
-      await session.query.interrupt();
-      this.logger.info(`[SdkAgentAdapter] Session interrupted: ${sessionId}`);
-    } catch (error) {
-      this.logger.error(
-        `[SdkAgentAdapter] Failed to interrupt session ${sessionId}`,
-        error instanceof Error ? error : new Error(String(error))
-      );
-      throw error;
-    }
+    // Use SessionLifecycleManager's endSession which handles:
+    // - Aborting the controller
+    // - Interrupting the query
+    // - Cleaning up the session
+    this.sessionLifecycle.endSession(sessionId);
+    this.logger.info(
+      `[SdkAgentAdapter] Session interrupt complete: ${sessionId}`
+    );
   }
 
   /**

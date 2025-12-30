@@ -24,7 +24,6 @@ import {
 import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
 import { ExecutionTreeBuilderService } from '../execution-tree-builder.service';
-import { MessageSenderService } from '../message-sender.service';
 import {
   TabState,
   createEmptyStreamingState,
@@ -37,7 +36,6 @@ export class StreamingHandlerService {
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
   private readonly treeBuilder = inject(ExecutionTreeBuilderService);
-  private readonly messageSender = inject(MessageSenderService);
 
   /**
    * Tracks processed messageIds per session to prevent duplicate message_start events.
@@ -242,12 +240,13 @@ export class StreamingHandlerService {
    * @param event - The flat streaming event from SDK
    * @param tabId - Optional tab ID for direct routing (preferred)
    * @param sessionId - Optional real SDK UUID for session linking
+   * @returns Auto-send info when message_complete + queued content, null otherwise
    */
   processStreamEvent(
     event: FlatStreamEventUnion,
     tabId?: string,
     sessionId?: string
-  ): void {
+  ): { tabId: string; queuedContent: string } | null {
     try {
       // TASK_2025_090: Removed dead activeSessionIds tracking (never used).
       // We rely on findTabBySessionId returning null for closed/unknown sessions.
@@ -306,7 +305,7 @@ export class StreamingHandlerService {
             '[StreamingHandlerService] No target tab for event',
             event.sessionId
           );
-          return;
+          return null;
         }
       }
 
@@ -376,7 +375,7 @@ export class StreamingHandlerService {
               // Existing has higher priority - skip this event
               // Still update currentMessageId for streaming continuity
               state.currentMessageId = event.messageId;
-              return; // DON'T store this event
+              return null; // DON'T store this event
             }
           } else {
             // First message_start for this messageId - store it
@@ -400,7 +399,7 @@ export class StreamingHandlerService {
             !state.messageEventIds.includes(event.messageId);
 
           if (alreadyProcessed) {
-            return;
+            return null;
           }
 
           // Store event
@@ -446,7 +445,7 @@ export class StreamingHandlerService {
             !state.messageEventIds.includes(event.messageId);
 
           if (alreadyProcessed2) {
-            return;
+            return null;
           }
 
           // Store event
@@ -481,7 +480,7 @@ export class StreamingHandlerService {
 
           if (existingToolStart) {
             // Existing event has higher priority, skip this one entirely
-            return;
+            return null;
           }
 
           // NOW store the event (after duplicate check passed)
@@ -517,7 +516,7 @@ export class StreamingHandlerService {
             !state.toolCallMap.has(event.toolCallId);
 
           if (toolAlreadyProcessed) {
-            return;
+            return null;
           }
 
           // Store event
@@ -546,7 +545,7 @@ export class StreamingHandlerService {
 
           if (existingToolResult) {
             // Existing event has higher priority, skip this one entirely
-            return;
+            return null;
           }
 
           // NOW store the event (after duplicate check passed)
@@ -568,12 +567,59 @@ export class StreamingHandlerService {
 
           if (existingAgentStart) {
             // Existing event has higher priority, skip this one entirely
-            return;
+            return null;
           }
 
           // NOW store the event (after duplicate check passed)
           state.events.set(event.id, event);
           this.indexEventByMessage(state, event);
+
+          // TASK_2025_099 FIX: Register agent with SessionManager to receive summary chunks
+          // This creates a preliminary node that can receive real-time summary updates.
+          // The tree builder will create the full node at render time, but we need this
+          // registration to fix the race condition where summary chunks arrive before
+          // the tree is built.
+          const preliminaryAgentNode: ExecutionNode = {
+            id: event.id,
+            type: 'agent',
+            status: 'streaming',
+            content: event.agentDescription || '',
+            children: [],
+            agentType: event.agentType,
+            agentDescription: event.agentDescription,
+            toolCallId: event.toolCallId,
+            startTime: event.timestamp,
+            isCollapsed: false,
+          };
+
+          // DIAGNOSTIC: Log the toolCallId used for agent registration
+          // This MUST match the toolUseId sent in summary chunks from backend!
+          console.log('[StreamingHandler] Registering agent node:', {
+            eventType: event.eventType,
+            eventSource: event.source,
+            toolCallId: event.toolCallId,
+            agentType: event.agentType,
+          });
+
+          // Register and get any pending chunks that arrived before this node existed
+          const pendingDeltas = this.sessionManager.registerAgent(
+            event.toolCallId,
+            preliminaryAgentNode
+          );
+
+          // Apply pending chunks if any exist
+          if (pendingDeltas.length > 0) {
+            const summaryContent = pendingDeltas.join('');
+            const updatedNode: ExecutionNode = {
+              ...preliminaryAgentNode,
+              summaryContent,
+            };
+            this.sessionManager.registerAgent(event.toolCallId, updatedNode);
+            console.log(
+              `[StreamingHandler] Applied ${pendingDeltas.length} pending chunks to agent:`,
+              event.toolCallId
+            );
+          }
           break;
         }
 
@@ -583,6 +629,17 @@ export class StreamingHandlerService {
           this.indexEventByMessage(state, event);
 
           state.currentTokenUsage = event.tokenUsage || null;
+
+          // TASK_2025_101: Check for queued content to auto-send
+          // Claude can accept new input after message_complete (mid-conversation)
+          // This enables responsive user interaction without waiting for turn to fully end
+          const queuedContent = targetTab.queuedContent;
+          if (queuedContent && queuedContent.trim()) {
+            // Schedule UI update before returning
+            this.scheduleTabUpdate(targetTab.id, state);
+            // Return auto-send info for caller to handle
+            return { tabId: targetTab.id, queuedContent };
+          }
           break;
         }
 
@@ -619,12 +676,14 @@ export class StreamingHandlerService {
       // and flush once per animation frame (~60/sec max).
       // This dramatically reduces signal updates and change detection cycles.
       this.scheduleTabUpdate(targetTab.id, state);
+      return null;
     } catch (error) {
       console.error(
         '[StreamingHandlerService] Error processing stream event:',
         error,
         event
       );
+      return null;
     }
   }
 
@@ -981,16 +1040,19 @@ export class StreamingHandlerService {
    * 2. Finalize the streaming message (builds ExecutionNode tree)
    * 3. Set tab status to 'loaded'
    * 4. Mark tab idle (clears visual streaming indicator)
-   * 5. Trigger auto-send of any queued content
+   *
+   * NOTE: Auto-send of queued content is handled by ChatStore.handleSessionStats()
+   * to avoid circular dependency (StreamingHandler → MessageSender → SessionLoader → StreamingHandler)
    *
    * @param stats - Session statistics from backend (derived from SDK result message)
+   * @returns Object with tabId and queuedContent for caller to handle auto-send, or null
    */
   handleSessionStats(stats: {
     sessionId: string;
     cost: number;
     tokens: { input: number; output: number };
     duration: number;
-  }): void {
+  }): { tabId: string; queuedContent: string | null } | null {
     console.log('[StreamingHandlerService] Session stats received:', stats);
 
     // Find the target tab by session ID
@@ -1035,7 +1097,7 @@ export class StreamingHandlerService {
         console.warn(
           '[StreamingHandlerService] No target tab found for session stats'
         );
-        return;
+        return null;
       }
     }
 
@@ -1068,30 +1130,8 @@ export class StreamingHandlerService {
       // 3. Mark tab idle (clears visual streaming indicator)
       this.tabManager.markTabIdle(targetTabId);
 
-      // 4. Trigger auto-send of queued content if any
-      if (queuedContent && queuedContent.trim()) {
-        console.log(
-          '[StreamingHandlerService] Auto-sending queued content after finalization'
-        );
-        this.messageSender
-          .send(queuedContent)
-          .then(() => {
-            // Clear queue only after successful send start
-            this.tabManager.updateTab(targetTabId, { queuedContent: null });
-            console.log(
-              '[StreamingHandlerService] Auto-send started, queue cleared'
-            );
-          })
-          .catch((error) => {
-            console.error(
-              '[StreamingHandlerService] Failed to auto-send queued content:',
-              error
-            );
-            // Keep content in queue on error (no data loss)
-          });
-      }
-
-      return;
+      // Return info for caller to handle auto-send (avoids circular dependency)
+      return { tabId: targetTabId, queuedContent: queuedContent ?? null };
     }
 
     // Handle stats for tabs that are already loaded (e.g., stats arrived late)
@@ -1110,14 +1150,14 @@ export class StreamingHandlerService {
       console.log(
         '[StreamingHandlerService] Stats stored as pendingStats (tab has streamingState but no messages)'
       );
-      return;
+      return null;
     }
 
     if (messages.length === 0) {
       console.log(
         '[StreamingHandlerService] No messages in tab, stats discarded'
       );
-      return;
+      return null;
     }
 
     // ASSUMPTION: Stats correspond to the most recent assistant response
@@ -1135,7 +1175,7 @@ export class StreamingHandlerService {
       console.log(
         '[StreamingHandlerService] No assistant message found, stats discarded'
       );
-      return;
+      return null;
     }
 
     // Update the assistant message with stats
@@ -1155,5 +1195,6 @@ export class StreamingHandlerService {
     console.log(
       '[StreamingHandlerService] Stats applied to last assistant message'
     );
+    return null;
   }
 }

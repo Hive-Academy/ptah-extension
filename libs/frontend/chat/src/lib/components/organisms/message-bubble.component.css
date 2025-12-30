@@ -1,4 +1,4 @@
-/* Custom markdown styles for message bubbles */
+/* Custom markdown styles for message bubbles - Theme-aware */
 :host ::ng-deep markdown {
   color: inherit;
   display: block;
@@ -15,20 +15,20 @@
 }
 
 :host ::ng-deep markdown code {
-  background-color: rgba(0, 0, 0, 0.2);
+  background-color: oklch(var(--b2) / 0.5); /* theme-aware: base-200 with opacity */
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 0.9em;
 }
 
 :host ::ng-deep markdown pre {
-  background-color: rgba(0, 0, 0, 0.3);
+  background-color: oklch(var(--b2) / 0.7); /* theme-aware: base-200 with opacity */
   padding: 12px;
   border-radius: 6px;
   overflow-x: auto;
 }
 
-/* Table styling for proper markdown table rendering */
+/* Table styling for proper markdown table rendering - Theme-aware */
 :host ::ng-deep markdown table {
   border-collapse: collapse;
   width: 100%;
@@ -39,7 +39,7 @@
 
 :host ::ng-deep markdown th,
 :host ::ng-deep markdown td {
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid oklch(var(--bc) / 0.2); /* theme-aware: base-content with opacity */
   padding: 8px 12px;
   text-align: left;
   word-wrap: break-word;
@@ -47,15 +47,15 @@
 }
 
 :host ::ng-deep markdown th {
-  background-color: rgba(0, 0, 0, 0.3);
+  background-color: oklch(var(--b2) / 0.5); /* theme-aware: base-200 with opacity */
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.9);
+  color: oklch(var(--bc) / 0.9); /* theme-aware: base-content with opacity */
 }
 
 :host ::ng-deep markdown tr:nth-child(even) {
-  background-color: rgba(0, 0, 0, 0.1);
+  background-color: oklch(var(--b2) / 0.3); /* theme-aware: subtle striping */
 }
 
 :host ::ng-deep markdown tr:hover {
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: oklch(var(--bc) / 0.05); /* theme-aware: subtle hover */
 }

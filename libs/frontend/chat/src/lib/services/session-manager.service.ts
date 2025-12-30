@@ -22,11 +22,29 @@ export type SessionState = 'draft' | 'confirming' | 'confirmed' | 'failed';
  * - Manages node maps (agents, tools) for streaming bridge
  * - Determines whether to continue or start new session
  */
+/**
+ * Pending chunk buffer entry
+ * Used to buffer summary chunks that arrive before agent node is created
+ */
+interface PendingChunk {
+  summaryDelta: string;
+  timestamp: number;
+}
+
+/**
+ * How long to keep pending chunks before discarding (60 seconds)
+ */
+const PENDING_CHUNK_TTL_MS = 60_000;
+
 @Injectable({ providedIn: 'root' })
 export class SessionManager {
   // Node maps - bridge between session loading and streaming
   private readonly _agentNodeMap = new Map<string, ExecutionNode>();
   private readonly _toolNodeMap = new Map<string, ExecutionNode>();
+
+  // Pending summary chunks buffer (race condition fix)
+  // Buffers chunks that arrive before agent node is registered
+  private readonly _pendingAgentChunks = new Map<string, PendingChunk[]>();
 
   // Session state
   private readonly _sessionId = signal<string | null>(null);
@@ -153,11 +171,12 @@ export class SessionManager {
   // ============== Node Map Operations ==============
 
   /**
-   * Clear all node maps
+   * Clear all node maps and pending chunk buffers
    */
   clearNodeMaps(): void {
     this._agentNodeMap.clear();
     this._toolNodeMap.clear();
+    this._pendingAgentChunks.clear();
   }
 
   /**
@@ -177,16 +196,77 @@ export class SessionManager {
 
   /**
    * Register an agent node (used during streaming)
+   * Returns any pending chunks that were buffered before the node existed
+   *
+   * @param toolCallId - The tool use ID for this agent
+   * @param node - The ExecutionNode representing this agent
+   * @returns Array of pending summary deltas to apply (may be empty)
    */
-  registerAgent(toolCallId: string, node: ExecutionNode): void {
+  registerAgent(toolCallId: string, node: ExecutionNode): string[] {
     this._agentNodeMap.set(toolCallId, node);
+
+    // Check for and return any pending chunks
+    const pendingChunks = this._pendingAgentChunks.get(toolCallId);
+    if (pendingChunks && pendingChunks.length > 0) {
+      // Clear the pending buffer
+      this._pendingAgentChunks.delete(toolCallId);
+
+      // Filter out stale chunks and extract deltas
+      const now = Date.now();
+      const validDeltas = pendingChunks
+        .filter((chunk) => now - chunk.timestamp < PENDING_CHUNK_TTL_MS)
+        .map((chunk) => chunk.summaryDelta);
+
+      if (validDeltas.length > 0) {
+        console.log(
+          `[SessionManager] Flushing ${validDeltas.length} pending chunks for agent:`,
+          toolCallId
+        );
+      }
+
+      return validDeltas;
+    }
+
+    return [];
+  }
+
+  /**
+   * Buffer a summary chunk for an agent that doesn't exist yet
+   * Called when summary chunks arrive before the agent node is registered
+   *
+   * @param toolCallId - The tool use ID for the agent
+   * @param summaryDelta - The summary text to buffer
+   */
+  bufferAgentChunk(toolCallId: string, summaryDelta: string): void {
+    const existing = this._pendingAgentChunks.get(toolCallId) || [];
+    existing.push({
+      summaryDelta,
+      timestamp: Date.now(),
+    });
+    this._pendingAgentChunks.set(toolCallId, existing);
+
+    console.log(
+      `[SessionManager] Buffered chunk for pending agent:`,
+      toolCallId,
+      `(${existing.length} chunks buffered)`
+    );
   }
 
   /**
    * Get an agent node by toolCallId
    */
   getAgent(toolCallId: string): ExecutionNode | undefined {
-    return this._agentNodeMap.get(toolCallId);
+    const node = this._agentNodeMap.get(toolCallId);
+
+    // DIAGNOSTIC: Log when agent lookup succeeds or fails
+    if (!node) {
+      console.log('[SessionManager] getAgent() - NOT FOUND:', {
+        toolCallId,
+        registeredAgentIds: Array.from(this._agentNodeMap.keys()),
+      });
+    }
+
+    return node;
   }
 
   /**

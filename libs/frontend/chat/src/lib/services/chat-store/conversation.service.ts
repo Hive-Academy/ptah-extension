@@ -483,6 +483,11 @@ export class ConversationService {
       }
 
       const sessionId = this.currentSessionId();
+      console.log('[ConversationService] Attempting to abort session:', {
+        sessionId,
+        activeTabId: this.tabManager.activeTabId(),
+        claudeSessionId: this.tabManager.activeTab()?.claudeSessionId,
+      });
       if (!sessionId) {
         console.warn('[ConversationService] No active session to abort');
         this._isStopping.set(false);
@@ -506,11 +511,20 @@ export class ConversationService {
       // ========== END QUEUE HANDLING ==========
 
       // Call RPC to abort
+      console.log(
+        '[ConversationService] Calling chat:abort RPC for session:',
+        sessionId
+      );
       const result = await this.claudeRpcService.call('chat:abort', {
         sessionId: sessionId as SessionId,
       });
 
-      if (!result.success) {
+      if (result.success) {
+        console.log(
+          '[ConversationService] chat:abort succeeded for session:',
+          sessionId
+        );
+      } else {
         console.error(
           '[ConversationService] Failed to abort chat:',
           result.error

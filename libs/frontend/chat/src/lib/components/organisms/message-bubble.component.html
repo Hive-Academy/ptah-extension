@@ -32,9 +32,9 @@
     </time>
   </div>
 
-  <!-- Message bubble -->
+  <!-- Message bubble - uses base-300 for theme-aware background -->
   <div
-    class="chat-bubble bg-neutral text-neutral-content shadow-card max-w-[85%] md:max-w-[90%] lg:max-w-[85%]"
+    class="chat-bubble bg-base-300 text-base-content shadow-card max-w-[85%] md:max-w-[90%] lg:max-w-[85%]"
   >
     @if (message().streamingState) {
     <!-- ExecutionNode recursive tree with streaming state -->
@@ -45,13 +45,13 @@
       (permissionResponded)="onPermissionResponse($event)"
     />
     } @else {
-    <!-- Fallback text content -->
+    <!-- Fallback text content - removed prose-invert for theme compatibility -->
     <markdown
       [data]="message().rawContent || ''"
-      class="prose prose-sm prose-invert max-w-none"
+      class="prose prose-sm max-w-none"
     />
     @if (isStreaming()) {
-    <ptah-typing-cursor colorClass="text-neutral-content/70" />
+    <ptah-typing-cursor colorClass="text-base-content/70" />
     } }
   </div>
 
@@ -129,13 +129,13 @@
     You
   </div>
 
-  <!-- Message bubble -->
+  <!-- Message bubble - user messages use primary color -->
   <div
     class="chat-bubble chat-bubble-primary bg-primary text-primary-content shadow-card max-w-[85%] md:max-w-[90%] lg:max-w-[85%]"
   >
     <markdown
       [data]="message().rawContent || ''"
-      class="prose prose-sm prose-invert max-w-none"
+      class="prose prose-sm max-w-none [&_*]:text-primary-content"
     />
   </div>
 

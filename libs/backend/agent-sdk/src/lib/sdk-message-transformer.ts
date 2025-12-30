@@ -209,7 +209,6 @@ export class SdkMessageTransformer {
         const messageId =
           message?.id || sdkMessage.uuid || `stream-msg-${Date.now()}`;
 
-
         // TASK_2025_096 FIX: Track current message ID per context
         // Context = parentToolUseId (for nested agent messages) or '' (for root messages)
         // This prevents main agent and subagent streams from interfering with each other.
@@ -223,7 +222,6 @@ export class SdkMessageTransformer {
             this.toolCallIdByContextAndBlock.delete(key);
           }
         }
-
 
         // Emit message_start event
         const messageStartEvent: MessageStartEvent = {
@@ -276,8 +274,6 @@ export class SdkMessageTransformer {
         // TASK_2025_096 FIX: Look up messageId by context
         const context = parentToolUseId || '';
         const currentMessageId = this.currentMessageIdByContext.get(context);
-
-
 
         // TASK_2025_086: Emit message_complete when stream ends
         // This is CRITICAL - without this, StreamTransformer never stores the message
@@ -728,7 +724,6 @@ export class SdkMessageTransformer {
   ): FlatStreamEventUnion[] {
     const { uuid, message, parent_tool_use_id } = sdkMessage;
 
-
     const events: FlatStreamEventUnion[] = [];
     const messageId = uuid || `user-${Date.now()}`;
 
@@ -762,13 +757,11 @@ export class SdkMessageTransformer {
             parentToolUseId: parent_tool_use_id ?? undefined,
           };
           events.push(toolResultEvent);
-
         }
       }
 
       // If we found tool_result blocks, return them without creating empty user message bubbles
       if (events.length > 0) {
-
         return events;
       }
     }

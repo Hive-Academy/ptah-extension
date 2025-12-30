@@ -19,6 +19,7 @@ import {
   RpcHandler,
   AgentSessionWatcherService,
   AgentSummaryChunk,
+  AgentStartEvent,
   TOKENS,
   CommandManager,
   verifyRpcRegistration,
@@ -216,18 +217,88 @@ export class RpcMethodRegistrationService {
 
   /**
    * Setup listeners for agent session watcher events
+   *
+   * TASK_2025_100 FIX: Also listens for 'agent-start' events to send
+   * agent_start streaming events BEFORE summary chunks arrive. This
+   * fixes the race condition where summary chunks were buffered.
    */
   private setupAgentWatcherListeners(): void {
-    (
-      this.agentWatcher as {
-        on(event: string, callback: (chunk: AgentSummaryChunk) => void): void;
-      }
-    ).on('summary-chunk', (chunk: AgentSummaryChunk) => {
+    // Type the agentWatcher for EventEmitter methods
+    const watcher = this.agentWatcher as {
+      on(
+        event: 'summary-chunk',
+        callback: (chunk: AgentSummaryChunk) => void
+      ): void;
+      on(
+        event: 'agent-start',
+        callback: (event: AgentStartEvent) => void
+      ): void;
+    };
+
+    // Listen for summary chunks (existing behavior)
+    watcher.on('summary-chunk', (chunk: AgentSummaryChunk) => {
+      // DIAGNOSTIC: Log when we receive and forward summary chunks
+      this.logger.info(
+        '[RpcMethodRegistrationService] Received summary-chunk, forwarding to webview',
+        {
+          toolUseId: chunk.toolUseId,
+          deltaLength: chunk.summaryDelta.length,
+          deltaPreview: chunk.summaryDelta.slice(0, 50),
+        }
+      );
+
       this.webviewManager
         .sendMessage('ptah.main', MESSAGE_TYPES.AGENT_SUMMARY_CHUNK, chunk)
+        .then(() => {
+          this.logger.info(
+            '[RpcMethodRegistrationService] Summary-chunk sent to webview successfully',
+            { toolUseId: chunk.toolUseId }
+          );
+        })
         .catch((error) => {
           this.logger.error(
             'Failed to send agent summary chunk to webview',
+            error instanceof Error ? error : new Error(String(error))
+          );
+        });
+    });
+
+    // TASK_2025_100 FIX: Listen for agent-start events and send as agent_start streaming event
+    // This creates the agent node in the frontend BEFORE summary chunks arrive
+    watcher.on('agent-start', (agentStartEvent: AgentStartEvent) => {
+      this.logger.info(
+        '[RpcMethodRegistrationService] Received agent-start event',
+        {
+          toolUseId: agentStartEvent.toolUseId,
+          agentType: agentStartEvent.agentType,
+          sessionId: agentStartEvent.sessionId,
+        }
+      );
+
+      // Send as a CHAT_CHUNK with agent_start event type
+      // This matches the format expected by streaming-handler.service.ts
+      // Include sessionId for frontend to route to correct tab
+      const streamingEvent = {
+        id: `agent-start-${agentStartEvent.toolUseId}`,
+        eventType: 'agent_start' as const,
+        sessionId: agentStartEvent.sessionId, // Parent session for tab routing
+        messageId: '',
+        toolCallId: agentStartEvent.toolUseId,
+        agentType: agentStartEvent.agentType,
+        agentDescription: agentStartEvent.agentDescription,
+        timestamp: agentStartEvent.timestamp,
+        source: 'hook' as const, // Mark as from hook (for duplicate detection)
+      };
+
+      this.webviewManager
+        .sendMessage('ptah.main', MESSAGE_TYPES.CHAT_CHUNK, {
+          // TASK_2025_100: No tabId available from hook - frontend will resolve from sessionId
+          sessionId: agentStartEvent.sessionId,
+          event: streamingEvent,
+        })
+        .catch((error) => {
+          this.logger.error(
+            'Failed to send agent-start event to webview',
             error instanceof Error ? error : new Error(String(error))
           );
         });

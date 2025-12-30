@@ -91,6 +91,34 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
 
   /* Sacred Geometry */
   --golden-ratio: 1.618;
+
+  /* Animation colors (for keyframes that need theme-awareness) */
+  --aura-color-dim: oklch(70% 0.18 70 / 0.5);    /* Gold glow dim */
+  --aura-color-bright: oklch(70% 0.18 70 / 0.8); /* Gold glow bright */
+}
+
+/* Light theme overrides for glass morphism and decorative elements */
+[data-theme='anubis-light'] {
+  /* Glass Morphism - Light mode (subtle warm cream overlay) */
+  --glass-panel: rgba(255, 251, 245, 0.85);
+  --glass-border: rgba(180, 140, 80, 0.25);
+
+  /* Divine Gradients - Adjusted for light backgrounds */
+  --gradient-divine: linear-gradient(135deg, oklch(75% 0.12 181), oklch(75% 0.15 70));
+  --gradient-shadow: linear-gradient(
+    180deg,
+    rgba(180, 140, 80, 0.15),
+    transparent
+  );
+  --gradient-panel: linear-gradient(
+    135deg,
+    rgba(100, 180, 180, 0.08),
+    rgba(255, 200, 120, 0.05)
+  );
+
+  /* Animation colors - Adjusted for light backgrounds */
+  --aura-color-dim: oklch(65% 0.15 181 / 0.4);    /* Teal glow dim */
+  --aura-color-bright: oklch(65% 0.15 181 / 0.7); /* Teal glow bright */
 }
 
 /* ============================================================================
@@ -102,8 +130,8 @@ GLASS MORPHISM UTILITY CLASSES
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
-  box-shadow: 0 0 20px rgba(212, 175, 55, 0.1),
-    inset 0 1px 0 rgba(212, 175, 55, 0.2);
+  box-shadow: 0 0 20px oklch(var(--s) / 0.1),
+    inset 0 1px 0 oklch(var(--s) / 0.2);
 }
 
 .glass-panel-divine::before {
@@ -121,7 +149,7 @@ GLASS MORPHISM UTILITY CLASSES
 }
 
 .divine-glow {
-  box-shadow: 0 0 20px rgba(212, 175, 55, 0.3);
+  box-shadow: 0 0 20px oklch(var(--s) / 0.3);
 }
 
 /* ============================================================================
@@ -194,14 +222,14 @@ ANUBIS ANIMATIONS - Egyptian Mystical Effects
   }
 }
 
-/* Divine Aura - Active workflow node */
+/* Divine Aura - Active workflow node (uses --aura-color for theming) */
 @keyframes divine-aura {
   0%,
   100% {
-    box-shadow: 0 0 20px rgba(212, 175, 55, 0.5);
+    box-shadow: 0 0 20px var(--aura-color-dim, oklch(70% 0.15 70 / 0.5));
   }
   50% {
-    box-shadow: 0 0 40px rgba(212, 175, 55, 0.8);
+    box-shadow: 0 0 40px var(--aura-color-bright, oklch(70% 0.15 70 / 0.8));
   }
 }
 
@@ -261,7 +289,7 @@ AGENT STATUS ANIMATION CLASSES
   background: linear-gradient(
     90deg,
     transparent,
-    rgba(212, 175, 55, 0.3),
+    oklch(var(--s) / 0.3),
     transparent
   );
   animation: hieroglyph-scan 2s linear infinite;
@@ -280,9 +308,7 @@ AGENT STATUS ANIMATION CLASSES
   display: inline-block;
   width: 16px;
   height: 16px;
-  /* Fallback for browsers without oklch support */
-  border: 2px solid #d4af37;
-  border: 2px solid oklch(var(--s));
+  border: 2px solid oklch(var(--s)); /* secondary - theme-aware */
   border-top: 2px solid transparent;
   border-radius: 50%;
   animation: cosmic-spin 1s linear infinite;
@@ -448,19 +474,20 @@ Theme-aware CSS custom properties for agent badges
   --agent-badge-text-dark: #0a0a0a;
 }
 
-/* Agent badge colors - Light theme (adjusted for contrast) */
+/* Agent badge colors - Light theme (adjusted for contrast on warm cream backgrounds) */
 [data-theme='anubis-light'] {
-  --agent-architect: #1e40af;
-  --agent-frontend: #2563eb;
-  --agent-backend: #166534;
-  --agent-tester: #7c3aed;
-  --agent-reviewer: #b8860b;
-  --agent-leader: #4f46e5;
-  --agent-pm: #991b1b;
-  --agent-researcher: #0891b2;
-  --agent-supervisor: #b8860b;
-  --agent-badge-text-light: #ffffff;
-  --agent-badge-text-dark: #0a0a0a;
+  --agent-architect: oklch(45% 0.2 240);   /* Deeper blue for cream background */
+  --agent-frontend: oklch(55% 0.2 237);    /* Vivid blue */
+  --agent-backend: oklch(45% 0.15 162);    /* Rich green */
+  --agent-tester: oklch(50% 0.2 303);      /* Vibrant purple */
+  --agent-reviewer: oklch(60% 0.18 70);    /* Rich gold */
+  --agent-leader: oklch(50% 0.2 270);      /* Deep indigo */
+  --agent-pm: oklch(50% 0.2 25);           /* Rich red */
+  --agent-researcher: oklch(55% 0.15 200); /* Cyan */
+  --agent-supervisor: oklch(60% 0.18 70);  /* Rich gold */
+  /* FIX: In light mode, badge text should be light on dark badge backgrounds */
+  --agent-badge-text-light: oklch(97% 0.01 0);  /* Near-white for dark badges */
+  --agent-badge-text-dark: oklch(20% 0.02 0);   /* Near-black for light badges */
 }
 
 .badge-agent-architect {
@@ -563,26 +590,18 @@ MARKDOWN CONTENT STYLING (for ngx-markdown) - Anubis Theme
 }
 
 .prose code {
-  /* Fallback for browsers without oklch support */
-  background-color: #2a2a2a;
-  background-color: oklch(var(--b3)); /* base-300 */
+  background-color: oklch(var(--b3)); /* base-300 - theme-aware */
   padding: 0.125rem 0.375rem;
   border-radius: 0.25rem;
   font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Monaco, Consolas,
     monospace;
   font-size: 0.875em;
-  /* Fallback for browsers without oklch support */
-  color: #fbbf24;
-  color: oklch(var(--wa)); /* warning (amber) */
+  color: oklch(var(--wa)); /* warning (amber) - theme-aware */
 }
 
 .prose pre {
-  /* Fallback for browsers without oklch support */
-  background-color: #2a2a2a;
-  background-color: oklch(var(--b3)); /* base-300 */
-  /* Fallback for browsers without oklch support */
-  border: 1px solid #1f1f1f;
-  border: 1px solid oklch(var(--b2)); /* base-200 */
+  background-color: oklch(var(--b3)); /* base-300 - theme-aware */
+  border: 1px solid oklch(var(--b2)); /* base-200 - theme-aware */
   border-radius: 0.375rem;
   padding: 1rem;
   overflow-x: auto;
@@ -592,21 +611,15 @@ MARKDOWN CONTENT STYLING (for ngx-markdown) - Anubis Theme
   background-color: transparent;
   padding: 0;
   border-radius: 0;
-  /* Fallback for browsers without oklch support */
-  color: #f5f5f5;
-  color: oklch(var(--bc)); /* base-content */
+  color: oklch(var(--bc)); /* base-content - theme-aware */
 }
 
 .prose a {
-  /* Fallback for browsers without oklch support */
-  color: #3b82f6;
-  color: oklch(var(--in)); /* info (blue) */
+  color: oklch(var(--in)); /* info (blue) - theme-aware */
   text-decoration: underline;
 }
 
 .prose a:hover {
-  /* Fallback for browsers without oklch support */
-  color: rgba(59, 130, 246, 0.8);
   color: oklch(var(--in) / 0.8); /* info with reduced opacity */
 }
 
@@ -616,9 +629,7 @@ MARKDOWN CONTENT STYLING (for ngx-markdown) - Anubis Theme
 .prose h4,
 .prose h5,
 .prose h6 {
-  /* Fallback for browsers without oklch support */
-  color: #d4af37;
-  color: oklch(var(--s)); /* secondary (gold) */
+  color: oklch(var(--s)); /* secondary - theme-aware */
   font-weight: 600;
   margin-top: 1.5em;
   margin-bottom: 0.5em;
@@ -626,27 +637,19 @@ MARKDOWN CONTENT STYLING (for ngx-markdown) - Anubis Theme
 }
 
 .prose blockquote {
-  /* Fallback for browsers without oklch support */
-  border-left: 4px solid #d4af37;
-  border-left: 4px solid oklch(var(--s)); /* secondary (gold) */
+  border-left: 4px solid oklch(var(--s)); /* secondary - theme-aware */
   padding-left: 1rem;
   font-style: italic;
-  /* Fallback for browsers without oklch support */
-  color: rgba(245, 245, 245, 0.6);
-  color: oklch(var(--bc) / 0.6); /* muted text */
+  color: oklch(var(--bc) / 0.7); /* muted text - theme-aware */
 }
 
 .prose ul,
 .prose ol {
-  /* Fallback for browsers without oklch support */
-  color: #f5f5f5;
-  color: oklch(var(--bc)); /* base-content */
+  color: oklch(var(--bc)); /* base-content - theme-aware */
 }
 
 .prose strong {
-  /* Fallback for browsers without oklch support */
-  color: #f5f5f5;
-  color: oklch(var(--bc)); /* base-content */
+  color: oklch(var(--bc)); /* base-content - theme-aware */
   font-weight: 600;
 }
 

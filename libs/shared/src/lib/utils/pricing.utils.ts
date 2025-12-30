@@ -97,6 +97,15 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
     provider: 'anthropic',
   },
 
+  // Claude 4.5 Haiku (new fast model)
+  'claude-haiku-4-5-20251001': {
+    inputCostPerToken: 0.8e-6, // $0.80 per 1M tokens
+    outputCostPerToken: 4e-6, // $4.00 per 1M tokens
+    cacheReadCostPerToken: 0.08e-6, // $0.08 per 1M tokens
+    cacheCreationCostPerToken: 1e-6, // $1.00 per 1M tokens
+    provider: 'anthropic',
+  },
+
   // Claude 3 Haiku (legacy)
   'claude-3-haiku-20240307': {
     inputCostPerToken: 0.25e-6, // $0.25 per 1M tokens

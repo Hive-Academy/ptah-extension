@@ -84,7 +84,10 @@ export type {
 
 // Agent Session Watcher (real-time summary streaming)
 export { AgentSessionWatcherService } from './services/agent-session-watcher.service';
-export type { AgentSummaryChunk } from './services/agent-session-watcher.service';
+export type {
+  AgentSummaryChunk,
+  AgentStartEvent,
+} from './services/agent-session-watcher.service';
 
 // Webview Message Handler (shared message handling for all webviews)
 export { WebviewMessageHandlerService } from './services/webview-message-handler.service';
