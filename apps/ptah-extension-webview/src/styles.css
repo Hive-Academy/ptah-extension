@@ -18,6 +18,20 @@ Egyptian-Inspired Theme with DaisyUI v4 + Tailwind CSS v3.4
 ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
 ============================================================================ */
 
+/**
+ * Glass Morphism & Brand Identity Variables
+ *
+ * These custom properties define the decorative glass effects, divine gradients,
+ * and Egyptian gold accents used throughout the Anubis theme. They remain
+ * constant across light/dark themes to maintain brand identity.
+ *
+ * Note: Gold accents (--gold-glow, --gold-accent, etc.) are intentionally NOT
+ * theme-switched as they represent the consistent "Egyptian gold" brand aesthetic
+ * that gives Ptah its distinctive visual identity.
+ *
+ * The glass morphism effects use semi-transparent backgrounds with backdrop blur
+ * to create the crystalline "Wisdom of Thoth" visual language.
+ */
 :root {
   /* ========================================================================
      VS CODE SIDEBAR SCALING SYSTEM
@@ -266,7 +280,9 @@ AGENT STATUS ANIMATION CLASSES
   display: inline-block;
   width: 16px;
   height: 16px;
+  /* Fallback for browsers without oklch support */
   border: 2px solid #d4af37;
+  border: 2px solid oklch(var(--s));
   border-top: 2px solid transparent;
   border-radius: 50%;
   animation: cosmic-spin 1s linear infinite;
@@ -353,7 +369,9 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
 a:focus-visible {
+  /* Fallback for browsers without oklch support */
   outline: 2px solid #d4af37;
+  outline: 2px solid oklch(var(--s));
   outline-offset: 2px;
 }
 
@@ -515,17 +533,25 @@ MARKDOWN CONTENT STYLING (for ngx-markdown) - Anubis Theme
 }
 
 .prose code {
+  /* Fallback for browsers without oklch support */
+  background-color: #2a2a2a;
   background-color: oklch(var(--b3)); /* base-300 */
   padding: 0.125rem 0.375rem;
   border-radius: 0.25rem;
   font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Monaco, Consolas,
     monospace;
   font-size: 0.875em;
+  /* Fallback for browsers without oklch support */
+  color: #fbbf24;
   color: oklch(var(--wa)); /* warning (amber) */
 }
 
 .prose pre {
+  /* Fallback for browsers without oklch support */
+  background-color: #2a2a2a;
   background-color: oklch(var(--b3)); /* base-300 */
+  /* Fallback for browsers without oklch support */
+  border: 1px solid #1f1f1f;
   border: 1px solid oklch(var(--b2)); /* base-200 */
   border-radius: 0.375rem;
   padding: 1rem;
@@ -536,15 +562,21 @@ MARKDOWN CONTENT STYLING (for ngx-markdown) - Anubis Theme
   background-color: transparent;
   padding: 0;
   border-radius: 0;
+  /* Fallback for browsers without oklch support */
+  color: #f5f5f5;
   color: oklch(var(--bc)); /* base-content */
 }
 
 .prose a {
+  /* Fallback for browsers without oklch support */
+  color: #3b82f6;
   color: oklch(var(--in)); /* info (blue) */
   text-decoration: underline;
 }
 
 .prose a:hover {
+  /* Fallback for browsers without oklch support */
+  color: rgba(59, 130, 246, 0.8);
   color: oklch(var(--in) / 0.8); /* info with reduced opacity */
 }
 
@@ -554,6 +586,8 @@ MARKDOWN CONTENT STYLING (for ngx-markdown) - Anubis Theme
 .prose h4,
 .prose h5,
 .prose h6 {
+  /* Fallback for browsers without oklch support */
+  color: #d4af37;
   color: oklch(var(--s)); /* secondary (gold) */
   font-weight: 600;
   margin-top: 1.5em;
@@ -562,18 +596,26 @@ MARKDOWN CONTENT STYLING (for ngx-markdown) - Anubis Theme
 }
 
 .prose blockquote {
+  /* Fallback for browsers without oklch support */
+  border-left: 4px solid #d4af37;
   border-left: 4px solid oklch(var(--s)); /* secondary (gold) */
   padding-left: 1rem;
   font-style: italic;
+  /* Fallback for browsers without oklch support */
+  color: rgba(245, 245, 245, 0.6);
   color: oklch(var(--bc) / 0.6); /* muted text */
 }
 
 .prose ul,
 .prose ol {
+  /* Fallback for browsers without oklch support */
+  color: #f5f5f5;
   color: oklch(var(--bc)); /* base-content */
 }
 
 .prose strong {
+  /* Fallback for browsers without oklch support */
+  color: #f5f5f5;
   color: oklch(var(--bc)); /* base-content */
   font-weight: 600;
 }
