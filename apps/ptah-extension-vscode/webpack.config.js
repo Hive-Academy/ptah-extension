@@ -47,6 +47,12 @@ module.exports = {
         return callback(); // Bundle it
       }
 
+      // Bundle @anthropic-ai/claude-agent-sdk - it's ESM-only and must be bundled
+      // for proper ESM/CommonJS interop in the VS Code extension host
+      if (request.startsWith('@anthropic-ai/claude-agent-sdk')) {
+        return callback(); // Bundle it
+      }
+
       // === EXTERNALIZE THESE (loaded at runtime from node_modules) ===
 
       // Externalize Langchain packages - these are loaded dynamically

@@ -245,10 +245,7 @@ export class VSCodeService {
       // Route chat:chunk messages to ChatStore (SDK path only)
       // TASK_2025_092: Now uses tabId for routing, sessionId is real SDK UUID
       if (message.type === MESSAGE_TYPES.CHAT_CHUNK) {
-        console.log('[VSCodeService] CHAT_CHUNK received!', {
-          hasPayload: !!message.payload,
-          hasChatStore: !!this.chatStore,
-        });
+
         if (message.payload && this.chatStore) {
           // Extract tabId for routing and sessionId (real SDK UUID) from payload
           const { tabId, sessionId, event } = message.payload as {
@@ -256,20 +253,8 @@ export class VSCodeService {
             sessionId: string;
             event: FlatStreamEventUnion;
           };
-          console.log('[VSCodeService] Processing CHAT_CHUNK event', {
-            tabId,
-            sessionId,
-            eventType: event?.eventType,
-            messageId: event?.messageId,
-          });
-          // DIAGNOSTIC: Extra logging for tool_result events
-          if (event?.eventType === 'tool_result') {
-            console.log('[VSCodeService] TOOL_RESULT event received!', {
-              toolCallId: (event as { toolCallId?: string }).toolCallId,
-              tabId,
-              sessionId,
-            });
-          }
+
+
           // Pass tabId and sessionId to ChatStore for routing and session linking
           this.chatStore.processStreamEvent(event, tabId, sessionId);
         } else if (!message.payload) {
@@ -287,11 +272,7 @@ export class VSCodeService {
       // TASK_2025_092: Now uses tabId for routing
       if (message.type === MESSAGE_TYPES.CHAT_COMPLETE) {
         const { tabId, sessionId, code } = message.payload ?? {};
-        console.log('[VSCodeService] Chat complete:', {
-          tabId,
-          sessionId,
-          code,
-        });
+
         if (this.chatStore) {
           // Call ChatStore to reset streaming state and finalize message
           this.chatStore.handleChatComplete({
@@ -332,10 +313,7 @@ export class VSCodeService {
       // Handle permission request (TASK_2025_026)
       if (message.type === MESSAGE_TYPES.PERMISSION_REQUEST) {
         if (message.payload && this.chatStore) {
-          console.log(
-            '[VSCodeService] Permission request received:',
-            message.payload
-          );
+
           this.chatStore.handlePermissionRequest(message.payload);
         } else if (!message.payload) {
           console.warn(

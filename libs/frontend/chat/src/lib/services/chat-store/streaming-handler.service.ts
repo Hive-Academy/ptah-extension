@@ -24,6 +24,7 @@ import {
 import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
 import { ExecutionTreeBuilderService } from '../execution-tree-builder.service';
+import { MessageSenderService } from '../message-sender.service';
 import {
   TabState,
   createEmptyStreamingState,
@@ -36,6 +37,7 @@ export class StreamingHandlerService {
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
   private readonly treeBuilder = inject(ExecutionTreeBuilderService);
+  private readonly messageSender = inject(MessageSenderService);
 
   /**
    * Tracks processed messageIds per session to prevent duplicate message_start events.
@@ -970,10 +972,18 @@ export class StreamingHandlerService {
   /**
    * Handle session stats update from backend
    *
-   * Updates the most recent assistant message with cost/token/duration data.
-   * Called when backend sends `session:stats` message after completion.
+   * TASK_2025_101: SESSION_STATS (from SDK type=result message) is the authoritative
+   * signal that streaming has truly completed. This replaces the unreliable chat:complete
+   * event which fires multiple times during tool execution.
    *
-   * @param stats - Session statistics from backend
+   * When stats arrive for a streaming tab:
+   * 1. Store pending stats
+   * 2. Finalize the streaming message (builds ExecutionNode tree)
+   * 3. Set tab status to 'loaded'
+   * 4. Mark tab idle (clears visual streaming indicator)
+   * 5. Trigger auto-send of any queued content
+   *
+   * @param stats - Session statistics from backend (derived from SDK result message)
    */
   handleSessionStats(stats: {
     sessionId: string;
@@ -981,6 +991,8 @@ export class StreamingHandlerService {
     tokens: { input: number; output: number };
     duration: number;
   }): void {
+    console.log('[StreamingHandlerService] Session stats received:', stats);
+
     // Find the target tab by session ID
     let targetTab = this.tabManager.findTabBySessionId(stats.sessionId);
 
@@ -1020,32 +1032,73 @@ export class StreamingHandlerService {
 
       // If still not found after fallback attempts, return
       if (!targetTab) {
+        console.warn(
+          '[StreamingHandlerService] No target tab found for session stats'
+        );
         return;
       }
     }
 
-    // Check if streaming is still in progress
-    // If so, store stats as pendingStats to be applied during finalization
+    const targetTabId = targetTab.id;
+
+    // TASK_2025_101: SESSION_STATS is the authoritative signal that streaming is complete.
+    // When stats arrive for a streaming tab, we finalize immediately.
     if (targetTab.streamingState && targetTab.status === 'streaming') {
       const state = targetTab.streamingState;
+
+      // 1. Store pending stats to be included in finalized message
       state.pendingStats = {
         cost: stats.cost,
         tokens: stats.tokens,
         duration: stats.duration,
       };
 
-      // PERFORMANCE: Use batched update for pending stats during streaming
-      // Stats updates during streaming don't need immediate UI feedback
-      this.scheduleTabUpdate(targetTab.id, state);
+      // Get queued content BEFORE finalization (since it clears streamingState)
+      const queuedContent = targetTab.queuedContent;
+
+      // 2. Finalize the streaming message
+      // This builds the ExecutionNode tree, creates the final message,
+      // sets status to 'loaded', and clears streamingState
+      console.log(
+        '[StreamingHandlerService] Finalizing streaming on stats received for tab:',
+        targetTabId
+      );
+      this.finalizeCurrentMessage(targetTabId);
+
+      // 3. Mark tab idle (clears visual streaming indicator)
+      this.tabManager.markTabIdle(targetTabId);
+
+      // 4. Trigger auto-send of queued content if any
+      if (queuedContent && queuedContent.trim()) {
+        console.log(
+          '[StreamingHandlerService] Auto-sending queued content after finalization'
+        );
+        this.messageSender
+          .send(queuedContent)
+          .then(() => {
+            // Clear queue only after successful send start
+            this.tabManager.updateTab(targetTabId, { queuedContent: null });
+            console.log(
+              '[StreamingHandlerService] Auto-send started, queue cleared'
+            );
+          })
+          .catch((error) => {
+            console.error(
+              '[StreamingHandlerService] Failed to auto-send queued content:',
+              error
+            );
+            // Keep content in queue on error (no data loss)
+          });
+      }
+
       return;
     }
 
-    // Find the last assistant message in the tab
+    // Handle stats for tabs that are already loaded (e.g., stats arrived late)
     const messages = targetTab.messages;
 
-    // TASK_2025_100 FIX: Stats may arrive after chat_complete but before finalization.
-    // In this case, status is 'loaded' but message is still in streamingState, not messages array.
-    // Store as pendingStats to be applied when user sends next message (lazy finalization).
+    // If tab has streamingState but is already 'loaded', stats arrived after manual status change
+    // Store as pendingStats - they'll be applied if user continues conversation
     if (messages.length === 0 && targetTab.streamingState) {
       const state = targetTab.streamingState;
       state.pendingStats = {
@@ -1055,12 +1108,15 @@ export class StreamingHandlerService {
       };
       this.scheduleTabUpdate(targetTab.id, state);
       console.log(
-        '[StreamingHandlerService] Stats stored as pendingStats (post-completion, pre-finalization)'
+        '[StreamingHandlerService] Stats stored as pendingStats (tab has streamingState but no messages)'
       );
       return;
     }
 
     if (messages.length === 0) {
+      console.log(
+        '[StreamingHandlerService] No messages in tab, stats discarded'
+      );
       return;
     }
 
@@ -1076,6 +1132,9 @@ export class StreamingHandlerService {
     }
 
     if (lastAssistantIndex === -1) {
+      console.log(
+        '[StreamingHandlerService] No assistant message found, stats discarded'
+      );
       return;
     }
 
@@ -1092,5 +1151,9 @@ export class StreamingHandlerService {
     this.tabManager.updateTab(targetTab.id, {
       messages: updatedMessages,
     });
+
+    console.log(
+      '[StreamingHandlerService] Stats applied to last assistant message'
+    );
   }
 }

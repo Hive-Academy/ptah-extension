@@ -350,7 +350,7 @@ export class ChatRpcHandlers {
 
         // Include tabId for frontend routing
         // sessionId in event is the real SDK UUID
-        const sendResult = await this.webviewManager.sendMessage(
+        await this.webviewManager.sendMessage(
           'ptah.main',
           MESSAGE_TYPES.CHAT_CHUNK,
           {
@@ -360,46 +360,11 @@ export class ChatRpcHandlers {
           }
         );
 
-        this.logger.debug(`[RPC] CHAT_CHUNK sent, result=${sendResult}`, {
-          sessionId,
-          tabId,
-          eventCount,
-        });
-
-        // DIAGNOSTIC: Log tool_result events specifically
-        if (event.eventType === 'tool_result') {
-          this.logger.info(`[RPC] TOOL_RESULT event sent to webview`, {
-            toolCallId: (event as { toolCallId?: string }).toolCallId,
-            sessionId: event.sessionId,
-            tabId,
-            eventCount,
-          });
-        }
-
         // TASK_2025_092: Reset turnCompleteSent when new turn starts (message_start)
         // This ensures multi-turn conversations properly signal completion for each turn
         if (event.eventType === 'message_start') {
           turnCompleteSent = false;
         }
-
-        // TASK_2025_092: Send chat:complete when message_complete is received
-        // This is the proper turn-completion signal for streaming input mode
-        // where the SDK keeps the iterator open waiting for more user input.
-        //
-        // Why this works for both Anthropic and OpenRouter:
-        // - Anthropic: stream_event with message_stop → transformer emits message_complete
-        // - OpenRouter: assistant (complete) message → transformer emits message_complete
-        // - In both cases, message_complete signals the end of the assistant's turn
-        //
-        // The session stream stays open for multi-turn conversations, but UI transitions
-        // from "streaming" to "loaded" state, ready for next user input.
-        this.logger.info(`[RPC] Event #${eventCount} eventType check`, {
-          eventType: event.eventType,
-          isMessageComplete: event.eventType === 'message_complete',
-          turnCompleteSent,
-          sessionId,
-          tabId,
-        });
 
         if (event.eventType === 'message_complete' && !turnCompleteSent) {
           turnCompleteSent = true;
@@ -418,11 +383,6 @@ export class ChatRpcHandlers {
           );
         }
       }
-
-      // Stream fully completed (session ended) - send final completion if not already sent
-      this.logger.info(
-        `[RPC] Stream completed for session ${sessionId}, tabId ${tabId}, total events: ${eventCount}`
-      );
 
       if (!turnCompleteSent) {
         await this.webviewManager.sendMessage(

@@ -38,6 +38,11 @@ import {
   CanUseTool,
   HookEvent,
   HookCallbackMatcher,
+  Options,
+  Query,
+  QueryFunction,
+  ModelInfo,
+  McpHttpServerConfig,
 } from './types/sdk-types/claude-sdk.types';
 import {
   AuthManager,
@@ -50,7 +55,6 @@ import {
   type SessionIdResolvedCallback,
   type ResultStatsCallback,
   type ContentBlock,
-  type Query,
 } from './helpers';
 import {
   ClaudeCliDetector,
@@ -127,11 +131,13 @@ export class SdkAgentAdapter implements IAIProvider {
    * Cached models from SDK's supportedModels() API
    * Populated on first call to getSupportedModels()
    */
-  private cachedSupportedModels: Array<{
-    value: string;
-    displayName: string;
-    description: string;
-  }> = [];
+  private cachedSupportedModels: ModelInfo[] = [];
+
+  /**
+   * Cached SDK query function - imported once and reused for all sessions
+   * This avoids the overhead of dynamic import() on every chat session start
+   */
+  private cachedSdkQuery: QueryFunction | null = null;
 
   /**
    * Create SDK Agent Adapter with all dependencies injected
@@ -160,6 +166,66 @@ export class SdkAgentAdapter implements IAIProvider {
   ) {}
 
   /**
+   * Get or import the SDK query function (cached after first use)
+   * This avoids repeated dynamic imports which add latency on each session start.
+   *
+   * Performance: SDK import takes ~100-200ms on first call, subsequent calls are instant.
+   */
+  private async getSdkQueryFunction(): Promise<QueryFunction> {
+    if (this.cachedSdkQuery) {
+      return this.cachedSdkQuery;
+    }
+
+    const startTime = performance.now();
+    this.logger.info(
+      '[SdkAgentAdapter] Importing Claude Agent SDK (first use)...'
+    );
+
+    // Dynamic import the ESM SDK module
+    // Note: SDK is bundled (not externalized) for proper ESM/CommonJS interop
+    const sdkModule = await import('@anthropic-ai/claude-agent-sdk');
+    const query = sdkModule.query as QueryFunction;
+
+    const elapsed = (performance.now() - startTime).toFixed(2);
+    this.cachedSdkQuery = query;
+    this.logger.info(
+      `[SdkAgentAdapter] SDK imported and cached successfully (${elapsed}ms)`
+    );
+
+    return query;
+  }
+
+  /**
+   * Pre-load the SDK during extension activation (non-blocking).
+   * This shifts the ~100-200ms import cost from first chat to activation time,
+   * making the first user interaction feel instant.
+   *
+   * Call this during extension activation after initialize():
+   * ```typescript
+   * sdkAdapter.preloadSdk().catch(err => logger.warn('SDK preload failed', err));
+   * ```
+   */
+  public async preloadSdk(): Promise<void> {
+    const startTime = performance.now();
+    this.logger.info('[SdkAgentAdapter] Pre-loading SDK during activation...');
+
+    try {
+      await this.getSdkQueryFunction();
+      const elapsed = (performance.now() - startTime).toFixed(2);
+      this.logger.info(
+        `[SdkAgentAdapter] SDK pre-loaded successfully (${elapsed}ms)`
+      );
+    } catch (error) {
+      const elapsed = (performance.now() - startTime).toFixed(2);
+      this.logger.warn(
+        `[SdkAgentAdapter] SDK pre-load failed after ${elapsed}ms (will retry on first use)`,
+        { error: error instanceof Error ? error.message : String(error) }
+      );
+      throw error;
+    }
+  }
+
+  /**
    * Build SDK query options for new or resumed session
    * Inlined from SdkQueryBuilder
    */
@@ -185,8 +251,7 @@ export class SdkAgentAdapter implements IAIProvider {
         type: 'preset';
         preset: 'claude_code';
       };
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      mcpServers: Record<string, any>;
+      mcpServers: Record<string, McpHttpServerConfig>;
       permissionMode: 'default' | 'acceptEdits' | 'bypassPermissions';
       canUseTool?: CanUseTool;
       includePartialMessages: boolean;
@@ -224,10 +289,9 @@ export class SdkAgentAdapter implements IAIProvider {
         };
 
     // CRITICAL: Create canUseTool callback
-    // Note: Our CanUseTool type is structurally identical to SDK's but TypeScript sees them as incompatible
-    // Use type assertion (eslint-disable to allow any for SDK interop)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const canUseToolCallback = this.permissionHandler.createCallback() as any;
+    // Our CanUseTool type matches SDK's type signature exactly (TASK_2025_099)
+    const canUseToolCallback: CanUseTool =
+      this.permissionHandler.createCallback();
 
     // Default port for Ptah HTTP MCP server (from vscode-lm-tools/CodeExecutionMCP)
     const PTAH_MCP_PORT = 51820;
@@ -283,7 +347,19 @@ export class SdkAgentAdapter implements IAIProvider {
         },
         // TASK_2025_099: Add subagent lifecycle hooks for real-time streaming
         // Hooks capture SubagentStart/SubagentStop events to enable file watching
-        hooks: this.subagentHookHandler.createHooks(cwd),
+        hooks: (() => {
+          const hooks = this.subagentHookHandler.createHooks(cwd);
+          // DIAGNOSTIC: Log hook registration to verify they're being created
+          this.logger.info('[SdkAgentAdapter] SDK hooks created for session', {
+            cwd,
+            hookEvents: Object.keys(hooks),
+            hasSubagentStart: !!hooks.SubagentStart,
+            hasSubagentStop: !!hooks.SubagentStop,
+            subagentStartHooksCount: hooks.SubagentStart?.length ?? 0,
+            subagentStopHooksCount: hooks.SubagentStop?.length ?? 0,
+          });
+          return hooks;
+        })(),
       },
     };
   }
@@ -511,19 +587,17 @@ export class SdkAgentAdapter implements IAIProvider {
    * Get supported models from SDK's native API
    * Fetches once and caches for subsequent calls
    *
-   * @returns Array of model info with value (API ID), displayName, and description
+   * @returns Array of ModelInfo with value (API ID), displayName, and description
    */
-  async getSupportedModels(): Promise<
-    Array<{ value: string; displayName: string; description: string }>
-  > {
+  async getSupportedModels(): Promise<ModelInfo[]> {
     // Return cached if available
     if (this.cachedSupportedModels.length > 0) {
       return this.cachedSupportedModels;
     }
 
     try {
-      // Import SDK and create temporary query to fetch models
-      const { query } = await import('@anthropic-ai/claude-agent-sdk');
+      // Get cached SDK query function (imported once)
+      const query = await this.getSdkQueryFunction();
 
       // Create a minimal query just to access supportedModels()
       // We use an async generator that yields nothing
@@ -554,7 +628,7 @@ export class SdkAgentAdapter implements IAIProvider {
       );
 
       // Fallback to safe defaults if SDK call fails
-      const fallback = [
+      const fallback: ModelInfo[] = [
         {
           value: 'claude-sonnet-4-20250514',
           displayName: 'Claude Sonnet 4',
@@ -624,10 +698,7 @@ export class SdkAgentAdapter implements IAIProvider {
     // NOTE: Session metadata will be created when SDK returns real session ID
     // via onSessionIdResolved callback. SDK handles message persistence natively.
 
-    // Import SDK dynamically (ESM in CommonJS context)
-    this.logger.info(
-      `[SdkAgentAdapter] Importing Claude Agent SDK for session ${sessionId}...`
-    );
+    // Get cached SDK query function (avoids repeated dynamic imports)
     this.logger.debug(
       `[SdkAgentAdapter] Environment check: ANTHROPIC_API_KEY=${
         process.env['ANTHROPIC_API_KEY'] ? 'SET' : 'NOT SET'
@@ -636,8 +707,7 @@ export class SdkAgentAdapter implements IAIProvider {
       }`
     );
 
-    const { query } = await import('@anthropic-ai/claude-agent-sdk');
-    this.logger.info('[SdkAgentAdapter] SDK imported successfully');
+    const query = await this.getSdkQueryFunction();
 
     // Create user message stream (session is now pre-registered, so it can be found)
     const userMessageStream = this.createUserMessageStream(
@@ -664,15 +734,18 @@ export class SdkAgentAdapter implements IAIProvider {
     });
 
     // Start SDK query
-    // Type assertion needed because SDK's query() expects SDK types, not our local types
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sdkQuery = query(queryOptions as any);
+    // SDK's query() returns Query which is AsyncGenerator<SDKMessage, void> with control methods
+    // Our local Query type (from claude-sdk.types.ts) is structurally identical
+    // Using explicit parameter type to ensure hooks are properly passed
+    const sdkQuery: Query = query({
+      prompt: queryOptions.prompt,
+      options: queryOptions.options as Options,
+    });
     const initialModel = queryOptions.options.model;
 
     // Set the SDK query on the pre-registered session
-    // Type assertion needed because SDK types are structurally identical but seen as different
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.sessionLifecycle.setSessionQuery(sessionId, sdkQuery as any);
+    // SessionLifecycleManager's Query interface matches SDK's Query structure
+    this.sessionLifecycle.setSessionQuery(sessionId, sdkQuery);
 
     // Return transformed stream
     // Note: sdkQuery yields SDK's SDKMessage (from @anthropic-ai/claude-agent-sdk)
@@ -685,8 +758,9 @@ export class SdkAgentAdapter implements IAIProvider {
       config?.tabId
     );
 
+    // Query extends AsyncGenerator<SDKMessage, void>, so it's already AsyncIterable<SDKMessage>
     return this.streamTransformer.transform({
-      sdkQuery: sdkQuery as unknown as AsyncIterable<SDKMessage>,
+      sdkQuery,
       sessionId,
       initialModel,
       onSessionIdResolved: sessionIdCallback,
@@ -748,9 +822,8 @@ export class SdkAgentAdapter implements IAIProvider {
       abortController
     );
 
-    // Import SDK dynamically
-    const { query } = await import('@anthropic-ai/claude-agent-sdk');
-    this.logger.info('[SdkAgentAdapter] SDK imported for session resume');
+    // Get cached SDK query function (avoids repeated dynamic imports)
+    const query = await this.getSdkQueryFunction();
 
     // Create user message stream
     const userMessageStream = this.createUserMessageStream(
@@ -774,21 +847,21 @@ export class SdkAgentAdapter implements IAIProvider {
     });
 
     // Start SDK query with resume
-    // Type assertion needed because SDK's query() expects SDK types, not our local types
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sdkQuery = query(queryOptions as any);
+    // SDK's query() returns Query which is AsyncGenerator<SDKMessage, void> with control methods
+    // Our local Query type (from claude-sdk.types.ts) is structurally identical
+    const sdkQuery: Query = query({
+      prompt: queryOptions.prompt,
+      options: queryOptions.options as Options,
+    });
     const initialModel = queryOptions.options.model;
 
     // Set the SDK query on the pre-registered session
-    // Type assertion needed because SDK types are structurally identical but seen as different
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.sessionLifecycle.setSessionQuery(sessionId, sdkQuery as any);
+    // SessionLifecycleManager's Query interface matches SDK's Query structure
+    this.sessionLifecycle.setSessionQuery(sessionId, sdkQuery);
 
     this.logger.info(`[SdkAgentAdapter] Session resumed: ${sessionId}`);
 
     // Return transformed stream - SDK will replay history messages
-    // Note: sdkQuery yields SDK's SDKMessage (from @anthropic-ai/claude-agent-sdk)
-    // We structurally match it with our SDKMessage type (from claude-sdk.types.ts)
     // For resumed sessions, just update lastActiveAt (metadata already exists)
     // TASK_2025_095: Updated callback signature with tabId for direct routing
     // Note: Resumed sessions don't have tabId from frontend, so pass undefined
@@ -802,8 +875,9 @@ export class SdkAgentAdapter implements IAIProvider {
       }
     };
 
+    // Query extends AsyncGenerator<SDKMessage, void>, so it's already AsyncIterable<SDKMessage>
     return this.streamTransformer.transform({
-      sdkQuery: sdkQuery as unknown as AsyncIterable<SDKMessage>,
+      sdkQuery,
       sessionId,
       initialModel,
       onSessionIdResolved: resumeCallback,

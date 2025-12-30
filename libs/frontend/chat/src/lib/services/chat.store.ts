@@ -570,109 +570,28 @@ export class ChatStore {
    * Handle chat completion signal from backend
    * Called when Claude CLI process exits (success or error)
    *
-   * TASK_2025_092: Now routes by tabId (primary) instead of sessionId lookup
-   * - tabId: Direct tab routing (preferred)
-   * - sessionId: Real SDK UUID for reference
+   * TASK_2025_101: This event is NO LONGER used to control streaming state.
+   * The chat:complete event fires multiple times during tool execution (once per
+   * message_complete), making it unreliable for determining when streaming truly ends.
    *
-   * Ensures UI state is reset to 'loaded' regardless of exit code.
-   * FIX #1: Queue cleared AFTER auto-send starts (in .then callback)
-   * FIX #6: Guard against recursive auto-send
+   * Streaming finalization is now handled by handleSessionStats(), which receives
+   * the authoritative SESSION_STATS event derived from SDK's type=result message.
+   * That event fires exactly once per turn and contains final cost/token data.
+   *
+   * This method now only logs the event for debugging purposes.
    */
   handleChatComplete(data: {
     tabId?: string;
     sessionId?: string;
     code: number;
   }): void {
-    // TASK_2025_092: Route by tabId (primary) or fall back to sessionId lookup
-    let targetTab: TabState | null = null;
-    let targetTabId: string | null = null;
-
-    // Primary: Use tabId for direct routing
-    if (data.tabId) {
-      targetTabId = data.tabId;
-      targetTab =
-        this.tabManager.tabs().find((t) => t.id === data.tabId) ?? null;
-    }
-
-    // Fallback: Find by sessionId if tabId not available (legacy support)
-    if (!targetTab && data.sessionId) {
-      targetTab = this.tabManager.findTabBySessionId(data.sessionId);
-      if (targetTab) {
-        targetTabId = targetTab.id;
-      }
-    }
-
-    // Last resort: Use active tab
-    if (!targetTab) {
-      targetTabId = this.tabManager.activeTabId();
-      targetTab = this.tabManager.activeTab();
-    }
-
-    if (!targetTabId || !targetTab) {
-      console.warn('[ChatStore] No target tab for chat completion');
-      return;
-    }
-
-    // Only reset if tab is still in streaming/resuming state
-    if (
-      targetTab.status === 'streaming' ||
-      targetTab.status === 'resuming' ||
-      targetTab.status === 'draft'
-    ) {
-      // TASK_2025_093 FIX: DO NOT call finalizeCurrentMessage here!
-      // chat:complete should ONLY update UI status, not mutate the event pipeline.
-      //
-      // Problem: tool_result events arrive AFTER message_complete, so calling
-      // finalizeCurrentMessage here sets streamingState: null too early.
-      // Subsequent tool_result events create a new streamingState that is never
-      // finalized, causing tools to remain stuck in streaming state.
-      //
-      // Solution: Let streaming state persist. Events continue to accumulate.
-      // Finalization happens lazily when:
-      // 1. User sends next message (startNewMessage finalizes previous)
-      // 2. Session is switched (lazy finalization on switch)
-      // 3. Tab is closed (cleanup)
-      //
-      // This also aligns with user's requirement that streaming should be
-      // UI-only (read-only status) and users can send messages while Claude works.
-
-      // Ensure tab status is reset to loaded (UI allows input)
-      this.tabManager.updateTab(targetTabId, { status: 'loaded' });
-      this.sessionManager.setStatus('loaded');
-
-      // TASK_2025_100 FIX: Clear visual streaming indicator
-      // markTabIdle clears _streamingTabIds which chat-input and tab-bar use
-      // to show/hide stop button and spinner. Without this, stop button persists
-      // even after chat:complete is received because isTabStreaming() still returns true.
-      this.tabManager.markTabIdle(targetTabId);
-
-      // ========== AUTO-SEND QUEUED CONTENT ==========
-      // FIX #6: Guard against recursive auto-send (via ConversationService signal)
-      if (this.conversation.isAutoSending()) {
-        return;
-      }
-
-      // Check if this tab has queued content
-      const queuedContent = targetTab.queuedContent;
-      if (queuedContent && queuedContent.trim()) {
-        // Auto-send via continueConversation (async, don't await)
-        // ConversationService handles the _isAutoSending flag internally
-        this.continueConversation(queuedContent)
-          .then(() => {
-            // Clear queue only after successful send start
-            this.tabManager.updateTab(targetTabId!, { queuedContent: null });
-          })
-          .catch((error) => {
-            console.error(
-              '[ChatStore] Failed to auto-send queued content:',
-              error
-            );
-            // Keep content in queue on error (no data loss)
-            // No need to restore - it was never cleared
-          });
-      }
-      // ========== END AUTO-SEND ==========
-    }
+    // TASK_2025_101: chat:complete is no longer used for streaming state management.
+    // It fires multiple times (once per message_complete during tool execution).
+    // SESSION_STATS (from type=result) is the authoritative completion signal.
+    console.log(
+      '[ChatStore] chat:complete received (no-op, streaming managed by SESSION_STATS):',
+      data
+    );
   }
 
   /**

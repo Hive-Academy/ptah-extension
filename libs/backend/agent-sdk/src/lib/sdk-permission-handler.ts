@@ -32,6 +32,7 @@ import {
   isToolUseBlock,
   CanUseTool,
   PermissionResult,
+  PermissionUpdate,
 } from './types/sdk-types/claude-sdk.types';
 
 /**
@@ -237,7 +238,7 @@ export class SdkPermissionHandler {
       input: Record<string, unknown>,
       options: {
         signal: AbortSignal;
-        suggestions?: Array<unknown>;
+        suggestions?: PermissionUpdate[];
         blockedPath?: string;
         decisionReason?: string;
         toolUseID: string;

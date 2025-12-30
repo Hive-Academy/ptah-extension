@@ -76,6 +76,11 @@ export class SubagentHookHandler {
   createHooks(
     workspacePath: string
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
+    // DIAGNOSTIC: Log hook creation
+    this.logger.info('[SubagentHookHandler] Creating hooks for workspace', {
+      workspacePath,
+    });
+
     return {
       SubagentStart: [
         {
@@ -85,6 +90,16 @@ export class SubagentHookHandler {
               toolUseId: string | undefined,
               _options: { signal: AbortSignal }
             ): Promise<HookJSONOutput> => {
+              // DIAGNOSTIC: Log that the hook was actually invoked by SDK
+              this.logger.info(
+                '[SubagentHookHandler] >>> SubagentStart HOOK INVOKED <<<',
+                {
+                  hookEventName: input.hook_event_name,
+                  toolUseId,
+                  sessionId: input.session_id,
+                }
+              );
+
               // Use type guard instead of type assertion for type safety
               if (!isSubagentStartHook(input)) {
                 this.logger.warn(
@@ -109,6 +124,16 @@ export class SubagentHookHandler {
               toolUseId: string | undefined,
               _options: { signal: AbortSignal }
             ): Promise<HookJSONOutput> => {
+              // DIAGNOSTIC: Log that the hook was actually invoked by SDK
+              this.logger.info(
+                '[SubagentHookHandler] >>> SubagentStop HOOK INVOKED <<<',
+                {
+                  hookEventName: input.hook_event_name,
+                  toolUseId,
+                  sessionId: input.session_id,
+                }
+              );
+
               // Use type guard instead of type assertion for type safety
               if (!isSubagentStopHook(input)) {
                 this.logger.warn(

@@ -209,14 +209,6 @@ export class SdkMessageTransformer {
         const messageId =
           message?.id || sdkMessage.uuid || `stream-msg-${Date.now()}`;
 
-        // DIAGNOSTIC: Log ALL message_start events to understand SDK behavior for subagents
-        this.logger.info(`[SdkMessageTransformer] message_start received`, {
-          messageId,
-          sdkUuid: sdkMessage.uuid,
-          anthropicMsgId: message?.id,
-          parentToolUseId: parentToolUseId || '(root)',
-          isSubagent: !!parentToolUseId,
-        });
 
         // TASK_2025_096 FIX: Track current message ID per context
         // Context = parentToolUseId (for nested agent messages) or '' (for root messages)
@@ -232,11 +224,6 @@ export class SdkMessageTransformer {
           }
         }
 
-        this.logger.debug(
-          `[SdkMessageTransformer] Stream started: ${messageId} (context: ${
-            context || 'root'
-          })`
-        );
 
         // Emit message_start event
         const messageStartEvent: MessageStartEvent = {
@@ -290,11 +277,7 @@ export class SdkMessageTransformer {
         const context = parentToolUseId || '';
         const currentMessageId = this.currentMessageIdByContext.get(context);
 
-        this.logger.debug(
-          `[SdkMessageTransformer] Stream stopped: ${currentMessageId} (context: ${
-            context || 'root'
-          })`
-        );
+
 
         // TASK_2025_086: Emit message_complete when stream ends
         // This is CRITICAL - without this, StreamTransformer never stores the message
@@ -425,23 +408,6 @@ export class SdkMessageTransformer {
         const context = parentToolUseId || '';
         const currentMessageId = this.currentMessageIdByContext.get(context);
 
-        // DIAGNOSTIC: Log ALL content_block_delta events to understand SDK behavior
-        // This will help us see if SDK sends text_delta for subagents
-        this.logger.info(
-          `[SdkMessageTransformer] content_block_delta received`,
-          {
-            deltaType: delta?.type,
-            hasText: !!delta?.text,
-            textLength: delta?.text?.length || 0,
-            hasPartialJson: !!delta?.partial_json,
-            parentToolUseId: parentToolUseId || '(root)',
-            context,
-            currentMessageId: currentMessageId || '(none)',
-            blockIndex,
-            isSubagent: !!parentToolUseId,
-          }
-        );
-
         if (!delta || !currentMessageId) {
           return [];
         }
@@ -461,21 +427,6 @@ export class SdkMessageTransformer {
               blockIndex,
               parentToolUseId,
             };
-
-            // DIAGNOSTIC: Log text_delta emission for subagent debugging
-            if (parentToolUseId) {
-              this.logger.info(
-                `[SdkMessageTransformer] SUBAGENT text_delta emitted`,
-                {
-                  eventId: textDeltaEvent.id,
-                  messageId: currentMessageId,
-                  parentToolUseId,
-                  textLength: delta.text.length,
-                  textSnippet: delta.text.substring(0, 50),
-                  blockIndex,
-                }
-              );
-            }
 
             return [textDeltaEvent];
           }
@@ -609,27 +560,6 @@ export class SdkMessageTransformer {
     //
     // Priority: Anthropic message.id > SDK uuid
     const messageId = message?.id || uuid;
-
-    // DIAGNOSTIC: Log complete assistant messages, especially for subagents
-    // This helps understand if/when SDK sends complete text for subagents
-    const contentTypes = content.map((block) => {
-      if (isTextBlock(block)) return `text(${block.text.length} chars)`;
-      if (isToolUseBlock(block)) return `tool(${block.name})`;
-      if (isToolResultBlock(block)) return `tool_result(${block.tool_use_id})`;
-      return 'unknown';
-    });
-
-    this.logger.info(
-      `[SdkMessageTransformer] transformAssistantToFlatEvents called`,
-      {
-        messageId,
-        uuid,
-        parentToolUseId: parent_tool_use_id || '(root)',
-        isSubagent: !!parent_tool_use_id,
-        contentBlockCount: content.length,
-        contentTypes,
-      }
-    );
 
     // 1. Emit message_start
     const messageStartEvent: MessageStartEvent = {
@@ -798,19 +728,6 @@ export class SdkMessageTransformer {
   ): FlatStreamEventUnion[] {
     const { uuid, message, parent_tool_use_id } = sdkMessage;
 
-    // DIAGNOSTIC: Log user message processing
-    this.logger.info(
-      '[SdkMessageTransformer] transformUserToFlatEvents called',
-      {
-        uuid,
-        sessionId,
-        contentType: typeof message.content,
-        isArray: Array.isArray(message.content),
-        contentLength: Array.isArray(message.content)
-          ? message.content.length
-          : 0,
-      }
-    );
 
     const events: FlatStreamEventUnion[] = [];
     const messageId = uuid || `user-${Date.now()}`;
@@ -845,28 +762,13 @@ export class SdkMessageTransformer {
             parentToolUseId: parent_tool_use_id ?? undefined,
           };
           events.push(toolResultEvent);
-          this.logger.debug(
-            '[SdkMessageTransformer] Extracted tool_result from user message',
-            {
-              uuid,
-              toolCallId: toolResultBlock.tool_use_id,
-              isError: toolResultBlock.is_error,
-            }
-          );
+
         }
       }
 
       // If we found tool_result blocks, return them without creating empty user message bubbles
       if (events.length > 0) {
-        this.logger.info(
-          '[SdkMessageTransformer] Extracted tool_result events from user message',
-          {
-            eventCount: events.length,
-            toolCallIds: events
-              .filter((e) => e.eventType === 'tool_result')
-              .map((e) => (e as ToolResultEvent).toolCallId),
-          }
-        );
+
         return events;
       }
     }

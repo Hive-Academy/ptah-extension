@@ -177,16 +177,9 @@ export class StreamTransformer {
         // TASK_2025_092: Track the effective session ID - updated when SDK resolves real UUID
         // Initial value is temp ID from config, updated to real UUID on system init message
         let effectiveSessionId = sessionId;
-        // TASK_2025_091: Track if we've seen stream_event messages for this turn
-        // When providers send BOTH stream_event AND assistant messages,
-        // we should only process stream_event to avoid duplicate content.
-        // stream_event provides real-time deltas, assistant provides complete message.
-        const hasSeenStreamEvent = false;
+
 
         try {
-          logger.info(
-            `[StreamTransformer] Starting message stream for ${sessionId}`
-          );
 
           for await (const sdkMessage of sdkQuery) {
             sdkMessageCount++;
@@ -212,17 +205,11 @@ export class StreamTransformer {
               messageDetails['messageId'] = msg?.message?.id;
             }
 
-            logger.info(
-              `[StreamTransformer] SDK message #${sdkMessageCount} received: type=${sdkMessage.type}`,
-              messageDetails
-            );
+
 
             // Extract real session ID from system 'init' message using type guard
             if (isSystemInit(sdkMessage)) {
               const realSessionId = sdkMessage.session_id;
-              logger.info(
-                `[StreamTransformer] Received session ID from SDK: ${realSessionId}`
-              );
 
               // TASK_2025_092: Update effective session ID to real UUID
               // This ensures stats and events use the real UUID, not temp ID
@@ -257,14 +244,7 @@ export class StreamTransformer {
                   duration: sdkMessage.duration_ms,
                 };
 
-                logger.debug(
-                  `[StreamTransformer] Result message received for ${effectiveSessionId}`,
-                  {
-                    cost: rawStats.cost,
-                    duration: rawStats.duration,
-                    tokens: rawStats.tokens,
-                  }
-                );
+
 
                 // Validate and notify
                 const validatedStats = validateStats(rawStats, logger);
@@ -275,32 +255,10 @@ export class StreamTransformer {
               }
             }
 
-            // TASK_2025_091: Process BOTH stream_event AND assistant messages
-            // - stream_event: Real-time streaming deltas (native Anthropic API)
-            // - assistant: Complete messages (some providers send these)
-            // - user: Contains tool_result blocks after tool execution (TASK_2025_092)
-            //
-            // DEDUPLICATION STRATEGY:
-            // Backend sends ALL messages. Frontend handles deduplication by messageId.
-            // When duplicate message_start arrives (same messageId), frontend CLEARS
-            // accumulators so complete content REPLACES streamed content.
-            // This is the systematic solution that works for all providers/scenarios.
-            //
+
             // CRITICAL FIX (TASK_2025_092): Must process 'user' messages to extract tool_result!
             // SDK sends tool_result content blocks in user messages after tool execution.
             // Without this, tools remain in __streaming: true state forever.
-
-            // DIAGNOSTIC: Log all message types to verify user messages are being processed
-            logger.info(
-              `[StreamTransformer] Processing message type=${sdkMessage.type}`,
-              {
-                sessionId: effectiveSessionId,
-                isUser: sdkMessage.type === 'user',
-                isStreamEvent: sdkMessage.type === 'stream_event',
-                isAssistant: sdkMessage.type === 'assistant',
-              }
-            );
-
             if (
               sdkMessage.type === 'stream_event' ||
               sdkMessage.type === 'assistant' ||
@@ -313,39 +271,13 @@ export class StreamTransformer {
                 effectiveSessionId
               );
 
-              const msgType =
-                sdkMessage.type === 'stream_event'
-                  ? 'stream_event'
-                  : 'assistant (complete)';
 
-              logger.info(
-                `[StreamTransformer] Transformed ${msgType} to ${flatEvents.length} flat events`,
-                {
-                  sessionId: effectiveSessionId,
-                  sourceType: sdkMessage.type,
-                  eventCount: flatEvents.length,
-                  eventTypes: flatEvents.map((e) => e.eventType),
-                }
-              );
 
               for (const event of flatEvents) {
                 yieldedEventCount++;
-                logger.debug(
-                  `[StreamTransformer] Yielding event #${yieldedEventCount}`,
-                  {
-                    eventType: event.eventType,
-                    messageId: event.messageId,
-                    sessionId: event.sessionId,
-                  }
-                );
+
                 yield event;
               }
-            } else {
-              // DIAGNOSTIC: Log skipped message types
-              logger.debug(
-                `[StreamTransformer] Skipping message type: ${sdkMessage.type}`,
-                { sessionId }
-              );
             }
             // Note: 'user' and 'result' messages are NOT yielded
             // SDK persists them natively to ~/.claude/projects/{sessionId}.jsonl

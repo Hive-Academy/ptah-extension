@@ -1121,3 +1121,176 @@ export function isSessionEndHook(
 ): input is SessionEndHookInput {
   return input.hook_event_name === 'SessionEnd';
 }
+
+// =============================================================================
+// SDK QUERY OPTIONS (from Options type in agentSdkTypes.d.ts)
+// =============================================================================
+
+/**
+ * MCP Server configuration types
+ */
+export type McpStdioServerConfig = {
+  type?: 'stdio';
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+};
+
+export type McpSSEServerConfig = {
+  type: 'sse';
+  url: string;
+  headers?: Record<string, string>;
+};
+
+export type McpHttpServerConfig = {
+  type: 'http';
+  url: string;
+  headers?: Record<string, string>;
+};
+
+export type McpServerConfig =
+  | McpStdioServerConfig
+  | McpSSEServerConfig
+  | McpHttpServerConfig;
+
+/**
+ * Model information returned by supportedModels()
+ */
+export interface ModelInfo {
+  /** Model identifier to use in API calls */
+  value: string;
+  /** Human-readable display name */
+  displayName: string;
+  /** Description of the model's capabilities */
+  description: string;
+}
+
+/**
+ * Slash command information
+ */
+export interface SlashCommand {
+  /** Command name (without the leading slash) */
+  name: string;
+  /** Description of what the command does */
+  description: string;
+  /** Hint for command arguments (e.g., "<file>") */
+  argumentHint: string;
+}
+
+/**
+ * SDK Query Options - Configuration for query() function
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:685-1014
+ */
+export interface Options {
+  /** Controller for cancelling the query */
+  abortController?: AbortController;
+  /** Additional directories Claude can access */
+  additionalDirectories?: string[];
+  /** List of tool names that are allowed */
+  allowedTools?: string[];
+  /** Custom permission handler for controlling tool usage */
+  canUseTool?: CanUseTool;
+  /** Continue the most recent conversation */
+  continue?: boolean;
+  /** Current working directory for the session */
+  cwd?: string;
+  /** List of tool names that are disallowed */
+  disallowedTools?: string[];
+  /** Specify the base set of available built-in tools */
+  tools?:
+    | string[]
+    | {
+        type: 'preset';
+        preset: 'claude_code';
+      };
+  /** Environment variables to pass to the Claude Code process */
+  env?: Record<string, string | undefined>;
+  /** JavaScript runtime to use */
+  executable?: 'bun' | 'deno' | 'node';
+  /** Additional arguments to pass to the JavaScript runtime */
+  executableArgs?: string[];
+  /** Additional CLI arguments to pass to Claude Code */
+  extraArgs?: Record<string, string | null>;
+  /** Fallback model to use if the primary model fails */
+  fallbackModel?: string;
+  /** Enable file checkpointing */
+  enableFileCheckpointing?: boolean;
+  /** Fork to a new session ID when resuming */
+  forkSession?: boolean;
+  /** Hook callbacks for responding to various events */
+  hooks?: Partial<Record<HookEvent, HookCallbackMatcher[]>>;
+  /** When false, disables session persistence to disk */
+  persistSession?: boolean;
+  /** Include partial/streaming message events in the output */
+  includePartialMessages?: boolean;
+  /** Maximum number of tokens for thinking/reasoning */
+  maxThinkingTokens?: number;
+  /** Maximum number of conversation turns */
+  maxTurns?: number;
+  /** Maximum budget in USD for the query */
+  maxBudgetUsd?: number;
+  /** MCP server configurations */
+  mcpServers?: Record<string, McpServerConfig>;
+  /** Claude model to use */
+  model?: string;
+  /** Path to the Claude Code executable */
+  pathToClaudeCodeExecutable?: string;
+  /** Permission mode for the session */
+  permissionMode?: PermissionMode;
+  /** Must be set to true when using permissionMode: 'bypassPermissions' */
+  allowDangerouslySkipPermissions?: boolean;
+  /** MCP tool name to use for permission prompts */
+  permissionPromptToolName?: string;
+  /** Session ID to resume */
+  resume?: string;
+  /** When resuming, only resume up to this message UUID */
+  resumeSessionAt?: string;
+  /** Control which filesystem settings to load */
+  settingSources?: Array<'user' | 'project' | 'local'>;
+  /** Callback for stderr output */
+  stderr?: (data: string) => void;
+  /** Enforce strict validation of MCP server configurations */
+  strictMcpConfig?: boolean;
+  /** System prompt configuration */
+  systemPrompt?:
+    | string
+    | {
+        type: 'preset';
+        preset: 'claude_code';
+        append?: string;
+      };
+}
+
+// =============================================================================
+// SDK QUERY INTERFACE (the return type of query())
+// =============================================================================
+
+/**
+ * Query interface - AsyncGenerator with control methods
+ * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:514-589
+ */
+export interface Query extends AsyncGenerator<SDKMessage, void> {
+  /** Interrupt the current query execution */
+  interrupt(): Promise<void>;
+  /** Change the permission mode for the current session */
+  setPermissionMode(mode: PermissionMode): Promise<void>;
+  /** Change the model used for subsequent responses */
+  setModel(model?: string): Promise<void>;
+  /** Set the maximum number of thinking tokens */
+  setMaxThinkingTokens(maxThinkingTokens: number | null): Promise<void>;
+  /** Get the list of available slash commands */
+  supportedCommands(): Promise<SlashCommand[]>;
+  /** Get the list of available models */
+  supportedModels(): Promise<ModelInfo[]>;
+  /** Stream input messages to the query */
+  streamInput(stream: AsyncIterable<SDKUserMessage>): Promise<void>;
+}
+
+/**
+ * SDK query function type
+ * This is the main entry point for the Claude Agent SDK
+ */
+export type QueryFunction = (params: {
+  prompt: string | AsyncIterable<SDKUserMessage>;
+  options?: Options;
+}) => Query;

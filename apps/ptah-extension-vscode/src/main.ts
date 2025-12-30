@@ -56,6 +56,7 @@ export async function activate(
     console.log('[Activate] Step 3.8: Initializing SDK authentication...');
     const sdkAdapter = DIContainer.resolve(TOKENS.SDK_AGENT_ADAPTER) as {
       initialize: () => Promise<boolean>;
+      preloadSdk: () => Promise<void>;
     };
     const authInitialized = await sdkAdapter.initialize();
 
@@ -63,6 +64,15 @@ export async function activate(
       logger.warn('SDK authentication not configured - showing onboarding UI');
     } else {
       logger.info('SDK authentication initialized successfully');
+
+      // Pre-load SDK in background (non-blocking) to speed up first chat
+      // This shifts ~100-200ms import cost from first user interaction to activation
+      console.log('[Activate] Step 3.8.1: Pre-loading SDK in background...');
+      sdkAdapter.preloadSdk().catch((err) => {
+        logger.warn('SDK preload failed (will retry on first use)', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
     }
     console.log(
       '[Activate] Step 3.8: SDK authentication initialization complete'
