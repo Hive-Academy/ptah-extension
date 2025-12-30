@@ -249,9 +249,10 @@ export class InlineAgentBubbleComponent {
   });
 
   /**
-   * Generate a consistent HSL color from a string
+   * Generate a consistent oklch color from a string
    * Same string always produces the same color
    * TASK_2025_100 Batch 4: Updated default fallback to theme-aware oklch format
+   * TASK_2025_100 QA Fix: Converted from HSL to oklch for theme consistency
    */
   private generateColorFromString(str: string): string {
     if (!str) return 'oklch(var(--bc) / 0.5)'; // Theme-aware gray for empty strings
@@ -265,8 +266,10 @@ export class InlineAgentBubbleComponent {
     // Convert hash to hue (0-360)
     const hue = Math.abs(hash % 360);
 
-    // Use consistent saturation and lightness for readable colors
-    return `hsl(${hue}, 65%, 45%)`;
+    // Use oklch for theme-aware generated colors
+    // L=0.55 provides good contrast on both light and dark backgrounds
+    // C=0.15 gives vibrant but not oversaturated colors
+    return `oklch(0.55 0.15 ${hue})`;
   }
 
   // Computed: agent initial letter

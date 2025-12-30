@@ -68,11 +68,11 @@ import {
         <!-- Title -->
         <span class="font-semibold text-base-content/80">Permission</span>
 
-        <!-- Tool badge with icon -->
+        <!-- Tool badge with icon - TASK_2025_100 QA Fix: Use DaisyUI badge classes for theme consistency -->
         <span
-          class="badge badge-xs font-mono px-1.5 gap-0.5"
-          [style.background-color]="getToolColor()"
-          style="color: white; border: none"
+          [class]="
+            'badge badge-xs font-mono px-1.5 gap-0.5 ' + getToolBadgeClass()
+          "
         >
           <lucide-angular [img]="getToolIcon()" class="w-2.5 h-2.5" />
           {{ request().toolName }}
@@ -261,6 +261,31 @@ export class PermissionRequestCardComponent {
         return 'oklch(var(--in))'; // info - file pattern matching
       default:
         return 'oklch(var(--wa))'; // warning (amber) - default
+    }
+  }
+
+  /**
+   * Get tool-specific DaisyUI badge class for consistent styling
+   * TASK_2025_100 QA Fix: Aligns with tool-icon.component.ts pattern
+   * Uses DaisyUI badge classes for theme-aware styling instead of inline oklch
+   */
+  protected getToolBadgeClass(): string {
+    const toolName = this.request().toolName;
+    switch (toolName) {
+      case 'Read':
+        return 'badge-info'; // info (blue) - file reading
+      case 'Write':
+        return 'badge-success'; // success (green) - file creation
+      case 'Bash':
+        return 'badge-warning'; // warning (amber) - shell commands
+      case 'Grep':
+        return 'badge-secondary'; // secondary - search operations
+      case 'Edit':
+        return 'badge-accent'; // accent - file modifications
+      case 'Glob':
+        return 'badge-info'; // info - file pattern matching
+      default:
+        return 'badge-warning'; // warning (amber) - default
     }
   }
 
