@@ -11,6 +11,7 @@ import {
   afterNextRender,
   inject,
   Injector,
+  DestroyRef,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -112,7 +113,15 @@ import type {
         #contentContainer
         class="px-3 pb-2 max-h-80 overflow-y-auto border-t border-base-300/30"
       >
-        @if (hasChildren()) {
+        <!-- TASK_2025_099: Show summaryContent from real-time file watcher -->
+        @if (hasSummaryContent()) {
+        <div class="text-[11px] text-base-content/80 whitespace-pre-wrap py-2">
+          {{ summaryContent() }}
+          @if (isStreaming()) {
+          <ptah-typing-cursor colorClass="text-base-content/60" />
+          }
+        </div>
+        } @if (hasChildren()) {
         <!-- Render all children in chronological order (text + tools interleaved) -->
         @for (child of node().children; track child.id) {
         <ptah-execution-node
@@ -121,7 +130,7 @@ import type {
           [getPermissionForTool]="getPermissionForTool()"
           (permissionResponded)="permissionResponded.emit($event)"
         />
-        } @if (isStreaming()) {
+        } @if (isStreaming() && !hasSummaryContent()) {
         <div
           class="flex items-center gap-1 text-[10px] text-base-content/40 mt-2"
         >
@@ -129,8 +138,8 @@ import type {
           <span>Agent working</span>
           <ptah-typing-cursor colorClass="text-base-content/40" />
         </div>
-        } } @else {
-        <!-- No children yet -->
+        } } @else if (!hasSummaryContent()) {
+        <!-- No children and no summary content yet -->
         @if (isStreaming()) {
         <div
           class="flex items-center gap-2 text-[10px] text-base-content/40 py-2"
@@ -152,6 +161,15 @@ import type {
 })
 export class InlineAgentBubbleComponent {
   private readonly injector = inject(Injector);
+  private readonly destroyRef = inject(DestroyRef);
+
+  /**
+   * MutationObserver for auto-scroll behavior.
+   * Watches DOM mutations to trigger scroll after recursive ExecutionNode tree completes.
+   */
+  private observer: MutationObserver | null = null;
+  private scrollTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private readonly SCROLL_DEBOUNCE_MS = 50;
 
   readonly node = input.required<ExecutionNode>();
 
@@ -185,23 +203,33 @@ export class InlineAgentBubbleComponent {
   readonly isCollapsed = signal(false);
 
   constructor() {
-    // TASK_2025_096 FIX: Auto-scroll agent content when new children arrive
-    effect(() => {
-      const children = this.node().children;
-      const isStreaming = this.node().status === 'streaming';
-      const collapsed = this.isCollapsed();
+    // Setup observer after initial render
+    afterNextRender(
+      () => {
+        this.setupMutationObserver();
+      },
+      { injector: this.injector }
+    );
 
-      // Only scroll when streaming, expanded, and has children
-      if (isStreaming && !collapsed && children && children.length > 0) {
-        // Use afterNextRender instead of setTimeout for proper lifecycle handling
-        // This ensures DOM is ready and provides automatic cleanup
+    // Re-setup observer when component expands (container re-enters DOM)
+    // The #contentContainer is conditionally rendered with @if (!isCollapsed())
+    effect(() => {
+      const collapsed = this.isCollapsed();
+      if (!collapsed) {
+        // Container is visible - setup/re-setup observer
+        // Use afterNextRender to ensure DOM is ready
         afterNextRender(
           () => {
-            this.scrollAgentContentToBottom();
+            this.setupMutationObserver();
           },
           { injector: this.injector }
         );
       }
+    });
+
+    // Cleanup on component destruction
+    this.destroyRef.onDestroy(() => {
+      this.cleanup();
     });
   }
 
@@ -217,6 +245,69 @@ export class InlineAgentBubbleComponent {
       top: container.scrollHeight,
       behavior: 'smooth',
     });
+  }
+
+  /**
+   * Setup MutationObserver to watch for DOM changes in content container.
+   * This ensures scroll happens after recursive ExecutionNode tree completes rendering.
+   * Handles re-connection when component is expanded after being collapsed.
+   */
+  private setupMutationObserver(): void {
+    const container = this.contentContainerRef()?.nativeElement;
+    if (!container) return;
+
+    // Disconnect existing observer if any (handles re-connection on expand)
+    if (this.observer) {
+      this.observer.disconnect();
+    }
+
+    this.observer = new MutationObserver(() => {
+      this.scheduleScroll();
+    });
+
+    // Watch for any DOM changes in the container subtree
+    this.observer.observe(container, {
+      childList: true, // New nodes added/removed
+      subtree: true, // Watch entire subtree (recursive components)
+      characterData: true, // Text content changes (streaming text)
+    });
+  }
+
+  /**
+   * Schedule a scroll to bottom with debouncing.
+   * Only scrolls when streaming and expanded.
+   */
+  private scheduleScroll(): void {
+    const isStreaming = this.node().status === 'streaming';
+    const isCollapsed = this.isCollapsed();
+
+    // Only scroll when streaming and expanded
+    if (!isStreaming || isCollapsed) return;
+
+    // Clear previous debounce (trailing debounce pattern)
+    if (this.scrollTimeoutId) {
+      clearTimeout(this.scrollTimeoutId);
+    }
+
+    // Schedule scroll after debounce period
+    this.scrollTimeoutId = setTimeout(() => {
+      this.scrollAgentContentToBottom();
+      this.scrollTimeoutId = null;
+    }, this.SCROLL_DEBOUNCE_MS);
+  }
+
+  /**
+   * Cleanup observer and timeout on component destruction.
+   */
+  private cleanup(): void {
+    if (this.observer) {
+      this.observer.disconnect();
+      this.observer = null;
+    }
+    if (this.scrollTimeoutId) {
+      clearTimeout(this.scrollTimeoutId);
+      this.scrollTimeoutId = null;
+    }
   }
 
   // Computed: is agent streaming
@@ -295,9 +386,30 @@ export class InlineAgentBubbleComponent {
     return '';
   });
 
-  protected hasChildren(): boolean {
+  /**
+   * Computed signal: whether agent has children (tool calls)
+   * Using computed() ensures Angular tracks changes properly with OnPush
+   */
+  readonly hasChildren = computed(() => {
     return (this.node().children?.length ?? 0) > 0;
-  }
+  });
+
+  /**
+   * TASK_2025_099: Computed signal for real-time summary content
+   * Using computed() ensures Angular re-renders when summaryContent changes
+   */
+  readonly hasSummaryContent = computed(() => {
+    const content = this.node().summaryContent;
+    return !!content && content.length > 0;
+  });
+
+  /**
+   * TASK_2025_099: Computed signal for the actual summary content
+   * Direct signal binding for reactive updates
+   */
+  readonly summaryContent = computed(() => {
+    return this.node().summaryContent || '';
+  });
 
   protected toggleCollapse(): void {
     this.isCollapsed.update((v) => !v);

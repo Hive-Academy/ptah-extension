@@ -5,10 +5,10 @@ import {
   computed,
   viewChild,
   ElementRef,
-  effect,
   ChangeDetectionStrategy,
   afterNextRender,
   Injector,
+  DestroyRef,
 } from '@angular/core';
 import { NgOptimizedImage } from '@angular/common';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
@@ -61,6 +61,15 @@ export class ChatViewComponent {
   readonly chatStore = inject(ChatStore);
   private readonly vscodeService = inject(VSCodeService);
   private readonly injector = inject(Injector);
+  private readonly destroyRef = inject(DestroyRef);
+
+  /**
+   * MutationObserver for auto-scroll behavior.
+   * Watches DOM mutations to trigger scroll after recursive ExecutionNode tree completes.
+   */
+  private observer: MutationObserver | null = null;
+  private scrollTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private readonly SCROLL_DEBOUNCE_MS = 50;
 
   /**
    * Signal-based viewChild (Angular 20+ pattern)
@@ -146,27 +155,18 @@ export class ChatViewComponent {
   }
 
   constructor() {
-    // Effect: Auto-scroll when messages change or streaming content changes
-    effect(() => {
-      // Track these signals to trigger effect
-      const messages = this.chatStore.messages();
-      const isStreaming = this.chatStore.isStreaming();
-      const nodeCount = this.totalNodeCount(); // Track content depth, not just tree count
+    // Setup MutationObserver after initial render to watch for DOM changes
+    // This replaces the effect-based approach for more reliable scroll timing
+    afterNextRender(
+      () => {
+        this.setupMutationObserver();
+      },
+      { injector: this.injector }
+    );
 
-      // Only auto-scroll if user hasn't manually scrolled up
-      if (
-        !this.userScrolledUp() &&
-        (messages.length > 0 || isStreaming || nodeCount > 0)
-      ) {
-        // Use afterNextRender instead of setTimeout for proper lifecycle handling
-        // This ensures DOM is ready and provides automatic cleanup
-        afterNextRender(
-          () => {
-            this.scrollToBottom();
-          },
-          { injector: this.injector }
-        );
-      }
+    // Cleanup on component destruction
+    this.destroyRef.onDestroy(() => {
+      this.cleanup();
     });
   }
 
@@ -205,5 +205,59 @@ export class ChatViewComponent {
       top: container.scrollHeight,
       behavior: 'smooth',
     });
+  }
+
+  /**
+   * Setup MutationObserver to watch for DOM changes in message container.
+   * This ensures scroll happens after recursive ExecutionNode tree completes rendering.
+   */
+  private setupMutationObserver(): void {
+    const container = this.messageContainerRef()?.nativeElement;
+    if (!container || this.observer) return;
+
+    this.observer = new MutationObserver(() => {
+      this.scheduleScroll();
+    });
+
+    // Watch for any DOM changes in the container subtree
+    this.observer.observe(container, {
+      childList: true, // New nodes added/removed
+      subtree: true, // Watch entire subtree (recursive components)
+      characterData: true, // Text content changes (streaming text)
+    });
+  }
+
+  /**
+   * Schedule a scroll to bottom with debouncing.
+   * Debouncing coalesces rapid DOM mutations during streaming into single scroll.
+   */
+  private scheduleScroll(): void {
+    // Respect user scroll-up (reading history)
+    if (this.userScrolledUp()) return;
+
+    // Clear previous debounce (trailing debounce pattern)
+    if (this.scrollTimeoutId) {
+      clearTimeout(this.scrollTimeoutId);
+    }
+
+    // Schedule scroll after debounce period
+    this.scrollTimeoutId = setTimeout(() => {
+      this.scrollToBottom();
+      this.scrollTimeoutId = null;
+    }, this.SCROLL_DEBOUNCE_MS);
+  }
+
+  /**
+   * Cleanup observer and timeout on component destruction.
+   */
+  private cleanup(): void {
+    if (this.observer) {
+      this.observer.disconnect();
+      this.observer = null;
+    }
+    if (this.scrollTimeoutId) {
+      clearTimeout(this.scrollTimeoutId);
+      this.scrollTimeoutId = null;
+    }
   }
 }

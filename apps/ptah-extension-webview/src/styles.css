@@ -491,7 +491,9 @@ Theme-aware CSS custom properties for agent badges
   --agent-supervisor: oklch(65% 0.16 70); /* Rich gold */
   /* Badge text colors for proper contrast */
   --agent-badge-text-light: oklch(97% 0.01 0); /* Near-white for dark badges */
-  --agent-badge-text-dark: oklch(23% 0.066 313); /* Match base-content for light badges */
+  --agent-badge-text-dark: oklch(
+    23% 0.066 313
+  ); /* Match base-content for light badges */
 }
 
 .badge-agent-architect {

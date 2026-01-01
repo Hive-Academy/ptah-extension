@@ -361,22 +361,49 @@ export class AgentSessionWatcherService extends EventEmitter {
   ): Promise<void> {
     const filePath = path.join(sessionsDir, filename);
 
+    // Extract agentId from filename (agent-acb2453.jsonl → acb2453)
+    const filenameAgentId = filename
+      .replace('agent-', '')
+      .replace('.jsonl', '');
+
     // DIAGNOSTIC: INFO level
     this.logger.info('[AgentSessionWatcher] New agent file detected', {
       filename,
       filePath,
+      filenameAgentId,
       activeWatchesCount: this.activeWatches.size,
     });
+
+    // TASK_2025_099 FIX: First try direct agentId matching (most reliable)
+    // The filename contains the agentId, so we can match directly
+    const directMatch = this.activeWatches.get(filenameAgentId);
+    if (directMatch && !directMatch.agentFilePath) {
+      const timeDiff = Date.now() - directMatch.startTime;
+      if (timeDiff < AGENT_WATCHER_CONSTANTS.MATCH_WINDOW_MS) {
+        this.logger.info(
+          '[AgentSessionWatcher] MATCHED agent file by agentId!',
+          {
+            agentId: filenameAgentId,
+            filename,
+            timeDiff,
+            toolUseId: directMatch.toolUseId,
+          }
+        );
+        directMatch.agentFilePath = filePath;
+        this.startTailingFile(filenameAgentId, filePath);
+        return;
+      }
+    }
 
     // Wait a bit for the file to have content
     await this.delay(AGENT_WATCHER_CONSTANTS.FILE_DETECTION_DELAY_MS);
 
-    // Try to read the first line to get sessionId
+    // Try to read the first line to get sessionId (fallback for non-direct matches)
     const sessionId = await this.extractSessionIdFromFile(filePath);
     if (!sessionId) {
       this.logger.warn(
         '[AgentSessionWatcher] Could not extract sessionId from file',
-        { filename, filePath }
+        { filename, filePath, filenameAgentId }
       );
       return;
     }
@@ -394,7 +421,7 @@ export class AgentSessionWatcherService extends EventEmitter {
       ),
     });
 
-    // Find a matching active watch
+    // Find a matching active watch by sessionId (fallback)
     let matched = false;
     for (const [agentId, watch] of this.activeWatches) {
       if (watch.sessionId === sessionId && !watch.agentFilePath) {
@@ -552,9 +579,18 @@ export class AgentSessionWatcherService extends EventEmitter {
       // No new content
       if (fileSize <= watch.fileOffset) return;
 
+      // DIAGNOSTIC: Log that we found new content
+      const newBytes = fileSize - watch.fileOffset;
+      this.logger.info('[AgentSessionWatcher] Reading new content', {
+        agentId,
+        fileOffset: watch.fileOffset,
+        fileSize,
+        newBytes,
+      });
+
       // Read new content
       const fd = await fs.promises.open(filePath, 'r');
-      const buffer = Buffer.alloc(fileSize - watch.fileOffset);
+      const buffer = Buffer.alloc(newBytes);
       await fd.read(buffer, 0, buffer.length, watch.fileOffset);
       await fd.close();
 
@@ -564,18 +600,31 @@ export class AgentSessionWatcherService extends EventEmitter {
       const newContent = buffer.toString('utf-8');
       const lines = newContent.split('\n').filter((line) => line.trim());
 
+      // DIAGNOSTIC: Log message types found
+      const messageTypes: string[] = [];
       let summaryDelta = '';
       for (const line of lines) {
         try {
           const msg = JSON.parse(line);
+          messageTypes.push(msg.type || 'unknown');
           const text = this.extractSummaryText(msg);
           if (text) {
             summaryDelta += text;
           }
         } catch {
           // Skip malformed lines
+          messageTypes.push('PARSE_ERROR');
         }
       }
+
+      // DIAGNOSTIC: Always log what we found in the file
+      this.logger.info('[AgentSessionWatcher] Parsed new content', {
+        agentId,
+        linesCount: lines.length,
+        messageTypes,
+        summaryDeltaLength: summaryDelta.length,
+        hasTextContent: summaryDelta.length > 0,
+      });
 
       if (summaryDelta) {
         watch.summaryContent += summaryDelta;
@@ -623,6 +672,17 @@ export class AgentSessionWatcherService extends EventEmitter {
    * - Skip tool_use blocks (those are execution, not summary)
    */
   private extractSummaryText(msg: any): string | null {
+    // DIAGNOSTIC: Log what we're checking
+    if (msg.type === 'assistant') {
+      this.logger.debug('[AgentSessionWatcher] Found assistant message', {
+        hasMessageContent: !!msg.message?.content,
+        contentLength: msg.message?.content?.length,
+        contentBlockTypes: msg.message?.content?.map(
+          (b: { type: string }) => b.type
+        ),
+      });
+    }
+
     // Only process assistant messages with content
     if (msg.type !== 'assistant' || !msg.message?.content) {
       return null;
@@ -633,6 +693,11 @@ export class AgentSessionWatcherService extends EventEmitter {
     for (const block of msg.message.content) {
       if (block.type === 'text' && block.text) {
         textParts.push(block.text);
+        // DIAGNOSTIC: Log text extraction
+        this.logger.info('[AgentSessionWatcher] Extracted text block', {
+          textLength: block.text.length,
+          textPreview: block.text.slice(0, 50),
+        });
       }
       // Skip tool_use blocks - they're execution content, not summary
     }
