@@ -128,32 +128,6 @@ export class ChatViewComponent {
     );
   });
 
-  /**
-   * TASK_2025_096 FIX: Track total node count across all execution trees.
-   * This ensures auto-scroll triggers when children are added to existing trees,
-   * not just when new trees are created.
-   *
-   * Previously, effect only tracked `currentTrees.length` which doesn't change
-   * when children/tools are added to existing message trees.
-   */
-  private readonly totalNodeCount = computed(() => {
-    const trees = this.chatStore.currentExecutionTrees();
-    return trees.reduce((sum, tree) => sum + this.countNodes(tree), 0);
-  });
-
-  /**
-   * Count total nodes in an execution tree (recursive)
-   */
-  private countNodes(node: { children?: readonly unknown[] }): number {
-    const childCount =
-      node.children?.reduce<number>(
-        (sum: number, child) =>
-          sum + this.countNodes(child as { children?: readonly unknown[] }),
-        0
-      ) ?? 0;
-    return 1 + childCount;
-  }
-
   constructor() {
     // Setup MutationObserver after initial render to watch for DOM changes
     // This replaces the effect-based approach for more reliable scroll timing
@@ -242,7 +216,10 @@ export class ChatViewComponent {
 
     // Schedule scroll after debounce period
     this.scrollTimeoutId = setTimeout(() => {
-      this.scrollToBottom();
+      // Re-check condition - user may have scrolled up during debounce period
+      if (!this.userScrolledUp()) {
+        this.scrollToBottom();
+      }
       this.scrollTimeoutId = null;
     }, this.SCROLL_DEBOUNCE_MS);
   }

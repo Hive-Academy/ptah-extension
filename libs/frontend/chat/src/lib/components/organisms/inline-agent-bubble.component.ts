@@ -171,6 +171,12 @@ export class InlineAgentBubbleComponent {
   private scrollTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private readonly SCROLL_DEBOUNCE_MS = 50;
 
+  /**
+   * Flag to prevent multiple afterNextRender callbacks from being queued
+   * when user rapidly toggles collapse/expand.
+   */
+  private observerSetupPending = false;
+
   readonly node = input.required<ExecutionNode>();
 
   /**
@@ -215,12 +221,15 @@ export class InlineAgentBubbleComponent {
     // The #contentContainer is conditionally rendered with @if (!isCollapsed())
     effect(() => {
       const collapsed = this.isCollapsed();
-      if (!collapsed) {
+      if (!collapsed && !this.observerSetupPending) {
         // Container is visible - setup/re-setup observer
         // Use afterNextRender to ensure DOM is ready
+        // Set flag to prevent multiple queued setups on rapid toggle
+        this.observerSetupPending = true;
         afterNextRender(
           () => {
             this.setupMutationObserver();
+            this.observerSetupPending = false;
           },
           { injector: this.injector }
         );
@@ -291,7 +300,12 @@ export class InlineAgentBubbleComponent {
 
     // Schedule scroll after debounce period
     this.scrollTimeoutId = setTimeout(() => {
-      this.scrollAgentContentToBottom();
+      // Re-check conditions - may have changed during debounce period
+      const stillStreaming = this.node().status === 'streaming';
+      const nowCollapsed = this.isCollapsed();
+      if (stillStreaming && !nowCollapsed) {
+        this.scrollAgentContentToBottom();
+      }
       this.scrollTimeoutId = null;
     }, this.SCROLL_DEBOUNCE_MS);
   }
