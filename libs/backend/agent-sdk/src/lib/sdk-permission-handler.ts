@@ -432,13 +432,15 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     });
 
     if (!response) {
-      // Timeout - auto-deny
+      // Timeout - auto-deny with interrupt (stops execution)
       this.logger.warn(
-        `[SdkPermissionHandler] Permission request ${requestId} timed out after ${PERMISSION_TIMEOUT_MS}ms`
+        `[SdkPermissionHandler] Permission request ${requestId} timed out after ${PERMISSION_TIMEOUT_MS}ms`,
+        { decision: 'timeout', interrupt: true }
       );
       return {
         behavior: 'deny' as const,
         message: 'Permission request timed out',
+        interrupt: true, // Stop execution on timeout
       };
     }
 
@@ -447,7 +449,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       response.decision === 'allow' || response.decision === 'always_allow';
     if (isApproved) {
       this.logger.info(
-        `[SdkPermissionHandler] Permission request ${requestId} approved for tool ${toolName} (decision: ${response.decision})`
+        `[SdkPermissionHandler] Permission request ${requestId} approved for tool ${toolName}`,
+        { decision: response.decision, interrupt: false }
       );
       return {
         behavior: 'allow' as const,
@@ -455,15 +458,38 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       };
     }
 
-    // User denied
+    // User denied - distinguish between hard deny and deny-with-message
+    // TASK_2025_102: deny_with_message allows Claude to continue execution with feedback
+    if (response.decision === 'deny_with_message') {
+      // Deny with message - provide feedback but don't interrupt execution
+      this.logger.info(
+        `[SdkPermissionHandler] Permission request ${requestId} denied with message for tool ${toolName}`,
+        {
+          decision: 'deny_with_message',
+          reason: response.reason || 'User denied without explanation',
+          interrupt: false,
+        }
+      );
+      return {
+        behavior: 'deny' as const,
+        message: response.reason || 'User denied without explanation',
+        interrupt: false, // Continue execution, just skip this tool
+      };
+    }
+
+    // Hard deny - stop execution
     this.logger.info(
-      `[SdkPermissionHandler] Permission request ${requestId} denied for tool ${toolName}: ${
-        response.reason || 'No reason provided'
-      }`
+      `[SdkPermissionHandler] Permission request ${requestId} hard denied for tool ${toolName}`,
+      {
+        decision: 'deny',
+        reason: response.reason || 'No reason provided',
+        interrupt: true,
+      }
     );
     return {
       behavior: 'deny' as const,
       message: response.reason || 'User denied permission',
+      interrupt: true, // Stop execution
     };
   }
 
@@ -860,6 +886,51 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
     // Clear permission rules (session-scoped - reset on extension deactivation)
     this.permissionRules.clear();
+  }
+
+  /**
+   * Cleanup pending permission requests for a specific session
+   * Called when a session is aborted to prevent unhandled promise rejections
+   *
+   * TASK_2025_102: Implements session abort cleanup requirement
+   * - Resolves all pending promises to prevent "Operation aborted" unhandled rejections
+   * - Similar to dispose() but for session abort scenario
+   *
+   * @param sessionId - The session ID to cleanup (optional, cleanup all if not provided)
+   */
+  cleanupPendingPermissions(sessionId?: string): void {
+    this.logger.info(`[SdkPermissionHandler] Cleaning up pending permissions`, {
+      sessionId: sessionId ?? 'all',
+      pendingPermissionCount: this.pendingRequests.size,
+      pendingQuestionCount: this.pendingQuestionRequests.size,
+    });
+
+    // Resolve all pending permission requests with deny response
+    for (const [requestId, pending] of this.pendingRequests.entries()) {
+      clearTimeout(pending.timer);
+      // Resolve with deny to unblock the waiting promise
+      pending.resolve({
+        id: requestId,
+        decision: 'deny',
+        reason: 'Session aborted',
+      });
+    }
+    this.pendingRequests.clear();
+
+    // Also clear pending question requests
+    for (const [, pending] of this.pendingQuestionRequests.entries()) {
+      clearTimeout(pending.timer);
+      pending.resolve(null); // Questions resolve to null on abort
+    }
+    this.pendingQuestionRequests.clear();
+
+    // Clear request context map
+    this.pendingRequestContext.clear();
+
+    this.logger.info(
+      `[SdkPermissionHandler] Pending permissions cleanup complete`,
+      { sessionId: sessionId ?? 'all' }
+    );
   }
 
   /**

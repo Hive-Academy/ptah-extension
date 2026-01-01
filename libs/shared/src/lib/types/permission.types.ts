@@ -48,8 +48,8 @@ export interface PermissionResponse {
   /** Must match request ID from PermissionRequest */
   readonly id: string;
 
-  /** User's decision: allow (once), deny, or always_allow (create rule) */
-  readonly decision: 'allow' | 'deny' | 'always_allow';
+  /** User's decision: allow (once), deny, always_allow (create rule), or deny_with_message (deny but continue) */
+  readonly decision: 'allow' | 'deny' | 'always_allow' | 'deny_with_message';
 
   /** Modified tool input parameters (optional, user may edit before approval) */
   readonly modifiedInput?: Readonly<Record<string, unknown>>;
@@ -80,6 +80,13 @@ export interface ISdkPermissionHandler {
     id: string;
     answers: Record<string, string>;
   }): void;
+
+  /**
+   * Cleanup pending permission requests for a session
+   * Called when session is aborted to prevent unhandled promise rejections
+   * @param sessionId - The session ID to cleanup (optional, cleanup all if not provided)
+   */
+  cleanupPendingPermissions(sessionId?: string): void;
 }
 
 /**
@@ -130,7 +137,7 @@ export const PermissionRequestSchema = z.object({
  */
 export const PermissionResponseSchema = z.object({
   id: z.string(),
-  decision: z.enum(['allow', 'deny', 'always_allow']),
+  decision: z.enum(['allow', 'deny', 'always_allow', 'deny_with_message']),
   modifiedInput: z.record(z.string(), z.unknown()).optional(),
   reason: z.string().optional(),
 });
