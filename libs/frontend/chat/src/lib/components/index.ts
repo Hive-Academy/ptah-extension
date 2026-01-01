@@ -36,6 +36,7 @@ export * from './molecules/chat-input.component';
 export * from './molecules/session-cost-summary.component';
 export * from './molecules/setup-status-widget.component';
 export * from './molecules/permission-badge.component';
+export * from './molecules/deny-message-popover.component';
 export {
   QuestionCardComponent,
   type AskUserQuestionRequest,

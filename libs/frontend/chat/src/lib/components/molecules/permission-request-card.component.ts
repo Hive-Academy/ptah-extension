@@ -21,6 +21,7 @@ import {
   Clock,
 } from 'lucide-angular';
 import { PermissionRequest, PermissionResponse } from '@ptah-extension/shared';
+import { DenyMessagePopoverComponent } from './deny-message-popover.component';
 import {
   isReadToolInput,
   isWriteToolInput,
@@ -49,8 +50,7 @@ import {
  */
 @Component({
   selector: 'ptah-permission-request-card',
-  standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, DenyMessagePopoverComponent],
   template: `
     <div
       class="relative bg-base-300/30 rounded border-l-2 overflow-hidden"
@@ -125,11 +125,17 @@ import {
           class="btn btn-xs btn-error btn-outline gap-0.5 px-2"
           (click)="respond('deny')"
           type="button"
-          aria-label="Deny this request"
+          aria-label="Deny this request and stop execution"
         >
           <lucide-angular [img]="XIcon" class="w-3 h-3" />
           Deny
         </button>
+        <!-- TASK_2025_102: Deny with Message popover - allows user to provide feedback -->
+        <ptah-deny-message-popover
+          [isOpen]="isDenyPopoverOpen()"
+          (messageSent)="handleDenyWithMessage($event)"
+          (closed)="closeDenyPopover()"
+        />
       </div>
     </div>
   `,
@@ -156,6 +162,10 @@ export class PermissionRequestCardComponent {
 
   // Timer state
   private readonly _currentTime = signal(Date.now());
+
+  // TASK_2025_102: Deny with message popover state
+  private readonly _isDenyPopoverOpen = signal(false);
+  readonly isDenyPopoverOpen = this._isDenyPopoverOpen.asReadonly();
 
   /**
    * Computed signal for countdown timer
@@ -387,9 +397,10 @@ export class PermissionRequestCardComponent {
 
   /**
    * Handle user response to permission request
+   * TASK_2025_102: Updated type to include 'deny_with_message'
    */
   protected respond(
-    decision: 'allow' | 'deny' | 'always_allow',
+    decision: 'allow' | 'deny' | 'always_allow' | 'deny_with_message',
     reason?: string
   ): void {
     // Clear timer before responding
@@ -403,6 +414,51 @@ export class PermissionRequestCardComponent {
       id: this.request().id,
       decision,
       reason,
+    });
+  }
+
+  // ============================================================================
+  // TASK_2025_102: Deny with Message Popover Methods
+  // ============================================================================
+
+  /**
+   * Open the deny message popover
+   */
+  openDenyPopover(): void {
+    this._isDenyPopoverOpen.set(true);
+  }
+
+  /**
+   * Close the deny message popover
+   */
+  closeDenyPopover(): void {
+    this._isDenyPopoverOpen.set(false);
+  }
+
+  /**
+   * Handle deny with message - called when user submits message from popover
+   * TASK_2025_102 Batch 3 Task 3.5
+   *
+   * This allows Claude to continue execution with the user's feedback,
+   * unlike hard deny which stops execution.
+   *
+   * @param message - The message to send to Claude explaining the denial
+   */
+  handleDenyWithMessage(message: string): void {
+    // Clear timer before responding
+    if (this.timerInterval) {
+      clearInterval(this.timerInterval);
+      this.timerInterval = null;
+    }
+
+    // Close popover
+    this._isDenyPopoverOpen.set(false);
+
+    // Emit response with deny_with_message decision
+    this.responded.emit({
+      id: this.request().id,
+      decision: 'deny_with_message',
+      reason: message,
     });
   }
 }
