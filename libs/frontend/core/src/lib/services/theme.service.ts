@@ -53,7 +53,7 @@ export class ThemeService {
   readonly isDarkMode = computed(() => this._currentTheme() === 'anubis');
 
   constructor() {
-    // Initialize theme from saved preference or VS Code theme
+    // Initialize theme from VS Code theme setting
     this.initializeTheme();
 
     // Apply theme to DOM whenever signal changes
@@ -65,22 +65,18 @@ export class ThemeService {
   }
 
   /**
-   * Initialize theme from persisted state or VS Code theme signal
+   * Initialize theme from VS Code theme setting
    *
    * Priority:
-   * 1. Saved user preference (from webview state)
-   * 2. VS Code theme from config
-   * 3. Default to 'anubis' (dark)
+   * 1. VS Code theme from config (always sync with VS Code on load)
+   * 2. Default to 'anubis' (dark)
+   *
+   * Note: We use VS Code's theme as the source of truth so the extension
+   * always matches the user's VS Code color scheme on startup.
+   * This ensures consistent UX - light VS Code = light extension.
    */
   private initializeTheme(): void {
-    // Try to load saved preference from VSCode webview state
-    const savedTheme = this.vscode.getState<ThemeName>(THEME_STATE_KEY);
-    if (savedTheme && this.isValidTheme(savedTheme)) {
-      this._currentTheme.set(savedTheme);
-      return;
-    }
-
-    // Fall back to VS Code theme signal
+    // Use VS Code theme as the default - always sync with VS Code on load
     const vscodeTheme = this.vscode.config().theme;
     if (vscodeTheme === 'light') {
       this._currentTheme.set('anubis-light');
