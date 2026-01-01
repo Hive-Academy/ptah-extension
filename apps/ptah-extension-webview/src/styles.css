@@ -478,20 +478,20 @@ Theme-aware CSS custom properties for agent badges
   --agent-badge-text-dark: #0a0a0a;
 }
 
-/* Agent badge colors - Light theme (adjusted for contrast on warm cream backgrounds) */
+/* Agent badge colors - Light theme (cupcake-inspired, optimized for warm cream backgrounds) */
 [data-theme='anubis-light'] {
-  --agent-architect: oklch(45% 0.2 240); /* Deeper blue for cream background */
-  --agent-frontend: oklch(55% 0.2 237); /* Vivid blue */
-  --agent-backend: oklch(45% 0.15 162); /* Rich green */
-  --agent-tester: oklch(50% 0.2 303); /* Vibrant purple */
-  --agent-reviewer: oklch(60% 0.18 70); /* Rich gold */
-  --agent-leader: oklch(50% 0.2 270); /* Deep indigo */
-  --agent-pm: oklch(50% 0.2 25); /* Rich red */
-  --agent-researcher: oklch(55% 0.15 200); /* Cyan */
-  --agent-supervisor: oklch(60% 0.18 70); /* Rich gold */
-  /* FIX: In light mode, badge text should be light on dark badge backgrounds */
+  --agent-architect: oklch(50% 0.18 240); /* Deep blue for cream background */
+  --agent-frontend: oklch(55% 0.17 237); /* Vivid blue */
+  --agent-backend: oklch(50% 0.15 162); /* Rich green */
+  --agent-tester: oklch(55% 0.18 303); /* Vibrant purple */
+  --agent-reviewer: oklch(65% 0.16 70); /* Rich gold */
+  --agent-leader: oklch(55% 0.18 270); /* Deep indigo */
+  --agent-pm: oklch(55% 0.18 25); /* Rich red */
+  --agent-researcher: oklch(60% 0.14 200); /* Cyan */
+  --agent-supervisor: oklch(65% 0.16 70); /* Rich gold */
+  /* Badge text colors for proper contrast */
   --agent-badge-text-light: oklch(97% 0.01 0); /* Near-white for dark badges */
-  --agent-badge-text-dark: oklch(20% 0.02 0); /* Near-black for light badges */
+  --agent-badge-text-dark: oklch(23% 0.066 313); /* Match base-content for light badges */
 }
 
 .badge-agent-architect {
@@ -908,6 +908,156 @@ lucide-angular.w-5 svg {
 lucide-angular.w-6 svg {
   width: 20px;
   height: 20px;
+}
+
+/* ============================================================================
+LIGHT THEME (ANUBIS-LIGHT) VISIBILITY FIXES
+Ensures proper contrast for buttons, icons, and text in warm cream backgrounds
+============================================================================ */
+
+/**
+ * Light Theme Visibility Overrides
+ *
+ * The cupcake-inspired light theme uses light primary/secondary colors (85-89% lightness).
+ * DaisyUI's btn-ghost and other elements may pick up these light colors, making them
+ * invisible against the warm cream background. These overrides ensure:
+ *
+ * 1. Ghost buttons use dark text color (base-content)
+ * 2. Icons have proper contrast
+ * 3. Tab text is visible
+ * 4. Dropdown triggers are visible
+ * 5. Permission cards have visible backgrounds
+ */
+
+[data-theme='anubis-light'] {
+  /* ===== Ghost Button Fixes ===== */
+  /* Ghost buttons should use dark text, not light primary */
+  .btn-ghost {
+    color: oklch(var(--bc)); /* Use base-content (dark text) */
+  }
+
+  .btn-ghost:hover {
+    background-color: oklch(var(--bc) / 0.1); /* Subtle dark hover */
+    color: oklch(var(--bc)); /* Keep dark text on hover */
+  }
+
+  /* ===== Icon Visibility ===== */
+  /* Lucide icons in buttons should be visible */
+  .btn-ghost lucide-angular,
+  .btn-ghost svg {
+    color: oklch(var(--bc)); /* Dark icon color */
+  }
+
+  /* ===== Tab Bar Fixes ===== */
+  /* Ensure tab text is visible against base-100/200 backgrounds */
+  .truncate {
+    color: oklch(var(--bc)); /* Dark text for tab titles */
+  }
+
+  /* Active tab styling with better contrast */
+  .border-b-primary {
+    border-bottom-color: oklch(var(--n)); /* Use dark neutral for border */
+  }
+
+  /* ===== Navbar Header Fixes ===== */
+  /* Navbar should have clear boundary */
+  .navbar {
+    background-color: oklch(var(--b1)); /* Ensure proper background */
+    border-bottom-color: oklch(var(--b3)); /* Visible border */
+  }
+
+  /* ===== Dropdown/Popover Fixes ===== */
+  /* Dropdown content backgrounds */
+  .dropdown-content,
+  [content] {
+    background-color: oklch(var(--b1)); /* Warm white background */
+    border: 1px solid oklch(var(--b3)); /* Visible border */
+    box-shadow: 0 4px 12px oklch(var(--bc) / 0.15); /* Subtle shadow */
+  }
+
+  /* ===== Model Selector Specific ===== */
+  /* Model selector trigger button text */
+  .btn-ghost .font-medium,
+  .btn-ghost .text-xs {
+    color: oklch(var(--bc)); /* Dark text for model name */
+  }
+
+  /* ===== Permission Card Fixes ===== */
+  /* Permission request cards need visible backgrounds */
+  .bg-base-300\/30 {
+    background-color: oklch(var(--b3) / 0.5); /* More visible background */
+  }
+
+  .bg-base-100\/20 {
+    background-color: oklch(var(--b2) / 0.7); /* More visible action area */
+  }
+
+  /* Permission card border colors should be visible */
+  .border-base-300\/30 {
+    border-color: oklch(var(--b3) / 0.5);
+  }
+
+  /* ===== Menu and List Items ===== */
+  /* Menu items should have dark text */
+  .menu li > * {
+    color: oklch(var(--bc));
+  }
+
+  .menu li > *:hover {
+    background-color: oklch(var(--b2));
+    color: oklch(var(--bc));
+  }
+
+  /* ===== Badge Text Visibility ===== */
+  /* Ensure badge text is visible */
+  .badge {
+    border: 1px solid oklch(var(--bc) / 0.1);
+  }
+
+  /* ===== Input and Form Elements ===== */
+  .input,
+  .textarea,
+  .select {
+    background-color: oklch(var(--b1));
+    border-color: oklch(var(--b3));
+    color: oklch(var(--bc));
+  }
+
+  .input::placeholder,
+  .textarea::placeholder {
+    color: oklch(var(--bc) / 0.5);
+  }
+
+  /* ===== Popover/Overlay Backgrounds ===== */
+  /* Native popovers should have solid backgrounds */
+  .ptah-native-popover-panel,
+  [class*='popover'] {
+    background-color: oklch(var(--b1));
+    border: 1px solid oklch(var(--b3));
+  }
+
+  /* ===== Card Improvements ===== */
+  .card {
+    background-color: oklch(var(--b1));
+    border: 1px solid oklch(var(--b3));
+  }
+
+  /* ===== Session List Sidebar ===== */
+  /* Session items should have visible text */
+  .menu-sm li button {
+    color: oklch(var(--bc));
+  }
+
+  .menu-sm li button:hover {
+    background-color: oklch(var(--b2));
+  }
+
+  /* Active session styling */
+  .menu-sm li button.active,
+  .menu-sm li button.bg-primary {
+    background-color: oklch(var(--n)); /* Use dark neutral for active */
+    color: oklch(var(--nc)); /* Light text on dark background */
+  }
 }
 
 /* ============================================================================

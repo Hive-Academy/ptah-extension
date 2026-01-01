@@ -98,49 +98,49 @@ module.exports = {
           '--tab-radius': '0.5rem',
         },
         'anubis-light': {
-          // Light theme variant - Cupcake-inspired warm aesthetic
-          // Maintains Egyptian gold accents while providing a soft, friendly light mode
+          // Light theme variant - Exact Cupcake theme colors
+          // Maintains warm, friendly aesthetic with proper contrast
 
-          // PRIMARY: Soft Teal (inspired by cupcake's primary)
-          primary: 'oklch(75% 0.12 181)',
-          'primary-focus': 'oklch(70% 0.14 181)',
-          'primary-content': 'oklch(25% 0.05 181)',
+          // PRIMARY: Cupcake teal (exact match)
+          primary: 'oklch(85% 0.138 181.071)',
+          'primary-focus': 'oklch(80% 0.15 181)',
+          'primary-content': 'oklch(43% 0.078 188.216)', // Dark text on light primary
 
-          // SECONDARY: Warm Rose/Pink (cupcake-inspired)
-          secondary: 'oklch(82% 0.08 343)',
-          'secondary-focus': 'oklch(77% 0.10 343)',
-          'secondary-content': 'oklch(30% 0.08 343)',
+          // SECONDARY: Cupcake pink/rose (exact match)
+          secondary: 'oklch(89% 0.061 343.231)',
+          'secondary-focus': 'oklch(84% 0.08 343)',
+          'secondary-content': 'oklch(45% 0.187 3.815)', // Dark text on light secondary
 
-          // ACCENT: Egyptian Gold maintained for brand consistency
-          accent: 'oklch(80% 0.14 70)',
-          'accent-focus': 'oklch(75% 0.16 70)',
-          'accent-content': 'oklch(25% 0.06 70)',
+          // ACCENT: Cupcake warm accent (exact match)
+          accent: 'oklch(90% 0.076 70.697)',
+          'accent-focus': 'oklch(85% 0.1 70)',
+          'accent-content': 'oklch(47% 0.157 37.304)', // Dark text on light accent
 
-          // NEUTRAL: Warm gray with slight purple undertone (cupcake-inspired)
-          neutral: 'oklch(30% 0.01 286)',
-          'neutral-focus': 'oklch(25% 0.01 286)',
-          'neutral-content': 'oklch(92% 0.005 286)',
+          // NEUTRAL: Cupcake dark neutral (exact match)
+          neutral: 'oklch(27% 0.006 286.033)',
+          'neutral-focus': 'oklch(22% 0.006 286)',
+          'neutral-content': 'oklch(92% 0.004 286.32)', // Light text on dark neutral
 
-          // BASE: Warm cream background (cupcake-inspired)
-          'base-100': 'oklch(97.8% 0.004 56)', // Warm white/cream
-          'base-200': 'oklch(94% 0.007 61)', // Slightly darker cream
-          'base-300': 'oklch(91.5% 0.006 53)', // Card/panel background
-          'base-content': 'oklch(24% 0.06 313)', // Dark purple-gray text
+          // BASE: Cupcake warm cream background (exact match)
+          'base-100': 'oklch(97.788% 0.004 56.375)', // Warm white/cream
+          'base-200': 'oklch(93.982% 0.007 61.449)', // Slightly darker cream
+          'base-300': 'oklch(91.586% 0.006 53.44)', // Card/panel background
+          'base-content': 'oklch(23.574% 0.066 313.189)', // Dark purple-gray text
 
-          // SEMANTIC COLORS (adjusted for light backgrounds)
-          info: 'oklch(55% 0.18 237)',
-          'info-content': 'oklch(95% 0.02 237)',
+          // SEMANTIC COLORS (cupcake exact match)
+          info: 'oklch(68% 0.169 237.323)',
+          'info-content': 'oklch(29% 0.066 243.157)', // Dark text on info
 
-          success: 'oklch(55% 0.16 162)',
-          'success-content': 'oklch(95% 0.02 162)',
+          success: 'oklch(69% 0.17 162.48)',
+          'success-content': 'oklch(26% 0.051 172.552)', // Dark text on success
 
-          warning: 'oklch(75% 0.18 86)',
-          'warning-content': 'oklch(25% 0.06 86)',
+          warning: 'oklch(79% 0.184 86.047)',
+          'warning-content': 'oklch(28% 0.066 53.813)', // Dark text on warning
 
-          error: 'oklch(55% 0.22 16)',
-          'error-content': 'oklch(95% 0.02 16)',
+          error: 'oklch(64% 0.246 16.439)',
+          'error-content': 'oklch(27% 0.105 12.094)', // Dark text on error
 
-          // DAISYUI CUSTOM PROPERTIES - Cupcake-inspired rounded corners
+          // DAISYUI CUSTOM PROPERTIES - Cupcake exact settings
           '--rounded-box': '1rem',
           '--rounded-btn': '2rem',
           '--rounded-badge': '1rem',
