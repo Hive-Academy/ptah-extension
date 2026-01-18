@@ -89,6 +89,10 @@ export type {
   AgentStartEvent,
 } from './services/agent-session-watcher.service';
 
+// Subagent Registry (TASK_2025_103: subagent resumption)
+export { SubagentRegistryService } from './services/subagent-registry.service';
+export type { SubagentRegistration } from './services/subagent-registry.service';
+
 // Webview Message Handler (shared message handling for all webviews)
 export { WebviewMessageHandlerService } from './services/webview-message-handler.service';
 export type {
