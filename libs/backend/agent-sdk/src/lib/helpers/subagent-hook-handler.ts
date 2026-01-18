@@ -2,7 +2,8 @@
  * SubagentHookHandler - Encapsulates SDK subagent hook callbacks
  *
  * Connects SDK lifecycle hooks to AgentSessionWatcherService for
- * real-time subagent text streaming.
+ * real-time subagent text streaming AND SubagentRegistryService for
+ * tracking subagent lifecycle state (resumption support).
  *
  * Key behaviors:
  * - Hooks NEVER throw (would break SDK)
@@ -11,17 +12,21 @@
  *
  * Flow:
  * 1. SubagentStart hook fires -> startWatching(agentId, sessionId, workspacePath, toolUseId?)
+ *    AND registry.register() for resumption tracking
  * 2. AgentSessionWatcherService watches for agent-{agent_id}.jsonl files
  * 3. File grows -> summary chunks emitted to webview
  * 4. SubagentStop hook fires -> setToolUseId(agentId, toolUseId), stopWatching(agentId)
+ *    AND registry.update() to mark as 'completed'
  *
  * @see TASK_2025_099 - Real-Time Subagent Text Streaming via SDK Hooks
+ * @see TASK_2025_103 - Subagent Resumption Feature
  */
 
 import { injectable, inject } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { AgentSessionWatcherService } from '@ptah-extension/vscode-core';
+import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
 import {
   isSubagentStartHook,
   isSubagentStopHook,
@@ -52,10 +57,18 @@ import type {
  */
 @injectable()
 export class SubagentHookHandler {
+  /**
+   * Current parent session ID (set when hooks are created)
+   * Used for registry operations to track which session spawned subagents
+   */
+  private currentParentSessionId: string | null = null;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.AGENT_SESSION_WATCHER_SERVICE)
-    private readonly agentWatcher: AgentSessionWatcherService
+    private readonly agentWatcher: AgentSessionWatcherService,
+    @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
+    private readonly subagentRegistry: SubagentRegistryService
   ) {}
 
   /**
@@ -70,12 +83,21 @@ export class SubagentHookHandler {
    * (start/stop) are informational and complete instantly - there's no long-running
    * operation to abort. The signal is preserved for SDK API compliance.
    *
+   * TASK_2025_103: Now accepts parentSessionId for registry tracking.
+   * This enables tracking which session spawned which subagents.
+   *
    * @param workspacePath - Workspace path for agent file detection
+   * @param parentSessionId - Optional parent session ID for registry tracking
    * @returns Hooks configuration for SDK query options
    */
   createHooks(
-    workspacePath: string
+    workspacePath: string,
+    parentSessionId?: string
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
+    // Store parent session ID for registry operations
+    if (parentSessionId) {
+      this.currentParentSessionId = parentSessionId;
+    }
     // DIAGNOSTIC: Log hook creation
     this.logger.info('[SubagentHookHandler] Creating hooks for workspace', {
       workspacePath,
@@ -157,12 +179,16 @@ export class SubagentHookHandler {
    * Handle SubagentStart hook
    *
    * Called when a subagent begins execution. Initiates file watching
-   * for the agent's JSONL transcript file.
+   * for the agent's JSONL transcript file AND registers the subagent
+   * in the SubagentRegistryService for resumption tracking.
    *
    * TASK_2025_100 FIX: Now passes agentType to startWatching so that
    * AgentSessionWatcherService can emit an 'agent-start' event early.
    * This fixes the race condition where summary chunks arrived before
    * the agent node was created.
+   *
+   * TASK_2025_103: Now registers subagent with SubagentRegistryService
+   * to enable resumption of interrupted subagents.
    *
    * @param input - SubagentStart hook input containing agentId, sessionId, etc.
    * @param toolUseId - Optional Task tool_use ID (may not be available at start)
@@ -181,6 +207,7 @@ export class SubagentHookHandler {
         sessionId: input.session_id,
         toolUseId,
         workspacePath,
+        parentSessionId: this.currentParentSessionId,
       });
 
       // TASK_2025_100 FIX: Pass agentType so AgentSessionWatcherService can
@@ -192,6 +219,37 @@ export class SubagentHookHandler {
         input.agent_type,
         toolUseId
       );
+
+      // TASK_2025_103: Register subagent with registry for resumption tracking
+      // Only register if we have both toolUseId and parentSessionId
+      if (toolUseId && this.currentParentSessionId) {
+        this.subagentRegistry.register({
+          toolCallId: toolUseId,
+          sessionId: input.session_id,
+          agentType: input.agent_type,
+          startedAt: Date.now(),
+          parentSessionId: this.currentParentSessionId,
+          agentId: input.agent_id,
+        });
+
+        this.logger.info(
+          '[SubagentHookHandler] Subagent registered in registry',
+          {
+            toolCallId: toolUseId,
+            sessionId: input.session_id,
+            agentType: input.agent_type,
+            parentSessionId: this.currentParentSessionId,
+          }
+        );
+      } else {
+        this.logger.debug(
+          '[SubagentHookHandler] Skipping registry registration - missing toolUseId or parentSessionId',
+          {
+            hasToolUseId: !!toolUseId,
+            hasParentSessionId: !!this.currentParentSessionId,
+          }
+        );
+      }
 
       this.logger.debug(
         '[SubagentHookHandler] SubagentStart processed successfully',
@@ -215,7 +273,11 @@ export class SubagentHookHandler {
    * Handle SubagentStop hook
    *
    * Called when a subagent completes execution. Sets the toolUseId
-   * (for UI routing) and stops file watching.
+   * (for UI routing), stops file watching, and marks the subagent
+   * as 'completed' in the registry.
+   *
+   * TASK_2025_103: Now updates SubagentRegistryService to mark
+   * the subagent as 'completed' when SubagentStop hook fires.
    *
    * @param input - SubagentStop hook input containing agentId, transcriptPath, etc.
    * @param toolUseId - Task tool_use ID (usually available at stop)
@@ -240,6 +302,21 @@ export class SubagentHookHandler {
 
       // Stop watching this agent
       this.agentWatcher.stopWatching(input.agent_id);
+
+      // TASK_2025_103: Mark subagent as completed in registry
+      // This prevents the subagent from being marked as 'interrupted'
+      // when the session ends normally
+      if (toolUseId) {
+        this.subagentRegistry.update(toolUseId, { status: 'completed' });
+
+        this.logger.info(
+          '[SubagentHookHandler] Subagent marked as completed in registry',
+          {
+            toolCallId: toolUseId,
+            agentId: input.agent_id,
+          }
+        );
+      }
 
       this.logger.debug(
         '[SubagentHookHandler] SubagentStop processed successfully',

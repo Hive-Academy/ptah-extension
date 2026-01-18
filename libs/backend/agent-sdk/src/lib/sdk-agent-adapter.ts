@@ -27,6 +27,7 @@ import {
   AIMessageOptions,
   SessionId,
   FlatStreamEventUnion,
+  SubagentRecord,
 } from '@ptah-extension/shared';
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from './di/tokens';
@@ -431,6 +432,79 @@ export class SdkAgentAdapter implements IAIProvider {
     return this.streamTransformer.transform({
       sdkQuery,
       sessionId,
+      initialModel,
+      onSessionIdResolved: resumeCallback,
+      onResultStats: this.resultStatsCallback || undefined,
+    });
+  }
+
+  /**
+   * Resume an interrupted subagent using SDK's native resume option.
+   *
+   * TASK_2025_103: Subagent Resumption Feature
+   *
+   * This method resumes a specific subagent that was interrupted (e.g., due to
+   * session abort). It uses the subagent's sessionId with SDK's resume parameter
+   * to continue execution from where it left off.
+   *
+   * Note: The subagent's sessionId is different from the parent session ID.
+   * The subagent has its own session context that is resumed.
+   *
+   * @param record - SubagentRecord containing the subagent's session info
+   * @returns AsyncIterable<FlatStreamEventUnion> for streaming responses
+   */
+  async resumeSubagent(
+    record: SubagentRecord
+  ): Promise<AsyncIterable<FlatStreamEventUnion>> {
+    if (!this.initialized) {
+      throw new Error(
+        'SdkAgentAdapter not initialized. Call initialize() first.'
+      );
+    }
+
+    const { sessionId, toolCallId, agentType, parentSessionId, agentId } =
+      record;
+
+    this.logger.info('[SdkAgentAdapter] Resuming interrupted subagent', {
+      toolCallId,
+      sessionId,
+      agentType,
+      agentId,
+      parentSessionId,
+    });
+
+    // Use the subagent's sessionId for resume, NOT the parent session ID
+    // The subagent has its own session context that we're resuming
+    const subagentSessionId = sessionId as SessionId;
+
+    // Delegate query execution to SessionLifecycleManager with resume option
+    const { sdkQuery, initialModel } =
+      await this.sessionLifecycle.executeQuery({
+        sessionId: subagentSessionId,
+        resumeSessionId: sessionId, // Resume the subagent's session
+      });
+
+    this.logger.info('[SdkAgentAdapter] Subagent resume query started', {
+      toolCallId,
+      sessionId,
+      initialModel,
+    });
+
+    // Callback to update metadata when session ID is confirmed
+    const resumeCallback = async (
+      tabId: string | undefined,
+      realSessionId: string
+    ) => {
+      await this.metadataStore.touch(realSessionId);
+      if (this.sessionIdResolvedCallback) {
+        this.sessionIdResolvedCallback(tabId, realSessionId);
+      }
+    };
+
+    // Return transformed stream
+    return this.streamTransformer.transform({
+      sdkQuery,
+      sessionId: subagentSessionId,
       initialModel,
       onSessionIdResolved: resumeCallback,
       onResultStats: this.resultStatsCallback || undefined,

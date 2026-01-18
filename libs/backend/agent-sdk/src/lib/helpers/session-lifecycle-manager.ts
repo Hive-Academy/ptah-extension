@@ -7,6 +7,7 @@
  * - Abort controller lifecycle
  * - Session cleanup
  * - SDK query execution orchestration (TASK_2025_102)
+ * - Subagent interruption tracking on session abort (TASK_2025_103)
  *
  * NOTE: This manager does NOT handle session persistence.
  * The SDK handles message persistence natively to ~/.claude/projects/
@@ -14,10 +15,12 @@
  *
  * @see TASK_2025_088 - Simplified to remove redundant storage layers
  * @see TASK_2025_102 - Added executeQuery for query orchestration
+ * @see TASK_2025_103 - Added subagent interruption on abort
  */
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
 import {
   SessionId,
   AISessionConfig,
@@ -116,7 +119,10 @@ export class SessionLifecycleManager {
     @inject(SDK_TOKENS.SDK_QUERY_OPTIONS_BUILDER)
     private queryOptionsBuilder: SdkQueryOptionsBuilder,
     @inject(SDK_TOKENS.SDK_MESSAGE_FACTORY)
-    private messageFactory: SdkMessageFactory
+    private messageFactory: SdkMessageFactory,
+    // TASK_2025_103: SubagentRegistryService for marking subagents as interrupted
+    @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
+    private subagentRegistry: SubagentRegistryService
   ) {}
 
   /**
@@ -210,6 +216,11 @@ export class SessionLifecycleManager {
   /**
    * End session and cleanup
    * TASK_2025_102: Now calls cleanupPendingPermissions to prevent unhandled promise rejections
+   * TASK_2025_103: Now marks all running subagents as interrupted before session removal
+   *
+   * CRITICAL RISK MITIGATION: SubagentStop hook doesn't fire when a session is aborted.
+   * This method is the ONLY reliable way to detect interrupted subagents. All running
+   * subagents for this session are marked as 'interrupted' to enable resumption.
    */
   endSession(sessionId: SessionId): void {
     const session = this.activeSessions.get(sessionId as string);
@@ -225,6 +236,15 @@ export class SessionLifecycleManager {
     // TASK_2025_102: Cleanup pending permissions FIRST to prevent unhandled promise rejections
     // This resolves any pending permission promises with deny before aborting the session
     this.permissionHandler.cleanupPendingPermissions(sessionId as string);
+
+    // TASK_2025_103: Mark all running subagents as interrupted BEFORE aborting
+    // This is the key mechanism for detecting interrupted subagents since
+    // SubagentStop hook doesn't fire on abort. Running subagents become resumable.
+    this.subagentRegistry.markAllInterrupted(sessionId as string);
+
+    this.logger.info(
+      `[SessionLifecycle] Marked running subagents as interrupted for session: ${sessionId}`
+    );
 
     // Abort the session
     session.abortController.abort();
@@ -248,6 +268,7 @@ export class SessionLifecycleManager {
   /**
    * Cleanup all active sessions
    * TASK_2025_102: Now calls cleanupPendingPermissions to prevent unhandled promise rejections
+   * TASK_2025_103: Now marks all running subagents as interrupted for each session
    */
   disposeAllSessions(): void {
     this.logger.info('[SessionLifecycle] Disposing all active sessions...');
@@ -257,6 +278,10 @@ export class SessionLifecycleManager {
 
     for (const [sessionId, session] of this.activeSessions.entries()) {
       this.logger.debug(`[SessionLifecycle] Ending session: ${sessionId}`);
+
+      // TASK_2025_103: Mark all running subagents as interrupted for this session
+      this.subagentRegistry.markAllInterrupted(sessionId);
+
       session.abortController.abort();
       if (session.query) {
         session.query.interrupt().catch((err) => {
