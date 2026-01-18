@@ -29,6 +29,13 @@ export const SDK_TOKENS = {
 
   // OpenRouter services (TASK_2025_091 Phase 2)
   SDK_OPENROUTER_MODELS: 'SdkOpenRouterModels',
+
+  // Extracted services (TASK_2025_102)
+  SDK_MESSAGE_FACTORY: 'SdkMessageFactory',
+  SDK_QUERY_OPTIONS_BUILDER: 'SdkQueryOptionsBuilder',
+  SDK_MODULE_LOADER: 'SdkModuleLoader',
+  SDK_MODEL_SERVICE: 'SdkModelService',
+  SDK_USER_MESSAGE_STREAM_FACTORY: 'UserMessageStreamFactory',
 } as const;
 
 /**

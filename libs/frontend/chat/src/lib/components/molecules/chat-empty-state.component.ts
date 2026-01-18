@@ -37,89 +37,200 @@ import { VSCodeService } from '@ptah-extension/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <!--
-    ChatEmptyStateComponent - Compact VS Code Sidebar Design
+    ChatEmptyStateComponent - Premium Responsive Design
     
-    Follows VS Code UX Guidelines:
-    - Icons: 16-24px (was 72px)
-    - Headings: 14-16px (was 36px)
-    - Padding: 12-16px (was 32px)
-    - Compact single-column layout
+    Design System: Anubis Theme
+    - Uses predefined .glass-panel, .divine-glow utilities from styles.css
+    - Leverages existing CSS variables for spacing, colors, animations
+    - DaisyUI components with theme-aware classes
+    
+    Responsive Design:
+    - Compact: Sidebar narrow view (< 280px width)
+    - Expanded: Full panel view with rich visuals
     -->
 
-    <div class="flex flex-col items-center h-full px-3 py-3">
-      <!-- Compact Header -->
-      <div class="flex flex-col items-center gap-1 mb-3 text-center">
-        <img
-          [ngSrc]="ptahIconUri"
-          alt="Ptah"
-          width="24"
-          height="24"
-          class="w-6 h-6"
-        />
-        <div class="text-center">
-          <h1 class="text-sm font-semibold text-secondary leading-tight">
+    <div class="flex flex-col items-center h-full p-4 md:p-6 overflow-y-auto">
+      <!-- Hero Section with Divine Glow -->
+      <div class="relative w-full max-w-md mb-6">
+        <div class="flex flex-col items-center text-center">
+          <!-- Logo with Divine Aura -->
+          <div class="relative mb-4">
+            <div
+              class="absolute inset-0 -m-2 rounded-full divine-glow opacity-50"
+            ></div>
+            <img
+              [ngSrc]="ptahIconUri"
+              alt="Ptah"
+              width="64"
+              height="64"
+              class="w-12 h-12 md:w-16 md:h-16 relative z-10 drop-shadow-lg"
+            />
+          </div>
+
+          <!-- Title & Tagline -->
+          <h1
+            class="text-lg md:text-2xl font-bold font-display text-secondary mb-1 tracking-tight"
+          >
             Ptah
           </h1>
-          <p class="text-xs text-base-content/60">
+          <p class="text-xs md:text-sm text-base-content/70 max-w-xs">
             Divine Creator • Master Craftsman
           </p>
         </div>
       </div>
 
-      <!-- Setup Status Widget -->
-      <div class="mb-3">
-        <ptah-setup-status-widget />
+      <!-- Smart Setup CTA Card - Glass Panel -->
+      <div class="w-full max-w-md mb-5">
+        <div
+          class="glass-panel glass-panel-divine rounded-xl overflow-hidden transition-all duration-300 hover:shadow-lg"
+        >
+          <div class="p-4">
+            <!-- Header with Scanner Icon -->
+            <div class="flex items-start gap-3 mb-3">
+              <div
+                class="flex items-center justify-center w-10 h-10 rounded-lg bg-secondary/10 text-secondary shrink-0 agent-working"
+              >
+                <svg
+                  class="w-5 h-5 md:w-6 md:h-6"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                >
+                  <path
+                    d="M9.5 2A1.5 1.5 0 0111 3.5V5a1.5 1.5 0 01-1.5 1.5H5A1.5 1.5 0 013.5 5V3.5A1.5 1.5 0 015 2h4.5z"
+                    class="fill-secondary/20"
+                  />
+                  <path
+                    d="M9.5 17A1.5 1.5 0 0111 18.5V20a1.5 1.5 0 01-1.5 1.5H5A1.5 1.5 0 013.5 20v-1.5A1.5 1.5 0 015 17h4.5z"
+                    class="fill-secondary/20"
+                  />
+                  <path
+                    d="M19 2a1.5 1.5 0 011.5 1.5V5A1.5 1.5 0 0119 6.5h-4.5A1.5 1.5 0 0113 5V3.5A1.5 1.5 0 0114.5 2H19z"
+                    class="fill-secondary/20"
+                  />
+                  <path
+                    d="M19 17a1.5 1.5 0 011.5 1.5V20a1.5 1.5 0 01-1.5 1.5h-4.5A1.5 1.5 0 0113 20v-1.5a1.5 1.5 0 011.5-1.5H19z"
+                    class="fill-secondary/20"
+                  />
+                  <path d="M12 8v8M8 12h8" stroke-linecap="round" />
+                </svg>
+              </div>
+              <div class="flex-1">
+                <h3
+                  class="text-sm md:text-base font-semibold text-secondary mb-0.5"
+                >
+                  Intelligent Project Setup
+                </h3>
+                <p class="text-xs text-base-content/60 leading-relaxed">
+                  MCP-powered scanning analyzes your workspace, detects
+                  frameworks, and configures optimal AI agents automatically.
+                </p>
+              </div>
+            </div>
+
+            <!-- Feature Badges using DaisyUI -->
+            <div class="flex flex-wrap gap-1.5 mb-3">
+              <span class="badge badge-sm badge-outline badge-secondary gap-1">
+                <span class="text-[10px]">⚡</span> Auto-detect
+              </span>
+              <span class="badge badge-sm badge-outline badge-secondary gap-1">
+                <span class="text-[10px]">🔗</span> VS Code AI
+              </span>
+              <span class="badge badge-sm badge-outline badge-secondary gap-1">
+                <span class="text-[10px]">🛠️</span> MCP Server
+              </span>
+            </div>
+
+            <!-- Setup Status Widget Integration -->
+            <ptah-setup-status-widget />
+          </div>
+        </div>
       </div>
 
-      <!-- Compact Capabilities -->
-      <div class="glass-panel rounded-md p-3 mb-3">
-        <div class="flex items-center gap-1.5 mb-2">
-          <span class="text-secondary text-sm">☥</span>
+      <!-- Capabilities Section -->
+      <div class="w-full max-w-md mb-5">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="text-secondary text-base">☥</span>
           <h3
-            class="text-xs font-medium text-secondary uppercase tracking-wide"
+            class="text-xs md:text-sm font-semibold text-secondary uppercase tracking-wider"
           >
             Capabilities
           </h3>
+          <div
+            class="divider divider-horizontal flex-1 my-0 before:bg-secondary/20 after:bg-transparent"
+          ></div>
         </div>
-        <ul class="space-y-1 text-xs text-base-content/80">
-          <li class="flex items-center gap-1.5">
-            <span class="text-secondary text-xs" aria-hidden="true">𓂀</span>
-            <span>Orchestrate multi-agent workflows</span>
-          </li>
-          <li class="flex items-center gap-1.5">
-            <span class="text-secondary text-xs" aria-hidden="true">𓁹</span>
-            <span>Architect & generate code</span>
-          </li>
-          <li class="flex items-center gap-1.5">
-            <span class="text-secondary text-xs" aria-hidden="true">𓅓</span>
-            <span>Review, test & modernize</span>
-          </li>
-        </ul>
+
+        <div class="grid grid-cols-3 gap-1.5 md:gap-2">
+          <div
+            class="card bg-base-200/50 border border-base-300 hover:border-secondary/30 hover:bg-base-200 transition-all duration-200 hover:-translate-y-0.5"
+          >
+            <div class="card-body items-center text-center p-2 md:p-3">
+              <span class="text-base md:text-xl">𓂀</span>
+              <span class="text-[10px] md:text-xs font-medium"
+                >Orchestrate</span
+              >
+              <span class="text-[8px] md:text-[10px] text-base-content/50"
+                >Workflows</span
+              >
+            </div>
+          </div>
+          <div
+            class="card bg-base-200/50 border border-base-300 hover:border-secondary/30 hover:bg-base-200 transition-all duration-200 hover:-translate-y-0.5"
+          >
+            <div class="card-body items-center text-center p-2 md:p-3">
+              <span class="text-base md:text-xl">𓁹</span>
+              <span class="text-[10px] md:text-xs font-medium">Architect</span>
+              <span class="text-[8px] md:text-[10px] text-base-content/50"
+                >Gen code</span
+              >
+            </div>
+          </div>
+          <div
+            class="card bg-base-200/50 border border-base-300 hover:border-secondary/30 hover:bg-base-200 transition-all duration-200 hover:-translate-y-0.5"
+          >
+            <div class="card-body items-center text-center p-2 md:p-3">
+              <span class="text-base md:text-xl">𓅓</span>
+              <span class="text-[10px] md:text-xs font-medium">Review</span>
+              <span class="text-[8px] md:text-[10px] text-base-content/50"
+                >Modernize</span
+              >
+            </div>
+          </div>
+        </div>
       </div>
 
-      <!-- Compact Command Hint -->
-      <div class="border border-secondary/20 rounded-md p-2.5 bg-base-200/50">
-        <div class="flex items-center gap-1.5 mb-1.5">
-          <span class="text-sm">📜</span>
-          <span class="text-xs font-medium text-base-content">Get Started</span>
-        </div>
-        <div
-          class="bg-base-300 rounded px-2 py-1 font-mono text-xs text-secondary"
-        >
-          /orchestrate [your vision]
+      <!-- Get Started Command -->
+      <div class="w-full max-w-md">
+        <div class="card bg-base-300/50 border border-base-content/10">
+          <div class="card-body p-4">
+            <div class="flex items-center gap-2 mb-2">
+              <span class="text-base">📜</span>
+              <span class="text-xs md:text-sm font-semibold text-base-content"
+                >Get Started</span
+              >
+            </div>
+            <div class="mockup-code bg-base-100 py-2 px-4 min-h-0">
+              <pre
+                data-prefix=">"
+                class="text-secondary"
+              ><code class="text-xs md:text-sm">/orchestrate <span class="text-base-content/40">[your vision]</span></code></pre>
+            </div>
+            <p class="text-[10px] md:text-xs text-base-content/50 mt-2">
+              Describe what you want to build and let Ptah orchestrate the
+              workflow
+            </p>
+          </div>
         </div>
       </div>
 
-      <!-- Subtle decorative footer -->
+      <!-- Decorative Egyptian Footer -->
       <div
-        class="flex items-center justify-center gap-1 mt-auto pt-2 text-secondary/40 text-xs"
+        class="flex items-center justify-center gap-2 mt-auto pt-4 text-secondary/30"
         aria-hidden="true"
       >
-        <span>𓀀</span>
-        <span>𓂀</span>
-        <span>𓁹</span>
-        <span>𓂀</span>
-        <span>𓀀</span>
+        <span class="text-sm tracking-[0.5em]">𓀀𓂀𓁹𓂀𓀀</span>
       </div>
     </div>
   `,
@@ -128,14 +239,25 @@ import { VSCodeService } from '@ptah-extension/core';
       :host {
         display: block;
         height: 100%;
+        /* Use CSS variable from design system for subtle gradient */
+        background: var(--gradient-panel);
       }
 
-      /* Compact glass-panel for sidebar */
-      .glass-panel {
-        background: var(--glass-panel);
-        backdrop-filter: var(--glass-blur);
-        -webkit-backdrop-filter: var(--glass-blur);
-        border: 1px solid var(--glass-border);
+      /* Minimal custom styles - only what's not in the design system */
+
+      /* Card body override for compact layout */
+      .card-body {
+        padding: var(--sidebar-spacing-md);
+      }
+
+      /* Mockup code minimal height */
+      .mockup-code {
+        min-height: auto;
+      }
+
+      .mockup-code pre {
+        padding-top: 0.25rem;
+        padding-bottom: 0.25rem;
       }
     `,
   ],

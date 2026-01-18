@@ -61,6 +61,30 @@ export type ExecutionStatus =
 export type MessageRole = 'user' | 'assistant' | 'system';
 
 // ============================================================================
+// TOKEN USAGE TYPE (Aligned with Claude SDK Cost Tracking)
+// ============================================================================
+
+/**
+ * TokenUsage - Token consumption data aligned with Claude SDK
+ *
+ * @see https://platform.claude.com/docs/en/agent-sdk/cost-tracking
+ *
+ * Cache tokens are significant for cost optimization:
+ * - cacheRead: Tokens read from cache (cheaper than input)
+ * - cacheCreation: Tokens used to create cache entries
+ */
+export interface TokenUsage {
+  /** Base input tokens processed */
+  readonly input: number;
+  /** Tokens generated in the response */
+  readonly output: number;
+  /** Tokens read from cache (reduces input cost) */
+  readonly cacheRead?: number;
+  /** Tokens used to create cache entries */
+  readonly cacheCreation?: number;
+}
+
+// ============================================================================
 // EXECUTION NODE INTERFACE
 // ============================================================================
 
@@ -140,6 +164,14 @@ export interface ExecutionNode {
   readonly agentPrompt?: string;
 
   /**
+   * Short agent identifier (e.g., "adcecb2") from SDK SubagentStart hook.
+   * Used as a stable key for summary content lookup since toolCallId differs
+   * between hook (UUID format) and complete message (toolu_* format).
+   * @see TASK_2025_099 - Real-time subagent streaming
+   */
+  readonly agentId?: string;
+
+  /**
    * Summary content for agent nodes - Real-time text updates from agent session.
    * This is populated during streaming by the AgentSessionWatcherService,
    * which tails the agent's JSONL file for text blocks.
@@ -157,11 +189,8 @@ export interface ExecutionNode {
   /** Duration in milliseconds */
   readonly duration?: number;
 
-  /** Token usage for this node */
-  readonly tokenUsage?: {
-    readonly input: number;
-    readonly output: number;
-  };
+  /** Token usage for this node (aligned with Claude SDK) */
+  readonly tokenUsage?: TokenUsage;
 
   /** Cost in USD calculated from token usage */
   readonly cost?: number;
@@ -301,12 +330,8 @@ export interface ExecutionChatMessage {
 
   // ---- Usage Metrics (TASK_2025_047) ----
 
-  /** Token usage for this message */
-  readonly tokens?: {
-    readonly input: number;
-    readonly output: number;
-    readonly cacheHit?: number;
-  };
+  /** Token usage for this message (aligned with Claude SDK) */
+  readonly tokens?: TokenUsage;
 
   /** Cost in USD for this message */
   readonly cost?: number;
@@ -338,11 +363,8 @@ export interface ChatSessionSummary {
   /** Last activity timestamp */
   readonly lastActivityAt: number;
 
-  /** Token usage totals */
-  readonly tokenUsage?: {
-    readonly input: number;
-    readonly output: number;
-  };
+  /** Token usage totals (aligned with Claude SDK) */
+  readonly tokenUsage?: TokenUsage;
 
   /** Whether this session is currently active */
   readonly isActive: boolean;
@@ -460,6 +482,17 @@ export const ExecutionStatusSchema = z.enum([
 
 export const MessageRoleSchema = z.enum(['user', 'assistant', 'system']);
 
+/**
+ * TokenUsage Zod schema - validates token usage with optional cache fields
+ * Aligned with Claude SDK cost tracking
+ */
+export const TokenUsageSchema = z.object({
+  input: z.number(),
+  output: z.number(),
+  cacheRead: z.number().optional(),
+  cacheCreation: z.number().optional(),
+});
+
 // Recursive schema requires lazy evaluation
 export const ExecutionNodeSchema: z.ZodType<ExecutionNode> = z.lazy(() =>
   z.object({
@@ -481,12 +514,7 @@ export const ExecutionNodeSchema: z.ZodType<ExecutionNode> = z.lazy(() =>
     startTime: z.number().optional(),
     endTime: z.number().optional(),
     duration: z.number().optional(),
-    tokenUsage: z
-      .object({
-        input: z.number(),
-        output: z.number(),
-      })
-      .optional(),
+    tokenUsage: TokenUsageSchema.optional(),
     toolCount: z.number().optional(),
     children: z.array(ExecutionNodeSchema),
     isCollapsed: z.boolean(),
@@ -523,12 +551,7 @@ export const ChatSessionSummarySchema = z.object({
   messageCount: z.number().int().nonnegative(),
   createdAt: z.number(),
   lastActivityAt: z.number(),
-  tokenUsage: z
-    .object({
-      input: z.number(),
-      output: z.number(),
-    })
-    .optional(),
+  tokenUsage: TokenUsageSchema.optional(),
   isActive: z.boolean(),
 });
 
@@ -674,10 +697,11 @@ export function isNestedToolMessage(msg: JSONLMessage): boolean {
  * - 'stream': Real-time streaming delta from SDK stream_event
  * - 'complete': Definitive data from complete assistant/user messages
  * - 'history': Event reconstructed from session JSONL history
+ * - 'hook': Event from file system hook (agent watcher), arrives before SDK events
  *
- * Priority: history > complete > stream (higher priority overwrites lower)
+ * Priority: history > complete > stream > hook (higher priority overwrites lower)
  */
-export type EventSource = 'stream' | 'complete' | 'history';
+export type EventSource = 'stream' | 'complete' | 'history' | 'hook';
 
 /**
  * Flat streaming event types - replaces ExecutionNode during streaming
@@ -822,6 +846,13 @@ export interface AgentStartEvent extends FlatStreamEvent {
   readonly agentType: string;
   readonly agentDescription?: string;
   readonly agentPrompt?: string;
+  /**
+   * Short agent identifier (e.g., "adcecb2") from SDK SubagentStart hook.
+   * Used as a stable key for summary content lookup since toolCallId differs
+   * between hook (UUID format) and complete message (toolu_* format).
+   * @see TASK_2025_099 - Real-time subagent streaming
+   */
+  readonly agentId?: string;
 }
 
 /**

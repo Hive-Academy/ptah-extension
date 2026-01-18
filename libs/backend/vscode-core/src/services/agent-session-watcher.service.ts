@@ -41,13 +41,46 @@ const AGENT_WATCHER_CONSTANTS = {
 } as const;
 
 /**
+ * Content block from agent JSONL file - preserves interleaved structure.
+ * TASK_2025_102: Changed from flat text to structured blocks for proper interleaving.
+ */
+export interface AgentContentBlock {
+  /** Block type - text for narrative, tool_ref for tool position marker */
+  type: 'text' | 'tool_ref';
+  /** Text content (only for type: 'text') */
+  text?: string;
+  /** Tool use ID for correlation with SDK events (only for type: 'tool_ref') */
+  toolUseId?: string;
+  /** Tool name (only for type: 'tool_ref') */
+  toolName?: string;
+}
+
+/**
  * Summary chunk emitted when new content is found in agent file
+ * TASK_2025_102: Now includes structured content blocks for proper interleaving.
  */
 export interface AgentSummaryChunk {
   /** The Task tool_use ID this summary belongs to */
   toolUseId: string;
-  /** New summary text to append */
+  /**
+   * New summary text to append (legacy - still used for simple cases)
+   * @deprecated Use contentBlocks for proper interleaving
+   */
   summaryDelta: string;
+  /**
+   * TASK_2025_102: Structured content blocks preserving text/tool interleaving.
+   * Each message from the agent file is parsed into ordered blocks:
+   * [text, tool_ref, text, tool_ref, ...]
+   * The frontend uses this to interleave text nodes between tool nodes.
+   */
+  contentBlocks?: AgentContentBlock[];
+  /**
+   * Short agent identifier (e.g., "adcecb2") from SDK.
+   * Used as stable key for summary content lookup since toolCallId differs
+   * between hook (UUID) and complete message (toolu_* format).
+   * @see TASK_2025_099
+   */
+  agentId: string;
 }
 
 /**
@@ -66,6 +99,13 @@ export interface AgentStartEvent {
   timestamp: number;
   /** Parent session ID (for routing to correct tab) */
   sessionId: string;
+  /**
+   * Short agent identifier (e.g., "adcecb2") from SDK.
+   * Used as stable key for summary content since toolCallId differs
+   * between hook (UUID) and complete message (toolu_* format).
+   * @see TASK_2025_099
+   */
+  agentId: string;
 }
 
 /**
@@ -90,6 +130,13 @@ interface ActiveWatch {
   summaryContent: string;
   /** Interval for tailing the file */
   tailInterval: NodeJS.Timeout | null;
+  /**
+   * TASK_2025_102: Buffer for incomplete lines from previous reads.
+   * When reading file content mid-write, we may get a partial JSON line
+   * at the end. This buffer stores that partial content to be prepended
+   * to the next read, ensuring we don't lose data.
+   */
+  incompleteLineBuffer: string;
 }
 
 @injectable()
@@ -161,6 +208,7 @@ export class AgentSessionWatcherService extends EventEmitter {
       fileOffset: 0,
       summaryContent: '',
       tailInterval: null,
+      incompleteLineBuffer: '', // TASK_2025_102: Initialize buffer for partial lines
     });
 
     // TASK_2025_100 FIX: Emit agent-start event so frontend can create agent node
@@ -173,6 +221,7 @@ export class AgentSessionWatcherService extends EventEmitter {
         agentDescription,
         timestamp: startTime,
         sessionId, // Parent session ID for tab routing
+        agentId, // TASK_2025_099: Include agentId for stable summary lookup
       };
 
       this.logger.debug('AgentSessionWatcher: Emitting agent-start event', {
@@ -354,6 +403,13 @@ export class AgentSessionWatcherService extends EventEmitter {
 
   /**
    * Handle a new agent file being detected
+   *
+   * TASK_2025_102: Fixed file matching to prioritize agentId from filename.
+   * Previously, sessionId-based matching could incorrectly match old files
+   * from previous agents in the same session. Now we:
+   * 1. ONLY match by agentId in filename (most reliable)
+   * 2. If a watch already has a file but it's wrong (different agentId), re-match
+   * 3. Fall back to sessionId matching ONLY if agentId doesn't match any watch
    */
   private async handleNewAgentFile(
     sessionsDir: string,
@@ -374,12 +430,38 @@ export class AgentSessionWatcherService extends EventEmitter {
       activeWatchesCount: this.activeWatches.size,
     });
 
-    // TASK_2025_099 FIX: First try direct agentId matching (most reliable)
+    // TASK_2025_102: agentId-based matching is PRIMARY and ONLY reliable method
     // The filename contains the agentId, so we can match directly
     const directMatch = this.activeWatches.get(filenameAgentId);
-    if (directMatch && !directMatch.agentFilePath) {
+    if (directMatch) {
       const timeDiff = Date.now() - directMatch.startTime;
       if (timeDiff < AGENT_WATCHER_CONSTANTS.MATCH_WINDOW_MS) {
+        // TASK_2025_102: Allow re-matching even if a file was already assigned
+        // This handles the case where sessionId-based matching incorrectly
+        // matched an old file, and now the correct file (by agentId) appeared.
+        if (
+          directMatch.agentFilePath &&
+          directMatch.agentFilePath !== filePath
+        ) {
+          this.logger.info(
+            '[AgentSessionWatcher] RE-MATCHING: Found correct agent file by agentId, replacing incorrect match',
+            {
+              agentId: filenameAgentId,
+              oldFilePath: directMatch.agentFilePath,
+              newFilePath: filePath,
+            }
+          );
+          // Clear the old tail interval before re-matching
+          if (directMatch.tailInterval) {
+            clearInterval(directMatch.tailInterval);
+            directMatch.tailInterval = null;
+          }
+          // Reset state for fresh tailing
+          directMatch.fileOffset = 0;
+          directMatch.summaryContent = '';
+          directMatch.incompleteLineBuffer = '';
+        }
+
         this.logger.info(
           '[AgentSessionWatcher] MATCHED agent file by agentId!',
           {
@@ -387,6 +469,9 @@ export class AgentSessionWatcherService extends EventEmitter {
             filename,
             timeDiff,
             toolUseId: directMatch.toolUseId,
+            wasRematch:
+              directMatch.agentFilePath !== null &&
+              directMatch.agentFilePath !== filePath,
           }
         );
         directMatch.agentFilePath = filePath;
@@ -398,7 +483,7 @@ export class AgentSessionWatcherService extends EventEmitter {
     // Wait a bit for the file to have content
     await this.delay(AGENT_WATCHER_CONSTANTS.FILE_DETECTION_DELAY_MS);
 
-    // Try to read the first line to get sessionId (fallback for non-direct matches)
+    // Try to read the first line to get sessionId (for pending file storage)
     const sessionId = await this.extractSessionIdFromFile(filePath);
     if (!sessionId) {
       this.logger.warn(
@@ -421,21 +506,32 @@ export class AgentSessionWatcherService extends EventEmitter {
       ),
     });
 
-    // Find a matching active watch by sessionId (fallback)
+    // TASK_2025_102: SessionId-based matching is ONLY used when:
+    // 1. The filename agentId doesn't match any active watch
+    // 2. AND the watch doesn't already have a file assigned
+    // This prevents incorrectly matching old files from previous agents
     let matched = false;
     for (const [agentId, watch] of this.activeWatches) {
-      if (watch.sessionId === sessionId && !watch.agentFilePath) {
+      // TASK_2025_102: SKIP sessionId matching if watch already has a file
+      // The correct file should match by agentId, not sessionId
+      if (watch.agentFilePath) {
+        continue;
+      }
+
+      if (watch.sessionId === sessionId) {
         // Check if file was created around the time of the agent start
         // (within MATCH_WINDOW_MS - generous window)
         const timeDiff = Date.now() - watch.startTime;
         if (timeDiff < AGENT_WATCHER_CONSTANTS.MATCH_WINDOW_MS) {
           this.logger.info(
-            '[AgentSessionWatcher] MATCHED agent file to agent!',
+            '[AgentSessionWatcher] MATCHED agent file by sessionId (fallback)',
             {
               agentId,
+              filenameAgentId,
               filename,
               timeDiff,
               toolUseId: watch.toolUseId,
+              note: 'This match may be replaced if a better agentId match appears',
             }
           );
           watch.agentFilePath = filePath;
@@ -564,6 +660,11 @@ export class AgentSessionWatcherService extends EventEmitter {
 
   /**
    * Read new content from the agent file and emit summary chunks
+   *
+   * TASK_2025_102: Fixed partial line handling. When reading file content
+   * mid-write, we may get a partial JSON line at the end. The previous
+   * implementation would mark these as PARSE_ERROR and lose the data.
+   * Now we buffer incomplete lines and prepend them to the next read.
    */
   private async readNewContent(
     agentId: string,
@@ -586,6 +687,7 @@ export class AgentSessionWatcherService extends EventEmitter {
         fileOffset: watch.fileOffset,
         fileSize,
         newBytes,
+        hasBufferedContent: watch.incompleteLineBuffer.length > 0,
       });
 
       // Read new content
@@ -596,24 +698,65 @@ export class AgentSessionWatcherService extends EventEmitter {
 
       watch.fileOffset = fileSize;
 
-      // Parse new lines and extract summary text
-      const newContent = buffer.toString('utf-8');
-      const lines = newContent.split('\n').filter((line) => line.trim());
+      // TASK_2025_102: Prepend any buffered incomplete content from previous read
+      const newContent = watch.incompleteLineBuffer + buffer.toString('utf-8');
+      watch.incompleteLineBuffer = ''; // Clear buffer
 
-      // DIAGNOSTIC: Log message types found
+      // Split by newlines - but be careful with the last line
+      const rawLines = newContent.split('\n');
+
+      // TASK_2025_102: The last element after split may be incomplete if file
+      // was read mid-write. We'll try to parse it, and if it fails, buffer it.
+      const lines: string[] = [];
       const messageTypes: string[] = [];
       let summaryDelta = '';
-      for (const line of lines) {
+      const allContentBlocks: AgentContentBlock[] = [];
+
+      for (let i = 0; i < rawLines.length; i++) {
+        const line = rawLines[i].trim();
+        if (!line) continue; // Skip empty lines
+
+        const isLastLine = i === rawLines.length - 1;
+
         try {
           const msg = JSON.parse(line);
           messageTypes.push(msg.type || 'unknown');
-          const text = this.extractSummaryText(msg);
-          if (text) {
-            summaryDelta += text;
+          lines.push(line);
+
+          // TASK_2025_102: Extract structured content blocks for interleaving
+          const { summaryText, contentBlocks } = this.extractContentBlocks(msg);
+          if (summaryText) {
+            summaryDelta += summaryText;
+          }
+          if (contentBlocks.length > 0) {
+            allContentBlocks.push(...contentBlocks);
           }
         } catch {
-          // Skip malformed lines
-          messageTypes.push('PARSE_ERROR');
+          // TASK_2025_102: If this is the last line and it failed to parse,
+          // it's likely incomplete (read mid-write). Buffer it for next read.
+          if (isLastLine && line.length > 0) {
+            watch.incompleteLineBuffer = line;
+            this.logger.debug(
+              '[AgentSessionWatcher] Buffering incomplete line for next read',
+              {
+                agentId,
+                lineLength: line.length,
+                linePreview: line.slice(0, 50),
+              }
+            );
+          } else {
+            // Non-last line that failed to parse - this is genuinely malformed
+            messageTypes.push('PARSE_ERROR');
+            this.logger.warn(
+              '[AgentSessionWatcher] Malformed JSON line (not last)',
+              {
+                agentId,
+                lineIndex: i,
+                lineLength: line.length,
+                linePreview: line.slice(0, 100),
+              }
+            );
+          }
         }
       }
 
@@ -624,18 +767,25 @@ export class AgentSessionWatcherService extends EventEmitter {
         messageTypes,
         summaryDeltaLength: summaryDelta.length,
         hasTextContent: summaryDelta.length > 0,
+        hasBufferedIncomplete: watch.incompleteLineBuffer.length > 0,
+        contentBlocksCount: allContentBlocks.length,
+        contentBlockTypes: allContentBlocks.map((b) => b.type),
       });
 
-      if (summaryDelta) {
+      if (summaryDelta || allContentBlocks.length > 0) {
         watch.summaryContent += summaryDelta;
 
         // Emit the chunk - use watch.toolUseId for UI routing
         // toolUseId may be null if SubagentStop hasn't fired yet
-        // CRITICAL: The chunkId MUST match what frontend uses to register agents!
+        // TASK_2025_099: Include agentId as stable key for summary lookup
         const chunkId = watch.toolUseId ?? agentId;
         const chunk: AgentSummaryChunk = {
           toolUseId: chunkId,
           summaryDelta,
+          agentId, // Stable key for summary lookup (doesn't change between hook/complete)
+          // TASK_2025_102: Include structured content blocks for proper interleaving
+          contentBlocks:
+            allContentBlocks.length > 0 ? allContentBlocks : undefined,
         };
 
         this.emit('summary-chunk', chunk);
@@ -652,6 +802,7 @@ export class AgentSessionWatcherService extends EventEmitter {
             deltaLength: summaryDelta.length,
             totalLength: watch.summaryContent.length,
             deltaPreview: summaryDelta.slice(0, 100),
+            contentBlocksCount: allContentBlocks.length,
           }
         );
       }
@@ -665,13 +816,18 @@ export class AgentSessionWatcherService extends EventEmitter {
   }
 
   /**
-   * Extract summary text from a JSONL message
+   * Extract structured content blocks from a JSONL message
    *
-   * Uses same logic as SessionReplayService.classifyAgentMessages:
-   * - Extract text blocks from assistant messages
-   * - Skip tool_use blocks (those are execution, not summary)
+   * TASK_2025_102: Changed from extracting just text to extracting ALL content
+   * blocks in order (text + tool_use references). This preserves the interleaving
+   * structure so the frontend can properly position text between tool calls.
+   *
+   * @returns Object with summaryText (legacy) and contentBlocks (structured)
    */
-  private extractSummaryText(msg: any): string | null {
+  private extractContentBlocks(msg: any): {
+    summaryText: string | null;
+    contentBlocks: AgentContentBlock[];
+  } {
     // DIAGNOSTIC: Log what we're checking
     if (msg.type === 'assistant') {
       this.logger.debug('[AgentSessionWatcher] Found assistant message', {
@@ -685,24 +841,42 @@ export class AgentSessionWatcherService extends EventEmitter {
 
     // Only process assistant messages with content
     if (msg.type !== 'assistant' || !msg.message?.content) {
-      return null;
+      return { summaryText: null, contentBlocks: [] };
     }
 
     const textParts: string[] = [];
+    const contentBlocks: AgentContentBlock[] = [];
 
     for (const block of msg.message.content) {
       if (block.type === 'text' && block.text) {
         textParts.push(block.text);
+        contentBlocks.push({
+          type: 'text',
+          text: block.text,
+        });
         // DIAGNOSTIC: Log text extraction
         this.logger.info('[AgentSessionWatcher] Extracted text block', {
           textLength: block.text.length,
           textPreview: block.text.slice(0, 50),
         });
+      } else if (block.type === 'tool_use' && block.id) {
+        // TASK_2025_102: Also capture tool_use blocks as position markers
+        contentBlocks.push({
+          type: 'tool_ref',
+          toolUseId: block.id,
+          toolName: block.name,
+        });
+        this.logger.info('[AgentSessionWatcher] Captured tool_use reference', {
+          toolUseId: block.id,
+          toolName: block.name,
+        });
       }
-      // Skip tool_use blocks - they're execution content, not summary
     }
 
-    return textParts.length > 0 ? textParts.join('\n') : null;
+    return {
+      summaryText: textParts.length > 0 ? textParts.join('\n') : null,
+      contentBlocks,
+    };
   }
 
   /**

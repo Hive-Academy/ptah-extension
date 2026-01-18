@@ -113,15 +113,10 @@ import type {
         #contentContainer
         class="px-3 pb-2 max-h-80 overflow-y-auto border-t border-base-300/30"
       >
-        <!-- TASK_2025_099: Show summaryContent from real-time file watcher -->
-        @if (hasSummaryContent()) {
-        <div class="text-[11px] text-base-content/80 whitespace-pre-wrap py-2">
-          {{ summaryContent() }}
-          @if (isStreaming()) {
-          <ptah-typing-cursor colorClass="text-base-content/60" />
-          }
-        </div>
-        } @if (hasChildren()) {
+        <!-- TASK_2025_102 FIX: summaryContent is now rendered as a text child node
+             instead of a separate block. This ensures agent text is properly
+             interleaved with tool calls in chronological order. -->
+        @if (hasChildren()) {
         <!-- Render all children in chronological order (text + tools interleaved) -->
         @for (child of node().children; track child.id) {
         <ptah-execution-node
@@ -130,7 +125,7 @@ import type {
           [getPermissionForTool]="getPermissionForTool()"
           (permissionResponded)="permissionResponded.emit($event)"
         />
-        } @if (isStreaming() && !hasSummaryContent()) {
+        } @if (isStreaming()) {
         <div
           class="flex items-center gap-1 text-[10px] text-base-content/40 mt-2"
         >
@@ -138,8 +133,8 @@ import type {
           <span>Agent working</span>
           <ptah-typing-cursor colorClass="text-base-content/40" />
         </div>
-        } } @else if (!hasSummaryContent()) {
-        <!-- No children and no summary content yet -->
+        } } @else {
+        <!-- No children yet -->
         @if (isStreaming()) {
         <div
           class="flex items-center gap-2 text-[10px] text-base-content/40 py-2"
@@ -408,22 +403,9 @@ export class InlineAgentBubbleComponent {
     return (this.node().children?.length ?? 0) > 0;
   });
 
-  /**
-   * TASK_2025_099: Computed signal for real-time summary content
-   * Using computed() ensures Angular re-renders when summaryContent changes
-   */
-  readonly hasSummaryContent = computed(() => {
-    const content = this.node().summaryContent;
-    return !!content && content.length > 0;
-  });
-
-  /**
-   * TASK_2025_099: Computed signal for the actual summary content
-   * Direct signal binding for reactive updates
-   */
-  readonly summaryContent = computed(() => {
-    return this.node().summaryContent || '';
-  });
+  // TASK_2025_102: Removed hasSummaryContent and summaryContent computed signals.
+  // summaryContent is now rendered as a text child node via ExecutionNodeComponent,
+  // so these signals are no longer needed in this component.
 
   protected toggleCollapse(): void {
     this.isCollapsed.update((v) => !v);

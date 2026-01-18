@@ -5,6 +5,21 @@ import {
 } from '@ptah-extension/shared';
 
 /**
+ * TASK_2025_102: Content block from agent JSONL file - preserves interleaved structure.
+ * Mirrors the backend AgentContentBlock type for frontend usage.
+ */
+export interface AgentContentBlock {
+  /** Block type - text for narrative, tool_ref for tool position marker */
+  type: 'text' | 'tool_ref';
+  /** Text content (only for type: 'text') */
+  text?: string;
+  /** Tool use ID for correlation with SDK events (only for type: 'tool_ref') */
+  toolUseId?: string;
+  /** Tool name (only for type: 'tool_ref') */
+  toolName?: string;
+}
+
+/**
  * Maps for tracking execution nodes during session operations.
  * Shared between session loading and streaming to maintain node references.
  */
@@ -34,6 +49,22 @@ export interface StreamingState {
 
   /** Accumulated tool input for input-json-delta events, keyed by tool call ID */
   toolInputAccumulators: Map<string, string>;
+
+  /**
+   * Accumulated agent summary content from real-time file watcher.
+   * Keyed by toolCallId (agent's tool use ID).
+   * Updated via AGENT_SUMMARY_CHUNK events from backend.
+   * @deprecated Use agentContentBlocksMap for proper interleaving
+   */
+  agentSummaryAccumulators: Map<string, string>;
+
+  /**
+   * TASK_2025_102: Structured content blocks from agent file watcher.
+   * Preserves the interleaved structure of text and tool_use blocks.
+   * Keyed by agentId (stable across hook and complete events).
+   * Frontend uses this to interleave text nodes between tool nodes.
+   */
+  agentContentBlocksMap: Map<string, AgentContentBlock[]>;
 
   /** Current message ID being built during streaming */
   currentMessageId: string | null;
@@ -66,6 +97,8 @@ export function createEmptyStreamingState(): StreamingState {
     toolCallMap: new Map(),
     textAccumulators: new Map(),
     toolInputAccumulators: new Map(),
+    agentSummaryAccumulators: new Map(),
+    agentContentBlocksMap: new Map(), // TASK_2025_102: Structured content blocks
     currentMessageId: null,
     currentTokenUsage: null,
     eventsByMessage: new Map(),
@@ -176,4 +209,10 @@ export const AccumulatorKeys = {
     `${messageId}-block-${blockIndex}`,
   thinkingBlock: (messageId: string, blockIndex: number) =>
     `${messageId}-thinking-${blockIndex}`,
+  /**
+   * Key for agent summary content, keyed by agentId (NOT toolCallId).
+   * TASK_2025_099: agentId is stable across hook (UUID toolCallId) and
+   * complete message (toolu_* toolCallId), making it the reliable lookup key.
+   */
+  agentSummary: (agentId: string) => agentId,
 } as const;

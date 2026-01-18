@@ -75,8 +75,8 @@ import {
         {{ node().toolName }}
       </span>
 
-      <!-- Description (file path or generic) -->
-      @if (hasClickableFilePath()) {
+      <!-- Description (file path or generic) - HIDDEN during streaming to avoid redundancy (TASK_2025_102) -->
+      @if (node().status !== 'streaming') { @if (hasClickableFilePath()) {
       <ptah-file-path-link
         [fullPath]="getFilePath()"
         (clicked)="onFilePathClick($event)"
@@ -88,7 +88,7 @@ import {
       >
         {{ getToolDescription() }}
       </span>
-      }
+      } }
 
       <!-- Parse Error Warning (TASK_2025_088 Batch 2 Task 2.3) -->
       @if (hasParseError()) {
@@ -110,12 +110,14 @@ import {
       } @else if (node().status === 'error') {
       <lucide-angular [img]="XIcon" class="w-3 h-3 text-error flex-shrink-0" />
       } @else if (node().status === 'streaming') {
-      <div class="flex items-center gap-1 flex-shrink-0">
+      <div class="flex items-center gap-1 flex-1 min-w-0">
         <lucide-angular
           [img]="LoaderIcon"
-          class="w-3 h-3 text-info animate-spin"
+          class="w-3 h-3 text-info animate-spin flex-shrink-0"
         />
-        <span class="text-base-content/50 text-[10px] animate-pulse font-mono">
+        <span
+          class="text-base-content/50 text-[10px] animate-pulse font-mono truncate"
+        >
           {{ getStreamingDescription() }}
         </span>
       </div>

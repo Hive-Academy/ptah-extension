@@ -93,25 +93,11 @@ export class ChatRpcHandlers {
               'claude-sonnet-4-20250514'
             );
 
-          // Generate a temporary session ID for SDK lifecycle tracking
-          // Real UUID will come from SDK system init message
-          const tempSessionId = `temp_${Date.now()}_${Math.random()
-            .toString(36)
-            .substring(2, 9)}` as SessionId;
-
-          // Start SDK session with streaming ExecutionNode output
-          // TASK_2025_095: Pass tabId so session:id-resolved can route directly
-          const stream = await this.sdkAdapter.startChatSession(tempSessionId, {
-            workspaceId: workspacePath,
-            model: options?.model || currentModel,
-            systemPrompt: options?.systemPrompt,
-            projectPath: workspacePath,
-            name,
-            tabId, // For direct routing of session:id-resolved
-          });
+          // TASK_2025_093: tabId is now the primary tracking key
+          // SDK generates real UUID in system init message
+          const files = options?.files ?? [];
 
           // Log files received for debugging (Phase 2)
-          const files = options?.files ?? [];
           if (files.length > 0) {
             this.logger.debug('RPC: chat:start received files', {
               tabId,
@@ -120,16 +106,23 @@ export class ChatRpcHandlers {
             });
           }
 
-          // Send initial prompt if provided
-          if (prompt) {
-            await this.sdkAdapter.sendMessageToSession(tempSessionId, prompt, {
-              files,
-            });
-          }
+          // Start SDK session with streaming ExecutionNode output
+          // TASK_2025_093: Single config argument with tabId as primary tracking key
+          // Prompt and files are now passed in config, not via separate sendMessageToSession
+          const stream = await this.sdkAdapter.startChatSession({
+            tabId, // REQUIRED: Primary tracking key for multi-tab isolation
+            workspaceId: workspacePath,
+            model: options?.model || currentModel,
+            systemPrompt: options?.systemPrompt,
+            projectPath: workspacePath,
+            name,
+            prompt, // Initial prompt passed in config
+            files,
+          });
 
           // Stream ExecutionNodes to webview (background - don't await)
           // Pass tabId so events can be routed to correct frontend tab
-          this.streamExecutionNodesToWebview(tempSessionId, stream, tabId);
+          this.streamExecutionNodesToWebview(tabId as SessionId, stream, tabId);
 
           return { success: true };
         } catch (error) {

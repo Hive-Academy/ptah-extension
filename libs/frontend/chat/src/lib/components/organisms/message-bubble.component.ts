@@ -8,9 +8,6 @@ import { NgOptimizedImage } from '@angular/common';
 import { MarkdownModule } from 'ngx-markdown';
 import {
   LucideAngularModule,
-  Copy,
-  ThumbsUp,
-  ThumbsDown,
   User,
   FileText,
   Image,
@@ -19,6 +16,8 @@ import {
 } from 'lucide-angular';
 import { ExecutionNodeComponent } from './execution-node.component';
 import { TypingCursorComponent } from '../atoms/typing-cursor.component';
+import { StreamingQuotesComponent } from '../atoms/streaming-quotes.component';
+import { CopyButtonComponent } from '../atoms/copy-button.component';
 import { TokenBadgeComponent } from '../atoms/token-badge.component';
 import { CostBadgeComponent } from '../atoms/cost-badge.component';
 import { DurationBadgeComponent } from '../atoms/duration-badge.component';
@@ -48,6 +47,8 @@ import { ChatStore } from '../../services/chat.store';
     MarkdownModule,
     ExecutionNodeComponent,
     TypingCursorComponent,
+    StreamingQuotesComponent,
+    CopyButtonComponent,
     TokenBadgeComponent,
     CostBadgeComponent,
     DurationBadgeComponent,
@@ -71,9 +72,6 @@ export class MessageBubbleComponent {
   readonly isStreaming = input<boolean>(false);
 
   // Lucide icons
-  readonly CopyIcon = Copy;
-  readonly ThumbsUpIcon = ThumbsUp;
-  readonly ThumbsDownIcon = ThumbsDown;
   readonly UserIcon = User;
   readonly FileTextIcon = FileText;
   readonly ImageIcon = Image;

@@ -25,6 +25,7 @@ import {
   Component,
   input,
   output,
+  signal,
   ChangeDetectionStrategy,
   ElementRef,
   viewChild,
@@ -39,20 +40,21 @@ import { NativePopoverComponent } from '@ptah-extension/ui';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ptah-native-popover
-      [isOpen]="isOpen()"
+      [isOpen]="_isOpen()"
       [placement]="'top'"
       [hasBackdrop]="true"
       [backdropClass]="'transparent'"
       (closed)="handleClose()"
       (opened)="handleOpened()"
     >
-      <!-- Trigger Button -->
+      <!-- Trigger Button - click opens popover -->
       <button
         trigger
         class="btn btn-xs btn-warning btn-outline gap-0.5 px-2"
         type="button"
         aria-label="Deny with a message to Claude"
         [disabled]="disabled()"
+        (click)="openPopover()"
       >
         <lucide-angular [img]="MessageSquareIcon" class="w-3 h-3" />
         Deny...
@@ -69,11 +71,13 @@ import { NativePopoverComponent } from '@ptah-extension/ui';
             aria-label="Message to Claude"
             [(ngModel)]="messageText"
             (keydown.enter)="handleSubmit()"
+            maxlength="500"
           />
           <button
             class="btn btn-xs btn-warning gap-0.5"
             type="button"
             (click)="handleSubmit()"
+            [disabled]="_isSubmitting()"
             aria-label="Send message and deny"
           >
             <lucide-angular [img]="SendIcon" class="w-3 h-3" />
@@ -85,10 +89,14 @@ import { NativePopoverComponent } from '@ptah-extension/ui';
 })
 export class DenyMessagePopoverComponent {
   // Inputs
-  readonly isOpen = input.required<boolean>();
   readonly disabled = input<boolean>(false);
 
+  // Internal state - component manages its own open state
+  protected readonly _isOpen = signal(false);
+  protected readonly _isSubmitting = signal(false);
+
   // Outputs
+  readonly opened = output<void>();
   readonly messageSent = output<string>();
   readonly closed = output<void>();
 
@@ -104,6 +112,16 @@ export class DenyMessagePopoverComponent {
     viewChild<ElementRef<HTMLInputElement>>('messageInput');
 
   /**
+   * Open the popover - called by trigger button click
+   */
+  openPopover(): void {
+    if (!this.disabled()) {
+      this._isOpen.set(true);
+      this.opened.emit();
+    }
+  }
+
+  /**
    * Handle popover opened - focus input
    */
   handleOpened(): void {
@@ -116,20 +134,33 @@ export class DenyMessagePopoverComponent {
   /**
    * Handle submit - emit message and close
    * Uses default message if empty per requirement
+   * Includes double-submit protection
    */
   handleSubmit(): void {
+    // Double-submit protection
+    if (this._isSubmitting()) {
+      return;
+    }
+
+    this._isSubmitting.set(true);
+
     // Use default message if empty (per TASK_2025_102 requirement)
     const message =
       this.messageText.trim() || 'User denied without explanation';
     this.messageSent.emit(message);
+
+    // Reset state
     this.messageText = '';
+    this._isOpen.set(false);
+    this._isSubmitting.set(false);
   }
 
   /**
-   * Handle close - clear text and emit closed event
+   * Handle close - clear text and close popover
    */
   handleClose(): void {
     this.messageText = '';
+    this._isOpen.set(false);
     this.closed.emit();
   }
 }

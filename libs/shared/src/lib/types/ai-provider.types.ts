@@ -69,7 +69,7 @@ export interface AIMessageOptions {
   readonly model?: string;
   readonly temperature?: number;
   readonly maxTokens?: number;
-  readonly files?: readonly string[];
+  readonly files?: string[];
   readonly correlationId?: CorrelationId;
   readonly timeout?: number;
   readonly streaming?: boolean;
@@ -147,11 +147,24 @@ export interface IAIProvider {
   reset(): Promise<void>;
 
   /**
-   * Session Management
+   * Start a NEW chat session with streaming support
+   *
+   * TASK_2025_093: Uses tabId as the primary tracking key for session lifecycle.
+   * The real SDK UUID is resolved later via session:id-resolved event.
+   *
+   * @param config - Session configuration with REQUIRED tabId for multi-tab isolation
    */
   startChatSession(
-    sessionId: SessionId,
-    config?: AISessionConfig
+    config: AISessionConfig & {
+      /** REQUIRED: Frontend tab identifier for routing and multi-tab isolation */
+      tabId: string;
+      /** Session name (optional) */
+      name?: string;
+      /** Initial prompt to send (optional) */
+      prompt?: string;
+      /** Files to attach (optional) */
+      files?: readonly string[];
+    }
   ): Promise<Readable>;
   endSession(sessionId: SessionId): void;
   sendMessageToSession(

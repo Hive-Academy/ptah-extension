@@ -54,6 +54,17 @@ interface TreeCacheEntry {
   messageEventIdsLength: number;
   textAccumulatorsSize: number;
   toolInputAccumulatorsSize: number;
+  /**
+   * TASK_2025_099: Include agent summary total length for cache invalidation.
+   * Using total content length (not just map size) ensures cache invalidates
+   * when content is appended to existing agents, not just when new agents are added.
+   */
+  agentSummaryTotalLength: number;
+  /**
+   * TASK_2025_102: Include content blocks total count for cache invalidation.
+   * Ensures cache invalidates when new content blocks are added for interleaving.
+   */
+  agentContentBlocksCount: number;
   tree: ExecutionNode[];
 }
 
@@ -106,6 +117,19 @@ export class ExecutionTreeBuilderService {
     const messageEventIdsLength = streamingState.messageEventIds.length;
     const textAccumulatorsSize = streamingState.textAccumulators.size;
     const toolInputAccumulatorsSize = streamingState.toolInputAccumulators.size;
+    // TASK_2025_099: Calculate total agent summary content length for cache invalidation.
+    // Using total length (not just map size) ensures cache invalidates when content
+    // is appended to existing agents, not just when new agents are added.
+    let agentSummaryTotalLength = 0;
+    for (const content of streamingState.agentSummaryAccumulators.values()) {
+      agentSummaryTotalLength += content.length;
+    }
+    // TASK_2025_102: Calculate total content blocks count for cache invalidation.
+    // Ensures cache invalidates when new content blocks are added for interleaving.
+    let agentContentBlocksCount = 0;
+    for (const blocks of streamingState.agentContentBlocksMap.values()) {
+      agentContentBlocksCount += blocks.length;
+    }
 
     // Check cache for existing tree with matching fingerprint
     const cached = this.treeCache.get(cacheKey);
@@ -114,7 +138,9 @@ export class ExecutionTreeBuilderService {
       cached.eventCount === eventCount &&
       cached.messageEventIdsLength === messageEventIdsLength &&
       cached.textAccumulatorsSize === textAccumulatorsSize &&
-      cached.toolInputAccumulatorsSize === toolInputAccumulatorsSize
+      cached.toolInputAccumulatorsSize === toolInputAccumulatorsSize &&
+      cached.agentSummaryTotalLength === agentSummaryTotalLength &&
+      cached.agentContentBlocksCount === agentContentBlocksCount
     ) {
       // Cache hit - return existing tree without rebuilding
       return cached.tree;
@@ -198,6 +224,8 @@ export class ExecutionTreeBuilderService {
       messageEventIdsLength,
       textAccumulatorsSize,
       toolInputAccumulatorsSize,
+      agentSummaryTotalLength,
+      agentContentBlocksCount,
       tree: rootNodes,
     });
 
@@ -511,16 +539,74 @@ export class ExecutionTreeBuilderService {
               }
             }
 
+            // TASK_2025_099: Try to find matching hook-based agent_start to get agentId
+            // Hook-based agent_start events have agentId for stable summary lookup
+            const hookAgentStart = [...state.events.values()].find(
+              (e) =>
+                e.eventType === 'agent_start' &&
+                e.source === 'hook' &&
+                (e as AgentStartEvent).agentType === agentType
+            ) as AgentStartEvent | undefined;
+
+            // TASK_2025_099: Get summaryContent using agentId if available
+            // Fallback to toolCallId for backward compatibility
+            const placeholderAgentId = hookAgentStart?.agentId;
+
+            // TASK_2025_102: Get structured content blocks for proper interleaving
+            const placeholderContentBlocks = placeholderAgentId
+              ? state.agentContentBlocksMap.get(placeholderAgentId) || []
+              : [];
+
+            // Legacy: Get summaryContent (fallback if no content blocks)
+            const placeholderSummaryContent = placeholderAgentId
+              ? state.agentSummaryAccumulators.get(placeholderAgentId) ||
+                undefined
+              : state.agentSummaryAccumulators.get(toolStart.toolCallId) ||
+                undefined;
+
+            // TASK_2025_102 FIX: Build interleaved children from content blocks
+            let finalPlaceholderChildren: ExecutionNode[];
+
+            if (placeholderContentBlocks.length > 0) {
+              // Use structured content blocks for proper interleaving
+              finalPlaceholderChildren = this.buildInterleavedChildren(
+                `agent-placeholder-${toolStart.toolCallId}`,
+                toolStart.timestamp,
+                placeholderContentBlocks,
+                agentChildren
+              );
+            } else if (
+              placeholderSummaryContent &&
+              placeholderSummaryContent.trim()
+            ) {
+              // Fallback: Use legacy summaryContent as single text node at beginning
+              finalPlaceholderChildren = [...agentChildren];
+              const summaryTextNode = createExecutionNode({
+                id: `agent-placeholder-${toolStart.toolCallId}-summary-text`,
+                type: 'text',
+                status: 'complete',
+                content: placeholderSummaryContent,
+                children: [],
+                startTime: toolStart.timestamp,
+              });
+              finalPlaceholderChildren.unshift(summaryTextNode);
+            } else {
+              // No summary content - just use tool children
+              finalPlaceholderChildren = [...agentChildren];
+            }
+
             const placeholderAgent = createExecutionNode({
               id: `agent-placeholder-${toolStart.toolCallId}`,
               type: 'agent',
               status: 'streaming',
               content: agentDescription,
-              children: agentChildren, // Now includes sub-agent content
+              children: finalPlaceholderChildren, // Now includes summary as text child
               startTime: toolStart.timestamp,
               agentType: agentType,
               agentDescription: agentDescription,
               toolCallId: toolStart.toolCallId,
+              agentId: placeholderAgentId, // TASK_2025_099: From hook if available
+              // summaryContent no longer needed on node - it's now a child text node
             });
 
             tools.push(placeholderAgent);
@@ -591,17 +677,163 @@ export class ExecutionTreeBuilderService {
       }
     }
 
+    // TASK_2025_099: Get summaryContent and contentBlocks from maps
+    // The key is agentId (e.g., "adcecb2"), NOT toolCallId, because:
+    // - Hook sends UUID-format toolCallId
+    // - Complete message sends toolu_* format toolCallId
+    // - agentId is stable and consistent across both sources
+    //
+    // TASK_2025_099 FIX: If agentStart doesn't have agentId (complete events often don't),
+    // try to find a matching hook-based agent_start event by agentType and use its agentId.
+    let effectiveAgentId = agentStart.agentId;
+
+    if (!effectiveAgentId) {
+      // Find hook-based agent_start with matching agentType
+      const hookAgentStart = [...state.events.values()].find(
+        (e) =>
+          e.eventType === 'agent_start' &&
+          e.source === 'hook' &&
+          (e as AgentStartEvent).agentType === agentStart.agentType
+      ) as AgentStartEvent | undefined;
+
+      if (hookAgentStart?.agentId) {
+        effectiveAgentId = hookAgentStart.agentId;
+      }
+    }
+
+    // TASK_2025_102: Get structured content blocks for proper interleaving
+    const contentBlocks = effectiveAgentId
+      ? state.agentContentBlocksMap.get(effectiveAgentId) || []
+      : [];
+
+    // Legacy: Get summaryContent (fallback if no content blocks)
+    const summaryContent = effectiveAgentId
+      ? state.agentSummaryAccumulators.get(effectiveAgentId) || undefined
+      : undefined;
+
+    // TASK_2025_102 FIX: Build interleaved children from content blocks
+    // Content blocks preserve the original order: [text, tool_ref, text, tool_ref, ...]
+    // We create text nodes for text blocks and find matching tool nodes for tool_ref blocks.
+    let finalChildren: ExecutionNode[];
+
+    if (contentBlocks.length > 0) {
+      // Use structured content blocks for proper interleaving
+      finalChildren = this.buildInterleavedChildren(
+        agentStart.id,
+        agentStart.timestamp,
+        contentBlocks,
+        agentChildren
+      );
+    } else if (summaryContent && summaryContent.trim()) {
+      // Fallback: Use legacy summaryContent as single text node at beginning
+      finalChildren = [...agentChildren];
+      const summaryTextNode = createExecutionNode({
+        id: `${agentStart.id}-summary-text`,
+        type: 'text',
+        status: 'complete',
+        content: summaryContent,
+        children: [],
+        startTime: agentStart.timestamp,
+      });
+      finalChildren.unshift(summaryTextNode);
+    } else {
+      // No summary content - just use tool children
+      finalChildren = [...agentChildren];
+    }
+
     // Create the AGENT node
     return createExecutionNode({
       id: agentStart.id,
       type: 'agent',
-      status: agentChildren.length > 0 ? 'complete' : 'streaming',
+      status: finalChildren.length > 0 ? 'complete' : 'streaming',
       content: agentStart.agentDescription || '',
-      children: agentChildren,
+      children: finalChildren,
       startTime: agentStart.timestamp,
       agentType: agentStart.agentType,
       agentDescription: agentStart.agentDescription,
+      toolCallId: agentStart.toolCallId,
+      agentId: effectiveAgentId, // TASK_2025_099 FIX: Use effectiveAgentId (from hook if needed)
     });
+  }
+
+  /**
+   * TASK_2025_102: Build interleaved children from structured content blocks
+   *
+   * Content blocks from the JSONL file preserve the original interleaving:
+   * [text, tool_ref, text, tool_ref, ...]
+   *
+   * This method creates text nodes for text blocks and matches tool_ref blocks
+   * to actual tool nodes from SDK events, producing properly interleaved children.
+   *
+   * @param agentId - Agent node ID for generating child IDs
+   * @param baseTimestamp - Base timestamp for ordering
+   * @param contentBlocks - Structured content blocks from file watcher
+   * @param toolChildren - Tool nodes from SDK events
+   * @returns Interleaved array of text and tool nodes
+   */
+  private buildInterleavedChildren(
+    agentId: string,
+    baseTimestamp: number,
+    contentBlocks: Array<{
+      type: 'text' | 'tool_ref';
+      text?: string;
+      toolUseId?: string;
+      toolName?: string;
+    }>,
+    toolChildren: ExecutionNode[]
+  ): ExecutionNode[] {
+    const result: ExecutionNode[] = [];
+    let textIndex = 0;
+
+    // Create a map of toolUseId to tool nodes for quick lookup
+    const toolMap = new Map<string, ExecutionNode>();
+    for (const tool of toolChildren) {
+      if (tool.toolCallId) {
+        toolMap.set(tool.toolCallId, tool);
+      }
+    }
+
+    // Track which tools have been added (to add remaining tools at the end)
+    const addedToolIds = new Set<string>();
+
+    for (const block of contentBlocks) {
+      if (block.type === 'text' && block.text) {
+        // Create text node for text block
+        const textNode = createExecutionNode({
+          id: `${agentId}-text-${textIndex++}`,
+          type: 'text',
+          status: 'complete',
+          content: block.text,
+          children: [],
+          startTime: baseTimestamp + textIndex, // Increment for ordering
+        });
+        result.push(textNode);
+      } else if (block.type === 'tool_ref' && block.toolUseId) {
+        // Find matching tool node by toolUseId
+        const toolNode = toolMap.get(block.toolUseId);
+        if (toolNode) {
+          result.push(toolNode);
+          addedToolIds.add(block.toolUseId);
+        } else {
+          // Tool not found - this can happen if SDK events haven't arrived yet
+          // Skip the tool_ref, the tool will be added from remaining tools
+          console.debug(
+            '[ExecutionTreeBuilder] tool_ref not found in toolChildren:',
+            { toolUseId: block.toolUseId, toolName: block.toolName }
+          );
+        }
+      }
+    }
+
+    // Add any remaining tools that weren't in content blocks
+    // (e.g., tools that arrived via SDK but not yet in JSONL file)
+    for (const tool of toolChildren) {
+      if (tool.toolCallId && !addedToolIds.has(tool.toolCallId)) {
+        result.push(tool);
+      }
+    }
+
+    return result;
   }
 
   /**
@@ -780,17 +1012,81 @@ export class ExecutionTreeBuilderService {
         }
       }
 
+      // TASK_2025_099: Get summaryContent using agentId (stable key)
+      // agentId is consistent across hook (UUID toolCallId) and complete (toolu_* toolCallId)
+      //
+      // TASK_2025_099 FIX: If agentStart doesn't have agentId (complete events often don't),
+      // try to find a matching hook-based agent_start event by agentType and use its agentId.
+      let effectiveAgentId = agentStart.agentId;
+
+      if (!effectiveAgentId) {
+        // Find hook-based agent_start with matching agentType
+        const hookAgentStart = [...state.events.values()].find(
+          (e) =>
+            e.eventType === 'agent_start' &&
+            e.source === 'hook' &&
+            (e as AgentStartEvent).agentType === agentStart.agentType
+        ) as AgentStartEvent | undefined;
+
+        if (hookAgentStart?.agentId) {
+          effectiveAgentId = hookAgentStart.agentId;
+        }
+      }
+
+      // TASK_2025_102: Get structured content blocks for proper interleaving
+      const contentBlocks = effectiveAgentId
+        ? state.agentContentBlocksMap.get(effectiveAgentId) || []
+        : [];
+
+      // Legacy: Get summaryContent (fallback if no content blocks)
+      const agentSummaryContent = effectiveAgentId
+        ? state.agentSummaryAccumulators.get(effectiveAgentId) || undefined
+        : undefined;
+
+      // TASK_2025_102 FIX: Build interleaved children from content blocks
+      // Content blocks preserve the original order: [text, tool_ref, text, tool_ref, ...]
+      // We create text nodes for text blocks and find matching tool nodes for tool_ref blocks.
+      let finalAgentChildren: ExecutionNode[];
+
+      if (contentBlocks.length > 0) {
+        // Use structured content blocks for proper interleaving
+        finalAgentChildren = this.buildInterleavedChildren(
+          agentStart.id,
+          agentStart.timestamp,
+          contentBlocks,
+          agentChildren
+        );
+      } else if (agentSummaryContent && agentSummaryContent.trim()) {
+        // Fallback: Use legacy summaryContent as single text node at beginning
+        finalAgentChildren = [...agentChildren];
+        const summaryTextNode = createExecutionNode({
+          id: `${agentStart.id}-summary-text`,
+          type: 'text',
+          status: 'complete',
+          content: agentSummaryContent,
+          children: [],
+          startTime: agentStart.timestamp,
+        });
+        finalAgentChildren.unshift(summaryTextNode);
+      } else {
+        // No summary content - just use tool children
+        finalAgentChildren = [...agentChildren];
+      }
+
       // Create the AGENT node from agent_start event
       // This wraps the nested content in a proper agent bubble
       const agentNode = createExecutionNode({
         id: agentStart.id,
         type: 'agent',
-        status: agentChildren.length > 0 ? 'complete' : 'streaming',
+        status: finalAgentChildren.length > 0 ? 'complete' : 'streaming',
         content: agentStart.agentDescription || '',
-        children: agentChildren,
+        children: finalAgentChildren,
         startTime: agentStart.timestamp,
         agentType: agentStart.agentType,
         agentDescription: agentStart.agentDescription,
+        toolCallId: agentStart.toolCallId,
+        agentId: effectiveAgentId, // TASK_2025_099 FIX: Use effectiveAgentId (from hook if needed)
+        // summaryContent no longer needed on node - it's now a child text node
       });
 
       children.push(agentNode);

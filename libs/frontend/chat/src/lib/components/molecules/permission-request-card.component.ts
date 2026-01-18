@@ -53,7 +53,7 @@ import {
   imports: [LucideAngularModule, DenyMessagePopoverComponent],
   template: `
     <div
-      class="relative bg-base-300/30 rounded border-l-2 overflow-hidden"
+      class="relative bg-base-300/30 rounded border-l-2"
       [class.animate-glow]="!isExpiringSoon()"
       [class.animate-glow-urgent]="isExpiringSoon()"
       [style.border-left-color]="getToolColor()"
@@ -108,6 +108,7 @@ import {
           (click)="respond('allow')"
           type="button"
           aria-label="Allow this request once"
+          [disabled]="isDenyPopoverOpen()"
         >
           <lucide-angular [img]="CheckIcon" class="w-3 h-3" />
           Allow
@@ -117,6 +118,7 @@ import {
           (click)="respond('always_allow')"
           type="button"
           aria-label="Always allow this type of request"
+          [disabled]="isDenyPopoverOpen()"
         >
           <lucide-angular [img]="CheckCircleIcon" class="w-3 h-3" />
           Always
@@ -126,13 +128,15 @@ import {
           (click)="respond('deny')"
           type="button"
           aria-label="Deny this request and stop execution"
+          [disabled]="isDenyPopoverOpen()"
         >
           <lucide-angular [img]="XIcon" class="w-3 h-3" />
           Deny
         </button>
         <!-- TASK_2025_102: Deny with Message popover - allows user to provide feedback -->
         <ptah-deny-message-popover
-          [isOpen]="isDenyPopoverOpen()"
+          [disabled]="isDenyPopoverOpen()"
+          (opened)="openDenyPopover()"
           (messageSent)="handleDenyWithMessage($event)"
           (closed)="closeDenyPopover()"
         />

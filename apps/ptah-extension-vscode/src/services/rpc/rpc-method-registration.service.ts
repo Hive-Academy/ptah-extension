@@ -242,11 +242,13 @@ export class RpcMethodRegistrationService {
         '[RpcMethodRegistrationService] Received summary-chunk, forwarding to webview',
         {
           toolUseId: chunk.toolUseId,
+          agentId: chunk.agentId, // TASK_2025_099: Stable key for summary lookup
           deltaLength: chunk.summaryDelta.length,
           deltaPreview: chunk.summaryDelta.slice(0, 50),
         }
       );
 
+      // TASK_2025_099: Forward entire chunk including agentId for stable lookup
       this.webviewManager
         .sendMessage('ptah.main', MESSAGE_TYPES.AGENT_SUMMARY_CHUNK, chunk)
         .then(() => {
@@ -270,6 +272,7 @@ export class RpcMethodRegistrationService {
         '[RpcMethodRegistrationService] Received agent-start event',
         {
           toolUseId: agentStartEvent.toolUseId,
+          agentId: agentStartEvent.agentId, // TASK_2025_099: Stable key for summary lookup
           agentType: agentStartEvent.agentType,
           sessionId: agentStartEvent.sessionId,
         }
@@ -278,6 +281,7 @@ export class RpcMethodRegistrationService {
       // Send as a CHAT_CHUNK with agent_start event type
       // This matches the format expected by streaming-handler.service.ts
       // Include sessionId for frontend to route to correct tab
+      // TASK_2025_099: Include agentId for stable summary content lookup
       const streamingEvent = {
         id: `agent-start-${agentStartEvent.toolUseId}`,
         eventType: 'agent_start' as const,
@@ -288,6 +292,7 @@ export class RpcMethodRegistrationService {
         agentDescription: agentStartEvent.agentDescription,
         timestamp: agentStartEvent.timestamp,
         source: 'hook' as const, // Mark as from hook (for duplicate detection)
+        agentId: agentStartEvent.agentId, // Stable key for summary lookup
       };
 
       this.webviewManager

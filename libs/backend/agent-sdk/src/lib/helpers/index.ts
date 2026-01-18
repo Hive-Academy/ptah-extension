@@ -3,9 +3,11 @@
  *
  * These services encapsulate specific responsibilities:
  * - AuthManager: Authentication configuration and validation
- * - SessionLifecycleManager: Session creation, tracking, and cleanup
+ * - SessionLifecycleManager: Session creation, tracking, cleanup, and query orchestration
  * - ConfigWatcher: Config change detection and re-initialization
  * - StreamTransformer: SDK message to ExecutionNode transformation
+ *
+ * TASK_2025_102: SessionLifecycleManager now includes executeQuery() for query orchestration
  */
 
 export { AuthManager, type AuthResult, type AuthConfig } from './auth-manager';
@@ -15,6 +17,8 @@ export {
   type SDKUserMessage,
   type Query,
   type ContentBlock,
+  type ExecuteQueryConfig,
+  type ExecuteQueryResult,
 } from './session-lifecycle-manager';
 export { ConfigWatcher, type ReinitCallback } from './config-watcher';
 export {
@@ -25,3 +29,16 @@ export {
 } from './stream-transformer';
 export * from './attachment-processor.service';
 export { SubagentHookHandler } from './subagent-hook-handler';
+export {
+  SdkMessageFactory,
+  type CreateMessageParams,
+} from './sdk-message-factory';
+export {
+  SdkQueryOptionsBuilder,
+  type QueryOptionsInput,
+  type SdkQueryOptions,
+  type QueryConfig,
+} from './sdk-query-options-builder';
+export { SdkModuleLoader } from './sdk-module-loader';
+export { SdkModelService } from './sdk-model-service';
+export { UserMessageStreamFactory } from './user-message-stream-factory';

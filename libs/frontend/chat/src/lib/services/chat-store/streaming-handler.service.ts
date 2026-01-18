@@ -1,29 +1,26 @@
 /**
- * StreamingHandlerService - Flat Event Storage and Finalization
+ * StreamingHandlerService - Flat Event Storage and Processing
  *
- * Extracted from ChatStore to handle streaming-related operations:
+ * Refactored to delegate to child services for better maintainability:
+ * - EventDeduplicationService: Source priority and duplicate checking
+ * - BatchedUpdateService: RAF-based batched UI updates
+ * - MessageFinalizationService: Finalize streaming messages to chat messages
+ *
+ * This service handles:
  * - Processing flat streaming events from SDK
  * - Storing events in StreamingState maps
- * - Finalizing streaming messages to chat messages
- *
- * Part of ChatStore refactoring (Facade pattern) - ChatStore delegates here.
+ * - Coordinating between child services
  */
 
 import { Injectable, inject } from '@angular/core';
 import {
   ExecutionNode,
   FlatStreamEventUnion,
-  createExecutionChatMessage,
-  calculateMessageCost,
-  MessageCompleteEvent,
-  MessageStartEvent,
   assertNever,
   ExecutionChatMessage,
-  EventSource,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
-import { ExecutionTreeBuilderService } from '../execution-tree-builder.service';
 import {
   TabState,
   createEmptyStreamingState,
@@ -31,188 +28,27 @@ import {
   AccumulatorKeys,
 } from '../chat.types';
 
+// Child services
+import { EventDeduplicationService } from './event-deduplication.service';
+import { BatchedUpdateService } from './batched-update.service';
+import { MessageFinalizationService } from './message-finalization.service';
+
 @Injectable({ providedIn: 'root' })
 export class StreamingHandlerService {
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
-  private readonly treeBuilder = inject(ExecutionTreeBuilderService);
 
-  /**
-   * Tracks processed messageIds per session to prevent duplicate message_start events.
-   * TASK_2025_085: SDK sends both streaming events AND complete messages - we must deduplicate.
-   * Map key = sessionId, value = Set of processed messageIds.
-   */
-  private processedMessageIds = new Map<string, Set<string>>();
-
-  /**
-   * Tracks processed toolCallIds per session to prevent duplicate tool_start events.
-   * TASK_2025_085: Prevents duplicate agent cards.
-   * Map key = sessionId, value = Set of processed toolCallIds.
-   */
-  private processedToolCallIds = new Map<string, Set<string>>();
-
-  /**
-   * PERFORMANCE OPTIMIZATION: Batched UI updates using requestAnimationFrame
-   * Instead of updating TabManager 100+ times/sec, we batch updates and flush once per frame.
-   * This dramatically reduces signal updates and change detection cycles.
-   */
-  private pendingTabUpdates = new Map<string, StreamingState>();
-  private rafId: number | null = null;
-
-  /**
-   * TASK_2025_095: Source priority for event deduplication.
-   * Higher priority sources should replace lower priority sources.
-   * - 'history': Loaded from JSONL files (highest priority - definitive)
-   * - 'complete': From complete assistant/user messages (high priority - definitive)
-   * - 'stream': From streaming events (low priority - preview only)
-   */
-  private getSourcePriority(source: EventSource | undefined): number {
-    switch (source) {
-      case 'history':
-        return 3;
-      case 'complete':
-        return 2;
-      case 'stream':
-        return 1;
-      default:
-        return 0;
-    }
-  }
-
-  /**
-   * TASK_2025_095: Check if new event should replace existing event based on source priority.
-   * Returns true if new event has higher or equal priority.
-   */
-  private shouldReplaceEvent(
-    existingSource: EventSource | undefined,
-    newSource: EventSource | undefined
-  ): boolean {
-    return (
-      this.getSourcePriority(newSource) >=
-      this.getSourcePriority(existingSource)
-    );
-  }
-
-  /**
-   * TASK_2025_095: Replace stream events with higher priority events for the same toolCallId.
-   * When a 'complete' or 'history' source event arrives, it should replace any existing
-   * 'stream' source events for the same tool call.
-   *
-   * TASK_2025_096: Extended to support agent_start events to prevent duplicate agents.
-   *
-   * @param state - The streaming state to update
-   * @param toolCallId - The tool call ID to match
-   * @param eventType - The event type to match ('tool_start', 'tool_result', or 'agent_start')
-   * @param newSource - The source of the new event
-   * @returns The existing event if it should NOT be replaced, undefined if new event should be stored
-   */
-  private replaceStreamEventIfNeeded(
-    state: StreamingState,
-    toolCallId: string,
-    eventType: 'tool_start' | 'tool_result' | 'agent_start',
-    newSource: EventSource | undefined
-  ): FlatStreamEventUnion | undefined {
-    // Find existing event with same toolCallId and eventType
-    let existingEvent: FlatStreamEventUnion | undefined;
-
-    for (const event of state.events.values()) {
-      if (
-        event.eventType === eventType &&
-        'toolCallId' in event &&
-        event.toolCallId === toolCallId
-      ) {
-        existingEvent = event;
-        break;
-      }
-    }
-
-    if (!existingEvent) {
-      // No existing event, new event should be stored
-      return undefined;
-    }
-
-    const existingSource = (
-      existingEvent as FlatStreamEventUnion & { source?: EventSource }
-    ).source;
-
-    if (this.shouldReplaceEvent(existingSource, newSource)) {
-      // New event has higher priority, remove old event
-      state.events.delete(existingEvent.id);
-      return undefined; // Allow new event to be stored
-    }
-
-    // Existing event has higher priority, skip new event
-    return existingEvent;
-  }
-
-  /**
-   * TASK_2025_096: Find existing message_start event for a given messageId.
-   * Used to check for duplicates before storing a new message_start event.
-   *
-   * @param state - The streaming state to search
-   * @param messageId - The messageId to search for
-   * @returns The existing message_start event if found, undefined otherwise
-   */
-  private findMessageStartEvent(
-    state: StreamingState,
-    messageId: string
-  ): FlatStreamEventUnion | undefined {
-    // Search in eventsByMessage for efficiency
-    const messageEvents = state.eventsByMessage.get(messageId);
-    if (!messageEvents) return undefined;
-
-    return messageEvents.find((e) => e.eventType === 'message_start');
-  }
+  // Child services
+  private readonly deduplication = inject(EventDeduplicationService);
+  private readonly batchedUpdate = inject(BatchedUpdateService);
+  private readonly finalization = inject(MessageFinalizationService);
 
   /**
    * Clean up deduplication state for a session.
    * MUST be called when closing/deleting a session to prevent memory leaks.
-   * TASK_2025_090: Integrated cleanup into tab close flow.
-   *
-   * @param sessionId - Session ID to clean up
    */
   cleanupSessionDeduplication(sessionId: string): void {
-    this.processedMessageIds.delete(sessionId);
-    this.processedToolCallIds.delete(sessionId);
-  }
-
-  /**
-   * PERFORMANCE OPTIMIZATION: Schedule batched UI update
-   * Instead of calling tabManager.updateTab() on every event (100+/sec),
-   * we accumulate changes and flush once per animation frame (~60/sec max).
-   *
-   * @param tabId - Tab ID to update
-   * @param state - Current streaming state (will be cloned on flush)
-   */
-  private scheduleTabUpdate(tabId: string, state: StreamingState): void {
-    // Store reference to current state (we'll clone it on flush)
-    this.pendingTabUpdates.set(tabId, state);
-
-    // Schedule flush if not already scheduled
-    if (this.rafId === null) {
-      this.rafId = requestAnimationFrame(() => this.flushPendingUpdates());
-    }
-  }
-
-  /**
-   * PERFORMANCE OPTIMIZATION: Flush all pending tab updates
-   * Called once per animation frame to batch multiple streaming events
-   * into a single signal update.
-   */
-  private flushPendingUpdates(): void {
-    this.rafId = null;
-
-    // Process all pending updates
-    for (const [tabId, state] of this.pendingTabUpdates) {
-      // Create shallow copy of state to trigger signal change detection
-      // This happens once per frame instead of 100+ times per frame
-      this.tabManager.updateTab(tabId, {
-        streamingState: { ...state },
-      });
-    }
-
-    // Clear pending updates
-    this.pendingTabUpdates.clear();
+    this.deduplication.cleanupSession(sessionId);
   }
 
   /**
@@ -220,11 +56,7 @@ export class StreamingHandlerService {
    * Use when you need the UI to update immediately (e.g., before finalization)
    */
   flushUpdatesSync(): void {
-    if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
-      this.rafId = null;
-    }
-    this.flushPendingUpdates();
+    this.batchedUpdate.flushSync();
   }
 
   /**
@@ -232,10 +64,6 @@ export class StreamingHandlerService {
    *
    * Stores events in flat Maps instead of building ExecutionNode trees.
    * Tree building is deferred to render time.
-   *
-   * TASK_2025_092: Now accepts tabId for routing and sessionId (real SDK UUID)
-   * - tabId: Used to find the correct tab to route the event to
-   * - sessionId: Real SDK UUID to store on the tab for future resume
    *
    * @param event - The flat streaming event from SDK
    * @param tabId - Optional tab ID for direct routing (preferred)
@@ -248,10 +76,7 @@ export class StreamingHandlerService {
     sessionId?: string
   ): { tabId: string; queuedContent: string } | null {
     try {
-      // TASK_2025_090: Removed dead activeSessionIds tracking (never used).
-      // We rely on findTabBySessionId returning null for closed/unknown sessions.
-
-      // TASK_2025_092: Use provided tabId for direct routing (primary), fall back to sessionId lookup
+      // Find target tab
       let targetTab: TabState | undefined;
 
       // Primary: Use tabId for direct routing
@@ -265,16 +90,10 @@ export class StreamingHandlerService {
           this.tabManager.findTabBySessionId(event.sessionId) ?? undefined;
       }
 
-      // 2. If no tab found, check if active tab needs session ID initialization
+      // If no tab found, check if active tab needs session ID initialization
       if (!targetTab) {
         const activeTab = this.tabManager.activeTab();
 
-        // Initialize session ID for new tab (first event received)
-        // TASK_2025_087: Accept 'fresh', 'streaming', OR 'draft' status
-        // - 'fresh': Tab just created (createTab)
-        // - 'draft': New conversation started (startNewConversation sets draft before RPC)
-        // - 'streaming': Status set by successful RPC result
-        // The key condition is !claudeSessionId - that identifies a tab awaiting initialization.
         if (
           activeTab &&
           !activeTab.claudeSessionId &&
@@ -282,24 +101,19 @@ export class StreamingHandlerService {
             activeTab.status === 'streaming' ||
             activeTab.status === 'draft')
         ) {
-          // TASK_2025_092: Use the real SDK sessionId if provided, otherwise fall back to event.sessionId
           const realSessionId = sessionId || event.sessionId;
 
-          // Set the session ID and transition to streaming status
           this.tabManager.updateTab(activeTab.id, {
             claudeSessionId: realSessionId,
             status: 'streaming',
           });
 
-          // Update SessionManager
           this.sessionManager.setSessionId(realSessionId);
           this.sessionManager.setStatus('streaming');
 
-          // Use the active tab as target
           targetTab = this.tabManager.activeTab() ?? undefined;
         }
 
-        // If still not found, log warning and return
         if (!targetTab) {
           console.warn(
             '[StreamingHandlerService] No target tab for event',
@@ -309,156 +123,102 @@ export class StreamingHandlerService {
         }
       }
 
-      // TASK_2025_092: If tab doesn't have claudeSessionId yet, set it with real SDK UUID
+      // If tab doesn't have claudeSessionId yet, set it
       if (targetTab && sessionId && !targetTab.claudeSessionId) {
         this.tabManager.updateTab(targetTab.id, { claudeSessionId: sessionId });
       }
 
-      // 2. Initialize streaming state if null
+      // Initialize streaming state if null
       if (!targetTab.streamingState) {
         this.tabManager.updateTab(targetTab.id, {
           streamingState: createEmptyStreamingState(),
         });
-        // TASK_2025_092 FIX: Re-read tab by its own ID, not event.sessionId
-        // After session:id-resolved, tab's claudeSessionId is real UUID but
-        // event.sessionId may still be temp ID, so findTabBySessionId fails.
-        // Using tab's own ID is reliable since we already found it above.
         targetTab = this.tabManager.tabs().find((t) => t.id === targetTab!.id)!;
       }
 
       const state = targetTab.streamingState!;
 
-      // 3. Handle by event type
-      // TASK_2025_095 FIX: For tool_start and tool_result, check for duplicates BEFORE storing
-      // to prevent the bug where we find and delete the event we just stored.
+      // Handle by event type
       switch (event.eventType) {
         case 'message_start': {
-          // TASK_2025_096 FIX: Track processed messageIds with source priority
-          // Check for duplicates BEFORE storing to prevent multiple message_start events
-          // for the same messageId, which causes empty message bubbles.
-          let sessionMessageIds = this.processedMessageIds.get(event.sessionId);
-          if (!sessionMessageIds) {
-            sessionMessageIds = new Set<string>();
-            this.processedMessageIds.set(event.sessionId, sessionMessageIds);
-          }
-
-          // Check if we already have a message_start for this messageId
-          const existingMsgStart = this.findMessageStartEvent(
+          const result = this.deduplication.handleDuplicateMessageStart(
             state,
-            event.messageId
+            event
           );
 
-          if (existingMsgStart) {
-            // We have an existing message_start for this messageId
-            // Check if new event should replace it based on source priority
-            const existingSource = (
-              existingMsgStart as FlatStreamEventUnion & {
-                source?: EventSource;
-              }
-            ).source;
-
-            if (this.shouldReplaceEvent(existingSource, event.source)) {
-              // New event has higher priority - remove old, store new
-              state.events.delete(existingMsgStart.id);
-              // Remove from eventsByMessage (replace array entry)
-              const msgEvents =
-                state.eventsByMessage.get(event.messageId) || [];
-              const filtered = msgEvents.filter(
-                (e) => e.id !== existingMsgStart.id
-              );
-              state.eventsByMessage.set(event.messageId, filtered);
-
-              // Store new event
-              state.events.set(event.id, event);
-              this.indexEventByMessage(state, event);
-            } else {
-              // Existing has higher priority - skip this event
-              // Still update currentMessageId for streaming continuity
-              state.currentMessageId = event.messageId;
-              return null; // DON'T store this event
-            }
-          } else {
-            // First message_start for this messageId - store it
-            sessionMessageIds.add(event.messageId);
-            state.messageEventIds.push(event.messageId);
-
-            state.events.set(event.id, event);
-            this.indexEventByMessage(state, event);
+          if (result.skip) {
+            state.currentMessageId = event.messageId;
+            return null;
           }
 
+          if (!result.existingEvent) {
+            // First message_start for this messageId
+            this.deduplication
+              .getProcessedMessageIds(event.sessionId)
+              .add(event.messageId);
+            state.messageEventIds.push(event.messageId);
+          }
+
+          state.events.set(event.id, event);
+          this.indexEventByMessage(state, event);
           state.currentMessageId = event.messageId;
           break;
         }
 
         case 'text_delta': {
-          // TASK_2025_085: Skip text_delta if this message was already finalized
-          // This prevents "Hello worldHello world" duplication when complete message arrives after streaming
-          const sessionMsgIds = this.processedMessageIds.get(event.sessionId);
-          const alreadyProcessed =
-            sessionMsgIds?.has(event.messageId) &&
-            !state.messageEventIds.includes(event.messageId);
-
-          if (alreadyProcessed) {
+          if (
+            this.deduplication.isMessageAlreadyFinalized(
+              event.sessionId,
+              event.messageId,
+              state
+            )
+          ) {
             return null;
           }
 
-          // Store event
           state.events.set(event.id, event);
           this.indexEventByMessage(state, event);
 
-          const blockIndex = event.blockIndex ?? 0; // Default to 0
+          const blockIndex = event.blockIndex ?? 0;
           const blockKey = AccumulatorKeys.textBlock(
             event.messageId,
             blockIndex
           );
 
-          // TASK_2025_096 FIX: For 'complete' or 'history' sources, REPLACE text instead of appending.
-          // The SDK sends complete assistant messages that should replace streamed content.
-          // Previously, duplicate message_start would clear accumulators, but when multiple
-          // complete messages arrive with the same messageId (some with text, some without),
-          // the tool-only message would clear text that was just added.
-          // Now we handle replacement at the text_delta level instead.
           if (event.source === 'complete' || event.source === 'history') {
-            // Replace: clear existing and set new value
             state.textAccumulators.set(blockKey, event.delta);
           } else {
-            // Stream: append delta
             this.accumulateDelta(state.textAccumulators, blockKey, event.delta);
           }
           break;
         }
 
         case 'thinking_start': {
-          // Store event
           state.events.set(event.id, event);
           this.indexEventByMessage(state, event);
-          // Thinking block started - currently no action needed
-          // Future: Could initialize thinking block state here
           break;
         }
 
         case 'thinking_delta': {
-          // TASK_2025_085: Skip thinking_delta if this message was already finalized
-          const sessionMsgIds2 = this.processedMessageIds.get(event.sessionId);
-          const alreadyProcessed2 =
-            sessionMsgIds2?.has(event.messageId) &&
-            !state.messageEventIds.includes(event.messageId);
-
-          if (alreadyProcessed2) {
+          if (
+            this.deduplication.isMessageAlreadyFinalized(
+              event.sessionId,
+              event.messageId,
+              state
+            )
+          ) {
             return null;
           }
 
-          // Store event
           state.events.set(event.id, event);
           this.indexEventByMessage(state, event);
 
-          const blockIndex = event.blockIndex ?? 0; // Default to 0
+          const blockIndex = event.blockIndex ?? 0;
           const thinkKey = AccumulatorKeys.thinkingBlock(
             event.messageId,
             blockIndex
           );
 
-          // TASK_2025_096 FIX: Same as text_delta - replace instead of append for complete/history
           if (event.source === 'complete' || event.source === 'history') {
             state.textAccumulators.set(thinkKey, event.delta);
           } else {
@@ -468,38 +228,24 @@ export class StreamingHandlerService {
         }
 
         case 'tool_start': {
-          // TASK_2025_095 FIX: Check for duplicates BEFORE storing
-          // Previously, the event was stored first, then replaceStreamEventIfNeeded
-          // would find and DELETE the event we just stored!
-          const existingToolStart = this.replaceStreamEventIfNeeded(
-            state,
-            event.toolCallId,
-            'tool_start',
-            event.source
-          );
+          const existingToolStart =
+            this.deduplication.replaceStreamEventIfNeeded(
+              state,
+              event.toolCallId,
+              'tool_start',
+              event.source
+            );
 
           if (existingToolStart) {
-            // Existing event has higher priority, skip this one entirely
             return null;
           }
 
-          // NOW store the event (after duplicate check passed)
           state.events.set(event.id, event);
           this.indexEventByMessage(state, event);
 
-          // TASK_2025_085: Deduplicate tool_start events
-          // Prevents duplicate agent cards when SDK sends both streaming and complete events
-          let sessionToolCallIds = this.processedToolCallIds.get(
-            event.sessionId
-          );
-          if (!sessionToolCallIds) {
-            sessionToolCallIds = new Set<string>();
-            this.processedToolCallIds.set(event.sessionId, sessionToolCallIds);
-          }
-
-          // TASK_2025_095: Only skip if same source priority or lower
-          // Allow higher priority sources to replace existing
-          sessionToolCallIds.add(event.toolCallId);
+          this.deduplication
+            .getProcessedToolCallIds(event.sessionId)
+            .add(event.toolCallId);
 
           if (!state.toolCallMap.has(event.toolCallId)) {
             state.toolCallMap.set(event.toolCallId, []);
@@ -509,17 +255,16 @@ export class StreamingHandlerService {
         }
 
         case 'tool_delta': {
-          // TASK_2025_085: Skip tool_delta if this tool was already finalized
-          const sessionToolIds = this.processedToolCallIds.get(event.sessionId);
-          const toolAlreadyProcessed =
-            sessionToolIds?.has(event.toolCallId) &&
-            !state.toolCallMap.has(event.toolCallId);
-
-          if (toolAlreadyProcessed) {
+          if (
+            this.deduplication.isToolAlreadyFinalized(
+              event.sessionId,
+              event.toolCallId,
+              state
+            )
+          ) {
             return null;
           }
 
-          // Store event
           state.events.set(event.id, event);
           this.indexEventByMessage(state, event);
 
@@ -533,52 +278,40 @@ export class StreamingHandlerService {
         }
 
         case 'tool_result': {
-          // TASK_2025_095 FIX: Check for duplicates BEFORE storing
-          // Same fix as tool_start - previously the event was stored first,
-          // then replaceStreamEventIfNeeded would find and DELETE it!
-          const existingToolResult = this.replaceStreamEventIfNeeded(
-            state,
-            event.toolCallId,
-            'tool_result',
-            event.source
-          );
+          const existingToolResult =
+            this.deduplication.replaceStreamEventIfNeeded(
+              state,
+              event.toolCallId,
+              'tool_result',
+              event.source
+            );
 
           if (existingToolResult) {
-            // Existing event has higher priority, skip this one entirely
             return null;
           }
 
-          // NOW store the event (after duplicate check passed)
           state.events.set(event.id, event);
           this.indexEventByMessage(state, event);
           break;
         }
 
         case 'agent_start': {
-          // TASK_2025_096 FIX: Check for duplicates BEFORE storing
-          // This prevents duplicate agents (e.g., one with 'unknown' type from streaming,
-          // another with correct type from complete message)
-          const existingAgentStart = this.replaceStreamEventIfNeeded(
-            state,
-            event.toolCallId,
-            'agent_start',
-            event.source
-          );
+          const existingAgentStart =
+            this.deduplication.replaceStreamEventIfNeeded(
+              state,
+              event.toolCallId,
+              'agent_start',
+              event.source
+            );
 
           if (existingAgentStart) {
-            // Existing event has higher priority, skip this one entirely
             return null;
           }
 
-          // NOW store the event (after duplicate check passed)
           state.events.set(event.id, event);
           this.indexEventByMessage(state, event);
 
-          // TASK_2025_099 FIX: Register agent with SessionManager to receive summary chunks
-          // This creates a preliminary node that can receive real-time summary updates.
-          // The tree builder will create the full node at render time, but we need this
-          // registration to fix the race condition where summary chunks arrive before
-          // the tree is built.
+          // Register agent with SessionManager
           const preliminaryAgentNode: ExecutionNode = {
             id: event.id,
             type: 'agent',
@@ -592,8 +325,6 @@ export class StreamingHandlerService {
             isCollapsed: false,
           };
 
-          // DIAGNOSTIC: Log the toolCallId used for agent registration
-          // This MUST match the toolUseId sent in summary chunks from backend!
           console.log('[StreamingHandler] Registering agent node:', {
             eventType: event.eventType,
             eventSource: event.source,
@@ -601,13 +332,11 @@ export class StreamingHandlerService {
             agentType: event.agentType,
           });
 
-          // Register and get any pending chunks that arrived before this node existed
           const pendingDeltas = this.sessionManager.registerAgent(
             event.toolCallId,
             preliminaryAgentNode
           );
 
-          // Apply pending chunks if any exist
           if (pendingDeltas.length > 0) {
             const summaryContent = pendingDeltas.join('');
             const updatedNode: ExecutionNode = {
@@ -624,58 +353,42 @@ export class StreamingHandlerService {
         }
 
         case 'message_complete': {
-          // Store event
           state.events.set(event.id, event);
           this.indexEventByMessage(state, event);
 
           state.currentTokenUsage = event.tokenUsage || null;
 
-          // TASK_2025_101: Check for queued content to auto-send
-          // Claude can accept new input after message_complete (mid-conversation)
-          // This enables responsive user interaction without waiting for turn to fully end
+          // Check for queued content to auto-send
           const queuedContent = targetTab.queuedContent;
           if (queuedContent && queuedContent.trim()) {
-            // Schedule UI update before returning
-            this.scheduleTabUpdate(targetTab.id, state);
-            // Return auto-send info for caller to handle
+            this.batchedUpdate.scheduleUpdate(targetTab.id, state);
             return { tabId: targetTab.id, queuedContent };
           }
           break;
         }
 
         case 'message_delta': {
-          // Store event
           state.events.set(event.id, event);
           this.indexEventByMessage(state, event);
-
-          // Cumulative token usage during streaming - update current usage
           state.currentTokenUsage = event.tokenUsage;
           break;
         }
 
         case 'signature_delta': {
-          // Store event
           state.events.set(event.id, event);
           this.indexEventByMessage(state, event);
-
-          // Extended thinking signature verification - currently no action needed
-          // Future: Could store signature for verification
           break;
         }
 
         default:
-          // TASK_2025_090: Exhaustiveness check - compile-time error if new event type added but not handled
           assertNever(
             event,
             `Unhandled event type: ${(event as FlatStreamEventUnion).eventType}`
           );
       }
 
-      // 5. PERFORMANCE OPTIMIZATION: Schedule batched UI update
-      // Instead of updating TabManager 100+ times/sec, we batch updates
-      // and flush once per animation frame (~60/sec max).
-      // This dramatically reduces signal updates and change detection cycles.
-      this.scheduleTabUpdate(targetTab.id, state);
+      // Schedule batched UI update
+      this.batchedUpdate.scheduleUpdate(targetTab.id, state);
       return null;
     } catch (error) {
       console.error(
@@ -689,10 +402,6 @@ export class StreamingHandlerService {
 
   /**
    * Helper to index event by messageId for O(1) lookup.
-   * TASK_2025_095: Extracted to share across all event handlers.
-   *
-   * @param state - Streaming state
-   * @param event - Event to index
    */
   private indexEventByMessage(
     state: StreamingState,
@@ -707,11 +416,6 @@ export class StreamingHandlerService {
 
   /**
    * Helper to accumulate delta into Map.
-   * Reduces code duplication across text/thinking/tool delta handlers.
-   *
-   * @param map - Map to accumulate into
-   * @param key - Key for the accumulator
-   * @param delta - Delta text to append
    */
   private accumulateDelta(
     map: Map<string, string>,
@@ -723,329 +427,25 @@ export class StreamingHandlerService {
   }
 
   /**
-   * Deep-copy StreamingState to prevent race condition between finalize and stream.
-   * Creates new Map instances to ensure isolation.
-   *
-   * @param state - StreamingState to copy
-   * @returns Deep copy of StreamingState
-   */
-  private deepCopyStreamingState(state: StreamingState): StreamingState {
-    return {
-      events: new Map(state.events),
-      messageEventIds: [...state.messageEventIds],
-      toolCallMap: new Map(
-        [...state.toolCallMap.entries()].map(([k, v]) => [k, [...v]])
-      ),
-      textAccumulators: new Map(state.textAccumulators),
-      toolInputAccumulators: new Map(state.toolInputAccumulators),
-      currentMessageId: state.currentMessageId,
-      currentTokenUsage: state.currentTokenUsage
-        ? { ...state.currentTokenUsage }
-        : null,
-      eventsByMessage: new Map(
-        [...state.eventsByMessage.entries()].map(([k, v]) => [k, [...v]])
-      ),
-      pendingStats: state.pendingStats ? { ...state.pendingStats } : null,
-    };
-  }
-
-  /**
    * Finalize the current streaming message
-   *
-   * Builds final ExecutionNode tree from StreamingState using ExecutionTreeBuilderService.
-   * Extracts metadata from message_complete event.
-   * Uses per-tab currentMessageId for proper multi-tab streaming support.
-   *
-   * @param tabId - Optional tab ID to finalize. Falls back to active tab if not provided.
-   * @param isAborted - If true, marks nodes as 'interrupted' instead of 'complete' (TASK_2025_098)
+   * Delegates to MessageFinalizationService
    */
   finalizeCurrentMessage(tabId?: string, isAborted = false): void {
-    // PERFORMANCE: Flush any pending batched updates before finalization
-    // This ensures we have the complete streaming state before building final tree
-    this.flushUpdatesSync();
-
-    // Use provided tabId or fall back to active tab
-    const targetTabId = tabId ?? this.tabManager.activeTabId();
-    if (!targetTabId) return;
-
-    // Get the target tab (by ID if provided, otherwise active)
-    const targetTab = tabId
-      ? this.tabManager.tabs().find((t) => t.id === tabId)
-      : this.tabManager.activeTab();
-
-    const streamingState = targetTab?.streamingState;
-    // TASK_2025_087 FIX: Read currentMessageId from streamingState, not targetTab
-    // processStreamEvent() sets state.currentMessageId (on StreamingState), not targetTab.currentMessageId
-    const messageId = streamingState?.currentMessageId;
-
-    if (!streamingState || !messageId) return;
-
-    // Deep-copy state to prevent race condition (TASK_2025_084 Batch 1 Task 1.3)
-    const stateCopy = this.deepCopyStreamingState(streamingState);
-
-    // Build final tree using ExecutionTreeBuilderService (TASK_2025_082 Batch 6)
-    // PERFORMANCE: Use unique cache key for finalization to avoid stale cache
-    const cacheKey = `finalize-${targetTabId}-${Date.now()}`;
-    let finalTree = this.treeBuilder.buildTree(stateCopy, cacheKey);
-
-    // TASK_2025_098 FIX: Mark all 'streaming' nodes as 'interrupted' when aborted
-    // This ensures UI shows proper state after user clicks stop button
-    if (isAborted) {
-      finalTree = finalTree.map((tree) =>
-        this.markStreamingNodesAsInterrupted(tree)
-      );
-    }
-
-    // Find message_complete event for metadata
-    const completeEvent = [...streamingState.events.values()].find(
-      (e) => e.eventType === 'message_complete' && e.messageId === messageId
-    ) as MessageCompleteEvent | undefined;
-
-    // Extract metadata from message_complete event
-    let tokens:
-      | { input: number; output: number; cacheHit?: number }
-      | undefined;
-    let cost: number | undefined;
-    let duration: number | undefined;
-
-    if (completeEvent?.tokenUsage) {
-      tokens = {
-        input: completeEvent.tokenUsage.input,
-        output: completeEvent.tokenUsage.output,
-      };
-      cost = completeEvent.cost;
-      duration = completeEvent.duration;
-    }
-
-    // Create finalized chat message with tree
-    // Apply pendingStats if message_complete event wasn't found but we have stored stats
-    const pendingStats = stateCopy.pendingStats;
-    const finalTokens =
-      tokens ?? (pendingStats ? pendingStats.tokens : undefined);
-    const finalCost = cost ?? (pendingStats ? pendingStats.cost : undefined);
-    const finalDuration =
-      duration ?? (pendingStats ? pendingStats.duration : undefined);
-
-    const assistantMessage = createExecutionChatMessage({
-      id: messageId,
-      role: 'assistant',
-      streamingState: finalTree[0] || null, // Single root message
-      sessionId: targetTab?.claudeSessionId ?? undefined,
-      tokens: finalTokens,
-      cost: finalCost,
-      duration: finalDuration,
-    });
-
-    // Add to target tab's messages and clear streaming state
-    this.tabManager.updateTab(targetTabId, {
-      messages: [...(targetTab?.messages ?? []), assistantMessage],
-      streamingState: null,
-      status: 'loaded',
-      currentMessageId: null,
-    });
-
-    // Update SessionManager status
-    this.sessionManager.setStatus('loaded');
+    this.finalization.finalizeCurrentMessage(tabId, isAborted);
   }
 
   /**
    * Finalize session history - builds messages for ALL messages in streaming state
-   *
-   * TASK_2025_092 FIX: Unlike finalizeCurrentMessage which only handles the
-   * current streaming message, this method processes ALL messages from session
-   * history replay. It handles both user and assistant messages, building
-   * execution trees for assistant messages that include tool calls.
-   *
-   * @param tabId - Tab ID to finalize
-   * @returns Array of ExecutionChatMessage for all messages in history
+   * Delegates to MessageFinalizationService
    */
   finalizeSessionHistory(tabId: string): ExecutionChatMessage[] {
-    // PERFORMANCE: Flush any pending batched updates before finalization
-    // This ensures we have the complete streaming state before building final tree
-    this.flushUpdatesSync();
-
-    const targetTab = this.tabManager.tabs().find((t) => t.id === tabId);
-    const streamingState = targetTab?.streamingState;
-
-    if (!streamingState || streamingState.messageEventIds.length === 0) {
-      return [];
-    }
-
-    // Deep-copy state to prevent race conditions
-    const stateCopy = this.deepCopyStreamingState(streamingState);
-
-    // Build full tree for all messages
-    // PERFORMANCE: Use unique cache key for history finalization
-    const cacheKey = `history-${tabId}-${Date.now()}`;
-    const allTrees = this.treeBuilder.buildTree(stateCopy, cacheKey);
-
-    const messages: ExecutionChatMessage[] = [];
-
-    // Process each messageId to create appropriate message type
-    for (const messageId of stateCopy.messageEventIds) {
-      // Find message_start event to determine role
-      const messageStartEvent = [...stateCopy.events.values()].find(
-        (e) => e.eventType === 'message_start' && e.messageId === messageId
-      ) as MessageStartEvent | undefined;
-
-      if (!messageStartEvent) {
-        continue;
-      }
-
-      // TASK_2025_093 FIX: Skip nested agent messages - they're already inside parent tool's tree
-      // Messages with parentToolUseId are sub-agent messages nested within Task tool nodes.
-      // They're already rendered as children of the tool node, so adding them as root
-      // messages causes duplicate empty bubbles.
-      if (messageStartEvent.parentToolUseId) {
-        continue;
-      }
-
-      const role = messageStartEvent.role;
-
-      // Find corresponding tree node for this message
-      const treeNode = allTrees.find(
-        (node) => node.id === messageStartEvent.id
-      );
-
-      // Find message_complete event for metadata
-      const completeEvent = [...stateCopy.events.values()].find(
-        (e) => e.eventType === 'message_complete' && e.messageId === messageId
-      ) as MessageCompleteEvent | undefined;
-
-      // Extract tokens/cost/duration from complete event
-      let tokens:
-        | { input: number; output: number; cacheHit?: number }
-        | undefined;
-      let cost: number | undefined;
-      let duration: number | undefined;
-
-      if (completeEvent?.tokenUsage) {
-        tokens = {
-          input: completeEvent.tokenUsage.input,
-          output: completeEvent.tokenUsage.output,
-        };
-        cost = completeEvent.cost;
-        duration = completeEvent.duration;
-      }
-
-      if (role === 'user') {
-        // User message: extract accumulated text content
-        const textContent = this.extractTextForMessage(stateCopy, messageId);
-
-        messages.push(
-          createExecutionChatMessage({
-            id: messageId,
-            role: 'user',
-            rawContent: textContent,
-            sessionId: targetTab?.claudeSessionId ?? undefined,
-            timestamp: messageStartEvent.timestamp,
-          })
-        );
-      } else {
-        // Assistant message: use execution tree
-        messages.push(
-          createExecutionChatMessage({
-            id: messageId,
-            role: 'assistant',
-            streamingState: treeNode || null,
-            sessionId: targetTab?.claudeSessionId ?? undefined,
-            tokens,
-            cost,
-            duration,
-            timestamp: messageStartEvent.timestamp,
-          })
-        );
-      }
-    }
-
-    // Update tab with finalized messages and clear streaming state
-    this.tabManager.updateTab(tabId, {
-      messages,
-      streamingState: null,
-      status: 'loaded',
-    });
-
-    return messages;
-  }
-
-  /**
-   * TASK_2025_098 FIX: Recursively mark all 'streaming' nodes as 'interrupted'
-   * Used when user aborts/interrupts a streaming message to show proper state in UI.
-   *
-   * @param node - ExecutionNode to process
-   * @returns New node with updated status (immutable)
-   */
-  private markStreamingNodesAsInterrupted(node: ExecutionNode): ExecutionNode {
-    // Recursively process children first
-    const updatedChildren = node.children.map((child) =>
-      this.markStreamingNodesAsInterrupted(child)
-    );
-
-    // If this node is streaming, mark it as interrupted
-    if (node.status === 'streaming') {
-      return {
-        ...node,
-        status: 'interrupted',
-        children: updatedChildren,
-      };
-    }
-
-    // If children changed, return new node with updated children
-    if (updatedChildren !== node.children) {
-      return {
-        ...node,
-        children: updatedChildren,
-      };
-    }
-
-    // No changes needed
-    return node;
-  }
-
-  /**
-   * Extract accumulated text content for a specific message
-   *
-   * @param state - Streaming state
-   * @param messageId - Message ID to extract text for
-   * @returns Accumulated text content
-   */
-  private extractTextForMessage(
-    state: StreamingState,
-    messageId: string
-  ): string {
-    const textParts: { blockIndex: number; text: string }[] = [];
-
-    // Find all text accumulator entries for this message
-    for (const [key, text] of state.textAccumulators.entries()) {
-      if (key.startsWith(`${messageId}-block-`)) {
-        const blockIndex = parseInt(key.split('-block-')[1], 10) || 0;
-        textParts.push({ blockIndex, text });
-      }
-    }
-
-    // Sort by block index and join
-    textParts.sort((a, b) => a.blockIndex - b.blockIndex);
-    return textParts.map((p) => p.text).join('\n');
+    return this.finalization.finalizeSessionHistory(tabId);
   }
 
   /**
    * Handle session stats update from backend
    *
-   * TASK_2025_101: SESSION_STATS (from SDK type=result message) is the authoritative
-   * signal that streaming has truly completed. This replaces the unreliable chat:complete
-   * event which fires multiple times during tool execution.
-   *
-   * When stats arrive for a streaming tab:
-   * 1. Store pending stats
-   * 2. Finalize the streaming message (builds ExecutionNode tree)
-   * 3. Set tab status to 'loaded'
-   * 4. Mark tab idle (clears visual streaming indicator)
-   *
-   * NOTE: Auto-send of queued content is handled by ChatStore.handleSessionStats()
-   * to avoid circular dependency (StreamingHandler → MessageSender → SessionLoader → StreamingHandler)
-   *
-   * @param stats - Session statistics from backend (derived from SDK result message)
-   * @returns Object with tabId and queuedContent for caller to handle auto-send, or null
+   * TASK_2025_101: SESSION_STATS is the authoritative signal that streaming has completed.
    */
   handleSessionStats(stats: {
     sessionId: string;
@@ -1055,18 +455,12 @@ export class StreamingHandlerService {
   }): { tabId: string; queuedContent: string | null } | null {
     console.log('[StreamingHandlerService] Session stats received:', stats);
 
-    // Find the target tab by session ID
     let targetTab = this.tabManager.findTabBySessionId(stats.sessionId);
 
-    // TASK_2025_092: If no tab found by sessionId, use active tab as fallback
-    // This handles cases where:
-    // 1. Stats arrive before session ID was set on tab
-    // 2. Stats have temp ID but tab has real UUID (legacy edge case)
-    // 3. Single-conversation flow where active tab is the stats target
+    // Fallback to active tab if no tab found
     if (!targetTab) {
       const activeTab = this.tabManager.activeTab();
 
-      // Initialize session ID for active tab if it's awaiting initialization
       if (
         activeTab &&
         !activeTab.claudeSessionId &&
@@ -1074,25 +468,18 @@ export class StreamingHandlerService {
           activeTab.status === 'streaming' ||
           activeTab.status === 'draft')
       ) {
-        // Set the session ID (keep current status - streaming event will set 'streaming' if needed)
         this.tabManager.updateTab(activeTab.id, {
           claudeSessionId: stats.sessionId,
         });
-
-        // Update SessionManager
         this.sessionManager.setSessionId(stats.sessionId);
-
         targetTab = activeTab;
       } else if (
         activeTab &&
         (activeTab.status === 'streaming' || activeTab.status === 'loaded')
       ) {
-        // TASK_2025_092: Use active tab as fallback for stats in single-conversation flow
-        // Active tab already has a session ID, and stats belong to current conversation
         targetTab = activeTab;
       }
 
-      // If still not found after fallback attempts, return
       if (!targetTab) {
         console.warn(
           '[StreamingHandlerService] No target tab found for session stats'
@@ -1103,42 +490,32 @@ export class StreamingHandlerService {
 
     const targetTabId = targetTab.id;
 
-    // TASK_2025_101: SESSION_STATS is the authoritative signal that streaming is complete.
-    // When stats arrive for a streaming tab, we finalize immediately.
+    // Finalize streaming tab when stats arrive
     if (targetTab.streamingState && targetTab.status === 'streaming') {
       const state = targetTab.streamingState;
 
-      // 1. Store pending stats to be included in finalized message
       state.pendingStats = {
         cost: stats.cost,
         tokens: stats.tokens,
         duration: stats.duration,
       };
 
-      // Get queued content BEFORE finalization (since it clears streamingState)
       const queuedContent = targetTab.queuedContent;
 
-      // 2. Finalize the streaming message
-      // This builds the ExecutionNode tree, creates the final message,
-      // sets status to 'loaded', and clears streamingState
       console.log(
         '[StreamingHandlerService] Finalizing streaming on stats received for tab:',
         targetTabId
       );
-      this.finalizeCurrentMessage(targetTabId);
+      this.finalization.finalizeCurrentMessage(targetTabId);
 
-      // 3. Mark tab idle (clears visual streaming indicator)
       this.tabManager.markTabIdle(targetTabId);
 
-      // Return info for caller to handle auto-send (avoids circular dependency)
       return { tabId: targetTabId, queuedContent: queuedContent ?? null };
     }
 
-    // Handle stats for tabs that are already loaded (e.g., stats arrived late)
+    // Handle stats for tabs that are already loaded
     const messages = targetTab.messages;
 
-    // If tab has streamingState but is already 'loaded', stats arrived after manual status change
-    // Store as pendingStats - they'll be applied if user continues conversation
     if (messages.length === 0 && targetTab.streamingState) {
       const state = targetTab.streamingState;
       state.pendingStats = {
@@ -1146,7 +523,7 @@ export class StreamingHandlerService {
         tokens: stats.tokens,
         duration: stats.duration,
       };
-      this.scheduleTabUpdate(targetTab.id, state);
+      this.batchedUpdate.scheduleUpdate(targetTab.id, state);
       console.log(
         '[StreamingHandlerService] Stats stored as pendingStats (tab has streamingState but no messages)'
       );
@@ -1160,9 +537,7 @@ export class StreamingHandlerService {
       return null;
     }
 
-    // ASSUMPTION: Stats correspond to the most recent assistant response
-    // This assumes single-threaded conversation flow (one message at a time)
-    // Find the last assistant message (iterate backwards)
+    // Find the last assistant message
     let lastAssistantIndex = -1;
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === 'assistant') {
@@ -1187,7 +562,6 @@ export class StreamingHandlerService {
       duration: stats.duration,
     };
 
-    // Update the tab with the new messages array
     this.tabManager.updateTab(targetTab.id, {
       messages: updatedMessages,
     });

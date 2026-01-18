@@ -27,6 +27,11 @@ import {
   StreamTransformer,
   AttachmentProcessorService,
   SubagentHookHandler,
+  SdkMessageFactory,
+  SdkQueryOptionsBuilder,
+  SdkModuleLoader,
+  SdkModelService,
+  UserMessageStreamFactory,
 } from '../helpers';
 import { SDK_TOKENS } from './tokens';
 import { OpenRouterModelsService } from '../openrouter-models.service';
@@ -148,6 +153,41 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SUBAGENT_HOOK_HANDLER,
     { useClass: SubagentHookHandler },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // SDK module loader - caches SDK query function (TASK_2025_102)
+  container.register(
+    SDK_TOKENS.SDK_MODULE_LOADER,
+    { useClass: SdkModuleLoader },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // SDK model service - fetches and caches supported models (TASK_2025_102)
+  container.register(
+    SDK_TOKENS.SDK_MODEL_SERVICE,
+    { useClass: SdkModelService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // User message stream factory - creates async iterables for SDK (TASK_2025_102)
+  container.register(
+    SDK_TOKENS.SDK_USER_MESSAGE_STREAM_FACTORY,
+    { useClass: UserMessageStreamFactory },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Message factory - creates SDK user messages with attachments (TASK_2025_102)
+  container.register(
+    SDK_TOKENS.SDK_MESSAGE_FACTORY,
+    { useClass: SdkMessageFactory },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Query options builder - constructs SDK query config (TASK_2025_102)
+  container.register(
+    SDK_TOKENS.SDK_QUERY_OPTIONS_BUILDER,
+    { useClass: SdkQueryOptionsBuilder },
     { lifecycle: Lifecycle.Singleton }
   );
 

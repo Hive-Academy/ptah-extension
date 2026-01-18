@@ -1,6 +1,6 @@
 @if (message().role === 'assistant') {
 <!-- Assistant message (left-aligned) -->
-<div class="chat chat-start">
+<div class="chat chat-start group">
   <!-- Avatar with Ptah icon + streaming ring -->
   <div class="chat-image avatar">
     <div
@@ -55,9 +55,16 @@
     } }
   </div>
 
-  <!-- Metadata badges + Action buttons (single row) -->
-  <div class="chat-footer flex gap-2 mt-1 items-center">
-    <!-- Left side: Metadata badges (always visible when data exists) -->
+  <!-- Metadata badges + Action buttons + Streaming quotes (single row) -->
+  <div class="chat-footer flex gap-2 mt-1 items-center w-full">
+    <!-- Left side: Copy action button (hover reveal) -->
+    <div
+      class="flex gap-1 items-center opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity duration-200"
+    >
+      <ptah-copy-button [message]="message()" />
+    </div>
+
+    <!-- Center: Metadata badges (always visible when data exists) -->
     <!-- TASK_2025_100 FIX: Always show stats when available, don't hide during streaming -->
     @if (message().tokens || message().cost !== undefined || message().duration
     !== undefined) {
@@ -74,32 +81,10 @@
     </div>
     }
 
-    <!-- Right side: Action buttons (hover reveal) -->
-    <div
-      class="flex gap-2 items-center ml-auto opacity-0 hover:opacity-100 transition-opacity duration-200"
-    >
-      <button
-        class="btn btn-xs btn-ghost"
-        aria-label="Copy message"
-        title="Copy"
-      >
-        <lucide-angular [img]="CopyIcon" class="w-3.5 h-3.5" />
-      </button>
-      <button
-        class="btn btn-xs btn-ghost"
-        aria-label="Like message"
-        title="Like"
-      >
-        <lucide-angular [img]="ThumbsUpIcon" class="w-3.5 h-3.5" />
-      </button>
-      <button
-        class="btn btn-xs btn-ghost"
-        aria-label="Dislike message"
-        title="Dislike"
-      >
-        <lucide-angular [img]="ThumbsDownIcon" class="w-3.5 h-3.5" />
-      </button>
-    </div>
+    <!-- Streaming quotes (only during streaming) -->
+    @if (isStreaming()) {
+    <ptah-streaming-quotes />
+    }
   </div>
 </div>
 } @else {

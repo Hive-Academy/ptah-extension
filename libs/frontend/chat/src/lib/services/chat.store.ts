@@ -341,124 +341,90 @@ export class ChatStore {
    *
    * This is called when the AgentSessionWatcherService detects new content
    * in an agent's JSONL file during streaming. The summary content is
-   * extracted from text blocks and appended to the agent node.
+   * stored in StreamingState.agentSummaryAccumulators for the tree builder
+   * to read at render time.
    *
-   * @param payload - Contains toolUseId and summaryDelta
+   * TASK_2025_099 FIX: Store in StreamingState instead of sessionManager.
+   * The ExecutionTreeBuilderService reads from StreamingState, not sessionManager,
+   * so summary content must be stored in StreamingState for the UI to render it.
+   *
+   * TASK_2025_099: Uses agentId (not toolUseId) as the lookup key because:
+   * - Hook fires with UUID-format toolUseId (e.g., "b4139c0d-...")
+   * - Complete message arrives with Anthropic format toolCallId (e.g., "toolu_012W...")
+   * - These don't match, but agentId (e.g., "adcecb2") is stable across both
+   *
+   * TASK_2025_102: Now also stores structured content blocks for proper interleaving.
+   *
+   * @param payload - Contains toolUseId, summaryDelta, agentId, and optionally contentBlocks
    */
   handleAgentSummaryChunk(payload: {
     toolUseId: string;
     summaryDelta: string;
+    agentId: string;
+    contentBlocks?: Array<{
+      type: 'text' | 'tool_ref';
+      text?: string;
+      toolUseId?: string;
+      toolName?: string;
+    }>;
   }): void {
-    const { toolUseId, summaryDelta } = payload;
+    const { toolUseId, summaryDelta, agentId, contentBlocks } = payload;
 
     // DIAGNOSTIC: Log receipt of summary chunk
     console.log('[ChatStore] handleAgentSummaryChunk called:', {
       toolUseId,
+      agentId, // TASK_2025_099: Stable key for lookup
       deltaLength: summaryDelta.length,
       deltaPreview: summaryDelta.slice(0, 50),
+      hasContentBlocks: !!contentBlocks,
+      contentBlocksCount: contentBlocks?.length ?? 0,
     });
 
-    // Find the agent node by toolUseId
-    const agentNode = this.sessionManager.getAgent(toolUseId);
-    if (!agentNode) {
-      // Buffer the chunk for later - agent node doesn't exist yet (race condition)
-      // When the agent node is registered, buffered chunks will be flushed
-      console.log(
-        '[ChatStore] Agent not found, buffering chunk for:',
-        toolUseId
+    // Find the active tab with streaming state
+    const activeTab = this.tabManager.activeTab();
+    if (!activeTab?.streamingState) {
+      console.warn(
+        '[ChatStore] No active tab with streamingState for summary chunk:',
+        { toolUseId, agentId }
       );
-      this.sessionManager.bufferAgentChunk(toolUseId, summaryDelta);
       return;
     }
 
-    console.log('[ChatStore] Agent found, updating summaryContent:', {
-      toolUseId,
-      currentLength: agentNode.summaryContent?.length || 0,
-      newTotalLength:
-        (agentNode.summaryContent || '').length + summaryDelta.length,
-    });
+    const state = activeTab.streamingState;
 
-    // Update agent node with appended summary content
-    const updatedAgent: ExecutionNode = {
-      ...agentNode,
-      summaryContent: (agentNode.summaryContent || '') + summaryDelta,
-    };
+    // TASK_2025_099: Use agentId as key for summary accumulation.
+    // This is stable across hook (UUID toolUseId) and complete (toolu_* toolCallId).
+    const currentSummary = state.agentSummaryAccumulators.get(agentId) || '';
+    const newSummary = currentSummary + summaryDelta;
+    state.agentSummaryAccumulators.set(agentId, newSummary);
 
-    // Register updated agent
-    this.sessionManager.registerAgent(toolUseId, updatedAgent);
+    // TASK_2025_102: Also store structured content blocks for interleaving
+    if (contentBlocks && contentBlocks.length > 0) {
+      const currentBlocks = state.agentContentBlocksMap.get(agentId) || [];
+      const newBlocks = [...currentBlocks, ...contentBlocks];
+      state.agentContentBlocksMap.set(agentId, newBlocks);
 
-    // Update the agent in the current message's execution tree
-    const activeTab = this.tabManager.activeTab();
-    if (!activeTab) return;
-
-    const currentMessages = activeTab.messages;
-    if (currentMessages.length === 0) return;
-
-    // Find the last assistant message and update the agent node in its tree
-    const lastMsgIndex = currentMessages.length - 1;
-    const lastMsg = currentMessages[lastMsgIndex];
-
-    if (lastMsg.role !== 'assistant' || !lastMsg.streamingState) return;
-
-    // Replace the agent node in the tree
-    const updatedTree = this.replaceNodeInTree(
-      lastMsg.streamingState,
-      toolUseId,
-      updatedAgent
-    );
-
-    if (updatedTree !== lastMsg.streamingState) {
-      // Update the message with the new tree
-      const updatedMessages = [...currentMessages];
-      updatedMessages[lastMsgIndex] = {
-        ...lastMsg,
-        streamingState: updatedTree,
-      };
-
-      this.tabManager.updateTab(activeTab.id, {
-        messages: updatedMessages,
+      console.log('[ChatStore] Content blocks accumulated:', {
+        agentId,
+        previousBlocksCount: currentBlocks.length,
+        newBlocksCount: contentBlocks.length,
+        totalBlocksCount: newBlocks.length,
+        blockTypes: contentBlocks.map((b) => b.type),
       });
     }
-  }
 
-  /**
-   * Recursively replace a node in the execution tree by ID
-   *
-   * @param tree - Root node of the tree
-   * @param nodeId - ID of the node to replace
-   * @param replacement - New node to insert
-   * @returns Updated tree (new reference if changed)
-   */
-  private replaceNodeInTree(
-    tree: ExecutionNode,
-    nodeId: string,
-    replacement: ExecutionNode
-  ): ExecutionNode {
-    // Check if this is the node to replace
-    if (tree.id === nodeId || tree.toolCallId === nodeId) {
-      return replacement;
-    }
-
-    // Recursively check children
-    let childrenChanged = false;
-    const newChildren = tree.children.map((child) => {
-      const updated = this.replaceNodeInTree(child, nodeId, replacement);
-      if (updated !== child) {
-        childrenChanged = true;
-      }
-      return updated;
+    console.log('[ChatStore] Agent summary accumulated in StreamingState:', {
+      agentId, // TASK_2025_099: Now keyed by agentId
+      toolUseId, // Keep for debugging
+      previousLength: currentSummary.length,
+      newTotalLength: newSummary.length,
     });
 
-    // Return same reference if nothing changed
-    if (!childrenChanged) {
-      return tree;
-    }
-
-    // Return new tree with updated children
-    return {
-      ...tree,
-      children: newChildren,
-    };
+    // Trigger tab update to invalidate tree cache and re-render
+    // Create shallow copy to trigger signal change detection
+    this.tabManager.updateTab(activeTab.id, {
+      streamingState: { ...state },
+    });
   }
 
   /**
