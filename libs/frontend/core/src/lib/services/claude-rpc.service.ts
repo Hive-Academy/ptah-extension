@@ -13,6 +13,8 @@ import {
   FileOpenParams,
   FileOpenResult,
   MESSAGE_TYPES,
+  SubagentResumeResult,
+  SubagentQueryResult,
 } from '@ptah-extension/shared';
 
 /**
@@ -252,6 +254,49 @@ export class ClaudeRpcService {
     const result = await this.call('session:delete', { sessionId });
     console.log('✅ [ClaudeRpcService] deleteSession() response:', {
       success: result.success,
+      error: result.error,
+    });
+    return result;
+  }
+
+  // ============================================================================
+  // SUBAGENT RPC METHODS (TASK_2025_103)
+  // ============================================================================
+
+  /**
+   * Resume an interrupted subagent by its toolCallId
+   * @param toolCallId - The toolCallId of the subagent to resume
+   * @returns Promise with success status
+   */
+  async resumeSubagent(
+    toolCallId: string
+  ): Promise<RpcResult<SubagentResumeResult>> {
+    console.log(
+      '▶️ [ClaudeRpcService] resumeSubagent() called - Sending RPC request...',
+      { toolCallId }
+    );
+    const result = await this.call('subagent:resume', { toolCallId });
+    console.log('✅ [ClaudeRpcService] resumeSubagent() response:', {
+      success: result.success,
+      data: result.data,
+      error: result.error,
+    });
+    return result;
+  }
+
+  /**
+   * Query subagents from the registry
+   * Returns all resumable subagents if no params provided
+   * @returns Promise with array of SubagentRecord
+   */
+  async querySubagents(): Promise<RpcResult<SubagentQueryResult>> {
+    console.log(
+      '🔍 [ClaudeRpcService] querySubagents() called - Sending RPC request...'
+    );
+    const result = await this.call('subagent:query', {});
+    console.log('✅ [ClaudeRpcService] querySubagents() response:', {
+      success: result.success,
+      count: result.data?.subagents?.length ?? 0,
       error: result.error,
     });
     return result;

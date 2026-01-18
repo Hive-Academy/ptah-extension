@@ -13,6 +13,12 @@ import type {
   ChatSessionSummary,
   FlatStreamEventUnion,
 } from './execution-node.types';
+import type {
+  SubagentResumeParams,
+  SubagentResumeResult,
+  SubagentQueryParams,
+  SubagentQueryResult,
+} from './subagent-registry.types';
 
 // ============================================================
 // Chat RPC Types
@@ -752,6 +758,16 @@ export interface RpcMethodRegistry {
     params: OpenRouterClearModelTierParams;
     result: OpenRouterClearModelTierResult;
   };
+
+  // ---- Subagent Methods (TASK_2025_103) ----
+  'subagent:resume': {
+    params: SubagentResumeParams;
+    result: SubagentResumeResult;
+  };
+  'subagent:query': {
+    params: SubagentQueryParams;
+    result: SubagentQueryResult;
+  };
 }
 
 /**
@@ -825,6 +841,10 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'openrouter:setModelTier',
   'openrouter:getModelTiers',
   'openrouter:clearModelTier',
+
+  // Subagent Methods (TASK_2025_103)
+  'subagent:resume',
+  'subagent:query',
 ] as const;
 
 /**

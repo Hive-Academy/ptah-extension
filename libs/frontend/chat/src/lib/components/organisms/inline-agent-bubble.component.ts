@@ -19,9 +19,11 @@ import {
   ChevronRight,
   Loader2,
   StopCircle,
+  PlayCircle,
 } from 'lucide-angular';
 import { ExecutionNodeComponent } from './execution-node.component';
 import { TypingCursorComponent } from '../atoms/typing-cursor.component';
+import { CostBadgeComponent } from '../atoms/cost-badge.component';
 import type {
   ExecutionNode,
   PermissionRequest,
@@ -45,7 +47,12 @@ import type {
  */
 @Component({
   selector: 'ptah-inline-agent-bubble',
-  imports: [LucideAngularModule, ExecutionNodeComponent, TypingCursorComponent],
+  imports: [
+    LucideAngularModule,
+    ExecutionNodeComponent,
+    TypingCursorComponent,
+    CostBadgeComponent,
+  ],
   template: `
     <div
       class="my-3 border-l-2 rounded-lg bg-base-200/50 overflow-hidden"
@@ -100,10 +107,24 @@ import type {
           <lucide-angular [img]="StopCircleIcon" class="w-2.5 h-2.5" />
           <span class="text-[9px]">Stopped</span>
         </span>
+        <!-- TASK_2025_103: Resume button for interrupted agents -->
+        @if (isResumable()) {
+        <button
+          type="button"
+          class="btn btn-xs btn-primary gap-1 flex-shrink-0"
+          (click)="onResumeClick($event)"
+          title="Resume interrupted agent"
+        >
+          <lucide-angular [img]="PlayCircleIcon" class="w-3 h-3" />
+          <span class="text-[9px]">Resume</span>
+        </button>
+        }
         } @else if (hasChildren()) {
         <span class="badge badge-xs badge-ghost text-[9px] flex-shrink-0">
           {{ childStats() }}
         </span>
+        } @if (agentCost() > 0) {
+        <ptah-cost-badge [cost]="agentCost()" />
         }
       </button>
 
@@ -188,6 +209,12 @@ export class InlineAgentBubbleComponent {
   readonly permissionResponded = output<PermissionResponse>();
 
   /**
+   * TASK_2025_103: Emits when user clicks Resume button for interrupted agent
+   * Parent component should call ChatStore.handleSubagentResume(toolCallId)
+   */
+  readonly resumeRequested = output<string>(); // Emits toolCallId
+
+  /**
    * TASK_2025_096 FIX: ViewChild reference for auto-scroll container.
    * Uses signal-based viewChild (Angular 20+ pattern).
    */
@@ -199,6 +226,7 @@ export class InlineAgentBubbleComponent {
   readonly ChevronRightIcon = ChevronRight;
   readonly LoaderIcon = Loader2;
   readonly StopCircleIcon = StopCircle;
+  readonly PlayCircleIcon = PlayCircle;
 
   // Collapse state - expanded by default
   readonly isCollapsed = signal(false);
@@ -325,6 +353,15 @@ export class InlineAgentBubbleComponent {
   // Computed: was agent interrupted (TASK_2025_098)
   readonly isInterrupted = computed(() => this.node().status === 'interrupted');
 
+  /**
+   * TASK_2025_103: Computed signal for whether agent can be resumed
+   * Agent is resumable if it has 'interrupted' status and has a toolCallId
+   */
+  readonly isResumable = computed(() => {
+    const node = this.node();
+    return node.status === 'interrupted' && !!node.toolCallId;
+  });
+
   // Computed: agent color based on type
   // Built-in Claude agents get fixed oklch colors for theme consistency
   // Custom agents get dynamically generated colors based on name hash
@@ -395,6 +432,9 @@ export class InlineAgentBubbleComponent {
     return '';
   });
 
+  // Computed: agent cost for badge display
+  readonly agentCost = computed(() => this.node().cost ?? 0);
+
   /**
    * Computed signal: whether agent has children (tool calls)
    * Using computed() ensures Angular tracks changes properly with OnPush
@@ -409,5 +449,21 @@ export class InlineAgentBubbleComponent {
 
   protected toggleCollapse(): void {
     this.isCollapsed.update((v) => !v);
+  }
+
+  /**
+   * TASK_2025_103: Handle Resume button click for interrupted agent
+   * Emits the toolCallId for parent to initiate resume via ChatStore
+   */
+  protected onResumeClick(event: Event): void {
+    event.stopPropagation(); // Prevent collapse toggle
+    const toolCallId = this.node().toolCallId;
+    if (toolCallId) {
+      console.log('[InlineAgentBubble] Resume requested:', {
+        toolCallId,
+        agentType: this.node().agentType,
+      });
+      this.resumeRequested.emit(toolCallId);
+    }
   }
 }

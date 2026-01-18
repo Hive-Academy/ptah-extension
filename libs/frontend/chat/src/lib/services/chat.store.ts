@@ -9,6 +9,7 @@ import {
   calculateMessageCost,
   createExecutionChatMessage,
   MESSAGE_TYPES,
+  SubagentRecord,
 } from '@ptah-extension/shared';
 import { SessionManager } from './session-manager.service';
 import { TabManagerService } from './tab-manager.service';
@@ -140,6 +141,10 @@ export class ChatStore {
   readonly permissionRequests = this.permissionHandler.permissionRequests;
   // permissionRequestsByToolId - DELETED in TASK_2025_078 (use getPermissionForTool() method)
   readonly unmatchedPermissions = this.permissionHandler.unmatchedPermissions;
+
+  // Resumable subagents signals (TASK_2025_103)
+  private readonly _resumableSubagents = signal<SubagentRecord[]>([]);
+  readonly resumableSubagents = this._resumableSubagents.asReadonly();
 
   // ============================================================================
   // PUBLIC READONLY SIGNALS
@@ -334,6 +339,63 @@ export class ChatStore {
    */
   async continueConversation(content: string, files?: string[]): Promise<void> {
     return this.conversation.continueConversation(content, files);
+  }
+
+  // ============================================================================
+  // SUBAGENT RESUME METHODS (TASK_2025_103)
+  // ============================================================================
+
+  /**
+   * Refresh the list of resumable subagents from the backend registry
+   * Should be called when entering a session or after session events
+   */
+  async refreshResumableSubagents(): Promise<void> {
+    try {
+      const result = await this._claudeRpcService.querySubagents();
+      if (result.isSuccess()) {
+        this._resumableSubagents.set(result.data.subagents);
+        console.log('[ChatStore] Resumable subagents refreshed:', {
+          count: result.data.subagents.length,
+        });
+      } else {
+        console.error('[ChatStore] Failed to query subagents:', result.error);
+        this._resumableSubagents.set([]);
+      }
+    } catch (error) {
+      console.error('[ChatStore] Error refreshing resumable subagents:', error);
+      this._resumableSubagents.set([]);
+    }
+  }
+
+  /**
+   * Handle subagent resume request from UI
+   * @param toolCallId - The toolCallId of the subagent to resume
+   * @returns true if resume was initiated successfully
+   */
+  async handleSubagentResume(toolCallId: string): Promise<boolean> {
+    try {
+      console.log('[ChatStore] Resuming subagent:', { toolCallId });
+
+      const result = await this._claudeRpcService.resumeSubagent(toolCallId);
+
+      if (result.isSuccess() && result.data.success) {
+        console.log('[ChatStore] Subagent resume successful:', { toolCallId });
+
+        // Refresh the list to remove the resumed subagent
+        await this.refreshResumableSubagents();
+        return true;
+      } else {
+        const error = result.data?.error || result.error || 'Unknown error';
+        console.error('[ChatStore] Subagent resume failed:', {
+          toolCallId,
+          error,
+        });
+        return false;
+      }
+    } catch (error) {
+      console.error('[ChatStore] Error resuming subagent:', error);
+      return false;
+    }
   }
 
   /**
