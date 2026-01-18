@@ -26,10 +26,12 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 
 // Import Logger and OutputManager (must be registered directly - cannot be in registration function)
 // Logger depends on OutputManager, so OutputManager must be registered BEFORE Logger is resolved
+// TASK_2025_103: Import SubagentRegistryService for subagent resumption
 import {
   Logger,
   OutputManager,
   LlmRpcHandlers,
+  SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
 
 // Import app-level RPC service and handlers (TASK_2025_074: Modular architecture)
@@ -46,6 +48,7 @@ import {
   LicenseRpcHandlers,
   LlmRpcHandlers as AppLlmRpcHandlers,
   OpenRouterRpcHandlers,
+  SubagentRpcHandlers,
 } from '../services/rpc';
 
 // Import agent-sdk services (TASK_2025_044 Batch 3)
@@ -122,6 +125,13 @@ export class DIContainer {
     // PHASE 1.5: Register remaining vscode-core infrastructure services
     registerVsCodeCoreServices(container, context, logger);
 
+    // PHASE 1.5.1: Subagent Registry Service (TASK_2025_103)
+    // Must be registered AFTER vscode-core (Logger dependency) but BEFORE RPC handlers
+    container.registerSingleton(
+      TOKENS.SUBAGENT_REGISTRY_SERVICE,
+      SubagentRegistryService
+    );
+
     // ========================================
     // PHASE 1.6: RPC Domain Handlers (TASK_2025_074)
     // ========================================
@@ -160,9 +170,13 @@ export class DIContainer {
     // Temporarily register as placeholder - will be re-registered after agent-sdk
     container.registerSingleton(OpenRouterRpcHandlers);
 
+    // TASK_2025_103: Subagent RPC handlers for subagent resumption
+    container.registerSingleton(SubagentRpcHandlers);
+
     // RPC Method Registration Service (orchestrator - requires container instance)
     // TASK_2025_074: Refactored to use domain-specific handler classes
     // TASK_2025_079: Added LicenseRpcHandlers for premium feature gating
+    // TASK_2025_103: Added SubagentRpcHandlers for subagent resumption
     container.register(TOKENS.RPC_METHOD_REGISTRATION_SERVICE, {
       useFactory: (c) => {
         return new RpcMethodRegistrationService(
@@ -184,6 +198,7 @@ export class DIContainer {
           c.resolve(LicenseRpcHandlers),
           c.resolve(AppLlmRpcHandlers),
           c.resolve(OpenRouterRpcHandlers),
+          c.resolve(SubagentRpcHandlers),
           c // Pass container instance
         );
       },
