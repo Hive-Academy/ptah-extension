@@ -14,7 +14,8 @@ export type ViewType =
   | 'analytics'
   | 'context-tree'
   | 'settings'
-  | 'setup-wizard';
+  | 'setup-wizard'
+  | 'landing';
 
 export interface AppState {
   currentView: ViewType;

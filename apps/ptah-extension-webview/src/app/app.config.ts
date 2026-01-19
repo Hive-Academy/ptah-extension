@@ -6,6 +6,7 @@ import {
 } from '@angular/core';
 import { provideMarkdown } from 'ngx-markdown';
 import { provideVSCodeService } from '@ptah-extension/core';
+import { provideGsap, provideLenis } from '@hive-academy/angular-gsap';
 // Removed Material animations import - using pure VS Code design system
 // REMOVED: Angular Router imports - incompatible with VS Code webviews
 
@@ -58,5 +59,16 @@ export const appConfig: ApplicationConfig = {
     provideVSCodeService(),
     // Markdown rendering for chat messages (required for ngx-markdown)
     provideMarkdown(),
+    // GSAP and Lenis providers for landing page scroll animations
+    provideGsap({
+      defaults: {
+        ease: 'power2.out',
+        duration: 0.8,
+      },
+    }),
+    provideLenis({
+      lerp: 0.08,
+      wheelMultiplier: 0.7,
+    }),
   ],
 };
