@@ -43,6 +43,7 @@
       [isStreaming]="isStreaming()"
       [getPermissionForTool]="getPermissionForTool"
       (permissionResponded)="onPermissionResponse($event)"
+      (resumeRequested)="onResumeRequested($event)"
     />
     } @else {
     <!-- Fallback text content - removed prose-invert for theme compatibility -->

@@ -112,11 +112,17 @@ import type {
         <button
           type="button"
           class="btn btn-xs btn-primary gap-1 flex-shrink-0"
+          [disabled]="isResuming()"
           (click)="onResumeClick($event)"
           title="Resume interrupted agent"
         >
+          @if (isResuming()) {
+          <lucide-angular [img]="LoaderIcon" class="w-3 h-3 animate-spin" />
+          <span class="text-[9px]">Resuming...</span>
+          } @else {
           <lucide-angular [img]="PlayCircleIcon" class="w-3 h-3" />
           <span class="text-[9px]">Resume</span>
+          }
         </button>
         }
         } @else if (hasChildren()) {
@@ -230,6 +236,12 @@ export class InlineAgentBubbleComponent {
 
   // Collapse state - expanded by default
   readonly isCollapsed = signal(false);
+
+  /**
+   * TASK_2025_103: Loading state for resume operation
+   * Prevents multiple clicks and shows loading indicator
+   */
+  readonly isResuming = signal(false);
 
   constructor() {
     // Setup observer after initial render
@@ -454,11 +466,21 @@ export class InlineAgentBubbleComponent {
   /**
    * TASK_2025_103: Handle Resume button click for interrupted agent
    * Emits the toolCallId for parent to initiate resume via ChatStore
+   * Sets isResuming to prevent multiple clicks and show loading state
    */
   protected onResumeClick(event: Event): void {
     event.stopPropagation(); // Prevent collapse toggle
+
+    // Prevent multiple clicks while resuming
+    if (this.isResuming()) {
+      return;
+    }
+
     const toolCallId = this.node().toolCallId;
     if (toolCallId) {
+      // Set loading state before emitting
+      this.isResuming.set(true);
+
       console.log('[InlineAgentBubble] Resume requested:', {
         toolCallId,
         agentType: this.node().agentType,

@@ -98,6 +98,14 @@ export class MessageBubbleComponent {
     this.chatStore.handlePermissionResponse(response);
   }
 
+  /**
+   * TASK_2025_103: Handle resume request from execution tree
+   * Delegates to ChatStore for subagent resumption
+   */
+  protected onResumeRequested(toolCallId: string): void {
+    this.chatStore.handleSubagentResume(toolCallId);
+  }
+
   protected formatTime(timestamp: number): string {
     const date = new Date(timestamp);
     return date.toLocaleTimeString('en-US', {

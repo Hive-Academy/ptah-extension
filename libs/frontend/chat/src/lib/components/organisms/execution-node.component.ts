@@ -76,6 +76,7 @@ import type {
         [isStreaming]="isStreaming()"
         [getPermissionForTool]="getPermissionForTool()"
         (permissionResponded)="permissionResponded.emit($event)"
+        (resumeRequested)="resumeRequested.emit($event)"
       />
       }
     </ptah-tool-call-item>
@@ -86,6 +87,7 @@ import type {
       [node]="node()"
       [getPermissionForTool]="getPermissionForTool()"
       (permissionResponded)="permissionResponded.emit($event)"
+      (resumeRequested)="resumeRequested.emit($event)"
     />
     } @placeholder {
     <div class="flex items-center gap-2 text-[10px] text-base-content/40 py-2">
@@ -99,6 +101,7 @@ import type {
       [isStreaming]="isStreaming()"
       [getPermissionForTool]="getPermissionForTool()"
       (permissionResponded)="permissionResponded.emit($event)"
+      (resumeRequested)="resumeRequested.emit($event)"
     />
     } } @case ('system') {
     <!-- System messages (session init, etc.) -->
@@ -129,6 +132,12 @@ export class ExecutionNodeComponent {
    * Bubbles up from tool-call-item through component tree
    */
   readonly permissionResponded = output<PermissionResponse>();
+
+  /**
+   * TASK_2025_103: Emits when user requests to resume an interrupted agent
+   * Bubbles up from inline-agent-bubble through component tree to chat-view
+   */
+  readonly resumeRequested = output<string>(); // Emits toolCallId
 
   // Lucide icons
   readonly InfoIcon = Info;

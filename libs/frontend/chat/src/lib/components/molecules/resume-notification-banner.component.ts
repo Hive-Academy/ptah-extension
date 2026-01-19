@@ -3,6 +3,8 @@ import {
   input,
   output,
   signal,
+  effect,
+  untracked,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { LucideAngularModule, PlayCircle, X } from 'lucide-angular';
@@ -72,6 +74,32 @@ export class ResumeNotificationBannerComponent {
   readonly resumableSubagents = input.required<SubagentRecord[]>();
 
   /**
+   * Track the previous count of subagents to detect new arrivals
+   */
+  private previousCount = 0;
+
+  constructor() {
+    /**
+     * TASK_2025_103 FIX: Auto-reset dismissed state when new subagents arrive.
+     * Uses effect to watch resumableSubagents input and reset dismissed state
+     * when the count increases (indicating new interrupted agents).
+     * This removes the coupling where parent must manually call resetDismissed().
+     */
+    effect(() => {
+      const subagents = this.resumableSubagents();
+      const currentCount = subagents.length;
+
+      // Reset dismissed if we have NEW subagents (count increased)
+      if (currentCount > this.previousCount && currentCount > 0) {
+        untracked(() => this.dismissed.set(false));
+      }
+
+      // Update previous count for next comparison
+      this.previousCount = currentCount;
+    });
+  }
+
+  /**
    * Emits when user clicks "Resume All" button
    */
   readonly resumeAllRequested = output<void>();
@@ -103,7 +131,9 @@ export class ResumeNotificationBannerComponent {
   }
 
   /**
-   * Reset dismissed state (call from parent when new subagents become available)
+   * Reset dismissed state manually
+   * @deprecated No longer needed - the component auto-resets via effect when new subagents arrive.
+   * Kept for backward compatibility.
    */
   public resetDismissed(): void {
     this.dismissed.set(false);

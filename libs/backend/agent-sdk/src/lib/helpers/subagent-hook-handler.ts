@@ -57,12 +57,6 @@ import type {
  */
 @injectable()
 export class SubagentHookHandler {
-  /**
-   * Current parent session ID (set when hooks are created)
-   * Used for registry operations to track which session spawned subagents
-   */
-  private currentParentSessionId: string | null = null;
-
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.AGENT_SESSION_WATCHER_SERVICE)
@@ -86,6 +80,10 @@ export class SubagentHookHandler {
    * TASK_2025_103: Now accepts parentSessionId for registry tracking.
    * This enables tracking which session spawned which subagents.
    *
+   * FIX (TASK_2025_103 QA): parentSessionId is now captured in closure instead
+   * of stored as instance state. This prevents state corruption when multiple
+   * sessions run concurrently (singleton service would overwrite shared state).
+   *
    * @param workspacePath - Workspace path for agent file detection
    * @param parentSessionId - Optional parent session ID for registry tracking
    * @returns Hooks configuration for SDK query options
@@ -94,13 +92,14 @@ export class SubagentHookHandler {
     workspacePath: string,
     parentSessionId?: string
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
-    // Store parent session ID for registry operations
-    if (parentSessionId) {
-      this.currentParentSessionId = parentSessionId;
-    }
+    // FIX: Capture parentSessionId in closure instead of storing on instance
+    // This prevents concurrent session corruption (multiple sessions would overwrite)
+    const capturedParentSessionId = parentSessionId;
+
     // DIAGNOSTIC: Log hook creation
     this.logger.info('[SubagentHookHandler] Creating hooks for workspace', {
       workspacePath,
+      parentSessionId: capturedParentSessionId,
     });
 
     return {
@@ -119,6 +118,7 @@ export class SubagentHookHandler {
                   hookEventName: input.hook_event_name,
                   toolUseId,
                   sessionId: input.session_id,
+                  parentSessionId: capturedParentSessionId,
                 }
               );
 
@@ -133,7 +133,13 @@ export class SubagentHookHandler {
                 );
                 return { continue: true };
               }
-              return this.handleSubagentStart(input, toolUseId, workspacePath);
+              // FIX: Pass capturedParentSessionId from closure
+              return this.handleSubagentStart(
+                input,
+                toolUseId,
+                workspacePath,
+                capturedParentSessionId
+              );
             },
           ],
         },
@@ -190,15 +196,20 @@ export class SubagentHookHandler {
    * TASK_2025_103: Now registers subagent with SubagentRegistryService
    * to enable resumption of interrupted subagents.
    *
+   * FIX (TASK_2025_103 QA): parentSessionId is now passed as parameter
+   * (captured in closure) instead of read from instance state.
+   *
    * @param input - SubagentStart hook input containing agentId, sessionId, etc.
    * @param toolUseId - Optional Task tool_use ID (may not be available at start)
    * @param workspacePath - Workspace path for finding sessions directory
+   * @param parentSessionId - Parent session ID captured in closure
    * @returns HookJSONOutput - Always { continue: true }
    */
   private async handleSubagentStart(
     input: SubagentStartHookInput,
     toolUseId: string | undefined,
-    workspacePath: string
+    workspacePath: string,
+    parentSessionId?: string
   ): Promise<HookJSONOutput> {
     try {
       this.logger.debug('[SubagentHookHandler] SubagentStart received', {
@@ -207,7 +218,7 @@ export class SubagentHookHandler {
         sessionId: input.session_id,
         toolUseId,
         workspacePath,
-        parentSessionId: this.currentParentSessionId,
+        parentSessionId,
       });
 
       // TASK_2025_100 FIX: Pass agentType so AgentSessionWatcherService can
@@ -222,13 +233,13 @@ export class SubagentHookHandler {
 
       // TASK_2025_103: Register subagent with registry for resumption tracking
       // Only register if we have both toolUseId and parentSessionId
-      if (toolUseId && this.currentParentSessionId) {
+      if (toolUseId && parentSessionId) {
         this.subagentRegistry.register({
           toolCallId: toolUseId,
           sessionId: input.session_id,
           agentType: input.agent_type,
           startedAt: Date.now(),
-          parentSessionId: this.currentParentSessionId,
+          parentSessionId,
           agentId: input.agent_id,
         });
 
@@ -238,7 +249,7 @@ export class SubagentHookHandler {
             toolCallId: toolUseId,
             sessionId: input.session_id,
             agentType: input.agent_type,
-            parentSessionId: this.currentParentSessionId,
+            parentSessionId,
           }
         );
       } else {
@@ -246,7 +257,7 @@ export class SubagentHookHandler {
           '[SubagentHookHandler] Skipping registry registration - missing toolUseId or parentSessionId',
           {
             hasToolUseId: !!toolUseId,
-            hasParentSessionId: !!this.currentParentSessionId,
+            hasParentSessionId: !!parentSessionId,
           }
         );
       }

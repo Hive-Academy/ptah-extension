@@ -15,6 +15,8 @@ import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { ChatInputComponent } from '../molecules/chat-input.component';
 import { PermissionBadgeComponent } from '../molecules/permission-badge.component';
 import { ChatEmptyStateComponent } from '../molecules/chat-empty-state.component';
+import { SessionStatsSummaryComponent } from '../molecules/session-stats-summary.component';
+import { ResumeNotificationBannerComponent } from '../molecules/resume-notification-banner.component';
 import { ChatStore } from '../../services/chat.store';
 import { VSCodeService } from '@ptah-extension/core';
 import {
@@ -33,6 +35,7 @@ import {
  * - Egyptian themed empty state (ChatEmptyStateComponent)
  * - Permission request handling
  * - Queued content indicator
+ * - Session stats summary (cost, tokens, duration, agents)
  *
  * Auto-scroll behavior:
  * - Scrolls to bottom when new messages arrive
@@ -52,6 +55,8 @@ import {
     ChatInputComponent,
     PermissionBadgeComponent,
     ChatEmptyStateComponent,
+    SessionStatsSummaryComponent,
+    ResumeNotificationBannerComponent,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
@@ -168,6 +173,21 @@ export class ChatViewComponent {
   cancelQueue(): void {
     this.chatStore.clearQueuedContent();
     console.log('[ChatViewComponent] Queued content cancelled by user');
+  }
+
+  /**
+   * TASK_2025_103: Handle Resume All button click from notification banner
+   * Resumes all interrupted subagents sequentially
+   */
+  async onResumeAll(): Promise<void> {
+    const subagents = this.chatStore.resumableSubagents();
+    console.log('[ChatViewComponent] Resume all requested:', {
+      count: subagents.length,
+    });
+
+    for (const subagent of subagents) {
+      await this.chatStore.handleSubagentResume(subagent.toolCallId);
+    }
   }
 
   private scrollToBottom(): void {

@@ -129,15 +129,19 @@ export class SubagentRegistryService {
    *
    * Typically called when SubagentStop hook fires to mark as 'completed'.
    *
+   * FIX (TASK_2025_103 QA): Completed subagents are now deleted immediately
+   * instead of being kept for 24 hours. Only interrupted subagents are kept
+   * for potential resumption. This prevents memory accumulation.
+   *
    * @param toolCallId - The subagent's toolCallId
    * @param updates - Fields to update (status, interruptedAt)
    *
    * @example
    * ```typescript
-   * // Mark as completed
+   * // Mark as completed (deletes record immediately)
    * registry.update('toolu_abc123', { status: 'completed' });
    *
-   * // Mark as interrupted
+   * // Mark as interrupted (keeps record for resume)
    * registry.update('toolu_abc123', {
    *   status: 'interrupted',
    *   interruptedAt: Date.now()
@@ -156,7 +160,21 @@ export class SubagentRegistryService {
       return;
     }
 
-    // Apply updates (mutate in place since record is stored by reference)
+    // FIX: If marking as 'completed', delete immediately to prevent memory accumulation
+    // Completed subagents cannot be resumed, so there's no reason to keep them
+    if (updates.status === 'completed') {
+      this.registry.delete(toolCallId);
+      this.logger.debug(
+        '[SubagentRegistryService.update] Subagent completed and removed',
+        {
+          toolCallId,
+          agentType: record.agentType,
+        }
+      );
+      return;
+    }
+
+    // Apply updates for non-completed status (e.g., 'interrupted', 'running')
     if (updates.status !== undefined) {
       record.status = updates.status;
     }

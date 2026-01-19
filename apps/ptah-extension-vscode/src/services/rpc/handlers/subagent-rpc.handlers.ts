@@ -19,13 +19,20 @@ import {
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
 // eslint-disable-next-line @nx/enforce-module-boundaries
-import { SdkAgentAdapter } from '@ptah-extension/agent-sdk';
+import { SdkAgentAdapter, SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import {
   SubagentResumeParams,
   SubagentResumeResult,
   SubagentQueryParams,
   SubagentQueryResult,
+  FlatStreamEventUnion,
+  MESSAGE_TYPES,
+  SessionId,
 } from '@ptah-extension/shared';
+
+interface WebviewManager {
+  sendMessage(viewType: string, type: string, payload: unknown): Promise<void>;
+}
 
 /**
  * RPC handlers for subagent operations (resumption and query)
@@ -46,7 +53,10 @@ export class SubagentRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private readonly registry: SubagentRegistryService,
-    @inject('SdkAgentAdapter') private readonly sdkAdapter: SdkAgentAdapter
+    @inject(TOKENS.WEBVIEW_MANAGER)
+    private readonly webviewManager: WebviewManager,
+    @inject(TOKENS.SDK_AGENT_ADAPTER)
+    private readonly sdkAdapter: SdkAgentAdapter
   ) {}
 
   /**
@@ -66,6 +76,11 @@ export class SubagentRpcHandlers {
    *
    * Looks up the subagent record by toolCallId and initiates
    * SDK resumption if the subagent is in 'interrupted' status.
+   * The streaming response is wired to the webview for UI updates.
+   *
+   * FIX (TASK_2025_103 QA): Now properly consumes the AsyncIterable stream
+   * and routes events to webview. Registry entry is only removed after
+   * streaming completes successfully.
    *
    * @returns Success if resume initiated, error if subagent not found or not resumable
    */
@@ -114,14 +129,22 @@ export class SubagentRpcHandlers {
             parentSessionId: record.parentSessionId,
           });
 
+          // Mark as 'running' to prevent double-resume attempts while streaming
+          this.registry.update(toolCallId, { status: 'running' });
+
           // Call the SDK adapter to resume the subagent
-          // This returns a streaming response that will be handled separately
-          await this.sdkAdapter.resumeSubagent(record);
+          // FIX: Wire the stream to the webview instead of discarding it
+          const stream = await this.sdkAdapter.resumeSubagent(record);
 
-          // Remove from registry to prevent double-resume
-          this.registry.remove(toolCallId);
+          // Stream events to webview in background (don't await - return immediately)
+          // Use parent session ID for routing since that's the active chat session
+          this.streamSubagentEventsToWebview(
+            record.parentSessionId as SessionId,
+            stream,
+            toolCallId
+          );
 
-          this.logger.info('RPC: subagent:resume successful', {
+          this.logger.info('RPC: subagent:resume streaming started', {
             toolCallId,
             sessionId: record.sessionId,
           });
@@ -139,6 +162,134 @@ export class SubagentRpcHandlers {
         }
       }
     );
+  }
+
+  /**
+   * Stream subagent events to webview
+   *
+   * FIX (TASK_2025_103 QA): Properly consume the AsyncIterable stream from
+   * resumeSubagent and route events to the webview. Registry entry is only
+   * removed after streaming completes successfully.
+   *
+   * @param parentSessionId - Parent session ID for routing to correct tab
+   * @param stream - AsyncIterable stream from SDK
+   * @param toolCallId - Tool call ID for registry cleanup
+   */
+  private async streamSubagentEventsToWebview(
+    parentSessionId: SessionId,
+    stream: AsyncIterable<FlatStreamEventUnion>,
+    toolCallId: string
+  ): Promise<void> {
+    this.logger.info(
+      `[SubagentRPC] streamSubagentEventsToWebview STARTED for toolCallId ${toolCallId}`
+    );
+    let eventCount = 0;
+    let turnCompleteSent = false;
+
+    try {
+      for await (const event of stream) {
+        eventCount++;
+        this.logger.debug(
+          `[SubagentRPC] Streaming event #${eventCount} type=${event.eventType}`,
+          {
+            parentSessionId,
+            toolCallId,
+            eventType: event.eventType,
+            messageId: event.messageId,
+          }
+        );
+
+        // Send event to webview using parent session ID for tab routing
+        await this.webviewManager.sendMessage(
+          'ptah.main',
+          MESSAGE_TYPES.CHAT_CHUNK,
+          {
+            sessionId: parentSessionId,
+            event,
+          }
+        );
+
+        // Reset turn complete flag on new message
+        if (event.eventType === 'message_start') {
+          turnCompleteSent = false;
+        }
+
+        // Send chat:complete on message_complete
+        if (event.eventType === 'message_complete' && !turnCompleteSent) {
+          turnCompleteSent = true;
+          this.logger.info(
+            `[SubagentRPC] Turn complete for subagent ${toolCallId}`,
+            { eventCount }
+          );
+          await this.webviewManager.sendMessage(
+            'ptah.main',
+            MESSAGE_TYPES.CHAT_COMPLETE,
+            {
+              sessionId: parentSessionId,
+              code: 0,
+            }
+          );
+        }
+      }
+
+      // Stream completed successfully - remove from registry
+      this.registry.remove(toolCallId);
+      this.logger.info(
+        `[SubagentRPC] Subagent resume completed successfully for ${toolCallId}`,
+        { eventCount }
+      );
+
+      // Send final complete if not sent during stream
+      if (!turnCompleteSent) {
+        await this.webviewManager.sendMessage(
+          'ptah.main',
+          MESSAGE_TYPES.CHAT_COMPLETE,
+          {
+            sessionId: parentSessionId,
+            code: 0,
+          }
+        );
+      }
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      const lowerMessage = errorMessage.toLowerCase();
+
+      // Check if this is a user-initiated abort
+      const isUserAbort =
+        lowerMessage.includes('aborted by user') ||
+        lowerMessage.includes('abort') ||
+        lowerMessage.includes('cancelled') ||
+        lowerMessage.includes('canceled');
+
+      if (isUserAbort) {
+        this.logger.info(
+          `[SubagentRPC] Subagent ${toolCallId} aborted by user after ${eventCount} events`
+        );
+        // Mark as interrupted again so it can be re-resumed
+        this.registry.update(toolCallId, {
+          status: 'interrupted',
+          interruptedAt: Date.now(),
+        });
+      } else {
+        this.logger.error(
+          `[SubagentRPC] Error streaming subagent ${toolCallId} after ${eventCount} events`,
+          error instanceof Error ? error : new Error(String(error))
+        );
+        // Keep as 'running' to prevent re-resume attempts on error
+        // The record will expire via TTL cleanup
+      }
+
+      // Send error to webview
+      await this.webviewManager.sendMessage(
+        'ptah.main',
+        MESSAGE_TYPES.CHAT_ERROR,
+        {
+          sessionId: parentSessionId,
+          error: errorMessage,
+        }
+      );
+    }
   }
 
   /**
