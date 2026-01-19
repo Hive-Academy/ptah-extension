@@ -1,14 +1,14 @@
 /**
  * Subagent RPC Handlers
  *
- * Handles subagent-related RPC methods: subagent:resume, subagent:query
+ * Handles subagent-related RPC methods: chat:subagent-resume, chat:subagent-query
  * Provides frontend access to subagent resumption functionality.
  *
  * TASK_2025_103: Subagent Resumption Feature
  *
  * RPC Methods:
- * - subagent:resume - Resume an interrupted subagent by toolCallId
- * - subagent:query - Query subagents (resumable or by specific ID)
+ * - chat:subagent-resume - Resume an interrupted subagent by toolCallId
+ * - chat:subagent-query - Query subagents (resumable or by specific ID)
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -40,10 +40,10 @@ interface WebviewManager {
  * @example
  * ```typescript
  * // Frontend: Resume an interrupted subagent
- * const result = await rpcService.call('subagent:resume', { toolCallId: 'toolu_abc123' });
+ * const result = await rpcService.call('chat:subagent-resume', { toolCallId: 'toolu_abc123' });
  *
  * // Frontend: Query all resumable subagents
- * const { subagents } = await rpcService.call('subagent:query', {});
+ * const { subagents } = await rpcService.call('chat:subagent-query', {});
  * ```
  */
 @injectable()
@@ -67,7 +67,7 @@ export class SubagentRpcHandlers {
     this.registerSubagentQuery();
 
     this.logger.debug('Subagent RPC handlers registered', {
-      methods: ['subagent:resume', 'subagent:query'],
+      methods: ['chat:subagent-resume', 'chat:subagent-query'],
     });
   }
 
@@ -86,7 +86,7 @@ export class SubagentRpcHandlers {
    */
   private registerSubagentResume(): void {
     this.rpcHandler.registerMethod<SubagentResumeParams, SubagentResumeResult>(
-      'subagent:resume',
+      'chat:subagent-resume',
       async (params) => {
         try {
           const { toolCallId } = params;
@@ -304,7 +304,7 @@ export class SubagentRpcHandlers {
    */
   private registerSubagentQuery(): void {
     this.rpcHandler.registerMethod<SubagentQueryParams, SubagentQueryResult>(
-      'subagent:query',
+      'chat:subagent-query',
       async (params) => {
         try {
           const { toolCallId, sessionId } = params;

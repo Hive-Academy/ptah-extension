@@ -275,7 +275,7 @@ export class ClaudeRpcService {
       '▶️ [ClaudeRpcService] resumeSubagent() called - Sending RPC request...',
       { toolCallId }
     );
-    const result = await this.call('subagent:resume', { toolCallId });
+    const result = await this.call('chat:subagent-resume', { toolCallId });
     console.log('✅ [ClaudeRpcService] resumeSubagent() response:', {
       success: result.success,
       data: result.data,
@@ -293,7 +293,7 @@ export class ClaudeRpcService {
     console.log(
       '🔍 [ClaudeRpcService] querySubagents() called - Sending RPC request...'
     );
-    const result = await this.call('subagent:query', {});
+    const result = await this.call('chat:subagent-query', {});
     console.log('✅ [ClaudeRpcService] querySubagents() response:', {
       success: result.success,
       count: result.data?.subagents?.length ?? 0,

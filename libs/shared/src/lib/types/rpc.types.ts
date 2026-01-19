@@ -760,11 +760,11 @@ export interface RpcMethodRegistry {
   };
 
   // ---- Subagent Methods (TASK_2025_103) ----
-  'subagent:resume': {
+  'chat:subagent-resume': {
     params: SubagentResumeParams;
     result: SubagentResumeResult;
   };
-  'subagent:query': {
+  'chat:subagent-query': {
     params: SubagentQueryParams;
     result: SubagentQueryResult;
   };
@@ -843,8 +843,8 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'openrouter:clearModelTier',
 
   // Subagent Methods (TASK_2025_103)
-  'subagent:resume',
-  'subagent:query',
+  'chat:subagent-resume',
+  'chat:subagent-query',
 ] as const;
 
 /**
