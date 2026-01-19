@@ -5,12 +5,15 @@
  * Lenis smooth scroll. It is the main entry point for the landing view
  * in app-shell.
  *
- * Sections:
+ * Sections (in order):
  * - HeroSection: 3D Glass/Cosmic scene with content overlay
- * - DemoSection: Glassmorphism window with code example
- * - FeaturesHijackedScroll: Fullscreen feature slides
- * - ComparisonSplitScroll: Before/After parallax comparison
- * - CtaSection: Final call-to-action with golden gradient
+ * - DemoSection: Glassmorphism window with code example (Batch 3)
+ * - FeaturesHijackedScroll: Fullscreen feature slides (Batch 4)
+ * - ComparisonSplitScroll: Before/After parallax comparison (Batch 5)
+ * - CtaSection: Final call-to-action with golden gradient (Batch 6)
+ *
+ * NOTE: Sections are added incrementally as batches are completed.
+ * Currently includes: HeroSection (Batch 2)
  */
 import {
   Component,
@@ -19,21 +22,29 @@ import {
   OnDestroy,
   afterNextRender,
 } from '@angular/core';
+import { LenisSmoothScrollService } from '@hive-academy/angular-gsap';
+import { HeroSectionComponent } from './hero-section/hero-section.component';
 
 @Component({
   selector: 'ptah-landing-page',
-  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [],
+  imports: [HeroSectionComponent],
   template: `
     <div class="min-h-screen bg-slate-950">
-      <!-- Landing page sections will be added in Batch 2-6 -->
-      <div class="flex items-center justify-center min-h-screen">
-        <div class="text-center text-white">
-          <h1 class="text-4xl font-bold mb-4">Ptah Landing Page</h1>
-          <p class="text-gray-400">Premium sections loading in next batches...</p>
-        </div>
-      </div>
+      <!-- Hero Section (Batch 2) -->
+      <ptah-hero-section />
+
+      <!-- Placeholder for Demo Section (Batch 3) -->
+      <!-- <ptah-demo-section /> -->
+
+      <!-- Placeholder for Features Hijacked Scroll (Batch 4) -->
+      <!-- <ptah-features-hijacked-scroll /> -->
+
+      <!-- Placeholder for Comparison Split Scroll (Batch 5) -->
+      <!-- <ptah-comparison-split-scroll /> -->
+
+      <!-- Placeholder for CTA Section (Batch 6) -->
+      <!-- <ptah-cta-section /> -->
     </div>
   `,
   styles: [
@@ -47,14 +58,26 @@ import {
   ],
 })
 export class LandingPageComponent implements OnDestroy {
+  /**
+   * Lenis smooth scroll service for butter-smooth scrolling.
+   * Injected and initialized after first render.
+   */
+  private readonly lenis = inject(LenisSmoothScrollService);
+
   constructor() {
-    // Lenis initialization will be added after @hive-academy/angular-gsap is available
+    // Initialize Lenis smooth scroll after the first render
+    // This ensures the DOM is fully ready before Lenis attaches
     afterNextRender(() => {
-      // Initialize Lenis smooth scroll here when package is installed
+      if (!this.lenis.isInitialized()) {
+        this.lenis.initialize();
+      }
     });
   }
 
   ngOnDestroy(): void {
-    // Cleanup Lenis when component is destroyed
+    // Clean up Lenis when landing page is destroyed
+    // This prevents memory leaks and ensures proper cleanup
+    // when navigating away from the landing page
+    this.lenis.destroy();
   }
 }
