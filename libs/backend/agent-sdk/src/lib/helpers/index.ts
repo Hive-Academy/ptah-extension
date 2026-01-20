@@ -30,6 +30,10 @@ export {
 export * from './attachment-processor.service';
 export { SubagentHookHandler } from './subagent-hook-handler';
 export {
+  CompactionConfigProvider,
+  type CompactionConfig,
+} from './compaction-config-provider';
+export {
   SdkMessageFactory,
   type CreateMessageParams,
 } from './sdk-message-factory';

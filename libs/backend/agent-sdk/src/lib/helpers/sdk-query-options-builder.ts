@@ -20,6 +20,7 @@ import { AISessionConfig } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
 import { SubagentHookHandler } from './subagent-hook-handler';
+import { CompactionConfigProvider } from './compaction-config-provider';
 import {
   CanUseTool,
   HookEvent,
@@ -75,6 +76,11 @@ export interface SdkQueryOptions {
   env?: Record<string, string | undefined>;
   stderr?: (data: string) => void;
   hooks?: Partial<Record<HookEvent, HookCallbackMatcher[]>>;
+  /** SDK compaction control configuration (TASK_2025_098) */
+  compactionControl?: {
+    enabled: boolean;
+    contextTokenThreshold: number;
+  };
 }
 
 /**
@@ -105,7 +111,9 @@ export class SdkQueryOptionsBuilder {
     @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
     private readonly permissionHandler: SdkPermissionHandler,
     @inject(SDK_TOKENS.SDK_SUBAGENT_HOOK_HANDLER)
-    private readonly subagentHookHandler: SubagentHookHandler
+    private readonly subagentHookHandler: SubagentHookHandler,
+    @inject(SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER)
+    private readonly compactionConfigProvider: CompactionConfigProvider
   ) {}
 
   /**
@@ -152,6 +160,9 @@ export class SdkQueryOptionsBuilder {
     // Create subagent hooks
     const hooks = this.createHooks(cwd);
 
+    // Get compaction configuration (TASK_2025_098)
+    const compactionConfig = this.compactionConfigProvider.getConfig();
+
     // Log query options
     this.logger.info('[SdkQueryOptionsBuilder] Building SDK query options', {
       cwd,
@@ -162,6 +173,8 @@ export class SdkQueryOptionsBuilder {
         : undefined,
       permissionMode: 'default',
       hasCanUseToolCallback: !!canUseToolCallback,
+      compactionEnabled: compactionConfig.enabled,
+      compactionThreshold: compactionConfig.contextTokenThreshold,
     });
 
     return {
@@ -193,6 +206,14 @@ export class SdkQueryOptionsBuilder {
           this.logger.error(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
         },
         hooks,
+        // SDK compaction control (TASK_2025_098)
+        // Only include when enabled to avoid sending unnecessary options
+        compactionControl: compactionConfig.enabled
+          ? {
+              enabled: true,
+              contextTokenThreshold: compactionConfig.contextTokenThreshold,
+            }
+          : undefined,
       },
     };
   }

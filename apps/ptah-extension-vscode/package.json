@@ -161,6 +161,18 @@
           "type": "string",
           "default": null,
           "description": "OpenRouter model override for Haiku tier."
+        },
+        "ptah.compaction.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable automatic context compaction for long sessions. When enabled, Claude will summarize conversation history to stay within context limits."
+        },
+        "ptah.compaction.threshold": {
+          "type": "number",
+          "default": 100000,
+          "minimum": 50000,
+          "maximum": 500000,
+          "description": "Token threshold to trigger automatic compaction (default: 100,000 tokens)."
         }
       }
     }

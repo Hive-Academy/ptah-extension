@@ -37,6 +37,8 @@ import {
   JsonlReaderService,
   AgentCorrelationService,
   SessionReplayService,
+  // Compaction configuration (TASK_2025_098)
+  CompactionConfigProvider,
 } from '../helpers';
 import { SDK_TOKENS } from './tokens';
 import { OpenRouterModelsService } from '../openrouter-models.service';
@@ -190,6 +192,14 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SUBAGENT_HOOK_HANDLER,
     { useClass: SubagentHookHandler },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Compaction config provider - depends on Logger, ConfigManager (TASK_2025_098)
+  // Provides SDK compaction settings from VS Code configuration
+  container.register(
+    SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER,
+    { useClass: CompactionConfigProvider },
     { lifecycle: Lifecycle.Singleton }
   );
 
