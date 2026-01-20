@@ -147,7 +147,28 @@ export class ChatStore {
   // Compaction state signals (TASK_2025_098)
   private readonly _isCompacting = signal<boolean>(false);
   readonly isCompacting = this._isCompacting.asReadonly();
+
+  /**
+   * Timeout ID for compaction auto-dismiss.
+   *
+   * DESIGN NOTE: This is intentionally stored as a class property rather than
+   * a signal because:
+   * 1. The timeout ID is not UI state - it's an internal cleanup mechanism
+   * 2. setTimeout returns a number/NodeJS.Timeout, not a serializable value
+   * 3. We only need to clear it, never read it in templates
+   *
+   * The associated `_isCompacting` signal IS the UI state that components observe.
+   * @see TASK_2025_098
+   */
   private compactionTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Auto-dismiss timeout for compaction notification (milliseconds).
+   * SDK compaction typically completes within 5-8 seconds based on testing.
+   * The 10-second timeout provides buffer while ensuring UX doesn't hang.
+   * @see TASK_2025_098
+   */
+  private static readonly COMPACTION_AUTO_DISMISS_MS = 10000;
 
   // ============================================================================
   // PUBLIC READONLY SIGNALS
@@ -445,12 +466,12 @@ export class ChatStore {
     // Set compacting state
     this._isCompacting.set(true);
 
-    // Auto-dismiss after 10 seconds (compaction typically completes quickly)
+    // Auto-dismiss after timeout (compaction typically completes quickly)
     this.compactionTimeoutId = setTimeout(() => {
       this._isCompacting.set(false);
       this.compactionTimeoutId = null;
       console.log('[ChatStore] Compaction auto-dismissed after timeout');
-    }, 10000);
+    }, ChatStore.COMPACTION_AUTO_DISMISS_MS);
   }
 
   /**
@@ -858,6 +879,9 @@ export class ChatStore {
     sessionId?: string;
     error: string;
   }): void {
+    // TASK_2025_098: Clear compaction state on error to avoid stale notification
+    this.clearCompactionState();
+
     console.error('[ChatStore] Chat error:', data);
 
     // TASK_2025_092: Route by tabId (primary) or fall back to sessionId lookup
