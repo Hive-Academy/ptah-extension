@@ -87,6 +87,7 @@ export class RpcMethodRegistrationService {
     this.setupAgentWatcherListeners();
     this.setupSessionIdResolvedCallback();
     this.setupResultStatsCallback();
+    this.setupCompactionStartCallback();
     this.registerSetupAgentsCommand();
   }
 
@@ -170,6 +171,32 @@ export class RpcMethodRegistrationService {
       });
 
       await this.sendStatsWithRetry(stats);
+    });
+  }
+
+  /**
+   * Setup callback to notify frontend when compaction starts
+   * TASK_2025_098: SDK Session Compaction
+   */
+  private setupCompactionStartCallback(): void {
+    this.sdkAdapter.setCompactionStartCallback((data) => {
+      this.logger.info(
+        `[RPC] Compaction started: sessionId=${data.sessionId}, trigger=${data.trigger}`
+      );
+
+      // Notify frontend with compaction start event
+      this.webviewManager
+        .sendMessage('ptah.main', MESSAGE_TYPES.SESSION_COMPACTING, {
+          sessionId: data.sessionId,
+          trigger: data.trigger,
+          timestamp: data.timestamp,
+        })
+        .catch((error) => {
+          this.logger.error(
+            'Failed to send session:compacting to webview',
+            error instanceof Error ? error : new Error(String(error))
+          );
+        });
     });
   }
 

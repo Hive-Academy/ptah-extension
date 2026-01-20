@@ -17,6 +17,7 @@ import { PermissionBadgeComponent } from '../molecules/permission-badge.componen
 import { ChatEmptyStateComponent } from '../molecules/chat-empty-state.component';
 import { SessionStatsSummaryComponent } from '../molecules/session-stats-summary.component';
 import { ResumeNotificationBannerComponent } from '../molecules/resume-notification-banner.component';
+import { CompactionNotificationComponent } from '../molecules/compaction-notification.component';
 import { ChatStore } from '../../services/chat.store';
 import { VSCodeService } from '@ptah-extension/core';
 import {
@@ -57,6 +58,7 @@ import {
     ChatEmptyStateComponent,
     SessionStatsSummaryComponent,
     ResumeNotificationBannerComponent,
+    CompactionNotificationComponent,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',

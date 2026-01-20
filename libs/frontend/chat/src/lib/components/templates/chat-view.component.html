@@ -19,6 +19,11 @@
   </div>
   }
 
+  <!-- TASK_2025_098: Compaction Notification Banner -->
+  <div class="px-4">
+    <ptah-compaction-notification [isCompacting]="chatStore.isCompacting()" />
+  </div>
+
   <!-- Message List -->
   <div
     class="flex-1 overflow-y-auto p-4 space-y-3"

@@ -144,6 +144,11 @@ export class ChatStore {
   private readonly _resumableSubagents = signal<SubagentRecord[]>([]);
   readonly resumableSubagents = this._resumableSubagents.asReadonly();
 
+  // Compaction state signals (TASK_2025_098)
+  private readonly _isCompacting = signal<boolean>(false);
+  readonly isCompacting = this._isCompacting.asReadonly();
+  private compactionTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
   // ============================================================================
   // PUBLIC READONLY SIGNALS
   // ============================================================================
@@ -402,6 +407,62 @@ export class ChatStore {
       console.error('[ChatStore] Error resuming subagent:', error);
       return false;
     }
+  }
+
+  // ============================================================================
+  // COMPACTION HANDLING (TASK_2025_098)
+  // ============================================================================
+
+  /**
+   * Handle compaction start event from backend
+   * TASK_2025_098: SDK Session Compaction
+   *
+   * Shows the compaction notification banner and sets auto-dismiss timeout.
+   * Only activates if the sessionId matches the current active session.
+   *
+   * @param sessionId - The session ID where compaction is occurring
+   */
+  handleCompactionStart(sessionId: string): void {
+    const activeSessionId = this.currentSessionId();
+
+    // Only show compaction for the active session
+    if (sessionId !== activeSessionId) {
+      console.log('[ChatStore] Ignoring compaction for non-active session:', {
+        sessionId,
+        activeSessionId,
+      });
+      return;
+    }
+
+    console.log('[ChatStore] Compaction started for session:', { sessionId });
+
+    // Clear any existing timeout
+    if (this.compactionTimeoutId) {
+      clearTimeout(this.compactionTimeoutId);
+      this.compactionTimeoutId = null;
+    }
+
+    // Set compacting state
+    this._isCompacting.set(true);
+
+    // Auto-dismiss after 10 seconds (compaction typically completes quickly)
+    this.compactionTimeoutId = setTimeout(() => {
+      this._isCompacting.set(false);
+      this.compactionTimeoutId = null;
+      console.log('[ChatStore] Compaction auto-dismissed after timeout');
+    }, 10000);
+  }
+
+  /**
+   * Clear compaction state (called when new message is received)
+   * TASK_2025_098: SDK Session Compaction
+   */
+  private clearCompactionState(): void {
+    if (this.compactionTimeoutId) {
+      clearTimeout(this.compactionTimeoutId);
+      this.compactionTimeoutId = null;
+    }
+    this._isCompacting.set(false);
   }
 
   /**
@@ -676,6 +737,10 @@ export class ChatStore {
     tokens: { input: number; output: number };
     duration: number;
   }): void {
+    // TASK_2025_098: Clear compaction state when new message finishes
+    // This indicates compaction (if any) has completed successfully
+    this.clearCompactionState();
+
     // StreamingHandler finalizes the message and returns queued content info
     const result = this.streamingHandler.handleSessionStats(stats);
 

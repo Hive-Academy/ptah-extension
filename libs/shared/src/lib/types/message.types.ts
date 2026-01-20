@@ -304,6 +304,7 @@ export const MESSAGE_TYPES = {
   CHAT_ERROR: 'chat:error',
   SESSION_ID_RESOLVED: 'session:id-resolved',
   SESSION_STATS: 'session:stats',
+  SESSION_COMPACTING: 'session:compacting',
   AGENT_SUMMARY_CHUNK: 'agent:summary-chunk',
   SDK_ERROR: 'sdk:error',
 

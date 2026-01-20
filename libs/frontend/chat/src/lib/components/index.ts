@@ -38,6 +38,7 @@ export * from './molecules/setup-status-widget.component';
 export * from './molecules/permission-badge.component';
 export * from './molecules/deny-message-popover.component';
 export * from './molecules/resume-notification-banner.component';
+export * from './molecules/compaction-notification.component';
 export {
   QuestionCardComponent,
   type AskUserQuestionRequest,

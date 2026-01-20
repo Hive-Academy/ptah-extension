@@ -368,6 +368,26 @@ export class VSCodeService {
         }
       }
 
+      // Handle session compacting notification (TASK_2025_098)
+      if (message.type === MESSAGE_TYPES.SESSION_COMPACTING) {
+        if (message.payload && this.chatStore) {
+          const { sessionId } = message.payload;
+          console.log('[VSCodeService] Session compacting:', { sessionId });
+          this.chatStore.handleCompactionStart(sessionId);
+        } else if (!message.payload) {
+          console.warn(
+            '[VSCodeService] session:compacting received but payload is undefined!'
+          );
+        } else {
+          console.warn(
+            '[VSCodeService] session:compacting received but ChatStore not registered!',
+            {
+              sessionId: message.payload?.sessionId,
+            }
+          );
+        }
+      }
+
       // Handle session ID resolution - CRITICAL for session resume
       // Backend sends real SDK UUID after SDK returns it from system init message
       // TASK_2025_095: Now uses tabId for direct routing - no temp ID lookup needed

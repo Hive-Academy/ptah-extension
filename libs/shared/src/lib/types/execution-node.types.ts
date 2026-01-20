@@ -726,7 +726,8 @@ export type StreamEventType =
   | 'agent_start'
   | 'message_complete'
   | 'message_delta'
-  | 'signature_delta';
+  | 'signature_delta'
+  | 'compaction_start';
 
 /**
  * Base flat event with common fields
@@ -891,6 +892,20 @@ export interface SignatureDeltaEvent extends FlatStreamEvent {
 }
 
 /**
+ * Compaction start event - notifies UI that context compaction is starting
+ * TASK_2025_098: SDK Session Compaction
+ *
+ * Emitted when the SDK detects the context window is approaching threshold
+ * and begins automatic compaction (summarizing conversation history).
+ * Used to display a notification banner in the chat UI.
+ */
+export interface CompactionStartEvent extends FlatStreamEvent {
+  readonly eventType: 'compaction_start';
+  /** Whether compaction was triggered manually or automatically */
+  readonly trigger: 'manual' | 'auto';
+}
+
+/**
  * Union type for all flat events - enables discriminated unions
  */
 export type FlatStreamEventUnion =
@@ -904,4 +919,5 @@ export type FlatStreamEventUnion =
   | AgentStartEvent
   | MessageCompleteEvent
   | MessageDeltaEvent
-  | SignatureDeltaEvent;
+  | SignatureDeltaEvent
+  | CompactionStartEvent;
