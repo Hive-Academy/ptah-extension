@@ -13,7 +13,11 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { SessionId, FlatStreamEventUnion } from '@ptah-extension/shared';
+import {
+  SessionId,
+  FlatStreamEventUnion,
+  MessageTokenUsage,
+} from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { SdkMessageTransformer } from '../sdk-message-transformer';
 import { SDK_TOKENS } from '../di/tokens';
@@ -37,11 +41,12 @@ export type SessionIdResolvedCallback = (
 
 /**
  * Callback type for notifying when result message with stats is received
+ * Uses MessageTokenUsage from shared for type consistency
  */
 export type ResultStatsCallback = (stats: {
   sessionId: SessionId;
   cost: number;
-  tokens: { input: number; output: number };
+  tokens: MessageTokenUsage;
   duration: number;
 }) => void;
 
@@ -63,11 +68,12 @@ export interface StreamTransformConfig {
 
 /**
  * Validated stats interface
+ * Uses MessageTokenUsage from shared for type consistency
  */
 interface ValidatedStats {
   sessionId: SessionId;
   cost: number;
-  tokens: { input: number; output: number };
+  tokens: MessageTokenUsage;
   duration: number;
 }
 
@@ -230,12 +236,16 @@ export class StreamTransformer {
               } else {
                 // TASK_2025_092: Use effectiveSessionId (real UUID) instead of temp ID
                 // This ensures frontend can find the tab by sessionId
+                // STATS_FIX: Now includes cache tokens for proper cost tracking
                 const rawStats = {
                   sessionId: effectiveSessionId,
                   cost: sdkMessage.total_cost_usd,
                   tokens: {
                     input: sdkMessage.usage.input_tokens,
                     output: sdkMessage.usage.output_tokens,
+                    cacheRead: sdkMessage.usage.cache_read_input_tokens ?? 0,
+                    cacheCreation:
+                      sdkMessage.usage.cache_creation_input_tokens ?? 0,
                   },
                   duration: sdkMessage.duration_ms,
                 };

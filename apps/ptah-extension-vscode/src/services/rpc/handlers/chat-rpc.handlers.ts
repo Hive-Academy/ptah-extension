@@ -237,7 +237,8 @@ export class ChatRpcHandlers {
 
           // TASK_2025_092 FIX: Read full session history as FlatStreamEventUnion[]
           // This includes tool calls, thinking blocks, agent spawns, etc.
-          const events = await this.historyReader.readSessionHistory(
+          // Also includes aggregated usage stats from JSONL
+          const { events, stats } = await this.historyReader.readSessionHistory(
             sessionId,
             resolvedWorkspacePath
           );
@@ -252,9 +253,11 @@ export class ChatRpcHandlers {
             sessionId,
             messageCount: messages.length,
             eventCount: events.length,
+            hasStats: !!stats,
+            totalCost: stats?.totalCost,
           });
 
-          return { success: true, messages, events };
+          return { success: true, messages, events, stats };
         } catch (error) {
           this.logger.error(
             'RPC: chat:resume failed',

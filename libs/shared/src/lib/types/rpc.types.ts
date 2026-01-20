@@ -128,6 +128,20 @@ export interface ChatResumeResult {
    * Frontend processes these through StreamingHandler to build ExecutionNode tree
    */
   events?: FlatStreamEventUnion[];
+  /**
+   * Aggregated usage stats from session history
+   * Extracted from JSONL message.usage fields for old session cost display
+   */
+  stats?: {
+    totalCost: number;
+    tokens: {
+      input: number;
+      output: number;
+      cacheRead: number;
+      cacheCreation: number;
+    };
+    messageCount: number;
+  } | null;
   error?: string;
 }
 

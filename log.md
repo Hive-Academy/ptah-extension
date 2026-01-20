@@ -1,197 +1,836 @@
-I'll analyze the code in these key areas to understand how tool calls are handled during session history loading. Let me search through the relevant services. Now let me search for the specific services and methods mentioned in the request to get a clearer picture of the current implementation: Let me search for the specific files and services mentioned in your question: Let me search for the relevant services by looking at the chat service structure: Based on my analysis of the codebase, I can now provide you with detailed insights on the tool call display issue when loading session history. Let me search for the specific methods you mentioned to understand the complete flow. Based on my analysis of the codebase, I can now provide a comprehensive answer about the tool call display issue when loading previous sessions. Let me examine the key differences between live streaming and session history loading.
+▲ [WARNING] NG8107: The left side of this optional chain operation does not include 'null' or 'undefined' in its type, therefore the '?.' operator can be replaced with the '.' operator. [plugin angular-compiler]
 
-## Analysis: Tool Calls Not Displayed in Session History
+    apps/ptah-landing-page/src/app/components/demo-chat-view.component.ts:119:35:
+      119 │                 {{ child.children?.length || 0 }} items
+          ╵                                    ~~~~~~
 
-After reviewing the code, I've identified the key services and their interactions:
+X [ERROR] NG5002: Parser Error: Unexpected token 'x0a0515' at column 2 in [0x0a0515] in D:/projects/ptah-extension/apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts@47:25 [plugin angular-compiler]
 
-### 1. **Session Loading Flow (ChatStore.switchSession)**
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:48:25:
+      48 │       [backgroundColor]="0x0a0515"
+         ╵                          ~~~~~~~~
 
-```typescript name=libs/frontend/chat/src/lib/services/chat.store.ts url=https://github.com/Hive-Academy/ptah-extension/blob/e669f6e9cf26031e4bbfe112d3d274be04a4fa53/libs/frontend/chat/src/lib/services/chat.store.ts#L444-L528
-async switchSession(sessionId: string): Promise<void> {
-  // ... service checks ...
+X [ERROR] NG8002: Can't bind to 'position' since it isn't a known property of 'a3d-star-field'.
 
-  // Load messages for this session via RPC
-  const result = await this.claudeRpcService.call<{
-    sessionId: string;
-    messages:  JSONLMessage[];
-    agentSessions?:  Array<{ agentId: string; messages: JSONLMessage[] }>;
-  }>('session:load', { sessionId, workspacePath });
+1. If 'a3d-star-field' is an Angular component and it has 'position' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-star-field' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
 
-  if (result.success && result.data) {
-    // Use SessionReplayService to process JSONL messages
-    const { messages, nodeMaps } = this.sessionReplay.replaySession(
-      result.data.messages,
-      result.data.agentSessions ??  []
-    );
+   apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:55:8:
+   55 │ [position]="[0, 0, -20]"
+   ╵ ~~~~~~~~~~~~~~~~~~~~~~~~
 
-    // Update tab with loaded messages
-    this.tabManager. updateTab(activeTabId, {
-      messages,
-      executionTree: null,
-      status: 'loaded',
-      title,
-    });
+X [ERROR] NG8002: Can't bind to 'position' since it isn't a known property of 'a3d-star-field'.
 
-    // Update SessionManager with node maps and state
-    this.sessionManager.setNodeMaps(nodeMaps);
-    // ...
-  }
-}
+1. If 'a3d-star-field' is an Angular component and it has 'position' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-star-field' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+   apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:67:8:
+   67 │ [position]="[0, 0, -40]"
+   ╵ ~~~~~~~~~~~~~~~
+
 ```
 
-**Key observation**: Session loading uses `SessionReplayService. replaySession()` - **NOT** the `processStreamEvent` pattern. There are no `tool_start` or `tool_result` events being created or replayed.
 
-### 2. **SessionReplayService - How Tools Are Processed**
+X [ERROR] NG8002: Can't bind to 'scale' since it isn't a known property of 'a3d-nebula-volumetric'.
+1. If 'a3d-nebula-volumetric' is an Angular component and it has 'scale' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-nebula-volumetric' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
 
-Looking at `SessionReplayService. replaySession()`, tools are processed directly from JSONL content blocks:
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:77:8:
+      77 │         [scale]="50"
+         ╵         ~~~~~~~~~~~~
 
-```typescript name=libs/frontend/chat/src/lib/services/session-replay.service. ts url=https://github.com/Hive-Academy/ptah-extension/blob/e669f6e9cf26031e4bbfe112d3d274be04a4fa53/libs/frontend/chat/src/lib/services/session-replay.service.ts#L212-L258
-} else if (block.type === 'tool_use') {
-  if (block.name === 'Task' && block.input) {
-    // Task tool = Agent spawn - add INLINE to assistant tree
-    const agentNode = this.createInlineAgentNode(block, agentId, ... );
-    currentAssistantTree = {
-      ...currentAssistantTree,
-      children: [...currentAssistantTree. children, agentNode],
-    };
-  } else {
-    // Regular tool - add to assistant tree
-    // Look up the tool result by tool_use_id
-    const toolResult = block.id ? allToolResults.get(block.id) : undefined;
 
-    const toolNode = createExecutionNode({
-      id: block.id || this.generateId(),
-      type: 'tool',
-      status: toolResult?.isError ? 'error' : 'complete',
-      toolName: block.name,
-      toolInput: block.input,
-      toolOutput: toolResult?.content,  // <-- Tool output linked here!
-      toolCallId: block.id,
-      isCollapsed: true,
-    });
+X [ERROR] NG8002: Can't bind to 'color' since it isn't a known property of 'a3d-nebula-volumetric'.
+1. If 'a3d-nebula-volumetric' is an Angular component and it has 'color' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-nebula-volumetric' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
 
-    if (block.id) {
-      nodeMaps.tools.set(block.id, toolNode);
-    }
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:78:8:
+      78 │         [color]="'#6b21a8'"
+         ╵         ~~~~~~~~~~~~~~~~~~~
 
-    currentAssistantTree = {
-      ...currentAssistantTree,
-      children: [... currentAssistantTree.children, toolNode],
-    };
-  }
-}
+
+X [ERROR] NG8002: Can't bind to 'transmission' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'transmission' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:87:8:
+      87 │         [transmission]="0.9"
+         ╵         ~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'thickness' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'thickness' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:88:8:
+      88 │         [thickness]="0.5"
+         ╵         ~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'ior' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'ior' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:89:8:
+      89 │         [ior]="1.4"
+         ╵         ~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'clearcoat' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'clearcoat' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:90:8:
+      90 │         [clearcoat]="1.0"
+         ╵         ~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'clearcoatRoughness' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'clearcoatRoughness' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:91:8:
+      91 │         [clearcoatRoughness]="0.0"
+         ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescence' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescence' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:93:8:
+      93 │         [iridescence]="1.0"
+         ╵         ~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceIOR' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceIOR' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:94:8:
+      94 │         [iridescenceIOR]="1.3"
+         ╵         ~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceThicknessMin' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceThicknessMin' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:95:8:
+      95 │         [iridescenceThicknessMin]="100"
+         ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceThicknessMax' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceThicknessMax' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:96:8:
+      96 │         [iridescenceThicknessMax]="400"
+         ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'transmission' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'transmission' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:108:8:
+      108 │         [transmission]="0.9"
+          ╵         ~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'thickness' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'thickness' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:109:8:
+      109 │         [thickness]="0.5"
+          ╵         ~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'ior' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'ior' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:110:8:
+      110 │         [ior]="1.4"
+          ╵         ~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'clearcoat' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'clearcoat' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:111:8:
+      111 │         [clearcoat]="1.0"
+          ╵         ~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'clearcoatRoughness' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'clearcoatRoughness' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:112:8:
+      112 │         [clearcoatRoughness]="0.0"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescence' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescence' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:114:8:
+      114 │         [iridescence]="1.0"
+          ╵         ~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceIOR' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceIOR' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:115:8:
+      115 │         [iridescenceIOR]="1.3"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceThicknessMin' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceThicknessMin' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:116:8:
+      116 │         [iridescenceThicknessMin]="100"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceThicknessMax' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceThicknessMax' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:117:8:
+      117 │         [iridescenceThicknessMax]="400"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'transmission' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'transmission' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:129:8:
+      129 │         [transmission]="0.9"
+          ╵         ~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'thickness' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'thickness' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:130:8:
+      130 │         [thickness]="0.5"
+          ╵         ~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'ior' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'ior' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:131:8:
+      131 │         [ior]="1.4"
+          ╵         ~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'clearcoat' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'clearcoat' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:132:8:
+      132 │         [clearcoat]="1.0"
+          ╵         ~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'clearcoatRoughness' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'clearcoatRoughness' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:133:8:
+      133 │         [clearcoatRoughness]="0.0"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescence' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescence' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:135:8:
+      135 │         [iridescence]="1.0"
+          ╵         ~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceIOR' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceIOR' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:136:8:
+      136 │         [iridescenceIOR]="1.3"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceThicknessMin' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceThicknessMin' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:137:8:
+      137 │         [iridescenceThicknessMin]="100"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceThicknessMax' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceThicknessMax' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:138:8:
+      138 │         [iridescenceThicknessMax]="400"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'transmission' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'transmission' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:150:8:
+      150 │         [transmission]="0.9"
+          ╵         ~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'thickness' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'thickness' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:151:8:
+      151 │         [thickness]="0.5"
+          ╵         ~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'ior' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'ior' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:152:8:
+      152 │         [ior]="1.4"
+          ╵         ~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'clearcoat' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'clearcoat' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:153:8:
+      153 │         [clearcoat]="1.0"
+          ╵         ~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'clearcoatRoughness' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'clearcoatRoughness' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:154:8:
+      154 │         [clearcoatRoughness]="0.0"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescence' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescence' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:156:8:
+      156 │         [iridescence]="1.0"
+          ╵         ~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceIOR' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceIOR' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:157:8:
+      157 │         [iridescenceIOR]="1.3"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceThicknessMin' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceThicknessMin' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:158:8:
+      158 │         [iridescenceThicknessMin]="100"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceThicknessMax' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceThicknessMax' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:159:8:
+      159 │         [iridescenceThicknessMax]="400"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+Watch mode enabled. Watching for file changes...
+❯ Changes detected. Rebuilding...
+✔ Changes detected. Rebuilding...
+Application bundle generation failed. [0.722 seconds]
+
+▲ [WARNING] NG8107: The left side of this optional chain operation does not include 'null' or 'undefined' in its type, therefore the '?.' operator can be replaced with the '.' operator. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/components/demo-chat-view.component.ts:119:35:
+      119 │                 {{ child.children?.length || 0 }} items
+          ╵                                    ~~~~~~
+
+
+X [ERROR] NG5002: Parser Error: Unexpected token 'x0a0515' at column 2 in [0x0a0515] in D:/projects/ptah-extension/apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts@47:25 [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:48:25:
+      48 │       [backgroundColor]="0x0a0515"
+         ╵                          ~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'position' since it isn't a known property of 'a3d-star-field'.
+1. If 'a3d-star-field' is an Angular component and it has 'position' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-star-field' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:55:8:
+      55 │         [position]="[0, 0, -20]"
+         ╵         ~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'position' since it isn't a known property of 'a3d-star-field'.
+1. If 'a3d-star-field' is an Angular component and it has 'position' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-star-field' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:67:8:
+      67 │         [position]="[0, 0, -40]"
+         ╵         ~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'scale' since it isn't a known property of 'a3d-nebula-volumetric'.
+1. If 'a3d-nebula-volumetric' is an Angular component and it has 'scale' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-nebula-volumetric' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:77:8:
+      77 │         [scale]="50"
+         ╵         ~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'color' since it isn't a known property of 'a3d-nebula-volumetric'.
+1. If 'a3d-nebula-volumetric' is an Angular component and it has 'color' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-nebula-volumetric' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:78:8:
+      78 │         [color]="'#6b21a8'"
+         ╵         ~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'transmission' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'transmission' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow an
+y property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:87:8:
+      87 │         [transmission]="0.9"
+         ╵         ~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'thickness' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'thickness' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:88:8:
+      88 │         [thickness]="0.5"
+         ╵         ~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'ior' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'ior' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:89:8:
+      89 │         [ior]="1.4"
+         ╵         ~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'clearcoat' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'clearcoat' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:90:8:
+      90 │         [clearcoat]="1.0"
+         ╵         ~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'clearcoatRoughness' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'clearcoatRoughness' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:91:8:
+      91 │         [clearcoatRoughness]="0.0"
+         ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescence' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescence' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:93:8:
+      93 │         [iridescence]="1.0"
+         ╵         ~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceIOR' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceIOR' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:94:8:
+      94 │         [iridescenceIOR]="1.3"
+         ╵         ~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceThicknessMin' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceThicknessMin' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:95:8:
+      95 │         [iridescenceThicknessMin]="100"
+         ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceThicknessMax' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceThicknessMax' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:96:8:
+      96 │         [iridescenceThicknessMax]="400"
+         ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'transmission' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'transmission' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:108:8:
+      108 │         [transmission]="0.9"
+          ╵         ~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'thickness' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'thickness' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:109:8:
+      109 │         [thickness]="0.5"
+          ╵         ~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'ior' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'ior' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:110:8:
+      110 │         [ior]="1.4"
+          ╵         ~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'clearcoat' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'clearcoat' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:111:8:
+      111 │         [clearcoat]="1.0"
+          ╵         ~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'clearcoatRoughness' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'clearcoatRoughness' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:112:8:
+      112 │         [clearcoatRoughness]="0.0"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescence' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescence' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:114:8:
+      114 │         [iridescence]="1.0"
+          ╵         ~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceIOR' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceIOR' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:115:8:
+      115 │         [iridescenceIOR]="1.3"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceThicknessMin' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceThicknessMin' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:116:8:
+      116 │         [iridescenceThicknessMin]="100"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceThicknessMax' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceThicknessMax' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:117:8:
+      117 │         [iridescenceThicknessMax]="400"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'transmission' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'transmission' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:129:8:
+      129 │         [transmission]="0.9"
+          ╵         ~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'thickness' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'thickness' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:130:8:
+      130 │         [thickness]="0.5"
+          ╵         ~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'ior' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'ior' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:131:8:
+      131 │         [ior]="1.4"
+          ╵         ~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'clearcoat' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'clearcoat' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:132:8:
+      132 │         [clearcoat]="1.0"
+          ╵         ~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'clearcoatRoughness' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'clearcoatRoughness' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:133:8:
+      133 │         [clearcoatRoughness]="0.0"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescence' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescence' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:135:8:
+      135 │         [iridescence]="1.0"
+          ╵         ~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceIOR' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceIOR' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:136:8:
+      136 │         [iridescenceIOR]="1.3"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceThicknessMin' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceThicknessMin' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:137:8:
+      137 │         [iridescenceThicknessMin]="100"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceThicknessMax' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceThicknessMax' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:138:8:
+      138 │         [iridescenceThicknessMax]="400"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'transmission' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'transmission' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:150:8:
+      150 │         [transmission]="0.9"
+          ╵         ~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'thickness' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'thickness' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:151:8:
+      151 │         [thickness]="0.5"
+          ╵         ~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'ior' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'ior' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:152:8:
+      152 │         [ior]="1.4"
+          ╵         ~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'clearcoat' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'clearcoat' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:153:8:
+      153 │         [clearcoat]="1.0"
+          ╵         ~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'clearcoatRoughness' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'clearcoatRoughness' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:154:8:
+      154 │         [clearcoatRoughness]="0.0"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescence' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescence' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:156:8:
+      156 │         [iridescence]="1.0"
+          ╵         ~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceIOR' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceIOR' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:157:8:
+      157 │         [iridescenceIOR]="1.3"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceThicknessMin' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceThicknessMin' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:158:8:
+      158 │         [iridescenceThicknessMin]="100"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+X [ERROR] NG8002: Can't bind to 'iridescenceThicknessMax' since it isn't a known property of 'a3d-sphere'.
+1. If 'a3d-sphere' is an Angular component and it has 'iridescenceThicknessMax' input, then verify that it is included in the '@Component.imports' of this component.
+2. If 'a3d-sphere' is a Web Component then add 'CUSTOM_ELEMENTS_SCHEMA' to the '@Component.schemas' of this component to suppress this message.
+3. To allow any property add 'NO_ERRORS_SCHEMA' to the '@Component.schemas' of this component. [plugin angular-compiler]
+
+    apps/ptah-landing-page/src/app/sections/hero/hero-3d-scene.component.ts:159:8:
+      159 │         [iridescenceThicknessMax]="400"
+          ╵         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
 ```
-
-### 3. **Critical Finding: Tool Results Extraction**
-
-The `extractAllToolResults` method extracts tool results from user messages:
-
-```typescript name=libs/frontend/chat/src/lib/services/session-replay.service.ts url=https://github.com/Hive-Academy/ptah-extension/blob/e669f6e9cf26031e4bbfe112d3d274be04a4fa53/libs/frontend/chat/src/lib/services/session-replay. service.ts#L470-L510
-private extractAllToolResults(
-  mainMessages: JSONLMessage[]
-): Map<string, { content: string; isError: boolean }> {
-  const toolResults = new Map<string, { content:  string; isError: boolean }>();
-
-  for (const msg of mainMessages) {
-    if (msg.type === 'user' && msg.message?. content) {
-      for (const block of msg.message.content) {
-        if (block.type === 'tool_result' && block.tool_use_id) {
-          // Extract content...
-          toolResults.set(block.tool_use_id, { content: resultText, isError });
-        }
-      }
-    }
-  }
-  return toolResults;
-}
-```
-
-### 4. **Key Differences Between Live Streaming and History Loading**
-
-| Aspect                | Live Streaming (`JsonlMessageProcessor`)                         | Session History (`SessionReplayService`)              |
-| --------------------- | ---------------------------------------------------------------- | ----------------------------------------------------- |
-| **Tool Registration** | Tools registered in `SessionManager._toolNodeMap` as they stream | Tools registered in `nodeMaps.tools` after processing |
-| **Tool Results**      | Received via separate `user` messages with `tool_result` blocks  | Linked via `extractAllToolResults()` pre-scan         |
-| **State Updates**     | Incremental tree updates via `processChunk()`                    | Single batch reconstruction                           |
-| **Node Maps**         | Populated during streaming                                       | Populated at the end, then set via `setNodeMaps()`    |
-
-### 5. **Potential Issue Areas**
-
-Based on the code analysis, the likely issues are:
-
-#### A. **Tool Results Not Being Found**
-
-In `extractAllToolResults()`, the extraction only looks at `user` type messages:
-
-```typescript
-if (msg.type === 'user' && msg.message?.content)
-```
-
-If tool results are in a different message format in the JSONL files, they won't be extracted.
-
-#### B. **Agent Session Tools Missing Results**
-
-For agent sessions, the `buildInterleavedAgentChildren()` method also extracts tool results, but only from within the agent's messages:
-
-```typescript name=libs/frontend/chat/src/lib/services/session-replay.service.ts url=https://github.com/Hive-Academy/ptah-extension/blob/e669f6e9cf26031e4bbfe112d3d274be04a4fa53/libs/frontend/chat/src/lib/services/session-replay.service.ts#L590-L668
-private buildInterleavedAgentChildren(
-  messages: JSONLMessage[],
-  nodeMaps: NodeMaps
-): readonly ExecutionNode[] {
-  // First pass: collect all tool results by their tool_use_id
-  const toolResults = new Map<string, { content: string; isError:  boolean }>();
-
-  for (const msg of messages) {
-    if (msg.type === 'user' && msg. message?.content) {
-      // ...  extract tool results ...
-    }
-  }
-
-  // Second pass: process messages creating tools
-  for (const msg of messages) {
-    if (msg.type === 'assistant' && msg.message?.content) {
-      for (const block of msg.message. content) {
-        // ...
-        else if (block.type === 'tool_use') {
-          const toolResult = block.id ? toolResults.get(block.id) : undefined;
-          // toolResult might be undefined if not found!
-        }
-      }
-    }
-  }
-}
-```
-
-#### C. **No StreamingHandlerService or SessionLoaderService Exist**
-
-Important: The codebase does **NOT** have services named `StreamingHandlerService`, `SessionLoaderService`, or `SessionHistoryReaderService`. The actual services are:
-
-- `JsonlMessageProcessor` - handles live streaming
-- `SessionReplayService` - handles session history loading
-- `SessionManager` - manages node maps and session state
-- `ChatStore` - coordinates everything
-
-There is **no `processStreamEvent`** or `replayToStreamEvents` method - these don't exist in the current codebase.
-
-### 6. **Recommended Debug Steps**
-
-To fix the tool display issue, check:
-
-1. **JSONL file format** - Are tool_result blocks in `user` type messages?
-2. **Tool ID correlation** - Are `tool_use_id` in tool_result matching `block.id` in tool_use?
-3. **Add logging** in `extractAllToolResults()`:
-
-   ```typescript
-   console.log('[SessionReplayService] Tool results found:', {
-     toolUseId: block.tool_use_id,
-     hasContent: !!resultText,
-   });
-   ```
-
-4. **Check agent sessions** - Are agent tools being extracted correctly in `buildInterleavedAgentChildren()`?
-
-The main fix would likely need to ensure the tool result extraction catches all cases and properly links `tool_use_id` values between tool_use and tool_result blocks.
-
----
-
-**Note**: The search results may be incomplete. For more results, you can [search on GitHub](https://github.com/search? q=repo%3AHive-Academy%2Fptah-extension+processStreamEvent&type=code).

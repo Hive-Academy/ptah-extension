@@ -65,7 +65,10 @@ export type MessageRole = 'user' | 'assistant' | 'system';
 // ============================================================================
 
 /**
- * TokenUsage - Token consumption data aligned with Claude SDK
+ * MessageTokenUsage - Token consumption data aligned with Claude SDK
+ *
+ * Named "MessageTokenUsage" to distinguish from TokenUsage in common.types
+ * which represents context window usage (used/max).
  *
  * @see https://platform.claude.com/docs/en/agent-sdk/cost-tracking
  *
@@ -73,7 +76,7 @@ export type MessageRole = 'user' | 'assistant' | 'system';
  * - cacheRead: Tokens read from cache (cheaper than input)
  * - cacheCreation: Tokens used to create cache entries
  */
-export interface TokenUsage {
+export interface MessageTokenUsage {
   /** Base input tokens processed */
   readonly input: number;
   /** Tokens generated in the response */
@@ -190,7 +193,7 @@ export interface ExecutionNode {
   readonly duration?: number;
 
   /** Token usage for this node (aligned with Claude SDK) */
-  readonly tokenUsage?: TokenUsage;
+  readonly tokenUsage?: MessageTokenUsage;
 
   /** Cost in USD calculated from token usage */
   readonly cost?: number;
@@ -331,7 +334,7 @@ export interface ExecutionChatMessage {
   // ---- Usage Metrics (TASK_2025_047) ----
 
   /** Token usage for this message (aligned with Claude SDK) */
-  readonly tokens?: TokenUsage;
+  readonly tokens?: MessageTokenUsage;
 
   /** Cost in USD for this message */
   readonly cost?: number;
@@ -364,7 +367,7 @@ export interface ChatSessionSummary {
   readonly lastActivityAt: number;
 
   /** Token usage totals (aligned with Claude SDK) */
-  readonly tokenUsage?: TokenUsage;
+  readonly tokenUsage?: MessageTokenUsage;
 
   /** Whether this session is currently active */
   readonly isActive: boolean;
@@ -483,10 +486,10 @@ export const ExecutionStatusSchema = z.enum([
 export const MessageRoleSchema = z.enum(['user', 'assistant', 'system']);
 
 /**
- * TokenUsage Zod schema - validates token usage with optional cache fields
+ * MessageTokenUsage Zod schema - validates token usage with optional cache fields
  * Aligned with Claude SDK cost tracking
  */
-export const TokenUsageSchema = z.object({
+export const MessageTokenUsageSchema = z.object({
   input: z.number(),
   output: z.number(),
   cacheRead: z.number().optional(),
@@ -514,7 +517,7 @@ export const ExecutionNodeSchema: z.ZodType<ExecutionNode> = z.lazy(() =>
     startTime: z.number().optional(),
     endTime: z.number().optional(),
     duration: z.number().optional(),
-    tokenUsage: TokenUsageSchema.optional(),
+    tokenUsage: MessageTokenUsageSchema.optional(),
     toolCount: z.number().optional(),
     children: z.array(ExecutionNodeSchema),
     isCollapsed: z.boolean(),
@@ -551,7 +554,7 @@ export const ChatSessionSummarySchema = z.object({
   messageCount: z.number().int().nonnegative(),
   createdAt: z.number(),
   lastActivityAt: z.number(),
-  tokenUsage: TokenUsageSchema.optional(),
+  tokenUsage: MessageTokenUsageSchema.optional(),
   isActive: z.boolean(),
 });
 

@@ -6,8 +6,6 @@ import {
   PermissionRequest,
   PermissionResponse,
   SessionId,
-  calculateMessageCost,
-  createExecutionChatMessage,
   MESSAGE_TYPES,
   SubagentRecord,
 } from '@ptah-extension/shared';
@@ -202,6 +200,14 @@ export class ChatStore {
     const tab = this.tabManager.activeTab();
     return tab?.status === 'streaming' || tab?.status === 'resuming';
   });
+
+  /**
+   * Preloaded stats for old sessions (loaded from JSONL history)
+   * Used by SessionStatsSummaryComponent to display cost/tokens without recalculation
+   */
+  readonly preloadedStats = computed(
+    () => this.tabManager.activeTab()?.preloadedStats ?? null
+  );
 
   /**
    * Get permission request for a specific tool by its toolCallId

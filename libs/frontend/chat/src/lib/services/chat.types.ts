@@ -197,6 +197,21 @@ export interface TabState {
    * Auto-sent via continueConversation() when streaming completes.
    */
   queuedContent?: string | null;
+
+  /**
+   * Preloaded stats from backend (for old sessions loaded from JSONL).
+   * Used to display cost/tokens for historical sessions without recalculation.
+   */
+  preloadedStats?: {
+    totalCost: number;
+    tokens: {
+      input: number;
+      output: number;
+      cacheRead: number;
+      cacheCreation: number;
+    };
+    messageCount: number;
+  } | null;
 }
 
 /**

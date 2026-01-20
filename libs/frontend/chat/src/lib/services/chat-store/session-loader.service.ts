@@ -116,25 +116,25 @@ export class SessionLoaderService {
 
       const currentOffset = this._sessionsOffset();
 
-      const result = await this.claudeRpcService.call('session:list', {
-        workspacePath,
-        limit: SessionLoaderService.SESSIONS_PAGE_SIZE,
-        offset: currentOffset,
-      });
+      const { success, data, error } = await this.claudeRpcService.call(
+        'session:list',
+        {
+          workspacePath,
+          limit: SessionLoaderService.SESSIONS_PAGE_SIZE,
+          offset: currentOffset,
+        }
+      );
 
-      if (result.success && result.data) {
+      if (success && data) {
         // Append new sessions to existing
-        this._sessions.update((current) => [
-          ...current,
-          ...result.data!.sessions,
-        ]);
-        this._totalSessions.set(result.data.total);
-        this._hasMoreSessions.set(result.data.hasMore);
-        this._sessionsOffset.set(currentOffset + result.data.sessions.length);
+        this._sessions.update((current) => [...current, ...data.sessions]);
+        this._totalSessions.set(data.total);
+        this._hasMoreSessions.set(data.hasMore);
+        this._sessionsOffset.set(currentOffset + data.sessions.length);
       } else {
         console.error(
           '[SessionLoaderService] Failed to load more sessions:',
-          result.error
+          error
         );
       }
     } catch (error) {
@@ -232,6 +232,14 @@ export class SessionLoaderService {
 
       const events = resumeResult.data?.events;
       const messages = resumeResult.data?.messages;
+      const stats = resumeResult.data?.stats;
+
+      // Store preloaded stats for display (old sessions)
+      if (stats) {
+        this.tabManager.updateTab(activeTabId, {
+          preloadedStats: stats,
+        });
+      }
 
       // TASK_2025_092 FIX: Process events to build execution tree with tool calls
       if (resumeResult.success && events && events.length > 0) {
@@ -247,8 +255,7 @@ export class SessionLoaderService {
 
         // Finalize session history - builds messages for ALL messages in history
         // (not just the current one like finalizeCurrentMessage does)
-        const historyMessages =
-          this.streamingHandler.finalizeSessionHistory(activeTabId);
+        this.streamingHandler.finalizeSessionHistory(activeTabId);
 
         this.sessionManager.setStatus('loaded');
       } else if (resumeResult.success && messages && messages.length > 0) {

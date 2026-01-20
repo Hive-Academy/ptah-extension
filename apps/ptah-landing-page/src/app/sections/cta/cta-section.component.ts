@@ -1,94 +1,138 @@
-import {
-  Component,
-  ChangeDetectionStrategy,
-  viewChild,
-  ElementRef,
-  inject,
-  DestroyRef,
-  afterNextRender,
-} from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import gsap from 'gsap';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
-
-// Register ScrollTrigger plugin
-gsap.registerPlugin(ScrollTrigger);
+import {
+  ViewportAnimationDirective,
+  ViewportAnimationConfig,
+} from '@hive-academy/angular-gsap';
 
 /**
  * CTA Section Component
  *
  * Purpose: Final call-to-action section with enhanced typography and golden divider
  *
- * Tasks 3.3 & 3.4 Enhancements:
- * - Text-7xl headline with gradient-text-gold class
- * - Large CTA button with pulse-ring animation
- * - Golden divider with GSAP draw animation on scroll
- * - Content from landing-page-copy.md applied
+ * Batch 5 Enhancements (Task 5.1):
+ * - Golden gradient headline "Get Started Free" with scaleIn animation
+ * - Primary CTA with pulse animation (CSS keyframes)
+ * - Secondary CTAs with fadeIn animation
+ * - Trust signals with staggered fadeIn animations
+ * - All animations via @hive-academy/angular-gsap ViewportAnimationDirective
  *
  * Complexity Level: 2 (Medium)
- * - GSAP animation logic with lifecycle management
+ * - ViewportAnimationDirective for scroll-triggered entrance animations
  * - Composition of CTA elements and footer
- * - Accessibility: Reduced motion support
+ * - Accessibility: Reduced motion support via library defaults
  *
  * Patterns Applied:
  * - Standalone component with OnPush (performance)
- * - afterNextRender() for safe client-side initialization
- * - gsap.context() for scoped animations with cleanup
- * - DestroyRef.onDestroy() for resource management
+ * - Declarative animations via ViewportAnimationDirective
+ * - No raw GSAP code - all via @hive-academy library
  */
 @Component({
   selector: 'ptah-cta-section',
-  standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, ViewportAnimationDirective],
   template: `
-    <section #sectionRef id="cta" class="py-32 bg-base-100">
+    <section id="cta" class="py-32 bg-base-100">
       <div class="container mx-auto px-6 text-center">
-        <!-- Headline with gold gradient (Task 3.3) -->
-        <h2 class="text-7xl font-display font-bold mb-6 gradient-text-gold">
-          Ready to Build Smarter?
+        <!-- Headline with gold gradient and scaleIn animation -->
+        <h2
+          viewportAnimation
+          [viewportConfig]="headlineConfig"
+          class="text-7xl font-display font-bold mb-6 gradient-text-gold"
+        >
+          Get Started Free
         </h2>
 
-        <!-- Subheadline from landing-page-copy.md -->
-        <p class="text-xl text-base-content/70 mb-12 max-w-2xl mx-auto">
+        <!-- Subheadline with fadeIn animation -->
+        <p
+          viewportAnimation
+          [viewportConfig]="subheadlineConfig"
+          class="text-xl text-base-content/70 mb-12 max-w-2xl mx-auto"
+        >
           Free to install. No configuration needed. Works with your existing
           Claude Code setup.
         </p>
 
-        <!-- CTA Button with pulse animation (Task 3.3) -->
-        <a
-          href="https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="cta-button inline-block px-12 py-6 text-xl font-bold rounded-xl
-                  bg-gradient-to-r from-secondary to-accent
-                  text-base-100 shadow-glow-gold
-                  hover:scale-105 hover:shadow-glow-gold-lg
-                  transition-all duration-300 animate-pulse-ring"
-          aria-label="Install Ptah Extension from VS Code Marketplace"
-        >
-          Install Ptah Extension
-        </a>
-
-        <!-- Secondary link -->
-        <div class="mt-8">
+        <!-- Primary CTA Button with pulse animation via CSS keyframes -->
+        <div viewportAnimation [viewportConfig]="primaryCtaConfig">
           <a
-            href="#"
-            class="text-secondary hover:text-accent transition-colors"
-            aria-label="Read the documentation"
+            href="https://marketplace.visualstudio.com/items?itemName=ptah.ptah"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="cta-button inline-block px-12 py-6 text-xl font-bold rounded-xl
+                    bg-gradient-to-r from-secondary to-accent
+                    text-base-100 shadow-glow-gold
+                    hover:scale-105 hover:shadow-glow-gold-lg
+                    transition-all duration-300 animate-pulse-ring"
+            aria-label="Install Ptah Extension from VS Code Marketplace"
           >
-            Read the Documentation →
+            Install from VS Code Marketplace
           </a>
         </div>
 
-        <!-- Golden Divider with draw animation (Task 3.4) -->
-        <div class="divider-container overflow-hidden mt-16 mb-8">
+        <!-- Secondary CTAs with fadeIn animation -->
+        <div
+          viewportAnimation
+          [viewportConfig]="secondaryCtasConfig"
+          class="mt-8 flex flex-wrap justify-center gap-6"
+        >
+          <a
+            href="#"
+            class="text-secondary hover:text-accent transition-colors font-medium"
+            aria-label="Read the documentation"
+          >
+            Read the Docs
+          </a>
+          <a
+            href="#demo"
+            class="text-secondary hover:text-accent transition-colors font-medium"
+            aria-label="Watch product demo"
+          >
+            Watch Demo
+          </a>
+        </div>
+
+        <!-- Trust Signals with staggered fadeIn -->
+        <div class="mt-12 flex flex-wrap justify-center gap-8">
+          @for (signal of trustSignals; track signal; let i = $index) {
           <div
-            class="golden-divider h-[2px] w-full bg-gradient-to-r from-transparent via-secondary to-transparent transform scale-x-0 origin-center"
+            viewportAnimation
+            [viewportConfig]="getTrustSignalConfig(i)"
+            class="flex items-center gap-2 text-base-content/60"
+          >
+            <svg
+              class="w-5 h-5 text-success"
+              fill="currentColor"
+              viewBox="0 0 20 20"
+            >
+              <path
+                fill-rule="evenodd"
+                d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                clip-rule="evenodd"
+              />
+            </svg>
+            <span class="text-sm font-medium">{{ signal }}</span>
+          </div>
+          }
+        </div>
+
+        <!-- Golden Divider with scaleX animation -->
+        <div
+          viewportAnimation
+          [viewportConfig]="dividerConfig"
+          class="overflow-hidden mt-16 mb-8"
+        >
+          <div
+            class="h-[2px] w-full bg-gradient-to-r from-transparent via-secondary to-transparent"
           ></div>
         </div>
 
-        <!-- Footer -->
-        <footer class="pt-8" role="contentinfo">
+        <!-- Footer with fadeIn animation -->
+        <footer
+          viewportAnimation
+          [viewportConfig]="footerConfig"
+          class="pt-8"
+          role="contentinfo"
+        >
           <!-- Brand -->
           <div class="mb-8">
             <h3 class="text-2xl font-display font-bold text-secondary mb-2">
@@ -119,7 +163,7 @@ gsap.registerPlugin(ScrollTrigger);
               GitHub
             </a>
             <a
-              href="https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code"
+              href="https://marketplace.visualstudio.com/items?itemName=ptah.ptah"
               target="_blank"
               rel="noopener noreferrer"
               class="text-base-content/70 hover:text-secondary transition-colors"
@@ -143,14 +187,14 @@ gsap.registerPlugin(ScrollTrigger);
               class="text-base-content/70 hover:text-secondary transition-colors"
               aria-label="Twitter"
             >
-              <span class="text-xl">🐦</span>
+              <span class="text-xl">X</span>
             </a>
             <a
               href="#"
               class="text-base-content/70 hover:text-secondary transition-colors"
               aria-label="Discord"
             >
-              <span class="text-xl">💬</span>
+              <span class="text-xl">Discord</span>
             </a>
             <a
               href="https://github.com/anthropics/claude-code"
@@ -159,14 +203,14 @@ gsap.registerPlugin(ScrollTrigger);
               class="text-base-content/70 hover:text-secondary transition-colors"
               aria-label="GitHub"
             >
-              <span class="text-xl">🔗</span>
+              <span class="text-xl">GitHub</span>
             </a>
           </div>
 
           <!-- Legal -->
           <div class="text-center text-sm text-base-content/50">
             <p>
-              © 2025 Ptah Extension |
+              2025 Ptah Extension |
               <a href="#" class="hover:text-secondary transition-colors"
                 >MIT License</a
               >
@@ -187,51 +231,88 @@ gsap.registerPlugin(ScrollTrigger);
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CTASectionComponent {
-  private readonly sectionRef = viewChild.required<ElementRef>('sectionRef');
-  private readonly destroyRef = inject(DestroyRef);
-  private gsapContext?: gsap.Context;
-
-  constructor() {
-    // Initialize animations after render (client-side only)
-    afterNextRender(() => {
-      this.initAnimations();
-    });
-  }
+  /**
+   * Trust signals displayed with staggered fadeIn animations
+   */
+  readonly trustSignals = [
+    'Free Forever',
+    'No Account Required',
+    'Open Source',
+  ];
 
   /**
-   * Initialize GSAP golden divider draw animation
-   *
-   * Task 3.4: Golden Divider Draw Animation
-   * - Divider scales from 0 to full width on scroll-in
-   * - Triggers at 85% viewport entry
-   *
-   * Accessibility: Respects prefers-reduced-motion media query
+   * Headline animation config - scaleIn for dramatic entrance
    */
-  private initAnimations(): void {
-    // Check if user prefers reduced motion - skip all animations
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      return;
-    }
+  readonly headlineConfig: ViewportAnimationConfig = {
+    animation: 'scaleIn',
+    duration: 0.8,
+    threshold: 0.2,
+  };
 
-    // Create GSAP context scoped to this section for automatic cleanup
-    this.gsapContext = gsap.context(() => {
-      // Golden divider draw animation
-      gsap.from('.golden-divider', {
-        scaleX: 0,
-        duration: 1.5,
-        ease: 'power2.out',
-        scrollTrigger: {
-          trigger: '.divider-container',
-          start: 'top 85%',
-          toggleActions: 'play none none reverse',
-        },
-      });
-    }, this.sectionRef().nativeElement);
+  /**
+   * Subheadline animation config - fadeIn with slight delay
+   */
+  readonly subheadlineConfig: ViewportAnimationConfig = {
+    animation: 'fadeIn',
+    duration: 0.8,
+    delay: 0.1,
+    threshold: 0.2,
+  };
 
-    // Register cleanup on component destroy
-    this.destroyRef.onDestroy(() => {
-      ScrollTrigger.getAll().forEach((trigger) => trigger.kill());
-      this.gsapContext?.revert();
-    });
+  /**
+   * Primary CTA animation config - slideUp with bounce
+   */
+  readonly primaryCtaConfig: ViewportAnimationConfig = {
+    animation: 'slideUp',
+    duration: 0.6,
+    delay: 0.2,
+    ease: 'back.out(1.7)',
+    threshold: 0.2,
+  };
+
+  /**
+   * Secondary CTAs animation config - fadeIn
+   */
+  readonly secondaryCtasConfig: ViewportAnimationConfig = {
+    animation: 'fadeIn',
+    duration: 0.6,
+    delay: 0.3,
+    threshold: 0.2,
+  };
+
+  /**
+   * Divider animation config - custom scaleX animation
+   */
+  readonly dividerConfig: ViewportAnimationConfig = {
+    animation: 'custom',
+    duration: 1.2,
+    delay: 0.4,
+    threshold: 0.2,
+    from: { scaleX: 0, transformOrigin: 'center' },
+    to: { scaleX: 1 },
+  };
+
+  /**
+   * Footer animation config - fadeIn
+   */
+  readonly footerConfig: ViewportAnimationConfig = {
+    animation: 'fadeIn',
+    duration: 0.8,
+    delay: 0.5,
+    threshold: 0.1,
+  };
+
+  /**
+   * Get trust signal animation config with staggered delay
+   * @param index Position in the trust signals array
+   * @returns ViewportAnimationConfig with calculated delay
+   */
+  getTrustSignalConfig(index: number): ViewportAnimationConfig {
+    return {
+      animation: 'fadeIn',
+      duration: 0.5,
+      delay: 0.35 + index * 0.1,
+      threshold: 0.2,
+    };
   }
 }

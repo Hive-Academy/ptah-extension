@@ -2,7 +2,10 @@
   <!-- Session Stats Summary (only when there are messages) -->
   @if (chatStore.messages().length > 0) {
   <div class="px-4 pt-3 pb-1">
-    <ptah-session-stats-summary [messages]="chatStore.messages()" />
+    <ptah-session-stats-summary
+      [messages]="chatStore.messages()"
+      [preloadedStats]="chatStore.preloadedStats()"
+    />
   </div>
   }
 

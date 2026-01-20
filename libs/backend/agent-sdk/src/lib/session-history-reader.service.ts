@@ -31,11 +31,15 @@ import {
   MessageCompleteEvent,
   FlatStreamEventUnion,
   JSONLMessage,
-  EventSource,
   isTaskToolInput,
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import {
+  extractTokenUsage,
+  estimateCostFromTokens,
+  type ClaudeApiUsage,
+} from './helpers/usage-extraction.utils';
 
 // ============================================================================
 // INTERFACES
@@ -54,6 +58,13 @@ interface JsonlMessageLine {
   message?: {
     role: string;
     content: string | ContentBlock[];
+    /** Claude API usage data - present on assistant messages */
+    usage?: {
+      input_tokens: number;
+      output_tokens: number;
+      cache_read_input_tokens?: number;
+      cache_creation_input_tokens?: number;
+    };
   };
   isMeta?: boolean;
   slug?: string;
@@ -66,6 +77,7 @@ interface JsonlMessageLine {
  * - Correlation (timestamp)
  * - Warmup filtering (slug, isMeta)
  * - Message tracking (uuid)
+ * - Usage stats extraction
  */
 interface SessionHistoryMessage extends JSONLMessage {
   readonly uuid?: string;
@@ -73,6 +85,8 @@ interface SessionHistoryMessage extends JSONLMessage {
   readonly timestamp?: string;
   readonly isMeta?: boolean;
   readonly slug?: string;
+  /** Claude API usage data from assistant messages */
+  readonly usage?: ClaudeApiUsage;
 }
 
 interface ContentBlock {
@@ -107,22 +121,36 @@ export class SessionHistoryReaderService {
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
 
   /**
-   * Read session history and convert to FlatStreamEventUnion events
+   * Read session history and convert to FlatStreamEventUnion events with stats
+   *
+   * Returns both events for UI rendering and aggregated usage stats from JSONL.
    *
    * @param sessionId - Session identifier
    * @param workspacePath - Workspace path for locating session files
-   * @returns Array of FlatStreamEventUnion events ready for streaming to webview
+   * @returns Object with events and aggregated stats
    */
   async readSessionHistory(
     sessionId: string,
     workspacePath: string
-  ): Promise<FlatStreamEventUnion[]> {
+  ): Promise<{
+    events: FlatStreamEventUnion[];
+    stats: {
+      totalCost: number;
+      tokens: {
+        input: number;
+        output: number;
+        cacheRead: number;
+        cacheCreation: number;
+      };
+      messageCount: number;
+    } | null;
+  }> {
     try {
       // 1. Find the sessions directory
       const sessionsDir = await this.findSessionsDirectory(workspacePath);
       if (!sessionsDir) {
         this.logger.warn('[SessionHistoryReader] Sessions directory not found');
-        return [];
+        return { events: [], stats: null };
       }
 
       // 2. Find the session file
@@ -133,7 +161,7 @@ export class SessionHistoryReaderService {
         this.logger.warn('[SessionHistoryReader] Session file not found', {
           sessionId,
         });
-        return [];
+        return { events: [], stats: null };
       }
 
       // 3. Read main session messages
@@ -152,14 +180,105 @@ export class SessionHistoryReaderService {
         agentSessions
       );
 
-      return events;
+      // 6. Aggregate usage stats from all messages
+      const stats = this.aggregateUsageStats(mainMessages, agentSessions);
+
+      this.logger.info('[SessionHistoryReader] Loaded session with stats', {
+        sessionId,
+        eventCount: events.length,
+        hasStats: !!stats,
+        totalCost: stats?.totalCost,
+        totalTokens: (stats?.tokens?.input ?? 0) + (stats?.tokens?.output ?? 0),
+      });
+
+      return { events, stats };
     } catch (error) {
       this.logger.error(
         '[SessionHistoryReader] Failed to read session history',
         error instanceof Error ? error : new Error(String(error))
       );
-      return [];
+      return { events: [], stats: null };
     }
+  }
+
+  /**
+   * Aggregate usage stats from all session messages
+   */
+  private aggregateUsageStats(
+    mainMessages: SessionHistoryMessage[],
+    agentSessions: AgentSessionData[]
+  ): {
+    totalCost: number;
+    tokens: {
+      input: number;
+      output: number;
+      cacheRead: number;
+      cacheCreation: number;
+    };
+    messageCount: number;
+  } | null {
+    let totalInput = 0;
+    let totalOutput = 0;
+    let totalCacheRead = 0;
+    let totalCacheCreation = 0;
+    let messageCount = 0;
+    let hasAnyUsage = false;
+
+    // Aggregate from main session messages
+    for (const msg of mainMessages) {
+      if (msg.usage) {
+        hasAnyUsage = true;
+        const tokens = extractTokenUsage(msg.usage);
+        if (tokens) {
+          totalInput += tokens.input;
+          totalOutput += tokens.output;
+          totalCacheRead += tokens.cacheRead ?? 0;
+          totalCacheCreation += tokens.cacheCreation ?? 0;
+        }
+      }
+      if (msg.type === 'assistant') {
+        messageCount++;
+      }
+    }
+
+    // Aggregate from agent sessions
+    for (const agent of agentSessions) {
+      for (const msg of agent.messages) {
+        if (msg.usage) {
+          hasAnyUsage = true;
+          const tokens = extractTokenUsage(msg.usage);
+          if (tokens) {
+            totalInput += tokens.input;
+            totalOutput += tokens.output;
+            totalCacheRead += tokens.cacheRead ?? 0;
+            totalCacheCreation += tokens.cacheCreation ?? 0;
+          }
+        }
+      }
+    }
+
+    if (!hasAnyUsage) {
+      return null;
+    }
+
+    // Estimate cost from tokens
+    const totalCost = estimateCostFromTokens({
+      input: totalInput,
+      output: totalOutput,
+      cacheRead: totalCacheRead,
+      cacheCreation: totalCacheCreation,
+    });
+
+    return {
+      totalCost,
+      tokens: {
+        input: totalInput,
+        output: totalOutput,
+        cacheRead: totalCacheRead,
+        cacheCreation: totalCacheCreation,
+      },
+      messageCount,
+    };
   }
 
   /**
@@ -338,6 +457,8 @@ export class SessionHistoryReaderService {
       isMeta: line.isMeta,
       slug: line.slug,
       message: line.message as SessionHistoryMessage['message'],
+      // Preserve usage stats for later aggregation
+      usage: line.message?.usage,
     };
   }
 
