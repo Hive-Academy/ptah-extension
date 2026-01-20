@@ -36,6 +36,9 @@ export const SDK_TOKENS = {
   SDK_MODULE_LOADER: 'SdkModuleLoader',
   SDK_MODEL_SERVICE: 'SdkModelService',
   SDK_USER_MESSAGE_STREAM_FACTORY: 'UserMessageStreamFactory',
+
+  // History reader child services (TASK_2025_106)
+  SDK_HISTORY_EVENT_FACTORY: 'SdkHistoryEventFactory',
 } as const;
 
 /**
