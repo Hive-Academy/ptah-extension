@@ -75,7 +75,7 @@ npm install [package]
 
 ```typescript
 // Working code from codebase
-import { ServiceName } from '@ptah-extension/library';
+import { ServiceName } from '@[org]/[library]';
 ```
 
 ### Step 2: [Action]
@@ -108,7 +108,7 @@ npm run [command]
 
 ## Import
 ```typescript
-import { ServiceName } from '@ptah-extension/library';
+import { ServiceName } from '@[org]/[library]';
 ````
 
 ## Methods

@@ -454,9 +454,15 @@ export class StreamingHandlerService {
   /**
    * Finalize session history - builds messages for ALL messages in streaming state
    * Delegates to MessageFinalizationService
+   *
+   * @param tabId - Tab ID to finalize
+   * @param resumableSubagents - Optional array of resumable subagent records from backend (TASK_2025_103)
    */
-  finalizeSessionHistory(tabId: string): ExecutionChatMessage[] {
-    return this.finalization.finalizeSessionHistory(tabId);
+  finalizeSessionHistory(
+    tabId: string,
+    resumableSubagents?: import('@ptah-extension/shared').SubagentRecord[]
+  ): ExecutionChatMessage[] {
+    return this.finalization.finalizeSessionHistory(tabId, resumableSubagents);
   }
 
   /**

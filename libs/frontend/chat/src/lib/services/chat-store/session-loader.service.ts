@@ -233,6 +233,8 @@ export class SessionLoaderService {
       const events = resumeResult.data?.events;
       const messages = resumeResult.data?.messages;
       const stats = resumeResult.data?.stats;
+      // TASK_2025_103 FIX: Get resumable subagents for marking interrupted agents
+      const resumableSubagents = resumeResult.data?.resumableSubagents;
 
       // Store preloaded stats for display (old sessions)
       if (stats) {
@@ -254,8 +256,11 @@ export class SessionLoaderService {
         }
 
         // Finalize session history - builds messages for ALL messages in history
-        // (not just the current one like finalizeCurrentMessage does)
-        this.streamingHandler.finalizeSessionHistory(activeTabId);
+        // TASK_2025_103 FIX: Pass resumableSubagents so interrupted agents are marked
+        this.streamingHandler.finalizeSessionHistory(
+          activeTabId,
+          resumableSubagents
+        );
 
         this.sessionManager.setStatus('loaded');
       } else if (resumeResult.success && messages && messages.length > 0) {

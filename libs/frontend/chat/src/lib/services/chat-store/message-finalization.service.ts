@@ -17,6 +17,7 @@ import {
   MessageCompleteEvent,
   MessageStartEvent,
   ExecutionChatMessage,
+  SubagentRecord,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
@@ -134,10 +135,17 @@ export class MessageFinalizationService {
    * current streaming message, this method processes ALL messages from session
    * history replay.
    *
+   * TASK_2025_103 FIX: Now accepts optional resumableSubagents array to mark
+   * agent nodes as 'interrupted' so the Resume button appears on loaded history.
+   *
    * @param tabId - Tab ID to finalize
+   * @param resumableSubagents - Optional array of resumable subagent records from backend
    * @returns Array of ExecutionChatMessage for all messages in history
    */
-  finalizeSessionHistory(tabId: string): ExecutionChatMessage[] {
+  finalizeSessionHistory(
+    tabId: string,
+    resumableSubagents?: SubagentRecord[]
+  ): ExecutionChatMessage[] {
     // PERFORMANCE: Flush any pending batched updates before finalization
     this.batchedUpdate.flushSync();
 
@@ -153,7 +161,18 @@ export class MessageFinalizationService {
 
     // Build full tree for all messages
     const cacheKey = `history-${tabId}-${Date.now()}`;
-    const allTrees = this.treeBuilder.buildTree(stateCopy, cacheKey);
+    let allTrees = this.treeBuilder.buildTree(stateCopy, cacheKey);
+
+    // TASK_2025_103 FIX: Mark resumable agent nodes as 'interrupted'
+    // so the Resume button appears when loading session from history
+    if (resumableSubagents && resumableSubagents.length > 0) {
+      const resumableToolCallIds = new Set(
+        resumableSubagents.map((s) => s.toolCallId)
+      );
+      allTrees = allTrees.map((tree) =>
+        this.markResumableAgentsAsInterrupted(tree, resumableToolCallIds)
+      );
+    }
 
     const messages: ExecutionChatMessage[] = [];
 
@@ -281,6 +300,51 @@ export class MessageFinalizationService {
 
     // If this node is streaming, mark it as interrupted
     if (node.status === 'streaming') {
+      return {
+        ...node,
+        status: 'interrupted',
+        children: updatedChildren,
+      };
+    }
+
+    // If children changed, return new node with updated children
+    if (updatedChildren !== node.children) {
+      return {
+        ...node,
+        children: updatedChildren,
+      };
+    }
+
+    // No changes needed
+    return node;
+  }
+
+  /**
+   * TASK_2025_103 FIX: Recursively mark agent nodes with matching toolCallIds as 'interrupted'
+   *
+   * When loading a session from history, the tree is rebuilt but the 'interrupted' status
+   * is lost. This method uses the resumable subagent records from the backend registry
+   * to re-apply the 'interrupted' status to matching agent nodes so the Resume button appears.
+   *
+   * @param node - ExecutionNode tree to process
+   * @param resumableToolCallIds - Set of toolCallIds from resumable subagents
+   * @returns Updated node with 'interrupted' status on matching agents
+   */
+  private markResumableAgentsAsInterrupted(
+    node: ExecutionNode,
+    resumableToolCallIds: Set<string>
+  ): ExecutionNode {
+    // Recursively process children first
+    const updatedChildren = node.children.map((child) =>
+      this.markResumableAgentsAsInterrupted(child, resumableToolCallIds)
+    );
+
+    // Check if this is an agent node with a matching toolCallId
+    if (
+      node.type === 'agent' &&
+      node.toolCallId &&
+      resumableToolCallIds.has(node.toolCallId)
+    ) {
       return {
         ...node,
         status: 'interrupted',

@@ -4,31 +4,15 @@
 
 Extract compelling content material from the codebase and task history.
 
-## The Ptah Codebase Structure
+## Generic Codebase Structure
 
 ```
-ptah-extension/
+[project-name]/
 ├── CLAUDE.md                 # Project overview, commands, architecture
-├── orchestration.md          # Workflow, task management, agent delegation
 ├── apps/
-│   ├── ptah-extension-vscode/   # VS Code extension
-│   └── ptah-extension-webview/  # Angular SPA
+│   └── [app-name]/           # Application(s)
 ├── libs/
-│   ├── backend/              # Backend libraries
-│   │   ├── agent-sdk/        # Claude SDK integration
-│   │   ├── agent-generation/ # Agent templates
-│   │   ├── llm-abstraction/  # Multi-provider LLM
-│   │   ├── template-generation/
-│   │   ├── vscode-core/      # DI, logging, APIs
-│   │   ├── vscode-lm-tools/  # MCP server
-│   │   └── workspace-intelligence/
-│   ├── frontend/             # Frontend libraries
-│   │   ├── chat/             # Chat UI (48+ components)
-│   │   ├── core/             # State management
-│   │   ├── dashboard/
-│   │   ├── setup-wizard/
-│   │   └── ui/               # Shared components
-│   └── shared/               # Type system
+│   └── [library-name]/       # Shared libraries
 ├── task-tracking/            # Task history
 │   ├── registry.md           # All tasks
 │   └── TASK_XXXX/           # Individual tasks
@@ -88,7 +72,7 @@ Read(task-tracking/TASK_XXXX/code-*-review.md)
 Grep("PURPOSE|RESPONSIBILITY", libs/*/CLAUDE.md)
 
 # Feature counts
-Glob(libs/frontend/chat/src/lib/components/**/*.ts)  # Count components
+Glob(libs/[library]/src/lib/components/**/*.ts)  # Count components
 
 # Architecture highlights
 Read(CLAUDE.md)  # Library map section
@@ -105,7 +89,7 @@ Read(task-tracking/TASK_XXXX/context.md)  # The problem
 Read(task-tracking/TASK_XXXX/implementation-plan.md)  # The solution
 
 # Code examples
-Read(libs/<library>/src/lib/services/*.service.ts)
+Read(libs/[library]/src/lib/services/*.service.ts)
 
 # Results/metrics
 Grep("Complete|DONE", task-tracking/TASK_XXXX/tasks.md)
@@ -116,7 +100,7 @@ Grep("Complete|DONE", task-tracking/TASK_XXXX/tasks.md)
 ```bash
 # Public APIs
 Glob(libs/*/src/index.ts)  # Exports
-Grep("export interface|export type|export class", libs/<library>)
+Grep("export interface|export type|export class", libs/[library])
 
 # Usage examples
 Grep("<ClassName>", apps/**/*.ts)  # How it's used
@@ -130,14 +114,14 @@ Read(CLAUDE.md)  # Build commands
 
 ```bash
 # Visual features
-Read(libs/frontend/chat/CLAUDE.md)  # UI components
-Glob(libs/frontend/*/src/lib/components/**/*.ts)
+Read(libs/[library]/CLAUDE.md)  # UI components
+Glob(libs/*/src/lib/components/**/*.ts)
 
 # Demo flows
 Read(task-tracking/TASK_XXXX/context.md)  # User journey
 
 # Code highlights
-Read(libs/<library>/src/lib/services/*.service.ts)  # Key logic
+Read(libs/[library]/src/lib/services/*.service.ts)  # Key logic
 ```
 
 ## Key Content Goldmines
@@ -180,23 +164,23 @@ Read(libs/<library>/src/lib/services/*.service.ts)  # Key logic
 
 ```bash
 # Component count
-find libs/frontend/chat/src -name "*.component.ts" | wc -l
+Glob(libs/*/src/**/*.component.ts)
 
 # Service count
-find libs -name "*.service.ts" | wc -l
+Glob(libs/**/*.service.ts)
 
 # Type definitions
-Grep("export interface|export type", libs/shared) | wc -l
+Grep("export interface|export type", libs/[shared-lib])
 
-# DI tokens
-Grep("TOKENS\.", libs/backend/vscode-core/src/di/tokens.ts) | wc -l
+# Directive count
+Glob(libs/**/*.directive.ts)
 ```
 
 ### From Task Tracking
 
 ```bash
 # Completed tasks
-Grep("Complete", task-tracking/registry.md) | wc -l
+Grep("Complete", task-tracking/registry.md)
 
 # Features by type
 Grep("FEATURE|BUGFIX|REFACTOR", task-tracking/registry.md)
@@ -214,39 +198,39 @@ Use actual terminology from the codebase for SEO and authenticity:
 Grep("class.*Service", libs/**/*.service.ts)
 
 # Component names
-Grep("@Component", libs/frontend/**/*.component.ts)
+Grep("@Component", libs/**/*.component.ts)
 
 # Interface names
-Grep("export interface", libs/shared/src)
+Grep("export interface", libs/[shared-lib]/src)
 
 # Feature names (from task titles)
 Grep("Description", task-tracking/registry.md)
 ```
 
-## Content Ideas by Library
+## Content Ideas by Library Type
 
-### libs/frontend/chat
+### UI Component Libraries
 
-- "Building a Real-Time AI Chat Interface with Angular Signals"
-- "48 Components: Anatomy of a Production Chat UI"
-- "Streaming Text with TypeWriter Effect"
+- "Building a [Feature] Interface with [Framework]"
+- "N Components: Anatomy of a Production [Feature] UI"
+- "Reactive State with [State Management]"
 
-### libs/backend/agent-sdk
+### Service/SDK Libraries
 
-- "10x Faster Than CLI: Claude Agent SDK Integration"
-- "Multi-Turn Conversations with Claude SDK"
-- "Streaming AI Responses in VS Code"
+- "Integrating [External Service] with [Framework]"
+- "Multi-Turn [Feature] with [SDK]"
+- "Streaming Responses in [Platform]"
 
-### libs/backend/workspace-intelligence
+### Core/Utility Libraries
 
-- "Intelligent Workspace Analysis for AI Context"
-- "20 Services for Understanding Your Codebase"
-- "Token Optimization for LLM Context Windows"
+- "Intelligent [Domain] Analysis for [Use Case]"
+- "N Services for Understanding Your [Domain]"
+- "Optimizing [Resource] for [Constraint]"
 
-### libs/frontend/setup-wizard
+### Setup/Config Libraries
 
-- "6-Step Agent Setup: From Install to Intelligent"
-- "Automating Claude Configuration"
+- "N-Step Setup: From Install to [Goal]"
+- "Automating [Feature] Configuration"
 
 ## Quick Reference Commands
 
@@ -259,11 +243,11 @@ Read(task-tracking/TASK_XXXX/context.md)
 Read(task-tracking/TASK_XXXX/implementation-plan.md)
 
 # Find code for feature
-Grep("<feature-keyword>", libs/**/*)
+Grep("[feature-keyword]", libs/**/*)
 
 # Get library overview
-Read(libs/<library>/CLAUDE.md)
+Read(libs/[library]/CLAUDE.md)
 
 # Find usage patterns
-Grep("<ServiceName>", apps/**/*.ts)
+Grep("[ServiceName]", apps/**/*.ts)
 ```

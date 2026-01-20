@@ -24,17 +24,21 @@
  * @see TASK_2025_106 - Session History Reader Refactoring
  */
 
-import { injectable, inject } from 'tsyringe';
-import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
+import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import { inject, injectable } from 'tsyringe';
 import { SDK_TOKENS } from '../../di/tokens';
+import {
+  estimateCostFromTokens,
+  extractTokenUsage,
+} from '../usage-extraction.utils';
 import { AgentCorrelationService } from './agent-correlation.service';
+import type { MessageUsageData } from './history-event-factory';
 import { HistoryEventFactory } from './history-event-factory';
 import type {
-  SessionHistoryMessage,
   AgentSessionData,
   ContentBlock,
-  AgentDataMapEntry,
+  SessionHistoryMessage,
 } from './history.types';
 
 /**
@@ -76,13 +80,16 @@ export class SessionReplayService {
     let eventIndex = 0;
 
     // Build maps for correlation
-    const agentDataMap = this.correlationService.buildAgentDataMap(agentSessions);
-    const taskToolUses = this.correlationService.extractTaskToolUses(mainMessages);
+    const agentDataMap =
+      this.correlationService.buildAgentDataMap(agentSessions);
+    const taskToolUses =
+      this.correlationService.extractTaskToolUses(mainMessages);
     const taskToAgentMap = this.correlationService.correlateAgentsToTasks(
       taskToolUses,
       agentDataMap
     );
-    const allToolResults = this.correlationService.extractAllToolResults(mainMessages);
+    const allToolResults =
+      this.correlationService.extractAllToolResults(mainMessages);
 
     // Process messages
     let currentMessageId: string | null = null;
@@ -93,6 +100,9 @@ export class SessionReplayService {
     // Add micro-offsets (0.001ms per event) to preserve creation order while keeping
     // events grouped by their original message time.
     let messageSequence = 0;
+    // TASK_2025_098 FIX: Track accumulated usage for current assistant message
+    // Usage is extracted from JSONL message.usage and accumulated across message blocks
+    let currentMessageUsage: MessageUsageData | undefined;
 
     for (const msg of mainMessages) {
       // Skip non-message types
@@ -120,17 +130,21 @@ export class SessionReplayService {
               sessionId,
               currentMessageId,
               eventIndex++,
-              currentMessageTimestamp + messageSequence++ * 0.001
+              currentMessageTimestamp + messageSequence++ * 0.001,
+              currentMessageUsage // TASK_2025_098 FIX: Pass usage data for per-message stats
             )
           );
           currentMessageId = null;
           blockIndex = 0;
           messageSequence = 0; // Reset for new message
+          currentMessageUsage = undefined; // Reset usage for next message
         }
 
         // Create user message events (user messages are self-contained, use local sequence)
         const messageId = msg.uuid || this.eventFactory.generateId();
-        const content = this.eventFactory.extractTextContent(msg.message.content);
+        const content = this.eventFactory.extractTextContent(
+          msg.message.content
+        );
         const timestamp = msg.timestamp
           ? new Date(msg.timestamp).getTime()
           : Date.now();
@@ -185,6 +199,42 @@ export class SessionReplayService {
               currentMessageTimestamp + messageSequence++ * 0.001
             )
           );
+        }
+
+        // TASK_2025_098 FIX: Extract usage data from assistant message for per-message stats
+        // Usage comes from msg.message.usage (Claude API format)
+        const msgUsage = msg.message.usage as {
+          readonly input_tokens: number;
+          readonly output_tokens: number;
+          readonly cache_read_input_tokens: number;
+          readonly cache_creation_input_tokens: number;
+        };
+        if (msgUsage) {
+          const tokenUsage = extractTokenUsage(msgUsage);
+          if (tokenUsage) {
+            const cost = estimateCostFromTokens(tokenUsage);
+            // Accumulate usage (in case multiple assistant blocks per logical message)
+            if (!currentMessageUsage) {
+              currentMessageUsage = {
+                tokenUsage: {
+                  input: tokenUsage.input,
+                  output: tokenUsage.output,
+                },
+                cost,
+              };
+            } else {
+              // Accumulate tokens and cost for multi-block messages
+              currentMessageUsage.tokenUsage = {
+                input:
+                  (currentMessageUsage.tokenUsage?.input ?? 0) +
+                  tokenUsage.input,
+                output:
+                  (currentMessageUsage.tokenUsage?.output ?? 0) +
+                  tokenUsage.output,
+              };
+              currentMessageUsage.cost = (currentMessageUsage.cost ?? 0) + cost;
+            }
+          }
         }
 
         // Process content blocks - add micro-offset to each event for correct ordering
@@ -322,7 +372,8 @@ export class SessionReplayService {
           sessionId,
           currentMessageId,
           eventIndex++,
-          currentMessageTimestamp + messageSequence++ * 0.001
+          currentMessageTimestamp + messageSequence++ * 0.001,
+          currentMessageUsage // TASK_2025_098 FIX: Pass usage data for per-message stats
         )
       );
     }
@@ -438,6 +489,24 @@ export class SessionReplayService {
         }
       }
 
+      // TASK_2025_098 FIX: Extract usage data from agent message for per-message stats
+      let agentMessageUsage: MessageUsageData | undefined;
+      const msgUsage = msg.message.usage as {
+        readonly input_tokens: number;
+        readonly output_tokens: number;
+        readonly cache_read_input_tokens: number;
+        readonly cache_creation_input_tokens: number;
+      };
+      if (msgUsage) {
+        const tokenUsage = extractTokenUsage(msgUsage);
+        if (tokenUsage) {
+          agentMessageUsage = {
+            tokenUsage: { input: tokenUsage.input, output: tokenUsage.output },
+            cost: estimateCostFromTokens(tokenUsage),
+          };
+        }
+      }
+
       // Create message_complete for this agent message using factory method
       const completeTimestamp = parentTimestamp + sequence++ * 0.0001;
       events.push(
@@ -446,7 +515,8 @@ export class SessionReplayService {
           agentMessageId,
           eventIndex++,
           completeTimestamp,
-          parentToolUseId
+          parentToolUseId,
+          agentMessageUsage // TASK_2025_098 FIX: Pass usage data for per-message stats
         )
       );
     }

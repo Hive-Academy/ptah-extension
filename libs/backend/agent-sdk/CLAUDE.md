@@ -795,13 +795,13 @@ Child Services (helpers/history/):
 
 ### Services Overview
 
-| Service                    | Responsibility                          | Injected Dependencies                           |
-| -------------------------- | --------------------------------------- | ----------------------------------------------- |
-| `HistoryEventFactory`      | Create FlatStreamEventUnion events      | None (pure factory)                             |
-| `JsonlReaderService`       | JSONL file I/O operations               | Logger                                          |
-| `AgentCorrelationService`  | Agent-to-task timestamp correlation     | Logger                                          |
-| `SessionReplayService`     | Event replay orchestration              | Logger, AgentCorrelationService, HistoryEventFactory |
-| `SessionHistoryReaderService` | Facade (public API)                  | Logger, JsonlReaderService, SessionReplayService, HistoryEventFactory |
+| Service                       | Responsibility                      | Injected Dependencies                                                 |
+| ----------------------------- | ----------------------------------- | --------------------------------------------------------------------- |
+| `HistoryEventFactory`         | Create FlatStreamEventUnion events  | None (pure factory)                                                   |
+| `JsonlReaderService`          | JSONL file I/O operations           | Logger                                                                |
+| `AgentCorrelationService`     | Agent-to-task timestamp correlation | Logger                                                                |
+| `SessionReplayService`        | Event replay orchestration          | Logger, AgentCorrelationService, HistoryEventFactory                  |
+| `SessionHistoryReaderService` | Facade (public API)                 | Logger, JsonlReaderService, SessionReplayService, HistoryEventFactory |
 
 ### DI Tokens Added
 
@@ -825,61 +825,57 @@ The facade maintains identical public method signatures:
 ```typescript
 class SessionHistoryReaderService {
   // Returns events for UI rendering + aggregated stats
-  readSessionHistory(sessionId: string, workspacePath: string): Promise<{
+  readSessionHistory(
+    sessionId: string,
+    workspacePath: string
+  ): Promise<{
     events: FlatStreamEventUnion[];
-    stats: { totalCost, tokens, messageCount } | null;
+    stats: { totalCost; tokens; messageCount } | null;
   }>;
 
   // Returns simple message objects (for RPC)
-  readHistoryAsMessages(sessionId: string, workspacePath: string): Promise<{
-    id: string;
-    role: 'user' | 'assistant';
-    content: string;
-    timestamp: number;
-  }[]>;
+  readHistoryAsMessages(
+    sessionId: string,
+    workspacePath: string
+  ): Promise<
+    {
+      id: string;
+      role: 'user' | 'assistant';
+      content: string;
+      timestamp: number;
+    }[]
+  >;
 }
 ```
 
 ### Files Created
 
-| File                                | Lines | Purpose                              |
-| ----------------------------------- | ----- | ------------------------------------ |
-| `helpers/history/history.types.ts`  | ~70   | Type definitions                     |
-| `helpers/history/history-event-factory.ts` | ~170  | Event creation factory          |
-| `helpers/history/jsonl-reader.service.ts` | ~150   | JSONL file I/O service           |
-| `helpers/history/agent-correlation.service.ts` | ~180 | Agent correlation service      |
-| `helpers/history/session-replay.service.ts` | ~280  | Replay orchestration service     |
-| `helpers/history/index.ts`          | ~30   | Barrel exports                       |
+| File                                           | Lines | Purpose                      |
+| ---------------------------------------------- | ----- | ---------------------------- |
+| `helpers/history/history.types.ts`             | ~70   | Type definitions             |
+| `helpers/history/history-event-factory.ts`     | ~170  | Event creation factory       |
+| `helpers/history/jsonl-reader.service.ts`      | ~150  | JSONL file I/O service       |
+| `helpers/history/agent-correlation.service.ts` | ~180  | Agent correlation service    |
+| `helpers/history/session-replay.service.ts`    | ~280  | Replay orchestration service |
+| `helpers/history/index.ts`                     | ~30   | Barrel exports               |
 
 ### Files Modified
 
-| File                                | Change                                    |
-| ----------------------------------- | ----------------------------------------- |
-| `di/tokens.ts`                      | Added 4 new tokens                        |
-| `di/register.ts`                    | Registered 4 new services                 |
-| `helpers/index.ts`                  | Added history module export               |
+| File                                | Change                                      |
+| ----------------------------------- | ------------------------------------------- |
+| `di/tokens.ts`                      | Added 4 new tokens                          |
+| `di/register.ts`                    | Registered 4 new services                   |
+| `helpers/index.ts`                  | Added history module export                 |
 | `session-history-reader.service.ts` | Refactored to facade (~1,278 -> ~200 lines) |
 
 ### Import Changes
 
 ```typescript
 // New imports available (child services)
-import {
-  HistoryEventFactory,
-  JsonlReaderService,
-  AgentCorrelationService,
-  SessionReplayService
-} from '@ptah-extension/agent-sdk';
+import { HistoryEventFactory, JsonlReaderService, AgentCorrelationService, SessionReplayService } from '@ptah-extension/agent-sdk';
 
 // Type imports
-import type {
-  SessionHistoryMessage,
-  ContentBlock,
-  AgentSessionData,
-  ToolResultData,
-  AgentDataMapEntry,
-  TaskToolUse
-} from '@ptah-extension/agent-sdk';
+import type { SessionHistoryMessage, ContentBlock, AgentSessionData, ToolResultData, AgentDataMapEntry, TaskToolUse } from '@ptah-extension/agent-sdk';
 ```
 
 ### Benefits

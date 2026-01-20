@@ -142,6 +142,12 @@ export interface ChatResumeResult {
     };
     messageCount: number;
   } | null;
+  /**
+   * Resumable subagents for this session (TASK_2025_103 FIX)
+   * Frontend uses this to mark agent nodes as resumable when loading from history.
+   * Populated from SubagentRegistryService.getResumableBySession().
+   */
+  resumableSubagents?: import('./subagent-registry.types').SubagentRecord[];
   error?: string;
 }
 

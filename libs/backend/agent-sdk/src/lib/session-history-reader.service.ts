@@ -103,8 +103,9 @@ export class SessionHistoryReaderService {
       this.validateSessionId(sessionId);
 
       // 1. Find the sessions directory (delegate to jsonlReader)
-      const sessionsDir =
-        await this.jsonlReader.findSessionsDirectory(workspacePath);
+      const sessionsDir = await this.jsonlReader.findSessionsDirectory(
+        workspacePath
+      );
       if (!sessionsDir) {
         this.logger.warn('[SessionHistoryReader] Sessions directory not found');
         return { events: [], stats: null };
@@ -181,8 +182,9 @@ export class SessionHistoryReaderService {
       // Validate sessionId to prevent path traversal
       this.validateSessionId(sessionId);
 
-      const sessionsDir =
-        await this.jsonlReader.findSessionsDirectory(workspacePath);
+      const sessionsDir = await this.jsonlReader.findSessionsDirectory(
+        workspacePath
+      );
       if (!sessionsDir) {
         this.logger.warn('[SessionHistoryReader] Sessions directory not found');
         return [];

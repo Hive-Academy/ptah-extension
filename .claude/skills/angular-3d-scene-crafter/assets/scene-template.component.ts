@@ -1,9 +1,4 @@
-import {
-  Component,
-  ChangeDetectionStrategy,
-  signal,
-  computed,
-} from '@angular/core';
+import { Component, ChangeDetectionStrategy, signal, computed } from '@angular/core';
 import {
   Scene3dComponent,
   // Primitives
@@ -79,8 +74,8 @@ import {
       [cameraPosition]="[0, 0, 20]"
       [cameraFov]="75"
       [backgroundColor]="0x0a0a0f"
-      [enableShadows]="false"
-    >
+      [enableShadows]="false">
+
       <!-- ============================================
            PRIMITIVES & OBJECTS
            ============================================ -->
@@ -125,6 +120,7 @@ import {
         [rotationSpeed]="0.012"
       />
 
+
       <!-- ============================================
            LIGHTING
            ============================================ -->
@@ -144,14 +140,20 @@ import {
         [intensity]="1.5"
       />
 
+
       <!-- ============================================
            POST-PROCESSING EFFECTS
            ============================================ -->
 
       <a3d-effect-composer>
         <!-- Bloom effect (glow) -->
-        <a3d-bloom-effect [threshold]="0.7" [strength]="0.8" [radius]="0.5" />
+        <a3d-bloom-effect
+          [threshold]="0.7"
+          [strength]="0.8"
+          [radius]="0.5"
+        />
       </a3d-effect-composer>
+
 
       <!-- ============================================
            CONTROLS (Optional)
@@ -164,6 +166,7 @@ import {
         [minDistance]="10"
         [maxDistance]="50"
       />
+
     </a3d-scene-3d>
   `,
   styles: `
@@ -172,13 +175,15 @@ import {
       width: 100%;
       height: 100vh;
     }
-  `,
+  `
 })
 export class MySceneComponent {
   // Optional: Reactive state for dynamic themes
   isDarkMode = signal(true);
 
-  backgroundColor = computed(() => (this.isDarkMode() ? 0x050510 : 0x326696));
+  backgroundColor = computed(() =>
+    this.isDarkMode() ? 0x050510 : 0x326696
+  );
 
   // Optional: Math constants for template
   Math = Math;

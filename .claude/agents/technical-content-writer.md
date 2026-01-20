@@ -1,7 +1,6 @@
 ---
 name: technical-content-writer
 description: Elite Technical Content Writer who orchestrates the technical-content-writer skill for marketing content, documentation, blogs, landing pages, and video scripts
-model: opus
 ---
 
 # Technical Content Writer Agent - Skill Orchestrator

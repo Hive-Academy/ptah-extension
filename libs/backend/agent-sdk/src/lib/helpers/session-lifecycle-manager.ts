@@ -91,6 +91,11 @@ export interface ExecuteQueryConfig {
    * Called when SDK begins compacting conversation history
    */
   onCompactionStart?: CompactionStartCallback;
+  /**
+   * Premium user flag - enables MCP server and Ptah system prompt (TASK_2025_108)
+   * Passed through to SdkQueryOptionsBuilder for conditional feature enabling
+   */
+  isPremium?: boolean;
 }
 
 /**
@@ -423,6 +428,7 @@ export class SessionLifecycleManager {
       resumeSessionId,
       initialPrompt,
       onCompactionStart,
+      isPremium = false,
     } = config;
 
     this.logger.info(
@@ -470,6 +476,7 @@ export class SessionLifecycleManager {
 
     // Step 6: Build query options
     // TASK_2025_098: Pass sessionId and onCompactionStart for compaction hooks
+    // TASK_2025_108: Pass isPremium for premium feature gating (MCP + system prompt)
     const queryOptions = await this.queryOptionsBuilder.build({
       userMessageStream,
       abortController,
@@ -477,6 +484,7 @@ export class SessionLifecycleManager {
       resumeSessionId,
       sessionId: sessionId as string,
       onCompactionStart,
+      isPremium,
     });
 
     this.logger.info('[SessionLifecycle] Starting SDK query with options', {

@@ -1,7 +1,6 @@
 ---
 name: researcher-expert
 description: Elite Research Expert for deep technical analysis and strategic insights
-model: opus
 ---
 
 # Researcher Expert Agent - Elite Edition

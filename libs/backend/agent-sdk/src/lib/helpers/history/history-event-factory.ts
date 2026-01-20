@@ -24,9 +24,23 @@ import type {
   ToolResultEvent,
   AgentStartEvent,
   MessageCompleteEvent,
+  MessageTokenUsage,
 } from '@ptah-extension/shared';
 import { isTaskToolInput } from '@ptah-extension/shared';
 import type { ContentBlock } from './history.types';
+
+/**
+ * Usage data for message completion events.
+ * Includes token usage and estimated cost for per-message stats display.
+ */
+export interface MessageUsageData {
+  /** Token counts (input/output) */
+  tokenUsage?: { input: number; output: number };
+  /** Estimated cost in USD */
+  cost?: number;
+  /** Model identifier (e.g., "claude-sonnet-4-20250514") */
+  model?: string;
+}
 
 /**
  * Factory service for creating FlatStreamEventUnion events from session history.
@@ -78,13 +92,15 @@ export class HistoryEventFactory {
    * @param messageId - Message identifier being completed
    * @param index - Event index for ID generation
    * @param timestamp - Event timestamp
+   * @param usageData - Optional usage data (tokenUsage, cost, model) for per-message stats
    * @returns MessageCompleteEvent
    */
   createMessageComplete(
     sessionId: string,
     messageId: string,
     index: number,
-    timestamp: number
+    timestamp: number,
+    usageData?: MessageUsageData
   ): MessageCompleteEvent {
     return {
       eventType: 'message_complete',
@@ -93,6 +109,10 @@ export class HistoryEventFactory {
       messageId,
       timestamp,
       source: 'history',
+      // Include usage data for per-message stats display (TASK_2025_098 fix)
+      ...(usageData?.tokenUsage && { tokenUsage: usageData.tokenUsage }),
+      ...(usageData?.cost !== undefined && { cost: usageData.cost }),
+      ...(usageData?.model && { model: usageData.model }),
     };
   }
 
@@ -438,6 +458,7 @@ export class HistoryEventFactory {
    * @param index - Event index for ID generation
    * @param timestamp - Event timestamp
    * @param parentToolUseId - Parent tool use ID linking to parent Task tool
+   * @param usageData - Optional usage data (tokenUsage, cost, model) for per-message stats
    * @returns MessageCompleteEvent with parentToolUseId
    */
   createAgentMessageComplete(
@@ -445,7 +466,8 @@ export class HistoryEventFactory {
     messageId: string,
     index: number,
     timestamp: number,
-    parentToolUseId: string
+    parentToolUseId: string,
+    usageData?: MessageUsageData
   ): MessageCompleteEvent {
     return {
       eventType: 'message_complete',
@@ -455,6 +477,10 @@ export class HistoryEventFactory {
       parentToolUseId,
       timestamp,
       source: 'history',
+      // Include usage data for per-message stats display (TASK_2025_098 fix)
+      ...(usageData?.tokenUsage && { tokenUsage: usageData.tokenUsage }),
+      ...(usageData?.cost !== undefined && { cost: usageData.cost }),
+      ...(usageData?.model && { model: usageData.model }),
     };
   }
 

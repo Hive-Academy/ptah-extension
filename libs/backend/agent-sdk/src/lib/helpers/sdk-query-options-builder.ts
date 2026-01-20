@@ -17,6 +17,7 @@
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { AISessionConfig } from '@ptah-extension/shared';
+import { PTAH_SYSTEM_PROMPT } from '@ptah-extension/vscode-lm-tools';
 import { SDK_TOKENS } from '../di/tokens';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
 import { SubagentHookHandler } from './subagent-hook-handler';
@@ -61,6 +62,12 @@ export interface QueryOptionsInput {
    * Called when SDK begins compacting (summarizing) conversation history
    */
   onCompactionStart?: CompactionStartCallback;
+  /**
+   * Premium user flag - enables MCP server and Ptah system prompt
+   * When true, enables Ptah MCP server and appends PTAH_SYSTEM_PROMPT
+   * Defaults to false (free tier behavior)
+   */
+  isPremium?: boolean;
 }
 
 /**
@@ -158,6 +165,7 @@ export class SdkQueryOptionsBuilder {
       resumeSessionId,
       sessionId,
       onCompactionStart,
+      isPremium = false,
     } = input;
 
     // Model is required - SDK sets default in config at startup
@@ -169,7 +177,7 @@ export class SdkQueryOptionsBuilder {
     const cwd = sessionConfig?.projectPath || process.cwd();
 
     // Build system prompt configuration
-    const systemPrompt = this.buildSystemPrompt(sessionConfig);
+    const systemPrompt = this.buildSystemPrompt(sessionConfig, isPremium);
 
     // Create permission callback
     const canUseToolCallback: CanUseTool =
@@ -194,6 +202,10 @@ export class SdkQueryOptionsBuilder {
       hasCanUseToolCallback: !!canUseToolCallback,
       compactionEnabled: compactionConfig.enabled,
       compactionThreshold: compactionConfig.contextTokenThreshold,
+      // Premium feature status (TASK_2025_108)
+      isPremium,
+      mcpEnabled: isPremium,
+      ptahSystemPromptAppended: isPremium,
     });
 
     return {
@@ -209,7 +221,7 @@ export class SdkQueryOptionsBuilder {
           type: 'preset' as const,
           preset: 'claude_code' as const,
         },
-        mcpServers: this.buildMcpServers(),
+        mcpServers: this.buildMcpServers(isPremium),
         // CRITICAL: permissionMode must be 'default' for canUseTool to be invoked
         // If set to 'bypassPermissions', canUseTool is never called
         permissionMode: 'default',
@@ -239,29 +251,63 @@ export class SdkQueryOptionsBuilder {
 
   /**
    * Build system prompt configuration
+   *
+   * For premium users, appends PTAH_SYSTEM_PROMPT to make Claude aware of
+   * Ptah MCP tools. User's custom system prompt (if provided) takes precedence.
+   *
+   * @param sessionConfig - Session configuration with optional custom system prompt
+   * @param isPremium - Whether user has premium features enabled
+   * @returns System prompt configuration for SDK
    */
   private buildSystemPrompt(
-    sessionConfig?: AISessionConfig
+    sessionConfig?: AISessionConfig,
+    isPremium: boolean = false
   ): SdkQueryOptions['systemPrompt'] {
+    const appendParts: string[] = [];
+
+    // Add user's custom system prompt if provided
     if (sessionConfig?.systemPrompt) {
-      return {
-        type: 'preset' as const,
-        preset: 'claude_code' as const,
-        append: sessionConfig.systemPrompt,
-      };
+      appendParts.push(sessionConfig.systemPrompt);
+    }
+
+    // Add Ptah MCP tools awareness for premium users (TASK_2025_108)
+    if (isPremium) {
+      this.logger.debug(
+        '[SdkQueryOptionsBuilder] Premium tier - appending Ptah system prompt'
+      );
+      appendParts.push(PTAH_SYSTEM_PROMPT);
     }
 
     return {
       type: 'preset' as const,
       preset: 'claude_code' as const,
+      append: appendParts.length > 0 ? appendParts.join('\n\n') : undefined,
     };
   }
 
   /**
    * Build MCP servers configuration
+   *
+   * For premium users, enables the Ptah HTTP MCP server which provides
+   * execute_code tool with 11 Ptah API namespaces.
+   * For free tier, returns empty object (no MCP servers).
+   *
+   * @param isPremium - Whether user has premium features enabled
+   * @returns MCP servers configuration for SDK
    */
-  private buildMcpServers(): Record<string, McpHttpServerConfig> {
-    // Use HTTP MCP server from vscode-lm-tools/CodeExecutionMCP
+  private buildMcpServers(
+    isPremium: boolean
+  ): Record<string, McpHttpServerConfig> {
+    // Free tier - disable MCP servers (TASK_2025_108)
+    if (!isPremium) {
+      this.logger.debug(
+        '[SdkQueryOptionsBuilder] Free tier - MCP servers disabled'
+      );
+      return {};
+    }
+
+    // Premium user - enable Ptah HTTP MCP server
+    // Uses HTTP MCP server from vscode-lm-tools/CodeExecutionMCP
     // Provides execute_code tool with 11 Ptah API namespaces
     return {
       ptah: {

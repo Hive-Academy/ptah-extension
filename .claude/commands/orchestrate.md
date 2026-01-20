@@ -64,12 +64,15 @@ Write(D:\projects\ptah-extension\task-tracking\TASK_[ID]\context.md, `
 
 **Detection Logic**:
 
-- Contains "implement", "add", "create", "build" → **FEATURE**
+- Contains "CI/CD", "pipeline", "GitHub Actions", "deploy", "Docker", "Kubernetes", "Terraform", "publish", "npm publish", "monitoring" → **DEVOPS**
+- Contains "implement", "add", "create", "build" (without DevOps keywords) → **FEATURE**
 - Contains "fix", "bug", "error", "issue" → **BUGFIX**
 - Contains "refactor", "improve", "optimize", "clean" → **REFACTORING**
 - Contains "document", "readme", "comment" → **DOCUMENTATION**
 - Contains "research", "investigate", "analyze", "explore" → **RESEARCH**
 - Unclear → Ask user for clarification
+
+**Note**: DEVOPS takes priority over FEATURE when infrastructure keywords are present.
 
 **Complexity Assessment**:
 
@@ -184,6 +187,40 @@ researcher-expert → Creates research-report.md
 [IF implementation needed] → Switch to FEATURE strategy
 [IF research only] → Complete
 ```
+
+### DEVOPS (Infrastructure & Deployment)
+
+```
+Phase 1: project-manager → Creates task-description.md
+         ↓
+         USER VALIDATES ✋ ("APPROVED" or feedback)
+         ↓
+Phase 2: software-architect → Creates implementation-plan.md
+         ↓
+         USER VALIDATES ✋ ("APPROVED" or feedback)
+         ↓
+Phase 3: devops-engineer → Implements infrastructure
+         ↓
+         USER CHOOSES QA ✋ (style/logic/skip)
+         ↓
+Phase 4: [QA agents as chosen]
+         ↓
+Phase 5: User handles git (commits already created)
+         ↓
+Phase 6: modernization-detector → Creates future-enhancements.md
+```
+
+**When to invoke DEVOPS strategy**:
+
+- Task involves CI/CD pipelines, GitHub Actions, GitLab CI
+- Task involves Docker, Kubernetes, container orchestration
+- Task involves Terraform, CloudFormation, infrastructure-as-code
+- Task involves npm/Docker publishing automation
+- Task involves monitoring, observability, alerting
+- Task involves secret management, cloud platform configuration
+- **Key signal**: Work is 100% infrastructure (no application business logic)
+
+**Developer for DEVOPS**: Always use `devops-engineer` (NOT backend-developer)
 
 ---
 

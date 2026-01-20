@@ -334,6 +334,12 @@ export class SdkAgentAdapter implements IAIProvider {
       name?: string;
       prompt?: string;
       files?: string[];
+      /**
+       * Premium user flag - enables MCP server and Ptah system prompt (TASK_2025_108)
+       * When true, enables Ptah MCP server and appends PTAH_SYSTEM_PROMPT
+       * Defaults to false (free tier behavior)
+       */
+      isPremium?: boolean;
     }
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
@@ -342,15 +348,17 @@ export class SdkAgentAdapter implements IAIProvider {
       );
     }
 
-    const { tabId } = config;
+    const { tabId, isPremium = false } = config;
     const trackingId = tabId as SessionId;
 
     this.logger.info(
-      `[SdkAgentAdapter] Starting NEW chat session for tab: ${tabId}`
+      `[SdkAgentAdapter] Starting NEW chat session for tab: ${tabId}`,
+      { isPremium }
     );
 
     // TASK_2025_102: Delegate query execution to SessionLifecycleManager
     // TASK_2025_098: Pass compactionStartCallback for compaction notifications
+    // TASK_2025_108: Pass isPremium for premium feature gating (MCP + system prompt)
     const { sdkQuery, initialModel } = await this.sessionLifecycle.executeQuery(
       {
         sessionId: trackingId,
@@ -359,6 +367,7 @@ export class SdkAgentAdapter implements IAIProvider {
           ? { content: config.prompt, files: config.files }
           : undefined,
         onCompactionStart: this.compactionStartCallback || undefined,
+        isPremium,
       }
     );
 
@@ -390,14 +399,27 @@ export class SdkAgentAdapter implements IAIProvider {
   /**
    * Resume a session using SDK's native resume option.
    * TASK_2025_102: Refactored to use SessionLifecycleManager.executeQuery()
+   * TASK_2025_108: Added isPremium support for resumed sessions
+   *
+   * When resuming a session, the SDK creates a new query with fresh options.
+   * MCP server configuration and system prompt are part of query options,
+   * not stored session state, so isPremium must be passed to maintain
+   * premium features (MCP server, Ptah system prompt) in resumed sessions.
    *
    * @param sessionId - The SDK session ID to resume
-   * @param config - Optional session configuration overrides
+   * @param config - Optional session configuration overrides, including isPremium flag
    * @returns AsyncIterable<FlatStreamEventUnion> for streaming responses
    */
   async resumeSession(
     sessionId: SessionId,
-    config?: AISessionConfig
+    config?: AISessionConfig & {
+      /**
+       * Premium user flag - enables MCP server and Ptah system prompt (TASK_2025_108)
+       * When true, enables Ptah MCP server and appends PTAH_SYSTEM_PROMPT
+       * Defaults to false (free tier behavior)
+       */
+      isPremium?: boolean;
+    }
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
       throw new Error(
@@ -419,16 +441,23 @@ export class SdkAgentAdapter implements IAIProvider {
       });
     }
 
-    this.logger.info(`[SdkAgentAdapter] Resuming session: ${sessionId}`);
+    // Extract isPremium from config (TASK_2025_108)
+    const isPremium = config?.isPremium ?? false;
+
+    this.logger.info(`[SdkAgentAdapter] Resuming session: ${sessionId}`, {
+      isPremium,
+    });
 
     // TASK_2025_102: Delegate query execution to SessionLifecycleManager
     // TASK_2025_098: Pass compactionStartCallback for compaction notifications
+    // TASK_2025_108: Pass isPremium for premium feature gating (MCP + system prompt)
     const { sdkQuery, initialModel } = await this.sessionLifecycle.executeQuery(
       {
         sessionId,
         sessionConfig: config,
         resumeSessionId: sessionId as string,
         onCompactionStart: this.compactionStartCallback || undefined,
+        isPremium,
       }
     );
 

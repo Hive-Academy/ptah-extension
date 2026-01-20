@@ -13,6 +13,8 @@ import {
   RpcHandler,
   TOKENS,
   ConfigManager,
+  SubagentRegistryService,
+  LicenseService,
 } from '@ptah-extension/vscode-core';
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import {
@@ -52,7 +54,11 @@ export class ChatRpcHandlers {
     private readonly configManager: ConfigManager,
     @inject('SdkAgentAdapter') private readonly sdkAdapter: SdkAgentAdapter,
     @inject(SDK_TOKENS.SDK_SESSION_HISTORY_READER)
-    private readonly historyReader: SessionHistoryReaderService
+    private readonly historyReader: SessionHistoryReaderService,
+    @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
+    private readonly subagentRegistry: SubagentRegistryService,
+    @inject(TOKENS.LICENSE_SERVICE)
+    private readonly licenseService: LicenseService
   ) {}
 
   /**
@@ -85,6 +91,18 @@ export class ChatRpcHandlers {
             sessionName: name,
           });
 
+          // TASK_2025_108: Get license status for premium feature gating
+          const licenseStatus = await this.licenseService.verifyLicense();
+          const isPremium =
+            licenseStatus.valid &&
+            (licenseStatus.plan?.isPremium === true ||
+              licenseStatus.tier === 'early_adopter');
+
+          this.logger.debug('RPC: chat:start - license check', {
+            tier: licenseStatus.tier,
+            isPremium,
+          });
+
           // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
           const currentModel =
             options?.model ||
@@ -109,6 +127,7 @@ export class ChatRpcHandlers {
           // Start SDK session with streaming ExecutionNode output
           // TASK_2025_093: Single config argument with tabId as primary tracking key
           // Prompt and files are now passed in config, not via separate sendMessageToSession
+          // TASK_2025_108: Pass isPremium for premium feature gating (MCP + system prompt)
           const stream = await this.sdkAdapter.startChatSession({
             tabId, // REQUIRED: Primary tracking key for multi-tab isolation
             workspaceId: workspacePath,
@@ -118,6 +137,7 @@ export class ChatRpcHandlers {
             name,
             prompt, // Initial prompt passed in config
             files,
+            isPremium, // TASK_2025_108: Enable premium features for licensed users
           });
 
           // Stream ExecutionNodes to webview (background - don't await)
@@ -161,6 +181,19 @@ export class ChatRpcHandlers {
               `[RPC] Session ${sessionId} not active, attempting resume...`
             );
 
+            // TASK_2025_108: Get license status for premium feature gating in resumed sessions
+            const licenseStatus = await this.licenseService.verifyLicense();
+            const isPremium =
+              licenseStatus.valid &&
+              (licenseStatus.plan?.isPremium === true ||
+                licenseStatus.tier === 'early_adopter');
+
+            this.logger.debug('RPC: chat:continue - license check for resume', {
+              tier: licenseStatus.tier,
+              isPremium,
+              sessionId,
+            });
+
             // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
             const currentModel =
               params.model ||
@@ -170,9 +203,11 @@ export class ChatRpcHandlers {
               );
 
             // Resume the session to reconnect to Claude's conversation context
+            // TASK_2025_108: Pass isPremium to maintain premium features in resumed sessions
             const stream = await this.sdkAdapter.resumeSession(sessionId, {
               projectPath: workspacePath,
               model: currentModel,
+              isPremium,
             });
 
             // Start streaming responses to webview (background - don't await)
@@ -193,8 +228,32 @@ export class ChatRpcHandlers {
             });
           }
 
+          // TASK_2025_109: Inject interrupted subagent context into prompt
+          // This enables Claude to naturally resume interrupted agents through conversation
+          // instead of requiring a dedicated Resume RPC and UI button.
+          let enhancedPrompt = prompt;
+          const resumableSubagents =
+            this.subagentRegistry.getResumableBySession(sessionId);
+
+          if (resumableSubagents.length > 0) {
+            const agentContext = resumableSubagents
+              .map((s) => `agentId: ${s.agentId} (${s.agentType})`)
+              .join(', ');
+            const contextPrefix = `[System: Previously interrupted agents available for resumption: ${agentContext}. You can resume them by including their agentId in your response.]\n\n`;
+            enhancedPrompt = contextPrefix + prompt;
+
+            this.logger.info('RPC: chat:continue - injected subagent context', {
+              sessionId,
+              resumableCount: resumableSubagents.length,
+              agents: resumableSubagents.map((s) => ({
+                agentId: s.agentId,
+                agentType: s.agentType,
+              })),
+            });
+          }
+
           // Now send the message to the (now active) session
-          await this.sdkAdapter.sendMessageToSession(sessionId, prompt, {
+          await this.sdkAdapter.sendMessageToSession(sessionId, enhancedPrompt, {
             files,
           });
 
@@ -249,15 +308,21 @@ export class ChatRpcHandlers {
             resolvedWorkspacePath
           );
 
+          // TASK_2025_103 FIX: Query resumable subagents for this session
+          // Frontend uses this to mark agent nodes as resumable when loading from history
+          const resumableSubagents =
+            this.subagentRegistry.getResumableBySession(sessionId);
+
           this.logger.info('[RPC] Session history loaded from JSONL', {
             sessionId,
             messageCount: messages.length,
             eventCount: events.length,
             hasStats: !!stats,
             totalCost: stats?.totalCost,
+            resumableSubagentCount: resumableSubagents.length,
           });
 
-          return { success: true, messages, events, stats };
+          return { success: true, messages, events, stats, resumableSubagents };
         } catch (error) {
           this.logger.error(
             'RPC: chat:resume failed',
