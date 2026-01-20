@@ -168,6 +168,7 @@ export class RpcMethodRegistrationService {
         cost: stats.cost,
         tokens: stats.tokens,
         duration: stats.duration,
+        modelUsage: stats.modelUsage,
       });
 
       await this.sendStatsWithRetry(stats);
@@ -177,6 +178,10 @@ export class RpcMethodRegistrationService {
   /**
    * Setup callback to notify frontend when compaction starts
    * TASK_2025_098: SDK Session Compaction
+   *
+   * Unified flow: Routes compaction events through CHAT_CHUNK (same as streaming events)
+   * instead of a separate SESSION_COMPACTING message type.
+   * This ensures all streaming events flow through the same code path.
    */
   private setupCompactionStartCallback(): void {
     this.sdkAdapter.setCompactionStartCallback((data) => {
@@ -184,16 +189,27 @@ export class RpcMethodRegistrationService {
         `[RPC] Compaction started: sessionId=${data.sessionId}, trigger=${data.trigger}`
       );
 
-      // Notify frontend with compaction start event
+      // Create a CompactionStartEvent to send through the unified streaming path
+      const compactionEvent = {
+        id: `compaction_${data.sessionId}_${data.timestamp}`,
+        eventType: 'compaction_start' as const,
+        timestamp: data.timestamp,
+        sessionId: data.sessionId,
+        messageId: `compaction_msg_${data.timestamp}`,
+        trigger: data.trigger,
+        source: 'stream' as const,
+      };
+
+      // Route through CHAT_CHUNK (same path as all other streaming events)
+      // Frontend will process this through StreamingHandlerService
       this.webviewManager
-        .sendMessage('ptah.main', MESSAGE_TYPES.SESSION_COMPACTING, {
+        .sendMessage('ptah.main', MESSAGE_TYPES.CHAT_CHUNK, {
           sessionId: data.sessionId,
-          trigger: data.trigger,
-          timestamp: data.timestamp,
+          event: compactionEvent,
         })
         .catch((error) => {
           this.logger.error(
-            'Failed to send session:compacting to webview',
+            'Failed to send compaction event to webview',
             error instanceof Error ? error : new Error(String(error))
           );
         });
@@ -208,6 +224,12 @@ export class RpcMethodRegistrationService {
     cost: number;
     tokens: { input: number; output: number };
     duration: number;
+    modelUsage?: Array<{
+      model: string;
+      inputTokens: number;
+      outputTokens: number;
+      contextWindow: number;
+    }>;
   }): Promise<void> {
     try {
       await retryWithBackoff(
@@ -220,6 +242,7 @@ export class RpcMethodRegistrationService {
               cost: stats.cost,
               tokens: stats.tokens,
               duration: stats.duration,
+              modelUsage: stats.modelUsage,
             }
           ),
         {

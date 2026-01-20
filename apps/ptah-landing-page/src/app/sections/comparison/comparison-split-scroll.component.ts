@@ -1,9 +1,7 @@
-import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
 import {
-  ParallaxSplitScrollComponent,
-  ParallaxSplitItemDirective,
-  ViewportAnimationDirective,
   ViewportAnimationConfig,
+  ViewportAnimationDirective,
 } from '@hive-academy/angular-gsap';
 
 /**
@@ -33,38 +31,22 @@ interface PerformanceMetric {
 }
 
 /**
- * ComparisonSplitScrollComponent - Parallax split scroll comparison showcase
+ * ComparisonSplitScrollComponent - Simplified comparison showcase
  *
- * Complexity Level: 2 (Medium)
- * Patterns: Composition with library components, signal-based state, ViewportAnimation
- *
- * Features:
- * - Uses ParallaxSplitScrollComponent for split-screen parallax effect
- * - 3 sections: "Before Ptah" (left), "With Ptah" (right), "Performance Metrics" (left)
- * - Staggered viewport animations for pain points, benefits, and metrics
- * - Red/warning colors for pain points, green/success colors for benefits
- * - Performance metrics with crossed-out CLI values and highlighted SDK values
- *
- * SOLID Principles:
- * - Single Responsibility: Orchestrate parallax split scroll with comparison content
- * - Composition: Uses ParallaxSplitScrollComponent and ViewportAnimationDirective
- * - Open/Closed: Add sections to array without modifying component logic
+ * Replaced complex ParallaxSplitScrollComponent with simple viewport animations
+ * to fix display issues and overflow problems.
  */
 @Component({
   selector: 'ptah-comparison-split-scroll',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
-    ParallaxSplitScrollComponent,
-    ParallaxSplitItemDirective,
-    ViewportAnimationDirective,
-  ],
+  imports: [ViewportAnimationDirective],
   template: `
     <section
       id="comparison"
-      class="relative bg-gradient-to-b from-slate-900 to-slate-950"
+      class="relative py-24 bg-gradient-to-b from-slate-900 to-slate-950"
     >
       <!-- Section Header -->
-      <div class="py-16 text-center">
+      <div class="text-center mb-20 px-4">
         <h2
           viewportAnimation
           [viewportConfig]="headerConfig"
@@ -75,39 +57,39 @@ interface PerformanceMetric {
         <p
           viewportAnimation
           [viewportConfig]="subheaderConfig"
-          class="mt-4 text-xl text-slate-400 max-w-2xl mx-auto px-4"
+          class="mt-4 text-xl text-slate-400 max-w-2xl mx-auto"
         >
           From terminal chaos to visual clarity. See how Ptah transforms your
           Claude Code experience.
         </p>
       </div>
 
-      <!-- Parallax Split Scroll Comparison -->
-      <agsp-parallax-split-scroll
-        [scrollHeightPerStep]="800"
-        [animationDuration]="0.8"
-        [ease]="'power3.inOut'"
-        [parallaxSpeed]="0.3"
-      >
-        <!-- Section 1: Before Ptah (Left Layout) -->
-        <div
-          parallaxSplitItem
-          [imageSrc]="'/assets/images/before-ptah-terminal.png'"
-          [imageAlt]="
-            'Terminal chaos before Ptah - context switching and CLI overhead'
-          "
-          [layout]="'left'"
-        >
-          <div class="p-8 md:p-12 min-h-[70vh] flex flex-col justify-center">
+      <!-- Comparison Grid -->
+      <div class="container mx-auto px-4 max-w-7xl">
+        <div class="grid md:grid-cols-2 gap-8 lg:gap-12">
+          <!-- Before Ptah Column -->
+          <div
+            class="relative rounded-3xl bg-slate-800/40 border border-red-500/20 p-8 md:p-12"
+            viewportAnimation
+            [viewportConfig]="{ animation: 'slideRight', duration: 0.6 }"
+          >
+            <!-- Red accent glow -->
+            <div
+              class="absolute inset-0 rounded-3xl bg-gradient-to-br from-red-500/5 to-transparent pointer-events-none"
+            ></div>
+
             <h3
-              viewportAnimation
-              [viewportConfig]="sectionTitleConfig"
-              class="text-3xl md:text-4xl font-bold text-red-400/80 mb-8"
+              class="text-2xl md:text-3xl font-bold text-red-400/80 mb-8 flex items-center gap-3"
             >
+              <span
+                class="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center text-red-400"
+              >
+                ✕
+              </span>
               Before Ptah
             </h3>
 
-            <!-- Pain Points with Staggered Animation -->
+            <!-- Pain Points -->
             <ul class="space-y-6" role="list">
               @for (pain of painPoints; track pain.text; let i = $index) {
               <li
@@ -116,8 +98,7 @@ interface PerformanceMetric {
                 class="flex items-start gap-4"
               >
                 <span
-                  class="flex-shrink-0 w-8 h-8 rounded-full bg-red-500/20
-                           flex items-center justify-center text-red-400 font-bold"
+                  class="flex-shrink-0 w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center text-red-400 font-bold text-sm"
                   aria-hidden="true"
                 >
                   ✕
@@ -132,32 +113,34 @@ interface PerformanceMetric {
               }
             </ul>
           </div>
-        </div>
 
-        <!-- Section 2: With Ptah (Right Layout) -->
-        <div
-          parallaxSplitItem
-          [imageSrc]="'/assets/images/with-ptah-vscode.png'"
-          [imageAlt]="
-            'Seamless experience with Ptah - VS Code native integration'
-          "
-          [layout]="'right'"
-        >
-          <div class="p-8 md:p-12 min-h-[70vh] flex flex-col justify-center">
+          <!-- With Ptah Column -->
+          <div
+            class="relative rounded-3xl bg-slate-800/40 border border-emerald-500/20 p-8 md:p-12"
+            viewportAnimation
+            [viewportConfig]="{ animation: 'slideLeft', duration: 0.6 }"
+          >
+            <!-- Green accent glow -->
+            <div
+              class="absolute inset-0 rounded-3xl bg-gradient-to-br from-emerald-500/5 to-transparent pointer-events-none"
+            ></div>
+
             <h3
-              viewportAnimation
-              [viewportConfig]="sectionTitleConfig"
-              class="text-3xl md:text-4xl font-bold mb-8"
+              class="text-2xl md:text-3xl font-bold mb-8 flex items-center gap-3"
             >
               <span
-                class="bg-gradient-to-r from-emerald-400 to-green-300
-                       bg-clip-text text-transparent"
+                class="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400"
+              >
+                ✓
+              </span>
+              <span
+                class="bg-gradient-to-r from-emerald-400 to-green-300 bg-clip-text text-transparent"
               >
                 With Ptah
               </span>
             </h3>
 
-            <!-- Benefits with Staggered Animation -->
+            <!-- Benefits -->
             <ul class="space-y-6" role="list">
               @for (benefit of benefits; track benefit.text; let i = $index) {
               <li
@@ -166,8 +149,7 @@ interface PerformanceMetric {
                 class="flex items-start gap-4"
               >
                 <span
-                  class="flex-shrink-0 w-8 h-8 rounded-full bg-green-500/20
-                           flex items-center justify-center text-green-400 font-bold"
+                  class="flex-shrink-0 w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center text-green-400 font-bold"
                   aria-hidden="true"
                 >
                   ✓
@@ -186,61 +168,53 @@ interface PerformanceMetric {
           </div>
         </div>
 
-        <!-- Section 3: Performance Metrics (Left Layout) -->
-        <div
-          parallaxSplitItem
-          [imageSrc]="'/assets/images/performance-chart.png'"
-          [imageAlt]="'Performance comparison chart - CLI vs SDK metrics'"
-          [layout]="'left'"
-        >
-          <div class="p-8 md:p-12 min-h-[70vh] flex flex-col justify-center">
-            <h3
-              viewportAnimation
-              [viewportConfig]="sectionTitleConfig"
-              class="text-3xl md:text-4xl font-bold text-white mb-8"
-            >
-              Performance That Speaks
-            </h3>
+        <!-- Performance Metrics -->
+        <div class="mt-16">
+          <h3
+            viewportAnimation
+            [viewportConfig]="{ animation: 'slideUp', duration: 0.6 }"
+            class="text-2xl md:text-3xl font-bold text-white text-center mb-12"
+          >
+            Performance That Speaks
+          </h3>
 
-            <!-- Metrics Grid -->
-            <div class="grid grid-cols-1 gap-6">
-              @for (metric of metrics; track metric.name; let i = $index) {
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            @for (metric of metrics; track metric.name; let i = $index) {
+            <div
+              viewportAnimation
+              [viewportConfig]="getMetricConfig(i)"
+              class="p-6 rounded-2xl bg-slate-800/60 border border-slate-700/50 backdrop-blur-sm text-center"
+            >
               <div
-                viewportAnimation
-                [viewportConfig]="getMetricConfig(i)"
-                class="p-6 rounded-2xl bg-slate-800/60 border border-slate-700/50
-                         backdrop-blur-sm"
+                class="text-sm text-slate-400 mb-4 font-medium uppercase tracking-wide"
               >
-                <div class="text-sm text-slate-400 mb-3 font-medium">
-                  {{ metric.name }}
-                </div>
-                <div class="flex items-baseline gap-4 flex-wrap">
-                  <span
-                    class="text-slate-500 line-through text-lg"
-                    aria-label="CLI value"
-                  >
-                    {{ metric.cli }}
-                  </span>
-                  <span class="text-slate-600" aria-hidden="true">→</span>
-                  <span
-                    class="text-3xl font-bold text-green-400"
-                    aria-label="SDK value"
-                  >
-                    {{ metric.sdk }}
-                  </span>
-                  <span
-                    class="text-sm font-semibold text-green-400 bg-green-500/10
-                             px-3 py-1 rounded-full"
-                  >
-                    {{ metric.improvement }}
-                  </span>
-                </div>
+                {{ metric.name }}
               </div>
-              }
+              <div class="flex items-baseline justify-center gap-3 flex-wrap">
+                <span
+                  class="text-slate-500 line-through text-lg"
+                  aria-label="CLI value"
+                >
+                  {{ metric.cli }}
+                </span>
+                <span class="text-slate-600" aria-hidden="true">→</span>
+                <span
+                  class="text-3xl font-bold text-green-400"
+                  aria-label="SDK value"
+                >
+                  {{ metric.sdk }}
+                </span>
+              </div>
+              <span
+                class="inline-block mt-4 text-sm font-semibold text-green-400 bg-green-500/10 px-4 py-2 rounded-full"
+              >
+                {{ metric.improvement }}
+              </span>
             </div>
+            }
           </div>
         </div>
-      </agsp-parallax-split-scroll>
+      </div>
     </section>
   `,
   styles: [
@@ -252,10 +226,6 @@ interface PerformanceMetric {
   ],
 })
 export class ComparisonSplitScrollComponent {
-  /**
-   * Pain points for "Before Ptah" section
-   * Shows the problems users face with CLI-only Claude Code
-   */
   readonly painPoints: PainPoint[] = [
     {
       text: 'Terminal switching disrupts your flow',
@@ -278,10 +248,6 @@ export class ComparisonSplitScrollComponent {
     },
   ];
 
-  /**
-   * Benefits for "With Ptah" section
-   * Shows the improvements Ptah brings to the Claude Code experience
-   */
   readonly benefits: Benefit[] = [
     {
       text: 'VS Code native - never leave your editor',
@@ -303,10 +269,6 @@ export class ComparisonSplitScrollComponent {
     },
   ];
 
-  /**
-   * Performance metrics comparing CLI vs SDK
-   * Shows concrete performance improvements with real numbers
-   */
   readonly metrics: PerformanceMetric[] = [
     {
       name: 'Session Creation',
@@ -328,18 +290,12 @@ export class ComparisonSplitScrollComponent {
     },
   ];
 
-  /**
-   * Animation config for section header
-   */
   readonly headerConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
     duration: 0.8,
     threshold: 0.2,
   };
 
-  /**
-   * Animation config for section subheader
-   */
   readonly subheaderConfig: ViewportAnimationConfig = {
     animation: 'fadeIn',
     duration: 0.8,
@@ -347,49 +303,25 @@ export class ComparisonSplitScrollComponent {
     threshold: 0.2,
   };
 
-  /**
-   * Animation config for section titles within parallax items
-   */
-  readonly sectionTitleConfig: ViewportAnimationConfig = {
-    animation: 'slideUp',
-    duration: 0.6,
-    threshold: 0.3,
-  };
-
-  /**
-   * Generate animation config for pain points with stagger effect
-   * @param index - Index of the pain point (0-based)
-   * @returns ViewportAnimationConfig with appropriate delay for stagger
-   */
   getPainConfig(index: number): ViewportAnimationConfig {
     return {
-      animation: 'slideLeft',
-      duration: 0.6,
-      delay: index * 0.1,
+      animation: 'slideRight',
+      duration: 0.5,
+      delay: 0.1 + index * 0.1,
       threshold: 0.2,
     };
   }
 
-  /**
-   * Generate animation config for benefits with stagger effect
-   * @param index - Index of the benefit (0-based)
-   * @returns ViewportAnimationConfig with appropriate delay and easing
-   */
   getBenefitConfig(index: number): ViewportAnimationConfig {
     return {
-      animation: 'slideRight',
-      duration: 0.6,
-      delay: index * 0.1,
+      animation: 'slideLeft',
+      duration: 0.5,
+      delay: 0.1 + index * 0.1,
       ease: 'back.out(1.4)',
       threshold: 0.2,
     };
   }
 
-  /**
-   * Generate animation config for metrics with stagger effect
-   * @param index - Index of the metric (0-based)
-   * @returns ViewportAnimationConfig with scale-in animation
-   */
   getMetricConfig(index: number): ViewportAnimationConfig {
     return {
       animation: 'scaleIn',

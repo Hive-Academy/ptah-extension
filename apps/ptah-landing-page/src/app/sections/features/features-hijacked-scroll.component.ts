@@ -1,90 +1,37 @@
+import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import {
-  Component,
-  signal,
-  ChangeDetectionStrategy,
-  viewChild,
-} from '@angular/core';
-import {
-  HijackedScrollTimelineComponent,
-  HijackedScrollItemDirective,
+  FeatureShowcaseTimelineComponent,
+  ViewportAnimationDirective,
+  ScrollAnimationDirective,
 } from '@hive-academy/angular-gsap';
-import { FeatureSlideComponent, Feature } from './feature-slide.component';
+import { NgClass } from '@angular/common';
+
+interface TimelineStep {
+  id: string;
+  step: number;
+  title: string;
+  description: string;
+  image: string;
+  layout: 'left' | 'right';
+  notes: string[];
+}
 
 /**
  * FeaturesHijackedScrollComponent - Premium fullscreen features showcase
  *
- * Complexity Level: 2 (Medium)
- * Patterns: Composition with library components, signal-based state
- *
- * Features:
- * - Uses HijackedScrollTimelineComponent for fullscreen step-by-step scroll
- * - 6 feature slides with alternating slide directions (left/right)
- * - Fixed step indicator on left side showing current position
- * - Click-to-navigate step indicator buttons
- * - Configuration: scrollHeightPerStep=900, animationDuration=0.8, stepHold=0.9
- *
- * SOLID Principles:
- * - Single Responsibility: Orchestrate hijacked scroll with feature slides
- * - Composition: Uses HijackedScrollTimelineComponent and FeatureSlideComponent
- * - Open/Closed: Add features to array without modifying component logic
+ * Custom implementation using scrollAnimation directive directly
+ * to avoid SplitPanelSectionComponent NgOptimizedImage issues.
  */
 @Component({
   selector: 'ptah-features-hijacked-scroll',
+  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    HijackedScrollTimelineComponent,
-    HijackedScrollItemDirective,
-    FeatureSlideComponent,
+    NgClass,
+    FeatureShowcaseTimelineComponent,
+    ViewportAnimationDirective,
+    ScrollAnimationDirective,
   ],
-  template: `
-    <!-- Fullscreen Hijacked Scroll Features -->
-    <agsp-hijacked-scroll-timeline
-      #scrollTimeline
-      [scrollHeightPerStep]="900"
-      [animationDuration]="0.8"
-      [ease]="'power3.inOut'"
-      [scrub]="1.5"
-      [stepHold]="0.9"
-      [showFirstStepImmediately]="true"
-      (currentStepChange)="onStepChange($event)"
-    >
-      @for (feature of features; track feature.title; let i = $index) {
-      <div
-        hijackedScrollItem
-        [slideDirection]="i % 2 === 0 ? 'left' : 'right'"
-        [fadeIn]="true"
-        [scale]="true"
-      >
-        <ptah-feature-slide
-          [feature]="feature"
-          [stepNumber]="i + 1"
-          [totalSteps]="features.length"
-        />
-      </div>
-      }
-    </agsp-hijacked-scroll-timeline>
-
-    <!-- Fixed Step Indicator (left side) -->
-    <div
-      class="fixed left-8 top-1/2 -translate-y-1/2 z-50 hidden lg:flex flex-col gap-4"
-      role="navigation"
-      aria-label="Feature navigation"
-    >
-      @for (feature of features; track feature.title; let i = $index) {
-      <button
-        type="button"
-        (click)="jumpToStep(i)"
-        class="w-3 h-3 rounded-full transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-slate-950"
-        [class.bg-purple-500]="currentStep() === i"
-        [class.scale-125]="currentStep() === i"
-        [class.bg-slate-700]="currentStep() !== i"
-        [class.hover:bg-slate-600]="currentStep() !== i"
-        [attr.aria-label]="'Go to feature: ' + feature.title"
-        [attr.aria-current]="currentStep() === i ? 'step' : null"
-      ></button>
-      }
-    </div>
-  `,
   styles: [
     `
       :host {
@@ -92,103 +39,343 @@ import { FeatureSlideComponent, Feature } from './feature-slide.component';
       }
     `,
   ],
+  template: `
+    <div class="min-h-screen relative">
+      <agsp-feature-showcase-timeline>
+        <!-- Hero Section for Features -->
+        <div
+          featureHero
+          class="relative text-center py-24 flex flex-col justify-center"
+        >
+          <!-- Decorative Pattern -->
+          <div
+            class="absolute inset-0 flex items-center justify-center pointer-events-none"
+            scrollAnimation
+            [scrollConfig]="{
+              animation: 'custom',
+              start: 'top 90%',
+              end: 'bottom 30%',
+              scrub: 0.5,
+              from: { scale: 0.8, opacity: 0, rotation: -10 },
+              to: { scale: 1.2, opacity: 0.3, rotation: 5 }
+            }"
+          >
+            <div class="w-[800px] h-[800px] text-[#d4af37]/10 opacity-30">
+              <svg viewBox="0 0 100 100" fill="currentColor">
+                <circle cx="50" cy="50" r="40" />
+              </svg>
+            </div>
+          </div>
+
+          <!-- Hero Content -->
+          <div class="relative z-10 px-4">
+            <div
+              class="inline-block mb-8"
+              viewportAnimation
+              [viewportConfig]="{ animation: 'scaleIn', duration: 0.6 }"
+            >
+              <span
+                class="inline-flex items-center gap-2 px-6 py-2 bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-full text-sm font-semibold text-[#f4d47c]"
+              >
+                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                  <path
+                    fill-rule="evenodd"
+                    d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
+                    clip-rule="evenodd"
+                  />
+                </svg>
+                NEXT-GEN VISIBILITY
+              </span>
+            </div>
+
+            <h2
+              class="text-6xl md:text-7xl font-bold text-white mb-8 leading-tight"
+              viewportAnimation
+              [viewportConfig]="{
+                animation: 'slideUp',
+                duration: 0.8,
+                delay: 0.1
+              }"
+            >
+              <span
+                class="bg-gradient-to-r from-[#d4af37] via-[#f4d47c] to-[#8a6d10] bg-clip-text text-transparent"
+              >
+                Native Visual Interface
+              </span>
+            </h2>
+
+            <p
+              class="text-2xl text-gray-300 max-w-3xl mx-auto"
+              viewportAnimation
+              [viewportConfig]="{
+                animation: 'fadeIn',
+                duration: 0.8,
+                delay: 0.2
+              }"
+            >
+              Don't settle for a black box.
+              <span class="text-white font-semibold">
+                See your agents think, plan, and execute
+              </span>
+              in real-time with our revolutionary recursive visualization.
+            </p>
+          </div>
+        </div>
+
+        <!-- Feature Steps - Custom Implementation -->
+        @for (step of features(); track step.id; let i = $index) {
+        <section class="relative min-h-screen flex w-full overflow-hidden">
+          <!-- Image Side -->
+          <div
+            class="absolute inset-y-0 w-1/2"
+            [ngClass]="{
+              'right-0': step.layout === 'left',
+              'left-0': step.layout === 'right'
+            }"
+            scrollAnimation
+            [scrollConfig]="{
+              animation: 'custom',
+              start: 'top 80%',
+              end: 'top 30%',
+              scrub: 0.8,
+              from: { opacity: 0, scale: 1.1 },
+              to: { opacity: 1, scale: 1 }
+            }"
+          >
+            <!-- Parallax Image Container -->
+            <div class="absolute inset-0 overflow-hidden">
+              <!-- Gradient overlay -->
+              <div
+                class="absolute inset-0 z-10"
+                [ngClass]="{
+                  'bg-gradient-to-r from-slate-900 via-slate-900/80 to-transparent':
+                    step.layout === 'left',
+                  'bg-gradient-to-l from-slate-900 via-slate-900/80 to-transparent':
+                    step.layout === 'right'
+                }"
+              ></div>
+
+              <!-- Image with parallax -->
+              <div
+                class="absolute inset-0"
+                scrollAnimation
+                [scrollConfig]="{
+                  animation: 'parallax',
+                  speed: 0.3,
+                  scrub: true
+                }"
+              >
+                <img
+                  [src]="step.image"
+                  [alt]="step.title"
+                  class="w-full h-full object-cover object-center"
+                />
+              </div>
+
+              <!-- Accent glow -->
+              <div
+                class="absolute inset-0 z-5 bg-gradient-to-br from-[#d4af37]/10 to-[#f4d47c]/5"
+              ></div>
+            </div>
+          </div>
+
+          <!-- Text Content Side -->
+          <div
+            class="relative z-20 w-1/2 min-h-screen flex items-center"
+            [ngClass]="{
+              'ml-0': step.layout === 'left',
+              'ml-auto': step.layout === 'right'
+            }"
+          >
+            <div
+              class="px-8 lg:px-16 py-20 max-w-2xl"
+              [ngClass]="{
+                'ml-auto': step.layout === 'left',
+                'mr-auto': step.layout === 'right'
+              }"
+            >
+              <!-- Badge -->
+              <div
+                class="mb-8"
+                scrollAnimation
+                [scrollConfig]="{
+                  animation: 'custom',
+                  start: 'top 85%',
+                  end: 'top 45%',
+                  scrub: 0.8,
+                  from: {
+                    opacity: 0,
+                    x: step.layout === 'left' ? -60 : 60,
+                    scale: 0.8
+                  },
+                  to: { opacity: 1, x: 0, scale: 1 }
+                }"
+              >
+                <div class="inline-flex items-center gap-3 mb-6">
+                  <span
+                    class="flex items-center justify-center w-14 h-14 rounded-full bg-gradient-to-br from-[#d4af37] to-[#8a6d10] text-[#0a0a0a] font-bold text-xl shadow-lg shadow-[#d4af37]/20"
+                  >
+                    {{ step.step }}
+                  </span>
+                  <div
+                    class="h-px flex-1 bg-gradient-to-r from-[#d4af37]/40 to-transparent max-w-[120px]"
+                  ></div>
+                </div>
+              </div>
+
+              <!-- Title -->
+              <div
+                class="mb-6"
+                scrollAnimation
+                [scrollConfig]="{
+                  animation: 'custom',
+                  start: 'top 82%',
+                  end: 'top 40%',
+                  scrub: 0.8,
+                  from: {
+                    opacity: 0,
+                    x: step.layout === 'left' ? -80 : 80,
+                    y: 20
+                  },
+                  to: { opacity: 1, x: 0, y: 0 }
+                }"
+              >
+                <h3
+                  class="text-4xl md:text-5xl font-bold text-white mb-6 leading-tight"
+                >
+                  {{ step.title }}
+                </h3>
+              </div>
+
+              <!-- Description -->
+              <div
+                class="mb-8"
+                scrollAnimation
+                [scrollConfig]="{
+                  animation: 'custom',
+                  start: 'top 79%',
+                  end: 'top 35%',
+                  scrub: 0.8,
+                  from: {
+                    opacity: 0,
+                    x: step.layout === 'left' ? -60 : 60,
+                    y: 15
+                  },
+                  to: { opacity: 1, x: 0, y: 0 }
+                }"
+              >
+                <p class="text-xl text-gray-300 leading-relaxed">
+                  {{ step.description }}
+                </p>
+              </div>
+
+              <!-- Notes/Features List -->
+              <div
+                scrollAnimation
+                [scrollConfig]="{
+                  animation: 'custom',
+                  start: 'top 76%',
+                  end: 'top 30%',
+                  scrub: 0.8,
+                  from: {
+                    opacity: 0,
+                    x: step.layout === 'left' ? -40 : 40,
+                    y: 10
+                  },
+                  to: { opacity: 1, x: 0, y: 0 }
+                }"
+              >
+                <div class="space-y-4">
+                  @for (note of step.notes; track $index) {
+                  <div class="flex items-start gap-3">
+                    <svg
+                      class="w-6 h-6 text-[#d4af37] mt-0.5 flex-shrink-0"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M5 13l4 4L19 7"
+                      />
+                    </svg>
+                    <p class="text-base text-gray-400">{{ note }}</p>
+                  </div>
+                  }
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+        }
+      </agsp-feature-showcase-timeline>
+    </div>
+  `,
 })
 export class FeaturesHijackedScrollComponent {
-  /**
-   * Reference to the scroll timeline for programmatic control
-   */
-  private readonly scrollTimeline =
-    viewChild<HijackedScrollTimelineComponent>('scrollTimeline');
-
-  /**
-   * Current step index (0-based), updated via currentStepChange output
-   */
-  readonly currentStep = signal(0);
-
-  /**
-   * 6 Ptah features for the fullscreen showcase
-   * Each feature has: title, headline, description, metric, icon, gradient, bgGlow
-   */
-  readonly features: Feature[] = [
+  public readonly features = signal<TimelineStep[]>([
     {
+      id: 'visual-interface',
+      step: 1,
+      title: 'Recursive Agent Visualization',
+      description:
+        'Watch in real-time as your main agent spawns sub-agents, delegates tasks, and executes tools. See the "Software Architect" hand off to the "Frontend Developer," inspect the tree structure of their collaboration, and verify every file change with beautiful, glassmorphism-styled component visibility.',
+      image: '/assets/images/showcase/ptah-visual-interface.png',
+      layout: 'left',
+      notes: [
+        'Real-time execution tree',
+        'Sub-agent delegation visibility',
+        'Tool call inspection',
+        'Glassmorphism UI',
+      ],
+    },
+    {
+      id: 'mcp-server',
+      step: 2,
       title: 'Code Execution MCP Server',
-      headline: 'Run Code in Any Language',
       description:
-        '8 Ptah API namespaces available to your Claude agent. Query workspace structure, search files semantically, execute VS Code commands, and run code in any language.',
-      metric: '300+ tools',
-      icon: '\u{1F680}', // Rocket emoji
-      gradient: 'from-purple-400 to-violet-500',
-      bgGlow: 'bg-purple-500/10',
+        'Ptah includes a Code Execution MCP server that exposes 8 powerful API namespaces to Claude agents. Your AI can now query your workspace structure, search files semantically, extract code symbols, check diagnostics, access git status, and execute VS Code commands.',
+      image: '/assets/images/showcase/ptah-mcp-server.png',
+      layout: 'right',
+      notes: [
+        '8 Ptah API namespaces',
+        'Semantic file search',
+        'Symbol extraction',
+        'Git status & diffs',
+      ],
     },
     {
-      title: '10x Faster Performance',
-      headline: 'SDK vs CLI',
+      id: 'setup-wizard',
+      step: 3,
+      title: 'Intelligent Setup Wizard',
       description:
-        'Direct SDK integration bypasses CLI subprocess overhead. Session creation drops from 500ms to 50ms. Feel the difference on every message.',
-      metric: '50ms cold start',
-      icon: '\u{26A1}', // Lightning bolt emoji
-      gradient: 'from-amber-400 to-orange-500',
-      bgGlow: 'bg-amber-500/10',
+        "Don't settle for generic chat. Ptah's Intelligent Setup Wizard scans your codebase, detects your tech stack, and uses LLM-powered generation to create custom agents tailored to your project logic. Transform a generic helper into a specialized team member.",
+      image: '/assets/images/showcase/ptah-setup-wizard.png',
+      layout: 'left',
+      notes: [
+        '6-step automated flow',
+        'Project stack detection',
+        'LLM-powered rule generation',
+        'Custom agent creation',
+      ],
     },
     {
-      title: 'Intelligent Workspace Analysis',
-      headline: 'Deep Codebase Understanding',
+      id: 'model-control',
+      step: 4,
+      title: 'OpenRouter Model Control',
       description:
-        'Auto-detect 13+ project types and 6 monorepo tools. Context-aware AI interactions with intelligent file ranking and token budget optimization.',
-      metric: '13+ project types',
-      icon: '\u{1F9E0}', // Brain emoji
-      gradient: 'from-cyan-400 to-teal-500',
-      bgGlow: 'bg-cyan-500/10',
+        'Need pure logic? Use Claude 3.5 Sonnet. Need cost-effective speed? Switch to Haiku. Or override default tiers with any of 200+ OpenRouter models like DeepSeek V3 or Gemini. Complete model freedom with local persistence.',
+      image: '/assets/images/showcase/ptah-openrouter.png',
+      layout: 'right',
+      notes: [
+        '200+ Models via OpenRouter',
+        'Tier overriding (Sonnet/Haiku)',
+        'DeepSeek & Gemini support',
+        'Real-time cost tracking',
+      ],
     },
-    {
-      title: 'Project-Adaptive Agents',
-      headline: 'AI That Knows Your Stack',
-      description:
-        'LLM-powered template expansion generates agents specifically trained on your codebase. Custom rules per project for maximum effectiveness.',
-      metric: 'Custom rules per project',
-      icon: '\u{1F3AF}', // Target emoji
-      gradient: 'from-pink-400 to-rose-500',
-      bgGlow: 'bg-pink-500/10',
-    },
-    {
-      title: 'Multi-Provider LLM Support',
-      headline: 'Choose Your Model',
-      description:
-        'Claude, GPT-4, Gemini, OpenRouter, or VS Code LM API. One unified interface, your choice of model. Switch mid-conversation, compare responses.',
-      metric: '200+ models via OpenRouter',
-      icon: '\u{1F50C}', // Electric plug emoji
-      gradient: 'from-green-400 to-emerald-500',
-      bgGlow: 'bg-green-500/10',
-    },
-    {
-      title: 'Token-Optimized Context',
-      headline: 'Smart Context Management',
-      description:
-        'Greedy algorithm selects the most relevant files while respecting token budgets. Fit more into every conversation without manual pruning.',
-      metric: '80% token reduction',
-      icon: '\u{1F4CA}', // Chart emoji
-      gradient: 'from-orange-400 to-red-500',
-      bgGlow: 'bg-orange-500/10',
-    },
-  ];
-
-  /**
-   * Handle step change from hijacked scroll timeline
-   * @param index - Current step index (0-based)
-   */
-  onStepChange(index: number): void {
-    this.currentStep.set(index);
-  }
-
-  /**
-   * Jump to a specific step programmatically
-   * Calculates approximate scroll position based on step index and scrollHeightPerStep
-   * @param index - Target step index (0-based)
-   */
-  jumpToStep(index: number): void {
-    // Calculate scroll position based on step index
-    // scrollHeightPerStep=900, so each step is ~900px of scroll distance
-    const scrollHeight = 900 * index;
-    window.scrollTo({ top: scrollHeight, behavior: 'smooth' });
-  }
+  ]);
 }

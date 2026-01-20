@@ -25,6 +25,7 @@ export {
   StreamTransformer,
   type SessionIdResolvedCallback,
   type ResultStatsCallback,
+  type ResultModelUsage,
   type StreamTransformConfig,
 } from './stream-transformer';
 export * from './attachment-processor.service';

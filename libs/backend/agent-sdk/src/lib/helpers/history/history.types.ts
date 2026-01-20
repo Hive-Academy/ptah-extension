@@ -41,14 +41,17 @@ export interface JsonlMessageLine {
 
 /**
  * Extended message type for session history processing.
- * Extends the base JSONLMessage with fields needed for:
+ * Uses Omit to override the `message` property from JSONLMessage with
+ * a version that includes the `role` field present in actual JSONL files.
+ *
+ * Fields added for:
  * - Session matching (sessionId)
  * - Correlation (timestamp)
  * - Warmup filtering (slug, isMeta)
  * - Message tracking (uuid)
  * - Usage stats extraction
  */
-export interface SessionHistoryMessage extends JSONLMessage {
+export interface SessionHistoryMessage extends Omit<JSONLMessage, 'message'> {
   readonly uuid?: string;
   readonly sessionId?: string;
   readonly timestamp?: string;
@@ -56,6 +59,18 @@ export interface SessionHistoryMessage extends JSONLMessage {
   readonly slug?: string;
   /** Claude API usage data from assistant messages */
   readonly usage?: ClaudeApiUsage;
+  /** Message with role field - actual JSONL format */
+  readonly message?: {
+    readonly role?: string;
+    readonly content?: readonly ContentBlock[] | string;
+    readonly stop_reason?: string;
+    readonly usage?: {
+      readonly input_tokens?: number;
+      readonly output_tokens?: number;
+      readonly cache_read_input_tokens?: number;
+      readonly cache_creation_input_tokens?: number;
+    };
+  };
 }
 
 // ============================================================================

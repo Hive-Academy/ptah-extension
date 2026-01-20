@@ -2,65 +2,56 @@ import { Component, ChangeDetectionStrategy } from '@angular/core';
 import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
+  ScrollAnimationDirective,
+  ScrollAnimationConfig,
 } from '@hive-academy/angular-gsap';
 
 /**
- * HeroContentOverlayComponent - Hero text content with staggered entrance animations
+ * HeroContentOverlayComponent - Hero text content with cinematic scroll animations
  *
- * Features:
- * - Badge with scaleIn animation
- * - Headline with slideUp animation
- * - Subheadline with fadeIn animation
- * - CTA buttons with slideUp animation
- * - Social proof stats with fadeIn animation
- * - All animations staggered for dramatic entrance effect
+ * Animation Strategy:
+ * 1. ENTRANCE (viewport): Staggered reveal - badge → headline → subheadline → CTAs → stats
+ * 2. EXIT (scroll): Cinematic fade-out + rise as user scrolls down
+ *
+ * The scroll exit creates a dramatic "leaving the temple" effect
  */
 @Component({
   selector: 'ptah-hero-content-overlay',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ViewportAnimationDirective],
+  imports: [ViewportAnimationDirective, ScrollAnimationDirective],
   template: `
+    <!-- Scroll-linked fade-out container for cinematic exit -->
     <div
-      class="flex flex-col items-center justify-center min-h-screen px-4 text-center"
+      scrollAnimation
+      [scrollConfig]="contentScrollExitConfig"
+      class="flex flex-col items-center justify-center min-h-screen py-20 px-6 text-center max-w-4xl mx-auto"
     >
       <!-- Badge -->
       <div
         viewportAnimation
         [viewportConfig]="badgeConfig"
-        class="inline-flex items-center gap-2 px-4 py-2 mb-6 bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-full border border-purple-500/30"
+        class="inline-flex items-center gap-2 px-4 py-2 mb-10 bg-amber-500/10 border border-amber-500/20 rounded-full"
       >
-        <span class="relative flex h-2 w-2">
-          <span
-            class="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"
-          ></span>
-          <span
-            class="relative inline-flex rounded-full h-2 w-2 bg-purple-500"
-          ></span>
-        </span>
-        <span class="text-sm font-semibold text-purple-300"
+        <span class="w-2 h-2 bg-amber-400 rounded-full animate-pulse"></span>
+        <span class="text-sm font-medium text-amber-300/90 tracking-wide"
           >Powered by Claude Agent SDK</span
         >
       </div>
 
-      <!-- Main Headline -->
+      <!-- Main Headline: Ptah -->
       <h1
         viewportAnimation
         [viewportConfig]="headlineConfig"
-        class="text-5xl md:text-7xl font-bold mb-6 leading-tight"
+        class="text-6xl md:text-7xl lg:text-8xl font-bold mb-8 leading-none tracking-tight bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 bg-clip-text text-transparent"
       >
-        <span class="block text-white">VS Code AI Development,</span>
-        <span
-          class="block bg-gradient-to-r from-purple-400 via-pink-400 to-amber-400 bg-clip-text text-transparent"
-        >
-          Powered Up by Claude Code
-        </span>
+        Ptah
       </h1>
 
       <!-- Subheadline -->
       <p
         viewportAnimation
         [viewportConfig]="subheadlineConfig"
-        class="text-xl md:text-2xl text-gray-300 mb-8 max-w-3xl mx-auto leading-relaxed"
+        class="text-base md:text-lg lg:text-xl text-white/70 mb-12 max-w-2xl leading-relaxed font-light"
       >
         A VS Code-native extension powered by the Claude Code Agent SDK.
         Intelligent workspace analysis, Code Execution MCP server, and
@@ -71,34 +62,36 @@ import {
       <div
         viewportAnimation
         [viewportConfig]="ctaConfig"
-        class="flex flex-col sm:flex-row gap-4 justify-center mb-12"
+        class="flex flex-col sm:flex-row gap-4 mb-16"
       >
         <a
           href="https://marketplace.visualstudio.com/items?itemName=ptah.ptah"
           target="_blank"
           rel="noopener"
-          class="px-8 py-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-xl hover:from-purple-600 hover:to-pink-600 transform hover:scale-105 transition-all duration-200 shadow-lg shadow-purple-500/25"
+          class="px-8 py-4 text-base font-semibold text-slate-900 bg-gradient-to-r from-amber-400 to-amber-500 rounded-lg hover:from-amber-300 hover:to-amber-400 transform hover:-translate-y-0.5 transition-all duration-200 shadow-lg shadow-amber-500/25"
         >
           Install Free from VS Code Marketplace
         </a>
         <a
           href="#demo"
-          class="px-8 py-4 bg-white/10 backdrop-blur-sm text-white font-semibold rounded-xl border border-white/20 hover:bg-white/20 transition-all duration-200"
+          class="px-8 py-4 text-base font-medium text-white/90 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-white/20 transition-all duration-200"
         >
           Watch 3-Minute Demo
         </a>
       </div>
 
-      <!-- Social Proof Bar -->
+      <!-- Social Proof Stats -->
       <div
         viewportAnimation
         [viewportConfig]="socialProofConfig"
-        class="flex flex-wrap justify-center gap-8 text-sm text-gray-400"
+        class="flex flex-wrap justify-center gap-10"
       >
         @for (stat of stats; track stat.value) {
-        <div class="flex items-center gap-2">
-          <span class="text-2xl font-bold text-white">{{ stat.value }}</span>
-          <span>{{ stat.label }}</span>
+        <div class="flex items-baseline gap-2">
+          <span class="text-2xl font-semibold text-white/90">{{
+            stat.value
+          }}</span>
+          <span class="text-sm text-white/50">{{ stat.label }}</span>
         </div>
         }
       </div>
@@ -113,9 +106,6 @@ import {
   ],
 })
 export class HeroContentOverlayComponent {
-  /**
-   * Social proof statistics showcasing project scale
-   */
   readonly stats = [
     { value: '12', label: 'libraries' },
     { value: '48+', label: 'components' },
@@ -124,51 +114,66 @@ export class HeroContentOverlayComponent {
   ];
 
   /**
-   * Animation config for badge - scaleIn with immediate trigger
+   * Cinematic scroll exit - content fades out and rises as user scrolls
+   * Creates "ascending from the temple" effect
+   */
+  readonly contentScrollExitConfig: ScrollAnimationConfig = {
+    animation: 'custom',
+    start: 'top top',
+    end: 'bottom 50%',
+    scrub: 1.2,
+    from: { opacity: 1, y: 0 },
+    to: { opacity: 0, y: -120 },
+  };
+
+  /**
+   * Badge entrance - quick scale in
    */
   readonly badgeConfig: ViewportAnimationConfig = {
     animation: 'scaleIn',
-    duration: 0.6,
+    duration: 0.5,
     threshold: 0.1,
   };
 
   /**
-   * Animation config for headline - slideUp with 0.1s delay
+   * Headline entrance - dramatic slide up
    */
   readonly headlineConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
     duration: 0.8,
-    delay: 0.1,
+    delay: 0.15,
     threshold: 0.1,
+    ease: 'power2.out',
   };
 
   /**
-   * Animation config for subheadline - fadeIn with 0.2s delay
+   * Subheadline - fade in after headline
    */
   readonly subheadlineConfig: ViewportAnimationConfig = {
     animation: 'fadeIn',
-    duration: 0.8,
-    delay: 0.2,
-    threshold: 0.1,
-  };
-
-  /**
-   * Animation config for CTAs - slideUp with 0.3s delay
-   */
-  readonly ctaConfig: ViewportAnimationConfig = {
-    animation: 'slideUp',
-    duration: 0.6,
+    duration: 0.7,
     delay: 0.3,
     threshold: 0.1,
   };
 
   /**
-   * Animation config for social proof - fadeIn with 0.4s delay
+   * CTAs - slide up together
+   */
+  readonly ctaConfig: ViewportAnimationConfig = {
+    animation: 'slideUp',
+    duration: 0.6,
+    delay: 0.45,
+    threshold: 0.1,
+    ease: 'power2.out',
+  };
+
+  /**
+   * Stats - fade in last
    */
   readonly socialProofConfig: ViewportAnimationConfig = {
     animation: 'fadeIn',
-    duration: 0.8,
-    delay: 0.4,
+    duration: 0.6,
+    delay: 0.6,
     threshold: 0.1,
   };
 }

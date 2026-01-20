@@ -9,16 +9,12 @@ import { CommonModule } from '@angular/common';
 /**
  * NavigationComponent - Fixed navigation bar with branding and CTAs
  *
- * Complexity Level: 1 (Simple component)
- * Patterns: Standalone component, OnPush change detection, signal-based state
- *
  * Features:
- * - Fixed positioning with backdrop blur
- * - Scroll-responsive opacity change
+ * - Fully transparent at top, solid on scroll
+ * - Backdrop blur effect
  * - Ptah logo and branding
  * - GitHub link with icon
  * - VS Code Marketplace CTA button
- * - Golden accent border (Anubis theme)
  */
 @Component({
   selector: 'ptah-navigation',
@@ -28,17 +24,17 @@ import { CommonModule } from '@angular/common';
     <nav
       class="fixed top-0 left-0 right-0 z-50 h-16 px-6 lg:px-16 flex items-center justify-between transition-all duration-300"
       [ngClass]="{
-        'bg-base-100/80': !scrolled(),
-        'bg-base-100 shadow-lg': scrolled()
+        'bg-transparent': !scrolled(),
+        'bg-slate-950/90 backdrop-blur-md shadow-lg border-b border-amber-500/10':
+          scrolled()
       }"
-      style="backdrop-filter: blur(12px); border-bottom: 1px solid rgba(212, 175, 55, 0.1);"
       role="navigation"
       aria-label="Main navigation"
     >
       <!-- Logo and Branding -->
       <a
         href="#"
-        class="flex items-center gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-info focus-visible:outline-offset-2 rounded-md"
+        class="flex items-center gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md"
         aria-label="Ptah Extension Home"
       >
         <img
@@ -46,7 +42,7 @@ import { CommonModule } from '@angular/common';
           alt="Ptah Extension Logo"
           class="w-8 h-8"
         />
-        <span class="font-display font-bold text-xl text-accent">Ptah</span>
+        <span class="font-bold text-xl text-amber-400">Ptah</span>
       </a>
 
       <!-- CTAs -->
@@ -56,7 +52,7 @@ import { CommonModule } from '@angular/common';
           href="https://github.com/anthropics/claude-code"
           target="_blank"
           rel="noopener noreferrer"
-          class="text-base-content/70 hover:text-base-content transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-info focus-visible:outline-offset-2 rounded-md p-1"
+          class="text-white/70 hover:text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md p-1"
           aria-label="View on GitHub"
         >
           <svg
@@ -78,7 +74,7 @@ import { CommonModule } from '@angular/common';
           href="https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code"
           target="_blank"
           rel="noopener noreferrer"
-          class="bg-gradient-to-r from-secondary to-accent text-secondary-content px-5 py-2 rounded-lg font-semibold text-sm hover:scale-105 hover:shadow-glow-gold transition-transform focus-visible:outline focus-visible:outline-2 focus-visible:outline-info focus-visible:outline-offset-2"
+          class="bg-gradient-to-r from-amber-500 to-amber-600 text-slate-900 px-5 py-2 rounded-lg font-semibold text-sm hover:from-amber-400 hover:to-amber-500 hover:scale-105 transition-all duration-200 shadow-lg shadow-amber-500/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
           aria-label="Install from VS Code Marketplace"
         >
           Get Extension
@@ -98,14 +94,13 @@ import { CommonModule } from '@angular/common';
 export class NavigationComponent {
   /**
    * Signal tracking scroll position
-   * - false: User at top (semi-transparent background)
+   * - false: User at top (fully transparent)
    * - true: User scrolled (solid background + shadow)
    */
   readonly scrolled = signal(false);
 
   /**
    * HostListener for window scroll events
-   * Updates scrolled signal based on scroll position
    */
   @HostListener('window:scroll')
   onScroll(): void {

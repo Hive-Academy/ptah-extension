@@ -68,13 +68,17 @@ export class StreamingHandlerService {
    * @param event - The flat streaming event from SDK
    * @param tabId - Optional tab ID for direct routing (preferred)
    * @param sessionId - Optional real SDK UUID for session linking
-   * @returns Auto-send info when message_complete + queued content, null otherwise
+   * @returns Event result info for ChatStore to handle, null otherwise
    */
   processStreamEvent(
     event: FlatStreamEventUnion,
     tabId?: string,
     sessionId?: string
-  ): { tabId: string; queuedContent: string } | null {
+  ): {
+    tabId: string;
+    queuedContent?: string;
+    compactionSessionId?: string;
+  } | null {
     try {
       // Find target tab
       let targetTab: TabState | undefined;
@@ -378,6 +382,19 @@ export class StreamingHandlerService {
           state.events.set(event.id, event);
           this.indexEventByMessage(state, event);
           break;
+        }
+
+        case 'compaction_start': {
+          // TASK_2025_098: Unified compaction flow
+          // Compaction events now flow through CHAT_CHUNK (same as all streaming events)
+          // Return compaction info so ChatStore can call handleCompactionStart()
+          console.log(
+            '[StreamingHandlerService] Compaction event received via streaming path',
+            { sessionId: event.sessionId, trigger: event.trigger }
+          );
+
+          // Return compaction info for ChatStore to handle (avoid circular dependency)
+          return { tabId: targetTab.id, compactionSessionId: event.sessionId };
         }
 
         default:

@@ -8,12 +8,29 @@ import type { ExecutionChatMessage } from '@ptah-extension/shared';
 import { calculateSessionCostSummary } from '@ptah-extension/shared';
 
 /**
+ * Live model stats from current session
+ * Updated after each turn completion with context window info
+ */
+export interface LiveModelStats {
+  /** Primary model name (e.g., "claude-sonnet-4-20250514") */
+  model: string;
+  /** Total context tokens used (input + output) */
+  contextUsed: number;
+  /** Total context window size */
+  contextWindow: number;
+  /** Context usage as percentage (0-100) */
+  contextPercent: number;
+}
+
+/**
  * SessionStatsSummaryComponent - Compact inline session stats display
  *
  * Complexity Level: 2 (Molecule)
  * Patterns: Standalone component, OnPush change detection, Computed signals
  *
  * Features:
+ * - Context usage display (tokens + percentage)
+ * - Model name display
  * - Total cost across all messages
  * - Total token usage with tooltip
  * - Total duration
@@ -27,6 +44,32 @@ import { calculateSessionCostSummary } from '@ptah-extension/shared';
   template: `
     @if (hasStats()) {
     <div class="flex flex-wrap items-center gap-1.5">
+      <!-- Context Usage Badge (when live model stats available) -->
+      @if (liveModelStats()) {
+      <span
+        class="badge badge-sm bg-cyan-600 text-white border-cyan-600"
+        [title]="contextTooltip()"
+      >
+        Ctx: {{ formatTokens(liveModelStats()!.contextUsed) }}
+      </span>
+      <span
+        class="badge badge-sm bg-cyan-700 text-white border-cyan-700"
+        [title]="contextTooltip()"
+      >
+        {{ liveModelStats()!.contextPercent }}%
+      </span>
+      }
+
+      <!-- Model Badge (when live model stats available) -->
+      @if (liveModelStats()) {
+      <span
+        class="badge badge-sm bg-purple-600 text-white border-purple-600"
+        [title]="liveModelStats()!.model"
+      >
+        {{ formatModelName(liveModelStats()!.model) }}
+      </span>
+      }
+
       <!-- Tokens badge -->
       <span class="badge badge-outline badge-sm" [title]="tokenTooltip()">
         {{ formatTokens(totalTokenCount()) }} tokens
@@ -37,10 +80,12 @@ import { calculateSessionCostSummary } from '@ptah-extension/shared';
         {{ formatCost(summary().totalCost) }}
       </span>
 
-      <!-- Duration badge -->
+      <!-- Duration badge (only if > 0) -->
+      @if (summary().totalDuration > 0) {
       <span class="badge badge-sm badge-ghost">
         {{ formatDuration(summary().totalDuration) }}
       </span>
+      }
 
       <!-- Agent count (if any) -->
       @if (summary().agentCount > 0) {
@@ -74,6 +119,12 @@ export class SessionStatsSummaryComponent {
     messageCount: number;
   } | null>(null);
 
+  /**
+   * Live model stats from current session (updated after each turn completion)
+   * Includes context window info for percentage display and model name.
+   */
+  readonly liveModelStats = input<LiveModelStats | null>(null);
+
   /** Computed session summary using utility functions or preloaded stats */
   readonly summary = computed(() => {
     const preloaded = this.preloadedStats();
@@ -93,7 +144,12 @@ export class SessionStatsSummaryComponent {
   /** Whether we have any stats to display */
   readonly hasStats = computed(() => {
     const s = this.summary();
-    return s.totalCost > 0 || s.totalDuration > 0 || this.totalTokenCount() > 0;
+    return (
+      s.totalCost > 0 ||
+      s.totalDuration > 0 ||
+      this.totalTokenCount() > 0 ||
+      this.liveModelStats() !== null
+    );
   });
 
   /** Total token count (input + output) */
@@ -117,6 +173,17 @@ export class SessionStatsSummaryComponent {
     }
     lines.push(`Total: ${this.totalTokenCount().toLocaleString()}`);
     return lines.join('\n');
+  });
+
+  /** Tooltip with context window details */
+  readonly contextTooltip = computed(() => {
+    const stats = this.liveModelStats();
+    if (!stats) return '';
+    return [
+      `Context Used: ${stats.contextUsed.toLocaleString()} tokens`,
+      `Context Window: ${stats.contextWindow.toLocaleString()} tokens`,
+      `Usage: ${stats.contextPercent}%`,
+    ].join('\n');
   });
 
   /** Format cost for display */
@@ -150,5 +217,50 @@ export class SessionStatsSummaryComponent {
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = Math.floor(seconds % 60);
     return `${minutes}m ${remainingSeconds}s`;
+  }
+
+  /**
+   * Format model name for display
+   * Extracts readable name from full model ID (e.g., "claude-sonnet-4-20250514" -> "Sonnet 4")
+   */
+  protected formatModelName(modelId: string): string {
+    // Extract model family and version from ID
+    const lowerModel = modelId.toLowerCase();
+
+    if (lowerModel.includes('opus')) {
+      // Handle opus variants
+      if (lowerModel.includes('4.5') || lowerModel.includes('4-5')) {
+        return 'Opus 4.5';
+      }
+      if (lowerModel.includes('4')) {
+        return 'Opus 4';
+      }
+      return 'Opus';
+    }
+
+    if (lowerModel.includes('sonnet')) {
+      // Handle sonnet variants
+      if (lowerModel.includes('4')) {
+        return 'Sonnet 4';
+      }
+      if (lowerModel.includes('3.5') || lowerModel.includes('3-5')) {
+        return 'Sonnet 3.5';
+      }
+      return 'Sonnet';
+    }
+
+    if (lowerModel.includes('haiku')) {
+      // Handle haiku variants
+      if (lowerModel.includes('3.5') || lowerModel.includes('3-5')) {
+        return 'Haiku 3.5';
+      }
+      return 'Haiku';
+    }
+
+    // Fallback: return truncated model ID
+    if (modelId.length > 15) {
+      return modelId.substring(0, 15) + '...';
+    }
+    return modelId;
   }
 }

@@ -236,6 +236,15 @@ export class ChatStore {
   );
 
   /**
+   * Live model stats for current session (updated after each turn completion)
+   * Includes context window info for percentage display and model name
+   * Used by SessionStatsSummaryComponent to display context usage
+   */
+  readonly liveModelStats = computed(
+    () => this.tabManager.activeTab()?.liveModelStats ?? null
+  );
+
+  /**
    * Get permission request for a specific tool by its toolCallId
    * Delegates to PermissionHandlerService
    */
@@ -673,6 +682,16 @@ export class ChatStore {
       sessionId
     );
 
+    // TASK_2025_098: Handle compaction notification via unified streaming path
+    // Compaction events now flow through CHAT_CHUNK like all other streaming events
+    if (result && result.compactionSessionId) {
+      console.log('[ChatStore] Handling compaction via streaming path', {
+        compactionSessionId: result.compactionSessionId,
+      });
+      this.handleCompactionStart(result.compactionSessionId);
+      return; // Compaction events don't need further processing
+    }
+
     // TASK_2025_100: Handle re-steering via queued content on message_complete
     // When user sends a message during streaming, it's queued. On message_complete,
     // we INTERRUPT the current execution and send the queued message to re-steer Claude.
@@ -683,11 +702,11 @@ export class ChatStore {
       );
       // Store queued content before abort (abort may clear queue state)
       const queuedContent = result.queuedContent;
-      const tabId = result.tabId;
+      const resultTabId = result.tabId;
 
       // First: Interrupt current execution so Claude stops its current plan
       // Then: Send the queued message to re-steer Claude
-      this.interruptAndSend(tabId, queuedContent);
+      this.interruptAndSend(resultTabId, queuedContent);
     }
   }
 
@@ -750,17 +769,53 @@ export class ChatStore {
    * Handle session stats update from backend
    * Delegates to StreamingHandlerService
    *
-   * @param stats - Session statistics (cost, tokens, duration)
+   * @param stats - Session statistics (cost, tokens, duration, modelUsage)
    */
   handleSessionStats(stats: {
     sessionId: string;
     cost: number;
     tokens: { input: number; output: number };
     duration: number;
+    modelUsage?: Array<{
+      model: string;
+      inputTokens: number;
+      outputTokens: number;
+      contextWindow: number;
+    }>;
   }): void {
     // TASK_2025_098: Clear compaction state when new message finishes
     // This indicates compaction (if any) has completed successfully
     this.clearCompactionState();
+
+    // Process modelUsage to update liveModelStats for context display
+    if (stats.modelUsage && stats.modelUsage.length > 0) {
+      // Use the first model's data (primary model)
+      const primaryModel = stats.modelUsage[0];
+      const contextUsed = primaryModel.inputTokens + primaryModel.outputTokens;
+      const contextPercent =
+        primaryModel.contextWindow > 0
+          ? Math.round((contextUsed / primaryModel.contextWindow) * 1000) / 10
+          : 0;
+
+      // Find active tab and update liveModelStats
+      const activeTab = this.tabManager.activeTab();
+      if (activeTab) {
+        this.tabManager.updateTab(activeTab.id, {
+          liveModelStats: {
+            model: primaryModel.model,
+            contextUsed,
+            contextWindow: primaryModel.contextWindow,
+            contextPercent,
+          },
+        });
+        console.log('[ChatStore] Updated liveModelStats:', {
+          model: primaryModel.model,
+          contextUsed,
+          contextWindow: primaryModel.contextWindow,
+          contextPercent,
+        });
+      }
+    }
 
     // StreamingHandler finalizes the message and returns queued content info
     const result = this.streamingHandler.handleSessionStats(stats);

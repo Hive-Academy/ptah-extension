@@ -4,9 +4,9 @@
 
 ### Investigation Summary
 
-- **Libraries reviewed**: vscode-lm-tools, workspace-intelligence, agent-generation, template-generation, llm-abstraction, agent-sdk
-- **Tasks analyzed**: TASK_2025_044 (Premium SaaS Strategy), TASK_2025_058 (SDK Integration)
-- **Key files**: All library CLAUDE.md files, service implementations
+- **Libraries reviewed**: chat, setup-wizard, vscode-lm-tools, workspace-intelligence, agent-generation
+- **Tasks analyzed**: TASK_2025_105 (Setup Wizard & OpenRouter), TASK_2025_023 (Chat Architecture)
+- **Key files**: `libs/frontend/chat/CLAUDE.md`, `setup-wizard/CLAUDE.md`, `BLOG_POST_MCP_SUPERPOWERS.md`
 
 ### Content Specification with Evidence
 
@@ -22,19 +22,12 @@ Every claim below is backed by actual codebase implementation.
 
 **Evidence**:
 
-- Built on the official Claude Code Agent SDK
-- Source: `libs/backend/agent-sdk/CLAUDE.md` line 7-8: "Official Claude Agent SDK integration"
+- Built on the official Claude Code Agent SDK (`libs/backend/agent-sdk`)
 - Native VS Code experience with SDK performance benefits
 
 ### Subheadline
 
-**"A VS Code-native extension powered by the Claude Code Agent SDK. Intelligent workspace analysis, Code Execution MCP server, and project-adaptive AI agents - bringing Claude's power directly into your editor."**
-
-**Evidence**:
-
-- MCP server: `libs/backend/vscode-lm-tools/CLAUDE.md` - 8 Ptah API namespaces
-- Workspace analysis: `libs/backend/workspace-intelligence/CLAUDE.md` - 13+ project types
-- Agent generation: `libs/backend/agent-generation/CLAUDE.md` - LLM-powered customization
+**"A VS Code-native extension powered by the Claude Code Agent SDK. Visualize agent execution, automate workspace analysis, and unlock 200+ models - bringing Claude's power directly into your editor with a beautiful, native UI."**
 
 ### Primary CTA
 
@@ -46,18 +39,48 @@ Every claim below is backed by actual codebase implementation.
 
 ### Social Proof Bar
 
-- "12 specialized backend libraries"
-- "48+ Angular components"
-- "60+ DI tokens"
-- "94 message protocol types"
-
-**Evidence**: Stats from main `CLAUDE.md` Workspace Stats section
+- "Recursive Sub-Agent Visualization"
+- "6-Step Agent Generation Wizard"
+- "8 MCP API Namespaces"
+- "200+ Supported Models"
 
 ---
 
 ## Feature Sections
 
-### Feature 1: Code Execution MCP Server
+### Feature 1: Native Visual Interface
+
+**Headline**: "See Your Agents Think in Real-Time"
+
+**Description**:
+Generic chat interfaces hide the magic. Ptah visualizes the entire thought process with its revolutionary **Recursive ExecutionNode Architecture**. Watch in real-time as your main agent spawns sub-agents, delegates tasks, and executes tools. See the "Software Architect" hand off to the "Frontend Developer," inspect the tree structure of their collaboration, and verify every file change with beautiful, glassmorphism-styled component visibility.
+
+**Evidence**:
+
+- Source: `libs/frontend/chat/CLAUDE.md` - ExecutionNode Architecture
+- Components: `ExecutionNodeComponent`, `AgentExecutionComponent`, `InlineAgentBubbleComponent`
+- UI: Atomic Design system with zoneless Angular signals
+
+**Code Example**:
+
+```html
+<!-- Actual recursive visualization structure -->
+<ptah-execution-node [node]="rootNode">
+  <div class="agent-spawn">
+    <ptah-inline-agent-bubble agentName="frontend-dev" />
+    <div class="tool-call">
+      <ptah-tool-icon name="write_file" />
+      <span class="path">src/app/login.component.ts</span>
+    </div>
+  </div>
+</ptah-execution-node>
+```
+
+**Metric**: "Complete visibility into sub-agent delegation and tool execution"
+
+---
+
+### Feature 2: Code Execution MCP Server
 
 **Headline**: "Your Claude Agent Just Got Superpowers"
 
@@ -66,21 +89,20 @@ Ptah includes a Code Execution MCP server that exposes 8 powerful API namespaces
 
 **Evidence**:
 
-- Source: `libs/backend/vscode-lm-tools/CLAUDE.md` lines 40-48
+- Source: `vscode-lm-tools/CLAUDE.md`, `BLOG_POST_MCP_SUPERPOWERS.md`
 - 8 namespaces: workspace, search, symbols, diagnostics, git, ai, files, commands
 
-**Code Example** (from actual codebase):
+**Code Example**:
 
 ```typescript
 // Claude can now execute this inside Ptah
 const info = await ptah.workspace.getInfo();
 console.log('Project type:', info.projectType); // "Angular"
 
-const files = await ptah.search.findFiles({
-  query: 'authentication',
-  maxResults: 10,
-});
+// Find semantic matches
+const files = await ptah.search.findFiles({ query: 'auth service' });
 
+// Extract symbols without reading the whole file
 const symbols = await ptah.symbols.extract('/src/auth.service.ts');
 ```
 
@@ -88,20 +110,87 @@ const symbols = await ptah.symbols.extract('/src/auth.service.ts');
 
 ---
 
-### Feature 2: 10x Faster AI Interactions
+### Feature 3: Intelligent Setup Wizard
+
+**Headline**: "Agents Tailored to Your Codebase"
+
+**Description**:
+Don't settle for generic chat. Ptah's **Intelligent Setup Wizard** scans your codebase, detects your tech stack (Angular, React, Node, Python...), and uses LLM-powered generation to create custom agents tailored to _your_ project logic. In a simple 6-step flow, it transforms a generic helper into a specialized team member that knows your architecture.
+
+**Evidence**:
+
+- Source: `libs/frontend/setup-wizard/CLAUDE.md`
+- Components: `SetupWizardComponent`, `AgentGenerationService`
+- Flow: Scan → Analysis → Agent Selection → Generation → Completion
+
+**Code Example**:
+
+```typescript
+// Smart recommendations based on project analysis
+readonly availableAgents = computed(() => {
+  const type = this.projectType();
+  return [
+    { name: 'frontend-developer', recommended: type.includes('Angular') },
+    { name: 'backend-developer', recommended: type.includes('Node.js') },
+    { name: 'software-architect', recommended: true }
+  ];
+});
+```
+
+**Metric**: "6-step automated generation flow"
+
+---
+
+### Feature 4: Advanced Model Control
+
+**Headline**: "Unlock 200+ Models with OpenRouter"
+
+**Description**:
+Need pure logic? Use **Claude 3.5 Sonnet**. Need cost-effective speed? Switch to **Haiku**. Want to experiment? Ptah's OpenRouter integration lets you override default model tiers (Sonnet/Opus/Haiku) with any of 200+ available models like DeepSeek, Llama 3, or Gemini. Map specific tasks to specific models and track costs in real-time.
+
+**Evidence**:
+
+- Source: `libs/frontend/chat/.../openrouter-model-selector.component.ts`
+- Feature: Tier overrides, full catalog search, environment variable persistence
+
+**Visual**: Model selector with "Sonnet (Default)" vs "DeepSeek V3 (Override)"
+
+**Metric**: "Access to 200+ AI models"
+
+---
+
+### Feature 5: Intelligent Workspace Analysis
+
+**Headline**: "Ptah Knows Your Codebase"
+
+**Description**:
+Ptah automatically detects your project type, frameworks, and architecture. It recognizes 13+ project types (Node.js, React, Angular, Vue, Python, Java, Rust, Go, and more) and 6 monorepo tools (Nx, Lerna, Turborepo, Rush, pnpm, Yarn workspaces). This intelligence powers context-aware AI interactions.
+
+**Evidence**:
+
+- Source: `libs/backend/workspace-intelligence/CLAUDE.md`
+- ProjectType enum: Node, React, Vue, Angular, NextJS, Python, Java, Rust, Go, DotNet, PHP, Ruby, General
+
+**Code Example**:
+
+```typescript
+const projectType = await detector.detectProjectType(workspaceUri);
+// ProjectType.Angular
+
+const monorepo = await detector.detectMonorepo(workspaceUri);
+// { isMonorepo: true, type: MonorepoType.Nx, packageCount: 12 }
+```
+
+**Metric**: "13+ project types, 6 monorepo tools, auto-detected"
+
+---
+
+### Feature 6: 10x Faster AI Interactions
 
 **Headline**: "From 500ms to 50ms. Feel the Difference."
 
 **Description**:
 Ptah integrates the official Claude Agent SDK directly, bypassing the CLI subprocess overhead. This means 10x faster session creation, 10x faster first-chunk latency, and 2.5x lower memory usage. You'll feel the difference on every message.
-
-**Evidence**:
-
-- Source: `libs/backend/agent-sdk/CLAUDE.md` Performance Characteristics table
-- SDK: ~50ms session creation, ~100ms first chunk, ~1ms/chunk streaming
-- CLI: ~500ms session creation, ~1000ms first chunk, ~10ms/chunk streaming
-
-**Visual**: Before/After performance comparison chart
 
 **Metric**:
 | Metric | CLI | Ptah SDK |
@@ -112,127 +201,20 @@ Ptah integrates the official Claude Agent SDK directly, bypassing the CLI subpro
 
 ---
 
-### Feature 3: Intelligent Workspace Analysis
-
-**Headline**: "Ptah Knows Your Codebase"
-
-**Description**:
-Ptah automatically detects your project type, frameworks, and architecture. It recognizes 13+ project types (Node.js, React, Angular, Vue, Python, Java, Rust, Go, and more) and 6 monorepo tools (Nx, Lerna, Turborepo, Rush, pnpm, Yarn workspaces). This intelligence powers context-aware AI interactions.
-
-**Evidence**:
-
-- Source: `libs/backend/workspace-intelligence/CLAUDE.md` lines 226-267
-- ProjectType enum: Node, React, Vue, Angular, NextJS, Python, Java, Rust, Go, DotNet, PHP, Ruby, General
-- MonorepoType enum: Nx, Lerna, Rush, Turborepo, PnpmWorkspaces, YarnWorkspaces
-
-**Code Example**:
-
-```typescript
-// Automatic detection on workspace open
-const projectType = await detector.detectProjectType(workspaceUri);
-// ProjectType.Angular
-
-const monorepo = await detector.detectMonorepo(workspaceUri);
-// { isMonorepo: true, type: MonorepoType.Nx, packageCount: 12 }
-
-const frameworks = await detector.getFrameworks();
-// ['Angular', 'NestJS', 'Jest', 'Tailwind']
-```
-
-**Metric**: "13+ project types, 6 monorepo tools, auto-detected"
-
----
-
-### Feature 4: Project-Adaptive AI Agents
-
-**Headline**: "AI Agents Built for YOUR Project"
-
-**Description**:
-Generic agents waste context. Ptah generates agents specifically trained on your codebase, tech stack, and conventions. The agent generation system uses LLM-powered template expansion, Zod schema validation, and workspace analysis to create `.claude/agents/` files that understand your project.
-
-**Evidence**:
-
-- Source: `libs/backend/agent-generation/CLAUDE.md` architecture and services
-- Source: `libs/backend/template-generation/CLAUDE.md` template processing pipeline
-
-**Flow**:
-
-```
-Workspace Analysis → Agent Selection → Template Processing → LLM Customization → Validation → File Generation
-```
-
-**Metric**: "Agents tailored to your specific codebase"
-
----
-
-### Feature 5: Multi-Provider LLM Support
-
-**Headline**: "Your Models, Your Choice"
-
-**Description**:
-Ptah abstracts away LLM provider complexity with a unified Langchain-powered interface. Switch between Anthropic Claude, OpenAI GPT, Google Gemini, OpenRouter (for access to any model), or even VS Code's built-in Language Model API - all without changing your workflow.
-
-**Evidence**:
-
-- Source: `libs/backend/llm-abstraction/CLAUDE.md` Provider Implementations section
-- 5 providers: AnthropicProvider, OpenAIProvider, GoogleGenAIProvider, OpenRouterProvider, VsCodeLmProvider
-
-**Supported Models**:
-
-- **Anthropic**: Claude 3.5 Sonnet, Claude 3 Opus, Claude 3 Haiku
-- **OpenAI**: GPT-4 Turbo, GPT-4, GPT-3.5 Turbo
-- **Google**: Gemini 1.5 Pro, Gemini 1.5 Flash
-- **OpenRouter**: All available models
-- **VS Code LM**: No API key needed (uses VS Code's built-in LM API)
-
-**Metric**: "5 LLM providers, one unified interface"
-
----
-
-### Feature 6: Token-Optimized Context
-
-**Headline**: "Fit More of Your Codebase Into Every Conversation"
-
-**Description**:
-Ptah's Context Size Optimizer uses a greedy algorithm to select the most relevant files for your AI context while staying within token budgets. It scores files by relevance to your query, respects token limits, and maximizes the value of every byte sent to the AI.
-
-**Evidence**:
-
-- Source: `libs/backend/workspace-intelligence/CLAUDE.md` Context Size Optimizer section
-- Adaptive budgeting: monorepo 200k, app 175k, library 150k tokens
-- Response reserve: generate 75k, explain 50k, simple 30k tokens
-
-**Technical Detail**:
-
-```typescript
-const result = await optimizer.optimizeContext({
-  files: indexedFiles,
-  query: 'implement authentication',
-  maxTokens: 200_000,
-  responseReserve: 50_000,
-});
-// { selectedFiles, excludedFiles, totalTokens, tokensRemaining, stats }
-```
-
----
-
 ## What Ptah Adds Section
 
 ### Built on Claude Code, Enhanced for VS Code
 
 Ptah is powered by the official Claude Code Agent SDK. Here's what the VS Code integration adds:
 
-| Feature                    | What You Get                                             |
-| -------------------------- | -------------------------------------------------------- |
-| **VS Code Native**         | Full editor integration - no terminal switching          |
-| **Visual Sessions**        | Multi-tab conversations, session history, visual context |
-| **Workspace Intelligence** | Auto-detect 13+ project types, 6 monorepo tools          |
-| **Extended MCP**           | 8 Ptah API namespaces for deeper workspace access        |
-| **Agent Generation**       | LLM-powered agents tailored to your specific project     |
-| **Multi-Provider**         | Use Claude, GPT, Gemini, or VS Code's built-in LM        |
-| **SDK Performance**        | Native SDK integration for fast, responsive interactions |
-
-**Evidence for each feature**: All sourced from library CLAUDE.md files
+| Feature                    | What You Get                                                   |
+| -------------------------- | -------------------------------------------------------------- |
+| **Visual Interface**       | **Recursive sub-agent visualization** and glassmorphism UI     |
+| **Setup Wizard**           | **Automated agent generation** tailored to your project        |
+| **Model Freedom**          | **OpenRouter integration** with 200+ models and tier overrides |
+| **Workspace Intelligence** | Auto-detect 13+ project types, 6 monorepo tools                |
+| **Extended MCP**           | 8 Ptah API namespaces for deep workspace access                |
+| **SDK Performance**        | 10x faster native integration                                  |
 
 ---
 
@@ -248,7 +230,7 @@ Ptah is powered by the official Claude Code Agent SDK. Here's what the VS Code i
 
 - **Frontend**: Angular 20+, zoneless change detection, Atomic Design
 - **Backend**: TypeScript, tsyringe DI, Langchain
-- **AI Integration**: Official Claude Agent SDK, multi-provider LLM abstraction
+- **AI Integration**: Official Claude Agent SDK, OpenRouter, VS Code LM API
 
 ### Performance Characteristics
 
@@ -258,13 +240,6 @@ Ptah is powered by the official Claude Code Agent SDK. Here's what the VS Code i
 | Pattern matching     | 7x faster than minimatch | workspace-intelligence CLAUDE.md |
 | Template parsing     | ~5ms per template        | template-generation CLAUDE.md    |
 | Token counting       | LRU cache, 5min TTL      | workspace-intelligence CLAUDE.md |
-
-### Integrations
-
-- VS Code Extension API (v1.96.0+)
-- Claude Agent SDK (@anthropic-ai/claude-agent-sdk)
-- Langchain (@langchain/core, @langchain/anthropic, @langchain/openai, @langchain/google-genai)
-- Tree-sitter (native AST parsing)
 
 ---
 
@@ -283,7 +258,7 @@ Ptah is powered by the official Claude Code Agent SDK. Here's what the VS Code i
 ### Tertiary CTA
 
 **"Watch Demo"**
-"See Ptah in action with a 3-minute walkthrough."
+"See the Setup Wizard and Visual Interface in action."
 
 ---
 
@@ -307,9 +282,9 @@ Ptah is powered by the official Claude Code Agent SDK. Here's what the VS Code i
 
 ## SEO Metadata
 
-**Title**: Ptah - Claude Code in VS Code | 10x Faster AI Coding
-**Meta Description**: Transform Claude Code CLI into a VS Code-native AI platform. 10x faster with Agent SDK, MCP server superpowers, and intelligent workspace analysis. Free to install.
-**Keywords**: Claude Code VS Code, Claude Code extension, AI coding assistant, Claude Agent SDK, MCP server, VS Code AI, Claude Code UI
+**Title**: Ptah - Claude Code in VS Code | Visual Agent Interface & 10x Speed
+**Meta Description**: The native VS Code extension for Claude Code. Features recursive agent visualization, intelligent setup wizard, OpenRouter support, and 8 MCP superpowers.
+**Keywords**: Claude Code VS Code, Claude Code extension, AI coding assistant, Claude Agent SDK, MCP server, OpenRouter, Agent Visualization, Setup Wizard
 
 ---
 
@@ -318,5 +293,6 @@ Ptah is powered by the official Claude Code Agent SDK. Here's what the VS Code i
 - [x] All code examples from actual codebase
 - [x] All performance claims backed by CLAUDE.md docs
 - [x] All feature descriptions sourced from library documentation
+- [x] Feature consistency with TASK_2025_105
 - [x] No generic marketing buzzwords without evidence
 - [x] Developer-authentic voice (second person, technical)

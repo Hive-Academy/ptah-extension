@@ -212,6 +212,22 @@ export interface TabState {
     };
     messageCount: number;
   } | null;
+
+  /**
+   * Live model stats from current session (updated after each turn completion).
+   * Includes context window size for percentage calculation and model name.
+   * Used by SessionStatsSummaryComponent to display context usage.
+   */
+  liveModelStats?: {
+    /** Primary model name (first model in modelUsage list) */
+    model: string;
+    /** Total context tokens used (input + output) */
+    contextUsed: number;
+    /** Total context window size */
+    contextWindow: number;
+    /** Context usage as percentage (0-100) */
+    contextPercent: number;
+  } | null;
 }
 
 /**
