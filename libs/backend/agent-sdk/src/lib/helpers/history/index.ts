@@ -27,3 +27,4 @@ export type {
 
 // Services
 export { HistoryEventFactory } from './history-event-factory';
+export { JsonlReaderService } from './jsonl-reader.service';
