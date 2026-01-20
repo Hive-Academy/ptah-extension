@@ -2,14 +2,14 @@
 
 ## Review Summary
 
-| Metric              | Value                                |
-| ------------------- | ------------------------------------ |
-| Overall Score       | 6/10                                 |
-| Assessment          | NEEDS_REVISION                       |
-| Critical Issues     | 2                                    |
-| Serious Issues      | 4                                    |
-| Moderate Issues     | 3                                    |
-| Failure Modes Found | 7                                    |
+| Metric              | Value          |
+| ------------------- | -------------- |
+| Overall Score       | 6/10           |
+| Assessment          | NEEDS_REVISION |
+| Critical Issues     | 2              |
+| Serious Issues      | 4              |
+| Moderate Issues     | 3              |
+| Failure Modes Found | 7              |
 
 ---
 
@@ -18,12 +18,14 @@
 ### 1. How does this fail silently?
 
 **Failure Mode 1: Missing Event Propagation Chain**
+
 - The `InlineAgentBubbleComponent.resumeRequested` output event is defined but **NOT listened to** in `ExecutionNodeComponent`
 - When user clicks "Resume" button, the event emits the `toolCallId` but it stops at `InlineAgentBubble` because `ExecutionNodeComponent` doesn't bubble it up
 - The event never reaches `MessageBubbleComponent` or `ChatViewComponent` where `ChatStore.handleSubagentResume()` could be called
 - **User Impact**: User clicks Resume button, nothing happens, no error shown
 
 **Failure Mode 2: Conditional Hook Registration**
+
 - In `SubagentHookHandler.handleSubagentStart()`, registry registration only happens if BOTH `toolUseId` AND `currentParentSessionId` are set
 - If `toolUseId` is undefined at SubagentStart (which can happen), the subagent is NEVER registered
 - The subagent won't be in the registry when interrupted, so it can't be resumed
@@ -32,12 +34,14 @@
 ### 2. What user action causes unexpected behavior?
 
 **Failure Mode 3: Rapid Resume Clicks**
+
 - No loading/disabled state is set on the Resume button in `InlineAgentBubbleComponent`
 - The `isResuming` signal is defined but never used to disable the button
 - User can click Resume multiple times, potentially causing multiple SDK resume calls
 - **User Impact**: Race conditions, duplicate streaming, undefined SDK behavior
 
 **Failure Mode 4: Resume While Already Streaming**
+
 - No check if the session is already streaming when resume is initiated
 - If user starts a new message while subagent resume is in progress, undefined behavior occurs
 - The RPC handler removes the subagent from registry after `resumeSubagent` call, but doesn't wait for stream completion
@@ -46,12 +50,14 @@
 ### 3. What data makes this produce wrong results?
 
 **Failure Mode 5: Expired Session Resume Attempt**
+
 - The SDK `resume` parameter accepts a session ID that may have expired in the SDK's storage
 - The registry TTL (24h) may not match SDK's session retention
 - If SDK session expired before registry record, resume will fail with unclear error
 - **User Impact**: Resume appears possible in UI but fails with cryptic error
 
 **Failure Mode 6: Missing toolCallId on SubagentStart**
+
 - The implementation assumes `toolUseId` is available at SubagentStart hook
 - The code handles this gracefully (skips registration) but logs only at debug level
 - These "orphan" subagents will never be resumable even if interrupted
@@ -60,12 +66,14 @@
 ### 4. What happens when dependencies fail?
 
 **Integration Failure: RPC Handler Error After Registry Modification**
+
 - In `SubagentRpcHandlers.registerSubagentResume()`, the registry entry is removed AFTER `resumeSubagent` call
 - If SDK throws an error, the subagent is still removed from registry
 - The subagent cannot be retried because it's no longer in the registry
 - **User Impact**: One-shot resume attempts - if it fails, subagent is lost
 
 **Integration Failure: Streaming Response Not Consumed**
+
 - `resumeSubagent` returns `AsyncIterable<FlatStreamEventUnion>` but the RPC handler just `await`s it without consuming
 - The streaming response is never actually processed
 - **User Impact**: Resume may start but streaming data is discarded
@@ -73,17 +81,20 @@
 ### 5. What's missing that the requirements didn't mention?
 
 **Gap 1: No UI Feedback on Resume Status**
+
 - Implementation plan mentions "UI Feedback: Loading states, error handling, success indication"
 - `InlineAgentBubble` defines `isResuming` signal but doesn't use it
 - No toast/notification on resume success or failure
 - **User Impact**: User doesn't know if resume worked until streaming appears
 
 **Gap 2: No Banner Integration**
+
 - `ResumeNotificationBannerComponent` is created but not integrated into `ChatViewComponent`
 - The `resumableSubagents` signal exists in ChatStore but no UI component displays it
 - **User Impact**: Users won't know interrupted subagents exist unless they expand the collapsed agent bubble
 
 **Gap 3: No Session Refresh After Resume**
+
 - When subagent resume succeeds, the `resumableSubagents` list is refreshed
 - But if resume fails, the list is not refreshed and may show stale data
 - **User Impact**: Inconsistent UI state after failed resume attempts
@@ -159,6 +170,7 @@
 - **Scenario**: User clicks Resume button on InlineAgentBubbleComponent
 - **Impact**: Resume feature completely non-functional - clicks do nothing
 - **Evidence**:
+
 ```typescript
 // execution-node.component.ts lines 82-89
 } @case ('agent') {
@@ -171,6 +183,7 @@
   // MISSING: (resumeRequested)="resumeRequested.emit($event)"
 />
 ```
+
 - **Fix**:
   1. Add `readonly resumeRequested = output<string>();` to ExecutionNodeComponent
   2. Add `(resumeRequested)="resumeRequested.emit($event)"` binding in template
@@ -184,6 +197,7 @@
 - **Scenario**: RPC handler calls resumeSubagent which returns AsyncIterable
 - **Impact**: Streaming events from resumed subagent are discarded
 - **Evidence**:
+
 ```typescript
 // subagent-rpc.handlers.ts line 119
 // Call the SDK adapter to resume the subagent
@@ -191,6 +205,7 @@
 await this.sdkAdapter.resumeSubagent(record);
 // ^ This AsyncIterable is awaited but never consumed!
 ```
+
 - **Fix**: Either (1) change resumeSubagent to fire-and-forget returning void, or (2) route the AsyncIterable through normal stream handling (RPC response with stream callback, or message-based stream routing)
 
 ---
@@ -204,13 +219,15 @@ await this.sdkAdapter.resumeSubagent(record);
 - **Scenario**: SDK throws error during resume
 - **Impact**: Subagent lost from registry, cannot retry resume
 - **Evidence**:
+
 ```typescript
 // subagent-rpc.handlers.ts lines 117-130
 await this.sdkAdapter.resumeSubagent(record);
 
 // Remove from registry to prevent double-resume
-this.registry.remove(toolCallId);  // Called even if resumeSubagent throws!
+this.registry.remove(toolCallId); // Called even if resumeSubagent throws!
 ```
+
 - **Fix**: Move `registry.remove(toolCallId)` inside success path only, or wrap in try with re-add on catch
 
 ### Issue 4: Conditional Hook Registration Without UI Indication
@@ -220,6 +237,7 @@ this.registry.remove(toolCallId);  // Called even if resumeSubagent throws!
 - **Scenario**: SubagentStart fires without toolUseId
 - **Impact**: Subagent silently not registered, not resumable after interrupt
 - **Evidence**:
+
 ```typescript
 // subagent-hook-handler.ts lines 223-252
 if (toolUseId && this.currentParentSessionId) {
@@ -228,6 +246,7 @@ if (toolUseId && this.currentParentSessionId) {
   this.logger.debug('Skipping registry registration - missing toolUseId or parentSessionId');
 }
 ```
+
 - **Fix**: Consider alternative registration strategy: register with agentId+sessionId key first, then add toolUseId mapping on SubagentStop
 
 ### Issue 5: No Resume Button Disable State
@@ -237,6 +256,7 @@ if (toolUseId && this.currentParentSessionId) {
 - **Scenario**: User clicks Resume multiple times quickly
 - **Impact**: Multiple SDK resume calls cause race conditions
 - **Evidence**:
+
 ```typescript
 // Template line 112-120
 <button
@@ -247,6 +267,7 @@ if (toolUseId && this.currentParentSessionId) {
   // MISSING: [disabled]="isResuming()"
 >
 ```
+
 - **Fix**: Add `[disabled]="isResuming()"` and set signal in onResumeClick
 
 ### Issue 6: Notification Banner Not Integrated
@@ -331,16 +352,16 @@ NEVER REACHES: SdkAgentAdapter.resumeSubagent()
 
 ## Requirements Fulfillment
 
-| Requirement | Status | Concern |
-|-------------|--------|---------|
-| SubagentRegistryService tracks lifecycle | COMPLETE | Works as designed |
-| SubagentStart hook registers with status='running' | PARTIAL | Only if toolUseId available |
-| SubagentStop hook updates to status='completed' | COMPLETE | Works as designed |
-| Session abort marks running as 'interrupted' | COMPLETE | Works as designed |
-| 24h TTL cleanup | COMPLETE | Lazy cleanup works |
-| Resume button shows for interrupted agents | COMPLETE | UI renders correctly |
-| Resume RPC invokes SDK resume | PARTIAL | Stream response not consumed |
-| Event propagation to trigger resume | MISSING | Chain broken at ExecutionNodeComponent |
+| Requirement                                        | Status   | Concern                                |
+| -------------------------------------------------- | -------- | -------------------------------------- |
+| SubagentRegistryService tracks lifecycle           | COMPLETE | Works as designed                      |
+| SubagentStart hook registers with status='running' | PARTIAL  | Only if toolUseId available            |
+| SubagentStop hook updates to status='completed'    | COMPLETE | Works as designed                      |
+| Session abort marks running as 'interrupted'       | COMPLETE | Works as designed                      |
+| 24h TTL cleanup                                    | COMPLETE | Lazy cleanup works                     |
+| Resume button shows for interrupted agents         | COMPLETE | UI renders correctly                   |
+| Resume RPC invokes SDK resume                      | PARTIAL  | Stream response not consumed           |
+| Event propagation to trigger resume                | MISSING  | Chain broken at ExecutionNodeComponent |
 
 ### Implicit Requirements NOT Addressed:
 
@@ -354,28 +375,28 @@ NEVER REACHES: SdkAgentAdapter.resumeSubagent()
 
 ## Edge Case Analysis
 
-| Edge Case | Handled | How | Concern |
-|-----------|---------|-----|---------|
-| Null toolUseId on SubagentStart | YES | Skips registration | Silent - should warn user |
-| Rapid clicks on Resume | NO | No disabled state | Race condition possible |
-| Resume during active streaming | NO | No check | State corruption possible |
-| SDK session expired | NO | 24h TTL assumed OK | TTL mismatch possible |
-| Network failure during resume | PARTIAL | Error logged | No retry, entry removed |
-| Tab switch during resume | UNKNOWN | Not tested | May lose resume context |
-| Multiple interrupted agents | YES | Registry supports | Works correctly |
-| Resume same agent twice | YES | Removed from registry | Can't double-resume |
+| Edge Case                       | Handled | How                   | Concern                   |
+| ------------------------------- | ------- | --------------------- | ------------------------- |
+| Null toolUseId on SubagentStart | YES     | Skips registration    | Silent - should warn user |
+| Rapid clicks on Resume          | NO      | No disabled state     | Race condition possible   |
+| Resume during active streaming  | NO      | No check              | State corruption possible |
+| SDK session expired             | NO      | 24h TTL assumed OK    | TTL mismatch possible     |
+| Network failure during resume   | PARTIAL | Error logged          | No retry, entry removed   |
+| Tab switch during resume        | UNKNOWN | Not tested            | May lose resume context   |
+| Multiple interrupted agents     | YES     | Registry supports     | Works correctly           |
+| Resume same agent twice         | YES     | Removed from registry | Can't double-resume       |
 
 ---
 
 ## Integration Risk Assessment
 
-| Integration | Failure Probability | Impact | Mitigation |
-|-------------|---------------------|--------|------------|
-| InlineAgentBubble -> ExecutionNode | HIGH | CRITICAL | Event binding missing |
-| RPC Handler -> SDK Adapter | MEDIUM | SERIOUS | Stream response discarded |
-| Hook Handler -> Registry | MEDIUM | SERIOUS | Conditional registration |
-| ChatStore -> RPC Service | LOW | LOW | Works correctly |
-| SessionLifecycle -> Registry | LOW | LOW | Works correctly |
+| Integration                        | Failure Probability | Impact   | Mitigation                |
+| ---------------------------------- | ------------------- | -------- | ------------------------- |
+| InlineAgentBubble -> ExecutionNode | HIGH                | CRITICAL | Event binding missing     |
+| RPC Handler -> SDK Adapter         | MEDIUM              | SERIOUS  | Stream response discarded |
+| Hook Handler -> Registry           | MEDIUM              | SERIOUS  | Conditional registration  |
+| ChatStore -> RPC Service           | LOW                 | LOW      | Works correctly           |
+| SessionLifecycle -> Registry       | LOW                 | LOW      | Works correctly           |
 
 ---
 
@@ -406,19 +427,19 @@ A bulletproof implementation would have:
 
 ## Files Reviewed
 
-| File | Status | Issues |
-|------|--------|--------|
-| `libs/shared/src/lib/types/subagent-registry.types.ts` | OK | Well-typed |
-| `libs/backend/vscode-core/src/services/subagent-registry.service.ts` | OK | Solid implementation |
-| `libs/backend/agent-sdk/src/lib/helpers/subagent-hook-handler.ts` | ISSUE | Conditional registration |
-| `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts` | OK | Correct interrupt handling |
-| `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts` | OK | resumeSubagent implemented |
-| `apps/ptah-extension-vscode/src/services/rpc/handlers/subagent-rpc.handlers.ts` | ISSUE | Stream not consumed, registry removed on failure |
-| `libs/frontend/core/src/lib/services/claude-rpc.service.ts` | OK | RPC methods correct |
-| `libs/frontend/chat/src/lib/services/chat.store.ts` | PARTIAL | Missing refresh on load |
-| `libs/frontend/chat/src/lib/components/organisms/inline-agent-bubble.component.ts` | PARTIAL | isResuming unused |
-| `libs/frontend/chat/src/lib/components/organisms/execution-node.component.ts` | CRITICAL | Missing event binding |
-| `libs/frontend/chat/src/lib/components/molecules/resume-notification-banner.component.ts` | OK | Not integrated |
+| File                                                                                      | Status   | Issues                                           |
+| ----------------------------------------------------------------------------------------- | -------- | ------------------------------------------------ |
+| `libs/shared/src/lib/types/subagent-registry.types.ts`                                    | OK       | Well-typed                                       |
+| `libs/backend/vscode-core/src/services/subagent-registry.service.ts`                      | OK       | Solid implementation                             |
+| `libs/backend/agent-sdk/src/lib/helpers/subagent-hook-handler.ts`                         | ISSUE    | Conditional registration                         |
+| `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts`                     | OK       | Correct interrupt handling                       |
+| `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts`                                     | OK       | resumeSubagent implemented                       |
+| `apps/ptah-extension-vscode/src/services/rpc/handlers/subagent-rpc.handlers.ts`           | ISSUE    | Stream not consumed, registry removed on failure |
+| `libs/frontend/core/src/lib/services/claude-rpc.service.ts`                               | OK       | RPC methods correct                              |
+| `libs/frontend/chat/src/lib/services/chat.store.ts`                                       | PARTIAL  | Missing refresh on load                          |
+| `libs/frontend/chat/src/lib/components/organisms/inline-agent-bubble.component.ts`        | PARTIAL  | isResuming unused                                |
+| `libs/frontend/chat/src/lib/components/organisms/execution-node.component.ts`             | CRITICAL | Missing event binding                            |
+| `libs/frontend/chat/src/lib/components/molecules/resume-notification-banner.component.ts` | OK       | Not integrated                                   |
 
 ---
 
@@ -429,6 +450,7 @@ This implementation shows solid backend architecture with proper service separat
 However, the frontend integration is incomplete. The critical path from UI click to backend action is broken at the ExecutionNodeComponent level. Additionally, the RPC handler's handling of the streaming response needs architectural clarification - either the response should be consumed and routed, or the method signature should change to not return a stream.
 
 The implementation is approximately 70% complete. The remaining 30% involves:
+
 1. Fixing event propagation (Critical)
 2. Deciding on streaming response handling (Serious)
 3. Adding UI integration points (Moderate)

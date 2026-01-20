@@ -18,11 +18,11 @@
 
 ### Risks Identified
 
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| SubagentStop hook doesn't fire on abort | HIGH | Task 2.2: Mark all running subagents as interrupted in endSession() |
-| toolCallId vs toolUseId naming mismatch | LOW | Documented - same field with different naming convention |
-| 24h TTL may expire mid-session | LOW | UI shows "Resume" only if within TTL |
+| Risk                                    | Severity | Mitigation                                                          |
+| --------------------------------------- | -------- | ------------------------------------------------------------------- |
+| SubagentStop hook doesn't fire on abort | HIGH     | Task 2.2: Mark all running subagents as interrupted in endSession() |
+| toolCallId vs toolUseId naming mismatch | LOW      | Documented - same field with different naming convention            |
+| 24h TTL may expire mid-session          | LOW      | UI shows "Resume" only if within TTL                                |
 
 ### Edge Cases to Handle
 
@@ -46,32 +46,45 @@
 **Pattern to Follow**: D:\projects\ptah-extension\libs\shared\src\lib\types\permission.types.ts
 
 **Quality Requirements**:
+
 - Export SubagentRecord interface with all fields from spec
 - Export SubagentStatus type: 'running' | 'completed' | 'interrupted'
 - Export query/result types for RPC methods
 - Use branded types where appropriate (SessionId)
 
 **Validation Notes**:
+
 - toolCallId uses string type (matches ExecutionNode.toolCallId pattern)
 - sessionId is the SUBAGENT's session ID (for resume), NOT parent session
 
 **Implementation Details**:
+
 ```typescript
 export interface SubagentRecord {
-  toolCallId: string;        // From SDK hook SubagentStart event
-  sessionId: string;         // Subagent's own session ID for resume
-  agentType: string;         // 'Explore', 'Plan', etc.
-  status: SubagentStatus;    // Lifecycle state
-  startedAt: number;         // Timestamp
-  interruptedAt?: number;    // Set when session aborted
+  toolCallId: string; // From SDK hook SubagentStart event
+  sessionId: string; // Subagent's own session ID for resume
+  agentType: string; // 'Explore', 'Plan', etc.
+  status: SubagentStatus; // Lifecycle state
+  startedAt: number; // Timestamp
+  interruptedAt?: number; // Set when session aborted
 }
 
 export type SubagentStatus = 'running' | 'completed' | 'interrupted';
 
-export interface SubagentResumeParams { toolCallId: string; }
-export interface SubagentResumeResult { success: boolean; error?: string; }
-export interface SubagentQueryParams { sessionId?: string; toolCallId?: string; }
-export interface SubagentQueryResult { subagents: SubagentRecord[]; }
+export interface SubagentResumeParams {
+  toolCallId: string;
+}
+export interface SubagentResumeResult {
+  success: boolean;
+  error?: string;
+}
+export interface SubagentQueryParams {
+  sessionId?: string;
+  toolCallId?: string;
+}
+export interface SubagentQueryResult {
+  subagents: SubagentRecord[];
+}
 ```
 
 ---
@@ -83,10 +96,12 @@ export interface SubagentQueryResult { subagents: SubagentRecord[]; }
 **Pattern to Follow**: Line 9 `export * from './lib/types/permission.types';`
 
 **Quality Requirements**:
+
 - Add export statement for subagent-registry.types
 - Maintain alphabetical ordering of exports
 
 **Implementation Details**:
+
 ```typescript
 export * from './lib/types/subagent-registry.types';
 ```
@@ -100,6 +115,7 @@ export * from './lib/types/subagent-registry.types';
 **Pattern to Follow**: D:\projects\ptah-extension\libs\backend\vscode-core\src\services\agent-session-watcher.service.ts
 
 **Quality Requirements**:
+
 - Injectable service with tsyringe decorators
 - In-memory Map<string, SubagentRecord> keyed by toolCallId
 - 24h TTL cleanup on get/query operations
@@ -107,10 +123,12 @@ export * from './lib/types/subagent-registry.types';
 - Emit events for UI updates (optional - can use signal updates via RPC)
 
 **Validation Notes**:
+
 - TTL cleanup is lazy (on access), not timer-based, to avoid memory leaks
 - markAllInterrupted() MUST be called from SessionLifecycleManager.endSession()
 
 **Implementation Details**:
+
 ```typescript
 @injectable()
 export class SubagentRegistryService {
@@ -120,11 +138,11 @@ export class SubagentRegistryService {
   register(record: SubagentRecord): void;
   update(toolCallId: string, updates: Partial<SubagentRecord>): void;
   get(toolCallId: string): SubagentRecord | null;
-  getResumable(): SubagentRecord[];  // status === 'interrupted' within TTL
-  markAllInterrupted(sessionId: string): void;  // Called on session abort
+  getResumable(): SubagentRecord[]; // status === 'interrupted' within TTL
+  markAllInterrupted(sessionId: string): void; // Called on session abort
   remove(toolCallId: string): void;
-  removeBySessionId(parentSessionId: string): void;  // Called on session delete
-  private cleanupExpired(): void;  // Lazy TTL cleanup
+  removeBySessionId(parentSessionId: string): void; // Called on session delete
+  private cleanupExpired(): void; // Lazy TTL cleanup
 }
 ```
 
@@ -138,10 +156,12 @@ export class SubagentRegistryService {
 **Pattern to Follow**: TOKENS.AGENT_SESSION_WATCHER_SERVICE pattern in tokens.ts
 
 **Quality Requirements**:
+
 - Add SUBAGENT_REGISTRY_SERVICE to TOKENS namespace
 - Export SubagentRegistryService from vscode-core index.ts
 
 **Implementation Details**:
+
 ```typescript
 // In tokens.ts
 SUBAGENT_REGISTRY_SERVICE: Symbol.for('SubagentRegistryService'),
@@ -153,6 +173,7 @@ export { SubagentRegistryService } from './services/subagent-registry.service';
 ---
 
 **Batch 1 Verification**:
+
 - All files exist at paths
 - Build passes: `npx nx build shared && npx nx build vscode-core`
 - Types exported correctly from @ptah-extension/shared
@@ -175,21 +196,24 @@ export { SubagentRegistryService } from './services/subagent-registry.service';
 **Pattern to Follow**: Existing SubagentStart/SubagentStop hook handling
 
 **Quality Requirements**:
+
 - Inject SubagentRegistryService via DI
 - On SubagentStart: register new SubagentRecord with status='running'
 - On SubagentStop: update status to 'completed'
 - Use toolCallId from hook event as registry key
 
 **Validation Notes**:
+
 - SubagentStart provides: toolUseId (=toolCallId), agentType, sessionId (subagent session)
 - Hook fires BEFORE agent_start stream event
 
 **Implementation Details**:
+
 ```typescript
 // In SubagentStart hook callback:
 this.subagentRegistry.register({
   toolCallId: event.toolUseId,
-  sessionId: event.sessionId,  // Subagent's own session ID
+  sessionId: event.sessionId, // Subagent's own session ID
   agentType: event.agentType,
   status: 'running',
   startedAt: Date.now(),
@@ -208,16 +232,19 @@ this.subagentRegistry.update(event.toolUseId, { status: 'completed' });
 **Pattern to Follow**: Existing permissionHandler.cleanupPendingPermissions() call
 
 **Quality Requirements**:
+
 - Inject SubagentRegistryService via DI
 - In endSession(): call subagentRegistry.markAllInterrupted(sessionId)
 - Call AFTER permission cleanup but BEFORE session removal
 
 **Validation Notes**:
+
 - RISK MITIGATION: This is the key fix for subagent interrupt detection
 - endSession is called for both normal completion and abort
 - Check session.aborted flag to distinguish abort from completion
 
 **Implementation Details**:
+
 ```typescript
 // In endSession() method, after permission cleanup:
 if (session.aborted) {
@@ -234,24 +261,22 @@ if (session.aborted) {
 **Pattern to Follow**: D:\projects\ptah-extension\apps\ptah-extension-vscode\src\services\rpc\handlers\chat-rpc.handlers.ts
 
 **Quality Requirements**:
+
 - Register subagent:resume RPC method
 - Register subagent:query RPC method
 - Use type-safe params/results from shared types
 - subagent:resume calls sdkAdapter.resumeSubagent()
 
 **Validation Notes**:
+
 - resumeSubagent method will be added in Task 2.4
 
 **Implementation Details**:
+
 ```typescript
 @injectable()
 export class SubagentRpcHandlers {
-  constructor(
-    @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
-    @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE) private readonly registry: SubagentRegistryService,
-    @inject('SdkAgentAdapter') private readonly sdkAdapter: SdkAgentAdapter,
-  ) {}
+  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger, @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler, @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE) private readonly registry: SubagentRegistryService, @inject('SdkAgentAdapter') private readonly sdkAdapter: SdkAgentAdapter) {}
 
   register(): void {
     this.registerSubagentResume();
@@ -259,27 +284,23 @@ export class SubagentRpcHandlers {
   }
 
   private registerSubagentResume(): void {
-    this.rpcHandler.registerMethod<SubagentResumeParams, SubagentResumeResult>(
-      'subagent:resume', async (params) => {
-        const record = this.registry.get(params.toolCallId);
-        if (!record || record.status !== 'interrupted') {
-          return { success: false, error: 'Subagent not found or not resumable' };
-        }
-        return this.sdkAdapter.resumeSubagent(record);
+    this.rpcHandler.registerMethod<SubagentResumeParams, SubagentResumeResult>('subagent:resume', async (params) => {
+      const record = this.registry.get(params.toolCallId);
+      if (!record || record.status !== 'interrupted') {
+        return { success: false, error: 'Subagent not found or not resumable' };
       }
-    );
+      return this.sdkAdapter.resumeSubagent(record);
+    });
   }
 
   private registerSubagentQuery(): void {
-    this.rpcHandler.registerMethod<SubagentQueryParams, SubagentQueryResult>(
-      'subagent:query', async (params) => {
-        if (params.toolCallId) {
-          const record = this.registry.get(params.toolCallId);
-          return { subagents: record ? [record] : [] };
-        }
-        return { subagents: this.registry.getResumable() };
+    this.rpcHandler.registerMethod<SubagentQueryParams, SubagentQueryResult>('subagent:query', async (params) => {
+      if (params.toolCallId) {
+        const record = this.registry.get(params.toolCallId);
+        return { subagents: record ? [record] : [] };
       }
-    );
+      return { subagents: this.registry.getResumable() };
+    });
   }
 }
 ```
@@ -293,15 +314,18 @@ export class SubagentRpcHandlers {
 **Pattern to Follow**: Existing resumeSession() method
 
 **Quality Requirements**:
+
 - Create new resumeSubagent(record: SubagentRecord) method
 - Use SDK query() with resume: record.sessionId
 - Return stream for frontend consumption
 
 **Validation Notes**:
+
 - Uses subagent's sessionId, NOT parent session
 - SDK resume option already verified to exist
 
 **Implementation Details**:
+
 ```typescript
 async resumeSubagent(record: SubagentRecord): Promise<AsyncIterable<FlatStreamEventUnion>> {
   const { sessionId, agentType } = record;
@@ -329,6 +353,7 @@ async resumeSubagent(record: SubagentRecord): Promise<AsyncIterable<FlatStreamEv
 ---
 
 **Batch 2 Verification**:
+
 - Build passes: `npx nx build agent-sdk`
 - SubagentHookHandler registers/updates subagents correctly
 - SessionLifecycleManager marks interrupted on abort
@@ -351,11 +376,13 @@ async resumeSubagent(record: SubagentRecord): Promise<AsyncIterable<FlatStreamEv
 **Pattern to Follow**: ChatRpcHandlers registration pattern (line 130-131)
 
 **Quality Requirements**:
+
 - Register SubagentRegistryService as singleton with TOKENS.SUBAGENT_REGISTRY_SERVICE
 - Register SubagentRpcHandlers as singleton
 - Add SubagentRpcHandlers to RpcMethodRegistrationService factory
 
 **Implementation Details**:
+
 ```typescript
 // In PHASE 1.5 (after vscode-core registration):
 container.registerSingleton(TOKENS.SUBAGENT_REGISTRY_SERVICE, SubagentRegistryService);
@@ -376,11 +403,13 @@ container.registerSingleton(SubagentRpcHandlers);
 **Pattern to Follow**: ChatRpcHandlers injection and registration (line 71, 96)
 
 **Quality Requirements**:
+
 - Add SubagentRpcHandlers as constructor dependency
 - Call subagentHandlers.register() in registerAll()
 - Add to debug log of registered methods
 
 **Implementation Details**:
+
 ```typescript
 // Add constructor parameter:
 private readonly subagentHandlers: SubagentRpcHandlers,
@@ -395,6 +424,7 @@ methods: ['chat:start', ..., 'subagent:resume', 'subagent:query']
 ---
 
 **Batch 3 Verification**:
+
 - Build passes: `npx nx build ptah-extension-vscode`
 - SubagentRegistryService resolves from container
 - SubagentRpcHandlers registers methods
@@ -416,11 +446,13 @@ methods: ['chat:start', ..., 'subagent:resume', 'subagent:query']
 **Pattern to Follow**: deleteSession() method (line 246-258)
 
 **Quality Requirements**:
+
 - Add resumeSubagent(toolCallId: string) method
 - Add querySubagents() method
 - Use proper TypeScript types from @ptah-extension/shared
 
 **Implementation Details**:
+
 ```typescript
 async resumeSubagent(toolCallId: string): Promise<RpcResult<SubagentResumeResult>> {
   return this.call('subagent:resume', { toolCallId });
@@ -440,12 +472,14 @@ async querySubagents(): Promise<RpcResult<SubagentQueryResult>> {
 **Pattern to Follow**: sessions signal pattern (line 130)
 
 **Quality Requirements**:
-- Add private _resumableSubagents signal
+
+- Add private \_resumableSubagents signal
 - Add public resumableSubagents readonly signal
 - Add refreshResumableSubagents() method that calls RPC
 - Add handleSubagentResume(toolCallId) method
 
 **Implementation Details**:
+
 ```typescript
 // Private mutable signal
 private readonly _resumableSubagents = signal<SubagentRecord[]>([]);
@@ -477,16 +511,19 @@ async handleSubagentResume(toolCallId: string): Promise<void> {
 **Pattern to Follow**: Existing badge display logic (line 98-115)
 
 **Quality Requirements**:
+
 - Add isResumable() computed signal based on node().status === 'interrupted'
 - Add "Resume" button in header next to badges
 - Emit resumeRequested event when clicked
 - Style consistently with existing badges
 
 **Validation Notes**:
+
 - Button should only show when node is resumable (interrupted status)
 - Use lucide-angular PlayCircle icon
 
 **Implementation Details**:
+
 ```typescript
 // Add imports
 import { PlayCircle } from 'lucide-angular';
@@ -527,6 +564,7 @@ protected onResumeClick(event: Event): void {
 **Pattern to Follow**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\molecules\permission-request-card.component.ts
 
 **Quality Requirements**:
+
 - Standalone Angular component with OnPush change detection
 - Input: resumableSubagents signal
 - Displays count of resumable agents with "Resume All" option
@@ -534,6 +572,7 @@ protected onResumeClick(event: Event): void {
 - Uses DaisyUI alert styling
 
 **Implementation Details**:
+
 ```typescript
 @Component({
   selector: 'ptah-resume-notification-banner',
@@ -542,21 +581,17 @@ protected onResumeClick(event: Event): void {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (resumableSubagents().length > 0 && !dismissed()) {
-      <div class="alert alert-info shadow-lg mb-4">
-        <lucide-angular [img]="PlayCircleIcon" class="w-5 h-5" />
-        <div>
-          <h3 class="font-bold text-sm">Interrupted Agents</h3>
-          <p class="text-xs">{{ resumableSubagents().length }} agent(s) can be resumed</p>
-        </div>
-        <div class="flex gap-2">
-          <button class="btn btn-sm btn-primary" (click)="resumeAll()">
-            Resume All
-          </button>
-          <button class="btn btn-sm btn-ghost" (click)="dismiss()">
-            Dismiss
-          </button>
-        </div>
+    <div class="alert alert-info shadow-lg mb-4">
+      <lucide-angular [img]="PlayCircleIcon" class="w-5 h-5" />
+      <div>
+        <h3 class="font-bold text-sm">Interrupted Agents</h3>
+        <p class="text-xs">{{ resumableSubagents().length }} agent(s) can be resumed</p>
       </div>
+      <div class="flex gap-2">
+        <button class="btn btn-sm btn-primary" (click)="resumeAll()">Resume All</button>
+        <button class="btn btn-sm btn-ghost" (click)="dismiss()">Dismiss</button>
+      </div>
+    </div>
     }
   `,
 })
@@ -580,6 +615,7 @@ export class ResumeNotificationBannerComponent {
 ---
 
 **Batch 4 Verification**:
+
 - Build passes: `npx nx build core && npx nx build chat`
 - ClaudeRpcService methods compile without errors
 - ChatStore signals work correctly
@@ -591,16 +627,17 @@ export class ResumeNotificationBannerComponent {
 
 ## Summary
 
-| Batch | Name | Developer | Tasks | Status | Commit |
-|-------|------|-----------|-------|--------|--------|
-| 1 | Types & Registry Foundation | backend-developer | 4 | COMPLETE | c35a9fb |
-| 2 | SDK + RPC Integration | backend-developer | 4 | COMPLETE | 073092c |
-| 3 | DI Registration | backend-developer | 2 | COMPLETE | bbeb5f8 |
-| 4 | Frontend Integration | frontend-developer | 4 | COMPLETE | 9f5a305 |
+| Batch | Name                        | Developer          | Tasks | Status   | Commit  |
+| ----- | --------------------------- | ------------------ | ----- | -------- | ------- |
+| 1     | Types & Registry Foundation | backend-developer  | 4     | COMPLETE | c35a9fb |
+| 2     | SDK + RPC Integration       | backend-developer  | 4     | COMPLETE | 073092c |
+| 3     | DI Registration             | backend-developer  | 2     | COMPLETE | bbeb5f8 |
+| 4     | Frontend Integration        | frontend-developer | 4     | COMPLETE | 9f5a305 |
 
 **Critical Path**: Batch 1 -> Batch 2 -> Batch 3 -> Batch 4 (ALL COMPLETE)
 
 **Risk Mitigation Built Into Tasks**:
+
 - Task 2.2: Addresses SubagentStop not firing on abort
 - Task 1.3: TTL cleanup prevents stale data
 - Task 4.4: Dismissable banner prevents UI clutter

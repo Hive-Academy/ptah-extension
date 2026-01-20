@@ -9,12 +9,14 @@ Add subagent resumption capability so users can continue interrupted subagent ex
 ### Research Already Completed
 
 **SDK Documentation Analysis**:
+
 - Subagents can be resumed using `resume: sessionId` parameter
 - Need to capture `agentId` from Task tool result (format: "agentId: a5a5221")
 - Resume prompt: `Resume agent ${agentId} and continue where you left off`
 - Resumed subagents retain full conversation history (tool calls, results, reasoning)
 
 **Codebase Analysis** (Explore agent findings):
+
 - ✅ Parent `sessionId` tracked in tab state and session metadata
 - ✅ `agentId` (stable identifier) captured at SubagentStart hook
 - ✅ `agentType` available from hook events and ExecutionNode
@@ -23,6 +25,7 @@ Add subagent resumption capability so users can continue interrupted subagent ex
 - ✅ Interruption detection via `status: 'interrupted'` on nodes
 
 **Missing Components**:
+
 - SubagentRegistry to track `(sessionId, agentId, agentType, status)` tuples
 - Resumption state tracking (which subagents are resumable vs complete)
 - UI entry point ("Resume" button on interrupted agent bubbles)
@@ -38,6 +41,7 @@ Add subagent resumption capability so users can continue interrupted subagent ex
 ## Execution Strategy
 
 FEATURE strategy with research phase SKIPPED (already complete):
+
 1. project-manager → Requirements
 2. software-architect → Implementation plan
 3. team-leader → Task decomposition & development

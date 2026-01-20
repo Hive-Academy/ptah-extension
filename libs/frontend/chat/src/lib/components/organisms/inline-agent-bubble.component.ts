@@ -124,8 +124,7 @@ import type {
           <span class="text-[9px]">Resume</span>
           }
         </button>
-        }
-        } @else if (hasChildren()) {
+        } } @else if (hasChildren()) {
         <span class="badge badge-xs badge-ghost text-[9px] flex-shrink-0">
           {{ childStats() }}
         </span>

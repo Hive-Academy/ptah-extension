@@ -25,15 +25,15 @@
 import { injectable, inject } from 'tsyringe';
 import type { Logger } from '../logging';
 import { TOKENS } from '../di/tokens';
-import type {
-  SubagentRecord,
-  SubagentStatus,
-} from '@ptah-extension/shared';
+import type { SubagentRecord, SubagentStatus } from '@ptah-extension/shared';
 
 /**
  * Input for registering a new subagent (status is set automatically)
  */
-export type SubagentRegistration = Omit<SubagentRecord, 'status' | 'interruptedAt'>;
+export type SubagentRegistration = Omit<
+  SubagentRecord,
+  'status' | 'interruptedAt'
+>;
 
 /**
  * Subagent Registry Service Implementation
@@ -80,7 +80,9 @@ export class SubagentRegistryService {
     @inject(TOKENS.LOGGER)
     private readonly logger: Logger
   ) {
-    this.logger.debug('[SubagentRegistryService.constructor] Service initialized');
+    this.logger.debug(
+      '[SubagentRegistryService.constructor] Service initialized'
+    );
   }
 
   /**
@@ -217,10 +219,13 @@ export class SubagentRegistryService {
     // Check if expired
     if (this.isExpired(record)) {
       this.registry.delete(toolCallId);
-      this.logger.debug('[SubagentRegistryService.get] Record expired, removed', {
-        toolCallId,
-        agentType: record.agentType,
-      });
+      this.logger.debug(
+        '[SubagentRegistryService.get] Record expired, removed',
+        {
+          toolCallId,
+          agentType: record.agentType,
+        }
+      );
       return null;
     }
 
@@ -299,24 +304,33 @@ export class SubagentRegistryService {
     let interruptedCount = 0;
 
     for (const record of this.registry.values()) {
-      if (record.parentSessionId === parentSessionId && record.status === 'running') {
+      if (
+        record.parentSessionId === parentSessionId &&
+        record.status === 'running'
+      ) {
         record.status = 'interrupted';
         record.interruptedAt = interruptedAt;
         interruptedCount++;
 
-        this.logger.debug('[SubagentRegistryService.markAllInterrupted] Subagent interrupted', {
-          toolCallId: record.toolCallId,
-          agentType: record.agentType,
-          agentId: record.agentId,
-        });
+        this.logger.debug(
+          '[SubagentRegistryService.markAllInterrupted] Subagent interrupted',
+          {
+            toolCallId: record.toolCallId,
+            agentType: record.agentType,
+            agentId: record.agentId,
+          }
+        );
       }
     }
 
     if (interruptedCount > 0) {
-      this.logger.info('[SubagentRegistryService.markAllInterrupted] Session subagents interrupted', {
-        parentSessionId,
-        interruptedCount,
-      });
+      this.logger.info(
+        '[SubagentRegistryService.markAllInterrupted] Session subagents interrupted',
+        {
+          parentSessionId,
+          interruptedCount,
+        }
+      );
     }
   }
 
@@ -370,10 +384,13 @@ export class SubagentRegistryService {
     }
 
     if (toRemove.length > 0) {
-      this.logger.info('[SubagentRegistryService.removeBySessionId] Session subagents removed', {
-        parentSessionId,
-        removedCount: toRemove.length,
-      });
+      this.logger.info(
+        '[SubagentRegistryService.removeBySessionId] Session subagents removed',
+        {
+          parentSessionId,
+          removedCount: toRemove.length,
+        }
+      );
     }
   }
 
@@ -413,7 +430,10 @@ export class SubagentRegistryService {
    */
   private lazyCleanup(): void {
     const now = Date.now();
-    if (now - this.lastCleanupAt < SubagentRegistryService.CLEANUP_INTERVAL_MS) {
+    if (
+      now - this.lastCleanupAt <
+      SubagentRegistryService.CLEANUP_INTERVAL_MS
+    ) {
       return; // Too soon since last cleanup
     }
 
@@ -441,9 +461,12 @@ export class SubagentRegistryService {
       this.registry.delete(toolCallId);
     }
 
-    this.logger.info('[SubagentRegistryService.cleanupExpired] Expired records removed', {
-      removedCount: toRemove.length,
-      remainingCount: this.registry.size,
-    });
+    this.logger.info(
+      '[SubagentRegistryService.cleanupExpired] Expired records removed',
+      {
+        removedCount: toRemove.length,
+        remainingCount: this.registry.size,
+      }
+    );
   }
 }

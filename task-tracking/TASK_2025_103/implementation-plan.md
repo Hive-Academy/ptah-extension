@@ -74,31 +74,35 @@ This plan implements subagent resumption capability allowing users to continue i
 
 ### Libraries Discovered
 
-| Library | Purpose | Key Files |
-|---------|---------|-----------|
-| `agent-sdk` | SDK integration | `sdk-agent-adapter.ts`, `session-lifecycle-manager.ts` |
-| `vscode-core` | Infrastructure | `agent-session-watcher.service.ts`, `di/tokens.ts` |
-| `chat` | Frontend UI | `inline-agent-bubble.component.ts`, `chat.store.ts` |
-| `shared` | Types | `execution-node.types.ts`, `ai-provider.types.ts` |
+| Library       | Purpose         | Key Files                                              |
+| ------------- | --------------- | ------------------------------------------------------ |
+| `agent-sdk`   | SDK integration | `sdk-agent-adapter.ts`, `session-lifecycle-manager.ts` |
+| `vscode-core` | Infrastructure  | `agent-session-watcher.service.ts`, `di/tokens.ts`     |
+| `chat`        | Frontend UI     | `inline-agent-bubble.component.ts`, `chat.store.ts`    |
+| `shared`      | Types           | `execution-node.types.ts`, `ai-provider.types.ts`      |
 
 ### Patterns Identified
 
 **Backend Registry Pattern** (Evidence: `libs/backend/llm-abstraction/src/lib/registry/provider-registry.ts`):
+
 - Injectable singleton with Map-based storage
 - Typed registration/lookup methods
 - Cleanup/dispose lifecycle
 
 **RPC Handler Pattern** (Evidence: `apps/ptah-extension-vscode/src/services/rpc/handlers/chat-rpc.handlers.ts`):
+
 - Injectable class with handler methods
 - Methods registered to RPC method names
 - Return typed response objects
 
 **Frontend Signal Pattern** (Evidence: `libs/frontend/chat/src/lib/services/chat.store.ts`):
+
 - `signal()` for mutable state
 - `computed()` for derived state
 - `inject()` for dependencies
 
 **UI Component Pattern** (Evidence: `libs/frontend/chat/src/lib/components/organisms/inline-agent-bubble.component.ts`):
+
 - `ChangeDetectionStrategy.OnPush`
 - `input()` for required inputs
 - `computed()` for derived values
@@ -115,11 +119,13 @@ This plan implements subagent resumption capability allowing users to continue i
 **Location**: `libs/backend/vscode-core/src/services/subagent-registry.service.ts`
 
 **Pattern Evidence**:
+
 - Registry pattern from `provider-registry.ts:51-381`
 - Injectable singleton with Map storage
 - Typed record structure with TTL-based expiration
 
 **Responsibilities**:
+
 1. Store SubagentRecord on SubagentStart hook
 2. Update status on SubagentStop hook
 3. Mark agents as 'interrupted' on session abort
@@ -239,16 +245,19 @@ export class SubagentRegistryService {
 ```
 
 **Integration Points**:
+
 - Listen to `AgentSessionWatcherService` events ('agent-start', 'agent-stop')
 - Called by `SessionLifecycleManager.endSession()` to mark as interrupted
 - Queried by `SubagentRpcHandlers` for resumable list
 
 **Quality Requirements**:
+
 - Memory efficient: Map storage with TTL cleanup
 - Thread-safe: Sequential event processing
 - No persistence: In-memory only (cleared on restart)
 
 **Files Affected**:
+
 - `libs/backend/vscode-core/src/services/subagent-registry.service.ts` (CREATE)
 - `libs/backend/vscode-core/src/di/tokens.ts` (MODIFY - add SUBAGENT_REGISTRY token)
 - `libs/backend/vscode-core/src/index.ts` (MODIFY - export)
@@ -264,16 +273,17 @@ export class SubagentRegistryService {
 **Location**: `apps/ptah-extension-vscode/src/services/rpc/handlers/subagent-rpc.handlers.ts`
 
 **Pattern Evidence**:
+
 - RPC handler pattern from `chat-rpc.handlers.ts`
 - Injectable class with method handlers
 - Typed request/response structures
 
 **RPC Methods**:
 
-| Method | Request | Response | Description |
-|--------|---------|----------|-------------|
-| `subagent:list-resumable` | `{ sessionId: string }` | `ResumableSubagent[]` | List resumable agents for session |
-| `subagent:resume` | `{ parentSessionId: string, agentId: string, tabId: string }` | `{ success: boolean, error?: string }` | Resume specific subagent |
+| Method                    | Request                                                       | Response                               | Description                       |
+| ------------------------- | ------------------------------------------------------------- | -------------------------------------- | --------------------------------- |
+| `subagent:list-resumable` | `{ sessionId: string }`                                       | `ResumableSubagent[]`                  | List resumable agents for session |
+| `subagent:resume`         | `{ parentSessionId: string, agentId: string, tabId: string }` | `{ success: boolean, error?: string }` | Resume specific subagent          |
 
 **Implementation Pattern**:
 
@@ -287,11 +297,7 @@ import { ResumableSubagent, SessionId } from '@ptah-extension/shared';
 
 @injectable()
 export class SubagentRpcHandlers {
-  constructor(
-    @inject(TOKENS.SUBAGENT_REGISTRY) private readonly registry: SubagentRegistryService,
-    @inject(SDK_TOKENS.SDK_AGENT_ADAPTER) private readonly sdkAdapter: SdkAgentAdapter,
-    @inject(TOKENS.LOGGER) private readonly logger: Logger
-  ) {}
+  constructor(@inject(TOKENS.SUBAGENT_REGISTRY) private readonly registry: SubagentRegistryService, @inject(SDK_TOKENS.SDK_AGENT_ADAPTER) private readonly sdkAdapter: SdkAgentAdapter, @inject(TOKENS.LOGGER) private readonly logger: Logger) {}
 
   /**
    * Handler for subagent:list-resumable
@@ -304,27 +310,19 @@ export class SubagentRpcHandlers {
    * Handler for subagent:resume
    * Invokes SDK with resume parameter and specific prompt
    */
-  async handleResume(params: {
-    parentSessionId: string;
-    agentId: string;
-    tabId: string;
-  }): Promise<{ success: boolean; error?: string }> {
+  async handleResume(params: { parentSessionId: string; agentId: string; tabId: string }): Promise<{ success: boolean; error?: string }> {
     try {
       // Mark as running in registry
       this.registry.markAsRunning(params.parentSessionId, params.agentId);
 
       // Resume via SDK adapter
-      await this.sdkAdapter.resumeSubagent(
-        params.parentSessionId as SessionId,
-        params.agentId,
-        params.tabId
-      );
+      await this.sdkAdapter.resumeSubagent(params.parentSessionId as SessionId, params.agentId, params.tabId);
 
       return { success: true };
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : 'Unknown error',
       };
     }
   }
@@ -335,13 +333,12 @@ export class SubagentRpcHandlers {
 
 ```typescript
 // Register subagent handlers
-rpcService.registerMethod('subagent:list-resumable',
-  (params) => subagentHandlers.handleListResumable(params));
-rpcService.registerMethod('subagent:resume',
-  (params) => subagentHandlers.handleResume(params));
+rpcService.registerMethod('subagent:list-resumable', (params) => subagentHandlers.handleListResumable(params));
+rpcService.registerMethod('subagent:resume', (params) => subagentHandlers.handleResume(params));
 ```
 
 **Files Affected**:
+
 - `apps/ptah-extension-vscode/src/services/rpc/handlers/subagent-rpc.handlers.ts` (CREATE)
 - `apps/ptah-extension-vscode/src/services/rpc/rpc-method-registration.service.ts` (MODIFY)
 - `apps/ptah-extension-vscode/src/di/container.ts` (MODIFY - register handlers)
@@ -355,6 +352,7 @@ rpcService.registerMethod('subagent:resume',
 **Location**: `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts`
 
 **Pattern Evidence**:
+
 - `resumeSession` method at line 384-438 shows resume pattern
 - Uses `SessionLifecycleManager.executeQuery()` for orchestration
 - Returns `AsyncIterable<FlatStreamEventUnion>` for streaming
@@ -448,6 +446,7 @@ async executeQueryForSubagentResume(config: {
 ```
 
 **Files Affected**:
+
 - `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts` (MODIFY)
 - `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts` (MODIFY)
 
@@ -460,6 +459,7 @@ async executeQueryForSubagentResume(config: {
 **Location**: `libs/frontend/chat/src/lib/components/organisms/inline-agent-bubble.component.ts`
 
 **Pattern Evidence**:
+
 - Component at lines 1-413 shows existing structure
 - Uses `computed()` for derived state (e.g., `isInterrupted` at line 326)
 - Uses DaisyUI badge/button classes
@@ -548,6 +548,7 @@ public resetResumeState(): void {
 ```
 
 **Files Affected**:
+
 - `libs/frontend/chat/src/lib/components/organisms/inline-agent-bubble.component.ts` (MODIFY)
 
 ---
@@ -559,6 +560,7 @@ public resetResumeState(): void {
 **Location**: `libs/frontend/chat/src/lib/services/chat.store.ts`
 
 **Pattern Evidence**:
+
 - Facade pattern with child services (lines 24-74)
 - Signal-based state (e.g., `permissionRequests` at line 140)
 - RPC calls via `ClaudeRpcService`
@@ -673,6 +675,7 @@ scrollToFirstInterruptedAgent(): void {
 ```
 
 **Files Affected**:
+
 - `libs/frontend/chat/src/lib/services/chat.store.ts` (MODIFY)
 - `libs/frontend/chat/src/lib/services/chat.types.ts` (MODIFY - add types)
 
@@ -685,6 +688,7 @@ scrollToFirstInterruptedAgent(): void {
 **Location**: `libs/frontend/core/src/lib/services/claude-rpc.service.ts`
 
 **Pattern Evidence**:
+
 - Existing RPC methods use typed request/response
 - Methods wrap VSCode postMessage with Promise resolution
 
@@ -717,6 +721,7 @@ async resumeSubagent(params: {
 ```
 
 **Files Affected**:
+
 - `libs/frontend/core/src/lib/services/claude-rpc.service.ts` (MODIFY)
 
 ---
@@ -728,6 +733,7 @@ async resumeSubagent(params: {
 **Location**: `libs/frontend/chat/src/lib/services/streaming-handler.service.ts`
 
 **Pattern Evidence**:
+
 - `processStreamEvent` at lines 73-401 handles event routing
 - Events are stored in `StreamingState.events` Map
 - Tree builder reads from StreamingState at render time
@@ -735,12 +741,14 @@ async resumeSubagent(params: {
 **Implementation Notes**:
 
 The existing architecture already supports streaming continuation:
+
 1. Events are stored flat in `StreamingState.events` Map
 2. `ExecutionTreeBuilderService.buildTree()` builds tree at render time
 3. New events from resumed subagent will append to existing events
 4. Tree builder will include new children when rebuilding
 
 **Verification**:
+
 - Confirm `agentId` is preserved across resume (same agent node)
 - Confirm `parentToolUseId` links events to correct agent
 - Confirm tree cache invalidates on new events (cache key includes event count)
@@ -756,6 +764,7 @@ The existing architecture already supports streaming continuation:
 **Location**: `libs/frontend/chat/src/lib/components/molecules/resume-notification-banner.component.ts`
 
 **Pattern Evidence**:
+
 - DaisyUI alert component pattern
 - Click handler to scroll to agent
 - Dismissible via close button
@@ -770,30 +779,18 @@ The existing architecture already supports streaming continuation:
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (show()) {
-      <div class="alert alert-info flex justify-between items-center px-4 py-2 text-sm">
-        <div class="flex items-center gap-2">
-          <lucide-angular [img]="InfoIcon" class="w-4 h-4" />
-          <span>
-            {{ count() }} agent {{ count() === 1 ? 'task' : 'tasks' }} can be resumed
-          </span>
-        </div>
-        <div class="flex items-center gap-2">
-          <button
-            type="button"
-            class="btn btn-xs btn-ghost"
-            (click)="onScrollClick()"
-          >
-            Show
-          </button>
-          <button
-            type="button"
-            class="btn btn-xs btn-ghost btn-square"
-            (click)="onDismiss()"
-          >
-            <lucide-angular [img]="XIcon" class="w-3 h-3" />
-          </button>
-        </div>
+    <div class="alert alert-info flex justify-between items-center px-4 py-2 text-sm">
+      <div class="flex items-center gap-2">
+        <lucide-angular [img]="InfoIcon" class="w-4 h-4" />
+        <span> {{ count() }} agent {{ count() === 1 ? 'task' : 'tasks' }} can be resumed </span>
       </div>
+      <div class="flex items-center gap-2">
+        <button type="button" class="btn btn-xs btn-ghost" (click)="onScrollClick()">Show</button>
+        <button type="button" class="btn btn-xs btn-ghost btn-square" (click)="onDismiss()">
+          <lucide-angular [img]="XIcon" class="w-3 h-3" />
+        </button>
+      </div>
+    </div>
     }
   `,
 })
@@ -818,6 +815,7 @@ export class ResumeNotificationBannerComponent {
 ```
 
 **Files Affected**:
+
 - `libs/frontend/chat/src/lib/components/molecules/resume-notification-banner.component.ts` (CREATE)
 - `libs/frontend/chat/src/index.ts` (MODIFY - export)
 
@@ -898,12 +896,12 @@ Tree builder appends to existing agent node
 
 ### Non-Functional Requirements
 
-| Requirement | Target | Verification |
-|------------|--------|--------------|
-| Resume Latency | < 3s to first event | Manual testing |
-| Query Latency | < 100ms | Manual testing |
-| Memory Usage | < 5MB for 1000 records | Memory profiling |
-| TTL Cleanup | 24h automatic | Unit test |
+| Requirement    | Target                 | Verification     |
+| -------------- | ---------------------- | ---------------- |
+| Resume Latency | < 3s to first event    | Manual testing   |
+| Query Latency  | < 100ms                | Manual testing   |
+| Memory Usage   | < 5MB for 1000 records | Memory profiling |
+| TTL Cleanup    | 24h automatic          | Unit test        |
 
 ### Pattern Compliance
 
@@ -918,27 +916,27 @@ Tree builder appends to existing agent node
 
 ### CREATE (6 files)
 
-| Path | Purpose |
-|------|---------|
-| `libs/shared/src/lib/types/subagent-registry.types.ts` | Type definitions |
-| `libs/backend/vscode-core/src/services/subagent-registry.service.ts` | Backend registry |
-| `apps/ptah-extension-vscode/src/services/rpc/handlers/subagent-rpc.handlers.ts` | RPC handlers |
-| `libs/frontend/chat/src/lib/components/molecules/resume-notification-banner.component.ts` | Banner UI |
+| Path                                                                                      | Purpose          |
+| ----------------------------------------------------------------------------------------- | ---------------- |
+| `libs/shared/src/lib/types/subagent-registry.types.ts`                                    | Type definitions |
+| `libs/backend/vscode-core/src/services/subagent-registry.service.ts`                      | Backend registry |
+| `apps/ptah-extension-vscode/src/services/rpc/handlers/subagent-rpc.handlers.ts`           | RPC handlers     |
+| `libs/frontend/chat/src/lib/components/molecules/resume-notification-banner.component.ts` | Banner UI        |
 
 ### MODIFY (10 files)
 
-| Path | Changes |
-|------|---------|
-| `libs/shared/src/index.ts` | Export new types |
-| `libs/backend/vscode-core/src/di/tokens.ts` | Add SUBAGENT_REGISTRY token |
-| `libs/backend/vscode-core/src/index.ts` | Export registry service |
-| `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts` | Add resumeSubagent method |
-| `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts` | Add executeQueryForSubagentResume |
-| `apps/ptah-extension-vscode/src/services/rpc/rpc-method-registration.service.ts` | Register handlers |
-| `apps/ptah-extension-vscode/src/di/container.ts` | Register services |
-| `libs/frontend/core/src/lib/services/claude-rpc.service.ts` | Add RPC methods |
-| `libs/frontend/chat/src/lib/services/chat.store.ts` | Add resumable state |
-| `libs/frontend/chat/src/lib/components/organisms/inline-agent-bubble.component.ts` | Add resume button |
+| Path                                                                               | Changes                           |
+| ---------------------------------------------------------------------------------- | --------------------------------- |
+| `libs/shared/src/index.ts`                                                         | Export new types                  |
+| `libs/backend/vscode-core/src/di/tokens.ts`                                        | Add SUBAGENT_REGISTRY token       |
+| `libs/backend/vscode-core/src/index.ts`                                            | Export registry service           |
+| `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts`                              | Add resumeSubagent method         |
+| `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts`              | Add executeQueryForSubagentResume |
+| `apps/ptah-extension-vscode/src/services/rpc/rpc-method-registration.service.ts`   | Register handlers                 |
+| `apps/ptah-extension-vscode/src/di/container.ts`                                   | Register services                 |
+| `libs/frontend/core/src/lib/services/claude-rpc.service.ts`                        | Add RPC methods                   |
+| `libs/frontend/chat/src/lib/services/chat.store.ts`                                | Add resumable state               |
+| `libs/frontend/chat/src/lib/components/organisms/inline-agent-bubble.component.ts` | Add resume button                 |
 
 ---
 
@@ -946,11 +944,11 @@ Tree builder appends to existing agent node
 
 ### Unit Tests
 
-| Component | Test Cases |
-|-----------|------------|
+| Component               | Test Cases                                        |
+| ----------------------- | ------------------------------------------------- |
 | SubagentRegistryService | Register, complete, interrupt, query, TTL cleanup |
-| SubagentRpcHandlers | List resumable, resume success/failure |
-| ChatStore | Load resumable, resume, dismiss banner |
+| SubagentRpcHandlers     | List resumable, resume success/failure            |
+| ChatStore               | Load resumable, resume, dismiss banner            |
 
 ### Integration Tests
 
@@ -971,12 +969,12 @@ Tree builder appends to existing agent node
 
 ## Risk Mitigations
 
-| Risk | Mitigation |
-|------|------------|
-| SDK resume API changes | Pin SDK version, monitor changelog |
-| Memory leak in registry | 24h TTL cleanup, dispose on extension deactivate |
-| Race condition on concurrent resumes | Mutex on resume operation in registry |
-| Lost events during resume | Buffer events during state transition |
+| Risk                                 | Mitigation                                       |
+| ------------------------------------ | ------------------------------------------------ |
+| SDK resume API changes               | Pin SDK version, monitor changelog               |
+| Memory leak in registry              | 24h TTL cleanup, dispose on extension deactivate |
+| Race condition on concurrent resumes | Mutex on resume operation in registry            |
+| Lost events during resume            | Buffer events during state transition            |
 
 ---
 
@@ -987,10 +985,12 @@ Tree builder appends to existing agent node
 **Recommended Developer**: **Both frontend-developer AND backend-developer**
 
 **Rationale**:
+
 - Backend: SubagentRegistryService, RPC handlers, SDK adapter changes
 - Frontend: InlineAgentBubble, ChatStore, notification banner, RPC service
 
 **Suggested Split**:
+
 1. Backend developer: Components 1, 2, 3 (Registry, RPC, SDK)
 2. Frontend developer: Components 4, 5, 6, 8 (UI, Store, RPC client, Banner)
 3. Integration testing: Both together
@@ -1005,10 +1005,12 @@ Tree builder appends to existing agent node
 **Before Implementation, Verify**:
 
 1. **SDK resume parameter exists**:
+
    - Check SDK types for `resume` option in query options
    - Verify `sdk-query-options-builder.ts` can accept resume parameter
 
 2. **AgentSessionWatcherService events available**:
+
    - Confirm 'agent-start' and 'agent-stop' events are emitted
    - Verify event payload includes required fields (agentId, sessionId, toolUseId)
 

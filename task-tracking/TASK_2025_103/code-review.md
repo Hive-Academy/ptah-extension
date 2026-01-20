@@ -2,38 +2,43 @@
 
 ## Review Summary
 
-| Metric           | Value         |
-|------------------|---------------|
-| Overall Score    | 6.5/10        |
-| Assessment       | NEEDS_REVISION|
-| Blocking Issues  | 2             |
-| Serious Issues   | 5             |
-| Minor Issues     | 8             |
-| Files Reviewed   | 10            |
+| Metric          | Value          |
+| --------------- | -------------- |
+| Overall Score   | 6.5/10         |
+| Assessment      | NEEDS_REVISION |
+| Blocking Issues | 2              |
+| Serious Issues  | 5              |
+| Minor Issues    | 8              |
+| Files Reviewed  | 10             |
 
 ## The 5 Critical Questions
 
 ### 1. What could break in 6 months?
 
 **Memory leaks in SubagentRegistryService (registry never gets cleared for successful sessions)**:
+
 - `D:\projects\ptah-extension\libs\backend\vscode-core\src\services\subagent-registry.service.ts:61` - The registry Map grows indefinitely for completed subagents. While there's TTL cleanup for 24 hours, there's no cleanup when sessions end normally. Over time with heavy usage, this could accumulate thousands of stale "completed" records.
 - **Recommendation**: Remove completed subagent records immediately after SubagentStop hook, since completed agents cannot be resumed.
 
 **State prop drilling in SubagentHookHandler**:
+
 - `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\helpers\subagent-hook-handler.ts:64` - `currentParentSessionId` is stored as instance state, but this service appears to be a singleton. If multiple sessions run concurrently, this will cause data corruption.
 
 ### 2. What would confuse a new team member?
 
 **Inconsistent naming between SubagentRecord fields and SDK concepts**:
+
 - `sessionId` in SubagentRecord is the subagent's own session ID, NOT the parent session
 - `parentSessionId` is the parent session ID
 - This is documented but easy to misread. A new developer might confuse which ID to use for resume operations.
 
 **RPC handlers use string literal for DI token**:
+
 - `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\services\rpc\handlers\subagent-rpc.handlers.ts:49` - Uses `@inject('SdkAgentAdapter')` instead of a proper typed token
 - Other handlers in the same folder use TOKENS consistently - this breaks the pattern
 
 **Two different ways to check interrupted status**:
+
 - Frontend uses `node.status === 'interrupted'` on ExecutionNode
 - Backend uses `record.status === 'interrupted'` on SubagentRecord
 - The link between these is not obvious - how does ExecutionNode.status get set?
@@ -41,28 +46,32 @@
 ### 3. What's the hidden complexity cost?
 
 **Resume flow has fire-and-forget semantics**:
+
 - `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\services\rpc\handlers\subagent-rpc.handlers.ts:119` - `await this.sdkAdapter.resumeSubagent(record)` returns an AsyncIterable that is not consumed or stored
 - The streaming response has nowhere to go after the RPC call returns
 - This will likely result in lost streaming events or orphaned streams
 
 **ResumeNotificationBanner dismissed state doesn't reset properly**:
+
 - `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\molecules\resume-notification-banner.component.ts:89` - The `dismissed` signal resets only when `resetDismissed()` is called externally
 - But the component has a public method that must be called - who calls it? The parent must track this, adding coupling.
 
 **No abort handling for in-progress resume**:
+
 - If user clicks Resume and then aborts, the subagent record is already removed from registry (line 122)
 - The agent cannot be resumed again even if the resume failed mid-stream
 
 ### 4. What pattern inconsistencies exist?
 
-| Pattern | Expected | Actual | File:Line |
-|---------|----------|--------|-----------|
-| DI Token Usage | `@inject(SDK_TOKENS.SDK_AGENT_ADAPTER)` | `@inject('SdkAgentAdapter')` | subagent-rpc.handlers.ts:49 |
-| Signal Inputs | `input.required<T>()` | `input<T>()` for optional | Multiple files - OK |
-| Error Logging | Structured with context object | Mixed styles | subagent-hook-handler.ts vs others |
-| Module Boundary | Avoid disable comments | Has disable comment | subagent-rpc.handlers.ts:21 |
+| Pattern         | Expected                                | Actual                       | File:Line                          |
+| --------------- | --------------------------------------- | ---------------------------- | ---------------------------------- |
+| DI Token Usage  | `@inject(SDK_TOKENS.SDK_AGENT_ADAPTER)` | `@inject('SdkAgentAdapter')` | subagent-rpc.handlers.ts:49        |
+| Signal Inputs   | `input.required<T>()`                   | `input<T>()` for optional    | Multiple files - OK                |
+| Error Logging   | Structured with context object          | Mixed styles                 | subagent-hook-handler.ts vs others |
+| Module Boundary | Avoid disable comments                  | Has disable comment          | subagent-rpc.handlers.ts:21        |
 
 **SubagentRegistryService placement concerns**:
+
 - The service is in `vscode-core` but imports types from `shared`
 - This is fine per architecture, but the service is very domain-specific (subagent lifecycle)
 - It could arguably belong in `agent-sdk` library alongside other SDK-specific services
@@ -246,6 +255,7 @@
 Well-structured type definitions with comprehensive JSDoc comments. The discriminated union for SubagentStatus is clean. Type immutability via `readonly` is properly applied.
 
 **Specific Concerns**:
+
 1. Line 18: Consider adding 'resuming' status for when resume is in progress but not yet complete
 
 ---
@@ -259,6 +269,7 @@ Well-structured type definitions with comprehensive JSDoc comments. The discrimi
 Solid registry implementation with proper TTL cleanup. Lazy cleanup pattern is memory-efficient. Good documentation throughout.
 
 **Specific Concerns**:
+
 1. Line 61: Registry grows with completed records (serious)
 2. Line 112: Unnecessary type assertion (minor)
 3. Line 284: Mutation of Map entries in-place could be replaced with Map.set() for clarity
@@ -274,6 +285,7 @@ Solid registry implementation with proper TTL cleanup. Lazy cleanup pattern is m
 The hook handler correctly connects SDK lifecycle events to the registry. However, the instance state management for `currentParentSessionId` is a serious flaw in multi-session scenarios.
 
 **Specific Concerns**:
+
 1. Line 64: Instance state for parentSessionId (blocking - concurrent session corruption)
 2. Line 225-251: Too much logic in SubagentStart handler, consider extracting
 3. Line 203-270: Methods are well-documented but very long
@@ -289,6 +301,7 @@ The hook handler correctly connects SDK lifecycle events to the registry. Howeve
 Clean integration of SubagentRegistryService into session lifecycle. The `markAllInterrupted` call is placed correctly before abort.
 
 **Specific Concerns**:
+
 1. Line 243: Good placement of markAllInterrupted call
 2. Line 283: Also calls markAllInterrupted in disposeAllSessions - correct
 
@@ -303,6 +316,7 @@ Clean integration of SubagentRegistryService into session lifecycle. The `markAl
 The `resumeSubagent` method is well-implemented but its return value (AsyncIterable) is not properly handled by callers.
 
 **Specific Concerns**:
+
 1. Line 456-512: `resumeSubagent` returns AsyncIterable but RPC handler doesn't consume it
 2. Line 478: Type assertion `sessionId as SessionId` - consider using branded type constructor
 
@@ -317,6 +331,7 @@ The `resumeSubagent` method is well-implemented but its return value (AsyncItera
 Critical issues with streaming response handling and DI patterns. The handler structure follows codebase patterns but has fundamental flow issues.
 
 **Specific Concerns**:
+
 1. Line 119: AsyncIterable discarded (blocking)
 2. Line 49: String literal DI token (serious)
 3. Line 21: Module boundary disable (serious)
@@ -333,6 +348,7 @@ Critical issues with streaming response handling and DI patterns. The handler st
 Clean RPC method implementations following established patterns. Type-safe with proper result handling.
 
 **Specific Concerns**:
+
 1. Lines 271-303: Good implementation, could have more detailed JSDoc
 
 ---
@@ -346,6 +362,7 @@ Clean RPC method implementations following established patterns. Type-safe with 
 Facade pattern well-applied. Signal-based state management is correct. Resume methods integrate cleanly.
 
 **Specific Concerns**:
+
 1. Line 375-399: No user feedback on resume failure (serious)
 2. Line 357-367: Console.log in production (minor)
 3. Line 146-147: Signal initialization is clean
@@ -361,6 +378,7 @@ Facade pattern well-applied. Signal-based state management is correct. Resume me
 Excellent component structure with OnPush, signal inputs, and proper Angular 20+ patterns. Resume button integration is clean.
 
 **Specific Concerns**:
+
 1. Lines 351-363: Multiple computed signals for status (minor optimization)
 2. Line 463: Console.log debug statement (minor)
 3. Line 188: Magic number (minor but well-named)
@@ -376,6 +394,7 @@ Excellent component structure with OnPush, signal inputs, and proper Angular 20+
 Simple component with good Angular patterns, but the dismissed state management creates unnecessary parent-child coupling.
 
 **Specific Concerns**:
+
 1. Line 108: Public method for state reset creates coupling (serious)
 2. Line 89: Dismissed signal could auto-reset via effect
 
@@ -383,26 +402,28 @@ Simple component with good Angular patterns, but the dismissed state management 
 
 ## Pattern Compliance
 
-| Pattern | Status | Concern |
-|---------|--------|---------|
-| Signal-based state | PASS | All frontend state uses signals correctly |
-| Type safety | PASS with notes | One string literal DI token, one unnecessary cast |
-| DI patterns | FAIL | String literal token breaks typed DI pattern |
-| Layer separation | PASS with notes | Module boundary disable needed |
-| OnPush components | PASS | All components use OnPush |
-| Angular 20+ patterns | PASS | input()/output(), computed(), effect() used correctly |
-| Error handling | PASS with notes | Errors logged but user feedback missing |
+| Pattern              | Status          | Concern                                               |
+| -------------------- | --------------- | ----------------------------------------------------- |
+| Signal-based state   | PASS            | All frontend state uses signals correctly             |
+| Type safety          | PASS with notes | One string literal DI token, one unnecessary cast     |
+| DI patterns          | FAIL            | String literal token breaks typed DI pattern          |
+| Layer separation     | PASS with notes | Module boundary disable needed                        |
+| OnPush components    | PASS            | All components use OnPush                             |
+| Angular 20+ patterns | PASS            | input()/output(), computed(), effect() used correctly |
+| Error handling       | PASS with notes | Errors logged but user feedback missing               |
 
 ---
 
 ## Technical Debt Assessment
 
 **Introduced**:
+
 1. String literal DI token (`'SdkAgentAdapter'`) - requires fixing before more usage
 2. Instance state in singleton (SubagentHookHandler) - architectural debt
 3. Unused AsyncIterable return value - design smell
 
 **Mitigated**:
+
 1. None - this is new functionality
 
 **Net Impact**: +3 new debt items. The feature adds complexity without addressing existing debt.

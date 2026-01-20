@@ -31,38 +31,38 @@ import type { SubagentRecord } from '@ptah-extension/shared';
   imports: [LucideAngularModule],
   template: `
     @if (resumableSubagents().length > 0 && !dismissed()) {
-      <div class="alert alert-info shadow-lg mb-4 py-2 px-3">
-        <div class="flex items-center gap-2 flex-1">
-          <lucide-angular [img]="PlayCircleIcon" class="w-5 h-5 flex-shrink-0" />
-          <div class="flex-1 min-w-0">
-            <h3 class="font-bold text-sm">Interrupted Agents</h3>
-            <p class="text-xs opacity-80">
-              {{ resumableSubagents().length }} agent{{
-                resumableSubagents().length === 1 ? '' : 's'
-              }}
-              can be resumed
-            </p>
-          </div>
-        </div>
-        <div class="flex gap-2 flex-shrink-0">
-          <button
-            type="button"
-            class="btn btn-sm btn-primary gap-1"
-            (click)="onResumeAll()"
-          >
-            <lucide-angular [img]="PlayCircleIcon" class="w-4 h-4" />
-            Resume All
-          </button>
-          <button
-            type="button"
-            class="btn btn-sm btn-ghost btn-square"
-            (click)="onDismiss()"
-            title="Dismiss notification"
-          >
-            <lucide-angular [img]="XIcon" class="w-4 h-4" />
-          </button>
+    <div class="alert alert-info shadow-lg mb-4 py-2 px-3">
+      <div class="flex items-center gap-2 flex-1">
+        <lucide-angular [img]="PlayCircleIcon" class="w-5 h-5 flex-shrink-0" />
+        <div class="flex-1 min-w-0">
+          <h3 class="font-bold text-sm">Interrupted Agents</h3>
+          <p class="text-xs opacity-80">
+            {{ resumableSubagents().length }} agent{{
+              resumableSubagents().length === 1 ? '' : 's'
+            }}
+            can be resumed
+          </p>
         </div>
       </div>
+      <div class="flex gap-2 flex-shrink-0">
+        <button
+          type="button"
+          class="btn btn-sm btn-primary gap-1"
+          (click)="onResumeAll()"
+        >
+          <lucide-angular [img]="PlayCircleIcon" class="w-4 h-4" />
+          Resume All
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm btn-ghost btn-square"
+          (click)="onDismiss()"
+          title="Dismiss notification"
+        >
+          <lucide-angular [img]="XIcon" class="w-4 h-4" />
+        </button>
+      </div>
+    </div>
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,

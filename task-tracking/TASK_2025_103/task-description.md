@@ -110,36 +110,36 @@ The Claude SDK provides native subagent resumption via the `resume: sessionId` p
 
 ### Primary Stakeholders
 
-| Stakeholder | Impact Level | Involvement | Success Criteria |
-|-------------|--------------|-------------|------------------|
-| End Users | High | Testing/Feedback | Can resume agents without confusion |
-| Frontend Developers | High | Implementation | Clear API contract, predictable behavior |
-| Backend Developers | High | Implementation | Clean SDK integration, proper lifecycle |
+| Stakeholder         | Impact Level | Involvement      | Success Criteria                         |
+| ------------------- | ------------ | ---------------- | ---------------------------------------- |
+| End Users           | High         | Testing/Feedback | Can resume agents without confusion      |
+| Frontend Developers | High         | Implementation   | Clear API contract, predictable behavior |
+| Backend Developers  | High         | Implementation   | Clean SDK integration, proper lifecycle  |
 
 ### Secondary Stakeholders
 
-| Stakeholder | Impact Level | Involvement | Success Criteria |
-|-------------|--------------|-------------|------------------|
-| QA/Testing | Medium | Validation | All edge cases covered, no regressions |
-| DevOps | Low | Monitoring | No memory leaks, proper cleanup |
+| Stakeholder | Impact Level | Involvement | Success Criteria                       |
+| ----------- | ------------ | ----------- | -------------------------------------- |
+| QA/Testing  | Medium       | Validation  | All edge cases covered, no regressions |
+| DevOps      | Low          | Monitoring  | No memory leaks, proper cleanup        |
 
 ## Risk Assessment
 
 ### Technical Risks
 
-| Risk | Probability | Impact | Mitigation | Contingency |
-|------|-------------|--------|------------|-------------|
-| SDK resume API changes | Low | High | Pin SDK version, monitor changelog | Fallback to restart-from-scratch |
-| Memory leak in registry | Medium | Medium | Implement 24-hour TTL cleanup | Manual registry reset command |
-| Race condition on concurrent resumes | Medium | Medium | Use mutex/lock on resume operation | Queue resume requests |
-| Lost events during resume | Low | High | Buffer events during state transition | Manual retry with full reload |
+| Risk                                 | Probability | Impact | Mitigation                            | Contingency                      |
+| ------------------------------------ | ----------- | ------ | ------------------------------------- | -------------------------------- |
+| SDK resume API changes               | Low         | High   | Pin SDK version, monitor changelog    | Fallback to restart-from-scratch |
+| Memory leak in registry              | Medium      | Medium | Implement 24-hour TTL cleanup         | Manual registry reset command    |
+| Race condition on concurrent resumes | Medium      | Medium | Use mutex/lock on resume operation    | Queue resume requests            |
+| Lost events during resume            | Low         | High   | Buffer events during state transition | Manual retry with full reload    |
 
 ### Business Risks
 
-| Risk | Probability | Impact | Mitigation |
-|------|-------------|--------|------------|
-| Low adoption if not discoverable | Medium | Medium | Clear visual indicator, notification banner |
-| Confusion about resume limitations | Medium | Low | Tooltip explanations, documentation |
+| Risk                               | Probability | Impact | Mitigation                                  |
+| ---------------------------------- | ----------- | ------ | ------------------------------------------- |
+| Low adoption if not discoverable   | Medium      | Medium | Clear visual indicator, notification banner |
+| Confusion about resume limitations | Medium      | Low    | Tooltip explanations, documentation         |
 
 ## Dependencies
 
@@ -169,31 +169,35 @@ The following items are explicitly NOT part of this task:
 
 ## Success Metrics
 
-| Metric | Target | Measurement Method |
-|--------|--------|-------------------|
-| Resume Success Rate | > 95% | Error logs / successful resumes |
-| Resume Latency P95 | < 3 seconds | Performance monitoring |
-| User Adoption | > 50% of interrupted sessions | Usage analytics (future) |
-| Bug Reports | < 3 critical bugs in first month | Issue tracker |
+| Metric              | Target                           | Measurement Method              |
+| ------------------- | -------------------------------- | ------------------------------- |
+| Resume Success Rate | > 95%                            | Error logs / successful resumes |
+| Resume Latency P95  | < 3 seconds                      | Performance monitoring          |
+| User Adoption       | > 50% of interrupted sessions    | Usage analytics (future)        |
+| Bug Reports         | < 3 critical bugs in first month | Issue tracker                   |
 
 ## Technical Context Summary
 
 Based on codebase analysis, the implementation will:
 
 1. **Create SubagentRegistryService** in `libs/backend/vscode-core/src/services/`
+
    - Listen to AgentSessionWatcherService events (agent-start, agent-stop)
    - Maintain Map<parentSessionId, SubagentRecord[]> structure
    - Provide query API for resumable subagents
 
 2. **Add RPC handlers** in `apps/ptah-extension-vscode/src/services/rpc/handlers/`
+
    - `subagent:resume` - Invokes SDK with resume parameter
    - `subagent:list-resumable` - Returns resumable subagents for session
 
 3. **Update SdkAgentAdapter** in `libs/backend/agent-sdk/`
+
    - Add `resumeSubagent(parentSessionId, agentId)` method
    - Construct proper SDK query with resume option
 
 4. **Update InlineAgentBubbleComponent** in `libs/frontend/chat/`
+
    - Add "Resume" button conditional on status === 'interrupted'
    - Handle click with RPC call and state updates
 
