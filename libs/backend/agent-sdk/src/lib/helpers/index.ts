@@ -19,7 +19,6 @@ export {
   type ContentBlock,
   type ExecuteQueryConfig,
   type ExecuteQueryResult,
-  type CompactionStartCallback,
 } from './session-lifecycle-manager';
 export { ConfigWatcher, type ReinitCallback } from './config-watcher';
 export {

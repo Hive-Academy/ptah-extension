@@ -38,6 +38,7 @@ import {
 import type { SdkModuleLoader } from './sdk-module-loader';
 import type { SdkQueryOptionsBuilder } from './sdk-query-options-builder';
 import type { SdkMessageFactory } from './sdk-message-factory';
+import type { CompactionStartCallback } from './compaction-hook-handler';
 
 // Re-export for backward compatibility with other files
 export type { SDKUserMessage, ContentBlock };
@@ -72,16 +73,6 @@ export interface ActiveSession {
   // Mutable: Current model
   currentModel: string;
 }
-
-/**
- * Callback type for compaction start events (TASK_2025_098)
- * Re-exported from compaction-hook-handler for consumers
- */
-export type CompactionStartCallback = (data: {
-  sessionId: string;
-  trigger: 'manual' | 'auto';
-  timestamp: number;
-}) => void;
 
 /**
  * Configuration for executeQuery method

@@ -115,9 +115,9 @@ export class CompactionHookHandler {
               _toolUseId: string | undefined,
               _options: { signal: AbortSignal }
             ): Promise<HookJSONOutput> => {
-              // DIAGNOSTIC: Log that the hook was actually invoked by SDK
+              // Log that the hook was invoked by SDK
               this.logger.info(
-                '[CompactionHookHandler] >>> PreCompact HOOK INVOKED <<<',
+                '[CompactionHookHandler] PreCompact hook invoked',
                 {
                   hookEventName: input.hook_event_name,
                   sessionId,
@@ -137,12 +137,26 @@ export class CompactionHookHandler {
                   return { continue: true };
                 }
 
+                // TASK_2025_098: Validate trigger field before use
+                // SDK should always provide 'manual' or 'auto', but we guard against malformed data
+                const trigger = input.trigger;
+                if (trigger !== 'manual' && trigger !== 'auto') {
+                  this.logger.warn(
+                    '[CompactionHookHandler] Invalid trigger value, skipping callback',
+                    {
+                      trigger,
+                      sessionId,
+                    }
+                  );
+                  return { continue: true };
+                }
+
                 // Log compaction details
                 this.logger.info(
                   '[CompactionHookHandler] PreCompact hook triggered',
                   {
                     sessionId,
-                    trigger: input.trigger,
+                    trigger,
                     hasCustomInstructions: !!input.custom_instructions,
                   }
                 );
@@ -151,7 +165,7 @@ export class CompactionHookHandler {
                 if (capturedCallback) {
                   const compactionData = {
                     sessionId,
-                    trigger: input.trigger,
+                    trigger, // Use validated trigger variable
                     timestamp: Date.now(),
                   };
 

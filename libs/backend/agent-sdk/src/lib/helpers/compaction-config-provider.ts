@@ -69,9 +69,28 @@ export class CompactionConfigProvider {
       this.config.get<boolean>('compaction.enabled') ??
       DEFAULT_COMPACTION_CONFIG.enabled;
 
+    // TASK_2025_098: Validate threshold with type check and minimum value
+    // Minimum threshold of 1000 tokens matches package.json schema constraint
+    const rawThreshold = this.config.get<number>('compaction.threshold');
     const contextTokenThreshold =
-      this.config.get<number>('compaction.threshold') ??
-      DEFAULT_COMPACTION_CONFIG.contextTokenThreshold;
+      typeof rawThreshold === 'number' && rawThreshold >= 1000
+        ? rawThreshold
+        : DEFAULT_COMPACTION_CONFIG.contextTokenThreshold;
+
+    // Log warning if invalid threshold was provided
+    if (
+      rawThreshold !== undefined &&
+      (typeof rawThreshold !== 'number' || rawThreshold < 1000)
+    ) {
+      this.logger.warn(
+        '[CompactionConfigProvider] Invalid threshold value, using default',
+        {
+          providedValue: rawThreshold,
+          providedType: typeof rawThreshold,
+          defaultValue: DEFAULT_COMPACTION_CONFIG.contextTokenThreshold,
+        }
+      );
+    }
 
     const compactionConfig: CompactionConfig = {
       enabled,
