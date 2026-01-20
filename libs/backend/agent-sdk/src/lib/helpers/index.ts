@@ -19,6 +19,7 @@ export {
   type ContentBlock,
   type ExecuteQueryConfig,
   type ExecuteQueryResult,
+  type CompactionStartCallback,
 } from './session-lifecycle-manager';
 export { ConfigWatcher, type ReinitCallback } from './config-watcher';
 export {
@@ -33,6 +34,11 @@ export {
   CompactionConfigProvider,
   type CompactionConfig,
 } from './compaction-config-provider';
+export {
+  CompactionHookHandler,
+  type CompactionStartCallback,
+  isPreCompactHook,
+} from './compaction-hook-handler';
 export {
   SdkMessageFactory,
   type CreateMessageParams,

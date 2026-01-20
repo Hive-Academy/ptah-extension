@@ -22,6 +22,10 @@ import { SdkPermissionHandler } from '../sdk-permission-handler';
 import { SubagentHookHandler } from './subagent-hook-handler';
 import { CompactionConfigProvider } from './compaction-config-provider';
 import {
+  CompactionHookHandler,
+  type CompactionStartCallback,
+} from './compaction-hook-handler';
+import {
   CanUseTool,
   HookEvent,
   HookCallbackMatcher,
@@ -47,6 +51,16 @@ export interface QueryOptionsInput {
   sessionConfig?: AISessionConfig;
   /** Session ID to resume (undefined for new sessions) */
   resumeSessionId?: string;
+  /**
+   * Session ID for hook tracking (TASK_2025_098)
+   * Used by compaction hooks to identify which session triggered compaction
+   */
+  sessionId?: string;
+  /**
+   * Callback for compaction start events (TASK_2025_098)
+   * Called when SDK begins compacting (summarizing) conversation history
+   */
+  onCompactionStart?: CompactionStartCallback;
 }
 
 /**
@@ -113,7 +127,9 @@ export class SdkQueryOptionsBuilder {
     @inject(SDK_TOKENS.SDK_SUBAGENT_HOOK_HANDLER)
     private readonly subagentHookHandler: SubagentHookHandler,
     @inject(SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER)
-    private readonly compactionConfigProvider: CompactionConfigProvider
+    private readonly compactionConfigProvider: CompactionConfigProvider,
+    @inject(SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER)
+    private readonly compactionHookHandler: CompactionHookHandler
   ) {}
 
   /**
@@ -140,6 +156,8 @@ export class SdkQueryOptionsBuilder {
       abortController,
       sessionConfig,
       resumeSessionId,
+      sessionId,
+      onCompactionStart,
     } = input;
 
     // Model is required - SDK sets default in config at startup
@@ -157,8 +175,9 @@ export class SdkQueryOptionsBuilder {
     const canUseToolCallback: CanUseTool =
       this.permissionHandler.createCallback();
 
-    // Create subagent hooks
-    const hooks = this.createHooks(cwd);
+    // Create merged hooks (subagent + compaction)
+    // TASK_2025_098: Pass sessionId and callback for compaction hooks
+    const hooks = this.createHooks(cwd, sessionId, onCompactionStart);
 
     // Get compaction configuration (TASK_2025_098)
     const compactionConfig = this.compactionConfigProvider.getConfig();
@@ -265,23 +284,52 @@ export class SdkQueryOptionsBuilder {
   }
 
   /**
-   * Create subagent lifecycle hooks
+   * Create merged lifecycle hooks (subagent + compaction)
+   *
+   * TASK_2025_098: Now creates both subagent hooks and compaction hooks,
+   * merging them into a single hooks object for SDK query options.
+   *
+   * @param cwd - Working directory for subagent hooks
+   * @param sessionId - Session ID for compaction hooks (optional)
+   * @param onCompactionStart - Callback for compaction start (optional)
+   * @returns Merged hooks configuration for SDK query options
    */
   private createHooks(
-    cwd: string
+    cwd: string,
+    sessionId?: string,
+    onCompactionStart?: CompactionStartCallback
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
-    const hooks = this.subagentHookHandler.createHooks(cwd);
+    // Create subagent hooks (existing functionality)
+    const subagentHooks = this.subagentHookHandler.createHooks(cwd);
+
+    // Create compaction hooks if sessionId is provided (TASK_2025_098)
+    // Even without sessionId, we create hooks with empty string - SDK will provide session_id in hook input
+    const compactionHooks = this.compactionHookHandler.createHooks(
+      sessionId ?? '',
+      onCompactionStart
+    );
+
+    // Merge hooks - subagent and compaction hooks handle different events
+    // SubagentStart/SubagentStop vs PreCompact, so no conflict
+    const mergedHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {
+      ...subagentHooks,
+      ...compactionHooks,
+    };
 
     // Log hook registration for debugging
     this.logger.info('[SdkQueryOptionsBuilder] SDK hooks created for session', {
       cwd,
-      hookEvents: Object.keys(hooks),
-      hasSubagentStart: !!hooks.SubagentStart,
-      hasSubagentStop: !!hooks.SubagentStop,
-      subagentStartHooksCount: hooks.SubagentStart?.length ?? 0,
-      subagentStopHooksCount: hooks.SubagentStop?.length ?? 0,
+      sessionId: sessionId ? `${sessionId.slice(0, 8)}...` : 'not-provided',
+      hookEvents: Object.keys(mergedHooks),
+      hasSubagentStart: !!mergedHooks.SubagentStart,
+      hasSubagentStop: !!mergedHooks.SubagentStop,
+      hasPreCompact: !!mergedHooks.PreCompact,
+      subagentStartHooksCount: mergedHooks.SubagentStart?.length ?? 0,
+      subagentStopHooksCount: mergedHooks.SubagentStop?.length ?? 0,
+      preCompactHooksCount: mergedHooks.PreCompact?.length ?? 0,
+      hasCompactionCallback: !!onCompactionStart,
     });
 
-    return hooks;
+    return mergedHooks;
   }
 }

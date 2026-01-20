@@ -37,8 +37,9 @@ import {
   JsonlReaderService,
   AgentCorrelationService,
   SessionReplayService,
-  // Compaction configuration (TASK_2025_098)
+  // Compaction configuration and hooks (TASK_2025_098)
   CompactionConfigProvider,
+  CompactionHookHandler,
 } from '../helpers';
 import { SDK_TOKENS } from './tokens';
 import { OpenRouterModelsService } from '../openrouter-models.service';
@@ -200,6 +201,14 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER,
     { useClass: CompactionConfigProvider },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Compaction hook handler - depends on Logger (TASK_2025_098)
+  // Handles SDK PreCompact hooks and notifies via callback
+  container.register(
+    SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER,
+    { useClass: CompactionHookHandler },
     { lifecycle: Lifecycle.Singleton }
   );
 

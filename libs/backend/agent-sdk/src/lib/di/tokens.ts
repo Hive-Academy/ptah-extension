@@ -30,6 +30,9 @@ export const SDK_TOKENS = {
   // Compaction configuration provider (TASK_2025_098)
   SDK_COMPACTION_CONFIG_PROVIDER: 'SdkCompactionConfigProvider',
 
+  // Compaction hook handler (TASK_2025_098)
+  SDK_COMPACTION_HOOK_HANDLER: 'SdkCompactionHookHandler',
+
   // OpenRouter services (TASK_2025_091 Phase 2)
   SDK_OPENROUTER_MODELS: 'SdkOpenRouterModels',
 

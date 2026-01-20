@@ -42,6 +42,7 @@ import {
   SdkModelService,
   type SessionIdResolvedCallback,
   type ResultStatsCallback,
+  type CompactionStartCallback,
 } from './helpers';
 import {
   ClaudeCliDetector,
@@ -49,7 +50,11 @@ import {
 } from './detector/claude-cli-detector';
 
 // Re-export for external consumers
-export type { SessionIdResolvedCallback, ResultStatsCallback } from './helpers';
+export type {
+  SessionIdResolvedCallback,
+  ResultStatsCallback,
+  CompactionStartCallback,
+} from './helpers';
 
 /**
  * Provider capabilities for SDK-based integration
@@ -113,6 +118,12 @@ export class SdkAgentAdapter implements IAIProvider {
    * Set by RpcMethodRegistrationService to send session:stats events
    */
   private resultStatsCallback: ResultStatsCallback | null = null;
+
+  /**
+   * Callback to notify when compaction starts (TASK_2025_098)
+   * Set by RpcMethodRegistrationService to send session:compacting events
+   */
+  private compactionStartCallback: CompactionStartCallback | null = null;
 
   /**
    * Create SDK Agent Adapter with all dependencies injected
@@ -339,6 +350,7 @@ export class SdkAgentAdapter implements IAIProvider {
     );
 
     // TASK_2025_102: Delegate query execution to SessionLifecycleManager
+    // TASK_2025_098: Pass compactionStartCallback for compaction notifications
     const { sdkQuery, initialModel } = await this.sessionLifecycle.executeQuery(
       {
         sessionId: trackingId,
@@ -346,6 +358,7 @@ export class SdkAgentAdapter implements IAIProvider {
         initialPrompt: config.prompt
           ? { content: config.prompt, files: config.files }
           : undefined,
+        onCompactionStart: this.compactionStartCallback || undefined,
       }
     );
 
@@ -409,11 +422,13 @@ export class SdkAgentAdapter implements IAIProvider {
     this.logger.info(`[SdkAgentAdapter] Resuming session: ${sessionId}`);
 
     // TASK_2025_102: Delegate query execution to SessionLifecycleManager
+    // TASK_2025_098: Pass compactionStartCallback for compaction notifications
     const { sdkQuery, initialModel } = await this.sessionLifecycle.executeQuery(
       {
         sessionId,
         sessionConfig: config,
         resumeSessionId: sessionId as string,
+        onCompactionStart: this.compactionStartCallback || undefined,
       }
     );
 
@@ -478,11 +493,14 @@ export class SdkAgentAdapter implements IAIProvider {
     const subagentSessionId = sessionId as SessionId;
 
     // Delegate query execution to SessionLifecycleManager with resume option
-    const { sdkQuery, initialModel } =
-      await this.sessionLifecycle.executeQuery({
+    // TASK_2025_098: Pass compactionStartCallback for compaction notifications
+    const { sdkQuery, initialModel } = await this.sessionLifecycle.executeQuery(
+      {
         sessionId: subagentSessionId,
         resumeSessionId: sessionId, // Resume the subagent's session
-      });
+        onCompactionStart: this.compactionStartCallback || undefined,
+      }
+    );
 
     this.logger.info('[SdkAgentAdapter] Subagent resume query started', {
       toolCallId,
@@ -563,6 +581,14 @@ export class SdkAgentAdapter implements IAIProvider {
    */
   setResultStatsCallback(callback: ResultStatsCallback): void {
     this.resultStatsCallback = callback;
+  }
+
+  /**
+   * Set callback for when compaction starts (TASK_2025_098)
+   * Called by RpcMethodRegistrationService to send session:compacting events to webview
+   */
+  setCompactionStartCallback(callback: CompactionStartCallback): void {
+    this.compactionStartCallback = callback;
   }
 
   /**

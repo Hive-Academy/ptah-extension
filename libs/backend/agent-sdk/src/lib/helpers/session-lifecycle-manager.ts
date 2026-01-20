@@ -74,6 +74,16 @@ export interface ActiveSession {
 }
 
 /**
+ * Callback type for compaction start events (TASK_2025_098)
+ * Re-exported from compaction-hook-handler for consumers
+ */
+export type CompactionStartCallback = (data: {
+  sessionId: string;
+  trigger: 'manual' | 'auto';
+  timestamp: number;
+}) => void;
+
+/**
  * Configuration for executeQuery method
  */
 export interface ExecuteQueryConfig {
@@ -85,6 +95,11 @@ export interface ExecuteQueryConfig {
   resumeSessionId?: string;
   /** Initial prompt to queue before starting query */
   initialPrompt?: { content: string; files?: string[] };
+  /**
+   * Callback for compaction start events (TASK_2025_098)
+   * Called when SDK begins compacting conversation history
+   */
+  onCompactionStart?: CompactionStartCallback;
 }
 
 /**
@@ -411,7 +426,13 @@ export class SessionLifecycleManager {
    * ```
    */
   async executeQuery(config: ExecuteQueryConfig): Promise<ExecuteQueryResult> {
-    const { sessionId, sessionConfig, resumeSessionId, initialPrompt } = config;
+    const {
+      sessionId,
+      sessionConfig,
+      resumeSessionId,
+      initialPrompt,
+      onCompactionStart,
+    } = config;
 
     this.logger.info(
       `[SessionLifecycle] Executing query for session: ${sessionId}`,
@@ -457,11 +478,14 @@ export class SessionLifecycleManager {
     );
 
     // Step 6: Build query options
+    // TASK_2025_098: Pass sessionId and onCompactionStart for compaction hooks
     const queryOptions = await this.queryOptionsBuilder.build({
       userMessageStream,
       abortController,
       sessionConfig,
       resumeSessionId,
+      sessionId: sessionId as string,
+      onCompactionStart,
     });
 
     this.logger.info('[SessionLifecycle] Starting SDK query with options', {
