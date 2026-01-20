@@ -7,9 +7,9 @@
  *
  * Services:
  * - HistoryEventFactory: Creates FlatStreamEventUnion events
- * - (Batch 2) JsonlReaderService: JSONL file I/O operations
- * - (Batch 3) AgentCorrelationService: Agent-to-task correlation
- * - (Batch 4) SessionReplayService: Event replay orchestration
+ * - JsonlReaderService: JSONL file I/O operations
+ * - AgentCorrelationService: Agent-to-task correlation
+ * - SessionReplayService: Event replay orchestration
  *
  * @see TASK_2025_106 - Session History Reader Refactoring
  */
@@ -29,3 +29,4 @@ export type {
 export { HistoryEventFactory } from './history-event-factory';
 export { JsonlReaderService } from './jsonl-reader.service';
 export { AgentCorrelationService } from './agent-correlation.service';
+export { SessionReplayService } from './session-replay.service';

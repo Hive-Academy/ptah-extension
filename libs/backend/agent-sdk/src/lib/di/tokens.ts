@@ -41,6 +41,7 @@ export const SDK_TOKENS = {
   SDK_HISTORY_EVENT_FACTORY: 'SdkHistoryEventFactory',
   SDK_JSONL_READER: 'SdkJsonlReader',
   SDK_AGENT_CORRELATION: 'SdkAgentCorrelation',
+  SDK_SESSION_REPLAY: 'SdkSessionReplay',
 } as const;
 
 /**
