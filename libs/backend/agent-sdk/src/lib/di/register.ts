@@ -32,6 +32,11 @@ import {
   SdkModuleLoader,
   SdkModelService,
   UserMessageStreamFactory,
+  // History reader child services (TASK_2025_106)
+  HistoryEventFactory,
+  JsonlReaderService,
+  AgentCorrelationService,
+  SessionReplayService,
 } from '../helpers';
 import { SDK_TOKENS } from './tokens';
 import { OpenRouterModelsService } from '../openrouter-models.service';
@@ -74,7 +79,39 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton }
   );
 
-  // Session history reader - reads JSONL files and converts to stream events
+  // ============================================================
+  // History reader child services (TASK_2025_106)
+  // ============================================================
+
+  // History event factory - creates FlatStreamEventUnion events
+  container.register(
+    SDK_TOKENS.SDK_HISTORY_EVENT_FACTORY,
+    { useClass: HistoryEventFactory },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // JSONL reader - file I/O operations for session files
+  container.register(
+    SDK_TOKENS.SDK_JSONL_READER,
+    { useClass: JsonlReaderService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Agent correlation - correlates agents to Task tool_uses
+  container.register(
+    SDK_TOKENS.SDK_AGENT_CORRELATION,
+    { useClass: AgentCorrelationService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Session replay - orchestrates JSONL to event conversion
+  container.register(
+    SDK_TOKENS.SDK_SESSION_REPLAY,
+    { useClass: SessionReplayService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Session history reader (facade) - reads JSONL files and converts to stream events
   container.register(
     SDK_TOKENS.SDK_SESSION_HISTORY_READER,
     { useClass: SessionHistoryReaderService },
