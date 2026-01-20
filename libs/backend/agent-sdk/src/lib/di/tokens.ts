@@ -40,6 +40,7 @@ export const SDK_TOKENS = {
   // History reader child services (TASK_2025_106)
   SDK_HISTORY_EVENT_FACTORY: 'SdkHistoryEventFactory',
   SDK_JSONL_READER: 'SdkJsonlReader',
+  SDK_AGENT_CORRELATION: 'SdkAgentCorrelation',
 } as const;
 
 /**
