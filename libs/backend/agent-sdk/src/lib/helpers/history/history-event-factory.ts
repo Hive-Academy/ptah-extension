@@ -286,6 +286,179 @@ export class HistoryEventFactory {
   }
 
   // ==========================================================================
+  // AGENT-SCOPED EVENTS (for nested agent messages)
+  // ==========================================================================
+
+  /**
+   * Create a message_start event for agent-scoped messages.
+   *
+   * CRITICAL: TASK_2025_096 FIX - Must include parentToolUseId in event ID
+   * to prevent collision when multiple agents are spawned in the same message block.
+   *
+   * @param sessionId - Session identifier
+   * @param messageId - Unique message identifier (should include parentToolUseId)
+   * @param index - Event index for ID generation
+   * @param timestamp - Event timestamp
+   * @param parentToolUseId - Parent tool use ID linking to parent Task tool
+   * @returns MessageStartEvent with parentToolUseId
+   */
+  createAgentMessageStart(
+    sessionId: string,
+    messageId: string,
+    index: number,
+    timestamp: number,
+    parentToolUseId: string
+  ): MessageStartEvent {
+    return {
+      eventType: 'message_start',
+      id: `evt_agent_${parentToolUseId}_${index}_${Math.floor(timestamp)}`,
+      sessionId,
+      messageId,
+      parentToolUseId,
+      role: 'assistant',
+      timestamp,
+      source: 'history',
+    };
+  }
+
+  /**
+   * Create a text_delta event for agent-scoped messages.
+   *
+   * @param sessionId - Session identifier
+   * @param messageId - Parent message identifier
+   * @param text - Text content
+   * @param blockIndex - Block index within message
+   * @param index - Event index for ID generation
+   * @param timestamp - Event timestamp
+   * @param parentToolUseId - Parent tool use ID linking to parent Task tool
+   * @returns TextDeltaEvent with parentToolUseId
+   */
+  createAgentTextDelta(
+    sessionId: string,
+    messageId: string,
+    text: string,
+    blockIndex: number,
+    index: number,
+    timestamp: number,
+    parentToolUseId: string
+  ): TextDeltaEvent {
+    return {
+      eventType: 'text_delta',
+      id: `evt_agent_${parentToolUseId}_${index}_${Math.floor(timestamp)}`,
+      sessionId,
+      messageId,
+      parentToolUseId,
+      blockIndex,
+      delta: text,
+      timestamp,
+      source: 'history',
+    };
+  }
+
+  /**
+   * Create a tool_start event for agent-scoped tool calls.
+   *
+   * @param sessionId - Session identifier
+   * @param messageId - Parent message identifier
+   * @param toolCallId - Unique tool call identifier
+   * @param toolName - Name of the tool being called
+   * @param toolInput - Tool input parameters
+   * @param index - Event index for ID generation
+   * @param timestamp - Event timestamp
+   * @param parentToolUseId - Parent tool use ID linking to parent Task tool
+   * @returns ToolStartEvent with parentToolUseId
+   */
+  createAgentToolStart(
+    sessionId: string,
+    messageId: string,
+    toolCallId: string,
+    toolName: string,
+    toolInput: Record<string, unknown> | undefined,
+    index: number,
+    timestamp: number,
+    parentToolUseId: string
+  ): ToolStartEvent {
+    return {
+      eventType: 'tool_start',
+      id: `evt_agent_${parentToolUseId}_${index}_${Math.floor(timestamp)}`,
+      sessionId,
+      messageId,
+      parentToolUseId,
+      toolCallId,
+      toolName,
+      toolInput,
+      isTaskTool: toolName === 'Task',
+      timestamp,
+      source: 'history',
+    };
+  }
+
+  /**
+   * Create a tool_result event for agent-scoped tool results.
+   *
+   * @param sessionId - Session identifier
+   * @param messageId - Parent message identifier
+   * @param toolCallId - Tool call identifier being responded to
+   * @param output - Tool output content
+   * @param isError - Whether the result is an error
+   * @param index - Event index for ID generation
+   * @param timestamp - Event timestamp
+   * @param parentToolUseId - Parent tool use ID linking to parent Task tool
+   * @returns ToolResultEvent with parentToolUseId
+   */
+  createAgentToolResult(
+    sessionId: string,
+    messageId: string,
+    toolCallId: string,
+    output: string,
+    isError: boolean,
+    index: number,
+    timestamp: number,
+    parentToolUseId: string
+  ): ToolResultEvent {
+    return {
+      eventType: 'tool_result',
+      id: `evt_agent_${parentToolUseId}_${index}_${Math.floor(timestamp)}`,
+      sessionId,
+      messageId,
+      parentToolUseId,
+      toolCallId,
+      output,
+      isError,
+      timestamp,
+      source: 'history',
+    };
+  }
+
+  /**
+   * Create a message_complete event for agent-scoped messages.
+   *
+   * @param sessionId - Session identifier
+   * @param messageId - Message identifier being completed
+   * @param index - Event index for ID generation
+   * @param timestamp - Event timestamp
+   * @param parentToolUseId - Parent tool use ID linking to parent Task tool
+   * @returns MessageCompleteEvent with parentToolUseId
+   */
+  createAgentMessageComplete(
+    sessionId: string,
+    messageId: string,
+    index: number,
+    timestamp: number,
+    parentToolUseId: string
+  ): MessageCompleteEvent {
+    return {
+      eventType: 'message_complete',
+      id: `evt_agent_${parentToolUseId}_${index}_${Math.floor(timestamp)}`,
+      sessionId,
+      messageId,
+      parentToolUseId,
+      timestamp,
+      source: 'history',
+    };
+  }
+
+  // ==========================================================================
   // UTILITIES
   // ==========================================================================
 

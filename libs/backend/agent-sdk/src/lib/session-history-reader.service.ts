@@ -21,8 +21,6 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { createReadStream } from 'fs';
-import { createInterface } from 'readline';
 import * as path from 'path';
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
@@ -38,7 +36,6 @@ import type { HistoryEventFactory } from './helpers/history/history-event-factor
 import type {
   SessionHistoryMessage,
   AgentSessionData,
-  JsonlMessageLine,
 } from './helpers/history/history.types';
 
 // ============================================================================
@@ -47,6 +44,13 @@ import type {
 
 @injectable()
 export class SessionHistoryReaderService {
+  /**
+   * Regex pattern for valid session IDs.
+   * Session IDs should only contain alphanumeric characters, underscores, and hyphens.
+   * This prevents path traversal attacks (e.g., "../../../etc/passwd").
+   */
+  private readonly SESSION_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_JSONL_READER)
@@ -56,6 +60,18 @@ export class SessionHistoryReaderService {
     @inject(SDK_TOKENS.SDK_HISTORY_EVENT_FACTORY)
     private readonly eventFactory: HistoryEventFactory
   ) {}
+
+  /**
+   * Validate sessionId to prevent path traversal attacks.
+   *
+   * @param sessionId - Session identifier to validate
+   * @throws Error if sessionId is invalid or contains path traversal characters
+   */
+  private validateSessionId(sessionId: string): void {
+    if (!sessionId || !this.SESSION_ID_PATTERN.test(sessionId)) {
+      throw new Error(`Invalid sessionId format: ${sessionId}`);
+    }
+  }
 
   /**
    * Read session history and convert to FlatStreamEventUnion events with stats
@@ -83,6 +99,9 @@ export class SessionHistoryReaderService {
     } | null;
   }> {
     try {
+      // 0. Validate sessionId to prevent path traversal
+      this.validateSessionId(sessionId);
+
       // 1. Find the sessions directory (delegate to jsonlReader)
       const sessionsDir =
         await this.jsonlReader.findSessionsDirectory(workspacePath);
@@ -159,6 +178,9 @@ export class SessionHistoryReaderService {
     }[]
   > {
     try {
+      // Validate sessionId to prevent path traversal
+      this.validateSessionId(sessionId);
+
       const sessionsDir =
         await this.jsonlReader.findSessionsDirectory(workspacePath);
       if (!sessionsDir) {
@@ -166,8 +188,11 @@ export class SessionHistoryReaderService {
         return [];
       }
 
-      // Read main session file directly
+      // Delegate JSONL reading to JsonlReaderService
       const sessionFile = path.join(sessionsDir, `${sessionId}.jsonl`);
+      const rawMessages = await this.jsonlReader.readJsonlMessages(sessionFile);
+
+      // Transform SessionHistoryMessage to simple message format
       const messages: {
         id: string;
         role: 'user' | 'assistant';
@@ -175,47 +200,29 @@ export class SessionHistoryReaderService {
         timestamp: number;
       }[] = [];
 
-      // Read file line by line using streaming for large files
-      const fileStream = createReadStream(sessionFile, { encoding: 'utf-8' });
-      const rl = createInterface({ input: fileStream, crlfDelay: Infinity });
+      for (const msg of rawMessages) {
+        // Skip non-message lines (summary, meta)
+        if (!msg.message?.role) continue;
 
-      try {
-        for await (const line of rl) {
-          if (!line.trim()) continue;
+        const role = msg.message.role;
+        if (role !== 'user' && role !== 'assistant') continue;
 
-          try {
-            const parsed = JSON.parse(line) as JsonlMessageLine;
+        // Extract text content using event factory utility
+        const content = this.eventFactory.extractTextContent(
+          msg.message.content
+        );
+        if (!content) continue;
 
-            // Skip non-message lines (summary, meta)
-            if (!parsed.message?.role) continue;
+        const timestamp = msg.timestamp
+          ? new Date(msg.timestamp).getTime()
+          : Date.now();
 
-            const role = parsed.message.role;
-            if (role !== 'user' && role !== 'assistant') continue;
-
-            // Extract text content using event factory utility
-            const content = this.eventFactory.extractTextContent(
-              parsed.message.content
-            );
-            if (!content) continue;
-
-            const timestamp = parsed.timestamp
-              ? new Date(parsed.timestamp).getTime()
-              : Date.now();
-
-            messages.push({
-              id: parsed.uuid || this.eventFactory.generateId(),
-              role: role as 'user' | 'assistant',
-              content,
-              timestamp,
-            });
-          } catch {
-            // Skip malformed lines
-            continue;
-          }
-        }
-      } finally {
-        rl.close();
-        fileStream.destroy();
+        messages.push({
+          id: msg.uuid || this.eventFactory.generateId(),
+          role: role as 'user' | 'assistant',
+          content,
+          timestamp,
+        });
       }
 
       return messages;

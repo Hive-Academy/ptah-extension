@@ -33,6 +33,24 @@ import type {
  */
 @injectable()
 export class AgentCorrelationService {
+  /**
+   * Warmup agents are SDK-internal agents for initialization.
+   * Their first user message content is exactly "warmup" (case-insensitive).
+   */
+  private readonly WARMUP_AGENT_MARKER = 'warmup';
+
+  /**
+   * Agent must start within this window relative to Task tool_use timestamp.
+   * Allows 1 second early start (for timing variations).
+   */
+  private readonly CORRELATION_WINDOW_START_MS = -1000;
+
+  /**
+   * Agent must start within this window relative to Task tool_use timestamp.
+   * Allows up to 60 seconds delay for agent initialization.
+   */
+  private readonly CORRELATION_WINDOW_END_MS = 60000;
+
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
 
   /**
@@ -78,7 +96,7 @@ export class AgentCorrelationService {
       if (typeof msgContent === 'string') {
         firstMsgContent = msgContent.trim().toLowerCase();
       }
-      const isWarmupAgent = firstMsgContent === 'warmup';
+      const isWarmupAgent = firstMsgContent === this.WARMUP_AGENT_MARKER;
 
       if (isWarmupAgent) {
         this.logger.debug('[AgentCorrelation] Skipping warmup agent', {
@@ -176,8 +194,12 @@ export class AgentCorrelationService {
         if (usedAgents.has(agent.agentId)) continue;
 
         const timeDiff = agent.timestamp - task.timestamp;
-        // Correlation window: agent must start within -1s to +60s of task
-        if (timeDiff >= -1000 && timeDiff < bestTimeDiff && timeDiff < 60000) {
+        // Correlation window: agent must start within configured window of task
+        if (
+          timeDiff >= this.CORRELATION_WINDOW_START_MS &&
+          timeDiff < bestTimeDiff &&
+          timeDiff < this.CORRELATION_WINDOW_END_MS
+        ) {
           bestTimeDiff = timeDiff;
           bestMatch = agent.agentId;
         }

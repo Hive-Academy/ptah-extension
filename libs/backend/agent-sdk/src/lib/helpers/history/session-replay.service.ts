@@ -26,14 +26,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import type {
-  FlatStreamEventUnion,
-  MessageStartEvent,
-  TextDeltaEvent,
-  ToolStartEvent,
-  ToolResultEvent,
-  MessageCompleteEvent,
-} from '@ptah-extension/shared';
+import type { FlatStreamEventUnion } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../../di/tokens';
 import { AgentCorrelationService } from './agent-correlation.service';
 import { HistoryEventFactory } from './history-event-factory';
@@ -384,90 +377,78 @@ export class SessionReplayService {
       const messageTimestamp = parentTimestamp + sequence++ * 0.0001;
       let blockIndex = 0;
 
-      // Create message_start for this agent message (CRITICAL for frontend detection)
-      // TASK_2025_096 FIX: Include parentToolUseId in event ID to prevent collision
-      events.push({
-        eventType: 'message_start',
-        id: `evt_agent_${parentToolUseId}_${eventIndex++}_${Math.floor(
-          messageTimestamp
-        )}`,
-        sessionId,
-        messageId: agentMessageId,
-        parentToolUseId, // Links to parent Task tool
-        role: 'assistant',
-        timestamp: messageTimestamp,
-        source: 'history',
-      } as MessageStartEvent);
+      // Create message_start for this agent message using factory method
+      events.push(
+        this.eventFactory.createAgentMessageStart(
+          sessionId,
+          agentMessageId,
+          eventIndex++,
+          messageTimestamp,
+          parentToolUseId
+        )
+      );
 
       for (const block of content as ContentBlock[]) {
         const eventTimestamp = parentTimestamp + sequence++ * 0.0001;
 
         if (block.type === 'text' && block.text) {
-          events.push({
-            eventType: 'text_delta',
-            id: `evt_agent_${parentToolUseId}_${eventIndex++}_${Math.floor(
-              eventTimestamp
-            )}`,
-            sessionId,
-            messageId: agentMessageId,
-            parentToolUseId,
-            blockIndex: blockIndex++,
-            delta: block.text,
-            timestamp: eventTimestamp,
-            source: 'history',
-          } as TextDeltaEvent);
+          events.push(
+            this.eventFactory.createAgentTextDelta(
+              sessionId,
+              agentMessageId,
+              block.text,
+              blockIndex++,
+              eventIndex++,
+              eventTimestamp,
+              parentToolUseId
+            )
+          );
         } else if (block.type === 'tool_use') {
           const toolResult = block.id ? toolResults.get(block.id) : undefined;
+          const toolCallId = block.id || this.eventFactory.generateId();
 
-          events.push({
-            eventType: 'tool_start',
-            id: `evt_agent_${parentToolUseId}_${eventIndex++}_${Math.floor(
-              eventTimestamp
-            )}`,
-            sessionId,
-            messageId: agentMessageId,
-            parentToolUseId,
-            toolCallId: block.id || this.eventFactory.generateId(),
-            toolName: block.name || 'unknown',
-            toolInput: block.input,
-            isTaskTool: block.name === 'Task',
-            timestamp: eventTimestamp,
-            source: 'history',
-          } as ToolStartEvent);
+          events.push(
+            this.eventFactory.createAgentToolStart(
+              sessionId,
+              agentMessageId,
+              toolCallId,
+              block.name || 'unknown',
+              block.input,
+              eventIndex++,
+              eventTimestamp,
+              parentToolUseId
+            )
+          );
 
           if (toolResult) {
             const resultTimestamp = parentTimestamp + sequence++ * 0.0001;
-            events.push({
-              eventType: 'tool_result',
-              id: `evt_agent_${parentToolUseId}_${eventIndex++}_${Math.floor(
-                resultTimestamp
-              )}`,
-              sessionId,
-              messageId: agentMessageId,
-              parentToolUseId,
-              toolCallId: block.id || '',
-              output: toolResult.content,
-              isError: toolResult.isError,
-              timestamp: resultTimestamp,
-              source: 'history',
-            } as ToolResultEvent);
+            events.push(
+              this.eventFactory.createAgentToolResult(
+                sessionId,
+                agentMessageId,
+                block.id || '',
+                toolResult.content,
+                toolResult.isError,
+                eventIndex++,
+                resultTimestamp,
+                parentToolUseId
+              )
+            );
           }
         }
       }
 
-      // Create message_complete for this agent message
+      // Create message_complete for this agent message using factory method
       const completeTimestamp = parentTimestamp + sequence++ * 0.0001;
-      events.push({
-        eventType: 'message_complete',
-        id: `evt_agent_${parentToolUseId}_${eventIndex++}_${Math.floor(
-          completeTimestamp
-        )}`,
-        sessionId,
-        messageId: agentMessageId,
-        parentToolUseId,
-        timestamp: completeTimestamp,
-        source: 'history',
-      } as MessageCompleteEvent);
+      events.push(
+        this.eventFactory.createAgentMessageComplete(
+          sessionId,
+          agentMessageId,
+          eventIndex++,
+          completeTimestamp,
+          parentToolUseId
+        )
+      );
     }
 
     return events;

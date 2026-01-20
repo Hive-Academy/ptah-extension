@@ -34,6 +34,12 @@ import type {
  */
 @injectable()
 export class JsonlReaderService {
+  /**
+   * Maximum session file size allowed for reading (50MB).
+   * Prevents memory exhaustion from extremely large session files.
+   */
+  private readonly MAX_SESSION_FILE_SIZE = 50 * 1024 * 1024;
+
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
 
   /**
@@ -89,11 +95,27 @@ export class JsonlReaderService {
    *
    * Uses streaming to handle large files efficiently.
    * Skips malformed lines instead of throwing.
+   * Enforces a maximum file size limit to prevent memory exhaustion.
    *
    * @param filePath - Absolute path to the JSONL file
    * @returns Array of parsed session history messages
+   * @throws Error if file exceeds maximum size limit
    */
   async readJsonlMessages(filePath: string): Promise<SessionHistoryMessage[]> {
+    // Check file size before reading to prevent memory exhaustion
+    const stats = await fs.stat(filePath);
+    if (stats.size > this.MAX_SESSION_FILE_SIZE) {
+      const sizeMB = Math.round(stats.size / 1024 / 1024);
+      const limitMB = Math.round(this.MAX_SESSION_FILE_SIZE / 1024 / 1024);
+      this.logger.warn(
+        `[JsonlReader] Session file exceeds size limit: ${stats.size} bytes`,
+        { filePath, sizeMB, limitMB }
+      );
+      throw new Error(
+        `Session file too large (${sizeMB}MB). Max: ${limitMB}MB`
+      );
+    }
+
     const messages: SessionHistoryMessage[] = [];
     const stream = createReadStream(filePath, { encoding: 'utf8' });
     const reader = createInterface({ input: stream });
