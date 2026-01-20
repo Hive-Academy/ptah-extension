@@ -61,6 +61,13 @@ The **agent-sdk library** provides official Claude Agent SDK integration for Pta
 │  ├─ AuthManager            - API key management      │
 │  └─ ConfigWatcher          - Config monitoring       │
 ├──────────────────────────────────────────────────────┤
+│  History Services (TASK_2025_106)                    │
+│  └─ SessionHistoryReaderService (Facade)             │
+│     ├─ JsonlReaderService    - JSONL file I/O        │
+│     ├─ AgentCorrelationService - Agent-task linking  │
+│     ├─ SessionReplayService  - Event sequencing      │
+│     └─ HistoryEventFactory   - Event creation        │
+├──────────────────────────────────────────────────────┤
 │  Type System (TASK_2025_088)                         │
 │  └─ claude-sdk.types.ts - Centralized SDK types      │
 │     ├─ SDKMessage discriminated union               │
@@ -93,6 +100,17 @@ The **agent-sdk library** provides official Claude Agent SDK integration for Pta
 
 - `helpers/attachment-processor.service.ts` - File attachment processing
 - `helpers/image-converter.service.ts` - Image to base64 conversion
+
+### History Services (TASK_2025_106)
+
+- `session-history-reader.service.ts` - Facade that orchestrates history reading
+- `helpers/history/` - Extracted child services
+  - `history.types.ts` - Type definitions (SessionHistoryMessage, ContentBlock, etc.)
+  - `history-event-factory.ts` - Creates FlatStreamEventUnion events
+  - `jsonl-reader.service.ts` - JSONL file I/O operations
+  - `agent-correlation.service.ts` - Agent-to-task timestamp correlation
+  - `session-replay.service.ts` - Event replay and sequencing orchestration
+  - `index.ts` - Barrel exports for history module
 
 ### Type System
 
@@ -605,6 +623,14 @@ nx test agent-sdk --testFile=sdk-agent-adapter.spec.ts
   - `image-converter.service.ts`
   - `session-lifecycle-manager.ts`
   - `stream-transformer.ts`
+  - `usage-extraction.utils.ts`
+- **History Module**: `src/lib/helpers/history/` (TASK_2025_106)
+  - `index.ts` - Barrel exports
+  - `history.types.ts` - Type definitions
+  - `history-event-factory.ts` - Event factory service
+  - `jsonl-reader.service.ts` - JSONL file I/O service
+  - `agent-correlation.service.ts` - Agent correlation service
+  - `session-replay.service.ts` - Session replay service
 - **Detection**: `src/lib/detector/`
 - **Types**: `src/lib/types/sdk-types/claude-sdk.types.ts` (TASK_2025_088)
 - **DI**: `src/lib/di/`
@@ -734,3 +760,139 @@ If your code uses `@ptah-extension/agent-sdk`:
   - Future: Add workspace-level permission policies
 - No multi-session parallel support yet
   - Future: Enable multiple concurrent sessions
+
+## Migration Notes - TASK_2025_106
+
+**Objective**: Refactor `SessionHistoryReaderService` (1,278 lines) by extracting responsibilities into focused child services using the facade pattern while maintaining the existing public API.
+
+### Architecture Change
+
+**Before TASK_2025_106**:
+
+```
+SessionHistoryReaderService (1,278 lines - monolithic)
+├── File I/O methods (findSessionsDirectory, readJsonlMessages, loadAgentSessions)
+├── Correlation logic (buildAgentDataMap, extractTaskToolUses, correlateAgentsToTasks)
+├── Replay logic (replayToStreamEvents, processAgentMessages)
+├── Event creation (createMessageStart, createTextDelta, etc.)
+└── Usage aggregation (aggregateUsageStats)
+```
+
+**After TASK_2025_106**:
+
+```
+SessionHistoryReaderService (~200 lines - Facade)
+├── readSessionHistory() - Orchestrates child services
+├── readHistoryAsMessages() - Simple message extraction
+└── aggregateUsageStats() - Kept in facade (uses existing utils)
+
+Child Services (helpers/history/):
+├── HistoryEventFactory - Event creation (createMessageStart, createTextDelta, etc.)
+├── JsonlReaderService - JSONL file I/O (findSessionsDirectory, readJsonlMessages, loadAgentSessions)
+├── AgentCorrelationService - Agent-to-task correlation (buildAgentDataMap, correlateAgentsToTasks)
+└── SessionReplayService - Event sequencing (replayToStreamEvents, processAgentMessages)
+```
+
+### Services Overview
+
+| Service                    | Responsibility                          | Injected Dependencies                           |
+| -------------------------- | --------------------------------------- | ----------------------------------------------- |
+| `HistoryEventFactory`      | Create FlatStreamEventUnion events      | None (pure factory)                             |
+| `JsonlReaderService`       | JSONL file I/O operations               | Logger                                          |
+| `AgentCorrelationService`  | Agent-to-task timestamp correlation     | Logger                                          |
+| `SessionReplayService`     | Event replay orchestration              | Logger, AgentCorrelationService, HistoryEventFactory |
+| `SessionHistoryReaderService` | Facade (public API)                  | Logger, JsonlReaderService, SessionReplayService, HistoryEventFactory |
+
+### DI Tokens Added
+
+```typescript
+// Added to libs/backend/agent-sdk/src/lib/di/tokens.ts
+export const SDK_TOKENS = {
+  // ... existing tokens
+
+  // History reader child services (TASK_2025_106)
+  SDK_JSONL_READER: 'SdkJsonlReader',
+  SDK_AGENT_CORRELATION: 'SdkAgentCorrelation',
+  SDK_HISTORY_EVENT_FACTORY: 'SdkHistoryEventFactory',
+  SDK_SESSION_REPLAY: 'SdkSessionReplay',
+} as const;
+```
+
+### Public API (UNCHANGED)
+
+The facade maintains identical public method signatures:
+
+```typescript
+class SessionHistoryReaderService {
+  // Returns events for UI rendering + aggregated stats
+  readSessionHistory(sessionId: string, workspacePath: string): Promise<{
+    events: FlatStreamEventUnion[];
+    stats: { totalCost, tokens, messageCount } | null;
+  }>;
+
+  // Returns simple message objects (for RPC)
+  readHistoryAsMessages(sessionId: string, workspacePath: string): Promise<{
+    id: string;
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp: number;
+  }[]>;
+}
+```
+
+### Files Created
+
+| File                                | Lines | Purpose                              |
+| ----------------------------------- | ----- | ------------------------------------ |
+| `helpers/history/history.types.ts`  | ~70   | Type definitions                     |
+| `helpers/history/history-event-factory.ts` | ~170  | Event creation factory          |
+| `helpers/history/jsonl-reader.service.ts` | ~150   | JSONL file I/O service           |
+| `helpers/history/agent-correlation.service.ts` | ~180 | Agent correlation service      |
+| `helpers/history/session-replay.service.ts` | ~280  | Replay orchestration service     |
+| `helpers/history/index.ts`          | ~30   | Barrel exports                       |
+
+### Files Modified
+
+| File                                | Change                                    |
+| ----------------------------------- | ----------------------------------------- |
+| `di/tokens.ts`                      | Added 4 new tokens                        |
+| `di/register.ts`                    | Registered 4 new services                 |
+| `helpers/index.ts`                  | Added history module export               |
+| `session-history-reader.service.ts` | Refactored to facade (~1,278 -> ~200 lines) |
+
+### Import Changes
+
+```typescript
+// New imports available (child services)
+import {
+  HistoryEventFactory,
+  JsonlReaderService,
+  AgentCorrelationService,
+  SessionReplayService
+} from '@ptah-extension/agent-sdk';
+
+// Type imports
+import type {
+  SessionHistoryMessage,
+  ContentBlock,
+  AgentSessionData,
+  ToolResultData,
+  AgentDataMapEntry,
+  TaskToolUse
+} from '@ptah-extension/agent-sdk';
+```
+
+### Benefits
+
+- **Single Responsibility**: Each service has one clear purpose
+- **Testability**: Child services can be unit tested independently
+- **Maintainability**: Reduced cognitive load (200 vs 1,278 lines)
+- **Extensibility**: Easy to modify one aspect without affecting others
+- **Type Safety**: Dedicated types file with clear contracts
+
+### Key Design Decisions
+
+1. **Facade Pattern**: SessionHistoryReaderService remains the single entry point
+2. **Stats Aggregation Kept in Facade**: Uses existing `usage-extraction.utils`, simple logic
+3. **Injectable Factory**: HistoryEventFactory is injectable for consistency with other services
+4. **Correlation Window**: Agent correlation uses -1s to +60s timestamp window (preserved from original)
