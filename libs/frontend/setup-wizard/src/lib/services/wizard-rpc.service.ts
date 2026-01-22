@@ -89,4 +89,20 @@ export class WizardRpcService {
     );
     throw new Error('Wizard cancellation not yet implemented');
   }
+
+  /**
+   * Retry a failed generation item.
+   * Triggers regeneration of a specific agent, command, or skill file.
+   *
+   * TODO: Backend handler not implemented yet
+   * When implemented, add 'wizard:retry-item' to RpcMethodRegistry
+   */
+  async retryGenerationItem(_itemId: string): Promise<void> {
+    // TODO: Implement when backend handler is ready
+    // const result = await this.rpcService.call('wizard:retry-item', { itemId });
+    console.warn(
+      '[WizardRpcService] retryGenerationItem: Backend handler not implemented'
+    );
+    throw new Error('Retry generation item not yet implemented');
+  }
 }
