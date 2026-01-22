@@ -36,6 +36,16 @@ import {
   FrontendProjectContext,
 } from '../types/wizard.types';
 import { AgentProjectContext, GenerationSummary } from '../types/core.types';
+import {
+  DeepProjectAnalysis,
+  ArchitecturePattern,
+  ArchitecturePatternName,
+  KeyFileLocations,
+  LanguageStats,
+  DiagnosticSummary,
+  CodeConventions,
+  TestCoverageEstimate,
+} from '../types/analysis.types';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
 import { AgentGenerationOrchestratorService } from './orchestrator.service';
 
@@ -652,6 +662,852 @@ export class SetupWizardService implements ISetupWizardService {
    */
   getCurrentSession(): WizardSession | null {
     return this.currentSession ?? null;
+  }
+
+  /**
+   * Perform deep project analysis using VS Code APIs.
+   *
+   * This method conducts a comprehensive analysis of the workspace including:
+   * - Architecture pattern detection (DDD, Layered, Microservices, etc.)
+   * - Key file location discovery (configs, entry points, tests)
+   * - Language distribution analysis
+   * - Code health assessment via diagnostics
+   * - Code convention detection
+   * - Test coverage estimation
+   *
+   * Used by the MCP-powered setup wizard for intelligent agent recommendations.
+   *
+   * @param workspaceUri - Workspace root URI to analyze
+   * @returns Result with DeepProjectAnalysis on success, or Error if analysis fails
+   *
+   * @example
+   * ```typescript
+   * const result = await wizardService.performDeepAnalysis(workspaceUri);
+   * if (result.isOk()) {
+   *   const analysis = result.value;
+   *   console.log(`Found ${analysis.architecturePatterns.length} patterns`);
+   * }
+   * ```
+   */
+  async performDeepAnalysis(
+    workspaceUri: vscode.Uri
+  ): Promise<Result<DeepProjectAnalysis, Error>> {
+    try {
+      this.logger.info('Starting deep project analysis', {
+        workspace: workspaceUri.fsPath,
+      });
+
+      // Dynamic import to avoid circular dependencies
+      const vscode = await import('vscode');
+      const {
+        ProjectType,
+        Framework,
+        MonorepoType,
+      } = await import('@ptah-extension/workspace-intelligence');
+
+      // Step 1: Get basic workspace analysis from orchestrator
+      const basicResult = await this.orchestrator.analyzeWorkspace({
+        workspaceUri,
+        threshold: 50,
+      });
+
+      let projectType: typeof ProjectType[keyof typeof ProjectType] = ProjectType.Unknown;
+      let frameworks: (typeof Framework[keyof typeof Framework])[] = [];
+      let monorepoType: typeof MonorepoType[keyof typeof MonorepoType] | undefined;
+
+      if (basicResult.isOk() && basicResult.value) {
+        projectType = basicResult.value.projectType;
+        frameworks = basicResult.value.frameworks;
+        monorepoType = basicResult.value.monorepoType;
+      }
+
+      // Step 2: Detect architecture patterns via folder structure
+      const architecturePatterns = await this.detectArchitecturePatterns(
+        workspaceUri,
+        vscode
+      );
+
+      // Step 3: Find key configuration files
+      const configFiles = await vscode.workspace.findFiles(
+        '**/*.config.{ts,js,json}',
+        '**/node_modules/**',
+        50
+      );
+      const packageJsonFiles = await vscode.workspace.findFiles(
+        '**/package.json',
+        '**/node_modules/**',
+        20
+      );
+
+      // Step 4: Get workspace symbols for structure understanding
+      let symbols: vscode.SymbolInformation[] = [];
+      try {
+        const symbolResult = await vscode.commands.executeCommand<
+          vscode.SymbolInformation[]
+        >('vscode.executeWorkspaceSymbolProvider', '');
+        if (symbolResult) {
+          symbols = symbolResult;
+        }
+      } catch (error) {
+        this.logger.warn('Failed to get workspace symbols', error as Error);
+      }
+
+      // Step 5: Get diagnostics for code health
+      const diagnostics = vscode.languages.getDiagnostics();
+
+      // Step 6: Extract key file locations
+      const keyFileLocations = await this.extractKeyLocations(
+        workspaceUri,
+        configFiles,
+        symbols,
+        vscode
+      );
+
+      // Step 7: Calculate language distribution
+      const languageDistribution = await this.calculateLanguageDistribution(
+        workspaceUri,
+        vscode
+      );
+
+      // Step 8: Summarize diagnostics
+      const existingIssues = this.summarizeDiagnostics(diagnostics);
+
+      // Step 9: Detect code conventions
+      const codeConventions = await this.detectCodeConventions(
+        workspaceUri,
+        vscode
+      );
+
+      // Step 10: Estimate test coverage
+      const testCoverage = await this.estimateTestCoverage(workspaceUri, vscode);
+
+      const analysis: DeepProjectAnalysis = {
+        projectType,
+        frameworks,
+        monorepoType,
+        architecturePatterns,
+        keyFileLocations,
+        languageDistribution,
+        existingIssues,
+        codeConventions,
+        testCoverage,
+      };
+
+      this.logger.info('Deep project analysis complete', {
+        projectType: projectType.toString(),
+        frameworkCount: frameworks.length,
+        patternCount: architecturePatterns.length,
+        errorCount: existingIssues.errorCount,
+        hasTests: testCoverage.hasTests,
+      });
+
+      return Result.ok(analysis);
+    } catch (error) {
+      this.logger.error('Deep project analysis failed', error as Error);
+      return Result.err(
+        new Error(`Deep analysis failed: ${(error as Error).message}`)
+      );
+    }
+  }
+
+  /**
+   * Detect architecture patterns based on folder structure and file organization.
+   *
+   * Analyzes the workspace for common architectural patterns including:
+   * - DDD (Domain-Driven Design): domain/, entities/, aggregates/, value-objects/
+   * - Layered: controllers/, services/, repositories/
+   * - Microservices: apps/, services/ with separate package.json
+   * - Hexagonal: ports/, adapters/, application/, domain/
+   * - Clean Architecture: use-cases/, entities/, interfaces/
+   * - Feature-Sliced: features/, shared/, entities/, pages/
+   *
+   * @param workspaceUri - Workspace root URI
+   * @param vscode - VS Code API module
+   * @returns Array of detected architecture patterns with confidence scores
+   * @private
+   */
+  private async detectArchitecturePatterns(
+    workspaceUri: vscode.Uri,
+    vscode: typeof import('vscode')
+  ): Promise<ArchitecturePattern[]> {
+    const patterns: ArchitecturePattern[] = [];
+
+    // Check for DDD patterns
+    const domainFolders = await vscode.workspace.findFiles(
+      '**/domain/**/*.ts',
+      '**/node_modules/**',
+      10
+    );
+    const entitiesFolders = await vscode.workspace.findFiles(
+      '**/entities/**/*.ts',
+      '**/node_modules/**',
+      10
+    );
+    const aggregatesFolders = await vscode.workspace.findFiles(
+      '**/aggregates/**/*.ts',
+      '**/node_modules/**',
+      5
+    );
+    const valueObjectsFolders = await vscode.workspace.findFiles(
+      '**/value-objects/**/*.ts',
+      '**/node_modules/**',
+      5
+    );
+
+    const dddEvidence: string[] = [];
+    if (domainFolders.length > 0) {
+      dddEvidence.push(...domainFolders.slice(0, 3).map((f) => f.fsPath));
+    }
+    if (entitiesFolders.length > 0) {
+      dddEvidence.push(...entitiesFolders.slice(0, 3).map((f) => f.fsPath));
+    }
+    if (aggregatesFolders.length > 0) {
+      dddEvidence.push(...aggregatesFolders.slice(0, 2).map((f) => f.fsPath));
+    }
+    if (valueObjectsFolders.length > 0) {
+      dddEvidence.push(...valueObjectsFolders.slice(0, 2).map((f) => f.fsPath));
+    }
+
+    if (dddEvidence.length >= 3) {
+      const confidence = Math.min(95, 50 + dddEvidence.length * 8);
+      patterns.push({
+        name: 'DDD' as ArchitecturePatternName,
+        confidence,
+        evidence: dddEvidence,
+        description:
+          'Domain-Driven Design pattern detected with domain entities and value objects',
+      });
+    }
+
+    // Check for Layered architecture
+    const layeredPatterns = ['controllers', 'services', 'repositories', 'models'];
+    const layeredResults = await Promise.all(
+      layeredPatterns.map(async (layer) => {
+        const files = await vscode.workspace.findFiles(
+          `**/${layer}/**/*.ts`,
+          '**/node_modules/**',
+          5
+        );
+        return { layer, hasFiles: files.length > 0, files };
+      })
+    );
+
+    const layeredEvidence = layeredResults
+      .filter((r) => r.hasFiles)
+      .flatMap((r) => r.files.slice(0, 2).map((f) => f.fsPath));
+
+    const layeredCount = layeredResults.filter((r) => r.hasFiles).length;
+    if (layeredCount >= 3) {
+      patterns.push({
+        name: 'Layered' as ArchitecturePatternName,
+        confidence: Math.min(90, 60 + layeredCount * 10),
+        evidence: layeredEvidence,
+        description:
+          'Layered architecture with controllers, services, and repositories',
+      });
+    }
+
+    // Check for Microservices pattern
+    const appsFolder = await vscode.workspace.findFiles(
+      'apps/*/package.json',
+      '**/node_modules/**',
+      10
+    );
+    const servicesFolder = await vscode.workspace.findFiles(
+      'services/*/package.json',
+      '**/node_modules/**',
+      10
+    );
+
+    if (appsFolder.length >= 2 || servicesFolder.length >= 2) {
+      const microservicesEvidence = [
+        ...appsFolder.slice(0, 3).map((f) => f.fsPath),
+        ...servicesFolder.slice(0, 3).map((f) => f.fsPath),
+      ];
+      patterns.push({
+        name: 'Microservices' as ArchitecturePatternName,
+        confidence: Math.min(
+          85,
+          55 + (appsFolder.length + servicesFolder.length) * 5
+        ),
+        evidence: microservicesEvidence,
+        description: 'Microservices architecture with multiple service packages',
+      });
+    }
+
+    // Check for Hexagonal/Ports & Adapters
+    const portsFiles = await vscode.workspace.findFiles(
+      '**/ports/**/*.ts',
+      '**/node_modules/**',
+      5
+    );
+    const adaptersFiles = await vscode.workspace.findFiles(
+      '**/adapters/**/*.ts',
+      '**/node_modules/**',
+      5
+    );
+
+    if (portsFiles.length > 0 && adaptersFiles.length > 0) {
+      patterns.push({
+        name: 'Hexagonal' as ArchitecturePatternName,
+        confidence: Math.min(
+          85,
+          60 + (portsFiles.length + adaptersFiles.length) * 5
+        ),
+        evidence: [
+          ...portsFiles.slice(0, 2).map((f) => f.fsPath),
+          ...adaptersFiles.slice(0, 2).map((f) => f.fsPath),
+        ],
+        description: 'Hexagonal architecture with ports and adapters',
+      });
+    }
+
+    // Check for Clean Architecture
+    const useCasesFiles = await vscode.workspace.findFiles(
+      '**/use-cases/**/*.ts',
+      '**/node_modules/**',
+      5
+    );
+
+    if (useCasesFiles.length > 0 && (entitiesFolders.length > 0 || domainFolders.length > 0)) {
+      patterns.push({
+        name: 'Clean-Architecture' as ArchitecturePatternName,
+        confidence: Math.min(80, 55 + useCasesFiles.length * 5),
+        evidence: [
+          ...useCasesFiles.slice(0, 3).map((f) => f.fsPath),
+          ...entitiesFolders.slice(0, 2).map((f) => f.fsPath),
+        ],
+        description: 'Clean Architecture with use cases and entities layers',
+      });
+    }
+
+    // Check for Component-Based (frontend)
+    const componentsFiles = await vscode.workspace.findFiles(
+      '**/components/**/*.{ts,tsx,vue,svelte}',
+      '**/node_modules/**',
+      10
+    );
+
+    if (componentsFiles.length >= 5) {
+      patterns.push({
+        name: 'Component-Based' as ArchitecturePatternName,
+        confidence: Math.min(85, 50 + componentsFiles.length * 3),
+        evidence: componentsFiles.slice(0, 5).map((f) => f.fsPath),
+        description: 'Component-based architecture for frontend development',
+      });
+    }
+
+    // Sort by confidence descending
+    patterns.sort((a, b) => b.confidence - a.confidence);
+
+    this.logger.debug('Architecture patterns detected', {
+      patternCount: patterns.length,
+      patterns: patterns.map((p) => ({ name: p.name, confidence: p.confidence })),
+    });
+
+    return patterns;
+  }
+
+  /**
+   * Extract key file locations from workspace analysis.
+   *
+   * @param workspaceUri - Workspace root URI
+   * @param configFiles - Pre-discovered config files
+   * @param symbols - Workspace symbols
+   * @param vscode - VS Code API module
+   * @returns Structured key file locations
+   * @private
+   */
+  private async extractKeyLocations(
+    workspaceUri: vscode.Uri,
+    configFiles: vscode.Uri[],
+    symbols: vscode.SymbolInformation[],
+    vscode: typeof import('vscode')
+  ): Promise<KeyFileLocations> {
+    // Find entry points
+    const entryPointPatterns = ['**/main.ts', '**/index.ts', '**/app.ts', '**/server.ts'];
+    const entryPointFiles: string[] = [];
+    for (const pattern of entryPointPatterns) {
+      const files = await vscode.workspace.findFiles(
+        pattern,
+        '**/node_modules/**',
+        5
+      );
+      entryPointFiles.push(...files.map((f) => f.fsPath));
+    }
+
+    // Find test directories
+    const testDirs: string[] = [];
+    const testPatterns = ['**/__tests__/**/*.ts', '**/test/**/*.ts', '**/tests/**/*.ts'];
+    for (const pattern of testPatterns) {
+      const files = await vscode.workspace.findFiles(
+        pattern,
+        '**/node_modules/**',
+        10
+      );
+      // Extract unique directories
+      files.forEach((f) => {
+        const dirMatch = f.fsPath.match(/.*[/\\](__tests__|tests?)[/\\]/i);
+        if (dirMatch) {
+          const dir = f.fsPath.substring(0, dirMatch.index! + dirMatch[0].length);
+          if (!testDirs.includes(dir)) {
+            testDirs.push(dir);
+          }
+        }
+      });
+    }
+
+    // Find API routes
+    const apiRouteFiles = await vscode.workspace.findFiles(
+      '**/{routes,controllers,api}/**/*.ts',
+      '**/node_modules/**',
+      20
+    );
+
+    // Find component directories
+    const componentFiles = await vscode.workspace.findFiles(
+      '**/components/**/*.{ts,tsx,vue,svelte}',
+      '**/node_modules/**',
+      20
+    );
+
+    // Find service directories
+    const serviceFiles = await vscode.workspace.findFiles(
+      '**/services/**/*.ts',
+      '**/node_modules/**',
+      20
+    );
+
+    // Find model/entity directories
+    const modelFiles = await vscode.workspace.findFiles(
+      '**/{models,entities,domain}/**/*.ts',
+      '**/node_modules/**',
+      20
+    );
+
+    // Find repository directories
+    const repoFiles = await vscode.workspace.findFiles(
+      '**/repositories/**/*.ts',
+      '**/node_modules/**',
+      10
+    );
+
+    // Find utility directories
+    const utilFiles = await vscode.workspace.findFiles(
+      '**/{utils,helpers,common}/**/*.ts',
+      '**/node_modules/**',
+      10
+    );
+
+    return {
+      entryPoints: [...new Set(entryPointFiles)].slice(0, 10),
+      configs: configFiles.map((f) => f.fsPath).slice(0, 20),
+      testDirectories: [...new Set(testDirs)].slice(0, 10),
+      apiRoutes: apiRouteFiles.map((f) => f.fsPath).slice(0, 15),
+      components: componentFiles.map((f) => f.fsPath).slice(0, 15),
+      services: serviceFiles.map((f) => f.fsPath).slice(0, 15),
+      models: modelFiles.map((f) => f.fsPath).slice(0, 15),
+      repositories: repoFiles.map((f) => f.fsPath).slice(0, 10),
+      utilities: utilFiles.map((f) => f.fsPath).slice(0, 10),
+    };
+  }
+
+  /**
+   * Calculate language distribution in the workspace.
+   *
+   * @param workspaceUri - Workspace root URI
+   * @param vscode - VS Code API module
+   * @returns Array of language statistics
+   * @private
+   */
+  private async calculateLanguageDistribution(
+    workspaceUri: vscode.Uri,
+    vscode: typeof import('vscode')
+  ): Promise<LanguageStats[]> {
+    const languageCounts: Record<string, number> = {};
+
+    // Count TypeScript files
+    const tsFiles = await vscode.workspace.findFiles(
+      '**/*.ts',
+      '**/node_modules/**',
+      1000
+    );
+    languageCounts['TypeScript'] = tsFiles.length;
+
+    // Count JavaScript files
+    const jsFiles = await vscode.workspace.findFiles(
+      '**/*.js',
+      '**/node_modules/**',
+      1000
+    );
+    languageCounts['JavaScript'] = jsFiles.length;
+
+    // Count TSX files (React)
+    const tsxFiles = await vscode.workspace.findFiles(
+      '**/*.tsx',
+      '**/node_modules/**',
+      1000
+    );
+    languageCounts['TSX'] = tsxFiles.length;
+
+    // Count JSX files (React)
+    const jsxFiles = await vscode.workspace.findFiles(
+      '**/*.jsx',
+      '**/node_modules/**',
+      1000
+    );
+    languageCounts['JSX'] = jsxFiles.length;
+
+    // Count Vue files
+    const vueFiles = await vscode.workspace.findFiles(
+      '**/*.vue',
+      '**/node_modules/**',
+      500
+    );
+    languageCounts['Vue'] = vueFiles.length;
+
+    // Count Python files
+    const pyFiles = await vscode.workspace.findFiles(
+      '**/*.py',
+      '**/node_modules/**',
+      500
+    );
+    languageCounts['Python'] = pyFiles.length;
+
+    // Count HTML files
+    const htmlFiles = await vscode.workspace.findFiles(
+      '**/*.html',
+      '**/node_modules/**',
+      500
+    );
+    languageCounts['HTML'] = htmlFiles.length;
+
+    // Count CSS/SCSS/LESS files
+    const cssFiles = await vscode.workspace.findFiles(
+      '**/*.{css,scss,less}',
+      '**/node_modules/**',
+      500
+    );
+    languageCounts['CSS'] = cssFiles.length;
+
+    // Count JSON files
+    const jsonFiles = await vscode.workspace.findFiles(
+      '**/*.json',
+      '**/node_modules/**',
+      500
+    );
+    languageCounts['JSON'] = jsonFiles.length;
+
+    // Calculate total and percentages
+    const total = Object.values(languageCounts).reduce((sum, count) => sum + count, 0);
+
+    if (total === 0) {
+      return [];
+    }
+
+    const stats: LanguageStats[] = Object.entries(languageCounts)
+      .filter(([_, count]) => count > 0)
+      .map(([language, fileCount]) => ({
+        language,
+        fileCount,
+        percentage: Math.round((fileCount / total) * 1000) / 10, // One decimal place
+      }))
+      .sort((a, b) => b.fileCount - a.fileCount);
+
+    return stats;
+  }
+
+  /**
+   * Summarize VS Code diagnostics into aggregate counts.
+   *
+   * @param diagnostics - Array of [URI, Diagnostic[]] tuples from getDiagnostics
+   * @returns Summarized diagnostic information
+   * @private
+   */
+  private summarizeDiagnostics(
+    diagnostics: [vscode.Uri, vscode.Diagnostic[]][]
+  ): DiagnosticSummary {
+    let errorCount = 0;
+    let warningCount = 0;
+    let infoCount = 0;
+    const errorsByType: Record<string, number> = {};
+    const warningsByType: Record<string, number> = {};
+    const errorMessages: Map<string, number> = new Map();
+
+    // Dynamic import for vscode types
+    const DiagnosticSeverity = {
+      Error: 0,
+      Warning: 1,
+      Information: 2,
+      Hint: 3,
+    };
+
+    for (const [uri, fileDiagnostics] of diagnostics) {
+      // Skip node_modules
+      if (uri.fsPath.includes('node_modules')) {
+        continue;
+      }
+
+      for (const diag of fileDiagnostics) {
+        const source = diag.source || 'unknown';
+
+        switch (diag.severity) {
+          case DiagnosticSeverity.Error:
+            errorCount++;
+            errorsByType[source] = (errorsByType[source] || 0) + 1;
+            // Track error messages
+            const errorMsg = diag.message.substring(0, 100);
+            errorMessages.set(errorMsg, (errorMessages.get(errorMsg) || 0) + 1);
+            break;
+          case DiagnosticSeverity.Warning:
+            warningCount++;
+            warningsByType[source] = (warningsByType[source] || 0) + 1;
+            break;
+          case DiagnosticSeverity.Information:
+          case DiagnosticSeverity.Hint:
+            infoCount++;
+            break;
+        }
+      }
+    }
+
+    // Get top errors
+    const topErrors = Array.from(errorMessages.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([message, count]) => ({
+        message,
+        count,
+        source: Object.keys(errorsByType)[0] || 'unknown',
+      }));
+
+    return {
+      errorCount,
+      warningCount,
+      infoCount,
+      errorsByType,
+      warningsByType,
+      topErrors: topErrors.length > 0 ? topErrors : undefined,
+    };
+  }
+
+  /**
+   * Detect code conventions from project configuration files.
+   *
+   * @param workspaceUri - Workspace root URI
+   * @param vscode - VS Code API module
+   * @returns Detected code conventions
+   * @private
+   */
+  private async detectCodeConventions(
+    workspaceUri: vscode.Uri,
+    vscode: typeof import('vscode')
+  ): Promise<CodeConventions> {
+    // Default conventions
+    const conventions: CodeConventions = {
+      indentation: 'spaces',
+      indentSize: 2,
+      quoteStyle: 'single',
+      semicolons: true,
+      trailingComma: 'es5',
+    };
+
+    try {
+      // Try to read .prettierrc or prettier.config.js
+      const prettierConfigs = await vscode.workspace.findFiles(
+        '{.prettierrc,.prettierrc.json,.prettierrc.js,prettier.config.js}',
+        '**/node_modules/**',
+        1
+      );
+
+      if (prettierConfigs.length > 0) {
+        conventions.usePrettier = true;
+        try {
+          const content = await vscode.workspace.fs.readFile(prettierConfigs[0]);
+          const configText = Buffer.from(content).toString('utf8');
+          // Parse JSON config
+          if (prettierConfigs[0].fsPath.endsWith('.json') || prettierConfigs[0].fsPath.endsWith('.prettierrc')) {
+            try {
+              const config = JSON.parse(configText);
+              if (config.tabWidth) conventions.indentSize = config.tabWidth;
+              if (config.useTabs) conventions.indentation = 'tabs';
+              if (config.singleQuote !== undefined)
+                conventions.quoteStyle = config.singleQuote ? 'single' : 'double';
+              if (config.semi !== undefined) conventions.semicolons = config.semi;
+              if (config.trailingComma)
+                conventions.trailingComma = config.trailingComma;
+              if (config.printWidth) conventions.maxLineLength = config.printWidth;
+            } catch {
+              // Not valid JSON, skip
+            }
+          }
+        } catch {
+          // Could not read file, continue with defaults
+        }
+      }
+
+      // Check for ESLint
+      const eslintConfigs = await vscode.workspace.findFiles(
+        '{.eslintrc,.eslintrc.json,.eslintrc.js,eslint.config.js}',
+        '**/node_modules/**',
+        1
+      );
+      if (eslintConfigs.length > 0) {
+        conventions.useEslint = true;
+      }
+
+      // Check for additional tools
+      const additionalTools: string[] = [];
+      const stylelintConfig = await vscode.workspace.findFiles(
+        '.stylelintrc*',
+        '**/node_modules/**',
+        1
+      );
+      if (stylelintConfig.length > 0) additionalTools.push('stylelint');
+
+      const biomeConfig = await vscode.workspace.findFiles(
+        'biome.json',
+        '**/node_modules/**',
+        1
+      );
+      if (biomeConfig.length > 0) additionalTools.push('biome');
+
+      if (additionalTools.length > 0) {
+        conventions.additionalTools = additionalTools;
+      }
+    } catch (error) {
+      this.logger.warn('Error detecting code conventions', error as Error);
+    }
+
+    return conventions;
+  }
+
+  /**
+   * Estimate test coverage based on file analysis.
+   *
+   * @param workspaceUri - Workspace root URI
+   * @param vscode - VS Code API module
+   * @returns Test coverage estimation
+   * @private
+   */
+  private async estimateTestCoverage(
+    workspaceUri: vscode.Uri,
+    vscode: typeof import('vscode')
+  ): Promise<TestCoverageEstimate> {
+    // Count source files (non-test)
+    const sourceFiles = await vscode.workspace.findFiles(
+      '**/*.{ts,tsx,js,jsx}',
+      '{**/node_modules/**,**/*.spec.*,**/*.test.*,**/__tests__/**,**/test/**}',
+      2000
+    );
+
+    // Count test files
+    const specFiles = await vscode.workspace.findFiles(
+      '**/*.spec.{ts,tsx,js,jsx}',
+      '**/node_modules/**',
+      500
+    );
+    const testFiles = await vscode.workspace.findFiles(
+      '**/*.test.{ts,tsx,js,jsx}',
+      '**/node_modules/**',
+      500
+    );
+    const testDirFiles = await vscode.workspace.findFiles(
+      '**/__tests__/**/*.{ts,tsx,js,jsx}',
+      '**/node_modules/**',
+      500
+    );
+
+    const totalTestFiles = specFiles.length + testFiles.length + testDirFiles.length;
+    const hasTests = totalTestFiles > 0;
+
+    // Detect test framework from config or dependencies
+    let testFramework: string | undefined;
+
+    // Check for Jest
+    const jestConfig = await vscode.workspace.findFiles(
+      '{jest.config.*,jest.preset.js}',
+      '**/node_modules/**',
+      1
+    );
+    if (jestConfig.length > 0) {
+      testFramework = 'jest';
+    }
+
+    // Check for Vitest
+    const vitestConfig = await vscode.workspace.findFiles(
+      'vitest.config.*',
+      '**/node_modules/**',
+      1
+    );
+    if (vitestConfig.length > 0) {
+      testFramework = 'vitest';
+    }
+
+    // Check for Mocha
+    const mochaConfig = await vscode.workspace.findFiles(
+      '.mocharc*',
+      '**/node_modules/**',
+      1
+    );
+    if (mochaConfig.length > 0) {
+      testFramework = 'mocha';
+    }
+
+    // Check for E2E tests
+    const cypressFiles = await vscode.workspace.findFiles(
+      '{cypress/**/*.{ts,js},cypress.config.*}',
+      '**/node_modules/**',
+      5
+    );
+    const playwrightFiles = await vscode.workspace.findFiles(
+      '{playwright/**/*.{ts,js},playwright.config.*}',
+      '**/node_modules/**',
+      5
+    );
+    const e2eFiles = await vscode.workspace.findFiles(
+      '**/e2e/**/*.{ts,js}',
+      '**/node_modules/**',
+      10
+    );
+
+    const hasE2eTests =
+      cypressFiles.length > 0 ||
+      playwrightFiles.length > 0 ||
+      e2eFiles.length > 0;
+
+    // Check for integration tests
+    const integrationFiles = await vscode.workspace.findFiles(
+      '**/*.integration.{ts,js,spec.ts,test.ts}',
+      '**/node_modules/**',
+      10
+    );
+    const hasIntegrationTests = integrationFiles.length > 0;
+
+    // Calculate estimated coverage
+    const sourceFileCount = sourceFiles.length;
+    const testFileCount = totalTestFiles;
+    const testToSourceRatio =
+      sourceFileCount > 0 ? testFileCount / sourceFileCount : 0;
+
+    // Estimate percentage (heuristic: good ratio is ~0.3)
+    // Cap at 100%, scale non-linearly
+    const percentage = Math.min(
+      100,
+      Math.round(testToSourceRatio * 250) // 0.4 ratio = 100%
+    );
+
+    return {
+      percentage,
+      hasTests,
+      testFramework,
+      hasUnitTests: hasTests,
+      hasIntegrationTests,
+      hasE2eTests,
+      testFileCount,
+      sourceFileCount,
+      testToSourceRatio: Math.round(testToSourceRatio * 100) / 100,
+    };
   }
 
   /**

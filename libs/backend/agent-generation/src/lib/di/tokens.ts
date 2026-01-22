@@ -58,6 +58,12 @@ export const AGENT_TEMPLATE_RENDERER = Symbol.for('AgentTemplateRenderer');
  */
 export const AGENT_SELECTION_SERVICE = Symbol.for('AgentSelectionService');
 
+/**
+ * AgentRecommendationService - Deep analysis-based agent recommendations
+ * Responsibilities: Score all 13 agents based on project analysis, categorize agents, generate recommendations
+ */
+export const AGENT_RECOMMENDATION_SERVICE = Symbol.for('AgentRecommendationService');
+
 // ========================================
 // Content Generation Services
 // ========================================
@@ -130,6 +136,7 @@ export const AGENT_GENERATION_TOKENS = {
 
   // Agent Selection
   AGENT_SELECTION_SERVICE,
+  AGENT_RECOMMENDATION_SERVICE,
 
   // Content Generation
   CONTENT_GENERATION_SERVICE,
