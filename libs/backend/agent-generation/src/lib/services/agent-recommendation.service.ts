@@ -256,21 +256,36 @@ export class AgentRecommendationService {
 
     // Apply category-specific scoring
     switch (agent.category) {
-      case 'planning':
-        ({ score, criteria: criteria.push(...this.scorePlanningAgent(agent, analysis, score).criteria) } = this.scorePlanningAgent(agent, analysis, score));
+      case 'planning': {
+        const planningResult = this.scorePlanningAgent(agent, analysis, score);
+        score = planningResult.score;
+        criteria.push(...planningResult.criteria);
         break;
-      case 'development':
-        ({ score, criteria: criteria.push(...this.scoreDevelopmentAgent(agent, analysis, score).criteria) } = this.scoreDevelopmentAgent(agent, analysis, score));
+      }
+      case 'development': {
+        const devResult = this.scoreDevelopmentAgent(agent, analysis, score);
+        score = devResult.score;
+        criteria.push(...devResult.criteria);
         break;
-      case 'qa':
-        ({ score, criteria: criteria.push(...this.scoreQaAgent(agent, analysis, score).criteria) } = this.scoreQaAgent(agent, analysis, score));
+      }
+      case 'qa': {
+        const qaResult = this.scoreQaAgent(agent, analysis, score);
+        score = qaResult.score;
+        criteria.push(...qaResult.criteria);
         break;
-      case 'specialist':
-        ({ score, criteria: criteria.push(...this.scoreSpecialistAgent(agent, analysis, score).criteria) } = this.scoreSpecialistAgent(agent, analysis, score));
+      }
+      case 'specialist': {
+        const specialistResult = this.scoreSpecialistAgent(agent, analysis, score);
+        score = specialistResult.score;
+        criteria.push(...specialistResult.criteria);
         break;
-      case 'creative':
-        ({ score, criteria: criteria.push(...this.scoreCreativeAgent(agent, analysis, score).criteria) } = this.scoreCreativeAgent(agent, analysis, score));
+      }
+      case 'creative': {
+        const creativeResult = this.scoreCreativeAgent(agent, analysis, score);
+        score = creativeResult.score;
+        criteria.push(...creativeResult.criteria);
         break;
+      }
     }
 
     // Cap score at 100

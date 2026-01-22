@@ -16,7 +16,6 @@ import {
   SkillGenerationOptions,
   SkillGenerationResult,
 } from '../interfaces/skill-generator.interface';
-import { SKILL_GENERATOR_SERVICE } from '../di/tokens';
 import { AgentProjectContext } from '../types/core.types';
 
 /**
@@ -368,8 +367,17 @@ export class SkillGeneratorService implements ISkillGeneratorService {
 
     try {
       const content = await vscode.workspace.fs.readFile(templateUri);
+      this.logger.debug('Template loaded from extension path', {
+        path: templateUri.fsPath,
+      });
       return Buffer.from(content).toString('utf8');
-    } catch {
+    } catch (extensionError) {
+      // Log warning about fallback
+      this.logger.warn('Extension template path failed, using workspace fallback', {
+        attemptedPath: templateUri.fsPath,
+        error: extensionError instanceof Error ? extensionError.message : String(extensionError),
+      });
+
       // Fallback: Try loading from workspace's templates (for development)
       const workspaceTemplateUri = vscode.Uri.joinPath(
         vscode.workspace.workspaceFolders?.[0]?.uri ||
@@ -380,13 +388,36 @@ export class SkillGeneratorService implements ISkillGeneratorService {
 
       try {
         const content = await vscode.workspace.fs.readFile(workspaceTemplateUri);
+        this.logger.warn('Template loaded from WORKSPACE FALLBACK path', {
+          path: workspaceTemplateUri.fsPath,
+          note: 'This may indicate extension deployment issue in production',
+        });
         return Buffer.from(content).toString('utf8');
       } catch (fallbackError) {
+        this.logger.error('Template loading failed completely', {
+          extensionPath: templateUri.fsPath,
+          workspacePath: workspaceTemplateUri.fsPath,
+        });
         throw new Error(
           `Failed to load template: ${templatePath}. Tried ${templateUri.fsPath} and ${workspaceTemplateUri.fsPath}`
         );
       }
     }
+  }
+
+  /**
+   * Escape special characters in a value to prevent regex/template injection.
+   * Prevents recursive substitution when values contain {{...}} patterns.
+   */
+  private escapeTemplateValue(value: string): string {
+    // Escape backslashes first (before adding more)
+    // Then escape $ (special in replace())
+    // Then escape curly braces to prevent template pattern matching
+    return value
+      .replace(/\\/g, '\\\\')
+      .replace(/\$/g, '$$$$') // $$ becomes $ in replace()
+      .replace(/\{\{/g, '\\{\\{')
+      .replace(/\}\}/g, '\\}\\}');
   }
 
   /**
@@ -399,13 +430,15 @@ export class SkillGeneratorService implements ISkillGeneratorService {
     const customizations: string[] = [];
     let processed = content;
 
-    // Substitute each variable
+    // Substitute each variable with escaped value
     for (const [key, value] of Object.entries(variables)) {
       const pattern = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
       const matches = processed.match(pattern);
 
       if (matches && matches.length > 0) {
-        processed = processed.replace(pattern, value);
+        // Escape the value to prevent recursive substitution and regex issues
+        const escapedValue = this.escapeTemplateValue(value);
+        processed = processed.replace(pattern, escapedValue);
         customizations.push(`Substituted {{${key}}} with project-specific value`);
       }
     }
