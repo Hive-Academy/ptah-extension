@@ -15,8 +15,9 @@ import * as vscode from 'vscode';
 
 /**
  * Complete Ptah API surface exposed to executed TypeScript code
- * Provides 13 namespaces for comprehensive workspace intelligence
+ * Provides 15 namespaces for comprehensive workspace intelligence
  * TASK_2025_039: Enhanced with ide namespace for LSP and editor superpowers
+ * TASK_2025_111: Added orchestration namespace for workflow state management
  */
 export interface PtahAPI {
   // Original 8 namespaces
@@ -42,6 +43,9 @@ export interface PtahAPI {
 
   // LLM provider namespace (Langchain abstraction)
   llm: LLMNamespace;
+
+  // Orchestration workflow state management (TASK_2025_111)
+  orchestration: OrchestrationNamespace;
 
   /**
    * Get help documentation for Ptah API namespaces
@@ -1503,4 +1507,139 @@ export interface LLMConfiguredProvider {
 
   /** Whether provider has API key configured */
   isConfigured: boolean;
+}
+
+// ========================================
+// Orchestration Namespace (TASK_2025_111)
+// ========================================
+
+/**
+ * Orchestration workflow phase
+ * Represents the current stage of an orchestration workflow
+ */
+export type OrchestrationPhase =
+  | 'planning'
+  | 'design'
+  | 'implementation'
+  | 'qa'
+  | 'complete';
+
+/**
+ * Checkpoint type for orchestration workflow
+ * Identifies the type of user approval checkpoint
+ */
+export type CheckpointType =
+  | 'requirements'
+  | 'architecture'
+  | 'batch-complete'
+  | null;
+
+/**
+ * Checkpoint status for orchestration workflow
+ * Represents the approval status of a checkpoint
+ */
+export type CheckpointStatus = 'pending' | 'approved' | 'rejected';
+
+/**
+ * Orchestration checkpoint state
+ * Tracks the last checkpoint presented to the user
+ */
+export interface OrchestrationCheckpoint {
+  /** Type of checkpoint that was presented */
+  type: CheckpointType;
+
+  /** Approval status from user */
+  status: CheckpointStatus;
+
+  /** ISO timestamp when checkpoint was presented */
+  timestamp: string;
+}
+
+/**
+ * Orchestration workflow state
+ * Persists the complete state of an orchestration workflow for a task.
+ * Stored in task-tracking/TASK_XXX/.orchestration-state.json
+ */
+export interface OrchestrationState {
+  /** Task identifier (e.g., "TASK_2025_111") */
+  taskId: string;
+
+  /** Current workflow phase */
+  phase: OrchestrationPhase;
+
+  /** Currently active agent (null if between agent invocations) */
+  currentAgent: string | null;
+
+  /** Last checkpoint presented to user */
+  lastCheckpoint: OrchestrationCheckpoint;
+
+  /** List of pending actions to be executed */
+  pendingActions: string[];
+
+  /** Selected workflow strategy (e.g., "FEATURE", "BUGFIX") */
+  strategy: string;
+
+  /** Additional metadata for workflow context */
+  metadata: Record<string, unknown>;
+}
+
+/**
+ * Next action type for orchestration workflow
+ * Determines what the orchestrator should do next
+ */
+export type OrchestrationActionType =
+  | 'invoke-agent'
+  | 'present-checkpoint'
+  | 'complete';
+
+/**
+ * Next action recommendation for orchestration workflow
+ * Returned by getNextAction to guide the orchestrator on what to do next
+ */
+export interface OrchestrationNextAction {
+  /** Type of action to perform */
+  action: OrchestrationActionType;
+
+  /** Agent to invoke (when action is 'invoke-agent') */
+  agent?: string;
+
+  /** Context to pass to the agent */
+  context?: Record<string, unknown>;
+
+  /** Required inputs that must be available before proceeding */
+  requiredInputs?: string[];
+
+  /** Checkpoint type to present (when action is 'present-checkpoint') */
+  checkpointType?: string;
+}
+
+/**
+ * Orchestration namespace for MCP
+ * Provides state management tools for orchestration workflows.
+ * Enables workflow state persistence and continuation across sessions.
+ */
+export interface OrchestrationNamespace {
+  /**
+   * Get the current orchestration state for a task
+   * @param taskId - Task identifier (e.g., "TASK_2025_111")
+   * @returns Current state or null if no state exists
+   */
+  getState: (taskId: string) => Promise<OrchestrationState | null>;
+
+  /**
+   * Update the orchestration state for a task
+   * @param taskId - Task identifier
+   * @param state - Partial state to merge with existing state
+   */
+  setState: (
+    taskId: string,
+    state: Partial<OrchestrationState>
+  ) => Promise<void>;
+
+  /**
+   * Analyze current state and recommend the next action
+   * @param taskId - Task identifier
+   * @returns Recommended next action for the orchestrator
+   */
+  getNextAction: (taskId: string) => Promise<OrchestrationNextAction>;
 }

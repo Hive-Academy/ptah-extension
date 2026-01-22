@@ -27,6 +27,7 @@
  * TASK_2025_025: Expanded from 8 to 12 namespaces for better Claude discoverability
  */
 
+import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
 import {
   TOKENS,
@@ -70,6 +71,8 @@ import {
   buildIDENamespace,
   // LLM namespace builder (Langchain abstraction)
   buildLLMNamespace,
+  // Orchestration namespace builder (TASK_2025_111)
+  buildOrchestrationNamespace,
 } from './namespace-builders';
 import {
   LlmService,
@@ -134,11 +137,11 @@ export class PtahAPIBuilder {
     @inject(TOKENS.LLM_SECRETS_SERVICE)
     private readonly llmSecretsService: ILlmSecretsService
   ) {
-    this.logger.info('PtahAPIBuilder initialized with 14 namespaces');
+    this.logger.info('PtahAPIBuilder initialized with 15 namespaces');
   }
 
   /**
-   * Build the complete Ptah API object with all 14 namespaces
+   * Build the complete Ptah API object with all 15 namespaces
    */
   build(): PtahAPI {
     this.logger.debug('Building Ptah API with all namespaces');
@@ -177,6 +180,12 @@ export class PtahAPIBuilder {
       secretsService: this.llmSecretsService,
     };
 
+    // Get workspace root for orchestration namespace
+    const workspaceRoot = this.getWorkspaceRoot();
+    const orchestrationDeps = {
+      workspaceRoot,
+    };
+
     return {
       // Core namespaces (workspace discovery)
       workspace: buildWorkspaceNamespace(coreDeps),
@@ -204,8 +213,24 @@ export class PtahAPIBuilder {
       // LLM namespace (Langchain provider abstraction)
       llm: buildLLMNamespace(llmDeps),
 
+      // Orchestration namespace (TASK_2025_111 - workflow state management)
+      orchestration: buildOrchestrationNamespace(orchestrationDeps),
+
       // Help method at root level (ptah.help())
       help: buildHelpMethod(),
     };
+  }
+
+  /**
+   * Get the workspace root URI
+   * Falls back to current working directory if no workspace is open
+   */
+  private getWorkspaceRoot(): vscode.Uri {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (workspaceFolders && workspaceFolders.length > 0) {
+      return workspaceFolders[0].uri;
+    }
+    // Fallback to current working directory
+    return vscode.Uri.file(process.cwd());
   }
 }

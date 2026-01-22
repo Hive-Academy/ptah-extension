@@ -45,3 +45,9 @@ export {
   buildLLMNamespace,
   type LlmNamespaceDependencies,
 } from './llm-namespace.builder';
+
+// Orchestration namespace (TASK_2025_111 - workflow state management)
+export {
+  buildOrchestrationNamespace,
+  type OrchestrationNamespaceDependencies,
+} from './orchestration-namespace.builder';
