@@ -4,5 +4,23 @@ echo "🔍 Running pre-commit checks..."
 # Run lint-staged
 npx lint-staged --no-stash
 
+# Check if orchestration skill files were changed
+SKILL_FILES_CHANGED=$(git diff --cached --name-only | grep -E "^\.claude/skills/" || true)
+
+if [ -n "$SKILL_FILES_CHANGED" ]; then
+  echo "🔧 Orchestration skill files changed, running validation..."
+  echo "   Changed files:"
+  echo "$SKILL_FILES_CHANGED" | sed 's/^/     /'
+
+  # Run skill validation
+  npm run validate-skill
+
+  if [ $? -ne 0 ]; then
+    echo "❌ Skill validation failed! Please fix the errors before committing."
+    exit 1
+  fi
+
+  echo "✅ Skill validation passed!"
+fi
 
 echo "✅ Pre-commit checks passed!"
