@@ -17,6 +17,7 @@ export { CompletionComponent } from './lib/components/completion.component';
 
 // Utility Components
 export { ConfirmationModalComponent } from './lib/components/confirmation-modal.component';
+export { PremiumUpsellComponent } from './lib/components/premium-upsell.component';
 
 // Wizard Types
 export type {

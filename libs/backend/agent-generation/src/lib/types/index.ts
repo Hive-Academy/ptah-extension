@@ -16,7 +16,7 @@ export type {
   LlmSection,
   AgentProjectContext,
   TechStackSummary,
-  CodeConventions,
+  CodeConventions as CoreCodeConventions,
   LlmCustomization,
   GeneratedAgent,
   GenerationOptions,
@@ -24,6 +24,22 @@ export type {
   ValidationResult,
   ValidationIssue,
 } from './core.types';
+
+// Deep analysis types for MCP-powered setup wizard
+export type {
+  DeepProjectAnalysis,
+  ArchitecturePattern,
+  ArchitecturePatternName,
+  KeyFileLocations,
+  LanguageStats,
+  DiagnosticSummary,
+  CodeConventions,
+  NamingConventions,
+  NamingConvention,
+  TestCoverageEstimate,
+  AgentRecommendation,
+  AgentCategory,
+} from './analysis.types';
 
 // Re-export commonly used types from workspace-intelligence for convenience
 // This prevents consumers from having to import from multiple libraries
