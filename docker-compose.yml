@@ -1,0 +1,156 @@
+# =============================================================================
+# Ptah Extension - Docker Compose Development Environment
+# =============================================================================
+#
+# This Docker Compose configuration provides a complete local development
+# environment for the Ptah License Server, including:
+#   - PostgreSQL 16 (database)
+#   - Redis 7 (caching and session storage)
+#   - License Server (NestJS application)
+#
+# QUICK START:
+#   1. Copy .env.docker.example to .env.docker (at project root)
+#   2. Copy apps/ptah-license-server/.env.local.example to apps/ptah-license-server/.env.local
+#   3. Run: docker-compose up -d
+#   4. Wait for health checks to pass
+#   5. Access API at http://localhost:3000/api
+#
+# WINDOWS USERS:
+#   For optimal performance, run Docker with WSL2 backend and store the
+#   project files inside WSL2 filesystem (e.g., /home/user/projects/).
+#   Windows filesystem (C:\, D:\) has significant I/O performance overhead.
+#
+# TROUBLESHOOTING:
+#   - Check logs: docker-compose logs -f [service_name]
+#   - Restart services: docker-compose restart
+#   - Full rebuild: docker-compose down -v && docker-compose up -d --build
+#
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16 - Primary Database
+  # ---------------------------------------------------------------------------
+  # Stores users, licenses, and subscriptions
+  # Health check ensures database is ready before dependent services start
+  postgres:
+    image: postgres:16-alpine
+    container_name: ptah_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-ptah_licenses}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ptah_licenses}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - ptah-network
+
+  # ---------------------------------------------------------------------------
+  # Redis 7 - Cache and Session Store
+  # ---------------------------------------------------------------------------
+  # Used for:
+  #   - PKCE state storage (OAuth 2.1 flow)
+  #   - Session management
+  #   - Rate limiting (future)
+  #   - Caching (future)
+  redis:
+    image: redis:7-alpine
+    container_name: ptah_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - ptah-network
+
+  # ---------------------------------------------------------------------------
+  # License Server - NestJS Application
+  # ---------------------------------------------------------------------------
+  # Main application handling:
+  #   - License verification and generation
+  #   - WorkOS authentication (PKCE)
+  #   - Paddle payment webhooks
+  #   - User management
+  #
+  # Hot-reload enabled via volume mount in development
+  license-server:
+    build:
+      context: .
+      dockerfile: apps/ptah-license-server/Dockerfile.dev
+    container_name: ptah_license_server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - apps/ptah-license-server/.env.local
+    environment:
+      # Override database URLs to use Docker network hostnames
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ptah_licenses}
+      REDIS_URL: redis://redis:6379
+      # Ensure NODE_ENV is set for development
+      NODE_ENV: development
+    volumes:
+      # Mount source code for hot-reload
+      - ./apps/ptah-license-server/src:/app/apps/ptah-license-server/src:delegated
+      # Mount Prisma schema for migrations
+      - ./apps/ptah-license-server/prisma:/app/apps/ptah-license-server/prisma:delegated
+      # Use named volume for node_modules to prevent OS filesystem overhead
+      - license-server-node-modules:/app/node_modules
+    ports:
+      - "${LICENSE_SERVER_PORT:-3000}:3000"
+    # Run Prisma migrations before starting the server
+    command: >
+      sh -c "
+        echo 'Waiting for database to be ready...' &&
+        npx prisma generate --schema=apps/ptah-license-server/prisma/schema.prisma &&
+        npx prisma migrate deploy --schema=apps/ptah-license-server/prisma/schema.prisma &&
+        echo 'Starting license server in development mode...' &&
+        npx nx serve ptah-license-server
+      "
+    networks:
+      - ptah-network
+
+# =============================================================================
+# Named Volumes
+# =============================================================================
+# Named volumes persist data between container restarts
+# To clear all data: docker-compose down -v
+volumes:
+  # PostgreSQL data persistence
+  postgres-data:
+    name: ptah_postgres_data
+  # Redis data persistence (AOF enabled)
+  redis-data:
+    name: ptah_redis_data
+  # Node modules cache (improves Windows/macOS performance)
+  license-server-node-modules:
+    name: ptah_license_server_node_modules
+
+# =============================================================================
+# Networks
+# =============================================================================
+# Bridge network allows containers to communicate using service names
+networks:
+  ptah-network:
+    name: ptah_network
+    driver: bridge

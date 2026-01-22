@@ -12,12 +12,33 @@ generator client {
 
 // User model - stores user email addresses for license ownership
 model User {
-  id        String    @id @default(uuid()) @db.Uuid
-  email     String    @unique
-  createdAt DateTime  @default(now()) @map("created_at")
-  licenses  License[]
+  id            String         @id @default(uuid()) @db.Uuid
+  email         String         @unique
+  createdAt     DateTime       @default(now()) @map("created_at")
+  licenses      License[]
+  subscriptions Subscription[]
 
   @@map("users")
+}
+
+// Subscription model - tracks Paddle subscription state for payment lifecycle
+model Subscription {
+  id                   String    @id @default(uuid()) @db.Uuid
+  userId               String    @map("user_id") @db.Uuid
+  paddleSubscriptionId String    @unique @map("paddle_subscription_id")
+  paddleCustomerId     String    @map("paddle_customer_id")
+  status               String    // "active" | "paused" | "canceled" | "past_due"
+  priceId              String    @map("price_id")
+  currentPeriodEnd     DateTime  @map("current_period_end")
+  canceledAt           DateTime? @map("canceled_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([paddleSubscriptionId])
+  @@index([userId])
+  @@map("subscriptions")
 }
 
 // License model - stores license keys with plan, status, and expiration

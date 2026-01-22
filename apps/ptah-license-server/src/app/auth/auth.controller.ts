@@ -8,6 +8,7 @@ import {
   UseGuards,
   Body,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -17,20 +18,44 @@ import { MagicLinkService } from './services/magic-link.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../../email/services/email.service';
 
+/** Cookie name for PKCE state parameter (CSRF protection) */
+const WORKOS_STATE_COOKIE = 'workos_state';
+
+/** State cookie TTL in milliseconds (5 minutes) */
+const STATE_COOKIE_MAX_AGE_MS = 5 * 60 * 1000;
+
 /**
  * Authentication Controller
  *
- * Handles WorkOS authentication flow and JWT session management.
+ * Handles WorkOS authentication flow with PKCE (OAuth 2.1 compliant)
+ * and JWT session management.
  *
- * Flow:
- * 1. User visits `/auth/login` → Redirects to WorkOS AuthKit
- * 2. User completes authentication → WorkOS redirects to `/auth/callback?code=...`
- * 3. Backend exchanges code for user info → Generates JWT → Sets HTTP-only cookie
- * 4. Frontend redirects user to app → JWT cookie automatically sent with requests
- * 5. Protected routes use `@UseGuards(JwtAuthGuard)` to validate JWT
+ * PKCE Flow (Proof Key for Code Exchange):
+ * 1. User visits `/auth/login`
+ *    → Generate code_verifier and code_challenge
+ *    → Store code_verifier server-side (mapped to state)
+ *    → Set state in HTTP-only cookie (CSRF protection)
+ *    → Redirect to WorkOS with code_challenge
+ *
+ * 2. User completes authentication at WorkOS
+ *    → WorkOS redirects to `/auth/callback?code=...&state=...`
+ *
+ * 3. Callback validation:
+ *    → Validate state from cookie matches state from query
+ *    → Retrieve code_verifier for this state
+ *    → Exchange code + code_verifier for tokens
+ *    → Generate JWT and set in HTTP-only cookie
+ *
+ * Security Properties:
+ * - PKCE prevents authorization code interception attacks
+ * - State cookie prevents CSRF attacks
+ * - HTTP-only cookies prevent XSS token theft
+ * - Secure flag ensures HTTPS-only in production
  */
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(
     private readonly authService: AuthService,
     private readonly ticketService: TicketService,
@@ -40,45 +65,145 @@ export class AuthController {
   ) {}
 
   /**
-   * Initiate WorkOS login flow
+   * Initiate WorkOS login flow with PKCE
    *
-   * Redirects user to WorkOS AuthKit hosted login page.
+   * Security Flow:
+   * 1. Generate PKCE code_verifier and code_challenge
+   * 2. Generate state parameter for CSRF protection
+   * 3. Store state in HTTP-only cookie (client-side verification)
+   * 4. Store code_verifier server-side (mapped to state)
+   * 5. Redirect to WorkOS with code_challenge and state
+   *
+   * Cookie Security:
+   * - httpOnly: true - Prevents JavaScript access (XSS protection)
+   * - secure: true in production - HTTPS only
+   * - sameSite: 'lax' - CSRF protection while allowing redirect
+   * - maxAge: 5 minutes - Short TTL limits attack window
    *
    * @example
    * GET /auth/login
-   * → Redirect to: https://auth.workos.com/login?...
+   * → Sets cookie: workos_state=<state>
+   * → Redirect to: https://auth.workos.com/login?code_challenge=...&state=...
    */
   @Get('login')
   async login(@Res() res: Response): Promise<void> {
-    const authorizationUrl = await this.authService.getAuthorizationUrl();
-    res.redirect(authorizationUrl);
+    // Generate authorization URL with PKCE parameters
+    const { url, state } = await this.authService.getAuthorizationUrl();
+
+    // Set state in HTTP-only cookie for CSRF validation in callback
+    // This cookie will be compared against the state parameter in the callback URL
+    res.cookie(WORKOS_STATE_COOKIE, state, {
+      httpOnly: true, // Prevents JavaScript access (XSS protection)
+      secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+      sameSite: 'lax', // Allows cookie to be sent on redirect from WorkOS
+      maxAge: STATE_COOKIE_MAX_AGE_MS, // 5 minutes - matches server-side state TTL
+      path: '/', // Available for callback route
+    });
+
+    this.logger.debug(
+      `Login initiated, state cookie set: ${state.substring(0, 8)}...`
+    );
+
+    // Redirect to WorkOS AuthKit with PKCE parameters
+    res.redirect(url);
   }
 
   /**
-   * Handle WorkOS callback
+   * Handle WorkOS callback with PKCE validation
    *
-   * Exchanges authorization code for user information,
-   * generates JWT token, and sets HTTP-only cookie.
+   * Security Validation:
+   * 1. Verify code parameter exists (authorization code)
+   * 2. Verify state parameter exists (CSRF token)
+   * 3. Verify state cookie exists and matches state parameter (CSRF protection)
+   * 4. Clear state cookie (single-use)
+   * 5. Exchange code with server-side code_verifier for tokens
+   *
+   * Error Handling:
+   * - Missing code: 400 Bad Request
+   * - Missing/mismatched state: 401 Unauthorized (possible CSRF attack)
+   * - WorkOS error: 401 Unauthorized with error message
    *
    * @example
-   * GET /auth/callback?code=abc123
+   * GET /auth/callback?code=abc123&state=xyz789
+   * Cookie: workos_state=xyz789
+   * → Validates state match
+   * → Clears workos_state cookie
    * → Sets cookie: access_token=<jwt>
    * → Redirects to: http://localhost:4200
    */
   @Get('callback')
   async callback(
     @Query('code') code: string,
+    @Query('state') state: string,
+    @Req() req: Request,
     @Res() res: Response
   ): Promise<void> {
+    // Step 1: Validate authorization code exists
     if (!code) {
+      this.logger.warn('Callback received without authorization code');
       res.status(400).json({ error: 'Authorization code is required' });
       return;
     }
 
-    try {
-      const { token } = await this.authService.authenticateWithCode(code);
+    // Step 2: Validate state parameter exists
+    if (!state) {
+      this.logger.warn('Callback received without state parameter');
+      res.status(401).json({
+        error: 'Invalid request',
+        message: 'State parameter is required for security validation',
+      });
+      return;
+    }
 
-      // Set JWT in HTTP-only cookie
+    // Step 3: Retrieve state from cookie and validate match
+    const storedState = req.cookies?.[WORKOS_STATE_COOKIE];
+
+    if (!storedState) {
+      this.logger.warn(
+        `State cookie missing, received state: ${state.substring(0, 8)}...`
+      );
+      res.status(401).json({
+        error: 'Invalid session',
+        message:
+          'Authentication session not found. Please try logging in again.',
+      });
+      return;
+    }
+
+    if (storedState !== state) {
+      this.logger.warn(
+        `State mismatch - Cookie: ${storedState.substring(0, 8)}..., Query: ${state.substring(0, 8)}...`
+      );
+      res.status(401).json({
+        error: 'Invalid state',
+        message:
+          'Security validation failed. This may indicate a CSRF attack. Please try logging in again.',
+      });
+      return;
+    }
+
+    // Step 4: Clear state cookie (single-use, prevents replay)
+    res.clearCookie(WORKOS_STATE_COOKIE, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+    });
+
+    this.logger.debug(
+      `State validated and cookie cleared: ${state.substring(0, 8)}...`
+    );
+
+    try {
+      // Step 5: Exchange code for tokens with PKCE verification
+      // The service will validate state against server-side storage
+      // and use the stored code_verifier for the token exchange
+      const { token } = await this.authService.authenticateWithCode(
+        code,
+        state
+      );
+
+      // Step 6: Set JWT in HTTP-only cookie for session management
       res.cookie('access_token', token, {
         httpOnly: true, // Prevents JavaScript access (XSS protection)
         secure: process.env.NODE_ENV === 'production', // HTTPS only in production
@@ -87,11 +212,14 @@ export class AuthController {
         path: '/', // Available to all routes
       });
 
-      // Redirect to frontend
+      this.logger.debug('Authentication successful, JWT cookie set');
+
+      // Step 7: Redirect to frontend application
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
       res.redirect(frontendUrl);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Authentication failed: ${message}`);
       res.status(401).json({
         error: 'Authentication failed',
         message,
