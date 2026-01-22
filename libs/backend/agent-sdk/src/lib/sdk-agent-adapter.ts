@@ -27,7 +27,6 @@ import {
   AIMessageOptions,
   SessionId,
   FlatStreamEventUnion,
-  SubagentRecord,
 } from '@ptah-extension/shared';
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from './di/tokens';
@@ -340,6 +339,13 @@ export class SdkAgentAdapter implements IAIProvider {
        * Defaults to false (free tier behavior)
        */
       isPremium?: boolean;
+      /**
+       * Whether the MCP server is currently running (TASK_2025_108)
+       * When false, MCP config will not be included even for premium users.
+       * This prevents configuring Claude with a dead MCP endpoint.
+       * Defaults to true for backward compatibility.
+       */
+      mcpServerRunning?: boolean;
     }
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
@@ -348,17 +354,17 @@ export class SdkAgentAdapter implements IAIProvider {
       );
     }
 
-    const { tabId, isPremium = false } = config;
+    const { tabId, isPremium = false, mcpServerRunning = true } = config;
     const trackingId = tabId as SessionId;
 
     this.logger.info(
       `[SdkAgentAdapter] Starting NEW chat session for tab: ${tabId}`,
-      { isPremium }
+      { isPremium, mcpServerRunning }
     );
 
     // TASK_2025_102: Delegate query execution to SessionLifecycleManager
     // TASK_2025_098: Pass compactionStartCallback for compaction notifications
-    // TASK_2025_108: Pass isPremium for premium feature gating (MCP + system prompt)
+    // TASK_2025_108: Pass isPremium and mcpServerRunning for premium feature gating (MCP + system prompt)
     const { sdkQuery, initialModel } = await this.sessionLifecycle.executeQuery(
       {
         sessionId: trackingId,
@@ -368,6 +374,7 @@ export class SdkAgentAdapter implements IAIProvider {
           : undefined,
         onCompactionStart: this.compactionStartCallback || undefined,
         isPremium,
+        mcpServerRunning,
       }
     );
 
@@ -419,6 +426,13 @@ export class SdkAgentAdapter implements IAIProvider {
        * Defaults to false (free tier behavior)
        */
       isPremium?: boolean;
+      /**
+       * Whether the MCP server is currently running (TASK_2025_108)
+       * When false, MCP config will not be included even for premium users.
+       * This prevents configuring Claude with a dead MCP endpoint.
+       * Defaults to true for backward compatibility.
+       */
+      mcpServerRunning?: boolean;
     }
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
@@ -441,16 +455,18 @@ export class SdkAgentAdapter implements IAIProvider {
       });
     }
 
-    // Extract isPremium from config (TASK_2025_108)
+    // Extract isPremium and mcpServerRunning from config (TASK_2025_108)
     const isPremium = config?.isPremium ?? false;
+    const mcpServerRunning = config?.mcpServerRunning ?? true;
 
     this.logger.info(`[SdkAgentAdapter] Resuming session: ${sessionId}`, {
       isPremium,
+      mcpServerRunning,
     });
 
     // TASK_2025_102: Delegate query execution to SessionLifecycleManager
     // TASK_2025_098: Pass compactionStartCallback for compaction notifications
-    // TASK_2025_108: Pass isPremium for premium feature gating (MCP + system prompt)
+    // TASK_2025_108: Pass isPremium and mcpServerRunning for premium feature gating (MCP + system prompt)
     const { sdkQuery, initialModel } = await this.sessionLifecycle.executeQuery(
       {
         sessionId,
@@ -458,6 +474,7 @@ export class SdkAgentAdapter implements IAIProvider {
         resumeSessionId: sessionId as string,
         onCompactionStart: this.compactionStartCallback || undefined,
         isPremium,
+        mcpServerRunning,
       }
     );
 
@@ -482,81 +499,11 @@ export class SdkAgentAdapter implements IAIProvider {
     });
   }
 
-  /**
-   * Resume an interrupted subagent using SDK's native resume option.
-   *
-   * TASK_2025_103: Subagent Resumption Feature
-   *
-   * This method resumes a specific subagent that was interrupted (e.g., due to
-   * session abort). It uses the subagent's sessionId with SDK's resume parameter
-   * to continue execution from where it left off.
-   *
-   * Note: The subagent's sessionId is different from the parent session ID.
-   * The subagent has its own session context that is resumed.
-   *
-   * @param record - SubagentRecord containing the subagent's session info
-   * @returns AsyncIterable<FlatStreamEventUnion> for streaming responses
-   */
-  async resumeSubagent(
-    record: SubagentRecord
-  ): Promise<AsyncIterable<FlatStreamEventUnion>> {
-    if (!this.initialized) {
-      throw new Error(
-        'SdkAgentAdapter not initialized. Call initialize() first.'
-      );
-    }
-
-    const { sessionId, toolCallId, agentType, parentSessionId, agentId } =
-      record;
-
-    this.logger.info('[SdkAgentAdapter] Resuming interrupted subagent', {
-      toolCallId,
-      sessionId,
-      agentType,
-      agentId,
-      parentSessionId,
-    });
-
-    // Use the subagent's sessionId for resume, NOT the parent session ID
-    // The subagent has its own session context that we're resuming
-    const subagentSessionId = sessionId as SessionId;
-
-    // Delegate query execution to SessionLifecycleManager with resume option
-    // TASK_2025_098: Pass compactionStartCallback for compaction notifications
-    const { sdkQuery, initialModel } = await this.sessionLifecycle.executeQuery(
-      {
-        sessionId: subagentSessionId,
-        resumeSessionId: sessionId, // Resume the subagent's session
-        onCompactionStart: this.compactionStartCallback || undefined,
-      }
-    );
-
-    this.logger.info('[SdkAgentAdapter] Subagent resume query started', {
-      toolCallId,
-      sessionId,
-      initialModel,
-    });
-
-    // Callback to update metadata when session ID is confirmed
-    const resumeCallback = async (
-      tabId: string | undefined,
-      realSessionId: string
-    ) => {
-      await this.metadataStore.touch(realSessionId);
-      if (this.sessionIdResolvedCallback) {
-        this.sessionIdResolvedCallback(tabId, realSessionId);
-      }
-    };
-
-    // Return transformed stream
-    return this.streamTransformer.transform({
-      sdkQuery,
-      sessionId: subagentSessionId,
-      initialModel,
-      onSessionIdResolved: resumeCallback,
-      onResultStats: this.resultStatsCallback || undefined,
-    });
-  }
+  // TASK_2025_109: resumeSubagent() method removed
+  // Subagent resumption is now handled via context injection in chat:continue RPC.
+  // When a parent session continues with interrupted subagents, context is injected
+  // into the prompt, allowing Claude to naturally resume agents through conversation.
+  // See chat-rpc.handlers.ts for the context injection implementation.
 
   /**
    * Check if a session is currently active in memory

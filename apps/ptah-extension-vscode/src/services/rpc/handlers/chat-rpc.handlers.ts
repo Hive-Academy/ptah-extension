@@ -15,6 +15,7 @@ import {
   ConfigManager,
   SubagentRegistryService,
   LicenseService,
+  type LicenseStatus,
 } from '@ptah-extension/vscode-core';
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import {
@@ -22,6 +23,8 @@ import {
   SessionHistoryReaderService,
   SDK_TOKENS,
 } from '@ptah-extension/agent-sdk';
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
   SessionId,
   FlatStreamEventUnion,
@@ -58,8 +61,35 @@ export class ChatRpcHandlers {
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private readonly subagentRegistry: SubagentRegistryService,
     @inject(TOKENS.LICENSE_SERVICE)
-    private readonly licenseService: LicenseService
+    private readonly licenseService: LicenseService,
+    @inject(TOKENS.CODE_EXECUTION_MCP)
+    private readonly codeExecutionMcp: CodeExecutionMCP
   ) {}
+
+  /**
+   * Determines if the license grants premium features (TASK_2025_108)
+   * Premium = valid license AND (explicit isPremium flag OR early_adopter tier)
+   *
+   * @param licenseStatus - The license status from verification
+   * @returns true if the user has premium features enabled
+   */
+  private isPremiumTier(licenseStatus: LicenseStatus): boolean {
+    return (
+      licenseStatus.valid &&
+      (licenseStatus.plan?.isPremium === true ||
+        licenseStatus.tier === 'early_adopter')
+    );
+  }
+
+  /**
+   * Checks if the MCP server is currently running (TASK_2025_108)
+   * Uses CodeExecutionMCP.getPort() - non-null means server is running
+   *
+   * @returns true if MCP server is available
+   */
+  private isMcpServerRunning(): boolean {
+    return this.codeExecutionMcp.getPort() !== null;
+  }
 
   /**
    * Register all chat RPC methods
@@ -93,14 +123,13 @@ export class ChatRpcHandlers {
 
           // TASK_2025_108: Get license status for premium feature gating
           const licenseStatus = await this.licenseService.verifyLicense();
-          const isPremium =
-            licenseStatus.valid &&
-            (licenseStatus.plan?.isPremium === true ||
-              licenseStatus.tier === 'early_adopter');
+          const isPremium = this.isPremiumTier(licenseStatus);
+          const mcpServerRunning = this.isMcpServerRunning();
 
           this.logger.debug('RPC: chat:start - license check', {
             tier: licenseStatus.tier,
             isPremium,
+            mcpServerRunning,
           });
 
           // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
@@ -127,7 +156,7 @@ export class ChatRpcHandlers {
           // Start SDK session with streaming ExecutionNode output
           // TASK_2025_093: Single config argument with tabId as primary tracking key
           // Prompt and files are now passed in config, not via separate sendMessageToSession
-          // TASK_2025_108: Pass isPremium for premium feature gating (MCP + system prompt)
+          // TASK_2025_108: Pass isPremium and mcpServerRunning for premium feature gating (MCP + system prompt)
           const stream = await this.sdkAdapter.startChatSession({
             tabId, // REQUIRED: Primary tracking key for multi-tab isolation
             workspaceId: workspacePath,
@@ -138,6 +167,7 @@ export class ChatRpcHandlers {
             prompt, // Initial prompt passed in config
             files,
             isPremium, // TASK_2025_108: Enable premium features for licensed users
+            mcpServerRunning, // TASK_2025_108: MCP server availability check
           });
 
           // Stream ExecutionNodes to webview (background - don't await)
@@ -183,14 +213,13 @@ export class ChatRpcHandlers {
 
             // TASK_2025_108: Get license status for premium feature gating in resumed sessions
             const licenseStatus = await this.licenseService.verifyLicense();
-            const isPremium =
-              licenseStatus.valid &&
-              (licenseStatus.plan?.isPremium === true ||
-                licenseStatus.tier === 'early_adopter');
+            const isPremium = this.isPremiumTier(licenseStatus);
+            const mcpServerRunning = this.isMcpServerRunning();
 
             this.logger.debug('RPC: chat:continue - license check for resume', {
               tier: licenseStatus.tier,
               isPremium,
+              mcpServerRunning,
               sessionId,
             });
 
@@ -203,11 +232,12 @@ export class ChatRpcHandlers {
               );
 
             // Resume the session to reconnect to Claude's conversation context
-            // TASK_2025_108: Pass isPremium to maintain premium features in resumed sessions
+            // TASK_2025_108: Pass isPremium and mcpServerRunning to maintain premium features in resumed sessions
             const stream = await this.sdkAdapter.resumeSession(sessionId, {
               projectPath: workspacePath,
               model: currentModel,
               isPremium,
+              mcpServerRunning,
             });
 
             // Start streaming responses to webview (background - don't await)
@@ -229,17 +259,37 @@ export class ChatRpcHandlers {
           }
 
           // TASK_2025_109: Inject interrupted subagent context into prompt
-          // This enables Claude to naturally resume interrupted agents through conversation
-          // instead of requiring a dedicated Resume RPC and UI button.
+          // This enables Claude to automatically resume interrupted agents
+          // instead of requiring user to know agent IDs or click Resume buttons.
           let enhancedPrompt = prompt;
           const resumableSubagents =
             this.subagentRegistry.getResumableBySession(sessionId);
 
           if (resumableSubagents.length > 0) {
-            const agentContext = resumableSubagents
-              .map((s) => `agentId: ${s.agentId} (${s.agentType})`)
-              .join(', ');
-            const contextPrefix = `[System: Previously interrupted agents available for resumption: ${agentContext}. You can resume them by including their agentId in your response.]\n\n`;
+            // Build detailed agent context with actionable instructions
+            const agentDetails = resumableSubagents
+              .map((s) => {
+                const interruptedAgo = s.interruptedAt
+                  ? Math.round((Date.now() - s.interruptedAt) / 1000 / 60)
+                  : 0;
+                return `  - ${s.agentType} agent (ID: ${s.agentId}, session: ${s.sessionId})${interruptedAgo > 0 ? ` - interrupted ${interruptedAgo} min ago` : ''}`;
+              })
+              .join('\n');
+
+            // Instructive context that tells Claude WHAT to do, not just what exists
+            const contextPrefix = `[SYSTEM CONTEXT - INTERRUPTED AGENTS]
+The following subagent(s) were interrupted and did not complete their work:
+${agentDetails}
+
+IMPORTANT INSTRUCTIONS:
+1. Your FIRST action should be to resume these interrupted agents using the Task tool with the "resume" parameter set to the agent ID shown above.
+2. Resume agents in the order they were interrupted (continue their previous work).
+3. After resuming completes, address the user's current message if it requires additional work.
+4. If the user explicitly asks to start fresh or work on something completely unrelated, you may skip resumption and acknowledge the interrupted work was abandoned.
+
+[END SYSTEM CONTEXT]
+
+`;
             enhancedPrompt = contextPrefix + prompt;
 
             this.logger.info('RPC: chat:continue - injected subagent context', {
@@ -248,6 +298,7 @@ export class ChatRpcHandlers {
               agents: resumableSubagents.map((s) => ({
                 agentId: s.agentId,
                 agentType: s.agentType,
+                sessionId: s.sessionId,
               })),
             });
           }

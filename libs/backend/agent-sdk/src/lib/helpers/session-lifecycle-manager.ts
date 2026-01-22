@@ -96,6 +96,13 @@ export interface ExecuteQueryConfig {
    * Passed through to SdkQueryOptionsBuilder for conditional feature enabling
    */
   isPremium?: boolean;
+  /**
+   * Whether the MCP server is currently running (TASK_2025_108)
+   * When false, MCP config will not be included even for premium users.
+   * This prevents configuring Claude with a dead MCP endpoint.
+   * Defaults to true for backward compatibility.
+   */
+  mcpServerRunning?: boolean;
 }
 
 /**
@@ -429,6 +436,7 @@ export class SessionLifecycleManager {
       initialPrompt,
       onCompactionStart,
       isPremium = false,
+      mcpServerRunning = true,
     } = config;
 
     this.logger.info(
@@ -476,7 +484,7 @@ export class SessionLifecycleManager {
 
     // Step 6: Build query options
     // TASK_2025_098: Pass sessionId and onCompactionStart for compaction hooks
-    // TASK_2025_108: Pass isPremium for premium feature gating (MCP + system prompt)
+    // TASK_2025_108: Pass isPremium and mcpServerRunning for premium feature gating (MCP + system prompt)
     const queryOptions = await this.queryOptionsBuilder.build({
       userMessageStream,
       abortController,
@@ -485,6 +493,7 @@ export class SessionLifecycleManager {
       sessionId: sessionId as string,
       onCompactionStart,
       isPremium,
+      mcpServerRunning,
     });
 
     this.logger.info('[SessionLifecycle] Starting SDK query with options', {

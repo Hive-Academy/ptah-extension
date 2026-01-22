@@ -68,6 +68,13 @@ export interface QueryOptionsInput {
    * Defaults to false (free tier behavior)
    */
   isPremium?: boolean;
+  /**
+   * Whether the MCP server is currently running (TASK_2025_108)
+   * When false, MCP config will not be included even for premium users.
+   * This prevents configuring Claude with a dead MCP endpoint.
+   * Defaults to true for backward compatibility.
+   */
+  mcpServerRunning?: boolean;
 }
 
 /**
@@ -166,6 +173,7 @@ export class SdkQueryOptionsBuilder {
       sessionId,
       onCompactionStart,
       isPremium = false,
+      mcpServerRunning = true,
     } = input;
 
     // Model is required - SDK sets default in config at startup
@@ -221,7 +229,7 @@ export class SdkQueryOptionsBuilder {
           type: 'preset' as const,
           preset: 'claude_code' as const,
         },
-        mcpServers: this.buildMcpServers(isPremium),
+        mcpServers: this.buildMcpServers(isPremium, mcpServerRunning),
         // CRITICAL: permissionMode must be 'default' for canUseTool to be invoked
         // If set to 'bypassPermissions', canUseTool is never called
         permissionMode: 'default',
@@ -292,16 +300,30 @@ export class SdkQueryOptionsBuilder {
    * execute_code tool with 11 Ptah API namespaces.
    * For free tier, returns empty object (no MCP servers).
    *
+   * TASK_2025_108: Added mcpServerRunning check to prevent configuring
+   * Claude with a dead MCP endpoint when the server isn't running.
+   *
    * @param isPremium - Whether user has premium features enabled
+   * @param mcpServerRunning - Whether the MCP server is currently running
    * @returns MCP servers configuration for SDK
    */
   private buildMcpServers(
-    isPremium: boolean
+    isPremium: boolean,
+    mcpServerRunning: boolean = true
   ): Record<string, McpHttpServerConfig> {
     // Free tier - disable MCP servers (TASK_2025_108)
     if (!isPremium) {
       this.logger.debug(
         '[SdkQueryOptionsBuilder] Free tier - MCP servers disabled'
+      );
+      return {};
+    }
+
+    // TASK_2025_108: Check if MCP server is running before configuring
+    // This prevents configuring Claude with a dead endpoint
+    if (!mcpServerRunning) {
+      this.logger.warn(
+        '[SdkQueryOptionsBuilder] Premium user but MCP server not running - skipping MCP config'
       );
       return {};
     }
