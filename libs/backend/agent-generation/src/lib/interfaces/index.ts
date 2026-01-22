@@ -40,3 +40,10 @@ export {
   IAgentCustomizationService,
   CustomizationRequest,
 } from './agent-customization.interface';
+
+// Skill Generator Service
+export {
+  ISkillGeneratorService,
+  SkillGenerationOptions,
+  SkillGenerationResult,
+} from './skill-generator.interface';

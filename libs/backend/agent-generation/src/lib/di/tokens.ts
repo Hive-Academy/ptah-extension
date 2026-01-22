@@ -64,6 +64,12 @@ export const AGENT_SELECTION_SERVICE = Symbol.for('AgentSelectionService');
  */
 export const AGENT_RECOMMENDATION_SERVICE = Symbol.for('AgentRecommendationService');
 
+/**
+ * SkillGeneratorService - Orchestration skill generation
+ * Responsibilities: Generate SKILL.md and reference files, handle template variable substitution, project customization
+ */
+export const SKILL_GENERATOR_SERVICE = Symbol.for('SkillGeneratorService');
+
 // ========================================
 // Content Generation Services
 // ========================================
@@ -137,6 +143,9 @@ export const AGENT_GENERATION_TOKENS = {
   // Agent Selection
   AGENT_SELECTION_SERVICE,
   AGENT_RECOMMENDATION_SERVICE,
+
+  // Skill Generation
+  SKILL_GENERATOR_SERVICE,
 
   // Content Generation
   CONTENT_GENERATION_SERVICE,
