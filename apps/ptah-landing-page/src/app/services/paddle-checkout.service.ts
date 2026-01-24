@@ -1,7 +1,7 @@
 import { Injectable, signal, inject, computed } from '@angular/core';
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
-import { firstValueFrom, retry, delay, catchError, of } from 'rxjs';
+import { firstValueFrom, retry, catchError, of } from 'rxjs';
 import { environment } from '../../environments/environment';
 
 /**
@@ -82,12 +82,16 @@ export class PaddleCheckoutService {
   private readonly _isLoading = signal(false);
   private readonly _error = signal<string | null>(null);
   private readonly _isVerifying = signal(false);
+  private readonly _isCheckoutOpen = signal(false);
+  private readonly _loadingPlanName = signal<string | null>(null);
 
   // Public readonly signals
   public readonly isReady = this._isReady.asReadonly();
   public readonly isLoading = this._isLoading.asReadonly();
   public readonly error = this._error.asReadonly();
   public readonly isVerifying = this._isVerifying.asReadonly();
+  public readonly isCheckoutOpen = this._isCheckoutOpen.asReadonly();
+  public readonly loadingPlanName = this._loadingPlanName.asReadonly();
 
   // Computed: Can checkout if ready and not loading
   public readonly canCheckout = computed(
@@ -96,6 +100,9 @@ export class PaddleCheckoutService {
 
   private initAttempts = 0;
   private scriptElement: HTMLScriptElement | null = null;
+  private checkoutTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  private readonly CHECKOUT_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
   /**
    * Initialize Paddle.js SDK
@@ -114,6 +121,14 @@ export class PaddleCheckoutService {
   }
 
   /**
+   * Set the loading plan name
+   * @param planName - Name of the plan currently loading, or null to clear
+   */
+  public setLoadingPlan(planName: string | null): void {
+    this._loadingPlanName.set(planName);
+  }
+
+  /**
    * Open Paddle checkout overlay
    *
    * @param options - Checkout configuration with price ID and optional customer email
@@ -124,7 +139,21 @@ export class PaddleCheckoutService {
       return;
     }
 
+    // Prevent duplicate checkout if already open
+    if (this._isCheckoutOpen()) {
+      return;
+    }
+
     this._isLoading.set(true);
+    this._isCheckoutOpen.set(true);
+
+    // Set 5-minute timeout to prevent stuck checkout
+    this.checkoutTimeoutId = setTimeout(() => {
+      this._error.set(
+        'Checkout timed out after 5 minutes of inactivity. Please try again.'
+      );
+      this.closeCheckout();
+    }, this.CHECKOUT_TIMEOUT);
 
     window.Paddle.Checkout.open({
       items: [{ priceId: options.priceId, quantity: 1 }],
@@ -143,10 +172,22 @@ export class PaddleCheckoutService {
    * Close checkout overlay programmatically
    */
   public closeCheckout(): void {
+    this.clearCheckoutTimeout();
     if (window.Paddle) {
       window.Paddle.Checkout.close();
     }
     this._isLoading.set(false);
+    this._isCheckoutOpen.set(false);
+  }
+
+  /**
+   * Clear checkout timeout if set
+   */
+  private clearCheckoutTimeout(): void {
+    if (this.checkoutTimeoutId !== null) {
+      clearTimeout(this.checkoutTimeoutId);
+      this.checkoutTimeoutId = null;
+    }
   }
 
   /**
@@ -254,7 +295,9 @@ export class PaddleCheckoutService {
 
     switch (event.name) {
       case 'checkout.completed':
+        this.clearCheckoutTimeout();
         this._isLoading.set(false);
+        this._isCheckoutOpen.set(false);
         // Verify license activation with backend before navigation
         this.verifyLicenseActivation().then((isActive) => {
           if (isActive) {
@@ -270,12 +313,16 @@ export class PaddleCheckoutService {
         break;
 
       case 'checkout.closed':
+        this.clearCheckoutTimeout();
         this._isLoading.set(false);
+        this._isCheckoutOpen.set(false);
         // User closed checkout - no action needed
         break;
 
       case 'checkout.error':
+        this.clearCheckoutTimeout();
         this._isLoading.set(false);
+        this._isCheckoutOpen.set(false);
         // Paddle handles error display in overlay
         break;
     }

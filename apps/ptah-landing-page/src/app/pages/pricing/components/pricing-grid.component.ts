@@ -110,15 +110,13 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   private readonly paddleConfig = environment.paddle;
   private loadingTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
-  // Track which plan is currently loading
-  public readonly loadingPlanName = signal<string | null>(null);
-
   // Configuration error state (for placeholder detection)
   public readonly configError = signal<string | null>(null);
 
   // Expose paddle state for template
   public readonly paddleError = this.paddleService.error;
   public readonly isPaddleReady = this.paddleService.isReady;
+  public readonly loadingPlanName = this.paddleService.loadingPlanName;
 
   public constructor() {
     // Sync loading state with paddle service
@@ -126,7 +124,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     effect(() => {
       if (!this.paddleService.isLoading()) {
         this.clearLoadingTimeout();
-        this.loadingPlanName.set(null);
+        this.paddleService.setLoadingPlan(null);
       }
     });
   }
@@ -252,11 +250,11 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       this.clearLoadingTimeout();
 
       // Set loading state for this specific plan
-      this.loadingPlanName.set(plan.name);
+      this.paddleService.setLoadingPlan(plan.name);
 
       // Set timeout to prevent stuck loading state
       this.loadingTimeoutId = setTimeout(() => {
-        this.loadingPlanName.set(null);
+        this.paddleService.setLoadingPlan(null);
         this.loadingTimeoutId = null;
       }, this.CHECKOUT_TIMEOUT);
 
@@ -269,6 +267,10 @@ export class PricingGridComponent implements OnInit, OnDestroy {
           });
         },
         error: () => {
+          // Log warning when auth fails and checkout proceeds without email
+          console.warn(
+            'Auth check failed, proceeding without email pre-fill. User will need to enter email manually in checkout.'
+          );
           // Proceed without email if auth check fails
           this.paddleService.openCheckout({
             priceId: plan.priceId!,
