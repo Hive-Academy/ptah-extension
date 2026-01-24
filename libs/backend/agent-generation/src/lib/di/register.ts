@@ -24,6 +24,7 @@ import { ContentGenerationService } from '../services/content-generation.service
 import { AgentFileWriterService } from '../services/file-writer.service';
 import { OutputValidationService } from '../services/output-validation.service';
 import { VsCodeLmService } from '../services/vscode-lm.service';
+import { WizardContextMapperService } from '../services/wizard';
 
 /**
  * Register all agent-generation services in DI container
@@ -61,6 +62,13 @@ export function registerAgentGenerationServices(
       return new TemplateStorageService(loggerInstance);
     },
   });
+
+  // Wizard context mapper service - frontend-to-backend context transformation
+  container.register(
+    AGENT_GENERATION_TOKENS.WIZARD_CONTEXT_MAPPER,
+    { useClass: WizardContextMapperService },
+    { lifecycle: Lifecycle.Singleton }
+  );
 
   // ============================================================
   // Mid-level Services (depend on foundation services)
@@ -123,6 +131,7 @@ export function registerAgentGenerationServices(
     services: [
       'OUTPUT_VALIDATION_SERVICE',
       'TEMPLATE_STORAGE_SERVICE',
+      'WIZARD_CONTEXT_MAPPER',
       'VSCODE_LM_SERVICE',
       'AGENT_SELECTION_SERVICE',
       'CONTENT_GENERATION_SERVICE',
