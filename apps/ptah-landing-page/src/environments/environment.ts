@@ -23,9 +23,9 @@ export const environment = {
   paddle: {
     /** Paddle environment: 'sandbox' for testing, 'production' for live */
     environment: 'sandbox' as const,
-    /** Price ID for Pro Monthly ($8/month) - from Paddle dashboard */
-    priceIdMonthly: 'pri_01jqbkwnq87xxxxxxxxx', // TODO: Replace with real Paddle price ID
-    /** Price ID for Pro Yearly ($80/year) - from Paddle dashboard */
-    priceIdYearly: 'pri_01jqbkwnq87yyyyyyyyy', // TODO: Replace with real Paddle price ID
+    /** Price ID for Pro Monthly ($8/month with 14-day trial) - Paddle sandbox */
+    priceIdMonthly: 'pri_01kfr72reygmkapd0vtynrswm4',
+    /** Price ID for Pro Yearly ($80/year with 14-day trial) - Paddle sandbox */
+    priceIdYearly: 'pri_01kfr76e7fz41sp05w74jy4fx6',
   },
 };

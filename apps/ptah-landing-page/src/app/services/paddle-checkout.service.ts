@@ -433,17 +433,24 @@ export class PaddleCheckoutService {
 
     try {
       const result = await firstValueFrom(
-        this.http.get<{ active: boolean }>('/api/v1/licenses/me').pipe(
-          retry({
-            count: this.LICENSE_VERIFY_RETRIES,
-            delay: this.LICENSE_VERIFY_DELAY,
-          }),
-          catchError(() => of({ active: false }))
-        )
+        this.http
+          .get<{
+            plan: string;
+            status: string;
+            expiresAt?: string | null;
+            email?: string;
+          }>('/api/v1/licenses/me')
+          .pipe(
+            retry({
+              count: this.LICENSE_VERIFY_RETRIES,
+              delay: this.LICENSE_VERIFY_DELAY,
+            }),
+            catchError(() => of({ plan: 'free', status: 'none' }))
+          )
       );
 
       this._isVerifying.set(false);
-      return result.active;
+      return result.status === 'active';
     } catch {
       this._isVerifying.set(false);
       return false;
