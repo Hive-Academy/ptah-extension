@@ -29,6 +29,7 @@ import {
   WizardStepMachineService,
   WizardSessionManagerService,
   CodeHealthAnalysisService,
+  DeepProjectAnalysisService,
 } from '../services/wizard';
 
 /**
@@ -100,6 +101,14 @@ export function registerAgentGenerationServices(
   // Mid-level Services (depend on foundation services)
   // ============================================================
 
+  // Deep project analysis service - architecture detection, key locations, language stats
+  // Note: Depends on AGENT_GENERATION_ORCHESTRATOR and CODE_HEALTH_ANALYSIS
+  container.register(
+    AGENT_GENERATION_TOKENS.DEEP_PROJECT_ANALYSIS,
+    { useClass: DeepProjectAnalysisService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
   // VS Code LM service - LLM integration with retry logic
   container.register(
     AGENT_GENERATION_TOKENS.VSCODE_LM_SERVICE,
@@ -161,6 +170,7 @@ export function registerAgentGenerationServices(
       'WIZARD_STEP_MACHINE',
       'WIZARD_SESSION_MANAGER',
       'CODE_HEALTH_ANALYSIS',
+      'DEEP_PROJECT_ANALYSIS',
       'VSCODE_LM_SERVICE',
       'AGENT_SELECTION_SERVICE',
       'CONTENT_GENERATION_SERVICE',
