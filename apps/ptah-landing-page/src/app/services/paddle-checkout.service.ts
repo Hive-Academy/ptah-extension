@@ -1,5 +1,7 @@
 import { Injectable, signal, inject, computed } from '@angular/core';
 import { Router } from '@angular/router';
+import { HttpClient } from '@angular/common/http';
+import { firstValueFrom, retry, delay, catchError, of } from 'rxjs';
 import { environment } from '../../environments/environment';
 
 /**
@@ -66,23 +68,31 @@ export interface CheckoutOptions {
 @Injectable({ providedIn: 'root' })
 export class PaddleCheckoutService {
   private readonly router = inject(Router);
+  private readonly http = inject(HttpClient);
 
   private readonly paddleConfig = environment.paddle;
-  private readonly PADDLE_SDK_URL = 'https://cdn.paddle.com/paddle/v2/paddle.js';
+  private readonly PADDLE_SDK_URL =
+    'https://cdn.paddle.com/paddle/v2/paddle.js';
   private readonly MAX_RETRY_ATTEMPTS = 3;
+  private readonly LICENSE_VERIFY_RETRIES = 3;
+  private readonly LICENSE_VERIFY_DELAY = 2000; // 2 seconds
 
   // Reactive state signals
   private readonly _isReady = signal(false);
   private readonly _isLoading = signal(false);
   private readonly _error = signal<string | null>(null);
+  private readonly _isVerifying = signal(false);
 
   // Public readonly signals
   public readonly isReady = this._isReady.asReadonly();
   public readonly isLoading = this._isLoading.asReadonly();
   public readonly error = this._error.asReadonly();
+  public readonly isVerifying = this._isVerifying.asReadonly();
 
   // Computed: Can checkout if ready and not loading
-  public readonly canCheckout = computed(() => this._isReady() && !this._isLoading());
+  public readonly canCheckout = computed(
+    () => this._isReady() && !this._isLoading()
+  );
 
   private initAttempts = 0;
   private scriptElement: HTMLScriptElement | null = null;
@@ -118,7 +128,9 @@ export class PaddleCheckoutService {
 
     window.Paddle.Checkout.open({
       items: [{ priceId: options.priceId, quantity: 1 }],
-      customer: options.customerEmail ? { email: options.customerEmail } : undefined,
+      customer: options.customerEmail
+        ? { email: options.customerEmail }
+        : undefined,
       settings: {
         displayMode: 'overlay',
         theme: 'dark', // Match anubis theme
@@ -186,8 +198,11 @@ export class PaddleCheckoutService {
       this._isReady.set(true);
       this._isLoading.set(false);
       this._error.set(null);
-      console.log(`Paddle SDK initialized in ${this.paddleConfig.environment} mode`);
+      console.log(
+        `Paddle SDK initialized in ${this.paddleConfig.environment} mode`
+      );
     } catch (err) {
+      console.error(err);
       this.handleScriptError();
     }
   }
@@ -201,7 +216,36 @@ export class PaddleCheckoutService {
       setTimeout(() => this.loadScript(), delay);
     } else {
       this._isLoading.set(false);
-      this._error.set('Payment system temporarily unavailable. Please try again later.');
+      this._error.set(
+        'Payment system temporarily unavailable. Please try again later.'
+      );
+    }
+  }
+
+  /**
+   * Verify license activation with backend
+   * Retries up to 3 times with 2-second delay to handle webhook processing time
+   * @returns Promise<boolean> - true if license is active, false otherwise
+   */
+  private async verifyLicenseActivation(): Promise<boolean> {
+    this._isVerifying.set(true);
+
+    try {
+      const result = await firstValueFrom(
+        this.http.get<{ active: boolean }>('/api/v1/licenses/me').pipe(
+          retry({
+            count: this.LICENSE_VERIFY_RETRIES,
+            delay: this.LICENSE_VERIFY_DELAY,
+          }),
+          catchError(() => of({ active: false }))
+        )
+      );
+
+      this._isVerifying.set(false);
+      return result.active;
+    } catch {
+      this._isVerifying.set(false);
+      return false;
     }
   }
 
@@ -211,8 +255,18 @@ export class PaddleCheckoutService {
     switch (event.name) {
       case 'checkout.completed':
         this._isLoading.set(false);
-        // Navigate to profile page after successful checkout
-        this.router.navigate(['/profile']);
+        // Verify license activation with backend before navigation
+        this.verifyLicenseActivation().then((isActive) => {
+          if (isActive) {
+            // Navigate to profile page after successful verification
+            this.router.navigate(['/profile']);
+          } else {
+            // Show error if verification fails
+            this._error.set(
+              'License verification failed. Please contact support if your payment was processed.'
+            );
+          }
+        });
         break;
 
       case 'checkout.closed':
