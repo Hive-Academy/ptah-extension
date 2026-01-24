@@ -134,6 +134,40 @@ services:
     networks:
       - ptah-network
 
+  # ---------------------------------------------------------------------------
+  # ngrok - Webhook Tunnel for Local Testing
+  # ---------------------------------------------------------------------------
+  # Exposes the license server to the internet via HTTPS tunnel
+  # This allows Paddle webhooks to reach your local development environment
+  #
+  # SETUP:
+  #   1. Get free ngrok account: https://dashboard.ngrok.com/signup
+  #   2. Get your authtoken: https://dashboard.ngrok.com/get-started/your-authtoken
+  #   3. Add to .env.docker: NGROK_AUTHTOKEN=your_token_here
+  #   4. Start services: docker-compose up -d
+  #   5. Get public URL: docker-compose logs ngrok | grep "started tunnel"
+  #   6. Configure Paddle webhook URL: https://YOUR-NGROK-URL.ngrok.io/webhooks/paddle
+  #
+  # NOTE: Free ngrok accounts get random URLs that change on restart.
+  # For static URLs, upgrade to ngrok paid plan or use alternative tunneling service.
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: ptah_ngrok
+    restart: unless-stopped
+    command:
+      - 'http'
+      - 'license-server:3000'
+      - '--log=stdout'
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
+    depends_on:
+      - license-server
+    networks:
+      - ptah-network
+    profiles:
+      - webhook-testing
+    # ngrok doesn't expose ports to host - access via logs to get public URL
+
 # =============================================================================
 # Named Volumes
 # =============================================================================
