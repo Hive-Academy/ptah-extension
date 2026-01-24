@@ -30,6 +30,7 @@ import {
   WizardSessionManagerService,
   CodeHealthAnalysisService,
   DeepProjectAnalysisService,
+  WizardWebviewLifecycleService,
 } from '../services/wizard';
 
 /**
@@ -109,6 +110,14 @@ export function registerAgentGenerationServices(
     { lifecycle: Lifecycle.Singleton }
   );
 
+  // Wizard webview lifecycle service - panel creation, message handling, progress emission
+  // Note: Depends on WEBVIEW_MANAGER, WEBVIEW_MESSAGE_HANDLER, WEBVIEW_HTML_GENERATOR from vscode-core
+  container.register(
+    AGENT_GENERATION_TOKENS.WIZARD_WEBVIEW_LIFECYCLE,
+    { useClass: WizardWebviewLifecycleService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
   // VS Code LM service - LLM integration with retry logic
   container.register(
     AGENT_GENERATION_TOKENS.VSCODE_LM_SERVICE,
@@ -171,6 +180,7 @@ export function registerAgentGenerationServices(
       'WIZARD_SESSION_MANAGER',
       'CODE_HEALTH_ANALYSIS',
       'DEEP_PROJECT_ANALYSIS',
+      'WIZARD_WEBVIEW_LIFECYCLE',
       'VSCODE_LM_SERVICE',
       'AGENT_SELECTION_SERVICE',
       'CONTENT_GENERATION_SERVICE',
