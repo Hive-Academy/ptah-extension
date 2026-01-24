@@ -6,18 +6,19 @@ import {
 import { provideRouter } from '@angular/router';
 import {
   provideHttpClient,
-  withInterceptorsFromDi,
+  withInterceptors,
 } from '@angular/common/http';
 import { provideMarkdown } from 'ngx-markdown';
 import { provideGsap, provideLenis } from '@hive-academy/angular-gsap';
 import { routes } from './app.routes';
+import { apiInterceptor } from './interceptors/api.interceptor';
 
 export const appConfig: ApplicationConfig = {
   providers: [
-    // Router configuration (Task 1.3)
+    // Router configuration
     provideRouter(routes),
-    // HTTP client for API calls (magic link auth, license API)
-    provideHttpClient(withInterceptorsFromDi()),
+    // HTTP client with API interceptor for credentials and base URL
+    provideHttpClient(withInterceptors([apiInterceptor])),
     provideBrowserGlobalErrorListeners(),
     provideZoneChangeDetection({ eventCoalescing: true }),
     // Markdown rendering for chat messages (required by ExecutionNodeComponent from @ptah-extension/chat)

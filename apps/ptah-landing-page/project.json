@@ -36,7 +36,13 @@
               "maximumError": "8kb"
             }
           ],
-          "outputHashing": "all"
+          "outputHashing": "all",
+          "fileReplacements": [
+            {
+              "replace": "apps/ptah-landing-page/src/environments/environment.ts",
+              "with": "apps/ptah-landing-page/src/environments/environment.production.ts"
+            }
+          ]
         },
         "development": {
           "optimization": false,

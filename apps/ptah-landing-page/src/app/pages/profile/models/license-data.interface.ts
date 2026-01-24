@@ -2,29 +2,33 @@
  * LicenseData Interface
  *
  * Data model for user license information fetched from backend API.
+ * MUST match backend response from GET /api/v1/licenses/me
  *
  * Backend API: GET /api/v1/licenses/me
- * Evidence: implementation-plan.md Phase 4 - Profile Page
+ * Evidence: apps/ptah-license-server/src/license/controllers/license.controller.ts:132-140
  */
 export interface LicenseData {
-  /** License key (format: PTAH-XXXX-XXXX-XXXX-XXXX) */
-  licenseKey: string;
+  /** License plan (maps to tier in UI) */
+  plan: 'free' | 'early_adopter' | 'pro';
 
-  /** License tier */
-  tier: 'free' | 'early_adopter' | 'pro';
+  /** License status */
+  status: 'active' | 'none' | 'expired';
 
   /** User email */
   email: string;
 
-  /** License status */
-  status: 'active' | 'inactive' | 'expired';
-
-  /** Activation date (ISO 8601) */
-  activatedAt: string;
+  /** Creation date (ISO 8601) */
+  createdAt: string;
 
   /** Expiration date (ISO 8601, null for lifetime licenses) */
   expiresAt: string | null;
 
-  /** Paddle transaction ID (if purchased) */
-  paddleTransactionId?: string;
+  /** Days remaining until expiration */
+  daysRemaining?: number;
+
+  /** Features included in this plan */
+  features: string[];
+
+  /** Message for free tier users */
+  message?: string;
 }

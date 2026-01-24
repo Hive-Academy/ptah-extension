@@ -16,7 +16,7 @@ import {
 } from '@hive-academy/angular-gsap';
 
 /**
- * ProfilePageComponent - User license dashboard
+ * ProfilePageComponent - User account dashboard
  *
  * Angular 21 patterns:
  * - signal() for state management
@@ -26,7 +26,9 @@ import {
  *
  * Protected Route: Requires authentication via AuthGuard
  * Backend API: GET /api/v1/licenses/me
- * Evidence: implementation-plan.md Phase 4 - Profile Page
+ *
+ * Note: License key is NOT returned by backend for security reasons.
+ * License key is only sent via email after purchase.
  */
 @Component({
   selector: 'ptah-profile-page',
@@ -37,10 +39,10 @@ import {
       <!-- Header -->
       <div class="max-w-4xl mx-auto mb-12 flex justify-between items-center">
         <h1
-          class="font-display text-4xl md:text-5xl font-bold 
+          class="font-display text-4xl md:text-5xl font-bold
                  bg-gradient-to-r from-amber-300 to-secondary bg-clip-text text-transparent"
         >
-          Your License
+          Your Account
         </h1>
         <button class="btn btn-outline btn-secondary" (click)="handleLogout()">
           Logout
@@ -51,7 +53,7 @@ import {
       @if (isLoading()) {
       <div class="max-w-4xl mx-auto text-center py-16">
         <span class="loading loading-spinner loading-lg text-secondary"></span>
-        <p class="mt-4 text-neutral-content">Loading license details...</p>
+        <p class="mt-4 text-neutral-content">Loading account details...</p>
       </div>
       }
 
@@ -59,7 +61,7 @@ import {
       @if (errorMessage()) {
       <div class="max-w-md mx-auto">
         <div class="alert alert-error">
-          <h3 class="font-bold">Error Loading License</h3>
+          <h3 class="font-bold">Error Loading Account</h3>
           <p>{{ errorMessage() }}</p>
         </div>
         <button class="btn btn-error mt-4 w-full" (click)="loadLicense()">
@@ -72,6 +74,7 @@ import {
       @if (license() && !isLoading()) {
       <div class="max-w-4xl mx-auto relative">
         <!-- 3D Floating Badge (hidden on mobile) -->
+        @if (license()?.plan !== 'free') {
         <div
           class="hidden lg:block absolute -top-20 -right-24 z-0 pointer-events-none"
         >
@@ -84,65 +87,61 @@ import {
             priority
           />
         </div>
+        }
 
-        <!-- License Card -->
+        <!-- Account Card -->
         <div
           viewportAnimation
           [viewportConfig]="cardConfig"
-          class="relative z-10 bg-base-200/90 backdrop-blur-3xl 
+          class="relative z-10 bg-base-200/90 backdrop-blur-3xl
                    border border-secondary/20 rounded-3xl p-8 shadow-2xl"
         >
           <!-- Badges -->
           <div class="flex flex-wrap gap-3 mb-6">
-            <span class="badge badge-lg" [class]="getTierBadgeClass()">
-              {{ getTierName() }}
+            <span class="badge badge-lg" [class]="getPlanBadgeClass()">
+              {{ getPlanName() }}
             </span>
             <span class="badge badge-lg" [class]="getStatusBadgeClass()">
-              {{ license()!.status.toUpperCase() }}
+              {{ (license()?.status ?? 'none').toUpperCase() }}
             </span>
           </div>
 
-          <!-- License Key -->
-          <div class="mb-8">
-            <span class="label-text text-neutral-content block mb-2"
-              >License Key</span
-            >
-            <div
-              class="flex gap-4 items-center bg-base-300/60 border border-secondary/20 
-                       rounded-xl p-4"
-            >
-              <code
-                class="flex-1 font-mono text-lg text-secondary tracking-wide"
-              >
-                {{ license()!.licenseKey }}
-              </code>
-              <button
-                class="btn btn-sm btn-outline btn-secondary"
-                (click)="copyLicenseKey()"
-                [attr.aria-label]="isCopied() ? 'Copied!' : 'Copy license key'"
-              >
-                @if (isCopied()) { ✓ Copied } @else { Copy }
-              </button>
-            </div>
+          <!-- Free Tier Message -->
+          @if (license()?.message) {
+          <div class="alert alert-info mb-6">
+            <p>{{ license()?.message }}</p>
+            <a routerLink="/pricing" class="btn btn-sm btn-secondary">
+              Upgrade Now
+            </a>
           </div>
+          }
 
-          <!-- License Details -->
+          <!-- Account Details -->
           <div class="space-y-4">
             <div class="flex justify-between py-3 border-b border-secondary/10">
               <span class="text-neutral-content">Email</span>
-              <span>{{ license()!.email }}</span>
+              <span>{{ license()?.email ?? 'N/A' }}</span>
             </div>
+
             <div class="flex justify-between py-3 border-b border-secondary/10">
-              <span class="text-neutral-content">Activated</span>
-              <span>{{ formatDate(license()!.activatedAt) }}</span>
+              <span class="text-neutral-content">Member Since</span>
+              <span>{{ formatDate(license()?.createdAt ?? null) }}</span>
             </div>
-            @if (license()!.expiresAt) {
+
+            @if (license()?.expiresAt) {
             <div class="flex justify-between py-3 border-b border-secondary/10">
               <span class="text-neutral-content">Expires</span>
-              <span>{{ formatDate(license()!.expiresAt) }}</span>
+              <span [class]="getExpiryClass()">
+                {{ formatDate(license()?.expiresAt ?? null) }}
+                @if (license()?.daysRemaining !== undefined) {
+                <span class="text-sm ml-2">
+                  ({{ license()?.daysRemaining }} days remaining)
+                </span>
+                }
+              </span>
             </div>
-            } @else {
-            <div class="flex justify-between py-3">
+            } @else if (license()?.plan !== 'free') {
+            <div class="flex justify-between py-3 border-b border-secondary/10">
               <span class="text-neutral-content">Validity</span>
               <span class="text-secondary font-semibold">
                 Lifetime License
@@ -150,12 +149,41 @@ import {
             </div>
             }
           </div>
+
+          <!-- Features List -->
+          @if (license()?.features && license()!.features.length > 0) {
+          <div class="mt-8">
+            <h3 class="text-lg font-semibold mb-4 text-secondary">
+              Your Features
+            </h3>
+            <ul class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              @for (feature of license()?.features ?? []; track feature) {
+              <li class="flex items-center gap-2 text-base-content/80">
+                <svg
+                  class="w-5 h-5 text-success flex-shrink-0"
+                  viewBox="0 0 20 20"
+                  fill="none"
+                >
+                  <path
+                    d="M16.25 5.625L7.5 14.375L3.75 10.625"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+                <span>{{ feature }}</span>
+              </li>
+              }
+            </ul>
+          </div>
+          }
         </div>
 
         <!-- Actions -->
         <div class="mt-8">
           <a routerLink="/pricing" class="btn btn-outline btn-secondary w-full">
-            View Pricing Plans
+            {{ license()?.plan === 'free' ? 'View Pricing Plans' : 'Manage Subscription' }}
           </a>
         </div>
       </div>
@@ -179,7 +207,6 @@ export class ProfilePageComponent implements OnInit {
   public readonly license = signal<LicenseData | null>(null);
   public readonly isLoading = signal(true);
   public readonly errorMessage = signal('');
-  public readonly isCopied = signal(false);
 
   // Animation config
   public readonly cardConfig: ViewportAnimationConfig = {
@@ -205,19 +232,9 @@ export class ProfilePageComponent implements OnInit {
       error: (error) => {
         this.isLoading.set(false);
         this.errorMessage.set(
-          error.error?.message || 'Failed to load license details'
+          error.error?.message || 'Failed to load account details'
         );
       },
-    });
-  }
-
-  public copyLicenseKey(): void {
-    const key = this.license()?.licenseKey;
-    if (!key) return;
-
-    navigator.clipboard.writeText(key).then(() => {
-      this.isCopied.set(true);
-      setTimeout(() => this.isCopied.set(false), 2000);
     });
   }
 
@@ -228,17 +245,17 @@ export class ProfilePageComponent implements OnInit {
     });
   }
 
-  public getTierName(): string {
-    const tier = this.license()?.tier;
-    if (tier === 'early_adopter') return 'Early Adopter';
-    if (tier === 'pro') return 'Pro';
+  public getPlanName(): string {
+    const plan = this.license()?.plan;
+    if (plan === 'early_adopter') return 'Early Adopter';
+    if (plan === 'pro') return 'Pro';
     return 'Free';
   }
 
-  public getTierBadgeClass(): string {
-    const tier = this.license()?.tier;
-    if (tier === 'early_adopter') return 'badge-secondary';
-    if (tier === 'pro') return 'badge-primary';
+  public getPlanBadgeClass(): string {
+    const plan = this.license()?.plan;
+    if (plan === 'early_adopter') return 'badge-secondary';
+    if (plan === 'pro') return 'badge-primary';
     return 'badge-ghost';
   }
 
@@ -247,6 +264,14 @@ export class ProfilePageComponent implements OnInit {
     if (status === 'active') return 'badge-success';
     if (status === 'expired') return 'badge-error';
     return 'badge-ghost';
+  }
+
+  public getExpiryClass(): string {
+    const days = this.license()?.daysRemaining;
+    if (days === undefined) return '';
+    if (days <= 7) return 'text-error';
+    if (days <= 30) return 'text-warning';
+    return 'text-success';
   }
 
   public formatDate(isoDate: string | null): string {
