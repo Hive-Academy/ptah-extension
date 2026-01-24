@@ -272,7 +272,7 @@ PADDLE_PRICE_ID_PRO: 'pri_YYYYYYYYYYYYYYYYYYYYYYYY'
 
 # SendGrid
 SENDGRID_API_KEY: 'SG.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
-SENDGRID_FROM_EMAIL: 'noreply@ptah.dev'
+SENDGRID_FROM_EMAIL: 'ptah@nghive.tech'
 SENDGRID_FROM_NAME: 'Ptah Team'
 
 # Magic Link
@@ -481,7 +481,7 @@ services:
         type: SECRET
       - key: SENDGRID_FROM_EMAIL
         scope: RUN_TIME
-        value: 'noreply@ptah.dev'
+        value: 'ptah@nghive.tech'
       - key: SENDGRID_FROM_NAME
         scope: RUN_TIME
         value: 'Ptah Team'

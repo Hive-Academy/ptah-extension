@@ -36,7 +36,7 @@ export type {
   AvailableAgentsPayload,
   GenerationProgressPayload,
   GenerationCompletePayload,
-  ErrorPayload,
+  WizardErrorPayload,
 } from '@ptah-extension/shared';
 
 // Import shared types for use in DeepProjectAnalysis

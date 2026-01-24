@@ -52,7 +52,7 @@ export class EmailService {
       to: email,
       from: {
         email:
-          this.config.get<string>('SENDGRID_FROM_EMAIL') || 'noreply@ptah.dev',
+          this.config.get<string>('SENDGRID_FROM_EMAIL') || 'ptah@nghive.tech',
         name: this.config.get<string>('SENDGRID_FROM_NAME') || 'Ptah Team',
       },
       subject: 'Your Ptah Premium License Key',
@@ -80,7 +80,7 @@ export class EmailService {
       to: email,
       from: {
         email:
-          this.config.get<string>('SENDGRID_FROM_EMAIL') || 'noreply@ptah.dev',
+          this.config.get<string>('SENDGRID_FROM_EMAIL') || 'ptah@nghive.tech',
         name: this.config.get<string>('SENDGRID_FROM_NAME') || 'Ptah Team',
       },
       subject: 'Login to Ptah Portal',

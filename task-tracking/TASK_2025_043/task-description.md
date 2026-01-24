@@ -146,7 +146,7 @@ This implementation deliberately simplifies the original architecture by:
 
 1. **WHEN** license key generated **THEN** email service **SHALL** send activation email within 30 seconds.
 
-2. **WHEN** sending email **THEN** subject **SHALL** be "Your Ptah Premium License Key" and sender **SHALL** be "noreply@ptah.dev".
+2. **WHEN** sending email **THEN** subject **SHALL** be "Your Ptah Premium License Key" and sender **SHALL** be "ptah@nghive.tech".
 
 3. **WHEN** email template rendered **THEN** content **SHALL** include license key (plaintext), activation instructions, support link, and unsubscribe link.
 

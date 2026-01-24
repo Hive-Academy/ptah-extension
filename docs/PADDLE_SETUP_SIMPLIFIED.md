@@ -1,11 +1,13 @@
 # Paddle Setup Guide - Simplified Pricing Model
 
 **Updated Pricing Strategy:**
+
 - **Free Trial**: 14 days, all features, no credit card (handled by backend)
 - **Pro Monthly**: $8/month subscription
 - **Pro Yearly**: $80/year subscription (save ~17%)
 
 **Optional Promotions** (configured in Paddle dashboard):
+
 - First 3 months discount: $5/month instead of $8/month
 - Seasonal discounts
 
@@ -21,11 +23,13 @@
 ## Step 1: Create Paddle Account
 
 ### Sandbox (Testing)
-1. Go to https://sandbox-vendors.paddle.com/
+
+1. Go to <https://sandbox-vendors.paddle.com/>
 2. Sign up and complete business profile
 
 ### Production (Live)
-1. Go to https://vendors.paddle.com/
+
+1. Go to <https://vendors.paddle.com/>
 2. Complete business verification
 
 ---
@@ -39,6 +43,7 @@
    - Sandbox: `pdl_sbox_XXXXX`
    - Production: `pdl_live_XXXXX`
 5. Add to `.env.local`:
+
    ```bash
    PADDLE_API_KEY=pdl_sbox_YOUR_KEY_HERE
    ```
@@ -104,6 +109,7 @@ To offer $5/month for the first 3 months:
 6. Save
 
 **Alternative**: Create a **Discount Code** instead:
+
 1. Go to **Discounts** → **"Create Discount"**
 2. Type: `Percentage` or `Fixed amount`
 3. Value: `37.5%` or `$3.00 off`
@@ -117,12 +123,14 @@ To offer $5/month for the first 3 months:
 1. Navigate to **Developer Tools** → **Webhooks**
 2. Click **"New Destination"**
 3. Configure:
+
    - **Name**: Ptah License Server
    - **URL**: `https://your-domain.com/webhooks/paddle`
      - Local testing: `https://abc123.ngrok.io/webhooks/paddle`
    - **Description**: Subscription lifecycle events
 
 4. **Select Events** (critical):
+
    - ✅ `subscription.created`
    - ✅ `subscription.activated` (PRIMARY)
    - ✅ `subscription.updated`
@@ -184,7 +192,7 @@ priceId: 'pri_YEARLY_ID_HERE',
 
 ## Step 9: Test Webhook Locally
 
-### Using ngrok:
+### Using ngrok
 
 ```bash
 # Terminal 1: Start backend
@@ -196,11 +204,13 @@ ngrok http 3000
 # Copy HTTPS URL: https://abc123.ngrok.io
 ```
 
-### Update Paddle Webhook URL:
+### Update Paddle Webhook URL
+
 - Paddle Dashboard → Webhooks → Your destination
 - Update URL to: `https://abc123.ngrok.io/webhooks/paddle`
 
-### Send Test Event:
+### Send Test Event
+
 1. Click **"Send test event"**
 2. Select `subscription.activated`
 3. Verify backend logs show successful processing
@@ -209,12 +219,14 @@ ngrok http 3000
 
 ## Step 10: Test Checkout Flow
 
-### Test Card Numbers (Sandbox):
+### Test Card Numbers (Sandbox)
+
 - **Success**: `4242 4242 4242 4242`
 - **Decline**: `4000 0000 0000 0002`
 - Any future expiry date, any CVV
 
-### Test Flow:
+### Test Flow
+
 1. Start frontend: `npx nx serve ptah-landing-page`
 2. Click "Subscribe Monthly" or "Subscribe Yearly"
 3. Enter test card details
@@ -228,21 +240,24 @@ ngrok http 3000
 
 ## Production Checklist
 
-### Before Going Live:
+### Before Going Live
 
 **Paddle:**
+
 - [ ] Complete business verification
 - [ ] Add bank account for payouts
 - [ ] Switch to Production mode
 - [ ] Update webhook URL to production domain
 
 **Backend:**
+
 - [ ] Replace `PADDLE_API_KEY` with production key (`pdl_live_`)
 - [ ] Update `PADDLE_WEBHOOK_SECRET` with production secret
 - [ ] Set `NODE_ENV=production`
 - [ ] Verify HTTPS enabled
 
 **Frontend:**
+
 - [ ] Update `environment.production.ts` with production price IDs
 - [ ] Update `apiBaseUrl` to production license server
 - [ ] Test checkout on staging environment
@@ -251,11 +266,11 @@ ngrok http 3000
 
 ## Pricing Summary
 
-| Plan | Price | Trial | Paddle Config |
-|------|-------|-------|---------------|
-| **Free Trial** | $0 | 14 days | Handled by backend, no Paddle |
-| **Pro Monthly** | $8/month | 14 days | Price ID: `pri_MONTHLY` |
-| **Pro Yearly** | $80/year | 14 days | Price ID: `pri_YEARLY` |
+| Plan                 | Price        | Trial   | Paddle Config                        |
+| -------------------- | ------------ | ------- | ------------------------------------ |
+| **Free Trial**       | $0           | 14 days | Handled by backend, no Paddle        |
+| **Pro Monthly**      | $8/month     | 14 days | Price ID: `pri_MONTHLY`              |
+| **Pro Yearly**       | $80/year     | 14 days | Price ID: `pri_YEARLY`               |
 | **Promo (Optional)** | $5/month × 3 | 14 days | Discount code or promotional pricing |
 
 ---
@@ -292,6 +307,6 @@ paddle: {
 
 ## Support
 
-- **Paddle Docs**: https://developer.paddle.com/
-- **Webhook Reference**: https://developer.paddle.com/webhooks/overview
-- **Pricing Guide**: https://developer.paddle.com/concepts/sell/prices
+- **Paddle Docs**: <https://developer.paddle.com/>
+- **Webhook Reference**: <https://developer.paddle.com/webhooks/overview>
+- **Pricing Guide**: <https://developer.paddle.com/concepts/sell/prices>

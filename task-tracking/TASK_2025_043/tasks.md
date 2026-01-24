@@ -490,7 +490,7 @@ export class LicenseKeyGeneratorService {
 - MUST retry 3 times with exponential backoff (1s, 2s, 4s)
 - MUST log failures for manual intervention
 - Email subject MUST be "Your Ptah Premium License Key"
-- Sender MUST be "noreply@ptah.dev"
+- Sender MUST be "ptah@nghive.tech"
 
 **Validation Notes**:
 
@@ -529,7 +529,7 @@ export class EmailService {
 
         await sgMail.send({
           to: email,
-          from: 'noreply@ptah.dev',
+          from: 'ptah@nghive.tech',
           subject: 'Your Ptah Premium License Key',
           html,
         });
@@ -875,7 +875,7 @@ async sendMagicLinkEmail(email: string, magicLink: string): Promise<void> {
 
   await sgMail.send({
     to: email,
-    from: 'noreply@ptah.dev',
+    from: 'ptah@nghive.tech',
     subject: 'Login to Ptah Portal',
     html
   });

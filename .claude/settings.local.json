@@ -1,5 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "ENABLE_TOOL_SEARCH": "true"
+  },
   "permissions": {
     "allow": [
       "mcp__sequential-thinking__sequentialthinking",
@@ -29,7 +32,8 @@
       "WebFetch(domain:spin.atomicobject.com)",
       "WebFetch(domain:angular.love)",
       "Bash(npm run typecheck:all:*)",
-      "WebFetch(domain:api.github.com)"
+      "WebFetch(domain:api.github.com)",
+      "Bash(npx prisma generate:*)"
     ],
     "deny": [],
     "ask": [],
@@ -42,8 +46,5 @@
     "nx-mcp",
     "angular-cli"
   ],
-  "outputStyle": "default",
-  "env": {
-    "ENABLE_TOOL_SEARCH": "true"
-  }
+  "outputStyle": "default"
 }

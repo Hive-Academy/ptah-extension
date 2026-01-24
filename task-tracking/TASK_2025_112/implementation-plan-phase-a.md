@@ -754,7 +754,7 @@ PADDLE_PRICE_ID_PRO=pri_YYYYYYYYYYYYYYYYYYYYYYYY
 # Required permissions: Mail Send
 
 SENDGRID_API_KEY=SG.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-SENDGRID_FROM_EMAIL=noreply@ptah.dev
+SENDGRID_FROM_EMAIL=ptah@nghive.tech
 SENDGRID_FROM_NAME=Ptah Team
 
 # ============================================

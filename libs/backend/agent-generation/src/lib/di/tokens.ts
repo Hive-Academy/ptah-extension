@@ -125,6 +125,48 @@ export const AGENT_FILE_WRITER_SERVICE = Symbol.for('AgentFileWriterService');
 export const MIGRATION_SERVICE = Symbol.for('MigrationService');
 
 // ========================================
+// Wizard Child Services (TASK_2025_115)
+// ========================================
+
+/**
+ * WizardWebviewLifecycleService - Webview panel management
+ * Responsibilities: Create panels, send responses, emit progress, cleanup
+ */
+export const WIZARD_WEBVIEW_LIFECYCLE = Symbol.for(
+  'WizardWebviewLifecycleService'
+);
+
+/**
+ * WizardSessionManagerService - Session CRUD and persistence
+ * Responsibilities: Create, save, load, validate sessions
+ */
+export const WIZARD_SESSION_MANAGER = Symbol.for('WizardSessionManagerService');
+
+/**
+ * WizardStepMachineService - Step state machine
+ * Responsibilities: Validate transitions, determine next step
+ */
+export const WIZARD_STEP_MACHINE = Symbol.for('WizardStepMachineService');
+
+/**
+ * DeepProjectAnalysisService - Comprehensive project analysis
+ * Responsibilities: Architecture detection, key file discovery, language stats
+ */
+export const DEEP_PROJECT_ANALYSIS = Symbol.for('DeepProjectAnalysisService');
+
+/**
+ * CodeHealthAnalysisService - Code health metrics
+ * Responsibilities: Diagnostics, conventions, test coverage
+ */
+export const CODE_HEALTH_ANALYSIS = Symbol.for('CodeHealthAnalysisService');
+
+/**
+ * WizardContextMapperService - Context transformation
+ * Responsibilities: Frontend to backend context mapping
+ */
+export const WIZARD_CONTEXT_MAPPER = Symbol.for('WizardContextMapperService');
+
+// ========================================
 // Token Registry (Type-Safe Access)
 // ========================================
 
@@ -160,6 +202,14 @@ export const AGENT_GENERATION_TOKENS = {
 
   // Migration (Future)
   MIGRATION_SERVICE,
+
+  // Wizard Child Services (TASK_2025_115)
+  WIZARD_WEBVIEW_LIFECYCLE,
+  WIZARD_SESSION_MANAGER,
+  WIZARD_STEP_MACHINE,
+  DEEP_PROJECT_ANALYSIS,
+  CODE_HEALTH_ANALYSIS,
+  WIZARD_CONTEXT_MAPPER,
 } as const;
 
 /**

@@ -24,13 +24,13 @@ This comprehensive guide explains how to set up the Ptah License Server locally 
 
 - **Docker Desktop** (v4.0+) with Docker Compose v2
 
-  - Windows: https://docs.docker.com/desktop/install/windows-install/
-  - macOS: https://docs.docker.com/desktop/install/mac-install/
-  - Linux: https://docs.docker.com/desktop/install/linux-install/
+  - Windows: <https://docs.docker.com/desktop/install/windows-install/>
+  - macOS: <https://docs.docker.com/desktop/install/mac-install/>
+  - Linux: <https://docs.docker.com/desktop/install/linux-install/>
 
 - **Node.js 20+** (for running scripts outside Docker)
 
-  - https://nodejs.org/
+  - <https://nodejs.org/>
 
 - **Git** for cloning the repository
 
@@ -85,11 +85,11 @@ curl http://localhost:3000/api
 
 After starting Docker Compose, the following services are available:
 
-| Service            | URL                   | Health Check                                       |
-| ------------------ | --------------------- | -------------------------------------------------- |
-| **License Server** | http://localhost:3000 | `curl http://localhost:3000/api`                   |
-| **PostgreSQL**     | localhost:5432        | `docker exec ptah_postgres pg_isready -U postgres` |
-| **Redis**          | localhost:6379        | `docker exec ptah_redis redis-cli ping`            |
+| Service            | URL                     | Health Check                                       |
+| ------------------ | ----------------------- | -------------------------------------------------- |
+| **License Server** | <http://localhost:3000> | `curl http://localhost:3000/api`                   |
+| **PostgreSQL**     | localhost:5432          | `docker exec ptah_postgres pg_isready -U postgres` |
+| **Redis**          | localhost:6379          | `docker exec ptah_redis redis-cli ping`            |
 
 ### API Endpoints
 
@@ -181,7 +181,7 @@ PADDLE_PRICE_ID_PRO=pri_YYYYYYYYYYYYYYYYYYYYYYYY
 # EMAIL SERVICE (Optional for basic dev)
 # ============================================
 SENDGRID_API_KEY=SG.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-SENDGRID_FROM_EMAIL=noreply@ptah.dev
+SENDGRID_FROM_EMAIL=ptah@nghive.tech
 SENDGRID_FROM_NAME=Ptah Team
 
 # ============================================
@@ -240,7 +240,7 @@ cd apps/ptah-license-server
 npx prisma studio
 ```
 
-Opens at http://localhost:5555
+Opens at <http://localhost:5555>
 
 ---
 
@@ -481,6 +481,7 @@ docker-compose up -d --build
    ```
 
 3. **Check connection string format**:
+
    ```
    postgresql://user:password@host:port/database
    ```
@@ -512,6 +513,7 @@ LICENSE_SERVER_PORT=3001
    ```
 
 3. **Manual start for debugging**:
+
    ```bash
    docker exec -it ptah_license_server sh
    npx nx serve ptah-license-server
@@ -522,6 +524,7 @@ LICENSE_SERVER_PORT=3001
 1. Verify `ADMIN_API_KEY` in `.env.local`
 2. Verify `X-API-Key` header matches exactly
 3. Restart license server after changing env vars:
+
    ```bash
    docker-compose restart license-server
    ```

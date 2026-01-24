@@ -804,7 +804,7 @@ export interface GenerationCompletePayload {
  * Payload for error messages.
  * Sent when an error occurs during wizard flow.
  */
-export interface ErrorPayload {
+export interface WizardErrorPayload {
   /** Error message */
   message: string;
   /** Additional error details */
@@ -849,4 +849,4 @@ export type WizardMessage =
       type: 'setup-wizard:generation-complete';
       payload: GenerationCompletePayload;
     }
-  | { type: 'setup-wizard:error'; payload: ErrorPayload };
+  | { type: 'setup-wizard:error'; payload: WizardErrorPayload };

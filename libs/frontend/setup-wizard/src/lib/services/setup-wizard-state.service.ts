@@ -15,7 +15,7 @@ import {
   AvailableAgentsPayload,
   GenerationProgressPayload,
   GenerationCompletePayload,
-  ErrorPayload,
+  WizardErrorPayload,
 } from '@ptah-extension/shared';
 
 // Re-export shared types for backward compatibility with existing consumers
@@ -721,12 +721,10 @@ export class SetupWizardStateService {
             this.handleError(message.payload);
             break;
 
-          default:
-            // TypeScript exhaustiveness check - ensures all message types are handled
-            // If a new message type is added to WizardMessage but not handled here,
-            // TypeScript will produce a compile-time error
+          default: {
             const _exhaustiveCheck: never = message;
             console.warn('Unhandled wizard message type:', _exhaustiveCheck);
+          }
         }
       } catch (error) {
         console.error('Error handling setup wizard message:', error);
@@ -838,7 +836,7 @@ export class SetupWizardStateService {
    *
    * @param payload - Typed ErrorPayload from shared types
    */
-  private handleError(payload: ErrorPayload): void {
+  private handleError(payload: WizardErrorPayload): void {
     // Map ErrorPayload to local ErrorState format
     const errorState: ErrorState = {
       message: payload.message,
