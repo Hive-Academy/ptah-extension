@@ -8,9 +8,9 @@ import {
 import {
   SetupWizardStateService,
   AgentRecommendation,
-  AgentCategory,
 } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
+import { AgentCategory } from '@ptah-extension/shared';
 
 /**
  * AgentSelectionComponent - Agent selection with relevance scores and recommendations
@@ -31,6 +31,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
  * - Select All Recommended / Deselect All buttons
  * - Total selected count display
  * - Signal-based reactive UI
+ * - 'Other' fallback category for unknown agent types
  *
  * Usage:
  * ```html
@@ -360,14 +361,27 @@ export class AgentSelectionComponent {
   private readonly wizardRpc = inject(WizardRpcService);
 
   /**
-   * Category display order for agent grouping.
+   * Known agent categories for filtering.
    */
-  protected readonly categoryOrder: AgentCategory[] = [
+  private readonly knownCategories: AgentCategory[] = [
     'planning',
     'development',
     'qa',
     'specialist',
     'creative',
+  ];
+
+  /**
+   * Category display order for agent grouping.
+   * Unknown categories are collected in 'other' at the end.
+   */
+  protected readonly categoryOrder: (AgentCategory | 'other')[] = [
+    'planning',
+    'development',
+    'qa',
+    'specialist',
+    'creative',
+    'other',
   ];
 
   // Component-local loading and error state
@@ -424,10 +438,16 @@ export class AgentSelectionComponent {
 
   /**
    * Get agents filtered by category.
+   * For 'other', returns agents with unknown categories.
    */
   protected getAgentsByCategory(
-    category: AgentCategory
+    category: AgentCategory | 'other'
   ): AgentRecommendation[] {
+    if (category === 'other') {
+      return this.sortedRecommendations().filter(
+        (agent) => !this.knownCategories.includes(agent.category as AgentCategory)
+      );
+    }
     return this.sortedRecommendations().filter(
       (agent) => agent.category === category
     );
@@ -460,8 +480,9 @@ export class AgentSelectionComponent {
 
   /**
    * Get category badge class for styling.
+   * Includes fallback for 'other' category.
    */
-  protected getCategoryBadgeClass(category: AgentCategory): string {
+  protected getCategoryBadgeClass(category: AgentCategory | 'other'): string {
     switch (category) {
       case 'planning':
         return 'badge-primary';
@@ -473,6 +494,7 @@ export class AgentSelectionComponent {
         return 'badge-info';
       case 'creative':
         return 'badge-warning';
+      case 'other':
       default:
         return 'badge-ghost';
     }
@@ -480,8 +502,9 @@ export class AgentSelectionComponent {
 
   /**
    * Get category icon emoji.
+   * Includes fallback for 'other' category.
    */
-  protected getCategoryIcon(category: AgentCategory): string {
+  protected getCategoryIcon(category: AgentCategory | 'other'): string {
     switch (category) {
       case 'planning':
         return '\u{1F4CB}'; // Clipboard
@@ -493,6 +516,7 @@ export class AgentSelectionComponent {
         return '\u{2699}\u{FE0F}'; // Gear
       case 'creative':
         return '\u{1F3A8}'; // Artist palette
+      case 'other':
       default:
         return '\u{1F4E6}'; // Package
     }
@@ -500,8 +524,9 @@ export class AgentSelectionComponent {
 
   /**
    * Get human-readable category label.
+   * Includes fallback for 'other' category.
    */
-  protected getCategoryLabel(category: AgentCategory): string {
+  protected getCategoryLabel(category: AgentCategory | 'other'): string {
     switch (category) {
       case 'planning':
         return 'Planning & Architecture';
@@ -513,6 +538,7 @@ export class AgentSelectionComponent {
         return 'Specialists';
       case 'creative':
         return 'Creative';
+      case 'other':
       default:
         return 'Other';
     }
@@ -549,6 +575,7 @@ export class AgentSelectionComponent {
   /**
    * Submit selected agents and transition to generation step.
    * - Show loading state during RPC call
+   * - Verify backend acknowledgment before step transition
    * - Display user-facing error message on failure
    * - Always reset loading state in finally block
    */
@@ -580,10 +607,15 @@ export class AgentSelectionComponent {
         };
       });
 
-      // Submit selection to backend via RPC
-      await this.wizardRpc.submitAgentSelection(selectedAgents);
+      // Submit selection and verify acknowledgment
+      const response = await this.wizardRpc.submitAgentSelection(selectedAgents);
 
-      // Transition to generation step
+      // Verify backend acknowledgment before transitioning
+      if (!response?.success) {
+        throw new Error(response?.error ?? 'Backend did not acknowledge selection');
+      }
+
+      // Only transition after confirmed acknowledgment
       this.wizardState.setCurrentStep('generation');
     } catch (error) {
       // Handle RPC error with user-facing message

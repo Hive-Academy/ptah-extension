@@ -3,6 +3,16 @@ import { ClaudeRpcService } from '@ptah-extension/core';
 import { AgentSelection } from './setup-wizard-state.service';
 
 /**
+ * Agent selection acknowledgment response from backend.
+ */
+export interface AgentSelectionResponse {
+  /** Whether the selection was successfully received and processed */
+  success: boolean;
+  /** Error message if the selection failed */
+  error?: string;
+}
+
+/**
  * WizardRpcService
  *
  * Thin facade for wizard-specific RPC calls.
@@ -18,9 +28,9 @@ import { AgentSelection } from './setup-wizard-state.service';
  * NOTE (TASK_2025_074): Backend RPC handlers for wizard operations are pending.
  * Currently only `setup-wizard:launch` is implemented in backend.
  * The following methods need backend handlers before they will work:
- * - startSetupWizard → needs `wizard:start` RPC handler
- * - submitAgentSelection → needs `wizard:submit-selection` RPC handler
- * - cancelWizard → needs `wizard:cancel` RPC handler
+ * - startSetupWizard -> needs `wizard:start` RPC handler
+ * - submitAgentSelection -> needs `wizard:submit-selection` RPC handler
+ * - cancelWizard -> needs `wizard:cancel` RPC handler
  */
 @Injectable({
   providedIn: 'root',
@@ -40,7 +50,7 @@ export class WizardRpcService {
   }
 
   /**
-   * Start the setup wizard (Step 1 → Step 2 transition)
+   * Start the setup wizard (Step 1 -> Step 2 transition)
    * Triggers workspace scanning and agent detection
    *
    * TODO: Backend handler not implemented yet
@@ -58,16 +68,30 @@ export class WizardRpcService {
   }
 
   /**
-   * Submit agent selection (Step 4 → Step 5 transition)
+   * Submit agent selection (Step 4 -> Step 5 transition)
    * Triggers agent generation with selected agents
+   *
+   * Returns acknowledgment response to verify backend received the selection.
+   * The caller should check response.success before transitioning to generation step.
    *
    * TODO: Backend handler not implemented yet
    * When implemented, add 'wizard:submit-selection' to RpcMethodRegistry
    */
-  async submitAgentSelection(_selections: AgentSelection[]): Promise<void> {
+  async submitAgentSelection(
+    _selections: AgentSelection[]
+  ): Promise<AgentSelectionResponse> {
     // TODO: Implement when backend handler is ready
     // const selectedIds = selections.filter((s) => s.selected).map((s) => s.id);
-    // const result = await this.rpcService.call('wizard:submit-selection', { agentIds: selectedIds });
+    // const result = await this.rpcService.call<{ agentIds: string[] }, AgentSelectionResponse>(
+    //   'wizard:submit-selection',
+    //   { agentIds: selectedIds },
+    //   { timeout: 30000 }
+    // );
+    // if (result.success) {
+    //   return result.data;
+    // } else {
+    //   throw new Error(result.error);
+    // }
     console.warn(
       '[WizardRpcService] submitAgentSelection: Backend handler not implemented'
     );
@@ -75,7 +99,7 @@ export class WizardRpcService {
   }
 
   /**
-   * Cancel wizard (any step → close)
+   * Cancel wizard (any step -> close)
    * Optionally saves progress for resuming later
    *
    * TODO: Backend handler not implemented yet
