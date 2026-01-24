@@ -2,22 +2,27 @@
  * PricingPlan Interface
  *
  * Data model for pricing plan cards.
- * Used to display Free, Early Adopter, and Pro tiers.
+ * Updated for new pricing model: Free Trial + Pro (Monthly/Yearly)
  *
- * Evidence: implementation-plan.md Phase 2 - Pricing Page
- * Design Spec: developer-handoff.md:110-223
+ * Evidence: Updated per user feedback - simplified single-plan pricing
  */
 export interface PricingPlan {
-  /** Display name (e.g., "Early Adopter") */
+  /** Display name (e.g., "Pro Monthly", "Free Trial") */
   name: string;
 
   /** Tier identifier for programmatic use */
-  tier: 'free' | 'early_adopter' | 'pro';
+  tier: 'free' | 'pro';
 
-  /** Display price (e.g., "$49" or "$99/mo") */
+  /** Display price (e.g., "$8", "$80") */
   price: string;
 
-  /** Paddle price ID for checkout integration (optional) */
+  /** Optional price subtext (e.g., "per month", "per year", "14 days") */
+  priceSubtext?: string;
+
+  /** Optional savings badge (e.g., "Save $16/year") */
+  savings?: string;
+
+  /** Paddle price ID for checkout integration (optional for free plan) */
   priceId?: string;
 
   /** List of feature descriptions */
@@ -27,7 +32,7 @@ export interface PricingPlan {
   ctaText: string;
 
   /** CTA action type */
-  ctaAction: 'download' | 'checkout';
+  ctaAction: 'download' | 'checkout' | 'signup';
 
   /** Whether this plan should be highlighted (default: false) */
   highlight?: boolean;

@@ -1,4 +1,10 @@
-import { Component, ChangeDetectionStrategy, signal } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  signal,
+  inject,
+} from '@angular/core';
+import { Router } from '@angular/router';
 import { PlanCardComponent } from './plan-card.component';
 import { PricingPlan } from '../models/pricing-plan.interface';
 import {
@@ -9,14 +15,16 @@ import {
 /**
  * PricingGridComponent - Grid of pricing plan cards
  *
- * Displays 3 pricing tiers with staggered viewport animation.
- * Uses DaisyUI grid utilities for responsive layout.
+ * New Pricing Model (Updated):
+ * - Free Trial: 14 days, all features, no credit card
+ * - Pro Monthly: $8/month
+ * - Pro Yearly: $80/year (save ~17%)
  *
- * Note: ViewportAnimationDirective has a bug with stagger where it sets
- * opacity:0 on the parent but only animates children. We work around this
- * by wrapping each card in its own animated container with delay offsets.
+ * Optional Paddle Promotions:
+ * - First 3 months discount: Configure in Paddle dashboard
+ * - Seasonal discounts: Configure in Paddle dashboard
  *
- * Evidence: implementation-plan.md Phase 2 - PricingGridComponent
+ * Evidence: Updated per user feedback - single plan with monthly/yearly options
  */
 @Component({
   selector: 'ptah-pricing-grid',
@@ -25,7 +33,7 @@ import {
   template: `
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-16">
       <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-        @for (plan of plans(); track plan.tier; let i = $index) {
+        @for (plan of plans(); track plan.name; let i = $index) {
         <div viewportAnimation [viewportConfig]="getCardAnimationConfig(i)">
           <ptah-plan-card [plan]="plan" (ctaClick)="handleCtaClick($event)" />
         </div>
@@ -42,6 +50,7 @@ import {
   ],
 })
 export class PricingGridComponent {
+  private readonly router = inject(Router);
   private readonly STAGGER_DELAY = 0.15;
 
   /**
@@ -60,66 +69,79 @@ export class PricingGridComponent {
 
   /**
    * Pricing plans data
-   * TODO: Replace priceId values with real Paddle price IDs
+   *
+   * TODO: Replace priceId placeholders with real Paddle price IDs after setup
+   * See: docs/PADDLE_SETUP.md for instructions
    */
   public readonly plans = signal<PricingPlan[]>([
     {
-      name: 'Free',
+      name: 'Free Trial',
       tier: 'free',
       price: '$0',
+      priceSubtext: '14 days',
       features: [
-        'Basic extension features',
-        'VS Code Marketplace download',
-        'Community support',
-        'Open source tools',
+        'All Pro features included',
+        'No credit card required',
+        'Full SDK access',
+        'Workspace intelligence',
+        'Custom MCP tools',
+        'Session history',
       ],
-      ctaText: 'Download Extension',
-      ctaAction: 'download',
+      ctaText: 'Start Free Trial',
+      ctaAction: 'signup',
     },
     {
-      name: 'Early Adopter',
-      tier: 'early_adopter',
-      price: '$49',
-      priceId: 'pri_01jqbkwnq87xxxxxxxxx', // TODO: Replace with real Paddle price ID
+      name: 'Pro Monthly',
+      tier: 'pro',
+      price: '$8',
+      priceSubtext: 'per month',
+      priceId: 'pri_MONTHLY_REPLACE_ME', // TODO: Replace with Paddle monthly price ID
       features: [
-        'All premium features',
-        'MCP server access',
-        'Advanced AI tools',
+        'Everything in trial',
+        'Unlimited sessions',
         'Priority support',
-        'Lifetime updates',
-        'Early access to new features',
+        'Early access to features',
+        'Cancel anytime',
       ],
-      ctaText: 'Get Early Adopter',
+      ctaText: 'Subscribe Monthly',
       ctaAction: 'checkout',
       highlight: true,
-      badge: 'plan_badge_early_adopter.png',
     },
     {
-      name: 'Pro',
+      name: 'Pro Yearly',
       tier: 'pro',
-      price: '$99/mo',
-      priceId: 'pri_01jqbkwnq87yyyyyyyyy', // TODO: Replace with real Paddle price ID
+      price: '$80',
+      priceSubtext: 'per year',
+      priceId: 'pri_YEARLY_REPLACE_ME', // TODO: Replace with Paddle yearly price ID
+      savings: 'Save $16/year',
       features: [
-        'All Early Adopter features',
-        'Team collaboration',
-        'Custom integrations',
-        'Dedicated support',
-        'SLA guarantees',
+        'Everything in monthly',
+        '~17% discount vs monthly',
+        'Billed annually',
+        'Priority support',
+        'Cancel anytime',
       ],
-      ctaText: 'Notify Me',
-      ctaAction: 'download',
+      ctaText: 'Subscribe Yearly',
+      ctaAction: 'checkout',
+      badge: 'plan_badge_early_adopter.png', // Reuse badge for yearly plan
     },
   ]);
 
   public handleCtaClick(plan: PricingPlan): void {
-    if (plan.ctaAction === 'download') {
-      window.open(
-        'https://marketplace.visualstudio.com/items?itemName=hive-academy.ptah-extension',
-        '_blank'
-      );
+    if (plan.ctaAction === 'signup') {
+      // Free trial - navigate to login (magic link auth)
+      this.router.navigate(['/login']);
     } else if (plan.ctaAction === 'checkout' && plan.priceId) {
-      // TODO: Integrate Paddle checkout
+      // Paid subscription - initiate Paddle checkout
+      // TODO: Integrate Paddle.js checkout when price IDs are configured
       console.log('Paddle checkout for:', plan.name, plan.priceId);
+
+      // Future implementation:
+      // this.paddleCheckoutService.openCheckout({
+      //   priceId: plan.priceId,
+      //   successUrl: '/profile',
+      //   cancelUrl: '/pricing',
+      // });
     }
   }
 }

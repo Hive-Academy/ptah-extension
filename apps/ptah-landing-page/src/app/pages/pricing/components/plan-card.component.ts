@@ -51,11 +51,17 @@ import { PricingPlan } from '../models/pricing-plan.interface';
           {{ plan().name }}
         </h3>
         <div
-          class="text-4xl font-bold bg-gradient-to-r from-amber-300 to-secondary 
+          class="text-4xl font-bold bg-gradient-to-r from-amber-300 to-secondary
                  bg-clip-text text-transparent"
         >
           {{ plan().price }}
         </div>
+        @if (plan().priceSubtext) {
+        <p class="text-base-content/60 text-sm mt-1">{{ plan().priceSubtext }}</p>
+        }
+        @if (plan().savings) {
+        <div class="badge badge-success mt-2">{{ plan().savings }}</div>
+        }
       </div>
 
       <!-- Features List -->
