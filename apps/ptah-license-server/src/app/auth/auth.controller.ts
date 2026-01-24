@@ -392,12 +392,12 @@ export class AuthController {
       return;
     }
 
-    // Step 3: Generate JWT token
+    // Step 3: Generate JWT token using public method
     const jwtPayload = {
       sub: user.id,
       email: user.email,
     };
-    const jwtToken = this.authService['jwtService'].sign(jwtPayload);
+    const jwtToken = this.authService.generateJwtToken(jwtPayload);
 
     // Step 4: Set HTTP-only cookie with JWT
     res.cookie('ptah_auth', jwtToken, {

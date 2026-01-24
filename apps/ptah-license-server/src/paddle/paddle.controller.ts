@@ -97,14 +97,21 @@ export class PaddleController {
       throw new UnauthorizedException('Missing webhook signature');
     }
 
-    // Step 3: Verify webhook signature
+    // Step 3: Verify webhook timestamp (replay attack prevention)
+    const isTimestampValid = this.paddleService.verifyTimestamp(signature);
+    if (!isTimestampValid) {
+      this.logger.warn('Webhook timestamp outside acceptable window - possible replay attack');
+      throw new UnauthorizedException('Webhook timestamp expired');
+    }
+
+    // Step 4: Verify webhook signature
     const isValid = this.paddleService.verifySignature(signature, req.rawBody);
     if (!isValid) {
       this.logger.warn('Invalid webhook signature received');
       throw new UnauthorizedException('Invalid webhook signature');
     }
 
-    // Step 4: Parse and validate payload
+    // Step 5: Parse and validate payload
     const payload = req.body;
     if (!payload || !payload.event_type || !payload.event_id) {
       this.logger.warn('Invalid webhook payload - missing required fields');
@@ -118,14 +125,14 @@ export class PaddleController {
 
     this.logger.log(`Received webhook: ${eventType} (${eventId})`);
 
-    // Step 5: Route to appropriate handler based on event type
+    // Step 6: Route to appropriate handler based on event type
     if (!isSubscriptionEvent(eventType)) {
       // Acknowledge unknown events without processing
       this.logger.log(`Ignoring unhandled event type: ${eventType}`);
       return { received: true };
     }
 
-    // Step 6: Validate subscription data exists
+    // Step 7: Validate subscription data exists
     const data = payload.data;
     if (!data || !data.customer || !data.customer.email) {
       this.logger.warn('Invalid subscription data - missing customer email');
@@ -134,7 +141,7 @@ export class PaddleController {
       );
     }
 
-    // Step 7: Process subscription events
+    // Step 8: Process subscription events
     switch (eventType) {
       case 'subscription.created': {
         const result = await this.paddleService.handleSubscriptionCreated(

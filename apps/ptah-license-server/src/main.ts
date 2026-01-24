@@ -9,7 +9,7 @@
  * - Global API prefix
  */
 
-import { Logger } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app/app.module';
 import * as cookieParser from 'cookie-parser';
@@ -25,6 +25,18 @@ async function bootstrap() {
   // Configure cookie-parser middleware for PKCE state cookie management
   // Used by WorkOS OAuth flow to store state parameter in HTTP-only cookies
   app.use(cookieParser());
+
+  // Configure global ValidationPipe for DTO validation
+  // - whitelist: strips properties not in DTO (prevents mass assignment)
+  // - forbidNonWhitelisted: throws error for unknown properties
+  // - transform: auto-transforms payloads to DTO instances with type coercion
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    })
+  );
 
   // Configure CORS for cross-origin requests from frontend
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';

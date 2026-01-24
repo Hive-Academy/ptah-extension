@@ -125,6 +125,69 @@ export class PaddleService {
   }
 
   /**
+   * Verify webhook timestamp is within acceptable window (5 minutes)
+   *
+   * Prevents replay attacks by rejecting webhooks with stale timestamps.
+   * Paddle includes a Unix timestamp in the signature header.
+   *
+   * Security:
+   * - 5-minute window accounts for clock skew and network latency
+   * - Rejects both past and future timestamps outside window
+   * - Must be called BEFORE processing webhook payload
+   *
+   * @param signature - The paddle-signature header value (format: ts={timestamp};h1={signature})
+   * @returns true if timestamp is within 5-minute window, false otherwise
+   */
+  verifyTimestamp(signature: string): boolean {
+    if (!signature) {
+      this.logger.warn('Missing signature for timestamp verification');
+      return false;
+    }
+
+    try {
+      // Parse timestamp from signature header: ts=1234567890;h1=abc123...
+      const timestampPart = signature.split(';').find((p) => p.startsWith('ts='));
+
+      if (!timestampPart) {
+        this.logger.warn('Invalid signature format - missing timestamp');
+        return false;
+      }
+
+      const timestampStr = timestampPart.split('=')[1];
+      if (!timestampStr) {
+        this.logger.warn('Invalid timestamp format in signature');
+        return false;
+      }
+
+      const timestamp = parseInt(timestampStr, 10);
+      if (isNaN(timestamp)) {
+        this.logger.warn(`Invalid timestamp value: ${timestampStr}`);
+        return false;
+      }
+
+      const now = Math.floor(Date.now() / 1000);
+      const fiveMinutes = 5 * 60; // 300 seconds
+
+      const isWithinWindow = Math.abs(now - timestamp) <= fiveMinutes;
+
+      if (!isWithinWindow) {
+        this.logger.warn(
+          `Webhook timestamp outside acceptable window. ` +
+            `Timestamp: ${timestamp}, Now: ${now}, Diff: ${Math.abs(now - timestamp)}s`
+        );
+      }
+
+      return isWithinWindow;
+    } catch (error) {
+      this.logger.error(
+        'Error verifying webhook timestamp',
+        error instanceof Error ? error.message : 'Unknown error'
+      );
+      return false;
+    }
+  }
+
+  /**
    * Handle subscription.created event
    *
    * Process:
@@ -133,6 +196,9 @@ export class PaddleService {
    * 3. Create subscription record in database
    * 4. Generate and create license
    * 5. Send license key email
+   *
+   * All database operations are wrapped in a transaction for atomicity.
+   * If any step fails, all changes are rolled back.
    *
    * @param data - Subscription data from webhook payload
    * @param eventId - Unique event ID for idempotency
@@ -162,55 +228,66 @@ export class PaddleService {
     const customerId = data.customer.id;
     const subscriptionId = data.id;
     const periodEnd = new Date(data.current_billing_period.ends_at);
-
-    // Step 2: Find or create user
-    let user = await this.prisma.user.findUnique({ where: { email } });
-    if (!user) {
-      user = await this.prisma.user.create({
-        data: { email },
-      });
-      this.logger.log(`Created new user for email: ${email}`);
-    }
-
-    // Step 3: Create subscription record
-    await this.prisma.subscription.create({
-      data: {
-        userId: user.id,
-        paddleSubscriptionId: subscriptionId,
-        paddleCustomerId: customerId,
-        status: data.status,
-        priceId: priceId || '',
-        currentPeriodEnd: periodEnd,
-      },
-    });
-    this.logger.log(`Created subscription record: ${subscriptionId}`);
-
-    // Step 4: Revoke any existing active licenses (one active license per user)
-    await this.prisma.license.updateMany({
-      where: {
-        userId: user.id,
-        status: 'active',
-      },
-      data: {
-        status: 'revoked',
-      },
-    });
-
-    // Step 5: Generate and create license
     const licenseKey = this.generateLicenseKey();
-    const license = await this.prisma.license.create({
-      data: {
-        userId: user.id,
-        licenseKey,
-        plan,
-        status: 'active',
-        expiresAt: periodEnd,
-        createdBy: `paddle_${eventId}`,
-      },
-    });
-    this.logger.log(`Created license: ${license.id} for plan: ${plan}`);
 
-    // Step 6: Send license key email
+    // Wrap all database operations in a transaction for atomicity
+    // If any operation fails, all changes are rolled back
+    const license = await this.prisma.$transaction(async (tx) => {
+      // Step 2: Find or create user
+      let user = await tx.user.findUnique({ where: { email } });
+      if (!user) {
+        user = await tx.user.create({
+          data: { email },
+        });
+        this.logger.log(`Created new user for email: ${email}`);
+      }
+
+      // Step 3: Revoke any existing active licenses (one active license per user)
+      const revokedCount = await tx.license.updateMany({
+        where: {
+          userId: user.id,
+          status: 'active',
+        },
+        data: {
+          status: 'revoked',
+        },
+      });
+      if (revokedCount.count > 0) {
+        this.logger.log(
+          `Revoked ${revokedCount.count} existing license(s) for user: ${email}`
+        );
+      }
+
+      // Step 4: Create new license
+      const newLicense = await tx.license.create({
+        data: {
+          userId: user.id,
+          licenseKey,
+          plan,
+          status: 'active',
+          expiresAt: periodEnd,
+          createdBy: `paddle_${eventId}`,
+        },
+      });
+      this.logger.log(`Created license: ${newLicense.id} for plan: ${plan}`);
+
+      // Step 5: Create subscription record
+      await tx.subscription.create({
+        data: {
+          userId: user.id,
+          paddleSubscriptionId: subscriptionId,
+          paddleCustomerId: customerId,
+          status: data.status,
+          priceId: priceId || '',
+          currentPeriodEnd: periodEnd,
+        },
+      });
+      this.logger.log(`Created subscription record: ${subscriptionId}`);
+
+      return newLicense;
+    });
+
+    // Step 6: Send license key email (outside transaction - non-critical)
     try {
       await this.emailService.sendLicenseKey({
         email,

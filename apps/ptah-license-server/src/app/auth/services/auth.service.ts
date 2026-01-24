@@ -253,11 +253,31 @@ export class AuthService {
       const token = this.jwtService.sign(payload);
 
       return { token, user: requestUser };
-    } catch (error: any) {
+    } catch (error: unknown) {
+      // Log original error for debugging but return generic message to client
+      // This prevents exposing internal WorkOS error details
+      this.logger.error(
+        'WorkOS authentication failed',
+        error instanceof Error ? error.stack : String(error)
+      );
       throw new UnauthorizedException(
-        `Authentication failed: ${error.message}`
+        'Authentication failed. Please try again.'
       );
     }
+  }
+
+  /**
+   * Generate a signed JWT token
+   *
+   * Public method to create JWT tokens without exposing jwtService directly.
+   * Used by controllers that need to sign tokens for specific use cases
+   * (e.g., magic link verification, ticket generation).
+   *
+   * @param payload - JWT payload (sub, email, and optional claims)
+   * @returns Signed JWT token string
+   */
+  public generateJwtToken(payload: Record<string, unknown>): string {
+    return this.jwtService.sign(payload);
   }
 
   /**
