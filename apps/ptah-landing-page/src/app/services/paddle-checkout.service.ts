@@ -2,7 +2,7 @@ import { Injectable, signal, inject, computed } from '@angular/core';
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom, retry, catchError, of } from 'rxjs';
-import { environment } from '../../environments/environment';
+import { PADDLE_CONFIG } from '../config/paddle.config';
 
 /**
  * Paddle.js global interface
@@ -69,13 +69,13 @@ export interface CheckoutOptions {
 export class PaddleCheckoutService {
   private readonly router = inject(Router);
   private readonly http = inject(HttpClient);
+  private readonly paddleConfig = inject(PADDLE_CONFIG);
 
-  private readonly paddleConfig = environment.paddle;
   private readonly PADDLE_SDK_URL =
     'https://cdn.paddle.com/paddle/v2/paddle.js';
-  private readonly MAX_RETRY_ATTEMPTS = 3;
-  private readonly LICENSE_VERIFY_RETRIES = 3;
-  private readonly LICENSE_VERIFY_DELAY = 2000; // 2 seconds
+  private readonly MAX_RETRY_ATTEMPTS = this.paddleConfig.maxRetries ?? 3;
+  private readonly LICENSE_VERIFY_RETRIES = this.paddleConfig.licenseVerifyRetries ?? 3;
+  private readonly LICENSE_VERIFY_DELAY = this.paddleConfig.licenseVerifyDelay ?? 2000;
 
   // Reactive state signals
   private readonly _isReady = signal(false);
@@ -101,6 +101,7 @@ export class PaddleCheckoutService {
   private initAttempts = 0;
   private scriptElement: HTMLScriptElement | null = null;
   private checkoutTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private initPromise: Promise<void> | null = null;
 
   private readonly CHECKOUT_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
@@ -109,15 +110,41 @@ export class PaddleCheckoutService {
    *
    * Loads script from CDN and initializes with environment config.
    * Retries up to MAX_RETRY_ATTEMPTS on failure.
+   * Guards against concurrent initialization calls.
    */
-  public initialize(): void {
-    if (this._isReady() || this._isLoading()) {
-      return; // Already initialized or in progress
+  public initialize(): Promise<void> {
+    // Return existing promise if initialization already in progress
+    if (this.initPromise) {
+      return this.initPromise;
+    }
+
+    if (this._isReady()) {
+      return Promise.resolve();
+    }
+
+    // Validate configuration before initialization
+    if (!this.validateConfig()) {
+      return Promise.reject(new Error('Invalid Paddle configuration'));
     }
 
     this._isLoading.set(true);
     this._error.set(null);
-    this.loadScript();
+
+    // Create and store initialization promise
+    this.initPromise = new Promise<void>((resolve, reject) => {
+      this.loadScript(resolve, reject);
+    });
+
+    // Clear promise when complete (success or failure)
+    this.initPromise
+      .then(() => {
+        this.initPromise = null;
+      })
+      .catch(() => {
+        this.initPromise = null;
+      });
+
+    return this.initPromise;
   }
 
   /**
@@ -197,6 +224,7 @@ export class PaddleCheckoutService {
     this.initAttempts = 0;
     this._isReady.set(false);
     this._error.set(null);
+    this.initPromise = null;
 
     // Remove existing script if present
     if (this.scriptElement) {
@@ -207,10 +235,59 @@ export class PaddleCheckoutService {
     this.initialize();
   }
 
-  private loadScript(): void {
+  /**
+   * Validate Paddle configuration
+   *
+   * Checks that price IDs are not placeholders and environment is valid.
+   * Sets error state if validation fails.
+   *
+   * @returns true if config is valid, false otherwise
+   */
+  private validateConfig(): boolean {
+    const { environment, priceIdMonthly, priceIdYearly } = this.paddleConfig;
+
+    // Check environment is valid
+    if (environment !== 'sandbox' && environment !== 'production') {
+      this._error.set('Invalid Paddle environment configuration');
+      return false;
+    }
+
+    // Check for placeholder price IDs
+    const placeholderPatterns = [
+      'REPLACE',
+      'xxxxxxxxx',
+      'yyyyyyyyy',
+      'REPLACE_ME',
+      'placeholder',
+    ];
+
+    const isMonthlyPlaceholder = placeholderPatterns.some(
+      (pattern) =>
+        !priceIdMonthly || priceIdMonthly.toLowerCase().includes(pattern.toLowerCase())
+    );
+
+    const isYearlyPlaceholder = placeholderPatterns.some(
+      (pattern) =>
+        !priceIdYearly || priceIdYearly.toLowerCase().includes(pattern.toLowerCase())
+    );
+
+    if (isMonthlyPlaceholder || isYearlyPlaceholder) {
+      this._error.set(
+        'Paddle price IDs not configured. Please check environment configuration.'
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  private loadScript(
+    resolve: () => void,
+    reject: (reason?: Error) => void
+  ): void {
     // Check if script already exists
     if (document.querySelector(`script[src="${this.PADDLE_SDK_URL}"]`)) {
-      this.initializePaddle();
+      this.initializePaddle(resolve, reject);
       return;
     }
 
@@ -218,15 +295,47 @@ export class PaddleCheckoutService {
     this.scriptElement.src = this.PADDLE_SDK_URL;
     this.scriptElement.async = true;
 
-    this.scriptElement.onload = () => this.initializePaddle();
-    this.scriptElement.onerror = () => this.handleScriptError();
+    this.scriptElement.onload = () => this.initializePaddle(resolve, reject);
+    this.scriptElement.onerror = () => this.handleScriptError(reject);
 
     document.head.appendChild(this.scriptElement);
   }
 
-  private initializePaddle(): void {
-    if (!window.Paddle) {
-      this.handleScriptError();
+  /**
+   * Type guard to check if window.Paddle has expected SDK structure
+   *
+   * @param obj - Object to check (typically window.Paddle)
+   * @returns true if obj has Paddle SDK methods, false otherwise
+   */
+  private isPaddleSDK(obj: unknown): obj is NonNullable<typeof window.Paddle> {
+    if (!obj || typeof obj !== 'object') {
+      return false;
+    }
+
+    const paddle = obj as Record<string, unknown>;
+
+    // Check for required methods using bracket notation for index signatures
+    const hasInitialize = typeof paddle['Initialize'] === 'function';
+    const checkout = paddle['Checkout'];
+    const hasCheckout = typeof checkout === 'object' && checkout !== null;
+
+    if (!hasCheckout) {
+      return false;
+    }
+
+    const checkoutObj = checkout as Record<string, unknown>;
+    const hasOpen = typeof checkoutObj['open'] === 'function';
+    const hasClose = typeof checkoutObj['close'] === 'function';
+
+    return hasInitialize && hasOpen && hasClose;
+  }
+
+  private initializePaddle(
+    resolve: () => void,
+    reject: (reason?: Error) => void
+  ): void {
+    if (!this.isPaddleSDK(window.Paddle)) {
+      this.handleScriptError(reject);
       return;
     }
 
@@ -239,28 +348,79 @@ export class PaddleCheckoutService {
       this._isReady.set(true);
       this._isLoading.set(false);
       this._error.set(null);
-      console.log(
-        `Paddle SDK initialized in ${this.paddleConfig.environment} mode`
-      );
-    } catch (err) {
-      console.error(err);
-      this.handleScriptError();
+      resolve();
+    } catch {
+      this.handleScriptError(reject);
     }
   }
 
-  private handleScriptError(): void {
+  private handleScriptError(reject?: (reason?: Error) => void): void {
     this.initAttempts++;
 
     if (this.initAttempts < this.MAX_RETRY_ATTEMPTS) {
-      // Retry with exponential backoff
-      const delay = Math.pow(2, this.initAttempts) * 1000;
-      setTimeout(() => this.loadScript(), delay);
+      // Retry with exponential backoff using extracted method
+      this.retryWithBackoff(
+        () =>
+          new Promise<void>((resolve, reject) => {
+            this.loadScript(resolve, reject);
+          }),
+        this.MAX_RETRY_ATTEMPTS - this.initAttempts,
+        this.paddleConfig.baseRetryDelay ?? 1000
+      )
+        .then(() => {
+          // Retry succeeded, nothing to do
+        })
+        .catch(() => {
+          // All retries exhausted
+          this._isLoading.set(false);
+          this._error.set(
+            'Payment system temporarily unavailable. Please try again later.'
+          );
+          if (reject) {
+            reject(new Error('Paddle SDK loading failed after retries'));
+          }
+        });
     } else {
       this._isLoading.set(false);
       this._error.set(
         'Payment system temporarily unavailable. Please try again later.'
       );
+      if (reject) {
+        reject(new Error('Paddle SDK loading failed'));
+      }
     }
+  }
+
+  /**
+   * Retry a promise-returning function with exponential backoff
+   *
+   * @param fn - Function that returns a promise to retry
+   * @param maxRetries - Maximum number of retry attempts
+   * @param baseDelay - Base delay in milliseconds (doubled each retry)
+   * @returns Promise that resolves if fn succeeds, rejects if all retries fail
+   */
+  private async retryWithBackoff<T>(
+    fn: () => Promise<T>,
+    maxRetries: number,
+    baseDelay: number
+  ): Promise<T> {
+    let lastError: Error | undefined;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+
+        if (attempt < maxRetries) {
+          // Calculate exponential backoff delay
+          const delay = baseDelay * Math.pow(2, attempt);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+    }
+
+    throw lastError || new Error('All retry attempts failed');
   }
 
   /**

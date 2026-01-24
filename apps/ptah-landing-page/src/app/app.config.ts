@@ -4,14 +4,13 @@ import {
   provideZoneChangeDetection,
 } from '@angular/core';
 import { provideRouter } from '@angular/router';
-import {
-  provideHttpClient,
-  withInterceptors,
-} from '@angular/common/http';
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideMarkdown } from 'ngx-markdown';
 import { provideGsap, provideLenis } from '@hive-academy/angular-gsap';
 import { routes } from './app.routes';
 import { apiInterceptor } from './interceptors/api.interceptor';
+import { providePaddleConfig } from './config/paddle.config';
+import { environment } from '../environments/environment';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -23,6 +22,16 @@ export const appConfig: ApplicationConfig = {
     provideZoneChangeDetection({ eventCoalescing: true }),
     // Markdown rendering for chat messages (required by ExecutionNodeComponent from @ptah-extension/chat)
     provideMarkdown(),
+    // Paddle checkout configuration with DI token
+    providePaddleConfig({
+      environment: environment.paddle.environment,
+      priceIdMonthly: environment.paddle.priceIdMonthly,
+      priceIdYearly: environment.paddle.priceIdYearly,
+      maxRetries: 3,
+      baseRetryDelay: 1000,
+      licenseVerifyRetries: 3,
+      licenseVerifyDelay: 2000,
+    }),
     // GSAP animation defaults for landing page
     provideGsap({
       defaults: {
