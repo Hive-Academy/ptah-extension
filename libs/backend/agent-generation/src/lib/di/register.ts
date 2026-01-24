@@ -28,6 +28,7 @@ import {
   WizardContextMapperService,
   WizardStepMachineService,
   WizardSessionManagerService,
+  CodeHealthAnalysisService,
 } from '../services/wizard';
 
 /**
@@ -85,6 +86,13 @@ export function registerAgentGenerationServices(
   container.register(
     AGENT_GENERATION_TOKENS.WIZARD_SESSION_MANAGER,
     { useClass: WizardSessionManagerService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Code health analysis service - diagnostics, conventions, test coverage
+  container.register(
+    AGENT_GENERATION_TOKENS.CODE_HEALTH_ANALYSIS,
+    { useClass: CodeHealthAnalysisService },
     { lifecycle: Lifecycle.Singleton }
   );
 
@@ -152,6 +160,7 @@ export function registerAgentGenerationServices(
       'WIZARD_CONTEXT_MAPPER',
       'WIZARD_STEP_MACHINE',
       'WIZARD_SESSION_MANAGER',
+      'CODE_HEALTH_ANALYSIS',
       'VSCODE_LM_SERVICE',
       'AGENT_SELECTION_SERVICE',
       'CONTENT_GENERATION_SERVICE',
