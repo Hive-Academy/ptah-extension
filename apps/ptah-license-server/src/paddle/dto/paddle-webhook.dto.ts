@@ -144,22 +144,37 @@ export class PaddleWebhookPayloadDto {
 }
 
 /**
- * Type guard for subscription events
+ * Subscription event types supported by Paddle Billing v2
+ *
+ * Paddle Billing v2 best practices:
+ * - subscription.activated: Primary event for provisioning (recommended over subscription.created)
+ * - subscription.past_due: Payment failed, entering dunning period
+ * - subscription.paused: User paused subscription
+ * - subscription.resumed: User resumed paused subscription
  */
-export type PaddleSubscriptionEventType =
-  | 'subscription.created'
-  | 'subscription.updated'
-  | 'subscription.canceled';
+const SUBSCRIPTION_EVENTS = [
+  'subscription.created',
+  'subscription.activated',
+  'subscription.updated',
+  'subscription.canceled',
+  'subscription.past_due',
+  'subscription.paused',
+  'subscription.resumed',
+] as const;
+
+export type SubscriptionEventType = (typeof SUBSCRIPTION_EVENTS)[number];
+
+/**
+ * Type guard for subscription events
+ * @deprecated Use SubscriptionEventType for new code
+ */
+export type PaddleSubscriptionEventType = SubscriptionEventType;
 
 /**
  * Check if event type is a subscription event
  */
 export function isSubscriptionEvent(
   eventType: string
-): eventType is PaddleSubscriptionEventType {
-  return [
-    'subscription.created',
-    'subscription.updated',
-    'subscription.canceled',
-  ].includes(eventType);
+): eventType is SubscriptionEventType {
+  return SUBSCRIPTION_EVENTS.includes(eventType as SubscriptionEventType);
 }

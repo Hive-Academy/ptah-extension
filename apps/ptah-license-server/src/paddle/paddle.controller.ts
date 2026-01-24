@@ -151,6 +151,15 @@ export class PaddleController {
         return { received: true, ...result };
       }
 
+      case 'subscription.activated': {
+        // Paddle Billing v2 recommended event for license provisioning
+        const result = await this.paddleService.handleSubscriptionActivated(
+          data,
+          eventId
+        );
+        return { received: true, ...result };
+      }
+
       case 'subscription.updated': {
         const result = await this.paddleService.handleSubscriptionUpdated(
           data,
@@ -161,6 +170,33 @@ export class PaddleController {
 
       case 'subscription.canceled': {
         const result = await this.paddleService.handleSubscriptionCanceled(
+          data,
+          eventId
+        );
+        return { received: true, ...result };
+      }
+
+      case 'subscription.past_due': {
+        // Payment failed, entering dunning period
+        const result = await this.paddleService.handleSubscriptionPastDue(
+          data,
+          eventId
+        );
+        return { received: true, ...result };
+      }
+
+      case 'subscription.paused': {
+        // User paused their subscription
+        const result = await this.paddleService.handleSubscriptionPaused(
+          data,
+          eventId
+        );
+        return { received: true, ...result };
+      }
+
+      case 'subscription.resumed': {
+        // User resumed their paused subscription
+        const result = await this.paddleService.handleSubscriptionResumed(
           data,
           eventId
         );
