@@ -177,11 +177,14 @@ export class WizardStepMachineService {
     const isValid = expectedStep === actualStep;
 
     if (!isValid) {
-      this.logger.warn('[WizardStepMachine] Step transition validation failed', {
-        expectedStep,
-        actualStep,
-        message: `Expected ${expectedStep}, got ${actualStep}`,
-      });
+      this.logger.warn(
+        '[WizardStepMachine] Step transition validation failed',
+        {
+          expectedStep,
+          actualStep,
+          message: `Expected ${expectedStep}, got ${actualStep}`,
+        }
+      );
     }
 
     return isValid;

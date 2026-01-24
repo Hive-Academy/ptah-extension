@@ -232,12 +232,9 @@ export class DeepProjectAnalysisService {
     workspaceUri: vscode.Uri,
     vscodeApi: typeof import('vscode')
   ): Promise<ArchitecturePattern[]> {
-    this.logger.debug(
-      '[DeepProjectAnalysis] Detecting architecture patterns',
-      {
-        workspaceRoot: workspaceUri.fsPath,
-      }
-    );
+    this.logger.debug('[DeepProjectAnalysis] Detecting architecture patterns', {
+      workspaceRoot: workspaceUri.fsPath,
+    });
 
     const patterns: ArchitecturePattern[] = [];
 
@@ -583,9 +580,12 @@ export class DeepProjectAnalysisService {
     workspaceUri: vscode.Uri,
     vscodeApi: typeof import('vscode')
   ): Promise<LanguageStats[]> {
-    this.logger.debug('[DeepProjectAnalysis] Calculating language distribution', {
-      workspaceRoot: workspaceUri.fsPath,
-    });
+    this.logger.debug(
+      '[DeepProjectAnalysis] Calculating language distribution',
+      {
+        workspaceRoot: workspaceUri.fsPath,
+      }
+    );
 
     const languageCounts: Record<string, number> = {};
 
@@ -681,11 +681,14 @@ export class DeepProjectAnalysisService {
       }))
       .sort((a, b) => b.fileCount - a.fileCount);
 
-    this.logger.debug('[DeepProjectAnalysis] Language distribution calculated', {
-      totalFiles: total,
-      languageCount: stats.length,
-      topLanguage: stats[0]?.language,
-    });
+    this.logger.debug(
+      '[DeepProjectAnalysis] Language distribution calculated',
+      {
+        totalFiles: total,
+        languageCount: stats.length,
+        topLanguage: stats[0]?.language,
+      }
+    );
 
     return stats;
   }

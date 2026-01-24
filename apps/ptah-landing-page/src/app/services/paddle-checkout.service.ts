@@ -74,8 +74,10 @@ export class PaddleCheckoutService {
   private readonly PADDLE_SDK_URL =
     'https://cdn.paddle.com/paddle/v2/paddle.js';
   private readonly MAX_RETRY_ATTEMPTS = this.paddleConfig.maxRetries ?? 3;
-  private readonly LICENSE_VERIFY_RETRIES = this.paddleConfig.licenseVerifyRetries ?? 3;
-  private readonly LICENSE_VERIFY_DELAY = this.paddleConfig.licenseVerifyDelay ?? 2000;
+  private readonly LICENSE_VERIFY_RETRIES =
+    this.paddleConfig.licenseVerifyRetries ?? 3;
+  private readonly LICENSE_VERIFY_DELAY =
+    this.paddleConfig.licenseVerifyDelay ?? 2000;
 
   // Reactive state signals
   private readonly _isReady = signal(false);
@@ -263,12 +265,14 @@ export class PaddleCheckoutService {
 
     const isMonthlyPlaceholder = placeholderPatterns.some(
       (pattern) =>
-        !priceIdMonthly || priceIdMonthly.toLowerCase().includes(pattern.toLowerCase())
+        !priceIdMonthly ||
+        priceIdMonthly.toLowerCase().includes(pattern.toLowerCase())
     );
 
     const isYearlyPlaceholder = placeholderPatterns.some(
       (pattern) =>
-        !priceIdYearly || priceIdYearly.toLowerCase().includes(pattern.toLowerCase())
+        !priceIdYearly ||
+        priceIdYearly.toLowerCase().includes(pattern.toLowerCase())
     );
 
     if (isMonthlyPlaceholder || isYearlyPlaceholder) {

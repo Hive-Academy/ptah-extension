@@ -108,15 +108,12 @@ export class WizardContextMapperService {
       },
     };
 
-    this.logger.debug(
-      '[WizardContextMapper] Context mapping complete',
-      {
-        rootPath: mappedContext.rootPath,
-        projectType: mappedContext.projectType,
-        frameworkCount: mappedContext.frameworks.length,
-        techStackLanguages: mappedContext.techStack.languages,
-      }
-    );
+    this.logger.debug('[WizardContextMapper] Context mapping complete', {
+      rootPath: mappedContext.rootPath,
+      projectType: mappedContext.projectType,
+      frameworkCount: mappedContext.frameworks.length,
+      techStackLanguages: mappedContext.techStack.languages,
+    });
 
     return mappedContext;
   }

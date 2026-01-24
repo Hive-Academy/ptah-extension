@@ -179,7 +179,9 @@ export class WizardSessionManagerService {
    * }
    * ```
    */
-  async loadSavedState(workspaceRoot: string): Promise<WizardState | undefined> {
+  async loadSavedState(
+    workspaceRoot: string
+  ): Promise<WizardState | undefined> {
     const state = this.context.workspaceState.get<WizardState>(
       this.SESSION_STATE_KEY
     );
@@ -376,6 +378,8 @@ export class WizardSessionManagerService {
    * @returns True if saved state exists
    */
   hasSavedState(): boolean {
-    return this.context.workspaceState.get(this.SESSION_STATE_KEY) !== undefined;
+    return (
+      this.context.workspaceState.get(this.SESSION_STATE_KEY) !== undefined
+    );
   }
 }

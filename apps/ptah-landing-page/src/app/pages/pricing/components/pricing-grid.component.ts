@@ -292,7 +292,6 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     );
   }
 
-
   /**
    * Retry Paddle SDK initialization after failure
    * Evidence: Task 2.1 - Add retryPaddleInit method for error recovery

@@ -283,7 +283,12 @@ export class SetupWizardService implements ISetupWizardService {
       }
 
       // Validate step matches via stepMachine
-      if (!this.stepMachine.validateTransition(this.currentSession.currentStep, currentStep)) {
+      if (
+        !this.stepMachine.validateTransition(
+          this.currentSession.currentStep,
+          currentStep
+        )
+      ) {
         return Result.err(
           new Error(
             `Step mismatch: expected ${this.currentSession.currentStep}, got ${currentStep}`

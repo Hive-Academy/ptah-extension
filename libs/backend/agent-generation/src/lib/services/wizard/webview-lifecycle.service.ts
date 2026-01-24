@@ -28,9 +28,7 @@ import type { WizardStep } from '../../types/wizard.types';
  * Custom message handler function type.
  * Returns true if the message was handled, false otherwise.
  */
-export type CustomMessageHandler = (
-  message: unknown
-) => Promise<boolean>;
+export type CustomMessageHandler = (message: unknown) => Promise<boolean>;
 
 /**
  * Initial data for webview panel creation.
@@ -150,7 +148,9 @@ export class WizardWebviewLifecycleService {
         handler: async (message: unknown) => handler(message),
       })) as unknown as ((message: unknown) => Promise<boolean>)[],
       onReady: () => {
-        this.logger.info('[WizardWebviewLifecycle] Wizard webview ready signal received');
+        this.logger.info(
+          '[WizardWebviewLifecycle] Wizard webview ready signal received'
+        );
       },
     });
 
@@ -167,9 +167,12 @@ export class WizardWebviewLifecycleService {
       }
     );
 
-    this.logger.info('[WizardWebviewLifecycle] Wizard panel created successfully', {
-      viewType,
-    });
+    this.logger.info(
+      '[WizardWebviewLifecycle] Wizard panel created successfully',
+      {
+        viewType,
+      }
+    );
 
     return panel;
   }
@@ -216,11 +219,14 @@ export class WizardWebviewLifecycleService {
         error,
       });
     } catch (err) {
-      this.logger.error('[WizardWebviewLifecycle] Failed to send RPC response', {
-        error: err,
-        messageId,
-        hasError: !!error,
-      });
+      this.logger.error(
+        '[WizardWebviewLifecycle] Failed to send RPC response',
+        {
+          error: err,
+          messageId,
+          hasError: !!error,
+        }
+      );
     }
   }
 
@@ -297,9 +303,12 @@ export class WizardWebviewLifecycleService {
 
     try {
       this.webviewManager.disposeWebview(viewType);
-      this.logger.debug('[WizardWebviewLifecycle] Webview disposed successfully', {
-        viewType,
-      });
+      this.logger.debug(
+        '[WizardWebviewLifecycle] Webview disposed successfully',
+        {
+          viewType,
+        }
+      );
     } catch (error) {
       this.logger.warn(
         '[WizardWebviewLifecycle] Error disposing webview',
@@ -362,13 +371,10 @@ export class WizardWebviewLifecycleService {
     try {
       await panel.webview.postMessage(message);
     } catch (error) {
-      this.logger.error(
-        '[WizardWebviewLifecycle] Failed to send message',
-        {
-          error,
-          messageType: message['type'],
-        }
-      );
+      this.logger.error('[WizardWebviewLifecycle] Failed to send message', {
+        error,
+        messageType: message['type'],
+      });
     }
   }
 }

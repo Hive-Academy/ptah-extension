@@ -208,7 +208,8 @@ export class CodeHealthAnalysisService {
                 conventions.quoteStyle = config.singleQuote
                   ? 'single'
                   : 'double';
-              if (config.semi !== undefined) conventions.semicolons = config.semi;
+              if (config.semi !== undefined)
+                conventions.semicolons = config.semi;
               if (config.trailingComma)
                 conventions.trailingComma = config.trailingComma;
               if (config.printWidth)
