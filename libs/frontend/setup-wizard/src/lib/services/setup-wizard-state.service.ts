@@ -1,5 +1,33 @@
 import { Injectable, signal, computed, inject, OnDestroy } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
+import {
+  ArchitecturePattern,
+  KeyFileLocations,
+  DiagnosticSummary,
+  TestCoverageEstimate,
+  AgentRecommendation,
+  AgentCategory,
+  ProjectAnalysisResult,
+  WizardMessage,
+  WizardMessageType,
+  ScanProgressPayload,
+  AnalysisCompletePayload,
+  AvailableAgentsPayload,
+  GenerationProgressPayload,
+  GenerationCompletePayload,
+  ErrorPayload,
+} from '@ptah-extension/shared';
+
+// Re-export shared types for backward compatibility with existing consumers
+export type {
+  ArchitecturePattern,
+  KeyFileLocations,
+  DiagnosticSummary,
+  TestCoverageEstimate,
+  AgentRecommendation,
+  AgentCategory,
+  ProjectAnalysisResult,
+} from '@ptah-extension/shared';
 
 /**
  * Wizard step identifiers matching the 7-step setup flow
@@ -93,153 +121,6 @@ export interface CompletionData {
 export interface ErrorState {
   message: string;
   details?: string;
-}
-
-// =============================================================================
-// Deep Analysis Types for MCP-Powered Setup Wizard (TASK_2025_111)
-// =============================================================================
-
-/**
- * Architecture pattern detected in the project.
- * Mirrors backend ArchitecturePattern interface.
- */
-export interface ArchitecturePatternResult {
-  /** Pattern name (e.g., 'DDD', 'Layered', 'Microservices') */
-  name: string;
-  /** Confidence score 0-100 */
-  confidence: number;
-  /** File paths or folder names that indicate this pattern */
-  evidence: string[];
-  /** Optional description of the detected pattern */
-  description?: string;
-}
-
-/**
- * Key file locations organized by purpose.
- * Used for agent context and file discovery instructions.
- */
-export interface KeyFileLocationsResult {
-  /** Application entry points (main.ts, index.ts) */
-  entryPoints: string[];
-  /** Configuration files */
-  configs: string[];
-  /** Test directories */
-  testDirectories: string[];
-  /** API route definitions */
-  apiRoutes?: string[];
-  /** UI component directories */
-  components?: string[];
-  /** Service layer directories */
-  services?: string[];
-}
-
-/**
- * Diagnostic summary from VS Code diagnostics.
- */
-export interface DiagnosticSummaryResult {
-  /** Total error count */
-  errorCount: number;
-  /** Total warning count */
-  warningCount: number;
-  /** Total info count */
-  infoCount?: number;
-}
-
-/**
- * Test coverage estimate information.
- */
-export interface TestCoverageEstimateResult {
-  /** Estimated coverage percentage 0-100 */
-  percentage: number;
-  /** Whether any tests were detected */
-  hasTests: boolean;
-  /** Detected test framework (jest, mocha, vitest, etc.) */
-  testFramework?: string;
-  /** Whether unit tests exist */
-  hasUnitTests?: boolean;
-  /** Whether integration tests exist */
-  hasIntegrationTests?: boolean;
-  /** Whether e2e tests exist */
-  hasE2eTests?: boolean;
-}
-
-/**
- * Deep project analysis result from MCP-powered analysis.
- * Contains comprehensive project insights for intelligent agent recommendations.
- *
- * This interface aligns with backend DeepProjectAnalysis but is simplified
- * for frontend display purposes.
- */
-export interface ProjectAnalysisResult {
-  // Basic project info (existing)
-  /** Detected project type (Angular, React, Node.js, etc.) */
-  projectType: string;
-  /** Total file count in the workspace */
-  fileCount: number;
-  /** Programming languages detected */
-  languages: string[];
-  /** Frameworks detected */
-  frameworks: string[];
-  /** Monorepo type if applicable */
-  monorepoType?: string;
-
-  // Deep analysis results (new)
-  /** Detected architecture patterns with confidence scores */
-  architecturePatterns: ArchitecturePatternResult[];
-  /** Key file locations grouped by purpose */
-  keyFileLocations: KeyFileLocationsResult;
-  /** Language distribution statistics */
-  languageDistribution?: Array<{
-    language: string;
-    percentage: number;
-    fileCount: number;
-  }>;
-  /** Existing code issues summary */
-  existingIssues: DiagnosticSummaryResult;
-  /** Estimated test coverage */
-  testCoverage: TestCoverageEstimateResult;
-  /** Detected code conventions */
-  codeConventions?: {
-    indentation: 'tabs' | 'spaces';
-    indentSize: number;
-    quoteStyle: 'single' | 'double';
-    semicolons: boolean;
-  };
-}
-
-/**
- * Agent category for grouping in UI.
- */
-export type AgentCategory =
-  | 'planning'
-  | 'development'
-  | 'qa'
-  | 'specialist'
-  | 'creative';
-
-/**
- * Agent recommendation from deep analysis.
- * Provides a scored recommendation for each agent based on project characteristics.
- *
- * Mirrors backend AgentRecommendation interface.
- */
-export interface AgentRecommendation {
-  /** Unique agent identifier (kebab-case) */
-  agentId: string;
-  /** Human-readable agent name */
-  agentName: string;
-  /** Agent description for display */
-  description: string;
-  /** Relevance score 0-100 based on project analysis */
-  relevanceScore: number;
-  /** Criteria that contributed to the score */
-  matchedCriteria: string[];
-  /** Agent category for grouping */
-  category: AgentCategory;
-  /** Whether this agent is recommended (score >= 75) */
-  recommended: boolean;
-  /** Optional icon identifier */
-  icon?: string;
 }
 
 /**
@@ -743,20 +624,57 @@ export class SetupWizardStateService implements OnDestroy {
     });
   }
 
+  // ============================================================================
+  // Message Handling with Discriminated Union (TASK_2025_113 - T3.2)
+  // ============================================================================
+
   /**
-   * Setup message listener for backend progress updates
-   * Handles all setup-wizard:* messages from the extension backend
+   * Type guard for WizardMessage discriminated union.
+   * Validates message structure matches expected format for type-safe handling.
+   *
+   * @param message - Unknown message from MessageEvent
+   * @returns true if message is a valid WizardMessage
+   */
+  private isWizardMessage(message: unknown): message is WizardMessage {
+    if (
+      typeof message !== 'object' ||
+      message === null ||
+      !('type' in message) ||
+      !('payload' in message)
+    ) {
+      return false;
+    }
+
+    const validTypes: WizardMessageType[] = [
+      'setup-wizard:scan-progress',
+      'setup-wizard:analysis-complete',
+      'setup-wizard:available-agents',
+      'setup-wizard:generation-progress',
+      'setup-wizard:generation-complete',
+      'setup-wizard:error',
+    ];
+
+    return validTypes.includes(
+      (message as { type: string }).type as WizardMessageType
+    );
+  }
+
+  /**
+   * Setup message listener for backend progress updates.
+   * Uses discriminated union for type-safe message handling.
+   * Handles all setup-wizard:* messages from the extension backend.
    */
   private setupMessageListener(): void {
     const messageHandler = (event: MessageEvent) => {
       const message = event.data;
 
-      // Type guard for message type
-      if (!message || typeof message.type !== 'string') {
-        return;
+      // Validate message is a wizard message using discriminated union type guard
+      if (!this.isWizardMessage(message)) {
+        return; // Ignore non-wizard messages
       }
 
       try {
+        // Type-safe switch with exhaustive checking via discriminated union
         switch (message.type) {
           case 'setup-wizard:scan-progress':
             this.handleScanProgress(message.payload);
@@ -783,8 +701,11 @@ export class SetupWizardStateService implements OnDestroy {
             break;
 
           default:
-            // Ignore unknown message types
-            break;
+            // TypeScript exhaustiveness check - ensures all message types are handled
+            // If a new message type is added to WizardMessage but not handled here,
+            // TypeScript will produce a compile-time error
+            const _exhaustiveCheck: never = message;
+            console.warn('Unhandled wizard message type:', _exhaustiveCheck);
         }
       } catch (error) {
         console.error('Error handling setup wizard message:', error);
@@ -804,14 +725,12 @@ export class SetupWizardStateService implements OnDestroy {
   }
 
   /**
-   * Handle scan progress updates
+   * Handle scan progress updates.
+   * Payload is now typed via discriminated union.
+   *
+   * @param payload - Typed ScanProgressPayload from shared types
    */
-  private handleScanProgress(payload: unknown): void {
-    if (!this.isValidScanProgress(payload)) {
-      console.warn('Invalid scan progress payload:', payload);
-      return;
-    }
-
+  private handleScanProgress(payload: ScanProgressPayload): void {
     this.scanProgressSignal.set(payload);
     this.generationProgressSignal.set({
       phase: 'analysis',
@@ -825,153 +744,100 @@ export class SetupWizardStateService implements OnDestroy {
   }
 
   /**
-   * Handle analysis complete
+   * Handle analysis complete.
+   * Payload is now typed via discriminated union.
+   *
+   * @param payload - Typed AnalysisCompletePayload from shared types
    */
-  private handleAnalysisComplete(payload: unknown): void {
-    if (!this.isValidAnalysisResults(payload)) {
-      console.warn('Invalid analysis results payload:', payload);
-      return;
-    }
+  private handleAnalysisComplete(payload: AnalysisCompletePayload): void {
+    // Map AnalysisCompletePayload to local AnalysisResults format
+    const analysisResults: AnalysisResults = {
+      projectContext: {
+        type: payload.projectContext.type,
+        techStack: payload.projectContext.techStack,
+        architecture: payload.projectContext.architecture,
+        isMonorepo: payload.projectContext.isMonorepo,
+        monorepoType: payload.projectContext.monorepoType,
+        packageCount: payload.projectContext.packageCount,
+      },
+    };
 
-    this.analysisResultsSignal.set(payload);
-    this.projectContextSignal.set(payload.projectContext);
+    this.analysisResultsSignal.set(analysisResults);
+    this.projectContextSignal.set(analysisResults.projectContext);
     this.currentStepSignal.set('analysis');
   }
 
   /**
-   * Handle available agents
+   * Handle available agents.
+   * Payload is now typed via discriminated union.
+   *
+   * @param payload - Typed AvailableAgentsPayload from shared types
    */
-  private handleAvailableAgents(payload: unknown): void {
-    if (!this.isValidAvailableAgents(payload)) {
-      console.warn('Invalid available agents payload:', payload);
-      return;
-    }
+  private handleAvailableAgents(payload: AvailableAgentsPayload): void {
+    // Map AvailableAgentsPayload to local AgentSelection[] format
+    const agents: AgentSelection[] = payload.agents.map((agent) => ({
+      id: agent.id,
+      name: agent.name,
+      selected: agent.selected,
+      score: agent.score,
+      reason: agent.reason,
+      autoInclude: agent.autoInclude,
+    }));
 
-    this.availableAgentsSignal.set(payload.agents);
+    this.availableAgentsSignal.set(agents);
   }
 
   /**
-   * Handle generation progress updates
+   * Handle generation progress updates.
+   * Payload is now typed via discriminated union.
+   *
+   * @param payload - Typed GenerationProgressPayload from shared types
    */
-  private handleGenerationProgress(payload: unknown): void {
-    if (!this.isValidGenerationProgress(payload)) {
-      console.warn('Invalid generation progress payload:', payload);
-      return;
-    }
-
+  private handleGenerationProgress(payload: GenerationProgressPayload): void {
     this.generationProgressSignal.set(payload.progress);
   }
 
   /**
-   * Handle generation complete
+   * Handle generation complete.
+   * Payload is now typed via discriminated union.
+   *
+   * @param payload - Typed GenerationCompletePayload from shared types
    */
-  private handleGenerationComplete(payload: unknown): void {
-    if (!this.isValidCompletionData(payload)) {
-      console.warn('Invalid completion data payload:', payload);
-      return;
-    }
+  private handleGenerationComplete(payload: GenerationCompletePayload): void {
+    // Map GenerationCompletePayload to local CompletionData format
+    const completionData: CompletionData = {
+      success: payload.success,
+      generatedCount: payload.generatedCount,
+      duration: payload.duration,
+      errors: payload.errors,
+    };
 
-    this.completionDataSignal.set(payload);
+    this.completionDataSignal.set(completionData);
     this.currentStepSignal.set('completion');
   }
 
   /**
-   * Handle error messages
+   * Handle error messages.
+   * Payload is now typed via discriminated union.
+   *
+   * @param payload - Typed ErrorPayload from shared types
    */
-  private handleError(payload: unknown): void {
-    if (!this.isValidErrorState(payload)) {
-      console.warn('Invalid error payload:', payload);
-      return;
-    }
+  private handleError(payload: ErrorPayload): void {
+    // Map ErrorPayload to local ErrorState format
+    const errorState: ErrorState = {
+      message: payload.message,
+      details: payload.details,
+    };
 
-    this.errorStateSignal.set(payload);
-  }
-
-  /**
-   * Type guard for ScanProgress
-   */
-  private isValidScanProgress(payload: unknown): payload is ScanProgress {
-    return (
-      typeof payload === 'object' &&
-      payload !== null &&
-      'filesScanned' in payload &&
-      'totalFiles' in payload &&
-      'detections' in payload &&
-      typeof (payload as ScanProgress).filesScanned === 'number' &&
-      typeof (payload as ScanProgress).totalFiles === 'number' &&
-      Array.isArray((payload as ScanProgress).detections)
-    );
-  }
-
-  /**
-   * Type guard for AnalysisResults
-   */
-  private isValidAnalysisResults(payload: unknown): payload is AnalysisResults {
-    return (
-      typeof payload === 'object' &&
-      payload !== null &&
-      'projectContext' in payload &&
-      typeof (payload as AnalysisResults).projectContext === 'object'
-    );
-  }
-
-  /**
-   * Type guard for AvailableAgents payload
-   */
-  private isValidAvailableAgents(
-    payload: unknown
-  ): payload is { agents: AgentSelection[] } {
-    return (
-      typeof payload === 'object' &&
-      payload !== null &&
-      'agents' in payload &&
-      Array.isArray((payload as { agents: AgentSelection[] }).agents)
-    );
-  }
-
-  /**
-   * Type guard for GenerationProgress payload
-   */
-  private isValidGenerationProgress(
-    payload: unknown
-  ): payload is { progress: GenerationProgress } {
-    return (
-      typeof payload === 'object' &&
-      payload !== null &&
-      'progress' in payload &&
-      typeof (payload as { progress: GenerationProgress }).progress === 'object'
-    );
-  }
-
-  /**
-   * Type guard for CompletionData
-   */
-  private isValidCompletionData(payload: unknown): payload is CompletionData {
-    return (
-      typeof payload === 'object' &&
-      payload !== null &&
-      'success' in payload &&
-      'generatedCount' in payload &&
-      typeof (payload as CompletionData).success === 'boolean' &&
-      typeof (payload as CompletionData).generatedCount === 'number'
-    );
-  }
-
-  /**
-   * Type guard for ErrorState
-   */
-  private isValidErrorState(payload: unknown): payload is ErrorState {
-    return (
-      typeof payload === 'object' &&
-      payload !== null &&
-      'message' in payload &&
-      typeof (payload as ErrorState).message === 'string'
-    );
+    this.errorStateSignal.set(errorState);
   }
 
   /**
    * Angular lifecycle hook - cleanup on service destruction.
    * Removes message listener to prevent memory leaks.
+   *
+   * Note: Root services (providedIn: 'root') are never destroyed in normal operation.
+   * This cleanup is provided for testing scenarios and explicit teardown.
    */
   ngOnDestroy(): void {
     if (this.messageListenerCleanup) {
