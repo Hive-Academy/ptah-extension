@@ -24,7 +24,10 @@ import { ContentGenerationService } from '../services/content-generation.service
 import { AgentFileWriterService } from '../services/file-writer.service';
 import { OutputValidationService } from '../services/output-validation.service';
 import { VsCodeLmService } from '../services/vscode-lm.service';
-import { WizardContextMapperService } from '../services/wizard';
+import {
+  WizardContextMapperService,
+  WizardStepMachineService,
+} from '../services/wizard';
 
 /**
  * Register all agent-generation services in DI container
@@ -67,6 +70,13 @@ export function registerAgentGenerationServices(
   container.register(
     AGENT_GENERATION_TOKENS.WIZARD_CONTEXT_MAPPER,
     { useClass: WizardContextMapperService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Wizard step machine service - step state machine and transition logic
+  container.register(
+    AGENT_GENERATION_TOKENS.WIZARD_STEP_MACHINE,
+    { useClass: WizardStepMachineService },
     { lifecycle: Lifecycle.Singleton }
   );
 
@@ -132,6 +142,7 @@ export function registerAgentGenerationServices(
       'OUTPUT_VALIDATION_SERVICE',
       'TEMPLATE_STORAGE_SERVICE',
       'WIZARD_CONTEXT_MAPPER',
+      'WIZARD_STEP_MACHINE',
       'VSCODE_LM_SERVICE',
       'AGENT_SELECTION_SERVICE',
       'CONTENT_GENERATION_SERVICE',
