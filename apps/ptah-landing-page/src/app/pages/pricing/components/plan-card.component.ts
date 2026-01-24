@@ -6,6 +6,7 @@ import {
 } from '@angular/core';
 import { NgOptimizedImage } from '@angular/common';
 import { PricingPlan } from '../models/pricing-plan.interface';
+import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
 
 /**
  * PlanCardComponent - Reusable pricing plan card
@@ -57,9 +58,10 @@ import { PricingPlan } from '../models/pricing-plan.interface';
           {{ plan().price }}
         </div>
         @if (plan().priceSubtext) {
-        <p class="text-base-content/60 text-sm mt-1">{{ plan().priceSubtext }}</p>
-        }
-        @if (plan().savings) {
+        <p class="text-base-content/60 text-sm mt-1">
+          {{ plan().priceSubtext }}
+        </p>
+        } @if (plan().savings) {
         <div class="badge badge-success mt-2">{{ plan().savings }}</div>
         }
       </div>
@@ -102,18 +104,19 @@ import { PricingPlan } from '../models/pricing-plan.interface';
         (click)="!isButtonDisabled() && ctaClick.emit(plan())"
       >
         @if (isLoading()) {
-          <span class="loading loading-spinner loading-sm"></span>
-          <span>Processing...</span>
+        <span class="loading loading-spinner loading-sm"></span>
+        <span>Processing...</span>
         } @else {
-          {{ plan().ctaText }}
+        {{ plan().ctaText }}
         }
       </button>
 
       <!-- Tooltip for disabled state (when not loading) -->
-      @if (isButtonDisabled() && !isLoading() && plan().ctaAction === 'checkout') {
-        <div class="text-center text-xs text-base-content/50 mt-2">
-          Checkout temporarily unavailable
-        </div>
+      @if (isButtonDisabled() && !isLoading() && plan().ctaAction ===
+      'checkout') {
+      <div class="text-center text-xs text-base-content/50 mt-2">
+        Checkout temporarily unavailable
+      </div>
       }
     </div>
   `,
@@ -147,19 +150,7 @@ export class PlanCardComponent {
     // Only validate for checkout actions
     if (p.ctaAction !== 'checkout') return false;
 
-    // Disabled if no price ID
-    if (!p.priceId) return true;
-
-    // Check for placeholder patterns
-    if (
-      p.priceId.includes('REPLACE') ||
-      p.priceId.includes('xxxxxxxxx') ||
-      p.priceId.includes('yyyyyyyyy') ||
-      p.priceId.includes('REPLACE_ME')
-    ) {
-      return true;
-    }
-
-    return false;
+    // Check for placeholder patterns using shared utility
+    return isPriceIdPlaceholder(p.priceId);
   }
 }

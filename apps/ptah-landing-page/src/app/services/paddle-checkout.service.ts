@@ -451,8 +451,6 @@ export class PaddleCheckoutService {
   }
 
   private handlePaddleEvent(event: PaddleEvent): void {
-    console.log('Paddle event:', event.name, event.data);
-
     switch (event.name) {
       case 'checkout.completed':
         this.clearCheckoutTimeout();

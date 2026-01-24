@@ -17,6 +17,7 @@ import {
 import { PaddleCheckoutService } from '../../../services/paddle-checkout.service';
 import { AuthService } from '../../../services/auth.service';
 import { environment } from '../../../../environments/environment';
+import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
 
 /**
  * PricingGridComponent - Grid of pricing plan cards
@@ -239,7 +240,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     }
 
     if (plan.ctaAction === 'checkout') {
-      if (!plan.priceId || this.isPriceIdPlaceholder(plan.priceId)) {
+      if (isPriceIdPlaceholder(plan.priceId)) {
         this.configError.set(
           'Checkout is not configured yet. Please try again later.'
         );
@@ -267,11 +268,8 @@ export class PricingGridComponent implements OnInit, OnDestroy {
           });
         },
         error: () => {
-          // Log warning when auth fails and checkout proceeds without email
-          console.warn(
-            'Auth check failed, proceeding without email pre-fill. User will need to enter email manually in checkout.'
-          );
-          // Proceed without email if auth check fails
+          // Auth check failed, proceed without email pre-fill
+          // User will need to enter email manually in Paddle checkout overlay
           this.paddleService.openCheckout({
             priceId: plan.priceId!,
           });
@@ -294,18 +292,6 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     );
   }
 
-  /**
-   * Check if price ID is a placeholder that needs replacement
-   * Evidence: Task 2.1 - Add isPriceIdPlaceholder validation method
-   */
-  private isPriceIdPlaceholder(priceId: string): boolean {
-    return (
-      priceId.includes('REPLACE') ||
-      priceId.includes('xxxxxxxxx') ||
-      priceId.includes('yyyyyyyyy') ||
-      priceId.includes('REPLACE_ME')
-    );
-  }
 
   /**
    * Retry Paddle SDK initialization after failure
