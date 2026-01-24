@@ -4,7 +4,7 @@ import {
   ViewportAnimationDirective,
   ScrollAnimationDirective,
 } from '@hive-academy/angular-gsap';
-import { NgClass } from '@angular/common';
+import { NgClass, NgOptimizedImage } from '@angular/common';
 
 interface TimelineStep {
   id: string;
@@ -24,10 +24,10 @@ interface TimelineStep {
  */
 @Component({
   selector: 'ptah-features-hijacked-scroll',
-  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     NgClass,
+    NgOptimizedImage,
     FeatureShowcaseTimelineComponent,
     ViewportAnimationDirective,
     ScrollAnimationDirective,
@@ -167,9 +167,12 @@ interface TimelineStep {
                 }"
               >
                 <img
-                  [src]="step.image"
+                  [ngSrc]="step.image"
                   [alt]="step.title"
+                  width="800"
+                  height="600"
                   class="w-full h-full object-cover object-center"
+                  priority
                 />
               </div>
 

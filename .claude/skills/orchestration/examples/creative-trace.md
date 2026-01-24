@@ -15,6 +15,7 @@ This document shows a complete CREATIVE workflow trace from user request to impl
 ## Phase 0: Strategy Detection
 
 **Orchestrator Analysis**:
+
 ```
 Keywords detected: "landing page", "design", "copy" -> CREATIVE
 Affected areas: Marketing content, visual design, frontend implementation
@@ -25,6 +26,7 @@ Decision: Proceed with CREATIVE strategy
 ```
 
 **Orchestrator Output**:
+
 ```
 TASK INITIALIZED: TASK_2025_047
 
@@ -42,6 +44,7 @@ Checking for existing design system...
 ## Phase 1: Design System Check
 
 **Orchestrator Action**:
+
 ```typescript
 // Check if design system exists
 const designSystemPath = '.claude/skills/technical-content-writer/DESIGN-SYSTEM.md';
@@ -52,6 +55,7 @@ const exists = await fileExists(designSystemPath);
 ```
 
 **Orchestrator Output**:
+
 ```
 Design system not found at: .claude/skills/technical-content-writer/DESIGN-SYSTEM.md
 
@@ -63,6 +67,7 @@ Invoking ui-ux-designer to create brand identity and design system...
 ## Phase 2: UI/UX Designer - Niche Discovery
 
 **Orchestrator Invocation**:
+
 ```typescript
 Task({
   subagent_type: 'ui-ux-designer',
@@ -73,11 +78,12 @@ Task({
 **Goal**: Create a complete design system for Ptah VS Code extension landing page
 
 Guide through niche discovery, then create design system.
-See ui-ux-designer.md for detailed instructions.`
+See ui-ux-designer.md for detailed instructions.`,
 });
 ```
 
 **UI/UX Designer - Discovery Phase**:
+
 ```
 NICHE DISCOVERY - TASK_2025_047
 
@@ -98,6 +104,7 @@ Reply with A, B, C, or D (or describe your own).
 **User Response**: `B - but also want it to feel premium, not startup-y`
 
 **Designer Continues**:
+
 ```
 Great choice! Innovative + Premium creates "Tech Luxury" aesthetic.
 
@@ -118,7 +125,8 @@ Reply with A, B, C, or D.
 **Designer Continues** (Questions 3-5 similarly...)
 
 **UI/UX Designer Output** (DESIGN-SYSTEM.md):
-```markdown
+
+````markdown
 # Ptah Design System
 
 ## Brand Aesthetic: "Cosmic Developer"
@@ -129,16 +137,19 @@ evoking intelligence, innovation, and developer-first design.
 ## Color Palette
 
 ### Primary Colors
+
 - `--ptah-bg-primary`: #0d0d0f (Deep void)
 - `--ptah-bg-secondary`: #141419 (Elevated surface)
 - `--ptah-bg-tertiary`: #1c1c24 (Card surfaces)
 
 ### Accent Colors
+
 - `--ptah-accent-primary`: #8b5cf6 (Cosmic purple)
 - `--ptah-accent-secondary`: #a78bfa (Light purple)
 - `--ptah-accent-glow`: rgba(139, 92, 246, 0.2) (Glow effect)
 
 ### Text Colors
+
 - `--ptah-text-primary`: #f8fafc (Headlines)
 - `--ptah-text-secondary`: #94a3b8 (Body text)
 - `--ptah-text-muted`: #64748b (Subtle text)
@@ -146,11 +157,13 @@ evoking intelligence, innovation, and developer-first design.
 ## Typography
 
 ### Font Stack
+
 - Display: "Cal Sans", "Inter", system-ui
 - Body: "Inter", system-ui
 - Code: "JetBrains Mono", "Fira Code", monospace
 
 ### Type Scale
+
 - Hero: 4.5rem / 1.1 / -0.02em
 - H1: 3rem / 1.2 / -0.01em
 - H2: 2rem / 1.3
@@ -160,49 +173,49 @@ evoking intelligence, innovation, and developer-first design.
 ## Effects & Animation
 
 ### Glow Effects
+
 ```css
 .ptah-glow {
-  box-shadow:
-    0 0 20px var(--ptah-accent-glow),
-    0 0 40px var(--ptah-accent-glow);
+  box-shadow: 0 0 20px var(--ptah-accent-glow), 0 0 40px var(--ptah-accent-glow);
 }
 
 .ptah-glow-text {
   text-shadow: 0 0 20px var(--ptah-accent-glow);
 }
 ```
+````
 
 ### Transitions
+
 - Default: 200ms ease-out
 - Hover: 150ms ease-in-out
 - Page: 400ms cubic-bezier(0.4, 0, 0.2, 1)
 
 ### Gradients
+
 ```css
 .ptah-gradient-hero {
-  background: linear-gradient(
-    135deg,
-    var(--ptah-bg-primary) 0%,
-    var(--ptah-bg-secondary) 50%,
-    rgba(139, 92, 246, 0.1) 100%
-  );
+  background: linear-gradient(135deg, var(--ptah-bg-primary) 0%, var(--ptah-bg-secondary) 50%, rgba(139, 92, 246, 0.1) 100%);
 }
 ```
 
 ## Component Patterns
 
 ### Buttons
+
 - Primary: Filled purple, white text, glow on hover
 - Secondary: Ghost with purple border, fill on hover
 - Size: 48px height minimum (accessibility)
 
 ### Cards
+
 - Background: --ptah-bg-tertiary
 - Border: 1px solid rgba(139, 92, 246, 0.2)
 - Border-radius: 16px
 - Hover: Subtle glow, slight lift
 
 ### Code Blocks
+
 - Background: --ptah-bg-primary
 - Border-left: 3px solid --ptah-accent-primary
 - Font: JetBrains Mono
@@ -211,14 +224,17 @@ evoking intelligence, innovation, and developer-first design.
 ## Layout
 
 ### Container
+
 - Max-width: 1280px
 - Padding: 24px (mobile) / 48px (desktop)
 
 ### Section Spacing
+
 - Between sections: 120px (desktop) / 80px (mobile)
 - Within sections: 48px
 
 ### Grid
+
 - 12 columns
 - Gap: 32px
 - Breakpoints: 640px, 768px, 1024px, 1280px
@@ -226,20 +242,24 @@ evoking intelligence, innovation, and developer-first design.
 ## Imagery Guidelines
 
 ### Screenshots
+
 - Use dark VS Code theme
 - Show Ptah in action (chat, completions)
 - Add subtle purple glow around edges
 
 ### Icons
+
 - Style: Outline, 2px stroke
 - Size: 24px default, 20px small
 - Color: Inherit from text or accent
 
 ### Illustrations
+
 - Abstract, geometric shapes
 - Purple gradient overlays
 - Subtle particle effects
-```
+
+````
 
 **Designer Also Creates** (visual-design-specification.md):
 ```markdown
@@ -280,13 +300,14 @@ evoking intelligence, innovation, and developer-first design.
 - Minimal, dark background
 - Links: Docs, GitHub, Twitter, Discord
 - "Built with Claude" attribution
-```
+````
 
 ---
 
 ## Phase 3: Technical Content Writer
 
 **Orchestrator Invocation**:
+
 ```typescript
 Task({
   subagent_type: 'technical-content-writer',
@@ -298,11 +319,12 @@ Task({
 **Visual Spec**: Read task-tracking/TASK_2025_047/visual-design-specification.md
 
 Create landing page content that integrates with the design system.
-See technical-content-writer.md for detailed instructions.`
+See technical-content-writer.md for detailed instructions.`,
 });
 ```
 
 **Content Writer - Codebase Investigation**:
+
 ```
 CODEBASE INVESTIGATION - TASK_2025_047
 
@@ -326,10 +348,12 @@ Technical Accuracy Verified.
 ```
 
 **Content Writer Output** (content-specification.md):
+
 ```markdown
 # Landing Page Content Specification - TASK_2025_047
 
 ## Design System Reference
+
 Colors, typography, and effects defined in:
 `.claude/skills/technical-content-writer/DESIGN-SYSTEM.md`
 
@@ -339,13 +363,17 @@ Colors, typography, and effects defined in:
 
 ### Headline
 ```
+
 Claude Code, Elevated.
+
 ```
 
 ### Subheadline
 ```
+
 The premium VS Code experience for Claude.
 Native integration. Real-time streaming. 10x faster with Agent SDK.
+
 ```
 
 ### CTA Buttons
@@ -363,7 +391,9 @@ Native integration. Real-time streaming. 10x faster with Agent SDK.
 
 ### Section Headline
 ```
+
 Built for developers who demand more.
+
 ```
 
 ### Feature 1: Native Integration
@@ -371,8 +401,10 @@ Built for developers who demand more.
 **Headline**: Native VS Code Experience
 **Description**:
 ```
+
 Not a browser wrapper. Ptah lives in your editor with native
 panels, keybindings, and workspace awareness.
+
 ```
 
 ### Feature 2: Agent SDK
@@ -380,8 +412,10 @@ panels, keybindings, and workspace awareness.
 **Headline**: 10x Faster with Agent SDK
 **Description**:
 ```
+
 Direct API integration bypasses CLI overhead.
 Your conversations feel instant, not queued.
+
 ```
 
 ### Feature 3: Real Streaming
@@ -389,8 +423,10 @@ Your conversations feel instant, not queued.
 **Headline**: True Token Streaming
 **Description**:
 ```
+
 Watch responses appear character-by-character.
 No fake typewriter effects. Real streaming.
+
 ```
 
 ### Feature 4: Workspace Intelligence
@@ -398,8 +434,10 @@ No fake typewriter effects. Real streaming.
 **Headline**: Context That Understands
 **Description**:
 ```
+
 Automatic project detection, smart file indexing,
 and token-optimized context for accurate responses.
+
 ```
 
 ### Feature 5: Multi-Provider
@@ -407,8 +445,10 @@ and token-optimized context for accurate responses.
 **Headline**: Your Choice of AI
 **Description**:
 ```
+
 Claude, GPT-4, Gemini, or VS Code's built-in LM API.
 Switch providers without changing workflows.
+
 ```
 
 ### Feature 6: Premium MCP
@@ -416,8 +456,10 @@ Switch providers without changing workflows.
 **Headline**: MCP Server Integration
 **Description**:
 ```
+
 Connect external tools and data sources.
 Extend Claude's capabilities with your own servers.
+
 ```
 
 ---
@@ -426,13 +468,17 @@ Extend Claude's capabilities with your own servers.
 
 ### Headline
 ```
+
 See Ptah in action.
+
 ```
 
 ### Description
 ```
+
 Real-time chat with workspace context, intelligent autocomplete,
 and seamless tool execution—all without leaving VS Code.
+
 ```
 
 ### Media
@@ -446,7 +492,9 @@ and seamless tool execution—all without leaving VS Code.
 
 ### Headline
 ```
+
 Loved by developers.
+
 ```
 
 ### Testimonial 1
@@ -470,13 +518,17 @@ Loved by developers.
 
 ### Headline
 ```
+
 Ready to elevate your workflow?
+
 ```
 
 ### Subheadline
 ```
+
 Join thousands of developers using Ptah.
 Free forever. Premium features available.
+
 ```
 
 ### CTA Button
@@ -497,7 +549,9 @@ Free forever. Premium features available.
 
 ### Attribution
 ```
+
 Powered by Claude. Built with love.
+
 ```
 
 ---
@@ -506,13 +560,17 @@ Powered by Claude. Built with love.
 
 ### Title
 ```
+
 Ptah - Premium Claude Code for VS Code
+
 ```
 
 ### Description
 ```
+
 The native VS Code extension for Claude Code. 10x faster with Agent SDK,
 real streaming, workspace intelligence, and multi-provider support.
+
 ```
 
 ### Keywords
@@ -528,6 +586,7 @@ real streaming, workspace intelligence, and multi-provider support.
 ## Phase 4: Frontend Developer
 
 **Orchestrator Invocation**:
+
 ```typescript
 Task({
   subagent_type: 'frontend-developer',
@@ -539,11 +598,12 @@ Task({
 **Content Spec**: Read task-tracking/TASK_2025_047/content-specification.md
 
 Implement the landing page with design system integration.
-See frontend-developer.md for detailed instructions.`
+See frontend-developer.md for detailed instructions.`,
 });
 ```
 
 **Frontend Developer Output**:
+
 ```
 IMPLEMENTATION COMPLETE - TASK_2025_047
 
@@ -574,6 +634,7 @@ Lighthouse Score: 95 (Performance), 100 (Accessibility)
 ## Checkpoint: QA Selection
 
 **Orchestrator Presents**:
+
 ```
 USER CHECKPOINT - QA SELECTION - TASK_2025_047
 
@@ -595,6 +656,7 @@ Reply with your choice.
 ## Phase 5: Code Style Reviewer
 
 **Orchestrator Invocation**:
+
 ```typescript
 Task({
   subagent_type: 'code-style-reviewer',
@@ -605,33 +667,34 @@ Task({
 **Changes**: New landing page components
 
 Review for Angular patterns and design system consistency.
-See code-style-reviewer.md for detailed instructions.`
+See code-style-reviewer.md for detailed instructions.`,
 });
 ```
 
 **Style Reviewer Output** (code-review.md):
+
 ```markdown
 # Style Review - TASK_2025_047
 
 ## Design System Compliance
 
-| Component | Colors | Typography | Effects | Status |
-|-----------|--------|------------|---------|--------|
-| Hero | OK | OK | Glow applied | PASS |
-| Features | OK | OK | Card hover | PASS |
-| Demo | OK | OK | Frame glow | PASS |
-| Testimonials | OK | OK | - | PASS |
-| CTA | OK | OK | Button glow | PASS |
-| Footer | OK | OK | - | PASS |
+| Component    | Colors | Typography | Effects      | Status |
+| ------------ | ------ | ---------- | ------------ | ------ |
+| Hero         | OK     | OK         | Glow applied | PASS   |
+| Features     | OK     | OK         | Card hover   | PASS   |
+| Demo         | OK     | OK         | Frame glow   | PASS   |
+| Testimonials | OK     | OK         | -            | PASS   |
+| CTA          | OK     | OK         | Button glow  | PASS   |
+| Footer       | OK     | OK         | -            | PASS   |
 
 ## Angular Patterns
 
-| Pattern | Finding | Status |
-|---------|---------|--------|
-| OnPush | All components use OnPush | PASS |
-| Signals | Using signal() for state | PASS |
-| Standalone | All standalone components | PASS |
-| Lazy Loading | Route-based lazy loading | PASS |
+| Pattern      | Finding                   | Status |
+| ------------ | ------------------------- | ------ |
+| OnPush       | All components use OnPush | PASS   |
+| Signals      | Using signal() for state  | PASS   |
+| Standalone   | All standalone components | PASS   |
+| Lazy Loading | Route-based lazy loading  | PASS   |
 
 ## Minor Suggestions
 
@@ -648,6 +711,7 @@ APPROVED - No blocking issues. Minor suggestions for consideration.
 ## Workflow Complete
 
 **Orchestrator Final Output**:
+
 ```
 WORKFLOW COMPLETE - TASK_2025_047
 

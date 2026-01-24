@@ -20,12 +20,12 @@
 
 ### Risks Identified
 
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| AuthModule not imported in AppModule | HIGH | Task 3.1 must wire up AuthModule and ConfigModule |
-| In-memory PKCE state storage | MEDIUM | Document production Redis migration in Task 3.3 |
-| Docker volume performance on Windows | MEDIUM | Document WSL2 recommendation in Task 1.3 |
-| Raw body access for Paddle signature | LOW | Task 2.1 must configure NestJS raw body parser |
+| Risk                                 | Severity | Mitigation                                        |
+| ------------------------------------ | -------- | ------------------------------------------------- |
+| AuthModule not imported in AppModule | HIGH     | Task 3.1 must wire up AuthModule and ConfigModule |
+| In-memory PKCE state storage         | MEDIUM   | Document production Redis migration in Task 3.3   |
+| Docker volume performance on Windows | MEDIUM   | Document WSL2 recommendation in Task 1.3          |
+| Raw body access for Paddle signature | LOW      | Task 2.1 must configure NestJS raw body parser    |
 
 ### Edge Cases to Handle
 
@@ -56,6 +56,7 @@ Create Docker Compose configuration for local development with PostgreSQL 16, Re
 **Pattern to Follow**: Standard Docker Compose v2 with health checks
 
 **Implementation Details**:
+
 - Services: postgres (16-alpine), redis (7-alpine), license-server (custom Dockerfile)
 - Health checks for all services with appropriate intervals
 - Named volumes: postgres-data, redis-data, license-server-node-modules
@@ -64,6 +65,7 @@ Create Docker Compose configuration for local development with PostgreSQL 16, Re
 - Container naming: ptah_postgres, ptah_redis, ptah_license_server
 
 **Acceptance Criteria**:
+
 - [x] docker-compose.yml created at project root
 - [x] PostgreSQL service with health check (pg_isready)
 - [x] Redis service with health check (redis-cli ping)
@@ -87,6 +89,7 @@ Create development Dockerfile for license server with Node 20, Prisma client gen
 **Pattern to Follow**: Multi-stage Node.js development Dockerfile
 
 **Implementation Details**:
+
 - Base image: node:20-alpine
 - Install openssl for Prisma
 - Copy package files and run npm ci
@@ -95,6 +98,7 @@ Create development Dockerfile for license server with Node 20, Prisma client gen
 - CMD for development mode
 
 **Acceptance Criteria**:
+
 - [x] Dockerfile.dev created in apps/ptah-license-server/
 - [x] Node 20 Alpine base image
 - [x] Prisma client generated at build time
@@ -108,6 +112,7 @@ Create development Dockerfile for license server with Node 20, Prisma client gen
 **Status**: IMPLEMENTED
 **Agent**: devops-engineer
 **Files**:
+
 - D:\projects\ptah-extension\.env.docker.example
 - D:\projects\ptah-extension\apps\ptah-license-server\.env.local.example
 
@@ -119,12 +124,14 @@ Create environment variable template files for Docker Compose and license server
 **Pattern to Follow**: Documented .env files with inline comments
 
 **Implementation Details**:
+
 - .env.docker.example: PostgreSQL, Redis, and server port configuration
 - .env.local.example: License server specific variables for Docker environment
 - Include WSL2 performance documentation as comments
 - Security warnings for production values
 
 **Acceptance Criteria**:
+
 - [x] .env.docker.example created at project root
 - [x] .env.local.example created for license server
 - [x] All variables documented with descriptions
@@ -132,6 +139,7 @@ Create environment variable template files for Docker Compose and license server
 - [x] Security warnings included
 
 **Batch 1 Verification**:
+
 - All files exist at specified paths
 - `docker-compose config` validates without errors
 - `docker-compose up -d` starts all services
@@ -160,12 +168,14 @@ Extend Prisma schema with Subscription model for Paddle subscription tracking. A
 **Pattern to Follow**: Existing User and License model patterns in schema.prisma
 
 **Implementation Details**:
+
 - Add Subscription model with fields: id, userId, paddleSubscriptionId, paddleCustomerId, status, priceId, currentPeriodEnd, canceledAt, createdAt, updatedAt
 - Add relation from User to Subscription (one-to-many)
 - Add indexes on paddleSubscriptionId and userId
 - Use proper column mapping (snake_case)
 
 **Acceptance Criteria**:
+
 - [x] Subscription model added to schema.prisma
 - [x] User model updated with subscriptions relation
 - [x] Unique constraint on paddleSubscriptionId
@@ -179,6 +189,7 @@ Extend Prisma schema with Subscription model for Paddle subscription tracking. A
 **Status**: IMPLEMENTED
 **Agent**: backend-developer
 **Files**:
+
 - D:\projects\ptah-extension\apps\ptah-license-server\src\paddle\paddle.module.ts
 - D:\projects\ptah-extension\apps\ptah-license-server\src\paddle\dto\paddle-webhook.dto.ts
 
@@ -190,12 +201,14 @@ Create NestJS Paddle module with module definition and webhook payload DTOs. Set
 **Pattern to Follow**: Existing LicenseModule pattern in apps/ptah-license-server/src/license/
 
 **Implementation Details**:
+
 - Create paddle.module.ts with PaddleController and PaddleService providers
 - Create DTOs for Paddle webhook payloads (subscription events)
 - Export PaddleModule for AppModule import
 - Use class-validator decorators for payload validation
 
 **Acceptance Criteria**:
+
 - [x] paddle.module.ts created with proper NestJS module structure
 - [x] paddle-webhook.dto.ts created with event payload types
 - [x] Module exports PaddleService
@@ -217,6 +230,7 @@ Implement PaddleService with subscription lifecycle handlers, signature verifica
 **Pattern to Follow**: Existing LicenseService for Prisma interactions
 
 **Implementation Details**:
+
 - Initialize Paddle SDK with API key from config
 - Implement verifySignature() using HMAC SHA256
 - Implement handleSubscriptionCreated(): Create user if needed, generate license key, create license, send email
@@ -224,13 +238,15 @@ Implement PaddleService with subscription lifecycle handlers, signature verifica
 - Implement handleSubscriptionCanceled(): Update expiration to period end
 - Implement mapPriceIdToPlan() for price ID to plan mapping
 - Implement generateLicenseKey() with format PTAH-XXXX-XXXX-XXXX
-- Idempotency via createdBy field with paddle_{eventId}
+- Idempotency via createdBy field with paddle\_{eventId}
 
 **Validation Notes**:
+
 - Use timingSafeEqual for signature comparison
 - Handle edge case: subscription arrives before user exists
 
 **Acceptance Criteria**:
+
 - [x] PaddleService created with all methods
 - [x] Signature verification using HMAC SHA256 with timing-safe comparison
 - [x] handleSubscriptionCreated with idempotency check
@@ -254,6 +270,7 @@ Create webhook endpoint controller at POST /webhooks/paddle with signature verif
 **Pattern to Follow**: Existing AuthController for route handling
 
 **Implementation Details**:
+
 - Route: POST /webhooks/paddle
 - Extract paddle-signature header
 - Access raw body for signature verification
@@ -262,10 +279,12 @@ Create webhook endpoint controller at POST /webhooks/paddle with signature verif
 - Return 401 for invalid signatures
 
 **Validation Notes**:
+
 - Must configure NestJS to preserve raw body (main.ts modification needed)
 - Handle unknown event types gracefully (return { received: true })
 
 **Acceptance Criteria**:
+
 - [x] PaddleController created at /webhooks/paddle
 - [x] POST endpoint with signature verification
 - [x] Event routing for subscription lifecycle events
@@ -274,6 +293,7 @@ Create webhook endpoint controller at POST /webhooks/paddle with signature verif
 - [x] Unknown events handled gracefully
 
 **Batch 2 Verification**:
+
 - [x] All files exist at specified paths
 - [x] Prisma schema generates without errors: `npx prisma generate`
 - [x] Build passes: `npx nx build ptah-license-server`
@@ -301,16 +321,19 @@ Wire up ConfigModule (global), AuthModule, and PaddleModule in AppModule imports
 **Pattern to Follow**: Existing module import pattern
 
 **Validation Notes**:
+
 - RISK: AuthModule currently NOT imported - auth endpoints may not work
 - ConfigModule must be global for environment variable access
 
 **Implementation Details**:
+
 - Import ConfigModule.forRoot({ isGlobal: true })
 - Import AuthModule
 - Import PaddleModule
 - Maintain existing PrismaModule and LicenseModule imports
 
 **Acceptance Criteria**:
+
 - [x] ConfigModule imported with isGlobal: true
 - [x] AuthModule imported
 - [x] PaddleModule imported
@@ -333,6 +356,7 @@ Enhance AuthService with PKCE (Proof Key for Code Exchange) support for OAuth 2.
 **Pattern to Follow**: Existing AuthService methods
 
 **Implementation Details**:
+
 - Add private Map for code verifier storage with expiration
 - Modify getAuthorizationUrl() to return { url, state }
 - Generate code verifier (32 bytes, base64url)
@@ -345,10 +369,12 @@ Enhance AuthService with PKCE (Proof Key for Code Exchange) support for OAuth 2.
 - Delete verifier after use (single-use)
 
 **Validation Notes**:
+
 - In-memory Map is acceptable for dev; document Redis migration for production
 - Handle state expiration gracefully
 
 **Acceptance Criteria**:
+
 - [x] getAuthorizationUrl returns { url, state }
 - [x] Code verifier generated (32 bytes, base64url)
 - [x] Code challenge generated (SHA256, base64url)
@@ -373,15 +399,18 @@ Update login and callback endpoints to use PKCE flow with state cookie for CSRF 
 **Pattern to Follow**: Existing AuthController endpoints
 
 **Implementation Details**:
+
 - Modify login(): Get { url, state } from service, set state in HTTP-only cookie, redirect to url
 - Modify callback(): Extract state from query and cookie, validate match, clear cookie, pass state to authenticateWithCode()
 - Cookie settings: httpOnly, secure in production, sameSite: 'lax', maxAge: 5 minutes
 
 **Validation Notes**:
+
 - Need to import Request type for cookie access
 - Add cookie-parser middleware if not present in main.ts
 
 **Acceptance Criteria**:
+
 - [x] login() sets workos_state cookie before redirect
 - [x] callback() validates state cookie matches query state
 - [x] callback() clears state cookie after use
@@ -390,6 +419,7 @@ Update login and callback endpoints to use PKCE flow with state cookie for CSRF 
 - [x] Cookie settings follow security best practices
 
 **Batch 3 Verification**:
+
 - [x] All files modified correctly
 - [ ] Auth flow works end-to-end: GET /auth/login -> callback (requires manual testing)
 - [x] PKCE parameters present in authorization URL
@@ -418,6 +448,7 @@ Expand .env.example with comprehensive environment variable documentation includ
 **Pattern to Follow**: Well-documented .env.example files with inline comments
 
 **Implementation Details**:
+
 - Section headers with clear separation
 - DATABASE_URL with local and Docker examples
 - REDIS_URL with local and Docker examples
@@ -430,6 +461,7 @@ Expand .env.example with comprehensive environment variable documentation includ
 - MAGIC_LINK configuration
 
 **Acceptance Criteria**:
+
 - [x] All variables have descriptions
 - [x] Setup URLs for external services included
 - [x] Generation commands for secrets documented
@@ -453,12 +485,14 @@ Configure NestJS to preserve raw body for Paddle webhook signature verification.
 **Pattern to Follow**: NestJS raw body configuration
 
 **Implementation Details**:
+
 - Enable raw body parsing with bodyParser: false in NestJS config
-- Add raw body middleware for /webhooks/* routes
+- Add raw body middleware for /webhooks/\* routes
 - Add cookie-parser middleware
 - Ensure JSON body parsing still works for other routes
 
 **Acceptance Criteria**:
+
 - [x] Raw body available on webhook requests (req.rawBody)
 - [x] Cookie-parser middleware added
 - [x] JSON body parsing works for non-webhook routes
@@ -480,12 +514,14 @@ Ensure .gitignore includes all new environment files and Docker-related files th
 **Pattern to Follow**: Existing .gitignore patterns
 
 **Implementation Details**:
+
 - Add .env.docker (Docker environment)
 - Add .env.local (license server local environment)
 - Add docker-compose.override.yml (local Docker overrides)
 - Verify postgres-data and redis-data volumes are ignored (handled by Docker)
 
 **Acceptance Criteria**:
+
 - [x] .env.docker ignored
 - [x] .env.local patterns ignored
 - [x] docker-compose.override.yml ignored
@@ -507,12 +543,14 @@ Generate and verify Prisma migration for the new Subscription model. Ensure migr
 **Pattern to Follow**: Existing Prisma migrations
 
 **Implementation Details**:
+
 - Run npx prisma migrate dev --name add_subscription_model
 - Verify migration SQL creates subscriptions table
 - Verify foreign key to users table
 - Verify indexes created
 
 **Acceptance Criteria**:
+
 - [x] Migration file generated in prisma/migrations/ (documented - run manually)
 - [x] subscriptions table created with all columns (schema verified)
 - [x] Foreign key constraint to users.id (schema verified)
@@ -520,6 +558,7 @@ Generate and verify Prisma migration for the new Subscription model. Ensure migr
 - [x] Migration applies without errors (user must run)
 
 **Migration Command** (run when database is available):
+
 ```bash
 cd apps/ptah-license-server
 npx prisma migrate dev --name add_subscription_model
@@ -528,6 +567,7 @@ npx prisma migrate dev --name add_subscription_model
 **Note**: The Subscription model was added in Batch 2 (Task 2.1). The schema is verified and ready for migration. The actual migration file will be generated when the user runs the command above with a connected database.
 
 **Batch 4 Verification**:
+
 - [x] All files modified/created correctly
 - [x] .env.example is comprehensive and well-documented
 - [x] Prisma schema verified (Subscription model exists)
@@ -547,6 +587,7 @@ npx prisma migrate dev --name add_subscription_model
 **Status**: IMPLEMENTED
 **Agent**: backend-developer
 **Files**:
+
 - D:\projects\ptah-extension\docs\deployment\DIGITALOCEAN.md
 
 **Description**:
@@ -557,6 +598,7 @@ Create comprehensive deployment documentation for DigitalOcean App Platform incl
 **Pattern to Follow**: Technical documentation with code examples
 
 **Implementation Details**:
+
 - Prerequisites section (DO account, domain, Paddle/WorkOS production accounts)
 - Architecture diagram (Landing Page -> License Server -> PostgreSQL/Redis)
 - Step-by-step deployment for Managed PostgreSQL, Managed Redis, App Platform, Spaces
@@ -567,6 +609,7 @@ Create comprehensive deployment documentation for DigitalOcean App Platform incl
 - Monitoring and alerts configuration
 
 **Acceptance Criteria**:
+
 - [x] docs/deployment/ directory created
 - [x] DIGITALOCEAN.md with all sections
 - [x] Architecture diagram included
@@ -590,6 +633,7 @@ Create developer onboarding guide for setting up the license server locally usin
 **Pattern to Follow**: Developer-focused README style
 
 **Implementation Details**:
+
 - Prerequisites: Docker, Docker Compose, Node.js
 - Quick start: docker-compose up -d
 - Service URLs and health checks
@@ -600,6 +644,7 @@ Create developer onboarding guide for setting up the license server locally usin
 - Non-Docker fallback instructions
 
 **Acceptance Criteria**:
+
 - [x] DEV_LICENSE_SETUP.md created
 - [x] Quick start instructions (< 5 steps)
 - [x] Environment setup documented
@@ -622,11 +667,13 @@ Install @paddle/paddle-node-sdk and cookie-parser packages required for Paddle i
 **Pattern to Follow**: Existing package.json structure
 
 **Implementation Details**:
+
 - Install @paddle/paddle-node-sdk@^2.0.0
 - Install cookie-parser and @types/cookie-parser
 - Verify existing packages: @workos-inc/node, @nestjs/config, @prisma/client
 
 **Acceptance Criteria**:
+
 - [x] @paddle/paddle-node-sdk installed
 - [x] cookie-parser installed
 - [x] @types/cookie-parser installed (devDependencies)
@@ -649,6 +696,7 @@ Create verification script that tests all Phase A components: Docker services, d
 **Pattern to Follow**: Bash verification scripts
 
 **Implementation Details**:
+
 - Check Docker services running (docker-compose ps)
 - Verify PostgreSQL connection (pg_isready)
 - Verify Redis connection (redis-cli ping)
@@ -658,6 +706,7 @@ Create verification script that tests all Phase A components: Docker services, d
 - Output pass/fail summary
 
 **Acceptance Criteria**:
+
 - [x] Script created and executable
 - [x] Docker service verification
 - [x] Database connection test
@@ -667,6 +716,7 @@ Create verification script that tests all Phase A components: Docker services, d
 - [x] Clear pass/fail output
 
 **Batch 5 Verification**:
+
 - [x] All documentation files created
 - [x] NPM packages installed successfully
 - [ ] Verification script passes all checks (requires Docker services running)
@@ -677,13 +727,13 @@ Create verification script that tests all Phase A components: Docker services, d
 
 ## Summary
 
-| Batch | Name | Tasks | Developer | Status |
-|-------|------|-------|-----------|--------|
-| 1 | Docker Development Environment | 3 | devops-engineer | IMPLEMENTED |
-| 2 | Prisma Schema and Paddle Module | 4 | backend-developer | IMPLEMENTED |
-| 3 | WorkOS PKCE Enhancement | 3 | backend-developer | IMPLEMENTED |
-| 4 | Environment Configuration Enhancement | 4 | backend-developer | IMPLEMENTED |
-| 5 | Documentation and Final Verification | 4 | backend-developer | IMPLEMENTED |
+| Batch | Name                                  | Tasks | Developer         | Status      |
+| ----- | ------------------------------------- | ----- | ----------------- | ----------- |
+| 1     | Docker Development Environment        | 3     | devops-engineer   | IMPLEMENTED |
+| 2     | Prisma Schema and Paddle Module       | 4     | backend-developer | IMPLEMENTED |
+| 3     | WorkOS PKCE Enhancement               | 3     | backend-developer | IMPLEMENTED |
+| 4     | Environment Configuration Enhancement | 4     | backend-developer | IMPLEMENTED |
+| 5     | Documentation and Final Verification  | 4     | backend-developer | IMPLEMENTED |
 
 **Total**: 18 tasks across 5 batches
 
@@ -692,6 +742,7 @@ Create verification script that tests all Phase A components: Docker services, d
 ## Appendix: File Manifest
 
 ### New Files to Create
+
 - D:\projects\ptah-extension\docker-compose.yml
 - D:\projects\ptah-extension\.env.docker.example
 - D:\projects\ptah-extension\apps\ptah-license-server\Dockerfile.dev
@@ -705,6 +756,7 @@ Create verification script that tests all Phase A components: Docker services, d
 - D:\projects\ptah-extension\scripts\verify-phase-a.sh
 
 ### Files to Modify
+
 - D:\projects\ptah-extension\apps\ptah-license-server\prisma\schema.prisma
 - D:\projects\ptah-extension\apps\ptah-license-server\src\app\app.module.ts
 - D:\projects\ptah-extension\apps\ptah-license-server\src\app\auth\services\auth.service.ts

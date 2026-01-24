@@ -10,12 +10,12 @@ This reference documents the task management system used by the orchestration wo
 TASK_YYYY_NNN
 ```
 
-| Component | Description | Example |
-|-----------|-------------|---------|
-| `TASK_` | Fixed prefix | TASK_ |
-| `YYYY` | Year | 2025 |
-| `_` | Separator | _ |
-| `NNN` | Sequential number (zero-padded) | 001, 042, 110 |
+| Component | Description                     | Example       |
+| --------- | ------------------------------- | ------------- |
+| `TASK_`   | Fixed prefix                    | TASK\_        |
+| `YYYY`    | Year                            | 2025          |
+| `_`       | Separator                       | \_            |
+| `NNN`     | Sequential number (zero-padded) | 001, 042, 110 |
 
 **Examples**: `TASK_2025_001`, `TASK_2025_042`, `TASK_2025_110`
 
@@ -51,6 +51,7 @@ task-tracking/
 ### Reading the Registry
 
 At workflow start, read registry to:
+
 1. Get next available task ID
 2. Check if task already exists (for continuation)
 3. Understand project task history
@@ -64,11 +65,11 @@ Read({{PROJECT_PATH}}\task-tracking\registry.md)
 ```markdown
 # Task Registry
 
-| Task ID | Status | Type | Description | Created |
-|---------|--------|------|-------------|---------|
-| TASK_2025_108 | COMPLETE | FEATURE | WebSocket integration | 2025-01-15 |
-| TASK_2025_109 | IN_PROGRESS | BUGFIX | Auth token refresh | 2025-01-18 |
-| TASK_2025_110 | IN_PROGRESS | DOCUMENTATION | Skill conversion | 2025-01-20 |
+| Task ID       | Status      | Type          | Description           | Created    |
+| ------------- | ----------- | ------------- | --------------------- | ---------- |
+| TASK_2025_108 | COMPLETE    | FEATURE       | WebSocket integration | 2025-01-15 |
+| TASK_2025_109 | IN_PROGRESS | BUGFIX        | Auth token refresh    | 2025-01-18 |
+| TASK_2025_110 | IN_PROGRESS | DOCUMENTATION | Skill conversion      | 2025-01-20 |
 ```
 
 ### Generating New Task ID
@@ -83,6 +84,7 @@ Read({{PROJECT_PATH}}\task-tracking\registry.md)
 ### Updating Registry
 
 After creating new task:
+
 1. Add row with task info
 2. Set status to IN_PROGRESS
 3. Include task type and brief description
@@ -96,42 +98,49 @@ After creating new task:
 Created during Phase 0 initialization:
 
 ```markdown
-# Task Context - TASK_[ID]
+# Task Context - TASK\_[ID]
 
 ## User Request
+
 [Exact user request text]
 
 ## Task Type
+
 [FEATURE | BUGFIX | REFACTORING | DOCUMENTATION | RESEARCH | DEVOPS | CREATIVE]
 
 ## Complexity Assessment
+
 [Simple | Medium | Complex]
 
 ## Strategy Selected
+
 [Strategy name from strategies.md]
 
 ## Conversation Summary
+
 [Key decisions, clarifications, and context from conversation]
 
 ## Related Tasks
+
 - [TASK_YYYY_NNN]: [relationship]
 
 ## Created
+
 [ISO date]
 ```
 
 ### Document Ownership
 
-| Document | Created By | Contains |
-|----------|------------|----------|
-| context.md | Orchestrator (Phase 0) | User intent, task metadata |
-| task-description.md | project-manager | Requirements, acceptance criteria |
-| implementation-plan.md | software-architect | Architecture, file specifications |
-| tasks.md | team-leader (MODE 1) | Batched atomic tasks |
-| test-report.md | senior-tester | Test results, coverage |
-| code-style-review.md | code-style-reviewer | Pattern compliance findings |
-| code-logic-review.md | code-logic-reviewer | Business logic findings |
-| future-enhancements.md | modernization-detector | Future improvement opportunities |
+| Document               | Created By             | Contains                          |
+| ---------------------- | ---------------------- | --------------------------------- |
+| context.md             | Orchestrator (Phase 0) | User intent, task metadata        |
+| task-description.md    | project-manager        | Requirements, acceptance criteria |
+| implementation-plan.md | software-architect     | Architecture, file specifications |
+| tasks.md               | team-leader (MODE 1)   | Batched atomic tasks              |
+| test-report.md         | senior-tester          | Test results, coverage            |
+| code-style-review.md   | code-style-reviewer    | Pattern compliance findings       |
+| code-logic-review.md   | code-logic-reviewer    | Business logic findings           |
+| future-enhancements.md | modernization-detector | Future improvement opportunities  |
 
 ---
 
@@ -154,21 +163,21 @@ Glob(task-tracking/TASK_[ID]/*.md)
 
 ### Phase Detection Table
 
-| Documents Present | Phase Status | Next Action |
-|-------------------|--------------|-------------|
-| No context.md | **Invalid** | ERROR: Task doesn't exist |
-| context.md only | Initialized | Invoke project-manager |
-| + task-description.md | PM done | User validate OR next agent |
-| + visual-design-specification.md | Designer done | Invoke software-architect |
-| + implementation-plan.md | Architect done | User validate OR team-leader MODE 1 |
-| + tasks.md (all PENDING) | Decomposition done | team-leader MODE 2 (first assignment) |
-| + tasks.md (has IN PROGRESS) | Dev in progress | team-leader MODE 2 (verify + next) |
-| + tasks.md (has IMPLEMENTED) | Dev done, await verify | team-leader MODE 2 (verify + commit) |
-| + tasks.md (all COMPLETE) | Dev complete | team-leader MODE 3 OR QA choice |
-| + test-report.md | Tester complete | Continue QA or complete |
-| + code-style-review.md | Style reviewed | Continue QA or complete |
-| + code-logic-review.md | Logic reviewed | Complete workflow |
-| + future-enhancements.md | All done | Workflow already complete |
+| Documents Present                | Phase Status           | Next Action                           |
+| -------------------------------- | ---------------------- | ------------------------------------- |
+| No context.md                    | **Invalid**            | ERROR: Task doesn't exist             |
+| context.md only                  | Initialized            | Invoke project-manager                |
+| + task-description.md            | PM done                | User validate OR next agent           |
+| + visual-design-specification.md | Designer done          | Invoke software-architect             |
+| + implementation-plan.md         | Architect done         | User validate OR team-leader MODE 1   |
+| + tasks.md (all PENDING)         | Decomposition done     | team-leader MODE 2 (first assignment) |
+| + tasks.md (has IN PROGRESS)     | Dev in progress        | team-leader MODE 2 (verify + next)    |
+| + tasks.md (has IMPLEMENTED)     | Dev done, await verify | team-leader MODE 2 (verify + commit)  |
+| + tasks.md (all COMPLETE)        | Dev complete           | team-leader MODE 3 OR QA choice       |
+| + test-report.md                 | Tester complete        | Continue QA or complete               |
+| + code-style-review.md           | Style reviewed         | Continue QA or complete               |
+| + code-logic-review.md           | Logic reviewed         | Complete workflow                     |
+| + future-enhancements.md         | All done               | Workflow already complete             |
 
 ### Continuation Logic
 
@@ -200,22 +209,22 @@ Orchestrator:
 
 ### Registry Status
 
-| Status | Meaning |
-|--------|---------|
-| IN_PROGRESS | Task actively being worked |
-| COMPLETE | All phases done, workflow finished |
-| BLOCKED | Waiting on external dependency |
-| CANCELLED | Task abandoned |
+| Status      | Meaning                            |
+| ----------- | ---------------------------------- |
+| IN_PROGRESS | Task actively being worked         |
+| COMPLETE    | All phases done, workflow finished |
+| BLOCKED     | Waiting on external dependency     |
+| CANCELLED   | Task abandoned                     |
 
 ### Task Status (in tasks.md)
 
-| Status | Meaning |
-|--------|---------|
-| PENDING | Not yet assigned |
-| IN PROGRESS | Developer working |
+| Status      | Meaning                              |
+| ----------- | ------------------------------------ |
+| PENDING     | Not yet assigned                     |
+| IN PROGRESS | Developer working                    |
 | IMPLEMENTED | Code complete, awaiting verification |
-| COMPLETE | Verified and committed |
-| FAILED | Verification failed |
+| COMPLETE    | Verified and committed               |
+| FAILED      | Verification failed                  |
 
 ---
 

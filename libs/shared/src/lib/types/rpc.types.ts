@@ -13,9 +13,8 @@ import type {
   ChatSessionSummary,
   FlatStreamEventUnion,
 } from './execution-node.types';
+// TASK_2025_109: SubagentResumeParams/Result removed - now uses context injection
 import type {
-  SubagentResumeParams,
-  SubagentResumeResult,
   SubagentQueryParams,
   SubagentQueryResult,
 } from './subagent-registry.types';
@@ -780,10 +779,7 @@ export interface RpcMethodRegistry {
   };
 
   // ---- Subagent Methods (TASK_2025_103) ----
-  'chat:subagent-resume': {
-    params: SubagentResumeParams;
-    result: SubagentResumeResult;
-  };
+  // TASK_2025_109: chat:subagent-resume removed - now uses context injection
   'chat:subagent-query': {
     params: SubagentQueryParams;
     result: SubagentQueryResult;
@@ -863,7 +859,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'openrouter:clearModelTier',
 
   // Subagent Methods (TASK_2025_103)
-  'chat:subagent-resume',
+  // TASK_2025_109: chat:subagent-resume removed - now uses context injection
   'chat:subagent-query',
 ] as const;
 

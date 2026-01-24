@@ -23,11 +23,13 @@ This comprehensive guide explains how to set up the Ptah License Server locally 
 ### Required
 
 - **Docker Desktop** (v4.0+) with Docker Compose v2
+
   - Windows: https://docs.docker.com/desktop/install/windows-install/
   - macOS: https://docs.docker.com/desktop/install/mac-install/
   - Linux: https://docs.docker.com/desktop/install/linux-install/
 
 - **Node.js 20+** (for running scripts outside Docker)
+
   - https://nodejs.org/
 
 - **Git** for cloning the repository
@@ -83,22 +85,22 @@ curl http://localhost:3000/api
 
 After starting Docker Compose, the following services are available:
 
-| Service | URL | Health Check |
-|---------|-----|--------------|
-| **License Server** | http://localhost:3000 | `curl http://localhost:3000/api` |
-| **PostgreSQL** | localhost:5432 | `docker exec ptah_postgres pg_isready -U postgres` |
-| **Redis** | localhost:6379 | `docker exec ptah_redis redis-cli ping` |
+| Service            | URL                   | Health Check                                       |
+| ------------------ | --------------------- | -------------------------------------------------- |
+| **License Server** | http://localhost:3000 | `curl http://localhost:3000/api`                   |
+| **PostgreSQL**     | localhost:5432        | `docker exec ptah_postgres pg_isready -U postgres` |
+| **Redis**          | localhost:6379        | `docker exec ptah_redis redis-cli ping`            |
 
 ### API Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api` | GET | Health check, returns `{ "message": "..." }` |
-| `/api/v1/licenses/verify` | POST | Verify license key |
-| `/api/v1/admin/licenses` | POST | Create license (requires API key) |
-| `/auth/login` | GET | Initiate WorkOS login flow |
-| `/auth/callback` | GET | WorkOS OAuth callback |
-| `/webhooks/paddle` | POST | Paddle webhook endpoint |
+| Endpoint                  | Method | Description                                  |
+| ------------------------- | ------ | -------------------------------------------- |
+| `/api`                    | GET    | Health check, returns `{ "message": "..." }` |
+| `/api/v1/licenses/verify` | POST   | Verify license key                           |
+| `/api/v1/admin/licenses`  | POST   | Create license (requires API key)            |
+| `/auth/login`             | GET    | Initiate WorkOS login flow                   |
+| `/auth/callback`          | GET    | WorkOS OAuth callback                        |
+| `/webhooks/paddle`        | POST   | Paddle webhook endpoint                      |
 
 ---
 
@@ -189,6 +191,7 @@ MAGIC_LINK_TTL_MS=30000
 ```
 
 **Note**: For basic development (license generation/verification), you only need:
+
 - `DATABASE_URL` (handled by Docker Compose)
 - `JWT_SECRET`
 - `ADMIN_API_KEY`
@@ -274,19 +277,19 @@ curl -X POST http://localhost:3000/api/v1/admin/licenses \
 
 ### Request Parameters
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `email` | string | Yes | User email (can be fake for dev) |
-| `plan` | string | Yes | `"free"`, `"early_adopter"`, or `"pro"` |
-| `sendEmail` | boolean | No | Set `false` to skip email |
+| Parameter   | Type    | Required | Description                             |
+| ----------- | ------- | -------- | --------------------------------------- |
+| `email`     | string  | Yes      | User email (can be fake for dev)        |
+| `plan`      | string  | Yes      | `"free"`, `"early_adopter"`, or `"pro"` |
+| `sendEmail` | boolean | No       | Set `false` to skip email               |
 
 ### Plan Differences
 
-| Plan | Expiration | Premium Features |
-|------|------------|------------------|
-| `free` | Never | No |
-| `early_adopter` | 60 days | Yes |
-| `pro` | 1 year | Yes |
+| Plan            | Expiration | Premium Features |
+| --------------- | ---------- | ---------------- |
+| `free`          | Never      | No               |
+| `early_adopter` | 60 days    | Yes              |
+| `pro`           | 1 year     | Yes              |
 
 ---
 
@@ -339,15 +342,18 @@ For optimal Docker performance on Windows:
 ### Use WSL2 Backend
 
 1. **Enable WSL2**:
+
    ```powershell
    wsl --install -d Ubuntu
    ```
 
 2. **Configure Docker Desktop**:
+
    - Settings > General > "Use WSL 2 based engine" (checked)
    - Settings > Resources > WSL Integration > Enable for Ubuntu
 
 3. **Store project in WSL2 filesystem**:
+
    ```bash
    # Inside WSL2 terminal
    cd ~
@@ -360,14 +366,15 @@ For optimal Docker performance on Windows:
 
 ### Performance Comparison
 
-| Location | Build Time | Hot Reload |
-|----------|------------|------------|
-| Windows (`C:\`) | ~60s | ~5s |
-| WSL2 (`/home/`) | ~6s | <1s |
+| Location        | Build Time | Hot Reload |
+| --------------- | ---------- | ---------- |
+| Windows (`C:\`) | ~60s       | ~5s        |
+| WSL2 (`/home/`) | ~6s        | <1s        |
 
 ### Opening in VS Code
 
 From WSL2 terminal:
+
 ```bash
 code .
 ```
@@ -395,6 +402,7 @@ sudo systemctl start postgresql
 ```
 
 Create database:
+
 ```bash
 createdb ptah_licenses
 ```
@@ -461,11 +469,13 @@ docker-compose up -d --build
 ### Database Connection Refused
 
 1. **Check PostgreSQL is healthy**:
+
    ```bash
    docker exec ptah_postgres pg_isready -U postgres
    ```
 
 2. **Verify database exists**:
+
    ```bash
    docker exec ptah_postgres psql -U postgres -c "\l"
    ```
@@ -489,12 +499,14 @@ LICENSE_SERVER_PORT=3001
 ### License Server Crashes on Start
 
 1. **Check migrations completed**:
+
    ```bash
    docker exec ptah_license_server npx prisma migrate status \
      --schema=apps/ptah-license-server/prisma/schema.prisma
    ```
 
 2. **Check required env vars**:
+
    ```bash
    docker exec ptah_license_server env | grep -E "(DATABASE|JWT|ADMIN)"
    ```
@@ -528,11 +540,13 @@ docker-compose restart license-server
 ### Hot Reload Not Working
 
 1. **Check volume mounts**:
+
    ```bash
    docker-compose config | grep volumes -A 10
    ```
 
 2. **Verify file watching**:
+
    ```bash
    docker exec ptah_license_server ls -la /app/apps/ptah-license-server/src
    ```

@@ -269,7 +269,7 @@ export class SdkQueryOptionsBuilder {
    */
   private buildSystemPrompt(
     sessionConfig?: AISessionConfig,
-    isPremium: boolean = false
+    isPremium = false
   ): SdkQueryOptions['systemPrompt'] {
     const appendParts: string[] = [];
 
@@ -309,7 +309,7 @@ export class SdkQueryOptionsBuilder {
    */
   private buildMcpServers(
     isPremium: boolean,
-    mcpServerRunning: boolean = true
+    mcpServerRunning = true
   ): Record<string, McpHttpServerConfig> {
     // Free tier - disable MCP servers (TASK_2025_108)
     if (!isPremium) {

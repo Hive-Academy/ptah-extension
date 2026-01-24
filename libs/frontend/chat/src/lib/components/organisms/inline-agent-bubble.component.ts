@@ -19,7 +19,7 @@ import {
   ChevronRight,
   Loader2,
   StopCircle,
-  PlayCircle,
+  // TASK_2025_109: PlayCircle removed - Resume button no longer needed
 } from 'lucide-angular';
 import { ExecutionNodeComponent } from './execution-node.component';
 import { TypingCursorComponent } from '../atoms/typing-cursor.component';
@@ -54,9 +54,16 @@ import type {
     CostBadgeComponent,
   ],
   template: `
+    <!-- TASK_2025_109: Enhanced styling for interrupted agents -->
+    <!-- Interrupted agents get warning border + tinted background to stand out -->
     <div
-      class="my-3 border-l-2 rounded-lg bg-base-200/50 overflow-hidden"
-      [style.border-left-color]="agentColor()"
+      class="my-3 border-l-2 rounded-lg overflow-hidden transition-colors"
+      [class.bg-base-200/50]="!isInterrupted()"
+      [class.bg-warning/10]="isInterrupted()"
+      [class.border-warning]="isInterrupted()"
+      [class.ring-1]="isInterrupted()"
+      [class.ring-warning/30]="isInterrupted()"
+      [style.border-left-color]="isInterrupted() ? null : agentColor()"
     >
       <!-- Agent Header (clickable to toggle) -->
       <button
@@ -103,28 +110,15 @@ import type {
           <span class="text-[9px]">Streaming</span>
         </span>
         } @else if (isInterrupted()) {
-        <span class="badge badge-xs badge-warning gap-1 flex-shrink-0">
-          <lucide-angular [img]="StopCircleIcon" class="w-2.5 h-2.5" />
-          <span class="text-[9px]">Stopped</span>
-        </span>
-        <!-- TASK_2025_103: Resume button for interrupted agents -->
-        @if (isResumable()) {
-        <button
-          type="button"
-          class="btn btn-xs btn-primary gap-1 flex-shrink-0"
-          [disabled]="isResuming()"
-          (click)="onResumeClick($event)"
-          title="Resume interrupted agent"
+        <!-- TASK_2025_109: Enhanced interrupted indicator with auto-resume hint -->
+        <span
+          class="badge badge-sm badge-warning gap-1 flex-shrink-0"
+          title="This agent was interrupted. It will auto-resume when you send a message."
         >
-          @if (isResuming()) {
-          <lucide-angular [img]="LoaderIcon" class="w-3 h-3 animate-spin" />
-          <span class="text-[9px]">Resuming...</span>
-          } @else {
-          <lucide-angular [img]="PlayCircleIcon" class="w-3 h-3" />
-          <span class="text-[9px]">Resume</span>
-          }
-        </button>
-        } } @else if (hasChildren()) {
+          <lucide-angular [img]="StopCircleIcon" class="w-3 h-3" />
+          <span class="text-[10px] font-medium">Interrupted</span>
+        </span>
+        } @else if (hasChildren()) {
         <span class="badge badge-xs badge-ghost text-[9px] flex-shrink-0">
           {{ childStats() }}
         </span>
@@ -213,11 +207,8 @@ export class InlineAgentBubbleComponent {
    */
   readonly permissionResponded = output<PermissionResponse>();
 
-  /**
-   * TASK_2025_103: Emits when user clicks Resume button for interrupted agent
-   * Parent component should call ChatStore.handleSubagentResume(toolCallId)
-   */
-  readonly resumeRequested = output<string>(); // Emits toolCallId
+  // TASK_2025_109: resumeRequested output removed - Resume button no longer needed
+  // Subagent resumption is now handled via context injection in chat:continue RPC.
 
   /**
    * TASK_2025_096 FIX: ViewChild reference for auto-scroll container.
@@ -231,16 +222,12 @@ export class InlineAgentBubbleComponent {
   readonly ChevronRightIcon = ChevronRight;
   readonly LoaderIcon = Loader2;
   readonly StopCircleIcon = StopCircle;
-  readonly PlayCircleIcon = PlayCircle;
+  // TASK_2025_109: PlayCircleIcon removed - Resume button no longer needed
 
   // Collapse state - expanded by default
   readonly isCollapsed = signal(false);
 
-  /**
-   * TASK_2025_103: Loading state for resume operation
-   * Prevents multiple clicks and shows loading indicator
-   */
-  readonly isResuming = signal(false);
+  // TASK_2025_109: isResuming signal removed - Resume button no longer needed
 
   constructor() {
     // Setup observer after initial render
@@ -364,14 +351,8 @@ export class InlineAgentBubbleComponent {
   // Computed: was agent interrupted (TASK_2025_098)
   readonly isInterrupted = computed(() => this.node().status === 'interrupted');
 
-  /**
-   * TASK_2025_103: Computed signal for whether agent can be resumed
-   * Agent is resumable if it has 'interrupted' status and has a toolCallId
-   */
-  readonly isResumable = computed(() => {
-    const node = this.node();
-    return node.status === 'interrupted' && !!node.toolCallId;
-  });
+  // TASK_2025_109: isResumable computed removed - Resume button no longer needed
+  // Subagent resumption is now handled via context injection in chat:continue RPC.
 
   // Computed: agent color based on type
   // Built-in Claude agents get fixed oklch colors for theme consistency
@@ -462,29 +443,7 @@ export class InlineAgentBubbleComponent {
     this.isCollapsed.update((v) => !v);
   }
 
-  /**
-   * TASK_2025_103: Handle Resume button click for interrupted agent
-   * Emits the toolCallId for parent to initiate resume via ChatStore
-   * Sets isResuming to prevent multiple clicks and show loading state
-   */
-  protected onResumeClick(event: Event): void {
-    event.stopPropagation(); // Prevent collapse toggle
-
-    // Prevent multiple clicks while resuming
-    if (this.isResuming()) {
-      return;
-    }
-
-    const toolCallId = this.node().toolCallId;
-    if (toolCallId) {
-      // Set loading state before emitting
-      this.isResuming.set(true);
-
-      console.log('[InlineAgentBubble] Resume requested:', {
-        toolCallId,
-        agentType: this.node().agentType,
-      });
-      this.resumeRequested.emit(toolCallId);
-    }
-  }
+  // TASK_2025_109: onResumeClick method removed - Resume button no longer needed
+  // Subagent resumption is now handled via context injection in chat:continue RPC.
+  // Users can resume interrupted agents by typing "resume agent {agentId}" in chat.
 }

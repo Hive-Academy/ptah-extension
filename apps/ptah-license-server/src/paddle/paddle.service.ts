@@ -286,7 +286,9 @@ export class PaddleService {
     });
 
     this.logger.log(
-      `Updated ${updateResult.count} license(s) to plan: ${newPlan}, expires: ${periodEnd.toISOString()}`
+      `Updated ${
+        updateResult.count
+      } license(s) to plan: ${newPlan}, expires: ${periodEnd.toISOString()}`
     );
 
     return { success: true };
@@ -348,7 +350,9 @@ export class PaddleService {
     });
 
     this.logger.log(
-      `Updated ${updateResult.count} license(s) with cancellation expiry: ${periodEnd.toISOString()}`
+      `Updated ${
+        updateResult.count
+      } license(s) with cancellation expiry: ${periodEnd.toISOString()}`
     );
 
     return { success: true };

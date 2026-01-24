@@ -37,7 +37,7 @@ export * from './molecules/session-cost-summary.component';
 export * from './molecules/setup-status-widget.component';
 export * from './molecules/permission-badge.component';
 export * from './molecules/deny-message-popover.component';
-export * from './molecules/resume-notification-banner.component';
+// TASK_2025_109: resume-notification-banner.component removed - now uses context injection
 export * from './molecules/compaction-notification.component';
 export {
   QuestionCardComponent,

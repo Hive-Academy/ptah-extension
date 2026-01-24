@@ -23,7 +23,7 @@ import {
   SessionHistoryReaderService,
   SDK_TOKENS,
 } from '@ptah-extension/agent-sdk';
-// eslint-disable-next-line @nx/enforce-module-boundaries
+
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
   SessionId,
@@ -272,7 +272,13 @@ export class ChatRpcHandlers {
                 const interruptedAgo = s.interruptedAt
                   ? Math.round((Date.now() - s.interruptedAt) / 1000 / 60)
                   : 0;
-                return `  - ${s.agentType} agent (ID: ${s.agentId}, session: ${s.sessionId})${interruptedAgo > 0 ? ` - interrupted ${interruptedAgo} min ago` : ''}`;
+                return `  - ${s.agentType} agent (ID: ${s.agentId}, session: ${
+                  s.sessionId
+                })${
+                  interruptedAgo > 0
+                    ? ` - interrupted ${interruptedAgo} min ago`
+                    : ''
+                }`;
               })
               .join('\n');
 
@@ -304,9 +310,13 @@ IMPORTANT INSTRUCTIONS:
           }
 
           // Now send the message to the (now active) session
-          await this.sdkAdapter.sendMessageToSession(sessionId, enhancedPrompt, {
-            files,
-          });
+          await this.sdkAdapter.sendMessageToSession(
+            sessionId,
+            enhancedPrompt,
+            {
+              files,
+            }
+          );
 
           return { success: true, sessionId };
         } catch (error) {
@@ -359,8 +369,26 @@ IMPORTANT INSTRUCTIONS:
             resolvedWorkspacePath
           );
 
+          // TASK_2025_109: Register interrupted agents from history into SubagentRegistryService
+          // This enables context injection in chat:continue for cold-loaded sessions.
+          // When a session is loaded from JSONL (not via live SDK hooks), the registry
+          // is empty. This populates it with agents that started but never completed.
+          const registeredFromHistory =
+            this.subagentRegistry.registerFromHistoryEvents(events, sessionId);
+
+          if (registeredFromHistory > 0) {
+            this.logger.info(
+              '[RPC] Registered interrupted agents from history',
+              {
+                sessionId,
+                registeredCount: registeredFromHistory,
+              }
+            );
+          }
+
           // TASK_2025_103 FIX: Query resumable subagents for this session
           // Frontend uses this to mark agent nodes as resumable when loading from history
+          // TASK_2025_109: Now includes agents registered from history above
           const resumableSubagents =
             this.subagentRegistry.getResumableBySession(sessionId);
 

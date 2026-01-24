@@ -470,7 +470,7 @@ jobs:
 ## Return Format
 
 ```markdown
-## DevOps Implementation Complete - TASK_[ID]
+## DevOps Implementation Complete - TASK\_[ID]
 
 **Infrastructure Scope**: [CI/CD, Docker, Kubernetes, Terraform, etc.]
 **Implementation Type**: [Pipeline, Container, Infrastructure-as-Code]

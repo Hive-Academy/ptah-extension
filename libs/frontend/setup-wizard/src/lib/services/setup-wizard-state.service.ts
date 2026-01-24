@@ -523,9 +523,8 @@ export class SetupWizardStateService implements OnDestroy {
    */
   readonly totalGenerationItems = computed(() => {
     const selectedAgents = this.selectedAgentsMapSignal();
-    const selectedAgentCount = Object.values(selectedAgents).filter(
-      Boolean
-    ).length;
+    const selectedAgentCount =
+      Object.values(selectedAgents).filter(Boolean).length;
 
     const COMMAND_COUNT = 5; // Fixed: review-code, review-logic, review-security, orchestrate, orchestrate-help
     const SKILL_FILE_COUNT = 7; // Fixed: SKILL.md + 6 reference files
@@ -727,9 +726,7 @@ export class SetupWizardStateService implements OnDestroy {
     update: Partial<SkillGenerationProgressItem>
   ): void {
     this.skillGenerationProgressSignal.update((items) =>
-      items.map((item) =>
-        item.id === itemId ? { ...item, ...update } : item
-      )
+      items.map((item) => (item.id === itemId ? { ...item, ...update } : item))
     );
   }
 

@@ -219,7 +219,9 @@ export class AuthService {
     this.pkceStates.delete(state);
 
     this.logger.debug(
-      `PKCE state consumed: ${state.substring(0, 8)}... (remaining states: ${this.pkceStates.size})`
+      `PKCE state consumed: ${state.substring(0, 8)}... (remaining states: ${
+        this.pkceStates.size
+      })`
     );
 
     try {

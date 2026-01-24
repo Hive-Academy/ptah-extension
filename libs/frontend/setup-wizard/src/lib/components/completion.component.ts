@@ -65,8 +65,9 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
           </div>
           <h1 class="text-4xl font-bold mb-4">Setup Complete!</h1>
           <p class="text-lg text-base-content/70 max-w-2xl mx-auto">
-            Your personalized agents and orchestration skill have been generated.
-            You're ready to start using intelligent development workflows.
+            Your personalized agents and orchestration skill have been
+            generated. You're ready to start using intelligent development
+            workflows.
           </p>
         </div>
 
@@ -93,8 +94,19 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
         <div class="card bg-base-200 shadow-xl mb-8">
           <div class="card-body">
             <h2 class="card-title text-xl mb-4">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="h-6 w-6"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+                />
               </svg>
               Generated Files
             </h2>
@@ -103,16 +115,33 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
               <!-- Agents Column -->
               @if (agentFiles().length > 0) {
               <div>
-                <h3 class="font-semibold text-primary mb-2 flex items-center gap-2">
-                  <span>\u{1F916}</span> Agents
+                <h3
+                  class="font-semibold text-primary mb-2 flex items-center gap-2"
+                >
+                  <span>🤖</span> Agents
                 </h3>
                 <ul class="space-y-1 text-sm">
                   @for (file of agentFiles(); track file.id) {
                   <li class="flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="h-4 w-4 text-success"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M5 13l4 4L19 7"
+                      />
                     </svg>
-                    <span class="font-mono text-xs truncate" [title]="file.name">{{ file.name }}</span>
+                    <span
+                      class="font-mono text-xs truncate"
+                      [title]="file.name"
+                      >{{ file.name }}</span
+                    >
                   </li>
                   }
                 </ul>
@@ -122,16 +151,33 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
               <!-- Commands Column -->
               @if (commandFiles().length > 0) {
               <div>
-                <h3 class="font-semibold text-secondary mb-2 flex items-center gap-2">
-                  <span>\u{2328}\u{FE0F}</span> Commands
+                <h3
+                  class="font-semibold text-secondary mb-2 flex items-center gap-2"
+                >
+                  <span>⌨️</span> Commands
                 </h3>
                 <ul class="space-y-1 text-sm">
                   @for (file of commandFiles(); track file.id) {
                   <li class="flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="h-4 w-4 text-success"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M5 13l4 4L19 7"
+                      />
                     </svg>
-                    <span class="font-mono text-xs truncate" [title]="file.name">{{ file.name }}</span>
+                    <span
+                      class="font-mono text-xs truncate"
+                      [title]="file.name"
+                      >{{ file.name }}</span
+                    >
                   </li>
                   }
                 </ul>
@@ -141,16 +187,33 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
               <!-- Skill Files Column -->
               @if (skillFiles().length > 0) {
               <div>
-                <h3 class="font-semibold text-accent mb-2 flex items-center gap-2">
-                  <span>\u{1F4DD}</span> Skill Files
+                <h3
+                  class="font-semibold text-accent mb-2 flex items-center gap-2"
+                >
+                  <span>📝</span> Skill Files
                 </h3>
                 <ul class="space-y-1 text-sm">
                   @for (file of skillFiles(); track file.id) {
                   <li class="flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="h-4 w-4 text-success"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M5 13l4 4L19 7"
+                      />
                     </svg>
-                    <span class="font-mono text-xs truncate" [title]="file.name">{{ file.name }}</span>
+                    <span
+                      class="font-mono text-xs truncate"
+                      [title]="file.name"
+                      >{{ file.name }}</span
+                    >
                   </li>
                   }
                 </ul>
@@ -164,8 +227,19 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
         <div class="card bg-base-200 shadow-xl mb-8">
           <div class="card-body">
             <h2 class="card-title text-xl mb-4">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="h-6 w-6"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M13 10V3L4 14h7v7l9-11h-7z"
+                />
               </svg>
               Quick Start Guide
             </h2>
@@ -178,14 +252,21 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
                   Start a Development Workflow
                 </h3>
                 <p class="text-sm text-base-content/70 mb-2">
-                  Use the <code class="bg-base-300 px-1 py-0.5 rounded">/orchestrate</code> command to start an intelligent development workflow:
+                  Use the
+                  <code class="bg-base-300 px-1 py-0.5 rounded"
+                    >/orchestrate</code
+                  >
+                  command to start an intelligent development workflow:
                 </p>
                 <div class="mockup-code text-sm">
-                  <pre data-prefix="$"><code>/orchestrate Add user authentication with OAuth2</code></pre>
+                  <pre
+                    data-prefix="$"
+                  ><code>/orchestrate Add user authentication with OAuth2</code></pre>
                 </div>
                 <p class="text-xs text-base-content/60 mt-2">
-                  The orchestrator will analyze your task, select the appropriate workflow (FEATURE, BUGFIX, etc.),
-                  and coordinate specialized agents.
+                  The orchestrator will analyze your task, select the
+                  appropriate workflow (FEATURE, BUGFIX, etc.), and coordinate
+                  specialized agents.
                 </p>
               </div>
 
@@ -200,22 +281,22 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
                 </p>
                 <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
                   <div class="badge badge-outline gap-1">
-                    <span>\u{2728}</span> FEATURE
+                    <span>✨</span> FEATURE
                   </div>
                   <div class="badge badge-outline gap-1">
-                    <span>\u{1F41B}</span> BUGFIX
+                    <span>🐛</span> BUGFIX
                   </div>
                   <div class="badge badge-outline gap-1">
-                    <span>\u{1F527}</span> REFACTORING
+                    <span>🔧</span> REFACTORING
                   </div>
                   <div class="badge badge-outline gap-1">
-                    <span>\u{1F4DA}</span> DOCUMENTATION
+                    <span>📚</span> DOCUMENTATION
                   </div>
                   <div class="badge badge-outline gap-1">
-                    <span>\u{1F50D}</span> RESEARCH
+                    <span>🔍</span> RESEARCH
                   </div>
                   <div class="badge badge-outline gap-1">
-                    <span>\u{2699}\u{FE0F}</span> DEVOPS
+                    <span>⚙️</span> DEVOPS
                   </div>
                 </div>
               </div>
@@ -228,16 +309,31 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
                 </h3>
                 <div class="space-y-2">
                   <div class="mockup-code text-sm">
-                    <pre data-prefix="$"><code>/orchestrate Fix the login form validation bug</code></pre>
-                    <pre data-prefix=" " class="text-base-content/60"><code># Strategy: BUGFIX - Research -> Team-Leader -> QA</code></pre>
+                    <pre
+                      data-prefix="$"
+                    ><code>/orchestrate Fix the login form validation bug</code></pre>
+                    <pre
+                      data-prefix=" "
+                      class="text-base-content/60"
+                    ><code># Strategy: BUGFIX - Research -> Team-Leader -> QA</code></pre>
                   </div>
                   <div class="mockup-code text-sm">
-                    <pre data-prefix="$"><code>/orchestrate Refactor the UserService to use repository pattern</code></pre>
-                    <pre data-prefix=" " class="text-base-content/60"><code># Strategy: REFACTORING - Architect -> Team-Leader</code></pre>
+                    <pre
+                      data-prefix="$"
+                    ><code>/orchestrate Refactor the UserService to use repository pattern</code></pre>
+                    <pre
+                      data-prefix=" "
+                      class="text-base-content/60"
+                    ><code># Strategy: REFACTORING - Architect -> Team-Leader</code></pre>
                   </div>
                   <div class="mockup-code text-sm">
-                    <pre data-prefix="$"><code>/orchestrate Create API documentation for the auth endpoints</code></pre>
-                    <pre data-prefix=" " class="text-base-content/60"><code># Strategy: DOCUMENTATION - Technical-Writer</code></pre>
+                    <pre
+                      data-prefix="$"
+                    ><code>/orchestrate Create API documentation for the auth endpoints</code></pre>
+                    <pre
+                      data-prefix=" "
+                      class="text-base-content/60"
+                    ><code># Strategy: DOCUMENTATION - Technical-Writer</code></pre>
                   </div>
                 </div>
               </div>
@@ -252,8 +348,13 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
                   Resume work on an existing task using the task ID:
                 </p>
                 <div class="mockup-code text-sm">
-                  <pre data-prefix="$"><code>/orchestrate TASK_2025_XXX</code></pre>
-                  <pre data-prefix=" " class="text-base-content/60"><code># Continues from last checkpoint</code></pre>
+                  <pre
+                    data-prefix="$"
+                  ><code>/orchestrate TASK_2025_XXX</code></pre>
+                  <pre
+                    data-prefix=" "
+                    class="text-base-content/60"
+                  ><code># Continues from last checkpoint</code></pre>
                 </div>
               </div>
             </div>
@@ -278,9 +379,28 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
           <div>
             <h3 class="font-bold mb-1">Pro Tips</h3>
             <ul class="text-sm space-y-1">
-              <li>Use <code class="bg-base-300 px-1 py-0.5 rounded">@agent-name</code> to invoke a specific agent directly (e.g., <code class="bg-base-300 px-1 py-0.5 rounded">@frontend-developer</code>)</li>
-              <li>Check <code class="bg-base-300 px-1 py-0.5 rounded">.claude/skills/orchestration/SKILL.md</code> for the complete workflow reference</li>
-              <li>Task progress is saved in <code class="bg-base-300 px-1 py-0.5 rounded">task-tracking/</code> folder for easy continuation</li>
+              <li>
+                Use
+                <code class="bg-base-300 px-1 py-0.5 rounded">@agent-name</code>
+                to invoke a specific agent directly (e.g.,
+                <code class="bg-base-300 px-1 py-0.5 rounded"
+                  >@frontend-developer</code
+                >)
+              </li>
+              <li>
+                Check
+                <code class="bg-base-300 px-1 py-0.5 rounded"
+                  >.claude/skills/orchestration/SKILL.md</code
+                >
+                for the complete workflow reference
+              </li>
+              <li>
+                Task progress is saved in
+                <code class="bg-base-300 px-1 py-0.5 rounded"
+                  >task-tracking/</code
+                >
+                folder for easy continuation
+              </li>
             </ul>
           </div>
         </div>
@@ -304,7 +424,10 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
             </svg>
             Open .claude Folder
           </button>
-          <button class="btn btn-secondary btn-lg" (click)="onTestOrchestration()">
+          <button
+            class="btn btn-secondary btn-lg"
+            (click)="onTestOrchestration()"
+          >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               class="h-5 w-5"

@@ -160,8 +160,7 @@ export function buildOrchestrationNamespace(
     strategy: string
   ): OrchestrationPhase | null => {
     const sequence =
-      STRATEGY_PHASE_SEQUENCE[strategy] ||
-      STRATEGY_PHASE_SEQUENCE['FEATURE'];
+      STRATEGY_PHASE_SEQUENCE[strategy] || STRATEGY_PHASE_SEQUENCE['FEATURE'];
     const currentIndex = sequence.indexOf(currentPhase);
 
     if (currentIndex === -1 || currentIndex === sequence.length - 1) {
@@ -224,7 +223,8 @@ export function buildOrchestrationNamespace(
       partialState: Partial<OrchestrationState>
     ): Promise<void> => {
       // Read existing state or create default
-      const existing = (await readStateFile(taskId)) || createDefaultState(taskId);
+      const existing =
+        (await readStateFile(taskId)) || createDefaultState(taskId);
 
       // Merge state with proper handling of nested objects
       const newState: OrchestrationState = {

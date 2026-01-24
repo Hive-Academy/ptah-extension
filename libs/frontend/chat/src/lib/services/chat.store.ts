@@ -408,36 +408,11 @@ export class ChatStore {
     }
   }
 
-  /**
-   * Handle subagent resume request from UI
-   * @param toolCallId - The toolCallId of the subagent to resume
-   * @returns true if resume was initiated successfully
-   */
-  async handleSubagentResume(toolCallId: string): Promise<boolean> {
-    try {
-      console.log('[ChatStore] Resuming subagent:', { toolCallId });
-
-      const result = await this._claudeRpcService.resumeSubagent(toolCallId);
-
-      if (result.isSuccess() && result.data.success) {
-        console.log('[ChatStore] Subagent resume successful:', { toolCallId });
-
-        // Refresh the list to remove the resumed subagent
-        await this.refreshResumableSubagents();
-        return true;
-      } else {
-        const error = result.data?.error || result.error || 'Unknown error';
-        console.error('[ChatStore] Subagent resume failed:', {
-          toolCallId,
-          error,
-        });
-        return false;
-      }
-    } catch (error) {
-      console.error('[ChatStore] Error resuming subagent:', error);
-      return false;
-    }
-  }
+  // TASK_2025_109: handleSubagentResume method removed - now uses context injection
+  // Subagent resumption is handled via context injection in chat:continue RPC.
+  // When a parent session continues, interrupted subagent context is injected
+  // into the prompt, allowing Claude to naturally resume agents through conversation.
+  // Users can type "resume agent {agentId}" to trigger natural resumption.
 
   // ============================================================================
   // COMPACTION HANDLING (TASK_2025_098)

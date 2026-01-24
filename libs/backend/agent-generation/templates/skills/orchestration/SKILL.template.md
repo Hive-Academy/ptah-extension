@@ -7,8 +7,8 @@ description: >
   (7) Landing pages and marketing content.
   Supports full (PM->Architect->Dev->QA), partial, or minimal workflows.
 version: 1.0.0
-projectType: {{PROJECT_TYPE}}
-generatedAt: {{TIMESTAMP}}
+projectType: { { PROJECT_TYPE } }
+generatedAt: { { TIMESTAMP } }
 ---
 
 # Orchestration Skill
@@ -26,15 +26,15 @@ Multi-phase development workflow orchestration with dynamic strategies and user 
 
 ### Strategy Quick Reference
 
-| Task Type       | Strategy Flow                                    |
-|-----------------|--------------------------------------------------|
-| FEATURE         | PM -> [Research] -> Architect -> Team-Leader -> QA |
-| BUGFIX          | [Research] -> Team-Leader -> QA                  |
-| REFACTORING     | Architect -> Team-Leader -> QA                   |
-| DOCUMENTATION   | PM -> Developer -> Style Reviewer                |
-| RESEARCH        | Researcher -> [conditional implementation]       |
-| DEVOPS          | PM -> Architect -> DevOps Engineer -> QA         |
-| CREATIVE        | [ui-ux-designer] -> content-writer -> frontend   |
+| Task Type     | Strategy Flow                                      |
+| ------------- | -------------------------------------------------- |
+| FEATURE       | PM -> [Research] -> Architect -> Team-Leader -> QA |
+| BUGFIX        | [Research] -> Team-Leader -> QA                    |
+| REFACTORING   | Architect -> Team-Leader -> QA                     |
+| DOCUMENTATION | PM -> Developer -> Style Reviewer                  |
+| RESEARCH      | Researcher -> [conditional implementation]         |
+| DEVOPS        | PM -> Architect -> DevOps Engineer -> QA           |
+| CREATIVE      | [ui-ux-designer] -> content-writer -> frontend     |
 
 ### Execution Summary
 
@@ -98,24 +98,24 @@ Multi-phase development workflow orchestration with dynamic strategies and user 
 
 ### Task Type Detection
 
-| Keywords Present                                      | Task Type       |
-|------------------------------------------------------|-----------------|
-| CI/CD, pipeline, GitHub Actions, deploy, Docker, Kubernetes, Terraform | DEVOPS |
-| implement, add, create, build (without DevOps keywords) | FEATURE |
-| fix, bug, error, issue                               | BUGFIX          |
-| refactor, improve, optimize, clean                   | REFACTORING     |
-| document, readme, comment                            | DOCUMENTATION   |
-| research, investigate, analyze, explore              | RESEARCH        |
-| landing page, marketing, brand, visual design        | CREATIVE        |
+| Keywords Present                                                       | Task Type     |
+| ---------------------------------------------------------------------- | ------------- |
+| CI/CD, pipeline, GitHub Actions, deploy, Docker, Kubernetes, Terraform | DEVOPS        |
+| implement, add, create, build (without DevOps keywords)                | FEATURE       |
+| fix, bug, error, issue                                                 | BUGFIX        |
+| refactor, improve, optimize, clean                                     | REFACTORING   |
+| document, readme, comment                                              | DOCUMENTATION |
+| research, investigate, analyze, explore                                | RESEARCH      |
+| landing page, marketing, brand, visual design                          | CREATIVE      |
 
 **Priority**: DEVOPS > CREATIVE > FEATURE (when multiple keywords present)
 
 ### Complexity Assessment
 
-| Level   | Indicators                                        |
-|---------|--------------------------------------------------|
-| Simple  | Single file, clear requirements, <2 hours        |
-| Medium  | Multiple files, some research, 2-8 hours         |
+| Level   | Indicators                                         |
+| ------- | -------------------------------------------------- |
+| Simple  | Single file, clear requirements, <2 hours          |
+| Medium  | Multiple files, some research, 2-8 hours           |
 | Complex | Multiple modules, architecture decisions, >8 hours |
 
 ---
@@ -151,7 +151,7 @@ Task({
 **User Request**: "[original request]"
 
 [Agent-specific instructions]
-See [agent-name].md for detailed instructions.`
+See [agent-name].md for detailed instructions.`,
 });
 ```
 
@@ -166,11 +166,11 @@ See [checkpoints.md](references/checkpoints.md) for all checkpoint templates.
 
 The team-leader operates in 3 modes. See [team-leader-modes.md](references/team-leader-modes.md) for detailed integration patterns.
 
-| Mode | Purpose |
-|------|---------|
-| MODE 1 | DECOMPOSITION - Create tasks.md with batched atomic tasks |
+| Mode   | Purpose                                                                     |
+| ------ | --------------------------------------------------------------------------- |
+| MODE 1 | DECOMPOSITION - Create tasks.md with batched atomic tasks                   |
 | MODE 2 | ASSIGNMENT + VERIFY + COMMIT - Verify files, commit code, assign next batch |
-| MODE 3 | COMPLETION - Final verification, return summary |
+| MODE 3 | COMPLETION - Final verification, return summary                             |
 
 ---
 
@@ -178,14 +178,14 @@ The team-leader operates in 3 modes. See [team-leader-modes.md](references/team-
 
 Load references as needed during orchestration:
 
-| Reference File | Load When | Content |
-|---------------|-----------|---------|
-| [strategies.md](references/strategies.md) | Selecting or executing a strategy | All 6 strategy flows with ASCII diagrams |
-| [agent-catalog.md](references/agent-catalog.md) | Determining which agent to invoke | 13 agent profiles with capabilities |
-| [team-leader-modes.md](references/team-leader-modes.md) | Invoking team-leader or handling responses | MODE 1/2/3 integration patterns |
-| [task-tracking.md](references/task-tracking.md) | Initializing tasks or managing state | Folder structure, registry management |
-| [checkpoints.md](references/checkpoints.md) | Presenting validation checkpoints | All checkpoint templates |
-| [git-standards.md](references/git-standards.md) | Creating commits or handling hook failures | Commitlint rules, allowed types/scopes |
+| Reference File                                          | Load When                                  | Content                                  |
+| ------------------------------------------------------- | ------------------------------------------ | ---------------------------------------- |
+| [strategies.md](references/strategies.md)               | Selecting or executing a strategy          | All 6 strategy flows with ASCII diagrams |
+| [agent-catalog.md](references/agent-catalog.md)         | Determining which agent to invoke          | 13 agent profiles with capabilities      |
+| [team-leader-modes.md](references/team-leader-modes.md) | Invoking team-leader or handling responses | MODE 1/2/3 integration patterns          |
+| [task-tracking.md](references/task-tracking.md)         | Initializing tasks or managing state       | Folder structure, registry management    |
+| [checkpoints.md](references/checkpoints.md)             | Presenting validation checkpoints          | All checkpoint templates                 |
+| [git-standards.md](references/git-standards.md)         | Creating commits or handling hook failures | Commitlint rules, allowed types/scopes   |
 
 ---
 

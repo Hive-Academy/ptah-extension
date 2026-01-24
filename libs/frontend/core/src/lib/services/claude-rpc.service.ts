@@ -13,7 +13,7 @@ import {
   FileOpenParams,
   FileOpenResult,
   MESSAGE_TYPES,
-  SubagentResumeResult,
+  // TASK_2025_109: SubagentResumeResult removed - now uses context injection
   SubagentQueryResult,
 } from '@ptah-extension/shared';
 
@@ -263,26 +263,9 @@ export class ClaudeRpcService {
   // SUBAGENT RPC METHODS (TASK_2025_103)
   // ============================================================================
 
-  /**
-   * Resume an interrupted subagent by its toolCallId
-   * @param toolCallId - The toolCallId of the subagent to resume
-   * @returns Promise with success status
-   */
-  async resumeSubagent(
-    toolCallId: string
-  ): Promise<RpcResult<SubagentResumeResult>> {
-    console.log(
-      '▶️ [ClaudeRpcService] resumeSubagent() called - Sending RPC request...',
-      { toolCallId }
-    );
-    const result = await this.call('chat:subagent-resume', { toolCallId });
-    console.log('✅ [ClaudeRpcService] resumeSubagent() response:', {
-      success: result.success,
-      data: result.data,
-      error: result.error,
-    });
-    return result;
-  }
+  // TASK_2025_109: resumeSubagent method removed - now uses context injection
+  // Subagent resumption is handled via context injection in chat:continue RPC.
+  // Users can type "resume agent {agentId}" to trigger natural resumption.
 
   /**
    * Query subagents from the registry

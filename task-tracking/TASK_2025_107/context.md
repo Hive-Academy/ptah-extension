@@ -37,6 +37,7 @@ Based on TASK_2025_079 (Settings Conditional Visibility & Premium Gating), perfo
 ### Phase 1: Research - Comprehensive License Audit
 
 Invoke researcher-expert to:
+
 1. Audit all backend services for license checks
 2. Audit all frontend components for premium gating
 3. Identify gaps in enforcement
@@ -46,6 +47,7 @@ Invoke researcher-expert to:
 ### Phase 2 (If Needed): Implementation
 
 Based on audit findings:
+
 - Create reusable Angular directive for premium feature gating
 - Add missing license checks to backend services
 - Standardize the gating pattern across codebase
@@ -53,17 +55,20 @@ Based on audit findings:
 ## Files to Audit
 
 ### Backend License System
+
 - `libs/backend/vscode-core/src/services/license.service.ts` - Core license verification
 - `apps/ptah-extension-vscode/src/services/rpc/handlers/license-rpc.handlers.ts` - License RPC
 - `apps/ptah-extension-vscode/src/main.ts` - MCP Server gating
 - `apps/ptah-extension-vscode/src/commands/license-commands.ts` - License commands
 
 ### Frontend Premium Gating
+
 - `libs/frontend/chat/src/lib/settings/settings.component.ts` - Settings visibility
 - `libs/frontend/chat/src/lib/settings/settings.component.html` - Conditional sections
 - `libs/frontend/chat/src/lib/settings/auth-config.component.ts` - Auth status
 
 ### Shared Types
+
 - `libs/shared/src/lib/types/rpc.types.ts` - License RPC types
 
 ## Expected Deliverables

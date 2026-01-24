@@ -73,15 +73,28 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
         }
 
         <!-- Selection controls and count -->
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+        <div
+          class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6"
+        >
           <div class="flex flex-wrap gap-2">
             <button
               class="btn btn-outline btn-sm"
               (click)="onSelectAllRecommended()"
               [disabled]="allRecommendedSelected()"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M5 13l4 4L19 7"
+                />
               </svg>
               Select Recommended
             </button>
@@ -95,8 +108,19 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
           </div>
           <div class="flex items-center gap-3">
             <div class="badge badge-primary badge-lg gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M5 13l4 4L19 7"
+                />
               </svg>
               {{ selectedCount() }} selected
             </div>
@@ -110,133 +134,184 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
         <!-- No recommendations available -->
         <div class="card bg-base-200 shadow-xl">
           <div class="card-body items-center text-center py-12">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-base-content/30 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-16 w-16 text-base-content/30 mb-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+              />
             </svg>
             <h3 class="text-xl font-semibold mb-2">No Agent Recommendations</h3>
             <p class="text-base-content/60 max-w-md">
-              Unable to load agent recommendations. Please go back and restart the analysis.
+              Unable to load agent recommendations. Please go back and restart
+              the analysis.
             </p>
           </div>
         </div>
         } @else {
         <!-- Agent categories -->
-        @for (category of categoryOrder; track category) {
-          @if (getAgentsByCategory(category).length > 0) {
-          <div class="mb-8">
-            <h3 class="text-xl font-semibold mb-4 flex items-center gap-2">
-              <span class="badge badge-lg" [class]="getCategoryBadgeClass(category)">
-                {{ getCategoryIcon(category) }}
-              </span>
-              {{ getCategoryLabel(category) }}
-              <span class="text-sm text-base-content/60 font-normal">
-                ({{ getAgentsByCategory(category).length }} agents)
-              </span>
-            </h3>
+        @for (category of categoryOrder; track category) { @if
+        (getAgentsByCategory(category).length > 0) {
+        <div class="mb-8">
+          <h3 class="text-xl font-semibold mb-4 flex items-center gap-2">
+            <span
+              class="badge badge-lg"
+              [class]="getCategoryBadgeClass(category)"
+            >
+              {{ getCategoryIcon(category) }}
+            </span>
+            {{ getCategoryLabel(category) }}
+            <span class="text-sm text-base-content/60 font-normal">
+              ({{ getAgentsByCategory(category).length }} agents)
+            </span>
+          </h3>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              @for (agent of getAgentsByCategory(category); track agent.agentId) {
-              <div
-                class="card bg-base-100 shadow-md hover:shadow-lg transition-shadow cursor-pointer"
-                [class.ring-2]="isSelected(agent.agentId)"
-                [class.ring-primary]="isSelected(agent.agentId)"
-                (click)="onToggleAgent(agent.agentId)"
-                (keydown.enter)="onToggleAgent(agent.agentId)"
-                (keydown.space)="onToggleAgent(agent.agentId); $event.preventDefault()"
-                tabindex="0"
-                role="checkbox"
-                [attr.aria-checked]="isSelected(agent.agentId)"
-                [attr.aria-label]="'Select ' + agent.agentName + ' agent, relevance score ' + agent.relevanceScore + ' percent'"
-              >
-                <div class="card-body p-4">
-                  <div class="flex items-start justify-between gap-3">
-                    <div class="flex items-center gap-3 flex-1 min-w-0">
-                      <!-- Checkbox -->
-                      <input
-                        type="checkbox"
-                        class="checkbox checkbox-primary"
-                        [checked]="isSelected(agent.agentId)"
-                        (click)="$event.stopPropagation()"
-                        (change)="onToggleAgent(agent.agentId)"
-                        [attr.aria-label]="'Select ' + agent.agentName"
-                      />
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            @for (agent of getAgentsByCategory(category); track agent.agentId) {
+            <div
+              class="card bg-base-100 shadow-md hover:shadow-lg transition-shadow cursor-pointer"
+              [class.ring-2]="isSelected(agent.agentId)"
+              [class.ring-primary]="isSelected(agent.agentId)"
+              (click)="onToggleAgent(agent.agentId)"
+              (keydown.enter)="onToggleAgent(agent.agentId)"
+              (keydown.space)="
+                onToggleAgent(agent.agentId); $event.preventDefault()
+              "
+              tabindex="0"
+              role="checkbox"
+              [attr.aria-checked]="isSelected(agent.agentId)"
+              [attr.aria-label]="
+                'Select ' +
+                agent.agentName +
+                ' agent, relevance score ' +
+                agent.relevanceScore +
+                ' percent'
+              "
+            >
+              <div class="card-body p-4">
+                <div class="flex items-start justify-between gap-3">
+                  <div class="flex items-center gap-3 flex-1 min-w-0">
+                    <!-- Checkbox -->
+                    <input
+                      type="checkbox"
+                      class="checkbox checkbox-primary"
+                      [checked]="isSelected(agent.agentId)"
+                      (click)="$event.stopPropagation()"
+                      (change)="onToggleAgent(agent.agentId)"
+                      [attr.aria-label]="'Select ' + agent.agentName"
+                    />
 
-                      <!-- Agent Info -->
-                      <div class="flex-1 min-w-0">
-                        <div class="flex items-center gap-2 flex-wrap">
-                          <span class="font-semibold">{{ agent.agentName }}</span>
-                          @if (agent.recommended) {
-                          <span class="badge badge-success badge-sm gap-1">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                            </svg>
-                            Recommended
-                          </span>
-                          }
-                        </div>
-                        <p class="text-sm text-base-content/70 truncate" [title]="agent.description">
-                          {{ agent.description }}
-                        </p>
+                    <!-- Agent Info -->
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <span class="font-semibold">{{ agent.agentName }}</span>
+                        @if (agent.recommended) {
+                        <span class="badge badge-success badge-sm gap-1">
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            class="h-3 w-3"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2"
+                              d="M5 13l4 4L19 7"
+                            />
+                          </svg>
+                          Recommended
+                        </span>
+                        }
                       </div>
-                    </div>
-
-                    <!-- Score Badge -->
-                    <div class="flex flex-col items-end gap-1">
-                      <span
-                        class="badge badge-lg font-bold"
-                        [class]="getScoreBadgeClass(agent.relevanceScore)"
+                      <p
+                        class="text-sm text-base-content/70 truncate"
+                        [title]="agent.description"
                       >
-                        {{ agent.relevanceScore }}%
-                      </span>
+                        {{ agent.description }}
+                      </p>
                     </div>
                   </div>
 
-                  <!-- Score Progress Bar -->
-                  <div class="mt-3">
-                    <progress
-                      class="progress w-full h-2"
-                      [class]="getScoreProgressClass(agent.relevanceScore)"
-                      [value]="agent.relevanceScore"
-                      max="100"
-                      [attr.aria-label]="agent.agentName + ' relevance: ' + agent.relevanceScore + ' percent'"
-                    ></progress>
+                  <!-- Score Badge -->
+                  <div class="flex flex-col items-end gap-1">
+                    <span
+                      class="badge badge-lg font-bold"
+                      [class]="getScoreBadgeClass(agent.relevanceScore)"
+                    >
+                      {{ agent.relevanceScore }}%
+                    </span>
                   </div>
+                </div>
 
-                  <!-- Matched Criteria -->
-                  @if (agent.matchedCriteria && agent.matchedCriteria.length > 0) {
-                  <div class="mt-2 flex flex-wrap gap-1">
-                    @for (criteria of agent.matchedCriteria.slice(0, 3); track criteria) {
-                    <span
-                      class="badge badge-outline badge-xs"
-                      [title]="criteria"
-                    >
-                      {{ criteria }}
-                    </span>
-                    }
-                    @if (agent.matchedCriteria.length > 3) {
-                    <span
-                      class="badge badge-ghost badge-xs cursor-help"
-                      [title]="agent.matchedCriteria.slice(3).join(', ')"
-                    >
-                      +{{ agent.matchedCriteria.length - 3 }} more
-                    </span>
-                    }
-                  </div>
+                <!-- Score Progress Bar -->
+                <div class="mt-3">
+                  <progress
+                    class="progress w-full h-2"
+                    [class]="getScoreProgressClass(agent.relevanceScore)"
+                    [value]="agent.relevanceScore"
+                    max="100"
+                    [attr.aria-label]="
+                      agent.agentName +
+                      ' relevance: ' +
+                      agent.relevanceScore +
+                      ' percent'
+                    "
+                  ></progress>
+                </div>
+
+                <!-- Matched Criteria -->
+                @if (agent.matchedCriteria && agent.matchedCriteria.length > 0)
+                {
+                <div class="mt-2 flex flex-wrap gap-1">
+                  @for (criteria of agent.matchedCriteria.slice(0, 3); track
+                  criteria) {
+                  <span class="badge badge-outline badge-xs" [title]="criteria">
+                    {{ criteria }}
+                  </span>
+                  } @if (agent.matchedCriteria.length > 3) {
+                  <span
+                    class="badge badge-ghost badge-xs cursor-help"
+                    [title]="agent.matchedCriteria.slice(3).join(', ')"
+                  >
+                    +{{ agent.matchedCriteria.length - 3 }} more
+                  </span>
                   }
                 </div>
+                }
               </div>
-              }
             </div>
+            }
           </div>
-          }
-        }
-        }
+        </div>
+        } } }
 
         <!-- Action buttons -->
-        <div class="flex flex-col sm:flex-row gap-4 justify-between items-center mt-8 pt-6 border-t border-base-300">
+        <div
+          class="flex flex-col sm:flex-row gap-4 justify-between items-center mt-8 pt-6 border-t border-base-300"
+        >
           <button class="btn btn-ghost" (click)="onBack()">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-5 w-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M15 19l-7-7 7-7"
+              />
             </svg>
             Back
           </button>
@@ -255,12 +330,24 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
           >
             @if (isGenerating()) {
             <span class="loading loading-spinner"></span>
-            Generating...
-            } @else {
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            Generating... } @else {
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-5 w-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M13 10V3L4 14h7v7l9-11h-7z"
+              />
             </svg>
-            Generate {{ selectedCount() }} Agent{{ selectedCount() === 1 ? '' : 's' }}
+            Generate {{ selectedCount() }} Agent{{
+              selectedCount() === 1 ? '' : 's'
+            }}
             }
           </button>
         </div>
@@ -338,7 +425,9 @@ export class AgentSelectionComponent {
   /**
    * Get agents filtered by category.
    */
-  protected getAgentsByCategory(category: AgentCategory): AgentRecommendation[] {
+  protected getAgentsByCategory(
+    category: AgentCategory
+  ): AgentRecommendation[] {
     return this.sortedRecommendations().filter(
       (agent) => agent.category === category
     );

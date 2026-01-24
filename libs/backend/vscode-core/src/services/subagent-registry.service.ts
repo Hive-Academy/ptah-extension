@@ -25,7 +25,13 @@
 import { injectable, inject } from 'tsyringe';
 import type { Logger } from '../logging';
 import { TOKENS } from '../di/tokens';
-import type { SubagentRecord, SubagentStatus } from '@ptah-extension/shared';
+import type {
+  SubagentRecord,
+  SubagentStatus,
+  FlatStreamEventUnion,
+  AgentStartEvent,
+  ToolResultEvent,
+} from '@ptah-extension/shared';
 
 /**
  * Input for registering a new subagent (status is set automatically)
@@ -468,5 +474,128 @@ export class SubagentRegistryService {
         remainingCount: this.registry.size,
       }
     );
+  }
+
+  // ============================================================================
+  // HISTORY-BASED REGISTRATION (TASK_2025_109)
+  // ============================================================================
+
+  /**
+   * Register incomplete/interrupted agents from loaded session history.
+   *
+   * TASK_2025_109: When loading a session from JSONL history (cold load),
+   * SDK hooks don't fire, so the registry is empty. This method parses
+   * history events to detect agents that started but never completed,
+   * and registers them as 'interrupted' for potential resumption.
+   *
+   * Algorithm:
+   * 1. Find all agent_start events (indicates agent spawned)
+   * 2. Find all tool_result events (indicates tool completed)
+   * 3. For each agent_start, check if there's a tool_result with same toolCallId
+   * 4. If no tool_result found, agent is interrupted - register it
+   *
+   * @param events - Array of FlatStreamEventUnion from session history
+   * @param parentSessionId - The parent session ID these events belong to
+   * @returns Number of interrupted agents registered
+   *
+   * @example
+   * ```typescript
+   * const { events } = await historyReader.readSessionHistory(sessionId, workspacePath);
+   * const registeredCount = subagentRegistry.registerFromHistoryEvents(events, sessionId);
+   * console.log(`Registered ${registeredCount} interrupted agents from history`);
+   * ```
+   */
+  registerFromHistoryEvents(
+    events: FlatStreamEventUnion[],
+    parentSessionId: string
+  ): number {
+    // Run lazy cleanup periodically
+    this.lazyCleanup();
+
+    // Step 1: Collect all agent_start events
+    const agentStartEvents: AgentStartEvent[] = events.filter(
+      (e): e is AgentStartEvent => e.eventType === 'agent_start'
+    );
+
+    if (agentStartEvents.length === 0) {
+      this.logger.debug(
+        '[SubagentRegistryService.registerFromHistoryEvents] No agent_start events found',
+        { parentSessionId, eventCount: events.length }
+      );
+      return 0;
+    }
+
+    // Step 2: Collect all tool_result toolCallIds for quick lookup
+    const completedToolCallIds = new Set<string>(
+      events
+        .filter((e): e is ToolResultEvent => e.eventType === 'tool_result')
+        .map((e) => e.toolCallId)
+    );
+
+    // Step 3: Find agent_start events without corresponding tool_result
+    let registeredCount = 0;
+
+    for (const agentStart of agentStartEvents) {
+      const { toolCallId, agentType, agentId, sessionId, timestamp } =
+        agentStart;
+
+      // Skip if already registered (avoid duplicates on multiple loads)
+      if (this.registry.has(toolCallId)) {
+        this.logger.debug(
+          '[SubagentRegistryService.registerFromHistoryEvents] Agent already registered, skipping',
+          { toolCallId, agentType }
+        );
+        continue;
+      }
+
+      // Check if agent completed (has tool_result)
+      if (completedToolCallIds.has(toolCallId)) {
+        this.logger.debug(
+          '[SubagentRegistryService.registerFromHistoryEvents] Agent completed, skipping',
+          { toolCallId, agentType }
+        );
+        continue;
+      }
+
+      // Agent started but never completed - register as interrupted
+      const record: SubagentRecord = {
+        toolCallId,
+        sessionId: sessionId, // The agent's own session ID
+        agentType: agentType,
+        status: 'interrupted' as SubagentStatus,
+        startedAt: timestamp,
+        interruptedAt: timestamp, // Use start time as approximate interrupt time
+        parentSessionId,
+        agentId: agentId ?? toolCallId.slice(-7), // Fallback to last 7 chars of toolCallId
+      };
+
+      this.registry.set(toolCallId, record);
+      registeredCount++;
+
+      this.logger.debug(
+        '[SubagentRegistryService.registerFromHistoryEvents] Registered interrupted agent',
+        {
+          toolCallId,
+          agentType,
+          agentId: record.agentId,
+          parentSessionId,
+        }
+      );
+    }
+
+    if (registeredCount > 0) {
+      this.logger.info(
+        '[SubagentRegistryService.registerFromHistoryEvents] Registered interrupted agents from history',
+        {
+          parentSessionId,
+          registeredCount,
+          totalAgentStarts: agentStartEvents.length,
+          completedCount: agentStartEvents.length - registeredCount,
+          registrySize: this.registry.size,
+        }
+      );
+    }
+
+    return registeredCount;
   }
 }

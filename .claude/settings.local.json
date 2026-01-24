@@ -42,5 +42,8 @@
     "nx-mcp",
     "angular-cli"
   ],
-  "outputStyle": "default"
+  "outputStyle": "default",
+  "env": {
+    "ENABLE_TOOL_SEARCH": "true"
+  }
 }

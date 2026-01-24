@@ -74,24 +74,10 @@ export interface SubagentRecord {
   readonly agentId: string;
 }
 
-/**
- * Parameters for the subagent:resume RPC method
- */
-export interface SubagentResumeParams {
-  /** The toolCallId of the subagent to resume */
-  readonly toolCallId: string;
-}
-
-/**
- * Result of the subagent:resume RPC method
- */
-export interface SubagentResumeResult {
-  /** Whether the resume operation was initiated successfully */
-  readonly success: boolean;
-
-  /** Error message if resume failed */
-  readonly error?: string;
-}
+// TASK_2025_109: SubagentResumeParams and SubagentResumeResult removed
+// Subagent resumption is now handled via context injection in chat:continue RPC,
+// allowing Claude to naturally resume interrupted agents through conversation.
+// See chat-rpc.handlers.ts for the context injection implementation.
 
 /**
  * Parameters for the subagent:query RPC method

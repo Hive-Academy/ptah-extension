@@ -16,6 +16,7 @@ Based on the comprehensive audit, the current license enforcement is **generally
 ### Recommendation: YES, but LOW PRIORITY
 
 **Rationale**:
+
 - Currently only SettingsComponent uses premium gating
 - Angular structural directives provide cleaner templates
 - Reduces code duplication if more premium UI sections are added
@@ -59,6 +60,7 @@ export class PtahPremiumDirective {
 ```
 
 **Usage**:
+
 ```html
 <!-- Show for premium users -->
 <div *ptahPremium>
@@ -82,6 +84,7 @@ export class PtahPremiumDirective {
 ### Recommendation: NO (Not Applicable)
 
 **Rationale**:
+
 - Ptah Extension uses signal-based navigation, NOT Angular Router
 - Route guards are Router-specific constructs
 - The webview doesn't have traditional routes to guard
@@ -114,6 +117,7 @@ const PREMIUM_VIEWS: AppView[] = [
 ### Recommendation: YES, MEDIUM PRIORITY
 
 **Rationale**:
+
 - SettingsComponent currently owns license state
 - Other components may need license status
 - Eliminates duplicate RPC calls
@@ -146,9 +150,7 @@ export class LicenseStateService implements OnDestroy {
   readonly plan = this._plan.asReadonly();
 
   // Combined state for components
-  readonly showPremiumFeatures = computed(
-    () => !this._isLoading() && this.isPremium()
-  );
+  readonly showPremiumFeatures = computed(() => !this._isLoading() && this.isPremium());
 
   // Refresh interval (every 5 minutes to catch upgrades)
   private refreshInterval?: ReturnType<typeof setInterval>;
@@ -187,12 +189,14 @@ export class LicenseStateService implements OnDestroy {
 ```
 
 **Benefits**:
+
 1. Single source of truth for license state
 2. Automatic refresh catches mid-session upgrades
 3. Reduces RPC calls (shared across components)
 4. Enables premium directive implementation
 
 **Migration**:
+
 ```typescript
 // SettingsComponent - After
 export class SettingsComponent {
@@ -248,6 +252,7 @@ export class LlmRpcHandlers {
 ```
 
 **Methods to Gate**:
+
 - `llm:setApiKey`
 - `llm:removeApiKey`
 - `openrouter:setModelTier`
@@ -262,6 +267,7 @@ export class LlmRpcHandlers {
 **Recommendation**: OPTIONAL, LOW PRIORITY
 
 **Rationale**:
+
 - Would allow declarative premium method registration
 - Reduces boilerplate in individual handlers
 - Provides centralized audit log
@@ -302,31 +308,31 @@ registerMethod<P, R>(
 
 ### P1 - Critical (Do Now)
 
-| Item | Effort | Impact |
-|------|--------|--------|
-| Document premium vs free features | 2h | Process clarity |
+| Item                              | Effort | Impact          |
+| --------------------------------- | ------ | --------------- |
+| Document premium vs free features | 2h     | Process clarity |
 
 ### P2 - High (Do Soon)
 
-| Item | Effort | Impact |
-|------|--------|--------|
-| Add license checks to LLM RPC handlers | 4h | Security |
-| Create LicenseStateService | 16h | Architecture |
+| Item                                   | Effort | Impact       |
+| -------------------------------------- | ------ | ------------ |
+| Add license checks to LLM RPC handlers | 4h     | Security     |
+| Create LicenseStateService             | 16h    | Architecture |
 
 ### P3 - Medium (Do Later)
 
-| Item | Effort | Impact |
-|------|--------|--------|
-| Create `*ptahPremium` directive | 8h | DX improvement |
-| Add expiry countdown to Settings UI | 4h | UX improvement |
-| RPC middleware pattern | 16h | Future maintainability |
+| Item                                | Effort | Impact                 |
+| ----------------------------------- | ------ | ---------------------- |
+| Create `*ptahPremium` directive     | 8h     | DX improvement         |
+| Add expiry countdown to Settings UI | 4h     | UX improvement         |
+| RPC middleware pattern              | 16h    | Future maintainability |
 
 ### P4 - Low (Backlog)
 
-| Item | Effort | Impact |
-|------|--------|--------|
-| License change event subscription | 4h | Edge case UX |
-| Premium analytics dashboard | TBD | Future feature |
+| Item                              | Effort | Impact         |
+| --------------------------------- | ------ | -------------- |
+| License change event subscription | 4h     | Edge case UX   |
+| Premium analytics dashboard       | TBD    | Future feature |
 
 ---
 
@@ -387,6 +393,7 @@ describe('llm:setApiKey', () => {
 ### Risk: Breaking Existing Functionality
 
 **Mitigation**:
+
 - Implement LicenseStateService alongside SettingsComponent
 - Migrate one component at a time
 - Feature flag new service if needed
@@ -394,6 +401,7 @@ describe('llm:setApiKey', () => {
 ### Risk: Performance Impact
 
 **Mitigation**:
+
 - Cache license status (already done in LicenseService)
 - Limit refresh interval (5 minutes suggested)
 - Use signals for reactive updates (no polling)
@@ -401,6 +409,7 @@ describe('llm:setApiKey', () => {
 ### Risk: Premium Feature Creep
 
 **Mitigation**:
+
 - Maintain PREMIUM_FEATURES.md
 - Code review checklist item: "Does this need license check?"
 - Consider CI lint rule for new RPC methods
@@ -428,24 +437,24 @@ Create this file at `docs/PREMIUM_FEATURES.md`:
 
 ## Premium Features (early_adopter tier)
 
-| Feature | Backend Check | Frontend Check | Notes |
-|---------|--------------|----------------|-------|
-| MCP Server | main.ts:167 | N/A | Gated at activation |
-| MCP Port Config | N/A | settings.component.html:135 | UI only |
-| LLM Provider API Keys | llm-rpc.handlers.ts | settings.component.html:135 | TODO: Add backend check |
-| Ptah API (14 namespaces) | Via MCP gating | N/A | Protected by MCP |
+| Feature                  | Backend Check       | Frontend Check              | Notes                   |
+| ------------------------ | ------------------- | --------------------------- | ----------------------- |
+| MCP Server               | main.ts:167         | N/A                         | Gated at activation     |
+| MCP Port Config          | N/A                 | settings.component.html:135 | UI only                 |
+| LLM Provider API Keys    | llm-rpc.handlers.ts | settings.component.html:135 | TODO: Add backend check |
+| Ptah API (14 namespaces) | Via MCP gating      | N/A                         | Protected by MCP        |
 
 ## Free Features
 
-| Feature | Notes |
-|---------|-------|
-| Chat Interface | Core value |
-| Session History | Core value |
-| Agent Generation | Part of setup |
-| Setup Wizard | Onboarding |
-| Model Selection | Config |
-| Autopilot Mode | Config |
-| Authentication | Required for core |
+| Feature          | Notes             |
+| ---------------- | ----------------- |
+| Chat Interface   | Core value        |
+| Session History  | Core value        |
+| Agent Generation | Part of setup     |
+| Setup Wizard     | Onboarding        |
+| Model Selection  | Config            |
+| Autopilot Mode   | Config            |
+| Authentication   | Required for core |
 
 ## Adding New Premium Features
 

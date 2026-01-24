@@ -16,7 +16,7 @@ import { ChatInputComponent } from '../molecules/chat-input.component';
 import { PermissionBadgeComponent } from '../molecules/permission-badge.component';
 import { ChatEmptyStateComponent } from '../molecules/chat-empty-state.component';
 import { SessionStatsSummaryComponent } from '../molecules/session-stats-summary.component';
-import { ResumeNotificationBannerComponent } from '../molecules/resume-notification-banner.component';
+// TASK_2025_109: ResumeNotificationBannerComponent removed - now uses context injection
 import { CompactionNotificationComponent } from '../molecules/compaction-notification.component';
 import { ChatStore } from '../../services/chat.store';
 import { VSCodeService } from '@ptah-extension/core';
@@ -57,7 +57,7 @@ import {
     PermissionBadgeComponent,
     ChatEmptyStateComponent,
     SessionStatsSummaryComponent,
-    ResumeNotificationBannerComponent,
+    // TASK_2025_109: ResumeNotificationBannerComponent removed - now uses context injection
     CompactionNotificationComponent,
   ],
   templateUrl: './chat-view.component.html',
@@ -177,20 +177,8 @@ export class ChatViewComponent {
     console.log('[ChatViewComponent] Queued content cancelled by user');
   }
 
-  /**
-   * TASK_2025_103: Handle Resume All button click from notification banner
-   * Resumes all interrupted subagents sequentially
-   */
-  async onResumeAll(): Promise<void> {
-    const subagents = this.chatStore.resumableSubagents();
-    console.log('[ChatViewComponent] Resume all requested:', {
-      count: subagents.length,
-    });
-
-    for (const subagent of subagents) {
-      await this.chatStore.handleSubagentResume(subagent.toolCallId);
-    }
-  }
+  // TASK_2025_109: onResumeAll method removed - Resume banner no longer needed
+  // Subagent resumption is now handled via context injection in chat:continue RPC.
 
   private scrollToBottom(): void {
     const containerRef = this.messageContainerRef();

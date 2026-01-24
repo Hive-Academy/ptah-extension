@@ -21,11 +21,13 @@ Comprehensive guides for composition, color, materials, lighting, animation, and
 Create visual interest through varied object sizes:
 
 **Pattern:** Large + Medium + Small
+
 - **Primary:** 3-4 units (focal point)
 - **Secondary:** 1.5-2.5 units (supporting)
 - **Accent:** 0.5-1 units (detail)
 
 **Example:**
+
 ```typescript
 // Primary focal sphere
 <a3d-sphere [args]="[3.5, 64, 64]" [position]="[2, 0, 0]" />
@@ -44,11 +46,13 @@ Create visual interest through varied object sizes:
 Use Z-position ranges to create dimensional scenes:
 
 **Depth Zones:**
+
 - **Foreground:** Z = 0 to 2 (interactive objects, close details)
 - **Midground:** Z = -5 to -10 (main scene content)
 - **Background:** Z = -15 to -80 (ambient layers, backdrop)
 
 **Best practices:**
+
 - Never place all objects at same Z depth
 - Background elements should be significantly farther (Z < -15)
 - Minimum 3-5 unit separation between layers for parallax effect
@@ -60,12 +64,14 @@ Use Z-position ranges to create dimensional scenes:
 Avoid perfect symmetry unless intentionally minimalist:
 
 **Don't:**
+
 ```typescript
 <a3d-box [position]="[-5, 0, 0]" />
 <a3d-box [position]="[5, 0, 0]" />  <!-- Perfect mirror -->
 ```
 
 **Do:**
+
 ```typescript
 <a3d-box [position]="[-6, 3, 0]" />
 <a3d-box [position]="[5, -2, -2]" />  <!-- Offset, varied depth -->
@@ -76,11 +82,13 @@ Avoid perfect symmetry unless intentionally minimalist:
 ### Center Space Management
 
 **For hero sections with text overlay:**
+
 - Use corner framing pattern (4 objects at edges)
 - Keep center Z > -10 clear
 - Position objects outside central 30% of viewport
 
 **For full 3D showcases:**
+
 - Fill center with focal point
 - Distribute supporting elements radially
 
@@ -103,6 +111,7 @@ Avoid perfect symmetry unless intentionally minimalist:
 **Rule:** Ultra-dark backgrounds (0x0a0a0f - 0x050510) make colors vibrant
 
 **Color range breakdown:**
+
 - `0x000000` - Pure black (too harsh)
 - `0x050510` - **Optimal deep space** (recommended)
 - `0x0a0a0f` - **Optimal dark grey** (recommended)
@@ -117,26 +126,31 @@ Avoid perfect symmetry unless intentionally minimalist:
 **Proven combinations:**
 
 **Cyberpunk Electric:**
+
 - Cyan: `#00ffff`, `#00d4ff`
 - Magenta: `#ff00ff`, `#ff00cc`
 - Yellow: `#ffff00`, `#ffcc00`
 
 **Space Cosmic:**
+
 - Deep Blue: `#00b8ff`, `#4a90d9`
 - Purple: `#6b21a8`, `#a855f7`
 - Cyan Accent: `#00d4ff`
 
 **Dreamy Purple/Pink:**
+
 - Pink: `#e879f9`, `#f472b6`, `#d946ef`
 - Purple: `#a855f7`, `#8b5cf6`
 - Soft Cyan: `#06b6d4`
 
 **Warm Sunset:**
+
 - Amber: `#f59e0b`, `#fbbf24`
 - Rose: `#f43f5e`, `#fb7185`
 - Indigo: `#6366f1`
 
 **Neon Green:**
+
 - Electric Green: `#a1ff4f`, `#84cc16`
 - Cyan: `#00d4ff`
 - Purple: `#a855f7`
@@ -167,13 +181,9 @@ Use computed signals for switchable themes:
 export class MySceneComponent {
   isDarkMode = signal(true);
 
-  bgColor = computed(() =>
-    this.isDarkMode() ? 0x050510 : 0x326696
-  );
+  bgColor = computed(() => (this.isDarkMode() ? 0x050510 : 0x326696));
 
-  fogColor = computed(() =>
-    this.isDarkMode() ? '#050510' : '#4584b4'
-  );
+  fogColor = computed(() => (this.isDarkMode() ? '#050510' : '#4584b4'));
 }
 ```
 
@@ -186,13 +196,11 @@ export class MySceneComponent {
 **When:** Cyberpunk, electric, high-tech aesthetics
 
 ```typescript
-[wireframe]="true"
-[emissive]="'#00ffff'"
-[emissiveIntensity]="2"
-[color]="'#00ffff'"
+[wireframe] = 'true'[emissive] = "'#00ffff'"[emissiveIntensity] = '2'[color] = "'#00ffff'";
 ```
 
 **Tips:**
+
 - Emissive intensity 1.5-3.0 for strong glow
 - Combine with strong bloom (threshold 0.4-0.6)
 - Works without external lights (self-illuminating)
@@ -204,16 +212,18 @@ export class MySceneComponent {
 **When:** Realism, luxury, elegant scenes
 
 ```typescript
-[transmission]="0.9"        // 90% light passes through
-[thickness]="0.5"           // Glass thickness
-[ior]="1.4"                 // Refraction (glass ~1.5, water ~1.33)
-[clearcoat]="1.0"           // Glossy outer layer
-[clearcoatRoughness]="0.0"  // Mirror-smooth
-[roughness]="0.0"           // Perfectly smooth
-[metalness]="0.0"           // Non-metallic
+[transmission] =
+  '0.9'[thickness] = // 90% light passes through
+  '0.5'[ior] = // Glass thickness
+  '1.4'[clearcoat] = // Refraction (glass ~1.5, water ~1.33)
+  '1.0'[clearcoatRoughness] = // Glossy outer layer
+  '0.0'[roughness] = // Mirror-smooth
+  '0.0'[metalness] = // Perfectly smooth
+    '0.0'; // Non-metallic
 ```
 
 **Requirements:**
+
 - **Must have environment map** for realistic reflections
 - Use `<a3d-environment [preset]="'sunset'" [intensity]="0.5" />`
 - Subtle bloom recommended (threshold 0.85-0.95)
@@ -226,19 +236,21 @@ export class MySceneComponent {
 **When:** Dreamy, magical, ethereal moods
 
 ```typescript
-[transmission]="0.9"
-[thickness]="0.5"
-[ior]="1.4"
-[clearcoat]="1.0"
-[clearcoatRoughness]="0.0"
-[roughness]="0.0"
-[iridescence]="1.0"
-[iridescenceIOR]="1.3"
-[iridescenceThicknessMin]="100"   // nm
-[iridescenceThicknessMax]="400"   // nm
+[transmission] =
+  '0.9'[thickness] =
+  '0.5'[ior] =
+  '1.4'[clearcoat] =
+  '1.0'[clearcoatRoughness] =
+  '0.0'[roughness] =
+  '0.0'[iridescence] =
+  '1.0'[iridescenceIOR] =
+  '1.3'[iridescenceThicknessMin] =
+  '100'[iridescenceThicknessMax] = // nm
+    '400'; // nm
 ```
 
 **Tips:**
+
 - Thickness range creates color bands
 - 100-400nm gives rainbow spectrum
 - 50-200nm gives blue/green tones
@@ -251,18 +263,21 @@ export class MySceneComponent {
 **When:** Realistic, balanced, professional look
 
 ```typescript
-[color]="'#6366f1'"
-[metalness]="0.3"          // 0=dielectric, 1=metal
-[roughness]="0.5"          // 0=glossy, 1=matte
+[color] =
+  "'#6366f1'"[metalness] =
+  '0.3'[roughness] = // 0=dielectric, 1=metal
+    '0.5'; // 0=glossy, 1=matte
 ```
 
 **Roughness guide:**
+
 - 0.0-0.1: Mirror, wet surfaces, polished metal
 - 0.2-0.4: Glossy plastic, painted surfaces
 - 0.5-0.7: Wood, fabric, stone
 - 0.8-1.0: Concrete, rough metal, rubber
 
 **Metalness guide:**
+
 - 0.0: Non-metal (plastic, wood, fabric)
 - 1.0: Pure metal (gold, silver, copper)
 - 0.3-0.7: Avoid (non-physical, looks wrong)
@@ -281,6 +296,7 @@ export class MySceneComponent {
 ```
 
 **Available TSL materials:**
+
 - Water marble (swirling organic patterns)
 - Procedural noise textures
 - Animated shaders
@@ -312,6 +328,7 @@ export class MySceneComponent {
 ```
 
 **Tips:**
+
 - Use complementary colors (cyan+magenta, blue+orange)
 - Primary light: intensity 2-3
 - Secondary light: intensity 1-2
@@ -324,6 +341,7 @@ export class MySceneComponent {
 **Use for:** Product showcase, glass, high-quality renders
 
 **Setup:**
+
 ```typescript
 <a3d-ambient-light [intensity]="0.3" />
 
@@ -351,6 +369,7 @@ export class MySceneComponent {
 ```
 
 **Ratios:**
+
 - Key:Fill:Rim = 8:2:1 (120:25:15)
 - Key light from top/front
 - Fill light from side (opposite key)
@@ -403,6 +422,7 @@ export class MySceneComponent {
 ```
 
 **Tips:**
+
 - Position spotlight 5-10 units in front of target
 - Angle 0.5-0.8 for focused beam
 - Penumbra 0.2-0.4 for soft edges
@@ -429,6 +449,7 @@ export class MySceneComponent {
 ```
 
 **Pattern:**
+
 - Height: 0.3-0.5 range
 - Speed: 2500-3500ms range
 - Delay: Increment by 100-200ms (0, 200, 400, 600)
@@ -442,6 +463,7 @@ export class MySceneComponent {
 **Rule:** Different speeds prevent uniform motion
 
 **Rotation:**
+
 ```typescript
 <a3d-torus rotate3d [rotateConfig]="{ axis: 'y', speed: 1 }" />
 <a3d-box rotate3d [rotateConfig]="{ axis: 'x', speed: 0.8 }" />
@@ -449,6 +471,7 @@ export class MySceneComponent {
 ```
 
 **Speed ranges:**
+
 - Fast: 0.8-1.4 (visible rotation)
 - Medium: 0.4-0.7 (moderate spin)
 - Slow: 0.1-0.3 (subtle drift)
@@ -467,6 +490,7 @@ export class MySceneComponent {
 ```
 
 **Speed guide:**
+
 - 0.003-0.008: Barely perceptible (deep background)
 - 0.008-0.015: Subtle motion (midground)
 - 0.015-0.025: Noticeable (foreground)
@@ -478,17 +502,19 @@ export class MySceneComponent {
 ### Mouse Tracking Sensitivity
 
 **Default (responsive):**
+
 ```typescript
-mouseTracking3d
-[trackingConfig]="{ sensitivity: 0.3, damping: 0.08 }"
+mouseTracking3d[trackingConfig] = '{ sensitivity: 0.3, damping: 0.08 }';
 ```
 
 **Sensitivity ranges:**
+
 - 0.1-0.2: Subtle response
 - 0.3-0.5: Standard response
 - 0.6-1.0: Exaggerated response
 
 **Damping ranges:**
+
 - 0.02-0.05: Very smooth, laggy
 - 0.06-0.10: Balanced (recommended)
 - 0.15-0.30: Fast, snappy
@@ -508,6 +534,7 @@ mouseTracking3d
 ```
 
 **Best practices:**
+
 - Float + Rotate: Most common combo
 - Float + Mouse: Interactive floating objects
 - Rotate + Mouse: Responsive spinning
@@ -520,6 +547,7 @@ mouseTracking3d
 ### Bloom Configuration
 
 **Strong bloom (neon scenes):**
+
 ```typescript
 <a3d-bloom-effect
   [threshold]="0.5"     <!-- Low = more elements glow -->
@@ -529,6 +557,7 @@ mouseTracking3d
 ```
 
 **Subtle bloom (refined scenes):**
+
 ```typescript
 <a3d-bloom-effect
   [threshold]="0.9"     <!-- High = only brightest glow -->
@@ -538,11 +567,13 @@ mouseTracking3d
 ```
 
 **Threshold guide:**
+
 - 0.3-0.5: Most elements glow (electric scenes)
 - 0.6-0.8: Balanced glow (standard)
 - 0.9-1.0: Only very bright elements (subtle)
 
 **Strength guide:**
+
 - 0.2-0.4: Gentle glow
 - 0.5-0.8: Moderate glow
 - 1.0-1.5: Strong glow
@@ -571,6 +602,7 @@ mouseTracking3d
 ```
 
 **Benefits:**
+
 - Text glows, backgrounds don't
 - Hero objects glow, supporting elements don't
 - Prevents unwanted bloom on large surfaces
@@ -580,6 +612,7 @@ mouseTracking3d
 ### When to Skip Post-Processing
 
 **Skip bloom for:**
+
 - Ray-marched shaders (metaballs, marble) - already optimized
 - Scenes with many large bright surfaces - bloom can overwhelm
 - Performance-critical applications
@@ -593,6 +626,7 @@ mouseTracking3d
 ### Segment Count Guidelines
 
 **Spheres/Cylinders:**
+
 - Mobile/Low-end: `[radius, 16, 16]`
 - Standard: `[radius, 32, 32]`
 - High-quality: `[radius, 64, 64]`
@@ -609,6 +643,7 @@ mouseTracking3d
 ```
 
 **When to enable:**
+
 - Only if shadow-casting lights present
 - Only if shadows add significant value
 - Be prepared for ~30% performance impact
@@ -628,6 +663,7 @@ mouseTracking3d
 ```
 
 **Star count guide:**
+
 - 500-1000: Sparse (background layer)
 - 1000-2000: Moderate (standard)
 - 2000-3000: Dense (foreground layer)
@@ -642,6 +678,7 @@ mouseTracking3d
 ```
 
 **Limits:**
+
 - Mobile: 500-1000 particles
 - Desktop: 1000-5000 particles
 - High-end: 5000-10000 particles

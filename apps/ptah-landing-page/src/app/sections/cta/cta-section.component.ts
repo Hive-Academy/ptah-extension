@@ -234,7 +234,7 @@ export class CTASectionComponent {
   /**
    * Trust signals displayed with staggered fadeIn animations
    */
-  readonly trustSignals = [
+  public readonly trustSignals = [
     'Free Forever',
     'No Account Required',
     'Open Source',
@@ -243,7 +243,7 @@ export class CTASectionComponent {
   /**
    * Headline animation config - scaleIn for dramatic entrance
    */
-  readonly headlineConfig: ViewportAnimationConfig = {
+  public readonly headlineConfig: ViewportAnimationConfig = {
     animation: 'scaleIn',
     duration: 0.8,
     threshold: 0.2,
@@ -252,7 +252,7 @@ export class CTASectionComponent {
   /**
    * Subheadline animation config - fadeIn with slight delay
    */
-  readonly subheadlineConfig: ViewportAnimationConfig = {
+  public readonly subheadlineConfig: ViewportAnimationConfig = {
     animation: 'fadeIn',
     duration: 0.8,
     delay: 0.1,
@@ -262,7 +262,7 @@ export class CTASectionComponent {
   /**
    * Primary CTA animation config - slideUp with bounce
    */
-  readonly primaryCtaConfig: ViewportAnimationConfig = {
+  public readonly primaryCtaConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
     duration: 0.6,
     delay: 0.2,
@@ -273,7 +273,7 @@ export class CTASectionComponent {
   /**
    * Secondary CTAs animation config - fadeIn
    */
-  readonly secondaryCtasConfig: ViewportAnimationConfig = {
+  public readonly secondaryCtasConfig: ViewportAnimationConfig = {
     animation: 'fadeIn',
     duration: 0.6,
     delay: 0.3,
@@ -283,7 +283,7 @@ export class CTASectionComponent {
   /**
    * Divider animation config - custom scaleX animation
    */
-  readonly dividerConfig: ViewportAnimationConfig = {
+  public readonly dividerConfig: ViewportAnimationConfig = {
     animation: 'custom',
     duration: 1.2,
     delay: 0.4,
@@ -295,7 +295,7 @@ export class CTASectionComponent {
   /**
    * Footer animation config - fadeIn
    */
-  readonly footerConfig: ViewportAnimationConfig = {
+  public readonly footerConfig: ViewportAnimationConfig = {
     animation: 'fadeIn',
     duration: 0.8,
     delay: 0.5,
@@ -307,7 +307,7 @@ export class CTASectionComponent {
    * @param index Position in the trust signals array
    * @returns ViewportAnimationConfig with calculated delay
    */
-  getTrustSignalConfig(index: number): ViewportAnimationConfig {
+  public getTrustSignalConfig(index: number): ViewportAnimationConfig {
     return {
       animation: 'fadeIn',
       duration: 0.5,

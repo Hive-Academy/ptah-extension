@@ -9,16 +9,19 @@ Replace the complex subagent resume infrastructure (dedicated RPC, UI buttons, s
 ### Functional Requirements
 
 1. **FR-1: Context Injection on Parent Resume**
+
    - When a parent session resumes or continues with interrupted subagents
    - Inject system context listing interrupted agents with their IDs and types
    - Format: `[System: Interrupted agents available: agentId: abc123 (Explore), agentId: def456 (Plan)]`
 
 2. **FR-2: Natural Conversation Resume**
+
    - Claude sees interrupted agent context and can naturally generate "Resume agent {agentId}"
    - User can also explicitly say "resume the explore agent" or "continue all interrupted work"
    - No special RPC or UI interaction required
 
 3. **FR-3: Visual Status Preservation**
+
    - Keep "Stopped" badge on interrupted agent nodes in UI
    - Remove Resume button (no action needed)
    - Users see which agents were interrupted for context
@@ -33,10 +36,12 @@ Replace the complex subagent resume infrastructure (dedicated RPC, UI buttons, s
 ### Non-Functional Requirements
 
 1. **NFR-1: Code Reduction**
+
    - Target: ~432 lines of code removed
    - Simpler architecture with fewer moving parts
 
 2. **NFR-2: Backward Compatibility**
+
    - Existing session history should display correctly
    - Interrupted status marking still works
 
@@ -66,6 +71,7 @@ Replace the complex subagent resume infrastructure (dedicated RPC, UI buttons, s
 ### Phase 1: Add Context Injection
 
 1. In `SessionLifecycleManager` or `chat:continue` handler:
+
    - Query `SubagentRegistry.getResumableBySession(parentSessionId)`
    - If interrupted subagents exist, create context string
    - Inject into message context before sending to SDK
@@ -78,6 +84,7 @@ Replace the complex subagent resume infrastructure (dedicated RPC, UI buttons, s
 ### Phase 2: Remove Deprecated Code
 
 1. Backend removal (~280 lines):
+
    - `subagent-rpc.handlers.ts`: Remove 2 methods
    - `sdk-agent-adapter.ts`: Remove `resumeSubagent()`
    - Type definitions: Remove 2 interfaces
@@ -102,8 +109,8 @@ Replace the complex subagent resume infrastructure (dedicated RPC, UI buttons, s
 
 ## Risks & Mitigations
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
+| Risk                                | Impact | Mitigation                                                |
+| ----------------------------------- | ------ | --------------------------------------------------------- |
 | Claude doesn't resume automatically | Medium | Clear context format, can also use explicit user commands |
-| Context bloat with many agents | Low | Limit context to last N interrupted agents |
-| Regression in history display | Medium | Keep status marking, only remove Resume button |
+| Context bloat with many agents      | Low    | Limit context to last N interrupted agents                |
+| Regression in history display       | Medium | Keep status marking, only remove Resume button            |

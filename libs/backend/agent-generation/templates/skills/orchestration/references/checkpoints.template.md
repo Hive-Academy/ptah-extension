@@ -6,13 +6,13 @@ This reference documents all user validation checkpoints in the orchestration wo
 
 ## Checkpoint Types Overview
 
-| Checkpoint | Name | When | Purpose | Response Expected |
-|------------|------|------|---------|-------------------|
-| **0** | Scope Clarification | Before PM | Clarify ambiguous requests | Answers or "use your judgment" |
-| **1** | Requirements Validation | After PM | Approve task-description.md | "APPROVED" or feedback |
-| **1.5** | Technical Clarification | Before Architect | Technical preferences | Answers or "use your judgment" |
-| **2** | Architecture Validation | After Architect | Approve implementation-plan.md | "APPROVED" or feedback |
-| **3** | QA Choice | After Development | Select QA agents | tester/style/logic/reviewers/all/skip |
+| Checkpoint | Name                    | When              | Purpose                        | Response Expected                     |
+| ---------- | ----------------------- | ----------------- | ------------------------------ | ------------------------------------- |
+| **0**      | Scope Clarification     | Before PM         | Clarify ambiguous requests     | Answers or "use your judgment"        |
+| **1**      | Requirements Validation | After PM          | Approve task-description.md    | "APPROVED" or feedback                |
+| **1.5**    | Technical Clarification | Before Architect  | Technical preferences          | Answers or "use your judgment"        |
+| **2**      | Architecture Validation | After Architect   | Approve implementation-plan.md | "APPROVED" or feedback                |
+| **3**      | QA Choice               | After Development | Select QA agents               | tester/style/logic/reviewers/all/skip |
 
 ---
 
@@ -21,6 +21,7 @@ This reference documents all user validation checkpoints in the orchestration wo
 ### Trigger Conditions
 
 Ask if ANY of these apply:
+
 - User request is vague or ambiguous
 - Scope could reasonably be interpreted as small OR large
 - Multiple valid interpretations exist
@@ -30,6 +31,7 @@ Ask if ANY of these apply:
 ### Skip Conditions
 
 Proceed WITHOUT asking if ALL apply:
+
 - User request is extremely specific and unambiguous
 - Task is a continuation of previous work with clear context
 - User explicitly said "use your judgment" or "just do it"
@@ -50,17 +52,17 @@ Before I create the requirements, I have a few clarifying questions:
 4. **Success**: [How will you know this task is successful?]
 
 ---
-Please answer briefly, or say "use your judgment" to skip.
----
+
+## Please answer briefly, or say "use your judgment" to skip.
 ```
 
 ### Response Handling
 
-| Response | Action |
-|----------|--------|
-| User provides answers | Incorporate into context.md, proceed to PM |
-| "use your judgment" | Proceed to PM with orchestrator's best interpretation |
-| User asks counter-questions | Answer and re-present checkpoint if needed |
+| Response                    | Action                                                |
+| --------------------------- | ----------------------------------------------------- |
+| User provides answers       | Incorporate into context.md, proceed to PM            |
+| "use your judgment"         | Proceed to PM with orchestrator's best interpretation |
+| User asks counter-questions | Answer and re-present checkpoint if needed            |
 
 ---
 
@@ -78,36 +80,42 @@ REQUIREMENTS READY FOR REVIEW - TASK_[ID]
 ---
 
 ## Overview
+
 [Summary extracted from task-description.md]
 
 ## Key Requirements
+
 - [Requirement 1]
 - [Requirement 2]
 - [Requirement 3]
 
 ## Acceptance Criteria
+
 - [Criterion 1]
 - [Criterion 2]
 - [Criterion 3]
 
 ## Out of Scope
+
 - [Exclusion 1]
 - [Exclusion 2]
 
 ---
+
 USER VALIDATION CHECKPOINT
 Reply "APPROVED" to proceed to architecture phase
 OR provide feedback for revision
+
 ---
 ```
 
 ### Response Handling
 
-| Response | Action |
-|----------|--------|
-| "APPROVED" | Proceed to Checkpoint 1.5 or Architect |
+| Response          | Action                                                         |
+| ----------------- | -------------------------------------------------------------- |
+| "APPROVED"        | Proceed to Checkpoint 1.5 or Architect                         |
 | Feedback provided | Re-invoke project-manager with feedback, re-present checkpoint |
-| Questions asked | Answer questions, re-present checkpoint |
+| Questions asked   | Answer questions, re-present checkpoint                        |
 
 ---
 
@@ -116,6 +124,7 @@ OR provide feedback for revision
 ### Trigger Conditions
 
 Ask if ANY of these apply:
+
 - Multiple valid architectural approaches exist (e.g., REST vs GraphQL)
 - Key technology choices need user preference
 - Integration scope is unclear (standalone vs integrated)
@@ -125,6 +134,7 @@ Ask if ANY of these apply:
 ### Skip Conditions
 
 Proceed WITHOUT asking if ALL apply:
+
 - Codebase investigation shows clear established patterns
 - Task is a direct extension of existing architecture
 - User explicitly deferred technical decisions
@@ -145,17 +155,17 @@ Before I create the architecture, I have a few technical questions:
 4. **Dependencies**: [Use existing library X or implement custom?]
 
 ---
-Please answer briefly, or say "use your judgment" to skip.
----
+
+## Please answer briefly, or say "use your judgment" to skip.
 ```
 
 ### Response Handling
 
-| Response | Action |
-|----------|--------|
-| User provides answers | Incorporate into architect prompt, proceed |
-| "use your judgment" | Proceed with orchestrator's recommended approach |
-| User needs more info | Provide technical context, re-present checkpoint |
+| Response              | Action                                           |
+| --------------------- | ------------------------------------------------ |
+| User provides answers | Incorporate into architect prompt, proceed       |
+| "use your judgment"   | Proceed with orchestrator's recommended approach |
+| User needs more info  | Provide technical context, re-present checkpoint |
 
 ---
 
@@ -173,40 +183,47 @@ ARCHITECTURE READY FOR REVIEW - TASK_[ID]
 ---
 
 ## Design Summary
+
 [Summary extracted from implementation-plan.md]
 
 ## Components
+
 - **[Component 1]**: [purpose and responsibility]
 - **[Component 2]**: [purpose and responsibility]
 
 ## Key Design Decisions
+
 1. [Decision 1]: [rationale]
 2. [Decision 2]: [rationale]
 
 ## Files to Create/Modify
-| File | Action | Purpose |
-|------|--------|---------|
+
+| File             | Action | Purpose   |
+| ---------------- | ------ | --------- |
 | path/to/file1.ts | CREATE | [purpose] |
 | path/to/file2.ts | MODIFY | [purpose] |
 
 ## Estimated Complexity
+
 [Simple | Medium | Complex] - [N] files, [B] batches expected
 
 ---
+
 USER VALIDATION CHECKPOINT
 Reply "APPROVED" to proceed to development phase
 OR provide feedback for revision
+
 ---
 ```
 
 ### Response Handling
 
-| Response | Action |
-|----------|--------|
-| "APPROVED" | Invoke team-leader MODE 1 |
+| Response          | Action                                                   |
+| ----------------- | -------------------------------------------------------- |
+| "APPROVED"        | Invoke team-leader MODE 1                                |
 | Feedback provided | Re-invoke architect with feedback, re-present checkpoint |
-| Questions asked | Answer questions, re-present checkpoint |
-| Request changes | Update requirements if needed, re-invoke architect |
+| Questions asked   | Answer questions, re-present checkpoint                  |
+| Request changes   | Update requirements if needed, re-invoke architect       |
 
 ---
 
@@ -228,9 +245,11 @@ DEVELOPMENT COMPLETE - TASK_[ID]
 **Files Implemented**: [N] files
 
 ---
+
 QA CHOICE CHECKPOINT
 
 Options:
+
 1. "tester" - senior-tester only (functionality testing)
 2. "style" - code-style-reviewer only (coding standards)
 3. "logic" - code-logic-reviewer only (business logic)
@@ -238,8 +257,7 @@ Options:
 5. "all" - tester + BOTH reviewers in parallel
 6. "skip" - proceed to completion
 
-Reply with your choice: tester, style, logic, reviewers, all, or skip
----
+## Reply with your choice: tester, style, logic, reviewers, all, or skip
 ```
 
 ### QA Invocation Patterns
@@ -269,14 +287,14 @@ Task({ subagent_type: 'code-logic-reviewer', prompt: `...` });
 
 ### Response Handling
 
-| Response | Action |
-|----------|--------|
-| "tester" | Invoke senior-tester only |
-| "style" | Invoke code-style-reviewer only |
-| "logic" | Invoke code-logic-reviewer only |
-| "reviewers" | Invoke BOTH reviewers in parallel |
-| "all" | Invoke ALL THREE QA agents in parallel |
-| "skip" | Skip QA, proceed to git operations guidance |
+| Response    | Action                                      |
+| ----------- | ------------------------------------------- |
+| "tester"    | Invoke senior-tester only                   |
+| "style"     | Invoke code-style-reviewer only             |
+| "logic"     | Invoke code-logic-reviewer only             |
+| "reviewers" | Invoke BOTH reviewers in parallel           |
+| "all"       | Invoke ALL THREE QA agents in parallel      |
+| "skip"      | Skip QA, proceed to git operations guidance |
 
 ---
 
@@ -332,19 +350,19 @@ Please choose how to proceed:
 3. **Stop & Report** - Mark as blocker and escalate
    (Use for: Critical infrastructure issues, complex errors)
 
-Which option would you like? (1/2/3)
----
+## Which option would you like? (1/2/3)
 ```
 
 **Option Handling**:
 
-| Choice | Action |
-|--------|--------|
-| 1 (Fix Issue) | Identify and fix the specific issue, retry commit |
-| 2 (Bypass Hook) | Execute `git commit --no-verify -m "message"`, document in tasks.md |
-| 3 (Stop & Report) | Mark task as BLOCKED, create detailed error report |
+| Choice            | Action                                                              |
+| ----------------- | ------------------------------------------------------------------- |
+| 1 (Fix Issue)     | Identify and fix the specific issue, retry commit                   |
+| 2 (Bypass Hook)   | Execute `git commit --no-verify -m "message"`, document in tasks.md |
+| 3 (Stop & Report) | Mark task as BLOCKED, create detailed error report                  |
 
 **Critical Rules**:
+
 - NEVER automatically bypass hooks with --no-verify
 - NEVER automatically fix issues without user consent
 - NEVER proceed with alternative approaches without user decision

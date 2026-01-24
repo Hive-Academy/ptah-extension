@@ -47,6 +47,7 @@ Fix premium feature enforcement by making MCP configuration and system prompt co
 **Changes**:
 
 1. **Add `isPremium` to `QueryOptionsInput` interface**:
+
 ```typescript
 export interface QueryOptionsInput {
   // ... existing fields
@@ -56,11 +57,13 @@ export interface QueryOptionsInput {
 ```
 
 2. **Import `PTAH_SYSTEM_PROMPT`**:
+
 ```typescript
 import { PTAH_SYSTEM_PROMPT } from '@ptah-extension/vscode-lm-tools';
 ```
 
 3. **Modify `build()` to pass isPremium**:
+
 ```typescript
 async build(input: QueryOptionsInput): Promise<QueryConfig> {
   const { isPremium = false } = input;
@@ -78,6 +81,7 @@ async build(input: QueryOptionsInput): Promise<QueryConfig> {
 ```
 
 4. **Modify `buildMcpServers()` to be conditional**:
+
 ```typescript
 private buildMcpServers(isPremium: boolean): Record<string, McpHttpServerConfig> {
   if (!isPremium) {
@@ -96,6 +100,7 @@ private buildMcpServers(isPremium: boolean): Record<string, McpHttpServerConfig>
 ```
 
 5. **Modify `buildSystemPrompt()` to append PTAH_SYSTEM_PROMPT**:
+
 ```typescript
 private buildSystemPrompt(
   sessionConfig?: AISessionConfig,
@@ -131,6 +136,7 @@ private buildSystemPrompt(
 **Changes**:
 
 1. **Update `StartSessionConfig` interface** (or wherever session config is defined):
+
 ```typescript
 interface StartSessionConfig {
   // ... existing fields
@@ -139,6 +145,7 @@ interface StartSessionConfig {
 ```
 
 2. **Pass `isPremium` to query builder in `startChatSession()`**:
+
 ```typescript
 async startChatSession(config: StartSessionConfig): Promise<AsyncIterable<FlatStreamEventUnion>> {
   const { isPremium = false } = config;
@@ -162,6 +169,7 @@ async startChatSession(config: StartSessionConfig): Promise<AsyncIterable<FlatSt
 **Changes**:
 
 1. **Inject `LicenseService`**:
+
 ```typescript
 import { LicenseService, TOKENS } from '@ptah-extension/vscode-core';
 
@@ -176,6 +184,7 @@ export class ChatRpcHandlers {
 ```
 
 2. **Get premium status in `registerChatStart()`**:
+
 ```typescript
 private registerChatStart(): void {
   this.rpcHandler.registerMethod<ChatStartParams, ChatStartResult>(
@@ -211,7 +220,7 @@ private registerChatStart(): void {
 
 **Content**:
 
-```markdown
+````markdown
 # Local Development License Setup
 
 This guide explains how to generate a license key for local development.
@@ -239,6 +248,7 @@ npx prisma migrate dev
 # Start the server
 nx serve ptah-license-server
 ```
+````
 
 ## Step 2: Generate a Dev License
 
@@ -292,10 +302,12 @@ Generate a new license when needed.
 ### Database reset
 
 If you need to reset the database:
+
 ```bash
 npx prisma migrate reset
 ```
-```
+
+````
 
 ---
 
@@ -313,7 +325,7 @@ this.logger.info('[SdkQueryOptionsBuilder] Building SDK query options', {
   mcpEnabled: isPremium,  // NEW
   ptahSystemPromptAppended: isPremium,  // NEW
 });
-```
+````
 
 ---
 
@@ -322,10 +334,12 @@ this.logger.info('[SdkQueryOptionsBuilder] Building SDK query options', {
 ### Unit Tests
 
 1. **Free tier user**:
+
    - `buildMcpServers(false)` returns `{}`
    - `buildSystemPrompt(config, false)` returns preset only
 
 2. **Premium tier user**:
+
    - `buildMcpServers(true)` returns `{ ptah: {...} }`
    - `buildSystemPrompt(config, true)` includes `PTAH_SYSTEM_PROMPT`
 

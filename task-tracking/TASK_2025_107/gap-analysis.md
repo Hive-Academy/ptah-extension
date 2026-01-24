@@ -13,18 +13,19 @@
 
 **Issue**: The following RPC methods in `libs/shared/src/lib/types/rpc.types.ts` have no license checks:
 
-| Method | Line | Issue |
-|--------|------|-------|
-| `llm:setApiKey` | 746 | Allows storing API keys for premium LLM providers |
-| `llm:removeApiKey` | 747-750 | Allows removing API keys |
-| `llm:getProviderStatus` | 742-745 | Returns provider status (low risk) |
-| `openrouter:setModelTier` | 769-772 | Allows configuring premium OpenRouter mapping |
-| `openrouter:getModelTiers` | 773-776 | Returns tier configuration |
-| `openrouter:clearModelTier` | 777-780 | Clears tier configuration |
+| Method                      | Line    | Issue                                             |
+| --------------------------- | ------- | ------------------------------------------------- |
+| `llm:setApiKey`             | 746     | Allows storing API keys for premium LLM providers |
+| `llm:removeApiKey`          | 747-750 | Allows removing API keys                          |
+| `llm:getProviderStatus`     | 742-745 | Returns provider status (low risk)                |
+| `openrouter:setModelTier`   | 769-772 | Allows configuring premium OpenRouter mapping     |
+| `openrouter:getModelTiers`  | 773-776 | Returns tier configuration                        |
+| `openrouter:clearModelTier` | 777-780 | Clears tier configuration                         |
 
 **Risk**: A free user could call these RPC methods directly (though the MCP server wouldn't start, so they couldn't actually USE the configured providers via Ptah API).
 
 **Recommended Fix**:
+
 ```typescript
 // In LlmRpcHandlers (if exists) or create new handler
 private async checkPremiumAccess(): Promise<void> {
@@ -44,6 +45,7 @@ private async checkPremiumAccess(): Promise<void> {
 **Issue**: Individual namespace methods have no internal license checks. If a future feature exposes these APIs through a different entry point, they would be unprotected.
 
 **Specific Namespaces at Risk**:
+
 - `ptah.ai` - AI provider integration (line 189)
 - `ptah.llm` - Langchain LLM abstraction (line 205)
 
@@ -66,15 +68,18 @@ private async checkPremiumAccess(): Promise<void> {
 **Location**: `libs/frontend/chat/src/lib/settings/settings.component.html`
 
 **Current Implementation**:
+
 - Uses `@if (showPremiumSections())` for visibility (line 135)
 - Premium sections are HIDDEN but not structurally removed
 
 **Security Concern**: A determined user could:
+
 1. Inspect DOM
 2. Remove `hidden` attributes
 3. See premium UI elements
 
 **However**: This is low risk because:
+
 - Backend operations still require license
 - No actual data is exposed
 - Only UI placeholders are shown
@@ -84,6 +89,7 @@ private async checkPremiumAccess(): Promise<void> {
 **Issue**: Premium visibility is implemented ad-hoc in SettingsComponent. Other components would need to duplicate this logic.
 
 **Current Pattern**:
+
 ```typescript
 // SettingsComponent
 readonly showPremiumSections = computed(
@@ -92,6 +98,7 @@ readonly showPremiumSections = computed(
 ```
 
 **Missing Pattern**:
+
 ```html
 <!-- Desired: Reusable structural directive -->
 <div *ptahPremium>
@@ -140,31 +147,31 @@ readonly showPremiumSections = computed(
 
 ### 4.1 License Check Location
 
-| Feature | Check Location | Pattern |
-|---------|---------------|---------|
-| MCP Server | main.ts activation | Direct check |
-| Settings UI | SettingsComponent | Signal + computed |
-| LLM RPC | (none) | N/A |
+| Feature     | Check Location     | Pattern                    |
+| ----------- | ------------------ | -------------------------- |
+| MCP Server  | main.ts activation | Direct check               |
+| Settings UI | SettingsComponent  | Signal + computed          |
+| LLM RPC     | (none)             | N/A                        |
 | License RPC | LicenseRpcHandlers | Returns status (no gating) |
 
 **Issue**: No consistent pattern for where/how license checks should occur.
 
 ### 4.2 Signal vs RPC Call Pattern
 
-| Feature | State Source | Update Mechanism |
-|---------|-------------|------------------|
-| isPremium | SettingsComponent.fetchLicenseStatus() | One-time on init |
-| License changes | LicenseService.on('license:updated') | Backend events |
+| Feature         | State Source                           | Update Mechanism |
+| --------------- | -------------------------------------- | ---------------- |
+| isPremium       | SettingsComponent.fetchLicenseStatus() | One-time on init |
+| License changes | LicenseService.on('license:updated')   | Backend events   |
 
 **Issue**: Frontend doesn't subscribe to license change events. If a user upgrades mid-session, UI won't update until page refresh.
 
 ### 4.3 Graceful Degradation Inconsistency
 
-| Component | On Error Behavior |
-|-----------|-------------------|
-| LicenseService | Returns cached or free tier |
-| SettingsComponent | Sets free tier, logs error |
-| LicenseRpcHandlers | Returns free tier object |
+| Component          | On Error Behavior           |
+| ------------------ | --------------------------- |
+| LicenseService     | Returns cached or free tier |
+| SettingsComponent  | Sets free tier, logs error  |
+| LicenseRpcHandlers | Returns free tier object    |
 
 **Good**: Consistent free tier fallback. No inconsistency found.
 
@@ -179,6 +186,7 @@ readonly showPremiumSections = computed(
 **Issue**: `daysRemaining` is received from RPC but not displayed or monitored.
 
 **Current Response Type** (line 557-571 in rpc.types.ts):
+
 ```typescript
 export interface LicenseGetStatusResponse {
   daysRemaining: number | null;
@@ -187,6 +195,7 @@ export interface LicenseGetStatusResponse {
 ```
 
 **Missing**:
+
 - Expiry warning notification
 - Countdown display
 - Auto-refresh before expiry
@@ -196,12 +205,11 @@ export interface LicenseGetStatusResponse {
 **Location**: main.ts lines 215-219
 
 **Current Implementation**:
+
 ```typescript
 licenseService.on('license:expired', (status: LicenseStatus) => {
   logger.warn('License expired - premium features disabled', { status });
-  vscode.window.showWarningMessage(
-    'Your Ptah premium license has expired...'
-  );
+  vscode.window.showWarningMessage('Your Ptah premium license has expired...');
 });
 ```
 
@@ -213,23 +221,23 @@ licenseService.on('license:expired', (status: LicenseStatus) => {
 
 ### HIGH PRIORITY - Add License Checks
 
-| File | Line | Issue |
-|------|------|-------|
-| N/A | N/A | No LLM RPC handlers file found - may need creation |
+| File | Line | Issue                                              |
+| ---- | ---- | -------------------------------------------------- |
+| N/A  | N/A  | No LLM RPC handlers file found - may need creation |
 
 ### MEDIUM PRIORITY - Consider License Checks
 
-| File | Line | Issue |
-|------|------|-------|
-| `libs/backend/vscode-lm-tools/src/lib/code-execution/ptah-api-builder.service.ts` | 143 | build() has no license check (protected by MCP gating) |
-| `libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/system-namespace.builders.ts` | N/A | AI namespace builders have no license checks |
+| File                                                                                                  | Line | Issue                                                  |
+| ----------------------------------------------------------------------------------------------------- | ---- | ------------------------------------------------------ |
+| `libs/backend/vscode-lm-tools/src/lib/code-execution/ptah-api-builder.service.ts`                     | 143  | build() has no license check (protected by MCP gating) |
+| `libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/system-namespace.builders.ts` | N/A  | AI namespace builders have no license checks           |
 
 ### LOW PRIORITY - UI/UX Improvements
 
-| File | Line | Issue |
-|------|------|-------|
-| `libs/frontend/chat/src/lib/settings/settings.component.ts` | 65-67 | License signals local to component, not shared |
-| `libs/frontend/chat/src/lib/settings/settings.component.html` | 135 | Frontend-only `@if` visibility |
+| File                                                          | Line  | Issue                                          |
+| ------------------------------------------------------------- | ----- | ---------------------------------------------- |
+| `libs/frontend/chat/src/lib/settings/settings.component.ts`   | 65-67 | License signals local to component, not shared |
+| `libs/frontend/chat/src/lib/settings/settings.component.html` | 135   | Frontend-only `@if` visibility                 |
 
 ---
 
@@ -237,20 +245,20 @@ licenseService.on('license:expired', (status: LicenseStatus) => {
 
 ### 7.1 Features Clearly Documented as Premium
 
-| Feature | Documentation | Implementation |
-|---------|--------------|----------------|
-| MCP Server | settings.component.html comments | Gated in main.ts |
-| LLM Provider API Keys | settings.component.html:166-178 | UI hidden, no backend check |
-| MCP Port Config | settings.component.html:142-159 | UI hidden, config free to read |
+| Feature               | Documentation                    | Implementation                 |
+| --------------------- | -------------------------------- | ------------------------------ |
+| MCP Server            | settings.component.html comments | Gated in main.ts               |
+| LLM Provider API Keys | settings.component.html:166-178  | UI hidden, no backend check    |
+| MCP Port Config       | settings.component.html:142-159  | UI hidden, config free to read |
 
 ### 7.2 Features with Unclear Premium Status
 
-| Feature | Current Behavior | Should Be Premium? |
-|---------|-----------------|-------------------|
+| Feature                  | Current Behavior                 | Should Be Premium?                       |
+| ------------------------ | -------------------------------- | ---------------------------------------- |
 | OpenRouter Model Mapping | Shown when OpenRouter key exists | UNCLEAR - key is auth, mapping is config |
-| Agent Generation | Free | NO (part of core value prop) |
-| Dashboard/Analytics | Free | MAYBE (future consideration) |
-| Setup Wizard | Free | NO (part of onboarding) |
+| Agent Generation         | Free                             | NO (part of core value prop)             |
+| Dashboard/Analytics      | Free                             | MAYBE (future consideration)             |
+| Setup Wizard             | Free                             | NO (part of onboarding)                  |
 
 ---
 

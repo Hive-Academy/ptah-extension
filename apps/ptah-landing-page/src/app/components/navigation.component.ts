@@ -1,10 +1,6 @@
-import {
-  Component,
-  ChangeDetectionStrategy,
-  signal,
-  HostListener,
-} from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, ChangeDetectionStrategy, signal } from '@angular/core';
+import { CommonModule, NgOptimizedImage } from '@angular/common';
+import { RouterLink } from '@angular/router';
 
 /**
  * NavigationComponent - Fixed navigation bar with branding and CTAs
@@ -13,13 +9,16 @@ import { CommonModule } from '@angular/common';
  * - Fully transparent at top, solid on scroll
  * - Backdrop blur effect
  * - Ptah logo and branding
+ * - Navigation links: Pricing, Login
  * - GitHub link with icon
  * - VS Code Marketplace CTA button
  */
 @Component({
   selector: 'ptah-navigation',
-  standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, NgOptimizedImage, RouterLink],
+  host: {
+    '(window:scroll)': 'onScroll()',
+  },
   template: `
     <nav
       class="fixed top-0 left-0 right-0 z-50 h-16 px-6 lg:px-16 flex items-center justify-between transition-all duration-300"
@@ -33,20 +32,43 @@ import { CommonModule } from '@angular/common';
     >
       <!-- Logo and Branding -->
       <a
-        href="#"
+        routerLink="/"
         class="flex items-center gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md"
         aria-label="Ptah Extension Home"
       >
         <img
-          src="/assets/icons/ptah-icon.png"
+          ngSrc="/assets/icons/ptah-icon.png"
           alt="Ptah Extension Logo"
+          width="32"
+          height="32"
           class="w-8 h-8"
         />
         <span class="font-bold text-xl text-amber-400">Ptah</span>
       </a>
 
-      <!-- CTAs -->
-      <div class="flex items-center gap-4">
+      <!-- Navigation Links + CTAs -->
+      <div class="flex items-center gap-6">
+        <!-- Pricing Link -->
+        <a
+          routerLink="/pricing"
+          class="text-white/80 hover:text-amber-400 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
+          aria-label="View pricing plans"
+        >
+          Pricing
+        </a>
+
+        <!-- Login Link -->
+        <a
+          routerLink="/login"
+          class="text-amber-400/90 hover:text-amber-300 border border-amber-500/30 hover:border-amber-400/50 px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+          aria-label="Sign in to your account"
+        >
+          Login
+        </a>
+
+        <!-- Divider -->
+        <div class="h-6 w-px bg-white/10" aria-hidden="true"></div>
+
         <!-- GitHub Link -->
         <a
           href="https://github.com/anthropics/claude-code"
@@ -97,13 +119,12 @@ export class NavigationComponent {
    * - false: User at top (fully transparent)
    * - true: User scrolled (solid background + shadow)
    */
-  readonly scrolled = signal(false);
+  public readonly scrolled = signal(false);
 
   /**
-   * HostListener for window scroll events
+   * Handler for window scroll events
    */
-  @HostListener('window:scroll')
-  onScroll(): void {
+  public onScroll(): void {
     const scrollPosition = window.scrollY;
     this.scrolled.set(scrollPosition > 50);
   }

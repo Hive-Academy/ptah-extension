@@ -48,7 +48,11 @@ import {
 } from '../types/analysis.types';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
 import { AgentGenerationOrchestratorService } from './orchestrator.service';
-
+import {
+  ProjectType,
+  Framework,
+  MonorepoType,
+} from '@ptah-extension/workspace-intelligence';
 // NOTE: StepData type REMOVED in TASK_2025_078
 // Was unused discriminated union - using typed message interfaces instead
 
@@ -699,11 +703,6 @@ export class SetupWizardService implements ISetupWizardService {
 
       // Dynamic import to avoid circular dependencies
       const vscode = await import('vscode');
-      const {
-        ProjectType,
-        Framework,
-        MonorepoType,
-      } = await import('@ptah-extension/workspace-intelligence');
 
       // Step 1: Get basic workspace analysis from orchestrator
       const basicResult = await this.orchestrator.analyzeWorkspace({
@@ -711,9 +710,12 @@ export class SetupWizardService implements ISetupWizardService {
         threshold: 50,
       });
 
-      let projectType: typeof ProjectType[keyof typeof ProjectType] = ProjectType.Unknown;
-      let frameworks: (typeof Framework[keyof typeof Framework])[] = [];
-      let monorepoType: typeof MonorepoType[keyof typeof MonorepoType] | undefined;
+      let projectType: (typeof ProjectType)[keyof typeof ProjectType] =
+        ProjectType.Unknown;
+      let frameworks: (typeof Framework)[keyof typeof Framework][] = [];
+      let monorepoType:
+        | (typeof MonorepoType)[keyof typeof MonorepoType]
+        | undefined;
 
       if (basicResult.isOk() && basicResult.value) {
         projectType = basicResult.value.projectType;
@@ -779,7 +781,10 @@ export class SetupWizardService implements ISetupWizardService {
       );
 
       // Step 10: Estimate test coverage
-      const testCoverage = await this.estimateTestCoverage(workspaceUri, vscode);
+      const testCoverage = await this.estimateTestCoverage(
+        workspaceUri,
+        vscode
+      );
 
       const analysis: DeepProjectAnalysis = {
         projectType,
@@ -880,7 +885,12 @@ export class SetupWizardService implements ISetupWizardService {
     }
 
     // Check for Layered architecture
-    const layeredPatterns = ['controllers', 'services', 'repositories', 'models'];
+    const layeredPatterns = [
+      'controllers',
+      'services',
+      'repositories',
+      'models',
+    ];
     const layeredResults = await Promise.all(
       layeredPatterns.map(async (layer) => {
         const files = await vscode.workspace.findFiles(
@@ -931,7 +941,8 @@ export class SetupWizardService implements ISetupWizardService {
           55 + (appsFolder.length + servicesFolder.length) * 5
         ),
         evidence: microservicesEvidence,
-        description: 'Microservices architecture with multiple service packages',
+        description:
+          'Microservices architecture with multiple service packages',
       });
     }
 
@@ -969,7 +980,10 @@ export class SetupWizardService implements ISetupWizardService {
       5
     );
 
-    if (useCasesFiles.length > 0 && (entitiesFolders.length > 0 || domainFolders.length > 0)) {
+    if (
+      useCasesFiles.length > 0 &&
+      (entitiesFolders.length > 0 || domainFolders.length > 0)
+    ) {
       patterns.push({
         name: 'Clean-Architecture' as ArchitecturePatternName,
         confidence: Math.min(80, 55 + useCasesFiles.length * 5),
@@ -1002,7 +1016,10 @@ export class SetupWizardService implements ISetupWizardService {
 
     this.logger.debug('Architecture patterns detected', {
       patternCount: patterns.length,
-      patterns: patterns.map((p) => ({ name: p.name, confidence: p.confidence })),
+      patterns: patterns.map((p) => ({
+        name: p.name,
+        confidence: p.confidence,
+      })),
     });
 
     return patterns;
@@ -1025,7 +1042,12 @@ export class SetupWizardService implements ISetupWizardService {
     vscode: typeof import('vscode')
   ): Promise<KeyFileLocations> {
     // Find entry points
-    const entryPointPatterns = ['**/main.ts', '**/index.ts', '**/app.ts', '**/server.ts'];
+    const entryPointPatterns = [
+      '**/main.ts',
+      '**/index.ts',
+      '**/app.ts',
+      '**/server.ts',
+    ];
     const entryPointFiles: string[] = [];
     for (const pattern of entryPointPatterns) {
       const files = await vscode.workspace.findFiles(
@@ -1038,7 +1060,11 @@ export class SetupWizardService implements ISetupWizardService {
 
     // Find test directories
     const testDirs: string[] = [];
-    const testPatterns = ['**/__tests__/**/*.ts', '**/test/**/*.ts', '**/tests/**/*.ts'];
+    const testPatterns = [
+      '**/__tests__/**/*.ts',
+      '**/test/**/*.ts',
+      '**/tests/**/*.ts',
+    ];
     for (const pattern of testPatterns) {
       const files = await vscode.workspace.findFiles(
         pattern,
@@ -1049,7 +1075,10 @@ export class SetupWizardService implements ISetupWizardService {
       files.forEach((f) => {
         const dirMatch = f.fsPath.match(/.*[/\\](__tests__|tests?)[/\\]/i);
         if (dirMatch) {
-          const dir = f.fsPath.substring(0, dirMatch.index! + dirMatch[0].length);
+          const dir = f.fsPath.substring(
+            0,
+            dirMatch.index! + dirMatch[0].length
+          );
           if (!testDirs.includes(dir)) {
             testDirs.push(dir);
           }
@@ -1199,7 +1228,10 @@ export class SetupWizardService implements ISetupWizardService {
     languageCounts['JSON'] = jsonFiles.length;
 
     // Calculate total and percentages
-    const total = Object.values(languageCounts).reduce((sum, count) => sum + count, 0);
+    const total = Object.values(languageCounts).reduce(
+      (sum, count) => sum + count,
+      0
+    );
 
     if (total === 0) {
       return [];
@@ -1252,17 +1284,19 @@ export class SetupWizardService implements ISetupWizardService {
         const source = diag.source || 'unknown';
 
         switch (diag.severity) {
-          case DiagnosticSeverity.Error:
+          case DiagnosticSeverity.Error: {
             errorCount++;
             errorsByType[source] = (errorsByType[source] || 0) + 1;
             // Track error messages
             const errorMsg = diag.message.substring(0, 100);
             errorMessages.set(errorMsg, (errorMessages.get(errorMsg) || 0) + 1);
             break;
-          case DiagnosticSeverity.Warning:
+          }
+          case DiagnosticSeverity.Warning: {
             warningCount++;
             warningsByType[source] = (warningsByType[source] || 0) + 1;
             break;
+          }
           case DiagnosticSeverity.Information:
           case DiagnosticSeverity.Hint:
             infoCount++;
@@ -1323,20 +1357,29 @@ export class SetupWizardService implements ISetupWizardService {
       if (prettierConfigs.length > 0) {
         conventions.usePrettier = true;
         try {
-          const content = await vscode.workspace.fs.readFile(prettierConfigs[0]);
+          const content = await vscode.workspace.fs.readFile(
+            prettierConfigs[0]
+          );
           const configText = Buffer.from(content).toString('utf8');
           // Parse JSON config
-          if (prettierConfigs[0].fsPath.endsWith('.json') || prettierConfigs[0].fsPath.endsWith('.prettierrc')) {
+          if (
+            prettierConfigs[0].fsPath.endsWith('.json') ||
+            prettierConfigs[0].fsPath.endsWith('.prettierrc')
+          ) {
             try {
               const config = JSON.parse(configText);
               if (config.tabWidth) conventions.indentSize = config.tabWidth;
               if (config.useTabs) conventions.indentation = 'tabs';
               if (config.singleQuote !== undefined)
-                conventions.quoteStyle = config.singleQuote ? 'single' : 'double';
-              if (config.semi !== undefined) conventions.semicolons = config.semi;
+                conventions.quoteStyle = config.singleQuote
+                  ? 'single'
+                  : 'double';
+              if (config.semi !== undefined)
+                conventions.semicolons = config.semi;
               if (config.trailingComma)
                 conventions.trailingComma = config.trailingComma;
-              if (config.printWidth) conventions.maxLineLength = config.printWidth;
+              if (config.printWidth)
+                conventions.maxLineLength = config.printWidth;
             } catch {
               // Not valid JSON, skip
             }
@@ -1418,7 +1461,8 @@ export class SetupWizardService implements ISetupWizardService {
       500
     );
 
-    const totalTestFiles = specFiles.length + testFiles.length + testDirFiles.length;
+    const totalTestFiles =
+      specFiles.length + testFiles.length + testDirFiles.length;
     const hasTests = totalTestFiles > 0;
 
     // Detect test framework from config or dependencies

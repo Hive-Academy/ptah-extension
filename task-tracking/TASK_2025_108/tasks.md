@@ -18,10 +18,10 @@
 
 ### Risks Identified
 
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| Plan mentions "StartSessionConfig" interface which doesn't exist - `startChatSession()` uses inline intersection type | LOW | Task 2.2 documents correct modification target |
-| `tier !== 'free'` less robust than `plan?.isPremium` for future tier additions | LOW | Use `plan?.isPremium === true` with tier fallback in Task 3.2 |
+| Risk                                                                                                                  | Severity | Mitigation                                                    |
+| --------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------- |
+| Plan mentions "StartSessionConfig" interface which doesn't exist - `startChatSession()` uses inline intersection type | LOW      | Task 2.2 documents correct modification target                |
+| `tier !== 'free'` less robust than `plan?.isPremium` for future tier additions                                        | LOW      | Use `plan?.isPremium === true` with tier fallback in Task 3.2 |
 
 ### Edge Cases to Handle
 
@@ -46,14 +46,17 @@
 **Pattern to Follow**: Existing optional fields in QueryOptionsInput (lines 44-64)
 
 **Quality Requirements**:
+
 - Add `isPremium?: boolean` field with JSDoc comment
 - Place after `onCompactionStart` field for logical grouping
 - Default behavior when not provided should be false (free tier)
 
 **Implementation Details**:
+
 - Imports: None required for this task
 - Location: `QueryOptionsInput` interface around line 44
 - Add:
+
 ```typescript
 /**
  * Premium user flag - enables MCP server and Ptah system prompt
@@ -73,17 +76,20 @@ isPremium?: boolean;
 **Dependencies**: Task 1.1
 
 **Quality Requirements**:
+
 - Import `PTAH_SYSTEM_PROMPT` from `@ptah-extension/vscode-lm-tools`
 - Modify `build()` method to extract isPremium and pass to helpers
 - Modify `buildMcpServers(isPremium)` to return empty object for free tier
 - Modify `buildSystemPrompt(sessionConfig, isPremium)` to append PTAH_SYSTEM_PROMPT for premium
 
 **Validation Notes**:
+
 - For free tier: `mcpServers: {}` and no PTAH_SYSTEM_PROMPT append
 - For premium tier: `mcpServers: { ptah: {...} }` and PTAH_SYSTEM_PROMPT appended
 - User's custom systemPrompt should still work with both tiers
 
 **Implementation Details**:
+
 - Add import: `import { PTAH_SYSTEM_PROMPT } from '@ptah-extension/vscode-lm-tools';`
 - In `build()` method (line 153): Extract `isPremium = false` from input
 - Pass `isPremium` to `buildMcpServers(isPremium)` call (line 212)
@@ -96,6 +102,7 @@ isPremium?: boolean;
 ---
 
 **Batch 1 Verification**:
+
 - All files exist at paths
 - Build passes: `npx nx build agent-sdk`
 - Type check passes: `npx nx run agent-sdk:typecheck`
@@ -117,12 +124,15 @@ isPremium?: boolean;
 **Pattern to Follow**: Existing ExecuteQueryConfig interface (lines 77-94)
 
 **Quality Requirements**:
+
 - Add `isPremium?: boolean` field with JSDoc comment
 - Pass isPremium to queryOptionsBuilder.build() in executeQuery() method
 
 **Implementation Details**:
+
 - Location: `ExecuteQueryConfig` interface around line 77
 - Add:
+
 ```typescript
 /**
  * Premium user flag - enables MCP server and Ptah system prompt
@@ -130,6 +140,7 @@ isPremium?: boolean;
  */
 isPremium?: boolean;
 ```
+
 - In `executeQuery()` method (line 419), extract isPremium from config
 - Pass isPremium to `queryOptionsBuilder.build()` call (lines 473-480)
 
@@ -143,14 +154,17 @@ isPremium?: boolean;
 **Dependencies**: Task 2.1
 
 **Quality Requirements**:
+
 - Add `isPremium?: boolean` to the inline intersection type parameter
 - Extract isPremium from config and pass to sessionLifecycle.executeQuery()
 
 **Validation Notes**:
+
 - The plan mentions "StartSessionConfig" interface but actual code uses inline type
 - Must modify the inline intersection type, not create separate interface
 
 **Implementation Details**:
+
 - Location: `startChatSession()` method signature (lines 330-337)
 - Add `isPremium?: boolean;` to the inline type
 - Extract isPremium with default: `const { tabId, isPremium = false } = config;`
@@ -165,15 +179,18 @@ isPremium?: boolean;
 **Dependencies**: Task 2.1
 
 **Quality Requirements**:
+
 - Review resumeSession() to determine if isPremium is needed
 - If resumed sessions should maintain premium features, add isPremium parameter
 
 **Validation Notes**:
+
 - Current resumeSession() signature (line 398): `async resumeSession(sessionId: SessionId, config?: AISessionConfig)`
 - AISessionConfig from shared library - would require modifying shared types
 - Alternative: Accept isPremium as separate parameter or in extended config
 
 **Implementation Details**:
+
 - Review whether resumed sessions need MCP/system prompt features
 - If YES: Modify signature to accept isPremium
 - If NO: Document why (sessions resume with original context, MCP already established)
@@ -182,6 +199,7 @@ isPremium?: boolean;
 ---
 
 **Batch 2 Verification**:
+
 - All files exist at paths
 - Build passes: `npx nx build agent-sdk`
 - Type check passes: `npx nx run agent-sdk:typecheck`
@@ -203,14 +221,17 @@ isPremium?: boolean;
 **Pattern to Follow**: Existing constructor injections (lines 47-59)
 
 **Quality Requirements**:
+
 - Import LicenseService and TOKENS from `@ptah-extension/vscode-core`
 - Add `@inject(TOKENS.LICENSE_SERVICE)` injection in constructor
 - Maintain existing injection order (add at end)
 
 **Implementation Details**:
+
 - Add import: Update existing import from `@ptah-extension/vscode-core` to include `LicenseService`
 - Verify TOKENS import already includes LICENSE_SERVICE (it should from tokens.ts)
 - Add constructor parameter:
+
 ```typescript
 @inject(TOKENS.LICENSE_SERVICE)
 private readonly licenseService: LicenseService
@@ -226,33 +247,38 @@ private readonly licenseService: LicenseService
 **Dependencies**: Task 3.1
 
 **Quality Requirements**:
+
 - Call `licenseService.verifyLicense()` at start of handler
 - Compute `isPremium` using robust check: `licenseStatus.valid && (licenseStatus.plan?.isPremium === true || licenseStatus.tier === 'early_adopter')`
 - Log license check result with tier and isPremium
 - Pass isPremium to sdkAdapter.startChatSession()
 
 **Validation Notes**:
+
 - Use plan?.isPremium with tier fallback for future-proofing
 - verifyLicense() handles network failures gracefully (returns cached or free tier)
 
 **Implementation Details**:
+
 - At start of registerChatStart handler (after destructuring params):
+
 ```typescript
 // Get license status for premium feature gating
 const licenseStatus = await this.licenseService.verifyLicense();
-const isPremium = licenseStatus.valid &&
-  (licenseStatus.plan?.isPremium === true || licenseStatus.tier === 'early_adopter');
+const isPremium = licenseStatus.valid && (licenseStatus.plan?.isPremium === true || licenseStatus.tier === 'early_adopter');
 
 this.logger.debug('RPC: chat:start - license check', {
   tier: licenseStatus.tier,
   isPremium,
 });
 ```
+
 - Add `isPremium,` to sdkAdapter.startChatSession() config (line 115)
 
 ---
 
 **Batch 3 Verification**:
+
 - All files exist at paths
 - Build passes: `npx nx build ptah-extension-vscode`
 - Type check passes
@@ -273,6 +299,7 @@ this.logger.debug('RPC: chat:start - license check', {
 **Spec Reference**: implementation-plan.md:210-298
 
 **Quality Requirements**:
+
 - Document prerequisites (PostgreSQL, Node.js)
 - Step-by-step license server setup
 - curl command for generating dev license
@@ -280,6 +307,7 @@ this.logger.debug('RPC: chat:start - license check', {
 - Troubleshooting section
 
 **Implementation Details**:
+
 - Created new file at `D:\projects\ptah-extension\docs\DEV_LICENSE_SETUP.md`
 - Content verified against actual license server code:
   - Admin API: `POST /api/v1/admin/licenses`
@@ -298,6 +326,7 @@ this.logger.debug('RPC: chat:start - license check', {
 ---
 
 **Batch 4 Verification**:
+
 - File exists at `D:\projects\ptah-extension\docs\DEV_LICENSE_SETUP.md`
 - Markdown renders correctly
 - Instructions verified against actual code:
@@ -310,10 +339,10 @@ this.logger.debug('RPC: chat:start - license check', {
 
 ## Status Icons Reference
 
-| Status | Meaning | Who Sets |
-|--------|---------|----------|
-| PENDING | Not started | team-leader (initial) |
-| IN PROGRESS | Assigned to developer | team-leader |
-| IMPLEMENTED | Developer done, awaiting verify | developer |
-| COMPLETE | Verified and committed | team-leader |
-| FAILED | Verification failed | team-leader |
+| Status      | Meaning                         | Who Sets              |
+| ----------- | ------------------------------- | --------------------- |
+| PENDING     | Not started                     | team-leader (initial) |
+| IN PROGRESS | Assigned to developer           | team-leader           |
+| IMPLEMENTED | Developer done, awaiting verify | developer             |
+| COMPLETE    | Verified and committed          | team-leader           |
+| FAILED      | Verification failed             | team-leader           |

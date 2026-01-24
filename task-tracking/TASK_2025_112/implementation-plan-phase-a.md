@@ -13,13 +13,13 @@ Phase A establishes the infrastructure and backend services required for the pro
 
 ### Scope
 
-| # | Component | Description |
-|---|-----------|-------------|
-| 1 | Docker Compose | Local dev environment (PostgreSQL, Redis, license-server) |
-| 2 | Paddle Webhooks | Subscription lifecycle (created, updated, canceled) |
-| 3 | WorkOS PKCE | Upgrade auth to OAuth 2.1 compliant PKCE flow |
-| 4 | Environment Config | Comprehensive .env.example with setup guides |
-| 5 | Deployment Docs | DigitalOcean App Platform deployment guide |
+| #   | Component          | Description                                               |
+| --- | ------------------ | --------------------------------------------------------- |
+| 1   | Docker Compose     | Local dev environment (PostgreSQL, Redis, license-server) |
+| 2   | Paddle Webhooks    | Subscription lifecycle (created, updated, canceled)       |
+| 3   | WorkOS PKCE        | Upgrade auth to OAuth 2.1 compliant PKCE flow             |
+| 4   | Environment Config | Comprehensive .env.example with setup guides              |
+| 5   | Deployment Docs    | DigitalOcean App Platform deployment guide                |
 
 ---
 
@@ -70,6 +70,7 @@ return this.workos.userManagement.getAuthorizationUrl({
 **Evidence**: [.env.example](file:///d:/projects/ptah-extension/apps/ptah-license-server/.env.example)
 
 Missing:
+
 - WorkOS configuration (WORKOS_API_KEY, WORKOS_CLIENT_ID, WORKOS_REDIRECT_URI)
 - Paddle configuration (PADDLE_API_KEY, PADDLE_WEBHOOK_SECRET)
 - Redis configuration (REDIS_URL)
@@ -229,6 +230,7 @@ LICENSE_SERVER_PORT=3000
 **Path**: `d:\projects\ptah-extension\apps\ptah-license-server\src\paddle\`
 
 **Files**:
+
 - `paddle.module.ts` - NestJS module
 - `paddle.controller.ts` - Webhook handler
 - `paddle.service.ts` - Business logic
@@ -261,16 +263,9 @@ export class PaddleController {
    */
   @Post()
   @HttpCode(200)
-  async handleWebhook(
-    @Headers('paddle-signature') signature: string,
-    @Body() payload: any,
-    @Req() req: Request
-  ) {
+  async handleWebhook(@Headers('paddle-signature') signature: string, @Body() payload: any, @Req() req: Request) {
     // Step 1: Verify signature
-    const isValid = this.paddleService.verifySignature(
-      signature,
-      req.rawBody
-    );
+    const isValid = this.paddleService.verifySignature(signature, req.rawBody);
     if (!isValid) {
       throw new UnauthorizedException('Invalid webhook signature');
     }
@@ -306,16 +301,10 @@ export class PaddleController {
 export class PaddleService {
   private readonly paddle: Paddle;
 
-  constructor(
-    private readonly configService: ConfigService,
-    private readonly prisma: PrismaService,
-    private readonly emailService: EmailService
-  ) {
+  constructor(private readonly configService: ConfigService, private readonly prisma: PrismaService, private readonly emailService: EmailService) {
     this.paddle = new Paddle({
       apiKey: this.configService.get('PADDLE_API_KEY'),
-      environment: this.configService.get('NODE_ENV') === 'production'
-        ? 'production'
-        : 'sandbox',
+      environment: this.configService.get('NODE_ENV') === 'production' ? 'production' : 'sandbox',
     });
   }
 
@@ -323,18 +312,13 @@ export class PaddleService {
    * Verify Paddle webhook signature
    */
   verifySignature(signature: string, rawBody: Buffer): boolean {
-    const [ts, h1] = signature.split(';').map(pair => pair.split('=')[1]);
+    const [ts, h1] = signature.split(';').map((pair) => pair.split('=')[1]);
     const signedPayload = `${ts}:${rawBody.toString()}`;
     const secret = this.configService.get('PADDLE_WEBHOOK_SECRET');
 
-    const expectedSignature = createHmac('sha256', secret)
-      .update(signedPayload)
-      .digest('hex');
+    const expectedSignature = createHmac('sha256', secret).update(signedPayload).digest('hex');
 
-    return timingSafeEqual(
-      Buffer.from(h1),
-      Buffer.from(expectedSignature)
-    );
+    return timingSafeEqual(Buffer.from(h1), Buffer.from(expectedSignature));
   }
 
   /**
@@ -344,7 +328,7 @@ export class PaddleService {
   async handleSubscriptionCreated(data: any, eventId: string) {
     // Idempotency check
     const existing = await this.prisma.license.findFirst({
-      where: { createdBy: `paddle_${eventId}` }
+      where: { createdBy: `paddle_${eventId}` },
     });
     if (existing) return { duplicate: true };
 
@@ -371,7 +355,7 @@ export class PaddleService {
         status: 'active',
         expiresAt: new Date(data.current_billing_period.ends_at),
         createdBy: `paddle_${eventId}`,
-      }
+      },
     });
 
     // Send license email
@@ -402,7 +386,7 @@ export class PaddleService {
       data: {
         plan: newPlan,
         expiresAt: new Date(data.current_billing_period.ends_at),
-      }
+      },
     });
 
     return { success: true };
@@ -424,7 +408,7 @@ export class PaddleService {
       where: { userId: user.id, status: 'active' },
       data: {
         expiresAt: new Date(data.current_billing_period.ends_at),
-      }
+      },
     });
 
     return { success: true };
@@ -819,12 +803,14 @@ LICENSE_SERVER_PORT=3000
 **Content outline**:
 
 1. **Prerequisites**
+
    - DigitalOcean account with API token
    - Domain name (optional but recommended)
    - Paddle production account configured
    - WorkOS production environment configured
 
 2. **Architecture Overview**
+
    ```
    [Landing Page] → DigitalOcean Spaces + CDN
                    ↓
@@ -836,6 +822,7 @@ LICENSE_SERVER_PORT=3000
    ```
 
 3. **Step-by-Step Deployment**
+
    - Create Managed PostgreSQL cluster
    - Create Managed Redis cluster
    - Deploy license server to App Platform
@@ -844,6 +831,7 @@ LICENSE_SERVER_PORT=3000
    - Set up monitoring and alerts
 
 4. **App Platform spec.yaml**
+
    ```yaml
    name: ptah-license-server
    services:
@@ -977,12 +965,12 @@ npm install ioredis@^5.0.0  # For session storage (if needed)
 
 ### External Services Setup
 
-| Service | Purpose | Setup URL |
-|---------|---------|-----------|
-| Paddle | Payments | https://sandbox-vendors.paddle.com/ |
-| WorkOS | Auth | https://dashboard.workos.com/ |
-| SendGrid | Email | https://app.sendgrid.com/ |
-| DigitalOcean | Hosting | https://cloud.digitalocean.com/ |
+| Service      | Purpose  | Setup URL                           |
+| ------------ | -------- | ----------------------------------- |
+| Paddle       | Payments | https://sandbox-vendors.paddle.com/ |
+| WorkOS       | Auth     | https://dashboard.workos.com/       |
+| SendGrid     | Email    | https://app.sendgrid.com/           |
+| DigitalOcean | Hosting  | https://cloud.digitalocean.com/     |
 
 ---
 
@@ -994,6 +982,7 @@ npm install ioredis@^5.0.0  # For session storage (if needed)
 **Impact**: Critical (users pay but don't get license)
 
 **Mitigation**:
+
 - Idempotent handlers (check event ID)
 - Manual license creation admin endpoint as fallback
 - Alert on webhook processing errors
@@ -1004,6 +993,7 @@ npm install ioredis@^5.0.0  # For session storage (if needed)
 **Impact**: Medium (auth failures if state lost)
 
 **Mitigation**:
+
 - In-memory Map for development (current)
 - Redis for production (stateless servers)
 - 5-minute expiration prevents memory leaks
@@ -1014,6 +1004,7 @@ npm install ioredis@^5.0.0  # For session storage (if needed)
 **Impact**: Medium (slow development)
 
 **Mitigation**:
+
 - Document WSL2 filesystem recommendation
 - Use named volumes for node_modules
 - Provide non-Docker setup instructions as fallback

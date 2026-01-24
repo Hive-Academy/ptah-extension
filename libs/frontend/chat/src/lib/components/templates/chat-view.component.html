@@ -10,15 +10,8 @@
   </div>
   }
 
-  <!-- TASK_2025_103: Resume Notification Banner for interrupted subagents -->
-  @if (chatStore.resumableSubagents().length > 0) {
-  <div class="px-4 pt-2">
-    <ptah-resume-notification-banner
-      [resumableSubagents]="chatStore.resumableSubagents()"
-      (resumeAllRequested)="onResumeAll()"
-    />
-  </div>
-  }
+  <!-- TASK_2025_109: Resume Notification Banner removed - now uses context injection -->
+  <!-- Users can resume interrupted agents by typing "resume agent {agentId}" in chat -->
 
   <!-- TASK_2025_098: Compaction Notification Banner -->
   <div class="px-4">

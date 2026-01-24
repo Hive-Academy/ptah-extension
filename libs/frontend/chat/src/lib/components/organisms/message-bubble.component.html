@@ -38,12 +38,12 @@
   >
     @if (message().streamingState) {
     <!-- ExecutionNode recursive tree with streaming state -->
+    <!-- TASK_2025_109: resumeRequested removed - now uses context injection -->
     <ptah-execution-node
       [node]="message().streamingState!"
       [isStreaming]="isStreaming()"
       [getPermissionForTool]="getPermissionForTool"
       (permissionResponded)="onPermissionResponse($event)"
-      (resumeRequested)="onResumeRequested($event)"
     />
     } @else {
     <!-- Fallback text content - removed prose-invert for theme compatibility -->

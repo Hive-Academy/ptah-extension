@@ -6,11 +6,11 @@ This reference documents the three operational modes of the team-leader agent an
 
 ## Mode Overview
 
-| Mode | Name | When to Invoke | Purpose | Output |
-|------|------|----------------|---------|--------|
-| **MODE 1** | DECOMPOSITION | After architect completes (or immediately for BUGFIX) | Break implementation-plan.md into atomic, batched tasks | Creates `tasks.md` with batched task assignments |
-| **MODE 2** | ASSIGNMENT + VERIFY + COMMIT | After developer returns OR to assign first/next batch | Verify work, commit code, assign next batch | Git commits, batch status updates, developer prompts |
-| **MODE 3** | COMPLETION | All batches show COMPLETE status | Final verification and QA handoff | Completion summary with all commits and files |
+| Mode       | Name                         | When to Invoke                                        | Purpose                                                 | Output                                               |
+| ---------- | ---------------------------- | ----------------------------------------------------- | ------------------------------------------------------- | ---------------------------------------------------- |
+| **MODE 1** | DECOMPOSITION                | After architect completes (or immediately for BUGFIX) | Break implementation-plan.md into atomic, batched tasks | Creates `tasks.md` with batched task assignments     |
+| **MODE 2** | ASSIGNMENT + VERIFY + COMMIT | After developer returns OR to assign first/next batch | Verify work, commit code, assign next batch             | Git commits, batch status updates, developer prompts |
+| **MODE 3** | COMPLETION                   | All batches show COMPLETE status                      | Final verification and QA handoff                       | Completion summary with all commits and files        |
 
 ---
 
@@ -34,7 +34,7 @@ Task({
 **User Request**: "[original request from context.md]"
 
 Read implementation-plan.md and create tasks.md with batched tasks.
-See team-leader.md for detailed MODE 1 instructions.`
+See team-leader.md for detailed MODE 1 instructions.`,
 });
 ```
 
@@ -43,23 +43,27 @@ See team-leader.md for detailed MODE 1 instructions.`
 Team-leader creates `tasks.md` with the following structure:
 
 ```markdown
-# Development Tasks - TASK_[ID]
+# Development Tasks - TASK\_[ID]
 
 **Total Tasks**: N | **Batches**: B | **Status**: 0/B complete
 
 ## Batch 1: [Name] - PENDING
+
 **Developer**: [backend-developer|frontend-developer]
 **Tasks**: N | **Dependencies**: None
 
 ### Task 1.1: [Description]
+
 **File**: [absolute path]
 **Status**: PENDING
 
 ### Task 1.2: [Description]
+
 **File**: [absolute path]
 **Status**: PENDING
 
 ## Batch 2: [Name] - PENDING
+
 **Developer**: [type]
 **Tasks**: N | **Dependencies**: Batch 1
 ...
@@ -93,7 +97,7 @@ Task({
 ${developer_response}
 
 Verify files exist, invoke code-logic-reviewer, commit if approved, assign next batch.
-See team-leader.md for detailed MODE 2 instructions.`
+See team-leader.md for detailed MODE 2 instructions.`,
 });
 ```
 
@@ -144,11 +148,11 @@ See team-leader.md for detailed MODE 2 instructions.`
 
 ### Handling Team-Leader Responses
 
-| Response Pattern | Meaning | Orchestrator Action |
-|-----------------|---------|---------------------|
+| Response Pattern                        | Meaning                                   | Orchestrator Action                             |
+| --------------------------------------- | ----------------------------------------- | ----------------------------------------------- |
 | `NEXT BATCH ASSIGNED: [developer-type]` | Current batch committed, next batch ready | Invoke specified developer with provided prompt |
-| `BATCH REJECTED: [issues]` | Verification failed | Re-invoke same developer with issues to fix |
-| `ALL BATCHES COMPLETE` | All tasks done, ready for QA | Invoke team-leader MODE 3 |
+| `BATCH REJECTED: [issues]`              | Verification failed                       | Re-invoke same developer with issues to fix     |
+| `ALL BATCHES COMPLETE`                  | All tasks done, ready for QA              | Invoke team-leader MODE 3                       |
 
 ### Response Detection Logic
 
@@ -184,7 +188,7 @@ Task({
   prompt: `You are team-leader in MODE 3: COMPLETION for TASK_[ID].
 
 Verify all batches complete, cross-check git commits, return summary.
-See team-leader.md for detailed MODE 3 instructions.`
+See team-leader.md for detailed MODE 3 instructions.`,
 });
 ```
 
@@ -193,26 +197,30 @@ See team-leader.md for detailed MODE 3 instructions.`
 Team-leader returns comprehensive completion summary:
 
 ```markdown
-## TASK_[ID] COMPLETION SUMMARY
+## TASK\_[ID] COMPLETION SUMMARY
 
 ### Development Complete
+
 - **Total Tasks**: N tasks in B batches
 - **All Batches**: COMPLETE
 - **Git Commits**: B commits verified
 
 ### Commits Created
-| Batch | Commit Hash | Message |
-|-------|-------------|---------|
-| 1 | abc1234 | type(scope): batch 1 description |
-| 2 | def5678 | type(scope): batch 2 description |
-| 3 | ghi9012 | type(scope): batch 3 description |
+
+| Batch | Commit Hash | Message                          |
+| ----- | ----------- | -------------------------------- |
+| 1     | abc1234     | type(scope): batch 1 description |
+| 2     | def5678     | type(scope): batch 2 description |
+| 3     | ghi9012     | type(scope): batch 3 description |
 
 ### Files Implemented
+
 - path/to/file1.ts
 - path/to/file2.ts
 - ...
 
 ### Ready for QA
+
 Development phase complete. Proceed to QA checkpoint.
 ```
 
@@ -226,13 +234,13 @@ Development phase complete. Proceed to QA checkpoint.
 
 ## Task Status Legend
 
-| Status | Symbol | Meaning |
-|--------|--------|---------|
-| PENDING | - | Not started, awaiting assignment |
-| IN PROGRESS | - | Developer actively working |
-| IMPLEMENTED | - | Code done, awaiting team-leader verification |
-| COMPLETE | - | Verified and git committed |
-| FAILED | - | Verification failed, needs rework |
+| Status      | Symbol | Meaning                                      |
+| ----------- | ------ | -------------------------------------------- |
+| PENDING     | -      | Not started, awaiting assignment             |
+| IN PROGRESS | -      | Developer actively working                   |
+| IMPLEMENTED | -      | Code done, awaiting team-leader verification |
+| COMPLETE    | -      | Verified and git committed                   |
+| FAILED      | -      | Verification failed, needs rework            |
 
 ---
 

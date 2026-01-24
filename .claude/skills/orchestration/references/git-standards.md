@@ -18,48 +18,48 @@ This reference documents the commitlint rules, commit message format, and pre-co
 
 ### Format Rules
 
-| Component | Rule |
-|-----------|------|
-| Type | Required, lowercase, from allowed list |
-| Scope | Required, lowercase, from allowed list |
-| Subject | Required, lowercase, 3-72 chars, no period, imperative mood |
-| Header | Max 100 characters total (type + scope + subject) |
-| Body | Optional, max 100 chars per line |
-| Footer | Optional, max 100 chars per line |
+| Component | Rule                                                        |
+| --------- | ----------------------------------------------------------- |
+| Type      | Required, lowercase, from allowed list                      |
+| Scope     | Required, lowercase, from allowed list                      |
+| Subject   | Required, lowercase, 3-72 chars, no period, imperative mood |
+| Header    | Max 100 characters total (type + scope + subject)           |
+| Body      | Optional, max 100 chars per line                            |
+| Footer    | Optional, max 100 chars per line                            |
 
 ---
 
 ## Allowed Types
 
-| Type | Description | When to Use |
-|------|-------------|-------------|
-| `feat` | New feature | Adding new functionality |
-| `fix` | Bug fix | Fixing broken behavior |
-| `docs` | Documentation | README, comments, CLAUDE.md changes |
-| `style` | Code style | Formatting, whitespace (no logic change) |
+| Type       | Description        | When to Use                              |
+| ---------- | ------------------ | ---------------------------------------- |
+| `feat`     | New feature        | Adding new functionality                 |
+| `fix`      | Bug fix            | Fixing broken behavior                   |
+| `docs`     | Documentation      | README, comments, CLAUDE.md changes      |
+| `style`    | Code style         | Formatting, whitespace (no logic change) |
 | `refactor` | Code restructuring | Improving code without changing behavior |
-| `perf` | Performance | Optimizations, speed improvements |
-| `test` | Testing | Adding/updating test files |
-| `build` | Build system | Webpack, esbuild, dependency changes |
-| `ci` | CI configuration | GitHub Actions, pipeline changes |
-| `chore` | Maintenance | Tooling, config (no src/test changes) |
-| `revert` | Revert commit | Undoing previous commit |
+| `perf`     | Performance        | Optimizations, speed improvements        |
+| `test`     | Testing            | Adding/updating test files               |
+| `build`    | Build system       | Webpack, esbuild, dependency changes     |
+| `ci`       | CI configuration   | GitHub Actions, pipeline changes         |
+| `chore`    | Maintenance        | Tooling, config (no src/test changes)    |
+| `revert`   | Revert commit      | Undoing previous commit                  |
 
 ---
 
 ## Allowed Scopes (Project-Specific)
 
-| Scope | Description | Example Files |
-|-------|-------------|---------------|
-| `webview` | Angular SPA changes | libs/frontend/*, apps/ptah-extension-webview/* |
-| `vscode` | VS Code extension | apps/ptah-extension-vscode/*, libs/backend/* |
-| `vscode-lm-tools` | VS Code LM tools library | libs/backend/vscode-lm-tools/* |
-| `deps` | Dependency updates | package.json, package-lock.json |
-| `release` | Release-related | CHANGELOG, version bumps |
-| `ci` | CI/CD changes | .github/workflows/* |
-| `docs` | Documentation | *.md files, comments |
-| `hooks` | Git hooks | .husky/*, commitlint.config.js |
-| `scripts` | Script changes | scripts/*, package.json scripts |
+| Scope             | Description              | Example Files                                  |
+| ----------------- | ------------------------ | ---------------------------------------------- |
+| `webview`         | Angular SPA changes      | libs/frontend/_, apps/ptah-extension-webview/_ |
+| `vscode`          | VS Code extension        | apps/ptah-extension-vscode/_, libs/backend/_   |
+| `vscode-lm-tools` | VS Code LM tools library | libs/backend/vscode-lm-tools/\*                |
+| `deps`            | Dependency updates       | package.json, package-lock.json                |
+| `release`         | Release-related          | CHANGELOG, version bumps                       |
+| `ci`              | CI/CD changes            | .github/workflows/\*                           |
+| `docs`            | Documentation            | \*.md files, comments                          |
+| `hooks`           | Git hooks                | .husky/\*, commitlint.config.js                |
+| `scripts`         | Script changes           | scripts/\*, package.json scripts               |
 
 ---
 
@@ -67,12 +67,12 @@ This reference documents the commitlint rules, commit message format, and pre-co
 
 ### Subject Rules
 
-| Rule | Requirement | Example |
-|------|-------------|---------|
-| Case | Lowercase only | "add feature" not "Add feature" |
-| Length | 3-72 characters | Short but descriptive |
-| Ending | No period | "add feature" not "add feature." |
-| Mood | Imperative | "add" not "added" or "adding" |
+| Rule   | Requirement     | Example                          |
+| ------ | --------------- | -------------------------------- |
+| Case   | Lowercase only  | "add feature" not "Add feature"  |
+| Length | 3-72 characters | Short but descriptive            |
+| Ending | No period       | "add feature" not "add feature." |
+| Mood   | Imperative      | "add" not "added" or "adding"    |
 
 ### What NOT to Do
 
@@ -103,16 +103,16 @@ style(webview): format chat component files
 
 ## Invalid Examples
 
-| Example | Issue |
-|---------|-------|
-| `Feature: Add search` | Wrong type format, wrong case |
-| `feat: Add search` | Missing scope |
-| `feat(search): Add search` | Invalid scope, wrong case |
-| `feat(webview): Add search.` | Period at end, uppercase |
-| `feat(webview): Add Search` | Uppercase in subject |
-| `feat(WEBVIEW): add search` | Uppercase scope |
-| `Feat(webview): add search` | Uppercase type |
-| `feat(webview): a` | Subject too short (< 3 chars) |
+| Example                      | Issue                         |
+| ---------------------------- | ----------------------------- |
+| `Feature: Add search`        | Wrong type format, wrong case |
+| `feat: Add search`           | Missing scope                 |
+| `feat(search): Add search`   | Invalid scope, wrong case     |
+| `feat(webview): Add search.` | Period at end, uppercase      |
+| `feat(webview): Add Search`  | Uppercase in subject          |
+| `feat(WEBVIEW): add search`  | Uppercase scope               |
+| `Feat(webview): add search`  | Uppercase type                |
+| `feat(webview): a`           | Subject too short (< 3 chars) |
 
 ---
 
@@ -151,11 +151,11 @@ gh pr create --title "type(scope): description" --body "..."
 
 All commits automatically run these checks in order:
 
-| Check | Tool | Purpose |
-|-------|------|---------|
-| 1 | lint-staged | Format & lint staged files only |
-| 2 | typecheck:affected | Type-check changed libraries |
-| 3 | commitlint | Validate commit message format |
+| Check | Tool               | Purpose                         |
+| ----- | ------------------ | ------------------------------- |
+| 1     | lint-staged        | Format & lint staged files only |
+| 2     | typecheck:affected | Type-check changed libraries    |
+| 3     | commitlint         | Validate commit message format  |
 
 ### Check Execution
 
@@ -203,17 +203,16 @@ Please choose how to proceed:
 3. **Stop & Report** - Mark as blocker and escalate
    (Use for: Critical infrastructure issues, complex errors requiring investigation)
 
-Which option would you like? (1/2/3)
----
+## Which option would you like? (1/2/3)
 ```
 
 ### Option Actions
 
-| Choice | Command/Action |
-|--------|----------------|
+| Choice   | Command/Action                                                |
+| -------- | ------------------------------------------------------------- |
 | Option 1 | Fix the issue, run `npm run lint:fix` if needed, retry commit |
-| Option 2 | `git commit --no-verify -m "message"` |
-| Option 3 | Mark task BLOCKED, document error in tasks.md |
+| Option 2 | `git commit --no-verify -m "message"`                         |
+| Option 3 | Mark task BLOCKED, document error in tasks.md                 |
 
 ### Agent Behavior Rules
 
@@ -281,15 +280,15 @@ Action:
 
 **NEVER run these commands** without explicit user request:
 
-| Command | Risk |
-|---------|------|
-| `git reset --hard` | Loses uncommitted changes |
-| `git push --force` | Overwrites remote history |
-| `git rebase --hard` | Can lose commits |
-| `git clean -f` | Deletes untracked files |
-| `git branch -D` | Force deletes branch |
-| `git checkout .` | Discards all changes |
-| `git restore .` | Discards all changes |
+| Command             | Risk                      |
+| ------------------- | ------------------------- |
+| `git reset --hard`  | Loses uncommitted changes |
+| `git push --force`  | Overwrites remote history |
+| `git rebase --hard` | Can lose commits          |
+| `git clean -f`      | Deletes untracked files   |
+| `git branch -D`     | Force deletes branch      |
+| `git checkout .`    | Discards all changes      |
+| `git restore .`     | Discards all changes      |
 
 ---
 

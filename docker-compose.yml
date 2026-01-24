@@ -44,9 +44,13 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - '${POSTGRES_PORT:-5432}:5432'
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ptah_licenses}"]
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ptah_licenses}',
+        ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -70,9 +74,9 @@ services:
     volumes:
       - redis-data:/data
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - '${REDIS_PORT:-6379}:6379'
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       timeout: 3s
       retries: 10
@@ -117,7 +121,7 @@ services:
       # Use named volume for node_modules to prevent OS filesystem overhead
       - license-server-node-modules:/app/node_modules
     ports:
-      - "${LICENSE_SERVER_PORT:-3000}:3000"
+      - '${LICENSE_SERVER_PORT:-3000}:3000'
     # Run Prisma migrations before starting the server
     command: >
       sh -c "

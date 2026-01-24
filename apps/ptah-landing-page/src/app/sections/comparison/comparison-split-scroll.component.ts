@@ -226,7 +226,7 @@ interface PerformanceMetric {
   ],
 })
 export class ComparisonSplitScrollComponent {
-  readonly painPoints: PainPoint[] = [
+  public readonly painPoints: PainPoint[] = [
     {
       text: 'Terminal switching disrupts your flow',
       detail:
@@ -248,7 +248,7 @@ export class ComparisonSplitScrollComponent {
     },
   ];
 
-  readonly benefits: Benefit[] = [
+  public readonly benefits: Benefit[] = [
     {
       text: 'VS Code native - never leave your editor',
       detail:
@@ -269,7 +269,7 @@ export class ComparisonSplitScrollComponent {
     },
   ];
 
-  readonly metrics: PerformanceMetric[] = [
+  public readonly metrics: PerformanceMetric[] = [
     {
       name: 'Session Creation',
       cli: '500ms',
@@ -290,20 +290,20 @@ export class ComparisonSplitScrollComponent {
     },
   ];
 
-  readonly headerConfig: ViewportAnimationConfig = {
+  public readonly headerConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
     duration: 0.8,
     threshold: 0.2,
   };
 
-  readonly subheaderConfig: ViewportAnimationConfig = {
+  public readonly subheaderConfig: ViewportAnimationConfig = {
     animation: 'fadeIn',
     duration: 0.8,
     delay: 0.1,
     threshold: 0.2,
   };
 
-  getPainConfig(index: number): ViewportAnimationConfig {
+  public getPainConfig(index: number): ViewportAnimationConfig {
     return {
       animation: 'slideRight',
       duration: 0.5,
@@ -312,7 +312,7 @@ export class ComparisonSplitScrollComponent {
     };
   }
 
-  getBenefitConfig(index: number): ViewportAnimationConfig {
+  public getBenefitConfig(index: number): ViewportAnimationConfig {
     return {
       animation: 'slideLeft',
       duration: 0.5,
@@ -322,7 +322,7 @@ export class ComparisonSplitScrollComponent {
     };
   }
 
-  getMetricConfig(index: number): ViewportAnimationConfig {
+  public getMetricConfig(index: number): ViewportAnimationConfig {
     return {
       animation: 'scaleIn',
       duration: 0.5,

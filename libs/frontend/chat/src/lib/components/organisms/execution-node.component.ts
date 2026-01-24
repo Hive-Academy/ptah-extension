@@ -76,7 +76,6 @@ import type {
         [isStreaming]="isStreaming()"
         [getPermissionForTool]="getPermissionForTool()"
         (permissionResponded)="permissionResponded.emit($event)"
-        (resumeRequested)="resumeRequested.emit($event)"
       />
       }
     </ptah-tool-call-item>
@@ -133,11 +132,7 @@ export class ExecutionNodeComponent {
    */
   readonly permissionResponded = output<PermissionResponse>();
 
-  /**
-   * TASK_2025_103: Emits when user requests to resume an interrupted agent
-   * Bubbles up from inline-agent-bubble through component tree to chat-view
-   */
-  readonly resumeRequested = output<string>(); // Emits toolCallId
+  // TASK_2025_109: resumeRequested output removed - now uses context injection
 
   // Lucide icons
   readonly InfoIcon = Info;

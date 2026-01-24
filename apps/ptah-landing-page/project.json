@@ -83,6 +83,12 @@
         "buildTarget": "ptah-landing-page:build",
         "staticFilePath": "dist/ptah-landing-page/browser",
         "spa": true
+      },
+      "typecheck": {
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "tsc --noEmit --project apps/ptah-landing-page/tsconfig.app.json"
+        }
       }
     }
   }

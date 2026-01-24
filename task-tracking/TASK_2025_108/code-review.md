@@ -2,14 +2,14 @@
 
 ## Review Summary
 
-| Metric              | Value                                |
-| ------------------- | ------------------------------------ |
-| Overall Score       | 6/10                                 |
-| Assessment          | NEEDS_REVISION                       |
-| Critical Issues     | 2                                    |
-| Serious Issues      | 3                                    |
-| Moderate Issues     | 4                                    |
-| Failure Modes Found | 8                                    |
+| Metric              | Value          |
+| ------------------- | -------------- |
+| Overall Score       | 6/10           |
+| Assessment          | NEEDS_REVISION |
+| Critical Issues     | 2              |
+| Serious Issues      | 3              |
+| Moderate Issues     | 4              |
+| Failure Modes Found | 8              |
 
 ---
 
@@ -20,9 +20,11 @@
 1. **License verification network timeout defaults to free tier silently**: When `verifyLicense()` times out after 5 seconds, it falls back to cached status or returns `{ valid: false, tier: 'free' }`. A premium user experiencing network issues gets silently downgraded to free tier with no MCP server or system prompt - and they won't know why Claude suddenly "forgot" about Ptah tools.
 
 2. **Early adopter check could fail on missing plan object**: The `isPremium` calculation is:
+
    ```typescript
-   licenseStatus.valid && (licenseStatus.plan?.isPremium === true || licenseStatus.tier === 'early_adopter')
+   licenseStatus.valid && (licenseStatus.plan?.isPremium === true || licenseStatus.tier === 'early_adopter');
    ```
+
    If the license server returns `{ valid: true, tier: 'early_adopter' }` without a `plan` object (which is valid per the interface), the `plan?.isPremium` part is `undefined`, but the `tier === 'early_adopter'` fallback saves it. However, if a future tier like `'pro'` is added without updating this code, it would fail silently.
 
 3. **No validation that MCP server is actually running**: When `isPremium` is true, the code configures `mcpServers: { ptah: { url: 'http://localhost:51820' } }` but never verifies the server is listening. If the MCP server failed to start, Claude will get MCP configuration pointing to a dead server.
@@ -32,6 +34,7 @@
 1. **Rapid session start/continue while license verification is in-flight**: If a user clicks "start chat" rapidly while license verification is pending (network latency), multiple concurrent `verifyLicense()` calls could race. While the cache handles subsequent calls, the first call during a cold start has no cache protection.
 
 2. **License key change mid-session**: If user enters a new license key while a session is active:
+
    - The active session continues with the old `isPremium` value
    - New sessions get the new value
    - This creates inconsistent behavior where two tabs have different premium states
@@ -55,13 +58,13 @@
 
 ### 4. What happens when dependencies fail?
 
-| Integration Point | Failure Mode | Current Handling | Risk Level |
-|-------------------|--------------|------------------|------------|
-| LicenseService.verifyLicense() | Network timeout | Returns cached or free tier | **HIGH** - Silent downgrade |
-| LicenseService.verifyLicense() | Server 500 error | Throws, caught by outer try/catch, returns free | **HIGH** - Silent downgrade |
-| SdkAgentAdapter.startChatSession() | SDK initialization failure | Throws `Error('SdkAgentAdapter not initialized')` | **MEDIUM** - Clear error |
-| SessionLifecycle.executeQuery() | Query build failure | Exception propagates | **LOW** - Error visible |
-| MCP Server (port 51820) | Server not running | SDK sees dead endpoint | **HIGH** - Confusing errors |
+| Integration Point                  | Failure Mode               | Current Handling                                  | Risk Level                  |
+| ---------------------------------- | -------------------------- | ------------------------------------------------- | --------------------------- |
+| LicenseService.verifyLicense()     | Network timeout            | Returns cached or free tier                       | **HIGH** - Silent downgrade |
+| LicenseService.verifyLicense()     | Server 500 error           | Throws, caught by outer try/catch, returns free   | **HIGH** - Silent downgrade |
+| SdkAgentAdapter.startChatSession() | SDK initialization failure | Throws `Error('SdkAgentAdapter not initialized')` | **MEDIUM** - Clear error    |
+| SessionLifecycle.executeQuery()    | Query build failure        | Exception propagates                              | **LOW** - Error visible     |
+| MCP Server (port 51820)            | Server not running         | SDK sees dead endpoint                            | **HIGH** - Confusing errors |
 
 ### 5. What's missing that the requirements didn't mention?
 
@@ -172,7 +175,7 @@
   return {
     ptah: {
       type: 'http',
-      url: `http://localhost:${PTAH_MCP_PORT}`,  // No health check!
+      url: `http://localhost:${PTAH_MCP_PORT}`, // No health check!
     },
   };
   ```
@@ -234,10 +237,7 @@
 - **Evidence**:
   ```typescript
   // Duplicated in both chat:start and chat:continue
-  const isPremium =
-    licenseStatus.valid &&
-    (licenseStatus.plan?.isPremium === true ||
-      licenseStatus.tier === 'early_adopter');
+  const isPremium = licenseStatus.valid && (licenseStatus.plan?.isPremium === true || licenseStatus.tier === 'early_adopter');
   ```
 - **Fix**: Extract to helper function `determinePremiumStatus(licenseStatus: LicenseStatus): boolean`
 
@@ -263,7 +263,7 @@
 - **Impact**: MCP connection fails silently
 - **Evidence**:
   ```typescript
-  const PTAH_MCP_PORT = 51820;  // Magic number
+  const PTAH_MCP_PORT = 51820; // Magic number
   ```
 - **Fix**: Import from `@ptah-extension/vscode-lm-tools` where CodeExecutionMCP defines the port
 
@@ -286,6 +286,7 @@
 - **Scenario**: Default value handling for `isPremium` varies across files
 - **Impact**: Potential bugs if pattern not followed consistently
 - **Evidence**:
+
   ```typescript
   // session-lifecycle-manager.ts:431
   isPremium = false,  // Destructure with default
@@ -296,6 +297,7 @@
   // sdk-agent-adapter.ts:444
   const isPremium = config?.isPremium ?? false;  // Different pattern
   ```
+
 - **Fix**: Standardize on one pattern across all files
 
 ---
@@ -358,15 +360,15 @@
 
 ## Requirements Fulfillment
 
-| Requirement | Status | Concern |
-|-------------|--------|---------|
-| Free tier gets empty MCP config | COMPLETE | None |
-| Free tier gets no PTAH_SYSTEM_PROMPT | COMPLETE | None |
-| Premium tier gets Ptah MCP config | COMPLETE | No health check on server |
-| Premium tier gets PTAH_SYSTEM_PROMPT appended | COMPLETE | None |
-| isPremium flows through RPC -> Adapter -> Lifecycle -> Builder | COMPLETE | Logic duplicated |
-| LicenseService.verifyLicense() called in handlers | COMPLETE | Error handling degrades silently |
-| isPremium computed correctly | COMPLETE | Works for current tiers |
+| Requirement                                                    | Status   | Concern                          |
+| -------------------------------------------------------------- | -------- | -------------------------------- |
+| Free tier gets empty MCP config                                | COMPLETE | None                             |
+| Free tier gets no PTAH_SYSTEM_PROMPT                           | COMPLETE | None                             |
+| Premium tier gets Ptah MCP config                              | COMPLETE | No health check on server        |
+| Premium tier gets PTAH_SYSTEM_PROMPT appended                  | COMPLETE | None                             |
+| isPremium flows through RPC -> Adapter -> Lifecycle -> Builder | COMPLETE | Logic duplicated                 |
+| LicenseService.verifyLicense() called in handlers              | COMPLETE | Error handling degrades silently |
+| isPremium computed correctly                                   | COMPLETE | Works for current tiers          |
 
 ### Implicit Requirements NOT Addressed:
 
@@ -380,31 +382,31 @@
 
 ## Edge Case Analysis
 
-| Edge Case | Handled | How | Concern |
-|-----------|---------|-----|---------|
-| No license key stored | YES | Returns `{ valid: false, tier: 'free' }` | None |
-| Invalid license key | YES | Server returns invalid, cached as such | None |
-| Expired license | YES | Server returns `valid: false` with reason | None |
-| Network timeout (5s) | YES | Falls back to cache or free | **Silent degradation** |
-| Server error (500) | YES | Falls back to cache or free | **Silent degradation** |
-| License changes mid-session | NO | Active sessions keep old state | **Inconsistent UX** |
-| MCP server not running | NO | Config points to dead endpoint | **Confusing errors** |
-| Rapid chat starts | PARTIAL | Cache helps after first call | First call unprotected |
-| Future tiers (e.g., 'pro') | NO | Only checks 'early_adopter' | **Will fail silently** |
-| Custom + Ptah system prompt | YES | Both appended with separator | Minor - could be clearer |
+| Edge Case                   | Handled | How                                       | Concern                  |
+| --------------------------- | ------- | ----------------------------------------- | ------------------------ |
+| No license key stored       | YES     | Returns `{ valid: false, tier: 'free' }`  | None                     |
+| Invalid license key         | YES     | Server returns invalid, cached as such    | None                     |
+| Expired license             | YES     | Server returns `valid: false` with reason | None                     |
+| Network timeout (5s)        | YES     | Falls back to cache or free               | **Silent degradation**   |
+| Server error (500)          | YES     | Falls back to cache or free               | **Silent degradation**   |
+| License changes mid-session | NO      | Active sessions keep old state            | **Inconsistent UX**      |
+| MCP server not running      | NO      | Config points to dead endpoint            | **Confusing errors**     |
+| Rapid chat starts           | PARTIAL | Cache helps after first call              | First call unprotected   |
+| Future tiers (e.g., 'pro')  | NO      | Only checks 'early_adopter'               | **Will fail silently**   |
+| Custom + Ptah system prompt | YES     | Both appended with separator              | Minor - could be clearer |
 
 ---
 
 ## Integration Risk Assessment
 
-| Integration | Failure Probability | Impact | Mitigation |
-|-------------|---------------------|--------|------------|
-| LicenseService -> RPC Handlers | LOW | HIGH (silent downgrade) | Add retry, emit degraded event |
-| RPC Handlers -> SdkAgentAdapter | LOW | LOW (clear errors) | None needed |
-| SdkAgentAdapter -> SessionLifecycle | LOW | LOW (clear errors) | None needed |
-| SessionLifecycle -> QueryOptionsBuilder | LOW | LOW (clear errors) | None needed |
-| QueryOptionsBuilder -> MCP Server | MEDIUM | HIGH (broken premium) | Add health check |
-| PTAH_SYSTEM_PROMPT import | LOW | LOW (compile-time) | None needed |
+| Integration                             | Failure Probability | Impact                  | Mitigation                     |
+| --------------------------------------- | ------------------- | ----------------------- | ------------------------------ |
+| LicenseService -> RPC Handlers          | LOW                 | HIGH (silent downgrade) | Add retry, emit degraded event |
+| RPC Handlers -> SdkAgentAdapter         | LOW                 | LOW (clear errors)      | None needed                    |
+| SdkAgentAdapter -> SessionLifecycle     | LOW                 | LOW (clear errors)      | None needed                    |
+| SessionLifecycle -> QueryOptionsBuilder | LOW                 | LOW (clear errors)      | None needed                    |
+| QueryOptionsBuilder -> MCP Server       | MEDIUM              | HIGH (broken premium)   | Add health check               |
+| PTAH_SYSTEM_PROMPT import               | LOW                 | LOW (compile-time)      | None needed                    |
 
 ---
 
@@ -421,6 +423,7 @@
 A bulletproof implementation of this premium feature gating would include:
 
 1. **MCP Server Health Check**
+
    ```typescript
    private async buildMcpServers(isPremium: boolean): Promise<Record<string, McpHttpServerConfig>> {
      if (!isPremium) return {};
@@ -435,6 +438,7 @@ A bulletproof implementation of this premium feature gating would include:
    ```
 
 2. **License Verification with Retry**
+
    ```typescript
    async verifyLicense(retries = 2): Promise<LicenseStatus> {
      for (let attempt = 0; attempt <= retries; attempt++) {
@@ -449,6 +453,7 @@ A bulletproof implementation of this premium feature gating would include:
    ```
 
 3. **Degraded State Notification**
+
    ```typescript
    if (licenseError) {
      this.emit('license:degraded', { reason: licenseError.message });
@@ -457,6 +462,7 @@ A bulletproof implementation of this premium feature gating would include:
    ```
 
 4. **Extracted Premium Determination Helper**
+
    ```typescript
    function isPremiumTier(status: LicenseStatus): boolean {
      return status.valid && (status.plan?.isPremium === true || status.tier === 'early_adopter');
@@ -464,12 +470,14 @@ A bulletproof implementation of this premium feature gating would include:
    ```
 
 5. **Session Metadata with Premium Flag**
+
    ```typescript
    await this.metadataStore.create(realSessionId, workspaceId, sessionName, { isPremium });
    // On resume: compare stored vs current, warn if downgraded
    ```
 
 6. **Unit Tests**
+
    - Test all `isPremium` code paths
    - Test `buildMcpServers` with true/false
    - Test `buildSystemPrompt` with combinations
@@ -489,20 +497,23 @@ A bulletproof implementation of this premium feature gating would include:
 ## Action Items for Revision
 
 ### Must Fix (Before Merge)
+
 1. [ ] Add MCP server health check or clear error when unavailable
 2. [ ] Extract `isPremiumTier()` helper to eliminate duplication
 
 ### Should Fix (High Priority)
+
 3. [ ] Add at least one retry to license verification
 4. [ ] Add INFO-level logging for premium feature activation
 5. [ ] Add unit tests for premium gating logic
 
 ### Could Fix (Future Improvement)
+
 6. [ ] Persist premium state with session metadata
 7. [ ] Add degraded state notification to UI
 8. [ ] Import MCP port from vscode-lm-tools instead of hardcoding
 
 ---
 
-*Review completed: 2026-01-22*
-*Reviewer: Code Logic Review Agent*
+_Review completed: 2026-01-22_
+_Reviewer: Code Logic Review Agent_

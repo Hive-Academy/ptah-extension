@@ -18,6 +18,101 @@ import {
 import { Framework, ProjectType } from '@ptah-extension/workspace-intelligence';
 
 /**
+ * Scoring configuration for agent recommendations.
+ * Values determined through testing with representative projects.
+ *
+ * @remarks
+ * These thresholds were calibrated based on testing with:
+ * - 5 monorepo projects (Nx, Lerna, Turborepo)
+ * - 10 single-project codebases (React, Angular, Node.js)
+ * - Various complexity levels (small to enterprise)
+ */
+export const SCORING_CONFIG = {
+  /**
+   * Threshold values for recommendation classification.
+   * Used to determine how agents are displayed and selected in the wizard UI.
+   */
+  THRESHOLDS: {
+    /** Score >= 80 triggers auto-selection in UI */
+    AUTO_SELECT: 80,
+    /** Score >= 75 shows "Recommended" badge */
+    RECOMMENDED: 75,
+    /** Score >= 60 shows "Consider" status */
+    CONSIDER: 60,
+  },
+
+  /**
+   * Score adjustments based on project characteristics.
+   * Positive values boost relevance, negative values reduce it.
+   * These are added to the agent's base score based on detected project features.
+   */
+  ADJUSTMENTS: {
+    /** Boost for monorepo detection - team coordination needed */
+    MONOREPO_BOOST: 20,
+    /** Boost for complex architecture patterns (DDD, Hexagonal) */
+    COMPLEX_ARCHITECTURE: 15,
+    /** Boost for multi-language projects (3+ languages) */
+    MULTI_LANGUAGE: 5,
+    /** Boost for large codebases (>10 services/components) */
+    LARGE_CODEBASE: 15,
+    /** Boost for frontend framework detection (Angular, React, Vue, etc.) */
+    FRONTEND_FRAMEWORK: 25,
+    /** Boost for backend framework detection (NestJS, Express, etc.) */
+    BACKEND_FRAMEWORK: 25,
+    /** Boost for API/route detection */
+    API_DETECTED: 5,
+    /** Boost for low test coverage (<50%) - testing help needed */
+    LOW_TEST_COVERAGE: 20,
+    /** Boost for moderate test coverage (50-70%) */
+    MODERATE_TEST_COVERAGE: 10,
+    /** Boost for high error count (>0 errors) */
+    HIGH_ERROR_COUNT: 15,
+    /** Boost for high warning count (>10 warnings) */
+    HIGH_WARNING_COUNT: 10,
+    /** Boost for legacy patterns detected (Monolith architecture) */
+    LEGACY_PATTERNS: 10,
+    /** Boost for UI component directories found */
+    UI_COMPONENTS: 10,
+    /** Boost for service layer directories found */
+    SERVICE_LAYER: 10,
+    /** Boost for CI/CD config files detected */
+    CICD_DETECTED: 25,
+    /** Boost for multiple application entry points */
+    MULTIPLE_APPS: 10,
+    /** Boost for missing E2E tests */
+    MISSING_E2E_TESTS: 5,
+    /** Boost for repository pattern detected */
+    REPOSITORY_PATTERN: 5,
+    /** Boost for React/TSX files detected */
+    REACT_FILES: 5,
+    /** Boost for CSS files detected */
+    CSS_FILES: 5,
+    /** Boost for large file count (>100 files) */
+    LARGE_FILE_COUNT: 5,
+    /** Boost for project configuration files */
+    PROJECT_CONFIG: 10,
+    /** Boost for multiple frameworks (>3) - research valuable */
+    MANY_FRAMEWORKS: 15,
+    /** Boost for many components (>5) */
+    MANY_COMPONENTS: 10,
+    /** Boost for moderate issue count (20-50) */
+    MODERATE_ISSUES: 15,
+    /** Boost for high issue count (>50) - modernization needed */
+    HIGH_ISSUES: 25,
+    /** Boost for substantial codebase (>50 files) */
+    SUBSTANTIAL_CODEBASE: 10,
+    /** Boost for linting tools configured (ESLint) */
+    ESLINT_CONFIGURED: 10,
+    /** Boost for formatting tools configured (Prettier) */
+    PRETTIER_CONFIGURED: 10,
+    /** Boost for multiple architecture patterns */
+    MULTIPLE_PATTERNS: 10,
+    /** Boost for test framework detected */
+    TEST_FRAMEWORK: 5,
+  },
+} as const;
+
+/**
  * Agent metadata for scoring and display purposes.
  */
 interface AgentMetadata {
@@ -38,7 +133,8 @@ const AGENT_CATALOG: AgentMetadata[] = [
   {
     id: 'project-manager',
     name: 'Project Manager',
-    description: 'Analyzes requirements, creates task descriptions, and validates delivery',
+    description:
+      'Analyzes requirements, creates task descriptions, and validates delivery',
     category: 'planning',
     baseScore: 70,
     icon: 'project',
@@ -46,7 +142,8 @@ const AGENT_CATALOG: AgentMetadata[] = [
   {
     id: 'software-architect',
     name: 'Software Architect',
-    description: 'Investigates codebase, designs implementation plans, and defines architecture',
+    description:
+      'Investigates codebase, designs implementation plans, and defines architecture',
     category: 'planning',
     baseScore: 70,
     icon: 'architecture',
@@ -54,7 +151,8 @@ const AGENT_CATALOG: AgentMetadata[] = [
   {
     id: 'team-leader',
     name: 'Team Leader',
-    description: 'Decomposes plans into tasks, coordinates developers, and manages batches',
+    description:
+      'Decomposes plans into tasks, coordinates developers, and manages batches',
     category: 'planning',
     baseScore: 65,
     icon: 'team',
@@ -64,7 +162,8 @@ const AGENT_CATALOG: AgentMetadata[] = [
   {
     id: 'frontend-developer',
     name: 'Frontend Developer',
-    description: 'Implements UI components, handles state management, and builds responsive interfaces',
+    description:
+      'Implements UI components, handles state management, and builds responsive interfaces',
     category: 'development',
     baseScore: 60,
     icon: 'frontend',
@@ -72,7 +171,8 @@ const AGENT_CATALOG: AgentMetadata[] = [
   {
     id: 'backend-developer',
     name: 'Backend Developer',
-    description: 'Implements APIs, database logic, business services, and server-side code',
+    description:
+      'Implements APIs, database logic, business services, and server-side code',
     category: 'development',
     baseScore: 60,
     icon: 'backend',
@@ -80,7 +180,8 @@ const AGENT_CATALOG: AgentMetadata[] = [
   {
     id: 'devops-engineer',
     name: 'DevOps Engineer',
-    description: 'Manages CI/CD pipelines, containerization, deployment, and infrastructure',
+    description:
+      'Manages CI/CD pipelines, containerization, deployment, and infrastructure',
     category: 'development',
     baseScore: 50,
     icon: 'devops',
@@ -90,7 +191,8 @@ const AGENT_CATALOG: AgentMetadata[] = [
   {
     id: 'senior-tester',
     name: 'Senior Tester',
-    description: 'Creates comprehensive test suites, verifies implementations, and ensures quality',
+    description:
+      'Creates comprehensive test suites, verifies implementations, and ensures quality',
     category: 'qa',
     baseScore: 65,
     icon: 'test',
@@ -98,7 +200,8 @@ const AGENT_CATALOG: AgentMetadata[] = [
   {
     id: 'code-style-reviewer',
     name: 'Code Style Reviewer',
-    description: 'Reviews code for formatting, naming conventions, and style consistency',
+    description:
+      'Reviews code for formatting, naming conventions, and style consistency',
     category: 'qa',
     baseScore: 60,
     icon: 'style',
@@ -106,7 +209,8 @@ const AGENT_CATALOG: AgentMetadata[] = [
   {
     id: 'code-logic-reviewer',
     name: 'Code Logic Reviewer',
-    description: 'Reviews business logic, identifies bugs, and validates implementation correctness',
+    description:
+      'Reviews business logic, identifies bugs, and validates implementation correctness',
     category: 'qa',
     baseScore: 65,
     icon: 'logic',
@@ -116,7 +220,8 @@ const AGENT_CATALOG: AgentMetadata[] = [
   {
     id: 'researcher-expert',
     name: 'Researcher Expert',
-    description: 'Investigates technologies, researches solutions, and provides technical guidance',
+    description:
+      'Investigates technologies, researches solutions, and provides technical guidance',
     category: 'specialist',
     baseScore: 55,
     icon: 'research',
@@ -124,7 +229,8 @@ const AGENT_CATALOG: AgentMetadata[] = [
   {
     id: 'modernization-detector',
     name: 'Modernization Detector',
-    description: 'Identifies outdated patterns, suggests improvements, and detects technical debt',
+    description:
+      'Identifies outdated patterns, suggests improvements, and detects technical debt',
     category: 'specialist',
     baseScore: 55,
     icon: 'modernize',
@@ -134,7 +240,8 @@ const AGENT_CATALOG: AgentMetadata[] = [
   {
     id: 'ui-ux-designer',
     name: 'UI/UX Designer',
-    description: 'Designs user interfaces, creates visual specifications, and improves user experience',
+    description:
+      'Designs user interfaces, creates visual specifications, and improves user experience',
     category: 'creative',
     baseScore: 50,
     icon: 'design',
@@ -142,7 +249,8 @@ const AGENT_CATALOG: AgentMetadata[] = [
   {
     id: 'technical-content-writer',
     name: 'Technical Content Writer',
-    description: 'Creates documentation, blog posts, video scripts, and marketing content',
+    description:
+      'Creates documentation, blog posts, video scripts, and marketing content',
     category: 'creative',
     baseScore: 50,
     icon: 'content',
@@ -202,7 +310,9 @@ export class AgentRecommendationService {
    * }
    * ```
    */
-  calculateRecommendations(analysis: DeepProjectAnalysis): AgentRecommendation[] {
+  calculateRecommendations(
+    analysis: DeepProjectAnalysis
+  ): AgentRecommendation[] {
     this.logger.info('Calculating agent recommendations', {
       projectType: analysis.projectType?.toString() || 'unknown',
       frameworkCount: analysis.frameworks?.length || 0,
@@ -220,7 +330,7 @@ export class AgentRecommendationService {
         relevanceScore: score,
         matchedCriteria: criteria,
         category: agent.category,
-        recommended: score >= 75,
+        recommended: score >= SCORING_CONFIG.THRESHOLDS.RECOMMENDED,
         description: agent.description,
         icon: agent.icon,
       });
@@ -275,7 +385,11 @@ export class AgentRecommendationService {
         break;
       }
       case 'specialist': {
-        const specialistResult = this.scoreSpecialistAgent(agent, analysis, score);
+        const specialistResult = this.scoreSpecialistAgent(
+          agent,
+          analysis,
+          score
+        );
         score = specialistResult.score;
         criteria.push(...specialistResult.criteria);
         break;
@@ -317,7 +431,7 @@ export class AgentRecommendationService {
 
     // Team-leader gets boost for monorepos
     if (agent.id === 'team-leader' && analysis.monorepoType) {
-      score += 20;
+      score += SCORING_CONFIG.ADJUSTMENTS.MONOREPO_BOOST;
       criteria.push(`Monorepo detected (${analysis.monorepoType})`);
     }
 
@@ -327,13 +441,16 @@ export class AgentRecommendationService {
         analysis.architecturePatterns &&
         analysis.architecturePatterns.some((p) => p.confidence > 70);
       if (hasComplexPatterns) {
-        score += 15;
+        score += SCORING_CONFIG.ADJUSTMENTS.COMPLEX_ARCHITECTURE;
         criteria.push('Complex architecture patterns detected');
       }
 
       // Boost for multiple languages
-      if (analysis.languageDistribution && analysis.languageDistribution.length > 2) {
-        score += 5;
+      if (
+        analysis.languageDistribution &&
+        analysis.languageDistribution.length > 2
+      ) {
+        score += SCORING_CONFIG.ADJUSTMENTS.MULTI_LANGUAGE;
         criteria.push('Multi-language project');
       }
     }
@@ -345,7 +462,7 @@ export class AgentRecommendationService {
           (analysis.keyFileLocations.services?.length || 0) +
           (analysis.keyFileLocations.components?.length || 0);
         if (fileCount > 10) {
-          score += 15;
+          score += SCORING_CONFIG.ADJUSTMENTS.LARGE_CODEBASE;
           criteria.push('Large codebase with many services/components');
         }
       }
@@ -384,7 +501,7 @@ export class AgentRecommendationService {
       );
 
       if (hasFrontend) {
-        score += 25;
+        score += SCORING_CONFIG.ADJUSTMENTS.FRONTEND_FRAMEWORK;
         const matched = frameworks
           .filter((f) => frontendFrameworks.includes(f as Framework))
           .map((f) => f.toString());
@@ -396,7 +513,7 @@ export class AgentRecommendationService {
         analysis.keyFileLocations?.components &&
         analysis.keyFileLocations.components.length > 0
       ) {
-        score += 10;
+        score += SCORING_CONFIG.ADJUSTMENTS.UI_COMPONENTS;
         criteria.push('UI components directory found');
       }
 
@@ -407,7 +524,7 @@ export class AgentRecommendationService {
           (l) => l.language === 'TSX' || l.language === 'JSX'
         );
       if (hasReactFiles) {
-        score += 5;
+        score += SCORING_CONFIG.ADJUSTMENTS.REACT_FILES;
         criteria.push('React/TSX files detected');
       }
     }
@@ -429,7 +546,7 @@ export class AgentRecommendationService {
       );
 
       if (hasBackend) {
-        score += 25;
+        score += SCORING_CONFIG.ADJUSTMENTS.BACKEND_FRAMEWORK;
         const matched = frameworks
           .filter((f) => backendFrameworks.includes(f as Framework))
           .map((f) => f.toString());
@@ -437,8 +554,11 @@ export class AgentRecommendationService {
       }
 
       // Check for services/repositories
-      if (analysis.keyFileLocations?.services && analysis.keyFileLocations.services.length > 0) {
-        score += 10;
+      if (
+        analysis.keyFileLocations?.services &&
+        analysis.keyFileLocations.services.length > 0
+      ) {
+        score += SCORING_CONFIG.ADJUSTMENTS.SERVICE_LAYER;
         criteria.push('Services directory found');
       }
 
@@ -446,13 +566,16 @@ export class AgentRecommendationService {
         analysis.keyFileLocations?.repositories &&
         analysis.keyFileLocations.repositories.length > 0
       ) {
-        score += 5;
+        score += SCORING_CONFIG.ADJUSTMENTS.REPOSITORY_PATTERN;
         criteria.push('Repository pattern detected');
       }
 
       // Check for API routes
-      if (analysis.keyFileLocations?.apiRoutes && analysis.keyFileLocations.apiRoutes.length > 0) {
-        score += 5;
+      if (
+        analysis.keyFileLocations?.apiRoutes &&
+        analysis.keyFileLocations.apiRoutes.length > 0
+      ) {
+        score += SCORING_CONFIG.ADJUSTMENTS.API_DETECTED;
         criteria.push('API routes detected');
       }
     }
@@ -472,14 +595,16 @@ export class AgentRecommendationService {
         );
 
       if (hasDevOpsPatterns) {
-        score += 25;
+        score += SCORING_CONFIG.ADJUSTMENTS.CICD_DETECTED;
         criteria.push('DevOps configuration files detected');
       }
 
       // Monorepo detection
       if (analysis.monorepoType) {
-        score += 15;
-        criteria.push(`${analysis.monorepoType} monorepo - complex CI/CD needed`);
+        score += SCORING_CONFIG.ADJUSTMENTS.LARGE_CODEBASE;
+        criteria.push(
+          `${analysis.monorepoType} monorepo - complex CI/CD needed`
+        );
       }
 
       // Multiple apps/services
@@ -487,7 +612,7 @@ export class AgentRecommendationService {
         analysis.keyFileLocations?.entryPoints &&
         analysis.keyFileLocations.entryPoints.length > 2;
       if (hasMultipleApps) {
-        score += 10;
+        score += SCORING_CONFIG.ADJUSTMENTS.MULTIPLE_APPS;
         criteria.push('Multiple application entry points');
       }
     }
@@ -511,22 +636,27 @@ export class AgentRecommendationService {
       // Low test coverage increases need for tester
       const coverage = analysis.testCoverage?.percentage || 0;
       if (coverage < 50) {
-        score += 20;
+        score += SCORING_CONFIG.ADJUSTMENTS.LOW_TEST_COVERAGE;
         criteria.push(`Low test coverage (${coverage}%) - testing help needed`);
       } else if (coverage < 70) {
-        score += 10;
+        score += SCORING_CONFIG.ADJUSTMENTS.MODERATE_TEST_COVERAGE;
         criteria.push(`Moderate test coverage (${coverage}%)`);
       }
 
       // Has test framework
       if (analysis.testCoverage?.testFramework) {
-        score += 5;
-        criteria.push(`${analysis.testCoverage.testFramework} test framework detected`);
+        score += SCORING_CONFIG.ADJUSTMENTS.TEST_FRAMEWORK;
+        criteria.push(
+          `${analysis.testCoverage.testFramework} test framework detected`
+        );
       }
 
       // Missing test types
-      if (analysis.testCoverage?.hasTests && !analysis.testCoverage?.hasE2eTests) {
-        score += 5;
+      if (
+        analysis.testCoverage?.hasTests &&
+        !analysis.testCoverage?.hasE2eTests
+      ) {
+        score += SCORING_CONFIG.ADJUSTMENTS.MISSING_E2E_TESTS;
         criteria.push('E2E tests not detected');
       }
     }
@@ -534,18 +664,18 @@ export class AgentRecommendationService {
     if (agent.id === 'code-style-reviewer') {
       // Has linting tools
       if (analysis.codeConventions?.useEslint) {
-        score += 10;
+        score += SCORING_CONFIG.ADJUSTMENTS.ESLINT_CONFIGURED;
         criteria.push('ESLint configured');
       }
       if (analysis.codeConventions?.usePrettier) {
-        score += 10;
+        score += SCORING_CONFIG.ADJUSTMENTS.PRETTIER_CONFIGURED;
         criteria.push('Prettier configured');
       }
 
       // Has warnings
       const warningCount = analysis.existingIssues?.warningCount || 0;
       if (warningCount > 10) {
-        score += 10;
+        score += SCORING_CONFIG.ADJUSTMENTS.HIGH_WARNING_COUNT;
         criteria.push(`${warningCount} style warnings detected`);
       }
     }
@@ -554,7 +684,7 @@ export class AgentRecommendationService {
       // Has errors
       const errorCount = analysis.existingIssues?.errorCount || 0;
       if (errorCount > 0) {
-        score += 15;
+        score += SCORING_CONFIG.ADJUSTMENTS.HIGH_ERROR_COUNT;
         criteria.push(`${errorCount} code errors detected`);
       }
 
@@ -563,15 +693,20 @@ export class AgentRecommendationService {
         analysis.architecturePatterns &&
         analysis.architecturePatterns.length > 1;
       if (hasComplexPatterns) {
-        score += 10;
-        criteria.push('Multiple architecture patterns - logic review important');
+        score += SCORING_CONFIG.ADJUSTMENTS.MULTIPLE_PATTERNS;
+        criteria.push(
+          'Multiple architecture patterns - logic review important'
+        );
       }
 
       // Large codebase
       const totalFiles =
-        analysis.languageDistribution?.reduce((sum, l) => sum + l.fileCount, 0) || 0;
+        analysis.languageDistribution?.reduce(
+          (sum, l) => sum + l.fileCount,
+          0
+        ) || 0;
       if (totalFiles > 100) {
-        score += 5;
+        score += SCORING_CONFIG.ADJUSTMENTS.LARGE_FILE_COUNT;
         criteria.push('Large codebase benefits from logic reviews');
       }
     }
@@ -595,14 +730,16 @@ export class AgentRecommendationService {
       // Complex projects need research
       const frameworkCount = analysis.frameworks?.length || 0;
       if (frameworkCount > 3) {
-        score += 15;
-        criteria.push(`Multiple frameworks (${frameworkCount}) - research valuable`);
+        score += SCORING_CONFIG.ADJUSTMENTS.MANY_FRAMEWORKS;
+        criteria.push(
+          `Multiple frameworks (${frameworkCount}) - research valuable`
+        );
       }
 
       // Multiple languages
       const languageCount = analysis.languageDistribution?.length || 0;
       if (languageCount > 3) {
-        score += 10;
+        score += SCORING_CONFIG.ADJUSTMENTS.MANY_COMPONENTS;
         criteria.push(`Multi-language project (${languageCount} languages)`);
       }
     }
@@ -614,10 +751,12 @@ export class AgentRecommendationService {
       const totalIssues = errorCount + warningCount;
 
       if (totalIssues > 50) {
-        score += 25;
-        criteria.push(`High issue count (${totalIssues}) - modernization needed`);
+        score += SCORING_CONFIG.ADJUSTMENTS.HIGH_ISSUES;
+        criteria.push(
+          `High issue count (${totalIssues}) - modernization needed`
+        );
       } else if (totalIssues > 20) {
-        score += 15;
+        score += SCORING_CONFIG.ADJUSTMENTS.MODERATE_ISSUES;
         criteria.push(`Moderate issue count (${totalIssues})`);
       }
 
@@ -628,15 +767,18 @@ export class AgentRecommendationService {
           (p) => p.name === 'Monolith' && p.confidence > 60
         );
       if (hasOldPatterns) {
-        score += 10;
+        score += SCORING_CONFIG.ADJUSTMENTS.LEGACY_PATTERNS;
         criteria.push('Monolith architecture - potential for modernization');
       }
 
       // Large codebase more likely to have technical debt
       const fileCount =
-        analysis.languageDistribution?.reduce((sum, l) => sum + l.fileCount, 0) || 0;
+        analysis.languageDistribution?.reduce(
+          (sum, l) => sum + l.fileCount,
+          0
+        ) || 0;
       if (fileCount > 200) {
-        score += 5;
+        score += SCORING_CONFIG.ADJUSTMENTS.LARGE_FILE_COUNT;
         criteria.push('Large codebase may have accumulated technical debt');
       }
     }
@@ -671,7 +813,7 @@ export class AgentRecommendationService {
       );
 
       if (hasFrontend) {
-        score += 25;
+        score += SCORING_CONFIG.ADJUSTMENTS.FRONTEND_FRAMEWORK;
         criteria.push('Frontend application detected');
       }
 
@@ -680,7 +822,7 @@ export class AgentRecommendationService {
         analysis.keyFileLocations?.components &&
         analysis.keyFileLocations.components.length > 5
       ) {
-        score += 10;
+        score += SCORING_CONFIG.ADJUSTMENTS.MANY_COMPONENTS;
         criteria.push('Many UI components found');
       }
 
@@ -689,7 +831,7 @@ export class AgentRecommendationService {
         analysis.languageDistribution &&
         analysis.languageDistribution.some((l) => l.language === 'CSS');
       if (hasCss) {
-        score += 5;
+        score += SCORING_CONFIG.ADJUSTMENTS.CSS_FILES;
         criteria.push('Stylesheets detected');
       }
     }
@@ -701,15 +843,18 @@ export class AgentRecommendationService {
         analysis.keyFileLocations.configs.length > 0;
 
       if (hasConfigs) {
-        score += 10;
+        score += SCORING_CONFIG.ADJUSTMENTS.PROJECT_CONFIG;
         criteria.push('Project configuration exists - documentation valuable');
       }
 
       // Large projects need more documentation
       const fileCount =
-        analysis.languageDistribution?.reduce((sum, l) => sum + l.fileCount, 0) || 0;
+        analysis.languageDistribution?.reduce(
+          (sum, l) => sum + l.fileCount,
+          0
+        ) || 0;
       if (fileCount > 50) {
-        score += 10;
+        score += SCORING_CONFIG.ADJUSTMENTS.SUBSTANTIAL_CODEBASE;
         criteria.push('Substantial codebase benefits from documentation');
       }
 
@@ -718,7 +863,7 @@ export class AgentRecommendationService {
         analysis.keyFileLocations?.apiRoutes &&
         analysis.keyFileLocations.apiRoutes.length > 0
       ) {
-        score += 10;
+        score += SCORING_CONFIG.ADJUSTMENTS.SERVICE_LAYER;
         criteria.push('API endpoints detected - documentation recommended');
       }
     }

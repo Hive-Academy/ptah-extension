@@ -12,11 +12,13 @@
 **Impact**: CRITICAL for development workflow
 
 **Current State**:
+
 - No environment variable to bypass license checks for local testing
 - Searched for: `PTAH_FORCE_PREMIUM`, `DEBUG_PREMIUM`, `DEV_MODE`, `BYPASS_LICENSE`, `TEST_LICENSE`
 - Result: No flags found in `apps/ptah-extension-vscode/src/`
 
 **Developer Experience Problem**:
+
 - To test premium features locally, developers must:
   1. Run the license server locally
   2. Create a license in the database
@@ -40,6 +42,7 @@ if (FORCE_PREMIUM || (licenseStatus.valid && licenseStatus.tier !== 'free')) {
 ```
 
 **Launch.json Integration**:
+
 ```json
 {
   "configurations": [
@@ -64,6 +67,7 @@ if (FORCE_PREMIUM || (licenseStatus.valid && licenseStatus.tier !== 'free')) {
 **Location**: `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts`
 
 **Implementation**:
+
 ```typescript
 // Line 40
 const PTAH_MCP_PORT = 51820;
@@ -80,6 +84,7 @@ private buildMcpServers(): Record<string, McpHttpServerConfig> {
 ```
 
 **Result**:
+
 - MCP server is always configured in SDK options
 - If MCP server isn't running (free tier), SDK will fail to connect but won't crash
 - Claude sees `ptah` as an available MCP server
@@ -95,11 +100,13 @@ private buildMcpServers(): Record<string, McpHttpServerConfig> {
 **Current State**:
 
 1. **`PTAH_SYSTEM_PROMPT` exists** (`libs/backend/vscode-lm-tools/src/lib/code-execution/ptah-system-prompt.constant.ts`):
+
    - Well-crafted prompt describing 13 namespaces
    - Includes cost optimization tips, token intelligence, IDE powers
    - Example usage patterns
 
 2. **Used in MCP Tool Description** (`tool-description.builder.ts:81`):
+
    - Included in `execute_code` tool description
    - Claude sees this when listing available tools
    - BUT: This is passive - Claude must choose to inspect the tool first
@@ -173,6 +180,7 @@ private buildSystemPrompt(
 ```
 
 **Integration Point**: Need to pass `isPremium` flag from:
+
 1. `ChatRpcHandlers` → `SdkAgentAdapter` → `SdkQueryOptionsBuilder`
 2. Or inject `LicenseService` into `SdkQueryOptionsBuilder`
 
@@ -180,11 +188,11 @@ private buildSystemPrompt(
 
 ## 4. Summary of Critical Findings
 
-| Issue | Severity | Impact | Priority |
-|-------|----------|--------|----------|
-| No dev/test flag for premium | Medium | Dev workflow friction | P2 |
-| System prompt not appended | **CRITICAL** | Premium feature underutilized | **P1** |
-| MCP config is correct | N/A | Working as designed | N/A |
+| Issue                        | Severity     | Impact                        | Priority |
+| ---------------------------- | ------------ | ----------------------------- | -------- |
+| No dev/test flag for premium | Medium       | Dev workflow friction         | P2       |
+| System prompt not appended   | **CRITICAL** | Premium feature underutilized | **P1**   |
+| MCP config is correct        | N/A          | Working as designed           | N/A      |
 
 ---
 
@@ -216,19 +224,19 @@ private buildSystemPrompt(
 
 ### For System Prompt Fix (P1)
 
-| File | Change |
-|------|--------|
-| `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts` | Import `PTAH_SYSTEM_PROMPT`, modify `buildSystemPrompt()` |
-| `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts` | Pass premium status to query builder |
-| `apps/ptah-extension-vscode/src/services/rpc/handlers/chat-rpc.handlers.ts` | Get premium status from LicenseService |
+| File                                                                        | Change                                                    |
+| --------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts`       | Import `PTAH_SYSTEM_PROMPT`, modify `buildSystemPrompt()` |
+| `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts`                       | Pass premium status to query builder                      |
+| `apps/ptah-extension-vscode/src/services/rpc/handlers/chat-rpc.handlers.ts` | Get premium status from LicenseService                    |
 
 ### For Dev Flag (P2)
 
-| File | Change |
-|------|--------|
+| File                                     | Change                         |
+| ---------------------------------------- | ------------------------------ |
 | `apps/ptah-extension-vscode/src/main.ts` | Add `PTAH_FORCE_PREMIUM` check |
-| `.vscode/launch.json` | Add premium dev configuration |
-| `README.md` | Document dev flag |
+| `.vscode/launch.json`                    | Add premium dev configuration  |
+| `README.md`                              | Document dev flag              |
 
 ---
 

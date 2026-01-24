@@ -6,19 +6,19 @@ Comprehensive catalog of specialist agents with capabilities, triggers, and invo
 
 ## Agent Selection Matrix
 
-| Request Type     | Agent Path                                      | Trigger                |
-|------------------|-------------------------------------------------|------------------------|
-| Implement X      | project-manager -> architect -> team-leader -> dev | New features         |
-| Fix bug          | team-leader -> dev -> test -> review            | Bug reports            |
-| Research X       | researcher-expert -> architect                  | Technical questions    |
-| Review style     | code-style-reviewer                             | Pattern checks         |
-| Review logic     | code-logic-reviewer                             | Completeness checks    |
-| Test X           | senior-tester                                   | Testing                |
-| Architecture     | software-architect                              | Design                 |
-| Landing page     | ui-ux-designer -> technical-content-writer      | Marketing pages        |
-| Brand/visual     | ui-ux-designer                                  | Design system          |
-| Content          | technical-content-writer                        | Blogs, docs, video     |
-| Infrastructure   | devops-engineer                                 | CI/CD, Docker, K8s     |
+| Request Type   | Agent Path                                         | Trigger             |
+| -------------- | -------------------------------------------------- | ------------------- |
+| Implement X    | project-manager -> architect -> team-leader -> dev | New features        |
+| Fix bug        | team-leader -> dev -> test -> review               | Bug reports         |
+| Research X     | researcher-expert -> architect                     | Technical questions |
+| Review style   | code-style-reviewer                                | Pattern checks      |
+| Review logic   | code-logic-reviewer                                | Completeness checks |
+| Test X         | senior-tester                                      | Testing             |
+| Architecture   | software-architect                                 | Design              |
+| Landing page   | ui-ux-designer -> technical-content-writer         | Marketing pages     |
+| Brand/visual   | ui-ux-designer                                     | Design system       |
+| Content        | technical-content-writer                           | Blogs, docs, video  |
+| Infrastructure | devops-engineer                                    | CI/CD, Docker, K8s  |
 
 **Default**: When uncertain, use `/orchestrate` for full workflow analysis.
 
@@ -37,15 +37,18 @@ Comprehensive catalog of specialist agents with capabilities, triggers, and invo
 **Purpose**: Requirements gathering, scope definition, stakeholder alignment
 
 **When to invoke**:
+
 - Starting new features (FEATURE strategy Phase 1)
 - Documentation tasks (DOCUMENTATION strategy Phase 1)
 - DevOps tasks (DEVOPS strategy Phase 1)
 - Any task needing scope clarification
 
 **Output file(s)**:
+
 - `task-tracking/TASK_[ID]/task-description.md`
 
 **Invocation example**:
+
 ```typescript
 Task({
   subagent_type: 'project-manager',
@@ -56,7 +59,7 @@ Task({
 **User Request**: "[original request]"
 
 Analyze the request and create comprehensive requirements.
-See project-manager.md for detailed instructions.`
+See project-manager.md for detailed instructions.`,
 });
 ```
 
@@ -67,12 +70,14 @@ See project-manager.md for detailed instructions.`
 **Purpose**: Technical design, architecture decisions, implementation planning
 
 **When to invoke**:
+
 - After PM completes (FEATURE strategy Phase 4)
 - Refactoring tasks (REFACTORING strategy Phase 1)
 - DevOps tasks (DEVOPS strategy Phase 2)
 - When architectural decisions are needed
 
 **Output file(s)**:
+
 - `task-tracking/TASK_[ID]/implementation-plan.md`
 
 ---
@@ -82,11 +87,13 @@ See project-manager.md for detailed instructions.`
 **Purpose**: Task decomposition, developer assignment, work coordination
 
 **When to invoke**:
+
 - After architect completes (MODE 1: DECOMPOSITION)
 - After developer returns (MODE 2: VERIFY + ASSIGN)
 - When all batches complete (MODE 3: COMPLETION)
 
 **Output file(s)**:
+
 - `task-tracking/TASK_[ID]/tasks.md` (creates and updates)
 
 ---
@@ -98,11 +105,13 @@ See project-manager.md for detailed instructions.`
 **Purpose**: Backend implementation, APIs, services, data layer
 
 **When to invoke**:
+
 - Backend-focused tasks assigned by team-leader
 - API development, database changes
 - Node.js/TypeScript backend work
 
 **Output file(s)**:
+
 - Source files in `libs/backend/`, `apps/*/`
 - Updates to `task-tracking/TASK_[ID]/tasks.md` (status changes)
 
@@ -113,11 +122,13 @@ See project-manager.md for detailed instructions.`
 **Purpose**: Frontend implementation, UI components, Angular/React work
 
 **When to invoke**:
+
 - Frontend-focused tasks assigned by team-leader
 - Component development
 - Webview/SPA changes
 
 **Output file(s)**:
+
 - Source files in `libs/frontend/`, `apps/*/`
 - Updates to `task-tracking/TASK_[ID]/tasks.md` (status changes)
 
@@ -128,12 +139,14 @@ See project-manager.md for detailed instructions.`
 **Purpose**: Infrastructure, CI/CD, deployment, containerization
 
 **When to invoke**:
+
 - DEVOPS strategy Phase 3
 - CI/CD pipeline changes
 - Docker/Kubernetes work
 - Infrastructure-as-code tasks
 
 **Output file(s)**:
+
 - Configuration files (`.github/workflows/`, `Dockerfile`, etc.)
 - Infrastructure scripts
 - Updates to `task-tracking/TASK_[ID]/tasks.md`
@@ -147,11 +160,13 @@ See project-manager.md for detailed instructions.`
 **Purpose**: Test planning, test implementation, quality verification
 
 **When to invoke**:
+
 - QA phase (user selects "tester" or "all")
 - When comprehensive testing is needed
 - Integration test development
 
 **Output file(s)**:
+
 - Test files (`*.spec.ts`)
 - `task-tracking/TASK_[ID]/test-report.md`
 
@@ -162,11 +177,13 @@ See project-manager.md for detailed instructions.`
 **Purpose**: Code pattern review, style consistency, best practices
 
 **When to invoke**:
+
 - QA phase (user selects "style" or "reviewers" or "all")
 - Documentation tasks (final review)
 - Pattern compliance checks
 
 **Output file(s)**:
+
 - `task-tracking/TASK_[ID]/code-review.md` (style section)
 
 ---
@@ -176,11 +193,13 @@ See project-manager.md for detailed instructions.`
 **Purpose**: Logic completeness review, edge cases, correctness
 
 **When to invoke**:
+
 - QA phase (user selects "logic" or "reviewers" or "all")
 - Complex business logic changes
 - Algorithm implementations
 
 **Output file(s)**:
+
 - `task-tracking/TASK_[ID]/code-review.md` (logic section)
 
 ---
@@ -192,12 +211,14 @@ See project-manager.md for detailed instructions.`
 **Purpose**: Technical research, feasibility analysis, POC development
 
 **When to invoke**:
+
 - FEATURE strategy Phase 2 (when technical unknowns exist)
 - RESEARCH strategy (primary agent)
 - BUGFIX with unknown cause
 - Technical complexity score > 3
 
 **Output file(s)**:
+
 - `task-tracking/TASK_[ID]/research-report.md`
 
 ---
@@ -207,11 +228,13 @@ See project-manager.md for detailed instructions.`
 **Purpose**: Future improvement analysis, tech debt identification
 
 **When to invoke**:
+
 - Final phase of any workflow (Phase 8 in FEATURE)
 - After all implementation and QA complete
 - Periodic codebase analysis
 
 **Output file(s)**:
+
 - `task-tracking/TASK_[ID]/future-enhancements.md`
 
 ---
@@ -223,12 +246,14 @@ See project-manager.md for detailed instructions.`
 **Purpose**: Visual design, design systems, brand identity, UI specifications
 
 **When to invoke**:
+
 - CREATIVE workflow (design system creation)
 - FEATURE with UI components (Phase 3)
 - Visual redesigns, brand work
 - Landing page design
 
 **Output file(s)**:
+
 - `.claude/skills/technical-content-writer/DESIGN-SYSTEM.md`
 - `task-tracking/TASK_[ID]/visual-design-specification.md`
 
@@ -239,6 +264,7 @@ See project-manager.md for detailed instructions.`
 **Purpose**: Marketing content, documentation, blog posts, video scripts
 
 **When to invoke**:
+
 - CREATIVE workflow (after design system exists)
 - Landing page content creation
 - Blog post writing
@@ -246,6 +272,7 @@ See project-manager.md for detailed instructions.`
 - Video script development
 
 **Output file(s)**:
+
 - `task-tracking/TASK_[ID]/content-specification.md`
 - `docs/content/*.md` (final content)
 
@@ -253,13 +280,13 @@ See project-manager.md for detailed instructions.`
 
 ## Agent Category Summary
 
-| Category  | Agents                                                      | Purpose               |
-|-----------|-------------------------------------------------------------|-----------------------|
-| Planning  | project-manager, software-architect, team-leader            | Requirements & design |
-| Development | backend-developer, frontend-developer, devops-engineer    | Implementation        |
-| QA        | senior-tester, code-style-reviewer, code-logic-reviewer     | Quality assurance     |
-| Specialist | researcher-expert, modernization-detector                  | Research & analysis   |
-| Creative  | ui-ux-designer, technical-content-writer                    | Design & content      |
+| Category    | Agents                                                  | Purpose               |
+| ----------- | ------------------------------------------------------- | --------------------- |
+| Planning    | project-manager, software-architect, team-leader        | Requirements & design |
+| Development | backend-developer, frontend-developer, devops-engineer  | Implementation        |
+| QA          | senior-tester, code-style-reviewer, code-logic-reviewer | Quality assurance     |
+| Specialist  | researcher-expert, modernization-detector               | Research & analysis   |
+| Creative    | ui-ux-designer, technical-content-writer                | Design & content      |
 
 ---
 
@@ -268,6 +295,7 @@ See project-manager.md for detailed instructions.`
 Some agents can run in parallel during QA phase:
 
 ### All QA (User selects "all")
+
 ```typescript
 // Run in parallel
 Promise.all([
@@ -278,6 +306,7 @@ Promise.all([
 ```
 
 ### Reviewers Only (User selects "reviewers")
+
 ```typescript
 // Run in parallel
 Promise.all([

@@ -249,31 +249,41 @@ export class SetupRpcHandlers {
 
         // Validate required fields
         if (analysis.projectType === undefined) {
-          throw new Error(
-            'Invalid analysis: missing projectType field.'
-          );
+          throw new Error('Invalid analysis: missing projectType field.');
         }
 
         // Dynamically import agent-generation library (lazy loading)
-        const { AGENT_GENERATION_TOKENS, AgentRecommendationService } = await import(
-          '@ptah-extension/agent-generation'
-        );
+        const { AGENT_GENERATION_TOKENS, AgentRecommendationService } =
+          await import('@ptah-extension/agent-generation');
 
         // Try to resolve from container first, fallback to direct instantiation
-        let recommendationService: { calculateRecommendations: (analysis: DeepProjectAnalysis) => AgentRecommendation[] };
+        let recommendationService: {
+          calculateRecommendations: (
+            analysis: DeepProjectAnalysis
+          ) => AgentRecommendation[];
+        };
 
         try {
           recommendationService = this.container.resolve(
             AGENT_GENERATION_TOKENS.AGENT_RECOMMENDATION_SERVICE
-          ) as { calculateRecommendations: (analysis: DeepProjectAnalysis) => AgentRecommendation[] };
+          ) as {
+            calculateRecommendations: (
+              analysis: DeepProjectAnalysis
+            ) => AgentRecommendation[];
+          };
         } catch {
           // If not registered in container, create new instance with logger
-          this.logger.debug('AgentRecommendationService not in container, creating instance');
-          recommendationService = this.container.resolve(AgentRecommendationService);
+          this.logger.debug(
+            'AgentRecommendationService not in container, creating instance'
+          );
+          recommendationService = this.container.resolve(
+            AgentRecommendationService
+          );
         }
 
         // Calculate recommendations
-        const recommendations = recommendationService.calculateRecommendations(analysis);
+        const recommendations =
+          recommendationService.calculateRecommendations(analysis);
 
         this.logger.info('Agent recommendations calculated', {
           totalAgents: recommendations.length,

@@ -11,7 +11,9 @@
 ## Background & Rationale
 
 ### Current Implementation (Path B - Complex)
+
 When a parent session is interrupted with running subagents:
+
 1. Backend marks subagents as `interrupted` in SubagentRegistry
 2. `chat:resume` RPC returns `resumableSubagents[]` to frontend
 3. Frontend marks agent nodes with "Resume" button
@@ -19,18 +21,22 @@ When a parent session is interrupted with running subagents:
 5. Complex streaming orchestration via `streamSubagentEventsToWebview()`
 
 **Problems**:
+
 - When user simply clicks "Continue" on parent session, Claude doesn't know about interrupted subagents
 - Claude starts fresh subagent instead of resuming existing one
 - ~432 lines of dedicated resume infrastructure to maintain
 
 ### Proposed Implementation (Path A - Streamlined)
+
 When parent session resumes with interrupted subagents:
+
 1. Backend queries `SubagentRegistry.getResumableBySession()`
 2. Inject context into message: `"[System: Interrupted agents: agentId: abc123 (Explore)]"`
 3. Claude naturally sees this and can say "Resume agent abc123"
 4. Normal conversation flow handles everything
 
 **Benefits**:
+
 - Natural conversational UX ("resume the explore agent")
 - ~432 lines of code removed
 - Simpler architecture
@@ -52,6 +58,7 @@ for await (const message of query({
 ```
 
 The SDK pattern is:
+
 1. Resume the **parent session** (not subagent directly)
 2. Send a prompt mentioning the agent ID
 3. Claude handles resumption naturally
@@ -62,52 +69,52 @@ The SDK pattern is:
 
 **Target**: Inject interrupted subagent info when parent session continues
 
-| File | Change |
-|------|--------|
-| `libs/backend/agent-sdk/src/lib/helpers/sdk-message-factory.ts` | Add method to create system context with interrupted agents |
-| `libs/backend/agent-sdk/src/lib/lifecycle/session-lifecycle-manager.ts` | Query interrupted subagents and inject context |
-| `apps/ptah-extension-vscode/src/services/rpc/handlers/chat-rpc.handlers.ts` | Pass interrupted subagent context to message creation |
+| File                                                                        | Change                                                      |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `libs/backend/agent-sdk/src/lib/helpers/sdk-message-factory.ts`             | Add method to create system context with interrupted agents |
+| `libs/backend/agent-sdk/src/lib/lifecycle/session-lifecycle-manager.ts`     | Query interrupted subagents and inject context              |
+| `apps/ptah-extension-vscode/src/services/rpc/handlers/chat-rpc.handlers.ts` | Pass interrupted subagent context to message creation       |
 
 ### PHASE 2: Remove Deprecated Code (~432 lines)
 
 #### Backend Files
 
-| File | Action | Lines |
-|------|--------|-------|
-| `apps/ptah-extension-vscode/src/services/rpc/handlers/subagent-rpc.handlers.ts` | Remove `registerSubagentResume()`, `streamSubagentEventsToWebview()` | ~215 |
-| `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts` | Remove `resumeSubagent()` method | ~60 |
-| `libs/shared/src/lib/types/subagent-registry.types.ts` | Remove `SubagentResumeParams`, `SubagentResumeResult` | ~15 |
-| `libs/shared/src/lib/types/rpc.types.ts` | Remove from `RpcMethodRegistry` and `RPC_METHOD_NAMES` | ~5 |
+| File                                                                            | Action                                                               | Lines |
+| ------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ----- |
+| `apps/ptah-extension-vscode/src/services/rpc/handlers/subagent-rpc.handlers.ts` | Remove `registerSubagentResume()`, `streamSubagentEventsToWebview()` | ~215  |
+| `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts`                           | Remove `resumeSubagent()` method                                     | ~60   |
+| `libs/shared/src/lib/types/subagent-registry.types.ts`                          | Remove `SubagentResumeParams`, `SubagentResumeResult`                | ~15   |
+| `libs/shared/src/lib/types/rpc.types.ts`                                        | Remove from `RpcMethodRegistry` and `RPC_METHOD_NAMES`               | ~5    |
 
 #### Frontend Files
 
-| File | Action | Lines |
-|------|--------|-------|
-| `libs/frontend/chat/src/lib/components/organisms/inline-agent-bubble.component.ts` | Remove Resume button, `isResumable()`, `onResumeClick()`, `isResuming` | ~30 |
-| `libs/frontend/chat/src/lib/components/molecules/resume-notification-banner.component.ts` | **DELETE ENTIRE FILE** | ~142 |
-| `libs/frontend/chat/src/lib/services/chat.store.ts` | Remove `handleSubagentResume()` | ~25 |
-| `libs/frontend/chat/src/lib/components/organisms/execution-node.component.ts` | Remove `resumeRequested` output | ~5 |
-| `libs/frontend/chat/src/lib/components/templates/chat-view.component.ts` | Remove resume event handler | ~5 |
-| `libs/frontend/core/src/lib/services/claude-rpc.service.ts` | Remove `resumeSubagent()` wrapper | ~10 |
+| File                                                                                      | Action                                                                 | Lines |
+| ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ----- |
+| `libs/frontend/chat/src/lib/components/organisms/inline-agent-bubble.component.ts`        | Remove Resume button, `isResumable()`, `onResumeClick()`, `isResuming` | ~30   |
+| `libs/frontend/chat/src/lib/components/molecules/resume-notification-banner.component.ts` | **DELETE ENTIRE FILE**                                                 | ~142  |
+| `libs/frontend/chat/src/lib/services/chat.store.ts`                                       | Remove `handleSubagentResume()`                                        | ~25   |
+| `libs/frontend/chat/src/lib/components/organisms/execution-node.component.ts`             | Remove `resumeRequested` output                                        | ~5    |
+| `libs/frontend/chat/src/lib/components/templates/chat-view.component.ts`                  | Remove resume event handler                                            | ~5    |
+| `libs/frontend/core/src/lib/services/claude-rpc.service.ts`                               | Remove `resumeSubagent()` wrapper                                      | ~10   |
 
 ### PHASE 3: Cleanup Exports
 
-| File | Action |
-|------|--------|
-| `libs/frontend/chat/src/lib/components/index.ts` | Remove `ResumeNotificationBannerComponent` export |
-| `libs/frontend/chat/src/index.ts` | Remove banner export |
-| `libs/backend/agent-sdk/src/index.ts` | Remove `SubagentResumeParams`, `SubagentResumeResult` exports |
-| `libs/shared/src/index.ts` | Remove resume type exports |
+| File                                             | Action                                                        |
+| ------------------------------------------------ | ------------------------------------------------------------- |
+| `libs/frontend/chat/src/lib/components/index.ts` | Remove `ResumeNotificationBannerComponent` export             |
+| `libs/frontend/chat/src/index.ts`                | Remove banner export                                          |
+| `libs/backend/agent-sdk/src/index.ts`            | Remove `SubagentResumeParams`, `SubagentResumeResult` exports |
+| `libs/shared/src/index.ts`                       | Remove resume type exports                                    |
 
 ## Code That STAYS (Repurposed)
 
-| Component | Previous Purpose | New Purpose |
-|-----------|------------------|-------------|
-| `SubagentRegistry` | State for Resume RPC | Context injection queries |
-| `getResumableBySession()` | Query for Resume UI | Query for context injection |
-| `markAllInterrupted()` | Session abort handling | Session abort (unchanged) |
-| `status: 'interrupted'` | Trigger Resume button | Show "Stopped" badge only |
-| `resumableSubagents` in `ChatResumeResult` | Populate Resume UI | Mark nodes in UI (visual only) |
+| Component                                  | Previous Purpose       | New Purpose                    |
+| ------------------------------------------ | ---------------------- | ------------------------------ |
+| `SubagentRegistry`                         | State for Resume RPC   | Context injection queries      |
+| `getResumableBySession()`                  | Query for Resume UI    | Query for context injection    |
+| `markAllInterrupted()`                     | Session abort handling | Session abort (unchanged)      |
+| `status: 'interrupted'`                    | Trigger Resume button  | Show "Stopped" badge only      |
+| `resumableSubagents` in `ChatResumeResult` | Populate Resume UI     | Mark nodes in UI (visual only) |
 
 ## Implementation Strategy
 
@@ -116,9 +123,7 @@ The SDK pattern is:
 When parent session continues and has interrupted subagents:
 
 ```typescript
-const interruptedContext = resumableSubagents.map(s =>
-  `agentId: ${s.agentId} (${s.agentType})`
-).join(', ');
+const interruptedContext = resumableSubagents.map((s) => `agentId: ${s.agentId} (${s.agentType})`).join(', ');
 
 const systemContext = `[System: Previously interrupted agents available for resumption: ${interruptedContext}. You can resume them by including their agentId in your response.]`;
 

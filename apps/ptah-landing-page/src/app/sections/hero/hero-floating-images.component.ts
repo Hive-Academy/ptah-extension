@@ -141,11 +141,11 @@ export class HeroFloatingImagesComponent implements OnDestroy {
   private readonly gsapCore = inject(GsapCoreService);
 
   /** Whether user prefers reduced motion */
-  readonly reducedMotion = signal(false);
+  public readonly reducedMotion = signal(false);
 
   /** Mouse position for parallax calculation */
-  private mouseX = signal(0);
-  private mouseY = signal(0);
+  private readonly mouseX = signal(0);
+  private readonly mouseY = signal(0);
 
   /** GSAP quickTo functions for smooth animation */
   private quickToFunctions: Map<
@@ -160,7 +160,7 @@ export class HeroFloatingImagesComponent implements OnDestroy {
   private mouseMoveCleanup: (() => void) | null = null;
 
   /** Configuration for all floating images with mouse + scroll parallax */
-  readonly floatingImages: FloatingImage[] = [
+  public readonly floatingImages: FloatingImage[] = [
     {
       src: '/assets/textures/ankh-sphere.png',
       alt: 'Ankh symbol',
@@ -211,7 +211,7 @@ export class HeroFloatingImagesComponent implements OnDestroy {
    * Generate scroll parallax config for each image based on its speed
    * Different speeds create layered depth effect on scroll
    */
-  getScrollConfig(speed: number): ScrollAnimationConfig {
+  public getScrollConfig(speed: number): ScrollAnimationConfig {
     return {
       animation: 'parallax',
       speed: speed,
@@ -219,7 +219,7 @@ export class HeroFloatingImagesComponent implements OnDestroy {
     };
   }
 
-  constructor() {
+  public constructor() {
     afterNextRender(() => {
       if (!isPlatformBrowser(this.platformId)) return;
 
@@ -235,7 +235,7 @@ export class HeroFloatingImagesComponent implements OnDestroy {
     });
   }
 
-  ngOnDestroy(): void {
+  public ngOnDestroy(): void {
     this.cleanup();
   }
 

@@ -19,6 +19,7 @@ The license verification system implemented in TASK_2025_079 provides a solid fo
 **Status**: PROPERLY IMPLEMENTED
 
 The LicenseService provides:
+
 - License verification via POST `/api/v1/licenses/verify`
 - 1-hour cache TTL to reduce API calls
 - Encrypted storage via VS Code SecretStorage
@@ -26,11 +27,13 @@ The LicenseService provides:
 - Graceful degradation (returns cached or free tier on network errors)
 
 **Security Features**:
+
 - License keys never logged (only prefix shown)
 - 5-second network timeout
 - Free tier returned if no key stored
 
 **Tiers Supported**:
+
 - `free` - Default, no premium features
 - `early_adopter` - Premium tier with MCP server access
 
@@ -39,6 +42,7 @@ The LicenseService provides:
 **Status**: PROPERLY IMPLEMENTED
 
 Exposes `license:getStatus` RPC method returning:
+
 - `valid: boolean`
 - `tier: 'free' | 'early_adopter'`
 - `isPremium: boolean` (convenience flag)
@@ -70,6 +74,7 @@ if (licenseStatus.valid && licenseStatus.tier !== 'free') {
 ```
 
 **Additional License Features**:
+
 - Dynamic license change watchers (lines 197-220)
 - Background revalidation every 24 hours (lines 225-231)
 - Window reload prompt when license upgraded/expired
@@ -79,6 +84,7 @@ if (licenseStatus.valid && licenseStatus.tier !== 'free') {
 **Status**: PROPERLY IMPLEMENTED
 
 Commands available:
+
 - `ptah.enterLicenseKey` - Enter/update license (password input)
 - `ptah.removeLicenseKey` - Remove license (with confirmation)
 - `ptah.checkLicenseStatus` - View current status
@@ -92,14 +98,17 @@ Commands available:
 **Status**: PROPERLY IMPLEMENTED
 
 Signal-based license state:
+
 - `isPremium = signal(false)`
 - `licenseTier = signal<'free' | 'early_adopter'>('free')`
 - `isLoadingLicenseStatus = signal(true)`
 
 Computed visibility:
+
 - `showPremiumSections = computed(() => this.isAuthenticated() && this.isPremium())`
 
 RPC call on init:
+
 - Fetches `license:getStatus` and updates signals
 
 ### 2.2 Settings Template (`libs/frontend/chat/src/lib/settings/settings.component.html`)
@@ -107,17 +116,19 @@ RPC call on init:
 **Status**: PROPERLY IMPLEMENTED
 
 Premium sections (MCP Port, LLM Providers) are conditionally shown:
+
 ```html
 @if (showPremiumSections()) {
-  <!-- Premium Features Divider -->
-  <!-- MCP Server Port Configuration -->
-  <!-- LLM Provider API Keys -->
+<!-- Premium Features Divider -->
+<!-- MCP Server Port Configuration -->
+<!-- LLM Provider API Keys -->
 } @else if (isAuthenticated() && !isLoadingLicenseStatus() && !isPremium()) {
-  <!-- Premium Upsell with Upgrade Button -->
+<!-- Premium Upsell with Upgrade Button -->
 }
 ```
 
 **UI Elements**:
+
 - Premium badge in header (`@if (isPremium())`)
 - Free badge for non-premium users
 - Locked icon + upsell message for free users
@@ -127,12 +138,12 @@ Premium sections (MCP Port, LLM Providers) are conditionally shown:
 
 ## 3. Areas Properly Protected
 
-| Area | Backend Check | Frontend Check | Location |
-|------|--------------|----------------|----------|
-| MCP Server Startup | YES (main.ts:167-184) | N/A | Activation |
-| MCP Port Settings UI | N/A | YES (settings.component.html:142-159) | Settings |
-| LLM Provider Settings UI | N/A | YES (settings.component.html:162-179) | Settings |
-| License Status Display | YES (RPC handler) | YES (badge in header) | Settings |
+| Area                     | Backend Check         | Frontend Check                        | Location   |
+| ------------------------ | --------------------- | ------------------------------------- | ---------- |
+| MCP Server Startup       | YES (main.ts:167-184) | N/A                                   | Activation |
+| MCP Port Settings UI     | N/A                   | YES (settings.component.html:142-159) | Settings   |
+| LLM Provider Settings UI | N/A                   | YES (settings.component.html:162-179) | Settings   |
+| License Status Display   | YES (RPC handler)     | YES (badge in header)                 | Settings   |
 
 ---
 
@@ -140,12 +151,12 @@ Premium sections (MCP Port, LLM Providers) are conditionally shown:
 
 ### 4.1 Backend Services Without License Checks
 
-| Service | Location | Premium Feature? | Check Needed? |
-|---------|----------|------------------|---------------|
-| LlmService | `libs/backend/llm-abstraction/src/lib/services/llm.service.ts` | NO (used internally) | NO |
-| ContentGenerationService | `libs/backend/agent-generation/src/lib/services/content-generation.service.ts` | NO (free feature) | NO |
-| SetupWizardService | `libs/backend/agent-generation/src/lib/services/setup-wizard.service.ts` | NO (free feature) | NO |
-| PtahAPIBuilder | `libs/backend/vscode-lm-tools/src/lib/code-execution/ptah-api-builder.service.ts` | YES (premium APIs) | PARTIAL - Only accessible via MCP |
+| Service                  | Location                                                                          | Premium Feature?     | Check Needed?                     |
+| ------------------------ | --------------------------------------------------------------------------------- | -------------------- | --------------------------------- |
+| LlmService               | `libs/backend/llm-abstraction/src/lib/services/llm.service.ts`                    | NO (used internally) | NO                                |
+| ContentGenerationService | `libs/backend/agent-generation/src/lib/services/content-generation.service.ts`    | NO (free feature)    | NO                                |
+| SetupWizardService       | `libs/backend/agent-generation/src/lib/services/setup-wizard.service.ts`          | NO (free feature)    | NO                                |
+| PtahAPIBuilder           | `libs/backend/vscode-lm-tools/src/lib/code-execution/ptah-api-builder.service.ts` | YES (premium APIs)   | PARTIAL - Only accessible via MCP |
 
 ### 4.2 PtahAPI Namespaces (Premium Feature)
 
@@ -165,11 +176,11 @@ The following Ptah API namespaces are only accessible through the MCP server (wh
 
 ### 4.3 Frontend Components Without License Checks
 
-| Component | Location | Should Be Gated? |
-|-----------|----------|------------------|
-| chat-view | `components/templates/chat-view.component.ts` | NO (core feature) |
-| setup-wizard | `libs/frontend/setup-wizard/` | NO (free feature) |
-| dashboard | `libs/frontend/dashboard/` | MAYBE (could be premium) |
+| Component    | Location                                      | Should Be Gated?         |
+| ------------ | --------------------------------------------- | ------------------------ |
+| chat-view    | `components/templates/chat-view.component.ts` | NO (core feature)        |
+| setup-wizard | `libs/frontend/setup-wizard/`                 | NO (free feature)        |
+| dashboard    | `libs/frontend/dashboard/`                    | MAYBE (could be premium) |
 
 ---
 
@@ -179,21 +190,21 @@ The following Ptah API namespaces are only accessible through the MCP server (wh
 
 From `libs/shared/src/lib/types/rpc.types.ts`:
 
-| Method | License Check? | Should Have? |
-|--------|---------------|--------------|
-| `license:getStatus` | N/A (returns status) | N/A |
-| `llm:setApiKey` | NO | MAYBE (premium feature) |
-| `llm:removeApiKey` | NO | MAYBE |
-| `llm:getProviderStatus` | NO | MAYBE |
-| `llm:getDefaultProvider` | NO | MAYBE |
-| `llm:validateApiKeyFormat` | NO | NO (validation only) |
-| `llm:listVsCodeModels` | NO | NO (free feature) |
-| `openrouter:*` | NO | MAYBE |
-| `chat:*` | NO | NO (core feature) |
-| `session:*` | NO | NO (core feature) |
-| `context:*` | NO | NO (free feature) |
-| `config:*` | NO | NO (free feature) |
-| `auth:*` | NO | NO (auth is free) |
+| Method                     | License Check?       | Should Have?            |
+| -------------------------- | -------------------- | ----------------------- |
+| `license:getStatus`        | N/A (returns status) | N/A                     |
+| `llm:setApiKey`            | NO                   | MAYBE (premium feature) |
+| `llm:removeApiKey`         | NO                   | MAYBE                   |
+| `llm:getProviderStatus`    | NO                   | MAYBE                   |
+| `llm:getDefaultProvider`   | NO                   | MAYBE                   |
+| `llm:validateApiKeyFormat` | NO                   | NO (validation only)    |
+| `llm:listVsCodeModels`     | NO                   | NO (free feature)       |
+| `openrouter:*`             | NO                   | MAYBE                   |
+| `chat:*`                   | NO                   | NO (core feature)       |
+| `session:*`                | NO                   | NO (core feature)       |
+| `context:*`                | NO                   | NO (free feature)       |
+| `config:*`                 | NO                   | NO (free feature)       |
+| `auth:*`                   | NO                   | NO (auth is free)       |
 
 ---
 
@@ -201,13 +212,13 @@ From `libs/shared/src/lib/types/rpc.types.ts`:
 
 From `libs/backend/vscode-core/src/di/tokens.ts`:
 
-| Token | Premium? | Gated? |
-|-------|----------|--------|
-| `CODE_EXECUTION_MCP` | YES | YES (main.ts) |
-| `PTAH_API_BUILDER` | YES | YES (via MCP) |
-| `LLM_SERVICE` | MAYBE | NO |
-| `LLM_RPC_HANDLERS` | MAYBE | NO |
-| `LICENSE_SERVICE` | N/A | N/A |
+| Token                | Premium? | Gated?        |
+| -------------------- | -------- | ------------- |
+| `CODE_EXECUTION_MCP` | YES      | YES (main.ts) |
+| `PTAH_API_BUILDER`   | YES      | YES (via MCP) |
+| `LLM_SERVICE`        | MAYBE    | NO            |
+| `LLM_RPC_HANDLERS`   | MAYBE    | NO            |
+| `LICENSE_SERVICE`    | N/A      | N/A           |
 
 ---
 
@@ -229,11 +240,13 @@ From `libs/backend/vscode-core/src/di/tokens.ts`:
 ### 7.3 Potential Issues
 
 1. **Frontend-Only Enforcement for Settings UI**
+
    - Risk: Low (settings just configure, backend must act)
    - Impact: User could potentially see premium settings via DOM manipulation
    - Mitigation: Backend operations would still fail without license
 
 2. **LLM RPC Methods Lack Checks**
+
    - Risk: Medium
    - Impact: Free users could call `llm:setApiKey` RPC (though MCP server won't start)
    - Mitigation: Add backend license checks to LLM RPC handlers
@@ -263,12 +276,12 @@ From `libs/backend/vscode-core/src/di/tokens.ts`:
 
 ### Risk Summary
 
-| Risk Area | Level | Priority |
-|-----------|-------|----------|
-| MCP Server Access | LOW (properly gated) | N/A |
-| LLM RPC Methods | MEDIUM | P2 |
-| Settings UI Visibility | LOW (frontend-only) | P3 |
-| Future Feature Creep | MEDIUM | P1 (process) |
+| Risk Area              | Level                | Priority     |
+| ---------------------- | -------------------- | ------------ |
+| MCP Server Access      | LOW (properly gated) | N/A          |
+| LLM RPC Methods        | MEDIUM               | P2           |
+| Settings UI Visibility | LOW (frontend-only)  | P3           |
+| Future Feature Creep   | MEDIUM               | P1 (process) |
 
 ---
 

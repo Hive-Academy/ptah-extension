@@ -51,7 +51,9 @@ async function bootstrap() {
   Logger.log(
     `Application is running on: http://localhost:${port}/${globalPrefix}`
   );
-  Logger.log(`Webhook endpoint available at: http://localhost:${port}/webhooks/paddle`);
+  Logger.log(
+    `Webhook endpoint available at: http://localhost:${port}/webhooks/paddle`
+  );
   Logger.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 }
 

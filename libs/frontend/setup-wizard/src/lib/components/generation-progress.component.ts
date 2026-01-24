@@ -46,7 +46,8 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
         <div class="mb-6">
           <h2 class="text-3xl font-bold mb-2">Generating Your Configuration</h2>
           <p class="text-base-content/70">
-            Creating customized agents, commands, and orchestration skill files...
+            Creating customized agents, commands, and orchestration skill
+            files...
           </p>
         </div>
 
@@ -54,9 +55,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
         <div class="card bg-base-200 shadow-xl mb-8">
           <div class="card-body">
             <div class="flex justify-between items-center mb-2">
-              <span class="text-lg font-semibold">
-                Overall Progress
-              </span>
+              <span class="text-lg font-semibold"> Overall Progress </span>
               <span class="text-lg font-bold text-primary">
                 {{ completionPercentage() }}%
               </span>
@@ -72,7 +71,10 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
               aria-label="Overall generation progress"
             ></progress>
             <div class="flex justify-between text-sm text-base-content/60 mt-2">
-              <span>{{ completedCount() }} of {{ totalCount() }} items completed</span>
+              <span
+                >{{ completedCount() }} of {{ totalCount() }} items
+                completed</span
+              >
               @if (failedCount() > 0) {
               <span class="text-error">{{ failedCount() }} failed</span>
               }
@@ -84,7 +86,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
         @if (agentItems().length > 0) {
         <div class="mb-8">
           <h3 class="text-xl font-semibold mb-4 flex items-center gap-2">
-            <span class="badge badge-primary badge-lg">\u{1F916}</span>
+            <span class="badge badge-primary badge-lg">🤖</span>
             Agent Files
             <span class="text-sm text-base-content/60 font-normal">
               ({{ getCompletedCountByType('agent') }}/{{ agentItems().length }})
@@ -92,41 +94,74 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
           </h3>
           <div class="space-y-3">
             @for (item of agentItems(); track item.id) {
-            <div class="card card-compact bg-base-100 shadow-md" [class.border-error]="item.status === 'error'" [class.border-l-4]="item.status === 'error'">
+            <div
+              class="card card-compact bg-base-100 shadow-md"
+              [class.border-error]="item.status === 'error'"
+              [class.border-l-4]="item.status === 'error'"
+            >
               <div class="card-body">
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-3 flex-1 min-w-0">
                     <!-- Status indicator -->
-                    @switch (item.status) {
-                      @case ('pending') {
-                      <div class="badge badge-outline badge-sm">Pending</div>
-                      }
-                      @case ('in-progress') {
-                      <span class="loading loading-spinner loading-sm text-primary"></span>
-                      }
-                      @case ('complete') {
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                      </svg>
-                      }
-                      @case ('error') {
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-error" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      }
-                    }
+                    @switch (item.status) { @case ('pending') {
+                    <div class="badge badge-outline badge-sm">Pending</div>
+                    } @case ('in-progress') {
+                    <span
+                      class="loading loading-spinner loading-sm text-primary"
+                    ></span>
+                    } @case ('complete') {
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="h-6 w-6 text-success"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M5 13l4 4L19 7"
+                      />
+                    </svg>
+                    } @case ('error') {
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="h-6 w-6 text-error"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                    } }
 
                     <!-- Item name and progress -->
                     <div class="flex-1 min-w-0">
-                      <div class="font-semibold truncate" [title]="item.name">{{ item.name }}</div>
-                      @if (item.status === 'in-progress' && item.progress !== undefined) {
-                      <div class="flex items-center gap-2 mt-1">
-                        <progress class="progress progress-primary w-32 h-1" [value]="item.progress" max="100"></progress>
-                        <span class="text-xs text-base-content/60">{{ item.progress }}%</span>
+                      <div class="font-semibold truncate" [title]="item.name">
+                        {{ item.name }}
                       </div>
-                      }
-                      @if (item.status === 'error' && item.errorMessage) {
-                      <p class="text-sm text-error mt-1">{{ item.errorMessage }}</p>
+                      @if (item.status === 'in-progress' && item.progress !==
+                      undefined) {
+                      <div class="flex items-center gap-2 mt-1">
+                        <progress
+                          class="progress progress-primary w-32 h-1"
+                          [value]="item.progress"
+                          max="100"
+                        ></progress>
+                        <span class="text-xs text-base-content/60"
+                          >{{ item.progress }}%</span
+                        >
+                      </div>
+                      } @if (item.status === 'error' && item.errorMessage) {
+                      <p class="text-sm text-error mt-1">
+                        {{ item.errorMessage }}
+                      </p>
                       }
                     </div>
                   </div>
@@ -138,8 +173,19 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                     (click)="onRetryItem(item.id)"
                     [attr.aria-label]="'Retry ' + item.name"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
                     </svg>
                     Retry
                   </button>
@@ -156,49 +202,84 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
         @if (commandItems().length > 0) {
         <div class="mb-8">
           <h3 class="text-xl font-semibold mb-4 flex items-center gap-2">
-            <span class="badge badge-secondary badge-lg">\u{2328}\u{FE0F}</span>
+            <span class="badge badge-secondary badge-lg">⌨️</span>
             Command Files
             <span class="text-sm text-base-content/60 font-normal">
-              ({{ getCompletedCountByType('command') }}/{{ commandItems().length }})
+              ({{ getCompletedCountByType('command') }}/{{
+                commandItems().length
+              }})
             </span>
           </h3>
           <div class="space-y-3">
             @for (item of commandItems(); track item.id) {
-            <div class="card card-compact bg-base-100 shadow-md" [class.border-error]="item.status === 'error'" [class.border-l-4]="item.status === 'error'">
+            <div
+              class="card card-compact bg-base-100 shadow-md"
+              [class.border-error]="item.status === 'error'"
+              [class.border-l-4]="item.status === 'error'"
+            >
               <div class="card-body">
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-3 flex-1 min-w-0">
                     <!-- Status indicator -->
-                    @switch (item.status) {
-                      @case ('pending') {
-                      <div class="badge badge-outline badge-sm">Pending</div>
-                      }
-                      @case ('in-progress') {
-                      <span class="loading loading-spinner loading-sm text-secondary"></span>
-                      }
-                      @case ('complete') {
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                      </svg>
-                      }
-                      @case ('error') {
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-error" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      }
-                    }
+                    @switch (item.status) { @case ('pending') {
+                    <div class="badge badge-outline badge-sm">Pending</div>
+                    } @case ('in-progress') {
+                    <span
+                      class="loading loading-spinner loading-sm text-secondary"
+                    ></span>
+                    } @case ('complete') {
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="h-6 w-6 text-success"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M5 13l4 4L19 7"
+                      />
+                    </svg>
+                    } @case ('error') {
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="h-6 w-6 text-error"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                    } }
 
                     <!-- Item name and progress -->
                     <div class="flex-1 min-w-0">
-                      <div class="font-semibold truncate" [title]="item.name">{{ item.name }}</div>
-                      @if (item.status === 'in-progress' && item.progress !== undefined) {
-                      <div class="flex items-center gap-2 mt-1">
-                        <progress class="progress progress-secondary w-32 h-1" [value]="item.progress" max="100"></progress>
-                        <span class="text-xs text-base-content/60">{{ item.progress }}%</span>
+                      <div class="font-semibold truncate" [title]="item.name">
+                        {{ item.name }}
                       </div>
-                      }
-                      @if (item.status === 'error' && item.errorMessage) {
-                      <p class="text-sm text-error mt-1">{{ item.errorMessage }}</p>
+                      @if (item.status === 'in-progress' && item.progress !==
+                      undefined) {
+                      <div class="flex items-center gap-2 mt-1">
+                        <progress
+                          class="progress progress-secondary w-32 h-1"
+                          [value]="item.progress"
+                          max="100"
+                        ></progress>
+                        <span class="text-xs text-base-content/60"
+                          >{{ item.progress }}%</span
+                        >
+                      </div>
+                      } @if (item.status === 'error' && item.errorMessage) {
+                      <p class="text-sm text-error mt-1">
+                        {{ item.errorMessage }}
+                      </p>
                       }
                     </div>
                   </div>
@@ -210,8 +291,19 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                     (click)="onRetryItem(item.id)"
                     [attr.aria-label]="'Retry ' + item.name"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
                     </svg>
                     Retry
                   </button>
@@ -228,49 +320,84 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
         @if (skillFileItems().length > 0) {
         <div class="mb-8">
           <h3 class="text-xl font-semibold mb-4 flex items-center gap-2">
-            <span class="badge badge-accent badge-lg">\u{1F4DD}</span>
+            <span class="badge badge-accent badge-lg">📝</span>
             Orchestration Skill Files
             <span class="text-sm text-base-content/60 font-normal">
-              ({{ getCompletedCountByType('skill-file') }}/{{ skillFileItems().length }})
+              ({{ getCompletedCountByType('skill-file') }}/{{
+                skillFileItems().length
+              }})
             </span>
           </h3>
           <div class="space-y-3">
             @for (item of skillFileItems(); track item.id) {
-            <div class="card card-compact bg-base-100 shadow-md" [class.border-error]="item.status === 'error'" [class.border-l-4]="item.status === 'error'">
+            <div
+              class="card card-compact bg-base-100 shadow-md"
+              [class.border-error]="item.status === 'error'"
+              [class.border-l-4]="item.status === 'error'"
+            >
               <div class="card-body">
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-3 flex-1 min-w-0">
                     <!-- Status indicator -->
-                    @switch (item.status) {
-                      @case ('pending') {
-                      <div class="badge badge-outline badge-sm">Pending</div>
-                      }
-                      @case ('in-progress') {
-                      <span class="loading loading-spinner loading-sm text-accent"></span>
-                      }
-                      @case ('complete') {
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                      </svg>
-                      }
-                      @case ('error') {
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-error" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      }
-                    }
+                    @switch (item.status) { @case ('pending') {
+                    <div class="badge badge-outline badge-sm">Pending</div>
+                    } @case ('in-progress') {
+                    <span
+                      class="loading loading-spinner loading-sm text-accent"
+                    ></span>
+                    } @case ('complete') {
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="h-6 w-6 text-success"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M5 13l4 4L19 7"
+                      />
+                    </svg>
+                    } @case ('error') {
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="h-6 w-6 text-error"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                    } }
 
                     <!-- Item name and progress -->
                     <div class="flex-1 min-w-0">
-                      <div class="font-semibold truncate" [title]="item.name">{{ item.name }}</div>
-                      @if (item.status === 'in-progress' && item.progress !== undefined) {
-                      <div class="flex items-center gap-2 mt-1">
-                        <progress class="progress progress-accent w-32 h-1" [value]="item.progress" max="100"></progress>
-                        <span class="text-xs text-base-content/60">{{ item.progress }}%</span>
+                      <div class="font-semibold truncate" [title]="item.name">
+                        {{ item.name }}
                       </div>
-                      }
-                      @if (item.status === 'error' && item.errorMessage) {
-                      <p class="text-sm text-error mt-1">{{ item.errorMessage }}</p>
+                      @if (item.status === 'in-progress' && item.progress !==
+                      undefined) {
+                      <div class="flex items-center gap-2 mt-1">
+                        <progress
+                          class="progress progress-accent w-32 h-1"
+                          [value]="item.progress"
+                          max="100"
+                        ></progress>
+                        <span class="text-xs text-base-content/60"
+                          >{{ item.progress }}%</span
+                        >
+                      </div>
+                      } @if (item.status === 'error' && item.errorMessage) {
+                      <p class="text-sm text-error mt-1">
+                        {{ item.errorMessage }}
+                      </p>
                       }
                     </div>
                   </div>
@@ -282,8 +409,19 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                     (click)="onRetryItem(item.id)"
                     [attr.aria-label]="'Retry ' + item.name"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
                     </svg>
                     Retry
                   </button>
@@ -300,7 +438,9 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
         @if (totalCount() === 0) {
         <div class="card bg-base-200 shadow-xl">
           <div class="card-body items-center text-center py-12">
-            <span class="loading loading-spinner loading-lg text-primary mb-4"></span>
+            <span
+              class="loading loading-spinner loading-lg text-primary mb-4"
+            ></span>
             <h3 class="text-xl font-semibold mb-2">Initializing Generation</h3>
             <p class="text-base-content/60">
               Please wait while we prepare your configuration files...
@@ -311,30 +451,71 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
 
         <!-- Completion section -->
         @if (isComplete()) {
-        <div class="alert mb-6" [class.alert-success]="failedCount() === 0" [class.alert-warning]="failedCount() > 0">
+        <div
+          class="alert mb-6"
+          [class.alert-success]="failedCount() === 0"
+          [class.alert-warning]="failedCount() > 0"
+        >
           @if (failedCount() === 0) {
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 shrink-0 stroke-current" fill="none" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-6 w-6 shrink-0 stroke-current"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
           </svg>
           <div>
             <div class="font-semibold">Generation Complete!</div>
-            <div class="text-sm">All {{ completedCount() }} items generated successfully.</div>
+            <div class="text-sm">
+              All {{ completedCount() }} items generated successfully.
+            </div>
           </div>
           } @else {
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 shrink-0 stroke-current" fill="none" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-6 w-6 shrink-0 stroke-current"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+            />
           </svg>
           <div>
             <div class="font-semibold">Generation Completed with Errors</div>
-            <div class="text-sm">{{ completedCount() }} items generated, {{ failedCount() }} failed. You can retry failed items or continue.</div>
+            <div class="text-sm">
+              {{ completedCount() }} items generated,
+              {{ failedCount() }} failed. You can retry failed items or
+              continue.
+            </div>
           </div>
           }
         </div>
 
         <div class="flex justify-end">
           <button class="btn btn-primary btn-lg" (click)="onContinue()">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-5 w-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M5 13l4 4L19 7"
+              />
             </svg>
             Continue to Completion
           </button>
@@ -434,8 +615,7 @@ export class GenerationProgressComponent {
       await this.wizardRpc.retryGenerationItem(itemId);
     } catch (error) {
       // Update item with error status
-      const message =
-        error instanceof Error ? error.message : 'Retry failed';
+      const message = error instanceof Error ? error.message : 'Retry failed';
       this.wizardState.updateSkillGenerationItem(itemId, {
         status: 'error',
         errorMessage: message,

@@ -54,7 +54,12 @@ const REQUIRED_AGENTS = [
 ];
 
 // Skill directory paths
-const SKILL_ROOT = path.join(process.cwd(), '.claude', 'skills', 'orchestration');
+const SKILL_ROOT = path.join(
+  process.cwd(),
+  '.claude',
+  'skills',
+  'orchestration'
+);
 const AGENTS_DIR = path.join(process.cwd(), '.claude', 'agents');
 const REFERENCES_DIR = path.join(SKILL_ROOT, 'references');
 
@@ -70,9 +75,15 @@ function log(color, message) {
  */
 function logError(error) {
   const lineInfo = error.line ? `:${error.line}` : '';
-  console.log(`  ${colors.red}[${error.type.toUpperCase()}]${colors.reset} ${error.file}${lineInfo}`);
+  console.log(
+    `  ${colors.red}[${error.type.toUpperCase()}]${colors.reset} ${
+      error.file
+    }${lineInfo}`
+  );
   console.log(`    ${colors.yellow}Message:${colors.reset} ${error.message}`);
-  console.log(`    ${colors.cyan}Suggestion:${colors.reset} ${error.suggestion}`);
+  console.log(
+    `    ${colors.cyan}Suggestion:${colors.reset} ${error.suggestion}`
+  );
 }
 
 /**
@@ -80,9 +91,13 @@ function logError(error) {
  */
 function logWarning(error) {
   const lineInfo = error.line ? `:${error.line}` : '';
-  console.log(`  ${colors.yellow}[WARNING]${colors.reset} ${error.file}${lineInfo}`);
+  console.log(
+    `  ${colors.yellow}[WARNING]${colors.reset} ${error.file}${lineInfo}`
+  );
   console.log(`    ${colors.yellow}Message:${colors.reset} ${error.message}`);
-  console.log(`    ${colors.cyan}Suggestion:${colors.reset} ${error.suggestion}`);
+  console.log(
+    `    ${colors.cyan}Suggestion:${colors.reset} ${error.suggestion}`
+  );
 }
 
 /**
@@ -183,7 +198,11 @@ function extractMarkdownLinks(content) {
     while ((match = linkRegex.exec(line)) !== null) {
       const link = match[2];
       // Skip external URLs and anchors
-      if (!link.startsWith('http://') && !link.startsWith('https://') && !link.startsWith('#')) {
+      if (
+        !link.startsWith('http://') &&
+        !link.startsWith('https://') &&
+        !link.startsWith('#')
+      ) {
         links.push({ link, line: index + 1 });
       }
     }
@@ -213,7 +232,10 @@ function validateInternalReferences(filePath, content) {
         file: path.relative(process.cwd(), filePath),
         type: 'reference',
         message: `Broken link: "${link}" - file does not exist`,
-        suggestion: `Check if the file path is correct. Expected: ${path.relative(process.cwd(), resolvedPath)}`,
+        suggestion: `Check if the file path is correct. Expected: ${path.relative(
+          process.cwd(),
+          resolvedPath
+        )}`,
         line,
       });
     }
@@ -252,7 +274,10 @@ function validateAgentsDocumented(catalogFile, content) {
 
   for (const agent of REQUIRED_AGENTS) {
     // Look for agent heading (### agent-name)
-    const headingPattern = new RegExp(`###\\s+${agent.replace(/-/g, '[- ]?')}`, 'i');
+    const headingPattern = new RegExp(
+      `###\\s+${agent.replace(/-/g, '[- ]?')}`,
+      'i'
+    );
     if (!headingPattern.test(content)) {
       errors.push({
         file: path.relative(process.cwd(), catalogFile),
@@ -298,9 +323,15 @@ function validateSkillStructure(skillFile, content) {
     { pattern: /##\s+Quick Start/i, name: 'Quick Start' },
     { pattern: /##\s+Your Role/i, name: 'Your Role' },
     { pattern: /##\s+Workflow Selection/i, name: 'Workflow Selection Matrix' },
-    { pattern: /##\s+Core Orchestration Loop/i, name: 'Core Orchestration Loop' },
+    {
+      pattern: /##\s+Core Orchestration Loop/i,
+      name: 'Core Orchestration Loop',
+    },
     { pattern: /##\s+Validation Checkpoints/i, name: 'Validation Checkpoints' },
-    { pattern: /##\s+Team-Leader Integration/i, name: 'Team-Leader Integration' },
+    {
+      pattern: /##\s+Team-Leader Integration/i,
+      name: 'Team-Leader Integration',
+    },
     { pattern: /##\s+Reference Index/i, name: 'Reference Index' },
   ];
 
@@ -336,7 +367,9 @@ function validateInvocationPatterns(catalogFile, content) {
         file: path.relative(process.cwd(), catalogFile),
         type: 'consistency',
         message: `Unknown agent in invocation pattern: "${agentName}"`,
-        suggestion: `Check if agent name is correct. Valid agents: ${REQUIRED_AGENTS.join(', ')}`,
+        suggestion: `Check if agent name is correct. Valid agents: ${REQUIRED_AGENTS.join(
+          ', '
+        )}`,
       });
     }
   }
@@ -416,7 +449,8 @@ function validateOrchestrationSkill() {
       file: SKILL_ROOT,
       type: 'content',
       message: 'Skill directory does not exist',
-      suggestion: 'Create .claude/skills/orchestration/ directory with SKILL.md',
+      suggestion:
+        'Create .claude/skills/orchestration/ directory with SKILL.md',
     });
     result.passed = false;
     return result;
@@ -476,7 +510,10 @@ function validateOrchestrationSkill() {
 function printResults(result) {
   // Print errors
   if (result.errors.length > 0) {
-    log('red', `\n${colors.bold}ERRORS (${result.errors.length}):${colors.reset}`);
+    log(
+      'red',
+      `\n${colors.bold}ERRORS (${result.errors.length}):${colors.reset}`
+    );
     for (const error of result.errors) {
       logError(error);
       console.log('');
@@ -485,7 +522,10 @@ function printResults(result) {
 
   // Print warnings
   if (result.warnings.length > 0) {
-    log('yellow', `\n${colors.bold}WARNINGS (${result.warnings.length}):${colors.reset}`);
+    log(
+      'yellow',
+      `\n${colors.bold}WARNINGS (${result.warnings.length}):${colors.reset}`
+    );
     for (const warning of result.warnings) {
       logWarning(warning);
       console.log('');
@@ -499,7 +539,9 @@ function printResults(result) {
 
   console.log(`  Files checked: ${result.filesChecked}`);
   console.log(`  Errors: ${colors.red}${result.errors.length}${colors.reset}`);
-  console.log(`  Warnings: ${colors.yellow}${result.warnings.length}${colors.reset}`);
+  console.log(
+    `  Warnings: ${colors.yellow}${result.warnings.length}${colors.reset}`
+  );
   console.log('');
 
   if (result.passed) {

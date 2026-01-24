@@ -18,10 +18,10 @@
 
 ### Risks Identified
 
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| Context injection timing (before vs after user prompt) | LOW | Inject at start of prompt processing in chat:continue |
-| Interrupted agent context format | LOW | Use clear format: `[System: Interrupted agents: agentId: X (Type)]` |
+| Risk                                                   | Severity | Mitigation                                                          |
+| ------------------------------------------------------ | -------- | ------------------------------------------------------------------- |
+| Context injection timing (before vs after user prompt) | LOW      | Inject at start of prompt processing in chat:continue               |
+| Interrupted agent context format                       | LOW      | Use clear format: `[System: Interrupted agents: agentId: X (Type)]` |
 
 ### Edge Cases to Handle
 
@@ -43,19 +43,21 @@
 **Pattern to Follow**: Existing SubagentRegistryService usage in chat:resume handler (line 257-258)
 
 **Quality Requirements**:
+
 - Query interrupted subagents using SubagentRegistryService.getResumableBySession()
 - Create context string in format: `[System: Previously interrupted agents available for resumption: agentId: X (Type). You can resume them by including their agentId in your response.]`
 - Prepend context to user prompt BEFORE sending to SDK
 - Only inject if there are interrupted subagents (length > 0)
 
 **Implementation Details**:
+
 - Imports: SubagentRegistryService already injected
 - Location: Inside registerChatContinue() method, before sendMessageToSession() call
 - Key Logic:
   ```typescript
   const resumableSubagents = this.subagentRegistry.getResumableBySession(sessionId);
   if (resumableSubagents.length > 0) {
-    const agentContext = resumableSubagents.map(s => `agentId: ${s.agentId} (${s.agentType})`).join(', ');
+    const agentContext = resumableSubagents.map((s) => `agentId: ${s.agentId} (${s.agentType})`).join(', ');
     const contextPrefix = `[System: Previously interrupted agents available for resumption: ${agentContext}. You can resume them by including their agentId in your response.]\n\n`;
     prompt = contextPrefix + prompt;
   }
@@ -69,6 +71,7 @@
 **Spec Reference**: context.md:27-36
 
 **Validation Result**: NOT NEEDED
+
 - chat:start ONLY creates NEW sessions (verified in code)
 - chat:continue handles all session resumption
 - Context injection in chat:continue is sufficient
@@ -76,6 +79,7 @@
 ---
 
 **Batch 1 Verification**:
+
 - [ ] Context injection works in chat:continue
 - [ ] Build passes: `npx nx build ptah-extension-vscode`
 - [ ] code-logic-reviewer approved
@@ -93,6 +97,7 @@
 **Spec Reference**: context.md:77-78
 
 **Quality Requirements**:
+
 - Remove registerSubagentResume() method (lines 87-165)
 - Remove streamSubagentEventsToWebview() method (lines 178-293)
 - Remove the call to registerSubagentResume() in register() method (line 66)
@@ -101,6 +106,7 @@
 - Keep registerSubagentQuery() - it's still needed for querying subagent state
 
 **Implementation Details**:
+
 - Remove imports that are only used by resume: SubagentResumeParams, SubagentResumeResult from @ptah-extension/shared
 - Keep: SubagentQueryParams, SubagentQueryResult, FlatStreamEventUnion (used by query)
 - Update constructor injection - keep all (registry needed for query)
@@ -113,11 +119,13 @@
 **Spec Reference**: context.md:79
 
 **Quality Requirements**:
+
 - Remove the resumeSubagent() method (lines 500-559)
 - Keep all other methods intact
 - No changes to imports (SubagentRecord still used by other parts)
 
 **Implementation Details**:
+
 - This is a clean removal of one method
 - No other code references this method after subagent-rpc.handlers removal
 
@@ -129,11 +137,13 @@
 **Spec Reference**: context.md:79
 
 **Quality Requirements**:
+
 - Remove SubagentResumeParams interface (lines 80-84)
 - Remove SubagentResumeResult interface (lines 88-94)
 - Keep SubagentStatus, SubagentRecord, SubagentQueryParams, SubagentQueryResult
 
 **Implementation Details**:
+
 - These interfaces are only used by the resume RPC which is being removed
 
 ---
@@ -144,18 +154,21 @@
 **Spec Reference**: context.md:81
 
 **Quality Requirements**:
+
 - Remove the 'chat:subagent-resume' entry from RpcMethodRegistry interface (lines 782-786)
 - Remove 'chat:subagent-resume' from RPC_METHOD_NAMES array (line 866)
 - Remove import of SubagentResumeParams, SubagentResumeResult from subagent-registry.types import (line 17-21)
 - Keep 'chat:subagent-query' entry (lines 787-790) and in RPC_METHOD_NAMES array
 
 **Implementation Details**:
+
 - Update the import statement to only import what's needed
 - Compile will verify no other code references removed types
 
 ---
 
 **Batch 2 Verification**:
+
 - [ ] All files exist at paths
 - [ ] Build passes: `npx nx build ptah-extension-vscode`
 - [ ] Build passes: `npx nx build shared`
@@ -175,6 +188,7 @@
 **Spec Reference**: context.md:86, task-description.md:28-29
 
 **Quality Requirements**:
+
 - Remove the Resume button template section (lines 110-127)
 - Remove isResumable() computed signal (lines 371-374)
 - Remove isResuming signal (line 243)
@@ -186,6 +200,7 @@
 - Keep the "Stopped" badge display (lines 105-109)
 
 **Implementation Details**:
+
 - The "Stopped" badge should remain to show visual feedback
 - Only the Resume button and related methods are removed
 
@@ -197,10 +212,12 @@
 **Spec Reference**: context.md:87
 
 **Quality Requirements**:
+
 - DELETE the entire file (142 lines)
 - This component is no longer needed
 
 **Implementation Details**:
+
 - Verify no other imports reference this file before deletion
 
 ---
@@ -211,13 +228,15 @@
 **Spec Reference**: context.md:88
 
 **Quality Requirements**:
+
 - Remove handleSubagentResume() method (lines 416-440)
 - Remove refreshResumableSubagents() method (lines 393-409)
-- Remove _resumableSubagents signal (line 144)
+- Remove \_resumableSubagents signal (line 144)
 - Remove resumableSubagents readonly accessor (line 145)
 - Remove SubagentRecord import from @ptah-extension/shared (line 10)
 
 **Implementation Details**:
+
 - The subagent state is no longer needed in frontend
 - Context injection handles resumption transparently
 
@@ -229,17 +248,20 @@
 **Spec Reference**: context.md:89
 
 **Quality Requirements**:
+
 - Remove resumeRequested output declaration (line 140)
 - Remove (resumeRequested) event bindings in template (lines 79, 90, 104)
 - Keep permissionResponded output and bindings
 
 **Implementation Details**:
+
 - Search for all `resumeRequested` references in the template
 - Remove the output and all bindings
 
 ---
 
 **Batch 3 Verification**:
+
 - [ ] All files exist at paths (except deleted file)
 - [ ] Build passes: `npx nx build chat`
 - [ ] code-logic-reviewer approved
@@ -258,10 +280,12 @@
 **Spec Reference**: context.md:97
 
 **Quality Requirements**:
+
 - Remove the export line for resume-notification-banner.component (line 40)
 - Keep all other exports
 
 **Implementation Details**:
+
 - Single line removal
 
 ---
@@ -272,11 +296,13 @@
 **Spec Reference**: context.md:90
 
 **Quality Requirements**:
+
 - Remove ResumeNotificationBannerComponent from imports array (line 19)
 - Remove onResumeAll() method (lines 184-193)
 
 **File**: D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\templates\chat-view.component.html
 **Quality Requirements**:
+
 - Remove the entire resume notification banner section (lines 13-21)
 - Keep all other template content
 
@@ -288,17 +314,20 @@
 **Spec Reference**: context.md:91
 
 **Quality Requirements**:
+
 - Remove resumeSubagent() method (lines 271-285)
 - Remove SubagentResumeResult import from @ptah-extension/shared (line 16)
 - Keep querySubagents() method (still used) and SubagentQueryResult import
 
 **Implementation Details**:
+
 - The querySubagents method is kept for potential future use
 - Only the resume wrapper is removed
 
 ---
 
 **Batch 4 Verification**:
+
 - [ ] All files modified correctly
 - [ ] Build passes: `npx nx build chat`
 - [ ] Build passes: `npx nx build core`
@@ -309,10 +338,10 @@
 
 ## Status Icons Reference
 
-| Status | Meaning | Who Sets |
-|--------|---------|----------|
-| PENDING | Not started | team-leader (initial) |
-| IN PROGRESS | Assigned to developer | team-leader |
-| IMPLEMENTED | Developer done, awaiting verify | developer |
-| COMPLETE | Verified and committed | team-leader |
-| FAILED | Verification failed | team-leader |
+| Status      | Meaning                         | Who Sets              |
+| ----------- | ------------------------------- | --------------------- |
+| PENDING     | Not started                     | team-leader (initial) |
+| IN PROGRESS | Assigned to developer           | team-leader           |
+| IMPLEMENTED | Developer done, awaiting verify | developer             |
+| COMPLETE    | Verified and committed          | team-leader           |
+| FAILED      | Verification failed             | team-leader           |

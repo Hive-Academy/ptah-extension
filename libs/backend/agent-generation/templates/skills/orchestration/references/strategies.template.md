@@ -6,14 +6,14 @@ Detailed workflow diagrams and guidance for all 6 execution strategies plus crea
 
 ## Strategy Overview
 
-| Strategy       | Complexity | Primary Agents                      | User Checkpoints |
-|----------------|------------|-------------------------------------|------------------|
-| FEATURE        | Full       | PM, Architect, Team-Leader, Devs, QA | Scope, Requirements, Architecture, QA |
-| BUGFIX         | Streamlined | Team-Leader, Devs, QA              | QA              |
-| REFACTORING    | Focused    | Architect, Team-Leader, Devs, QA    | Architecture, QA |
-| DOCUMENTATION  | Minimal    | PM, Developer, Style Reviewer       | Requirements    |
-| RESEARCH       | Investigation | Researcher                        | None            |
-| DEVOPS         | Infrastructure | PM, Architect, DevOps Engineer, QA | Requirements, Architecture, QA |
+| Strategy      | Complexity     | Primary Agents                       | User Checkpoints                      |
+| ------------- | -------------- | ------------------------------------ | ------------------------------------- |
+| FEATURE       | Full           | PM, Architect, Team-Leader, Devs, QA | Scope, Requirements, Architecture, QA |
+| BUGFIX        | Streamlined    | Team-Leader, Devs, QA                | QA                                    |
+| REFACTORING   | Focused        | Architect, Team-Leader, Devs, QA     | Architecture, QA                      |
+| DOCUMENTATION | Minimal        | PM, Developer, Style Reviewer        | Requirements                          |
+| RESEARCH      | Investigation  | Researcher                           | None                                  |
+| DEVOPS        | Infrastructure | PM, Architect, DevOps Engineer, QA   | Requirements, Architecture, QA        |
 
 ---
 
@@ -111,6 +111,7 @@ team-leader MODE 1 --> MODE 2 (loop) --> MODE 3
 ### Why Skip PM
 
 Refactoring requirements are typically clear:
+
 - "Extract service from component"
 - "Optimize database queries"
 - "Consolidate duplicate code"
@@ -140,11 +141,11 @@ Git
 
 ### Developer Selection
 
-| Documentation Type | Developer        |
-|--------------------|------------------|
-| API docs           | backend-developer |
+| Documentation Type | Developer          |
+| ------------------ | ------------------ |
+| API docs           | backend-developer  |
 | Component docs     | frontend-developer |
-| CI/CD docs         | devops-engineer  |
+| CI/CD docs         | devops-engineer    |
 | General guides     | frontend-developer |
 
 ---
@@ -203,6 +204,7 @@ Phase 6: modernization-detector --> Creates future-enhancements.md
 ### DEVOPS Trigger Keywords
 
 Invoke DEVOPS strategy when task involves:
+
 - CI/CD pipelines, GitHub Actions, GitLab CI
 - Docker, Kubernetes, container orchestration
 - Terraform, CloudFormation, infrastructure-as-code
@@ -260,8 +262,8 @@ if exists(design_system_path):
 
 ### Creative Request Detection
 
-| User Says                         | Workflow                               |
-|-----------------------------------|----------------------------------------|
+| User Says                         | Workflow                                |
+| --------------------------------- | --------------------------------------- |
 | "Create landing page"             | Design check -> ui-ux -> content-writer |
 | "Design our homepage"             | Design check -> ui-ux -> content-writer |
 | "Marketing content for..."        | Design check -> content-writer          |

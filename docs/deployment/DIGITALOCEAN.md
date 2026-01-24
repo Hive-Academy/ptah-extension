@@ -24,28 +24,34 @@ This guide provides step-by-step instructions for deploying the Ptah License Ser
 Before deploying, ensure you have:
 
 1. **DigitalOcean Account** with billing configured
+
    - Sign up: https://cloud.digitalocean.com/registrations/new
    - Generate API token: https://cloud.digitalocean.com/account/api/tokens
 
 2. **Domain Name** (optional but recommended)
+
    - Example: `api.ptah.dev` for the license server
    - Example: `ptah.dev` for the landing page
 
 3. **Paddle Production Account** configured
+
    - Production dashboard: https://vendors.paddle.com/
    - Products and prices created
    - Webhook endpoint configured (will be set after deployment)
 
 4. **WorkOS Production Environment** configured
+
    - Dashboard: https://dashboard.workos.com/
    - Production API key generated
    - OAuth redirect URI configured (will be set after deployment)
 
 5. **SendGrid Account** (for email delivery)
+
    - Dashboard: https://app.sendgrid.com/
    - API key with Mail Send permissions
 
 6. **DigitalOcean CLI** (optional, for automation)
+
    ```bash
    # Install doctl
    brew install doctl  # macOS
@@ -97,24 +103,24 @@ Before deploying, ensure you have:
 
 ## Cost Estimation
 
-| Service | Size/Plan | Monthly Cost | Notes |
-|---------|-----------|--------------|-------|
-| **App Platform** | Basic (1 container, 1GB RAM) | $5 | Auto-scaling available |
-| **Managed PostgreSQL** | db-s-2vcpu-4gb | $30 | 2 vCPU, 4GB RAM, 38GB storage |
-| **Managed Redis** | db-s-1vcpu-1gb | $15 | 1 vCPU, 1GB RAM |
-| **Spaces** | Standard (250GB storage) | $5 | Includes CDN |
-| **Domain** | (external) | ~$12/year | Via Namecheap, Cloudflare, etc. |
-| **Bandwidth** | First 1TB free | $0 | Overage: $0.01/GB |
-| **Total Baseline** | | **~$55/month** | |
+| Service                | Size/Plan                    | Monthly Cost   | Notes                           |
+| ---------------------- | ---------------------------- | -------------- | ------------------------------- |
+| **App Platform**       | Basic (1 container, 1GB RAM) | $5             | Auto-scaling available          |
+| **Managed PostgreSQL** | db-s-2vcpu-4gb               | $30            | 2 vCPU, 4GB RAM, 38GB storage   |
+| **Managed Redis**      | db-s-1vcpu-1gb               | $15            | 1 vCPU, 1GB RAM                 |
+| **Spaces**             | Standard (250GB storage)     | $5             | Includes CDN                    |
+| **Domain**             | (external)                   | ~$12/year      | Via Namecheap, Cloudflare, etc. |
+| **Bandwidth**          | First 1TB free               | $0             | Overage: $0.01/GB               |
+| **Total Baseline**     |                              | **~$55/month** |                                 |
 
 **Scaling Costs:**
 
-| Upgrade | Monthly Cost | When to Upgrade |
-|---------|--------------|-----------------|
-| App Platform Professional | $12 | Need horizontal scaling |
-| PostgreSQL db-s-4vcpu-8gb | $60 | CPU > 70% sustained |
-| Redis db-s-2vcpu-4gb | $30 | Memory > 80% |
-| Additional App instances | +$5 each | Response time > 500ms |
+| Upgrade                   | Monthly Cost | When to Upgrade         |
+| ------------------------- | ------------ | ----------------------- |
+| App Platform Professional | $12          | Need horizontal scaling |
+| PostgreSQL db-s-4vcpu-8gb | $60          | CPU > 70% sustained     |
+| Redis db-s-2vcpu-4gb      | $30          | Memory > 80%            |
+| Additional App instances  | +$5 each     | Response time > 500ms   |
 
 ---
 
@@ -147,6 +153,7 @@ doctl databases create ptah-postgres \
 ### Post-Creation Setup
 
 1. **Create database**:
+
    ```bash
    # Get connection details
    doctl databases connection ptah-postgres --format Host,Port,User,Password
@@ -159,6 +166,7 @@ doctl databases create ptah-postgres \
    ```
 
 2. **Note connection string**:
+
    ```
    postgresql://doadmin:PASSWORD@ptah-postgres-do-user-XXXX.b.db.ondigitalocean.com:25060/ptah_licenses?sslmode=require
    ```
@@ -218,11 +226,13 @@ doctl databases create ptah-redis \
 ### Configure Build & Run
 
 1. **Build Command**:
+
    ```bash
    npm ci && npx prisma generate --schema=prisma/schema.prisma && npm run build
    ```
 
 2. **Run Command**:
+
    ```bash
    npx prisma migrate deploy --schema=prisma/schema.prisma && node dist/main.js
    ```
@@ -237,36 +247,36 @@ Configure these in the App Platform console:
 
 ```yaml
 # Database
-DATABASE_URL: "postgresql://doadmin:PASSWORD@ptah-postgres-do-user-XXXX.b.db.ondigitalocean.com:25060/ptah_licenses?sslmode=require"
-REDIS_URL: "rediss://default:PASSWORD@ptah-redis-do-user-XXXX.b.db.ondigitalocean.com:25061"
+DATABASE_URL: 'postgresql://doadmin:PASSWORD@ptah-postgres-do-user-XXXX.b.db.ondigitalocean.com:25060/ptah_licenses?sslmode=require'
+REDIS_URL: 'rediss://default:PASSWORD@ptah-redis-do-user-XXXX.b.db.ondigitalocean.com:25061'
 
 # Server
-PORT: "3000"
-NODE_ENV: "production"
-FRONTEND_URL: "https://ptah.dev"
+PORT: '3000'
+NODE_ENV: 'production'
+FRONTEND_URL: 'https://ptah.dev'
 
 # Security (generate with: openssl rand -hex 32)
-JWT_SECRET: "your-64-char-hex-secret"
-ADMIN_API_KEY: "your-64-char-hex-secret"
+JWT_SECRET: 'your-64-char-hex-secret'
+ADMIN_API_KEY: 'your-64-char-hex-secret'
 
 # WorkOS
-WORKOS_API_KEY: "sk_live_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-WORKOS_CLIENT_ID: "client_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-WORKOS_REDIRECT_URI: "https://api.ptah.dev/auth/callback"
+WORKOS_API_KEY: 'sk_live_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+WORKOS_CLIENT_ID: 'client_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+WORKOS_REDIRECT_URI: 'https://api.ptah.dev/auth/callback'
 
 # Paddle
-PADDLE_API_KEY: "pdl_live_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-PADDLE_WEBHOOK_SECRET: "pdl_ntfset_XXXXXXXXXXXXXXXXXXXXXXXX"
-PADDLE_PRICE_ID_EARLY_ADOPTER: "pri_XXXXXXXXXXXXXXXXXXXXXXXX"
-PADDLE_PRICE_ID_PRO: "pri_YYYYYYYYYYYYYYYYYYYYYYYY"
+PADDLE_API_KEY: 'pdl_live_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+PADDLE_WEBHOOK_SECRET: 'pdl_ntfset_XXXXXXXXXXXXXXXXXXXXXXXX'
+PADDLE_PRICE_ID_EARLY_ADOPTER: 'pri_XXXXXXXXXXXXXXXXXXXXXXXX'
+PADDLE_PRICE_ID_PRO: 'pri_YYYYYYYYYYYYYYYYYYYYYYYY'
 
 # SendGrid
-SENDGRID_API_KEY: "SG.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-SENDGRID_FROM_EMAIL: "noreply@ptah.dev"
-SENDGRID_FROM_NAME: "Ptah Team"
+SENDGRID_API_KEY: 'SG.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+SENDGRID_FROM_EMAIL: 'noreply@ptah.dev'
+SENDGRID_FROM_NAME: 'Ptah Team'
 
 # Magic Link
-MAGIC_LINK_TTL_MS: "30000"
+MAGIC_LINK_TTL_MS: '30000'
 ```
 
 **Security Note**: Mark all sensitive variables as "Encrypt" in App Platform.
@@ -306,12 +316,13 @@ s3cmd sync dist/apps/ptah-landing-page/ s3://ptah-landing/ \
 ### Configure for SPA
 
 1. Create `error.html` redirect:
+
    ```html
    <!DOCTYPE html>
    <html>
-   <head>
-     <meta http-equiv="refresh" content="0; url=/index.html">
-   </head>
+     <head>
+       <meta http-equiv="refresh" content="0; url=/index.html" />
+     </head>
    </html>
    ```
 
@@ -361,15 +372,15 @@ CNAME   www     ptah.dev                                      Yes
 
 ### Recommended Alerts
 
-| Resource | Metric | Threshold | Action |
-|----------|--------|-----------|--------|
-| PostgreSQL | CPU | > 70% for 5 min | Email + Slack |
-| PostgreSQL | Memory | > 80% for 5 min | Email + Slack |
-| PostgreSQL | Storage | > 80% | Email |
-| Redis | Memory | > 80% for 5 min | Email + Slack |
-| Redis | Connections | > 100 | Email |
+| Resource     | Metric        | Threshold         | Action        |
+| ------------ | ------------- | ----------------- | ------------- |
+| PostgreSQL   | CPU           | > 70% for 5 min   | Email + Slack |
+| PostgreSQL   | Memory        | > 80% for 5 min   | Email + Slack |
+| PostgreSQL   | Storage       | > 80%             | Email         |
+| Redis        | Memory        | > 80% for 5 min   | Email + Slack |
+| Redis        | Connections   | > 100             | Email         |
 | App Platform | Response Time | > 500ms for 5 min | Email + Slack |
-| App Platform | Error Rate | > 1% for 5 min | Email + Slack |
+| App Platform | Error Rate    | > 1% for 5 min    | Email + Slack |
 
 ### Logging
 
@@ -424,20 +435,20 @@ services:
       - key: DATABASE_URL
         scope: RUN_TIME
         type: SECRET
-        value: "${db.DATABASE_URL}"
+        value: '${db.DATABASE_URL}'
       - key: REDIS_URL
         scope: RUN_TIME
         type: SECRET
-        value: "${redis.REDIS_URL}"
+        value: '${redis.REDIS_URL}'
       - key: NODE_ENV
         scope: RUN_TIME
-        value: "production"
+        value: 'production'
       - key: PORT
         scope: RUN_TIME
-        value: "3000"
+        value: '3000'
       - key: FRONTEND_URL
         scope: RUN_TIME
-        value: "https://ptah.dev"
+        value: 'https://ptah.dev'
       - key: JWT_SECRET
         scope: RUN_TIME
         type: SECRET
@@ -452,7 +463,7 @@ services:
         type: SECRET
       - key: WORKOS_REDIRECT_URI
         scope: RUN_TIME
-        value: "https://api.ptah.dev/auth/callback"
+        value: 'https://api.ptah.dev/auth/callback'
       - key: PADDLE_API_KEY
         scope: RUN_TIME
         type: SECRET
@@ -470,23 +481,23 @@ services:
         type: SECRET
       - key: SENDGRID_FROM_EMAIL
         scope: RUN_TIME
-        value: "noreply@ptah.dev"
+        value: 'noreply@ptah.dev'
       - key: SENDGRID_FROM_NAME
         scope: RUN_TIME
-        value: "Ptah Team"
+        value: 'Ptah Team'
       - key: MAGIC_LINK_TTL_MS
         scope: RUN_TIME
-        value: "30000"
+        value: '30000'
 
 databases:
   - name: db
     engine: PG
-    version: "16"
+    version: '16'
     size: db-s-2vcpu-4gb
     num_nodes: 1
   - name: redis
     engine: REDIS
-    version: "7"
+    version: '7'
     size: db-s-1vcpu-1gb
     num_nodes: 1
 
@@ -507,14 +518,14 @@ doctl apps create --spec .do/app.yaml
 
 ### When to Scale Up
 
-| Indicator | Threshold | Action |
-|-----------|-----------|--------|
-| API Response Time | > 500ms P95 for 10 min | Add App instance |
-| PostgreSQL CPU | > 70% sustained | Upgrade to db-s-4vcpu-8gb |
-| PostgreSQL Storage | > 80% | Upgrade storage |
-| Redis Memory | > 80% | Upgrade to db-s-2vcpu-4gb |
-| Redis Connections | > 100 | Add Redis node |
-| Error Rate | > 1% | Investigate, then scale |
+| Indicator          | Threshold              | Action                    |
+| ------------------ | ---------------------- | ------------------------- |
+| API Response Time  | > 500ms P95 for 10 min | Add App instance          |
+| PostgreSQL CPU     | > 70% sustained        | Upgrade to db-s-4vcpu-8gb |
+| PostgreSQL Storage | > 80%                  | Upgrade storage           |
+| Redis Memory       | > 80%                  | Upgrade to db-s-2vcpu-4gb |
+| Redis Connections  | > 100                  | Add Redis node            |
+| Error Rate         | > 1%                   | Investigate, then scale   |
 
 ### Horizontal Scaling (App Platform)
 
@@ -557,6 +568,7 @@ services:
 ### App Won't Start
 
 1. **Check logs**:
+
    ```bash
    doctl apps logs APP_ID --type=run
    ```
@@ -569,6 +581,7 @@ services:
 ### Database Connection Refused
 
 1. **Add App Platform to trusted sources**:
+
    - Go to Database > Settings > Trusted Sources
    - Add App Platform's outbound IP range
 
@@ -602,12 +615,14 @@ services:
 ### Performance Issues
 
 1. **Enable query logging** in PostgreSQL:
+
    ```sql
    ALTER SYSTEM SET log_min_duration_statement = 100;
    SELECT pg_reload_conf();
    ```
 
 2. **Check slow queries**:
+
    ```sql
    SELECT query, mean_time, calls
    FROM pg_stat_statements
@@ -624,6 +639,7 @@ services:
 ### Automatic Backups
 
 DigitalOcean Managed Databases include:
+
 - Daily automatic backups (7-day retention)
 - Point-in-time recovery
 
@@ -660,16 +676,19 @@ Redis with AOF persistence automatically recovers data on restart.
 ## Next Steps After Deployment
 
 1. **Configure Paddle Webhook URL**:
+
    ```
    https://api.ptah.dev/webhooks/paddle
    ```
 
 2. **Configure WorkOS Redirect URI**:
+
    ```
    https://api.ptah.dev/auth/callback
    ```
 
 3. **Update VS Code Extension** to use production API:
+
    ```
    PTAH_LICENSE_SERVER_URL=https://api.ptah.dev
    ```

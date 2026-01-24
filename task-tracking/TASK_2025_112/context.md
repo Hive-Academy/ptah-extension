@@ -38,6 +38,7 @@ The user wants to **replace and enhance TASK_2025_075** (simplified license serv
 ### Phase A: Infrastructure + Backend (TASK_2025_112A)
 
 **Scope**:
+
 1. Docker Compose development environment (PostgreSQL, Redis, license-server)
 2. Backend Paddle integration (webhooks, subscription lifecycle)
 3. Backend WorkOS/Auth integration (OIDC with PKCE)
@@ -49,6 +50,7 @@ The user wants to **replace and enhance TASK_2025_075** (simplified license serv
 ### Phase B: Frontend Integration (TASK_2025_112B)
 
 **Scope**:
+
 1. Angular routing infrastructure
 2. Pricing page with Paddle checkout
 3. Login page with WorkOS SSO
@@ -80,16 +82,17 @@ The user wants to **replace and enhance TASK_2025_075** (simplified license serv
 
 See `research-findings.md` for detailed technical recommendations:
 
-| Area | Recommendation |
-|------|----------------|
-| Payment | Paddle Billing API v2 (unified REST, tax compliance) |
-| Auth | WorkOS OIDC with PKCE (OAuth 2.1 compliant) |
-| Hosting | DigitalOcean App Platform + Managed PostgreSQL HA |
-| Local Dev | Docker Compose with WSL2 native filesystem |
+| Area      | Recommendation                                       |
+| --------- | ---------------------------------------------------- |
+| Payment   | Paddle Billing API v2 (unified REST, tax compliance) |
+| Auth      | WorkOS OIDC with PKCE (OAuth 2.1 compliant)          |
+| Hosting   | DigitalOcean App Platform + Managed PostgreSQL HA    |
+| Local Dev | Docker Compose with WSL2 native filesystem           |
 
 ## Success Criteria
 
 **Phase A (Infrastructure + Backend)**:
+
 - [ ] `docker-compose up` starts PostgreSQL, Redis, license-server
 - [ ] Paddle webhooks correctly provision licenses
 - [ ] WorkOS OIDC/PKCE flow works end-to-end
@@ -97,6 +100,7 @@ See `research-findings.md` for detailed technical recommendations:
 - [ ] DigitalOcean deployment guide documented
 
 **Phase B (Frontend)**:
+
 - [ ] Angular routing with `/pricing`, `/login`, `/profile` routes
 - [ ] Pricing page displays plans and triggers Paddle checkout
 - [ ] Login page initiates WorkOS SSO flow

@@ -22,15 +22,15 @@ Multi-phase development workflow orchestration with dynamic strategies and user 
 
 ### Strategy Quick Reference
 
-| Task Type       | Strategy Flow                                    |
-|-----------------|--------------------------------------------------|
-| FEATURE         | PM -> [Research] -> Architect -> Team-Leader -> QA |
-| BUGFIX          | [Research] -> Team-Leader -> QA                  |
-| REFACTORING     | Architect -> Team-Leader -> QA                   |
-| DOCUMENTATION   | PM -> Developer -> Style Reviewer                |
-| RESEARCH        | Researcher -> [conditional implementation]       |
-| DEVOPS          | PM -> Architect -> DevOps Engineer -> QA         |
-| CREATIVE        | [ui-ux-designer] -> content-writer -> frontend   |
+| Task Type     | Strategy Flow                                      |
+| ------------- | -------------------------------------------------- |
+| FEATURE       | PM -> [Research] -> Architect -> Team-Leader -> QA |
+| BUGFIX        | [Research] -> Team-Leader -> QA                    |
+| REFACTORING   | Architect -> Team-Leader -> QA                     |
+| DOCUMENTATION | PM -> Developer -> Style Reviewer                  |
+| RESEARCH      | Researcher -> [conditional implementation]         |
+| DEVOPS        | PM -> Architect -> DevOps Engineer -> QA           |
+| CREATIVE      | [ui-ux-designer] -> content-writer -> frontend     |
 
 See [strategies.md](references/strategies.md) for detailed flow diagrams.
 
@@ -49,15 +49,15 @@ See [strategies.md](references/strategies.md) for detailed flow diagrams.
 
 ### When to Delegate (ALWAYS)
 
-| Task Type | Agent(s) |
-|-----------|----------|
-| Writing code | backend-developer, frontend-developer |
-| Testing | senior-tester |
-| Code review | code-style-reviewer, code-logic-reviewer |
-| Research | researcher-expert |
-| Architecture | software-architect |
-| Planning | project-manager |
-| Infrastructure | devops-engineer |
+| Task Type      | Agent(s)                                 |
+| -------------- | ---------------------------------------- |
+| Writing code   | backend-developer, frontend-developer    |
+| Testing        | senior-tester                            |
+| Code review    | code-style-reviewer, code-logic-reviewer |
+| Research       | researcher-expert                        |
+| Architecture   | software-architect                       |
+| Planning       | project-manager                          |
+| Infrastructure | devops-engineer                          |
 
 **Default**: When in doubt, delegate. See [agent-catalog.md](references/agent-catalog.md) for all 13 agents.
 
@@ -67,15 +67,15 @@ See [strategies.md](references/strategies.md) for detailed flow diagrams.
 
 ### Task Type Detection
 
-| Keywords Present | Task Type |
-|------------------|-----------|
-| CI/CD, pipeline, Docker, Kubernetes, deploy | DEVOPS |
-| landing page, marketing, brand, visual | CREATIVE |
-| implement, add, create, build | FEATURE |
-| fix, bug, error, issue | BUGFIX |
-| refactor, improve, optimize | REFACTORING |
-| document, readme, comment | DOCUMENTATION |
-| research, investigate, analyze | RESEARCH |
+| Keywords Present                            | Task Type     |
+| ------------------------------------------- | ------------- |
+| CI/CD, pipeline, Docker, Kubernetes, deploy | DEVOPS        |
+| landing page, marketing, brand, visual      | CREATIVE      |
+| implement, add, create, build               | FEATURE       |
+| fix, bug, error, issue                      | BUGFIX        |
+| refactor, improve, optimize                 | REFACTORING   |
+| document, readme, comment                   | DOCUMENTATION |
+| research, investigate, analyze              | RESEARCH      |
 
 **Priority**: DEVOPS > CREATIVE > FEATURE (when multiple keywords present)
 
@@ -83,14 +83,15 @@ See [strategies.md](references/strategies.md) for detailed flow diagrams.
 
 When analyzing a task, evaluate multiple factors:
 
-| Factor | Weight | How to Assess |
-|--------|--------|---------------|
-| Keywords | 30% | Match request against keyword table above |
-| Affected Files | 25% | Identify likely affected code paths |
-| Complexity | 25% | Simple (<2h), Medium (2-8h), Complex (>8h) |
-| Recent Patterns | 20% | Check last 5 tasks in registry.md |
+| Factor          | Weight | How to Assess                              |
+| --------------- | ------ | ------------------------------------------ |
+| Keywords        | 30%    | Match request against keyword table above  |
+| Affected Files  | 25%    | Identify likely affected code paths        |
+| Complexity      | 25%    | Simple (<2h), Medium (2-8h), Complex (>8h) |
+| Recent Patterns | 20%    | Check last 5 tasks in registry.md          |
 
 **Decision Rules**:
+
 - Top strategy confidence >= 70%: Proceed with that strategy
 - Top two strategies within 10 points: Present options to user
 - All strategies < 70%: Ask user for clarification
@@ -119,16 +120,16 @@ else
 
 ### CONTINUATION: Phase Detection
 
-| Documents Present | Next Action |
-|-------------------|-------------|
-| context.md only | Invoke project-manager |
-| task-description.md | User validate OR invoke architect |
-| implementation-plan.md | User validate OR team-leader MODE 1 |
-| tasks.md (PENDING) | Team-leader MODE 2 (assign batch) |
-| tasks.md (IN PROGRESS) | Team-leader MODE 2 (verify) |
-| tasks.md (IMPLEMENTED) | Team-leader MODE 2 (commit) |
-| tasks.md (all COMPLETE) | Team-leader MODE 3 OR QA choice |
-| future-enhancements.md | Workflow complete |
+| Documents Present       | Next Action                         |
+| ----------------------- | ----------------------------------- |
+| context.md only         | Invoke project-manager              |
+| task-description.md     | User validate OR invoke architect   |
+| implementation-plan.md  | User validate OR team-leader MODE 1 |
+| tasks.md (PENDING)      | Team-leader MODE 2 (assign batch)   |
+| tasks.md (IN PROGRESS)  | Team-leader MODE 2 (verify)         |
+| tasks.md (IMPLEMENTED)  | Team-leader MODE 2 (commit)         |
+| tasks.md (all COMPLETE) | Team-leader MODE 3 OR QA choice     |
+| future-enhancements.md  | Workflow complete                   |
 
 See [task-tracking.md](references/task-tracking.md) for full phase detection.
 
@@ -144,7 +145,7 @@ Task({
 **User Request**: "[original request]"
 
 [Agent-specific instructions]
-See [agent-name].md for detailed instructions.`
+See [agent-name].md for detailed instructions.`,
 });
 ```
 
@@ -168,19 +169,19 @@ See [checkpoints.md](references/checkpoints.md) for all checkpoint templates.
 
 The team-leader operates in 3 modes:
 
-| Mode | When | Purpose |
-|------|------|---------|
-| MODE 1 | After architect | Create tasks.md with batched tasks |
-| MODE 2 | After developer returns | Verify, commit, assign next batch |
-| MODE 3 | All batches COMPLETE | Final verification, summary |
+| Mode   | When                    | Purpose                            |
+| ------ | ----------------------- | ---------------------------------- |
+| MODE 1 | After architect         | Create tasks.md with batched tasks |
+| MODE 2 | After developer returns | Verify, commit, assign next batch  |
+| MODE 3 | All batches COMPLETE    | Final verification, summary        |
 
 ### Response Handling
 
-| Team-Leader Says | Your Action |
-|------------------|-------------|
-| NEXT BATCH ASSIGNED | Invoke developer with provided prompt |
-| BATCH REJECTED | Re-invoke developer with issues |
-| ALL BATCHES COMPLETE | Invoke MODE 3 |
+| Team-Leader Says     | Your Action                           |
+| -------------------- | ------------------------------------- |
+| NEXT BATCH ASSIGNED  | Invoke developer with provided prompt |
+| BATCH REJECTED       | Re-invoke developer with issues       |
+| ALL BATCHES COMPLETE | Invoke MODE 3                         |
 
 See [team-leader-modes.md](references/team-leader-modes.md) for detailed integration.
 
@@ -188,23 +189,26 @@ See [team-leader-modes.md](references/team-leader-modes.md) for detailed integra
 
 ## Flexible Invocation Patterns
 
-| Pattern | When to Use | Flow |
-|---------|-------------|------|
-| Full | New features, unclear scope | PM -> Architect -> Team-Leader -> QA |
-| Partial | Known requirements, refactoring | Architect -> Team-Leader -> QA |
-| Minimal | Simple fixes, quick reviews | Single developer or reviewer |
+| Pattern | When to Use                     | Flow                                 |
+| ------- | ------------------------------- | ------------------------------------ |
+| Full    | New features, unclear scope     | PM -> Architect -> Team-Leader -> QA |
+| Partial | Known requirements, refactoring | Architect -> Team-Leader -> QA       |
+| Minimal | Simple fixes, quick reviews     | Single developer or reviewer         |
 
 ---
 
 ## Error Handling
 
 ### Validation Rejection
+
 1. Parse feedback into actionable points
 2. Re-invoke same agent with feedback
 3. Present revised version
 
 ### Commit Hook Failure
+
 **NEVER bypass hooks automatically.** Present options:
+
 1. Fix issue (if related)
 2. Bypass with --no-verify (if unrelated, with user approval)
 3. Stop and report (if critical)
@@ -215,14 +219,14 @@ See [checkpoints.md](references/checkpoints.md) for error handling templates.
 
 ## Reference Index
 
-| Reference | Load When | Content |
-|-----------|-----------|---------|
-| [strategies.md](references/strategies.md) | Selecting/executing strategy | 6 strategy flows, creative workflows |
-| [agent-catalog.md](references/agent-catalog.md) | Determining agent | 13 agent profiles, capability matrix |
-| [team-leader-modes.md](references/team-leader-modes.md) | Invoking team-leader | MODE 1/2/3 patterns |
-| [task-tracking.md](references/task-tracking.md) | Managing state | Folder structure, registry |
-| [checkpoints.md](references/checkpoints.md) | Presenting checkpoints | Templates, error handling |
-| [git-standards.md](references/git-standards.md) | Creating commits | Commitlint, hook protocol |
+| Reference                                               | Load When                    | Content                              |
+| ------------------------------------------------------- | ---------------------------- | ------------------------------------ |
+| [strategies.md](references/strategies.md)               | Selecting/executing strategy | 6 strategy flows, creative workflows |
+| [agent-catalog.md](references/agent-catalog.md)         | Determining agent            | 13 agent profiles, capability matrix |
+| [team-leader-modes.md](references/team-leader-modes.md) | Invoking team-leader         | MODE 1/2/3 patterns                  |
+| [task-tracking.md](references/task-tracking.md)         | Managing state               | Folder structure, registry           |
+| [checkpoints.md](references/checkpoints.md)             | Presenting checkpoints       | Templates, error handling            |
+| [git-standards.md](references/git-standards.md)         | Creating commits             | Commitlint, hook protocol            |
 
 ### Loading Protocol
 

@@ -200,6 +200,7 @@ For workspace-wide operations, consult the [Nx CLI documentation](#general-guide
 **Supported Workflows**: FEATURE, BUGFIX, REFACTORING, DOCUMENTATION, RESEARCH, DEVOPS, CREATIVE
 
 **Flexible Invocation Patterns**:
+
 - **Full**: PM -> Architect -> Team-Leader -> Developers -> QA (new features with unclear scope)
 - **Partial**: Architect -> Team-Leader -> Developers (refactoring with known requirements)
 - **Minimal**: Direct developer/reviewer invocation (simple fixes, quick reviews)

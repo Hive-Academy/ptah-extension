@@ -15,6 +15,7 @@ This document shows a complete FEATURE workflow trace from user request to task 
 ## Phase 0: Strategy Detection
 
 **Orchestrator Analysis**:
+
 ```
 Keywords detected: "add", "support" -> FEATURE
 Affected areas: Backend (WebSocket), Frontend (cursor display)
@@ -25,6 +26,7 @@ Decision: Proceed with FEATURE strategy
 ```
 
 **Orchestrator Output**:
+
 ```
 TASK INITIALIZED: TASK_2025_045
 
@@ -42,6 +44,7 @@ Proceeding to Phase 1: Requirements gathering...
 ## Phase 1: Project Manager
 
 **Orchestrator Invocation**:
+
 ```typescript
 Task({
   subagent_type: 'project-manager',
@@ -52,35 +55,41 @@ Task({
 **User Request**: "Add real-time collaboration support with WebSocket connections for live cursor sharing"
 
 Analyze the request and create comprehensive requirements.
-See project-manager.md for detailed instructions.`
+See project-manager.md for detailed instructions.`,
 });
 ```
 
 **PM Output** (task-description.md excerpt):
+
 ```markdown
 # Task Description - TASK_2025_045
 
 ## Title
+
 Real-Time Collaboration with Live Cursor Sharing
 
 ## Business Requirements
+
 1. Users shall see other collaborators' cursors in real-time
 2. Cursor positions shall update within 100ms latency
 3. System shall support up to 10 concurrent collaborators per session
 4. Cursor colors shall be unique per collaborator
 
 ## Technical Scope
+
 - WebSocket server implementation in backend
 - Cursor position broadcasting service
 - Frontend cursor rendering component
 - Session management for collaborators
 
 ## Out of Scope
+
 - Voice/video chat
 - File editing conflicts (handled separately)
 - Mobile support
 
 ## Success Criteria
+
 - Cursors visible within 100ms of movement
 - No cursor drift between participants
 - Graceful handling of disconnections
@@ -91,6 +100,7 @@ Real-Time Collaboration with Live Cursor Sharing
 ## Checkpoint 1: Requirements Validation
 
 **Orchestrator Presents**:
+
 ```
 USER VALIDATION CHECKPOINT - TASK_2025_045
 
@@ -114,6 +124,7 @@ Reply "APPROVED" to proceed OR provide feedback for revision.
 ## Phase 2: Research (Conditional - Triggered)
 
 **Orchestrator Decision**:
+
 ```
 Technical unknowns detected:
 - WebSocket library selection for VS Code extension
@@ -123,6 +134,7 @@ Invoking researcher-expert...
 ```
 
 **Orchestrator Invocation**:
+
 ```typescript
 Task({
   subagent_type: 'researcher-expert',
@@ -135,27 +147,29 @@ Task({
 2. Cursor synchronization protocol patterns (CRDT vs OT vs simple broadcast)
 
 Investigate options, create comparison matrix, recommend approach.
-See researcher-expert.md for detailed instructions.`
+See researcher-expert.md for detailed instructions.`,
 });
 ```
 
 **Researcher Output** (research-report.md excerpt):
+
 ```markdown
 # Research Report - TASK_2025_045
 
 ## WebSocket Library Comparison
 
-| Library | Bundle Size | VS Code Compatible | Features |
-|---------|-------------|-------------------|----------|
-| ws | 23KB | Yes | Native, fast |
-| socket.io | 85KB | Yes | Rooms, reconnection |
-| @anthropic/realtime | 12KB | Yes | Lightweight |
+| Library             | Bundle Size | VS Code Compatible | Features            |
+| ------------------- | ----------- | ------------------ | ------------------- |
+| ws                  | 23KB        | Yes                | Native, fast        |
+| socket.io           | 85KB        | Yes                | Rooms, reconnection |
+| @anthropic/realtime | 12KB        | Yes                | Lightweight         |
 
 **Recommendation**: Use `ws` for backend, native WebSocket for frontend
 
 ## Cursor Sync Protocol
 
 Simple broadcast sufficient for cursor positions:
+
 - No conflict resolution needed (read-only display)
 - Sub-100ms achievable with direct WebSocket messages
 - CRDT/OT overkill for cursor positions
@@ -168,6 +182,7 @@ Simple broadcast sufficient for cursor positions:
 ## Phase 4: Software Architect
 
 **Orchestrator Invocation**:
+
 ```typescript
 Task({
   subagent_type: 'software-architect',
@@ -179,27 +194,29 @@ Task({
 **Research**: Read research-report.md
 
 Design the technical implementation plan.
-See software-architect.md for detailed instructions.`
+See software-architect.md for detailed instructions.`,
 });
 ```
 
 **Architect Output** (implementation-plan.md excerpt):
+
 ```markdown
 # Implementation Plan - TASK_2025_045
 
 ## Architecture Overview
-
 ```
-+-------------------+     WebSocket      +-------------------+
-|  VS Code Client   | <----------------> |  Collaboration    |
-|  (Cursor Display) |                    |  Service (ws)     |
-+-------------------+                    +-------------------+
-        |                                        |
-        v                                        v
-+-------------------+                    +-------------------+
-|  Cursor Renderer  |                    |  Session Manager  |
-|  (Frontend)       |                    |  (Backend)        |
-+-------------------+                    +-------------------+
+
++-------------------+ WebSocket +-------------------+
+| VS Code Client | <----------------> | Collaboration |
+| (Cursor Display) | | Service (ws) |
++-------------------+ +-------------------+
+| |
+v v
++-------------------+ +-------------------+
+| Cursor Renderer | | Session Manager |
+| (Frontend) | | (Backend) |
++-------------------+ +-------------------+
+
 ```
 
 ## Implementation Tasks
@@ -230,6 +247,7 @@ See software-architect.md for detailed instructions.`
 ## Checkpoint 1.5: Architecture Validation
 
 **Orchestrator Presents**:
+
 ```
 USER VALIDATION CHECKPOINT - TASK_2025_045
 
@@ -252,6 +270,7 @@ Reply "APPROVED" to proceed OR provide feedback for revision.
 ## Phase 5: Team-Leader MODE 1
 
 **Orchestrator Invocation**:
+
 ```typescript
 Task({
   subagent_type: 'team-leader',
@@ -263,11 +282,12 @@ Task({
 **Implementation Plan**: Read implementation-plan.md
 
 Break down the implementation into atomic, batchable tasks.
-See team-leader.md for MODE 1 instructions.`
+See team-leader.md for MODE 1 instructions.`,
 });
 ```
 
 **Team-Leader Output**:
+
 ```
 TASKS.MD CREATED - TASK_2025_045
 
@@ -300,6 +320,7 @@ NEXT BATCH ASSIGNED: Batch 1 to backend-developer
 ### Batch 1 Execution
 
 **Orchestrator Invokes Backend Developer**:
+
 ```typescript
 Task({
   subagent_type: 'backend-developer',
@@ -310,11 +331,12 @@ Task({
 **Tasks**: Read tasks.md, find Batch 1 (IN PROGRESS)
 
 Implement all tasks in Batch 1. Update status to IMPLEMENTED when done.
-See backend-developer.md for detailed instructions.`
+See backend-developer.md for detailed instructions.`,
 });
 ```
 
 **Backend Developer Output**:
+
 ```
 BATCH 1 IMPLEMENTATION COMPLETE
 
@@ -328,6 +350,7 @@ Tasks: 1.1, 1.2, 1.3 marked IMPLEMENTED
 ```
 
 **Orchestrator Returns to Team-Leader MODE 2**:
+
 ```typescript
 Task({
   subagent_type: 'team-leader',
@@ -339,11 +362,12 @@ Task({
 **Developer Report**: Backend developer completed Batch 1
 
 Verify implementation, create commit, assign next batch.
-See team-leader.md for MODE 2 instructions.`
+See team-leader.md for MODE 2 instructions.`,
 });
 ```
 
 **Team-Leader MODE 2 Output**:
+
 ```
 BATCH 1 VERIFIED AND COMMITTED
 
@@ -368,6 +392,7 @@ NEXT BATCH ASSIGNED: Batch 2 to frontend-developer
 ## Phase 5: Team-Leader MODE 3
 
 **Orchestrator Invocation**:
+
 ```typescript
 Task({
   subagent_type: 'team-leader',
@@ -378,11 +403,12 @@ Task({
 **Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_045
 
 All batches complete. Perform final verification.
-See team-leader.md for MODE 3 instructions.`
+See team-leader.md for MODE 3 instructions.`,
 });
 ```
 
 **Team-Leader MODE 3 Output**:
+
 ```
 ALL BATCHES COMPLETE - TASK_2025_045
 
@@ -407,6 +433,7 @@ Ready for QA phase.
 ## Checkpoint 2: QA Selection
 
 **Orchestrator Presents**:
+
 ```
 USER CHECKPOINT - QA SELECTION - TASK_2025_045
 
@@ -430,30 +457,32 @@ Reply with your choice.
 ## Phase 6: QA Agents (Parallel)
 
 **Orchestrator Invokes All QA Agents**:
+
 ```typescript
 // Run in parallel
 Promise.all([
   Task({
     subagent_type: 'senior-tester',
     description: 'Test implementation for TASK_2025_045',
-    prompt: `You are senior-tester for TASK_2025_045...`
+    prompt: `You are senior-tester for TASK_2025_045...`,
   }),
   Task({
     subagent_type: 'code-style-reviewer',
     description: 'Review code style for TASK_2025_045',
-    prompt: `You are code-style-reviewer for TASK_2025_045...`
+    prompt: `You are code-style-reviewer for TASK_2025_045...`,
   }),
   Task({
     subagent_type: 'code-logic-reviewer',
     description: 'Review code logic for TASK_2025_045',
-    prompt: `You are code-logic-reviewer for TASK_2025_045...`
-  })
+    prompt: `You are code-logic-reviewer for TASK_2025_045...`,
+  }),
 ]);
 ```
 
 **QA Outputs**:
 
-*senior-tester*:
+_senior-tester_:
+
 ```
 TEST REPORT - TASK_2025_045
 
@@ -466,7 +495,8 @@ Coverage: 87%
 All tests: PASSING
 ```
 
-*code-style-reviewer*:
+_code-style-reviewer_:
+
 ```
 STYLE REVIEW - TASK_2025_045
 
@@ -477,7 +507,8 @@ Issues Found: 2 (minor)
 Recommendation: Minor fixes, non-blocking
 ```
 
-*code-logic-reviewer*:
+_code-logic-reviewer_:
+
 ```
 LOGIC REVIEW - TASK_2025_045
 
@@ -494,6 +525,7 @@ Completeness: VERIFIED
 ## Phase 8: Modernization Detector
 
 **Orchestrator Invocation**:
+
 ```typescript
 Task({
   subagent_type: 'modernization-detector',
@@ -504,25 +536,29 @@ Task({
 **Changes**: Review tasks.md for what was implemented
 
 Identify opportunities for future improvements.
-See modernization-detector.md for detailed instructions.`
+See modernization-detector.md for detailed instructions.`,
 });
 ```
 
 **Modernization Detector Output** (future-enhancements.md):
+
 ```markdown
 # Future Enhancements - TASK_2025_045
 
 ## Potential Improvements
 
 ### High Priority
+
 1. **Presence Indicators**: Show online/away status for collaborators
 2. **Cursor Labels**: Display collaborator names near cursors
 
 ### Medium Priority
+
 3. **Cursor Trails**: Optional visual trail for cursor movement
 4. **Selection Sharing**: Share text selections, not just cursor position
 
 ### Low Priority
+
 5. **Cursor Prediction**: Predict cursor position for smoother display
 6. **Bandwidth Optimization**: Binary protocol for cursor updates
 ```
@@ -532,6 +568,7 @@ See modernization-detector.md for detailed instructions.`
 ## Workflow Complete
 
 **Orchestrator Final Output**:
+
 ```
 WORKFLOW COMPLETE - TASK_2025_045
 

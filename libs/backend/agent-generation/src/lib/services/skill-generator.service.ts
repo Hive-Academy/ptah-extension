@@ -238,9 +238,7 @@ export class SkillGeneratorService implements ISkillGeneratorService {
     }
 
     // Build agents list
-    const agentsList = selectedAgents
-      .map((agent) => `- ${agent}`)
-      .join('\n');
+    const agentsList = selectedAgents.map((agent) => `- ${agent}`).join('\n');
 
     // Determine branch prefix based on project type
     const branchPrefix = this.determineBranchPrefix(context);
@@ -373,10 +371,16 @@ export class SkillGeneratorService implements ISkillGeneratorService {
       return Buffer.from(content).toString('utf8');
     } catch (extensionError) {
       // Log warning about fallback
-      this.logger.warn('Extension template path failed, using workspace fallback', {
-        attemptedPath: templateUri.fsPath,
-        error: extensionError instanceof Error ? extensionError.message : String(extensionError),
-      });
+      this.logger.warn(
+        'Extension template path failed, using workspace fallback',
+        {
+          attemptedPath: templateUri.fsPath,
+          error:
+            extensionError instanceof Error
+              ? extensionError.message
+              : String(extensionError),
+        }
+      );
 
       // Fallback: Try loading from workspace's templates (for development)
       const workspaceTemplateUri = vscode.Uri.joinPath(
@@ -387,7 +391,9 @@ export class SkillGeneratorService implements ISkillGeneratorService {
       );
 
       try {
-        const content = await vscode.workspace.fs.readFile(workspaceTemplateUri);
+        const content = await vscode.workspace.fs.readFile(
+          workspaceTemplateUri
+        );
         this.logger.warn('Template loaded from WORKSPACE FALLBACK path', {
           path: workspaceTemplateUri.fsPath,
           note: 'This may indicate extension deployment issue in production',
@@ -439,7 +445,9 @@ export class SkillGeneratorService implements ISkillGeneratorService {
         // Escape the value to prevent recursive substitution and regex issues
         const escapedValue = this.escapeTemplateValue(value);
         processed = processed.replace(pattern, escapedValue);
-        customizations.push(`Substituted {{${key}}} with project-specific value`);
+        customizations.push(
+          `Substituted {{${key}}} with project-specific value`
+        );
       }
     }
 

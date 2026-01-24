@@ -172,7 +172,10 @@ export class AuthController {
 
     if (storedState !== state) {
       this.logger.warn(
-        `State mismatch - Cookie: ${storedState.substring(0, 8)}..., Query: ${state.substring(0, 8)}...`
+        `State mismatch - Cookie: ${storedState.substring(
+          0,
+          8
+        )}..., Query: ${state.substring(0, 8)}...`
       );
       res.status(401).json({
         error: 'Invalid state',

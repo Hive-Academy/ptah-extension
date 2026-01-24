@@ -282,22 +282,22 @@ Read(package.json)
 
 ### Headers
 
-| Header        | Type   | Required | Description         |
-| ------------- | ------ | -------- | ------------------- |
-| Authorization | string | Yes      | Bearer token        |
-| Content-Type  | string | Yes      | application/json    |
+| Header        | Type   | Required | Description      |
+| ------------- | ------ | -------- | ---------------- |
+| Authorization | string | Yes      | Bearer token     |
+| Content-Type  | string | Yes      | application/json |
 
 ### Parameters
 
-| Parameter | Type   | Required | Description        |
-| --------- | ------ | -------- | ------------------ |
+| Parameter | Type   | Required | Description         |
+| --------- | ------ | -------- | ------------------- |
 | id        | string | Yes      | Resource identifier |
 
 ### Request Body
 
 \`\`\`json
 {
-  "field": "value"
+"field": "value"
 }
 \`\`\`
 
@@ -307,17 +307,17 @@ Read(package.json)
 
 \`\`\`json
 {
-  "data": { ... }
+"data": { ... }
 }
 \`\`\`
 
 ### Error Responses
 
-| Code | Message         | Description            |
-| ---- | --------------- | ---------------------- |
-| 400  | Bad Request     | Invalid parameters     |
-| 401  | Unauthorized    | Invalid/missing token  |
-| 404  | Not Found       | Resource doesn't exist |
+| Code | Message      | Description            |
+| ---- | ------------ | ---------------------- |
+| 400  | Bad Request  | Invalid parameters     |
+| 401  | Unauthorized | Invalid/missing token  |
+| 404  | Not Found    | Resource doesn't exist |
 
 ## Examples
 
@@ -325,14 +325,14 @@ Read(package.json)
 
 \`\`\`bash
 curl -X GET "https://api.example.com/v1/resource" \
-  -H "Authorization: Bearer $TOKEN"
+ -H "Authorization: Bearer $TOKEN"
 \`\`\`
 
 ### JavaScript
 
 \`\`\`javascript
 const response = await fetch('/api/v1/resource', {
-  headers: { 'Authorization': `Bearer ${token}` }
+headers: { 'Authorization': `Bearer ${token}` }
 });
 \`\`\`
 ```
@@ -525,7 +525,7 @@ For every feature claim in content:
 ## Return Format
 
 ```markdown
-## Technical Content Complete - TASK_[ID]
+## Technical Content Complete - TASK\_[ID]
 
 **Content Type**: [Landing Page / Blog Post / Documentation / Video Script]
 **Word Count**: [X words]
@@ -539,7 +539,7 @@ For every feature claim in content:
 
 **Files Created**:
 
-- task-tracking/TASK_[ID]/content-specification.md
+- task-tracking/TASK\_[ID]/content-specification.md
 - [Additional output files as needed]
 
 **Quality Checklist**:

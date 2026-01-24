@@ -15,6 +15,7 @@ This document shows a complete BUGFIX workflow trace from bug report to resoluti
 ## Phase 0: Strategy Detection
 
 **Orchestrator Analysis**:
+
 ```
 Keywords detected: "fix", "memory leak" -> BUGFIX
 Affected areas: Chat module, session management
@@ -25,6 +26,7 @@ Decision: Proceed with BUGFIX strategy
 ```
 
 **Orchestrator Output**:
+
 ```
 TASK INITIALIZED: TASK_2025_046
 
@@ -42,12 +44,14 @@ Note: Unknown cause detected - invoking researcher first...
 ## Phase 1: Research (Conditional - Unknown Cause)
 
 **Orchestrator Decision**:
+
 ```
 Bug cause: Unknown (memory leak symptoms described, root cause unclear)
 Action: Invoke researcher-expert for investigation
 ```
 
 **Orchestrator Invocation**:
+
 ```typescript
 Task({
   subagent_type: 'researcher-expert',
@@ -62,17 +66,19 @@ Investigate the memory leak:
 2. Determine root cause
 3. Propose fix approach
 
-See researcher-expert.md for detailed instructions.`
+See researcher-expert.md for detailed instructions.`,
 });
 ```
 
 **Researcher Output** (research-report.md):
-```markdown
+
+````markdown
 # Research Report - TASK_2025_046
 
 ## Investigation Summary
 
 ### Memory Profiling Results
+
 - Memory grows ~2MB per session close
 - Objects retained: MessageBubbleComponent instances
 - Garbage collection not reclaiming chat messages
@@ -90,6 +96,7 @@ this.effect(() => {
   // This effect never unsubscribes when session closes
 });
 ```
+````
 
 **Secondary Issue**: `libs/frontend/chat/src/lib/components/message-bubble.component.ts`
 
@@ -108,10 +115,12 @@ ngOnInit() {
 4. Add `ngOnDestroy` cleanup to MessageBubbleComponent
 
 ### Files to Modify
+
 - chat.store.ts (main fix)
 - message-bubble.component.ts (secondary fix)
 - chat.service.ts (add cleanup trigger)
-```
+
+````
 
 ---
 
@@ -131,9 +140,10 @@ Task({
 Create tasks for the bugfix.
 See team-leader.md for MODE 1 instructions.`
 });
-```
+````
 
 **Team-Leader Output**:
+
 ```
 TASKS.MD CREATED - TASK_2025_046
 
@@ -157,6 +167,7 @@ NEXT BATCH ASSIGNED: Batch 1 to frontend-developer
 ### Batch 1 Execution
 
 **Orchestrator Invokes Frontend Developer**:
+
 ```typescript
 Task({
   subagent_type: 'frontend-developer',
@@ -168,11 +179,12 @@ Task({
 **Research**: Read research-report.md for root cause details
 
 Fix all memory leak issues. Update status to IMPLEMENTED when done.
-See frontend-developer.md for detailed instructions.`
+See frontend-developer.md for detailed instructions.`,
 });
 ```
 
 **Frontend Developer Output**:
+
 ```
 BATCH 1 IMPLEMENTATION COMPLETE
 
@@ -195,6 +207,7 @@ Tasks: 1.1, 1.2, 1.3, 1.4 marked IMPLEMENTED
 ```
 
 **Orchestrator Returns to Team-Leader MODE 2**:
+
 ```typescript
 Task({
   subagent_type: 'team-leader',
@@ -206,11 +219,12 @@ Task({
 **Developer Report**: Frontend developer completed Batch 1
 
 Verify implementation, create commit.
-See team-leader.md for MODE 2 instructions.`
+See team-leader.md for MODE 2 instructions.`,
 });
 ```
 
 **Team-Leader MODE 2 Output**:
+
 ```
 BATCH 1 VERIFIED AND COMMITTED
 
@@ -234,6 +248,7 @@ ALL BATCHES COMPLETE
 ## Phase 2: Team-Leader MODE 3
 
 **Orchestrator Invocation**:
+
 ```typescript
 Task({
   subagent_type: 'team-leader',
@@ -244,11 +259,12 @@ Task({
 **Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_046
 
 All batches complete. Perform final verification.
-See team-leader.md for MODE 3 instructions.`
+See team-leader.md for MODE 3 instructions.`,
 });
 ```
 
 **Team-Leader MODE 3 Output**:
+
 ```
 ALL BATCHES COMPLETE - TASK_2025_046
 
@@ -271,6 +287,7 @@ Ready for QA phase.
 ## Checkpoint 2: QA Selection
 
 **Orchestrator Presents**:
+
 ```
 USER CHECKPOINT - QA SELECTION - TASK_2025_046
 
@@ -296,6 +313,7 @@ Reply with your choice.
 ## Phase 3: QA - Senior Tester
 
 **Orchestrator Invocation**:
+
 ```typescript
 Task({
   subagent_type: 'senior-tester',
@@ -307,12 +325,13 @@ Task({
 **Fix**: See tasks.md for implemented changes
 
 Create regression tests to prevent recurrence.
-See senior-tester.md for detailed instructions.`
+See senior-tester.md for detailed instructions.`,
 });
 ```
 
 **Senior Tester Output** (test-report.md):
-```markdown
+
+````markdown
 # Test Report - TASK_2025_046
 
 ## Regression Tests Created
@@ -346,6 +365,7 @@ describe('ChatStore memory management', () => {
   });
 });
 ```
+````
 
 ### message-bubble.component.spec.ts
 
@@ -367,23 +387,25 @@ describe('MessageBubbleComponent cleanup', () => {
 
 ## Test Results
 
-| Test Suite | Tests | Passed | Failed |
-|------------|-------|--------|--------|
-| chat.store.spec.ts | 8 | 8 | 0 |
-| message-bubble.component.spec.ts | 5 | 5 | 0 |
+| Test Suite                       | Tests | Passed | Failed |
+| -------------------------------- | ----- | ------ | ------ |
+| chat.store.spec.ts               | 8     | 8      | 0      |
+| message-bubble.component.spec.ts | 5     | 5      | 0      |
 
 **Total**: 13 tests, all passing
 
 ## Memory Verification
 
 Manual memory test performed:
+
 1. Opened 5 chat sessions sequentially
 2. Closed each session
 3. Memory returned to baseline after each close
 4. No leaked MessageBubbleComponent instances
 
 **Verdict**: Memory leak RESOLVED
-```
+
+````
 
 ---
 
@@ -402,27 +424,32 @@ Task({
 Identify related improvement opportunities.
 See modernization-detector.md for detailed instructions.`
 });
-```
+````
 
 **Modernization Detector Output** (future-enhancements.md):
+
 ```markdown
 # Future Enhancements - TASK_2025_046
 
 ## Related Improvements
 
 ### High Priority
+
 1. **Memory Monitoring**: Add DevTools integration for memory tracking in debug mode
 2. **Cleanup Audit**: Review all components for similar subscription patterns
 
 ### Medium Priority
+
 3. **Weak References**: Consider WeakMap for message caching
 4. **Virtual Scrolling**: Implement virtual list for large message histories
 
 ### Pattern Recommendations
+
 5. **Subscription Helper**: Create `AutoUnsubscribe` decorator for components
 6. **Effect Cleanup**: Standardize effect patterns across all stores
 
 ## Files to Audit
+
 - inline-agent-bubble.component.ts (similar pattern detected)
 - execution-node.component.ts (subscription usage)
 ```
@@ -432,6 +459,7 @@ See modernization-detector.md for detailed instructions.`
 ## Workflow Complete
 
 **Orchestrator Final Output**:
+
 ```
 WORKFLOW COMPLETE - TASK_2025_046
 

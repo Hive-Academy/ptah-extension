@@ -3,11 +3,21 @@ import {
   provideBrowserGlobalErrorListeners,
   provideZoneChangeDetection,
 } from '@angular/core';
+import { provideRouter } from '@angular/router';
+import {
+  provideHttpClient,
+  withInterceptorsFromDi,
+} from '@angular/common/http';
 import { provideMarkdown } from 'ngx-markdown';
 import { provideGsap, provideLenis } from '@hive-academy/angular-gsap';
+import { routes } from './app.routes';
 
 export const appConfig: ApplicationConfig = {
   providers: [
+    // Router configuration (Task 1.3)
+    provideRouter(routes),
+    // HTTP client for API calls (magic link auth, license API)
+    provideHttpClient(withInterceptorsFromDi()),
     provideBrowserGlobalErrorListeners(),
     provideZoneChangeDetection({ eventCoalescing: true }),
     // Markdown rendering for chat messages (required by ExecutionNodeComponent from @ptah-extension/chat)

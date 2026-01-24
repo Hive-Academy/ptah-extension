@@ -106,7 +106,7 @@ import {
   ],
 })
 export class HeroContentOverlayComponent {
-  readonly stats = [
+  public readonly stats = [
     { value: '12', label: 'libraries' },
     { value: '48+', label: 'components' },
     { value: '60+', label: 'DI tokens' },
@@ -117,7 +117,7 @@ export class HeroContentOverlayComponent {
    * Cinematic scroll exit - content fades out and rises as user scrolls
    * Creates "ascending from the temple" effect
    */
-  readonly contentScrollExitConfig: ScrollAnimationConfig = {
+  public readonly contentScrollExitConfig: ScrollAnimationConfig = {
     animation: 'custom',
     start: 'top top',
     end: 'bottom 50%',
@@ -129,7 +129,7 @@ export class HeroContentOverlayComponent {
   /**
    * Badge entrance - quick scale in
    */
-  readonly badgeConfig: ViewportAnimationConfig = {
+  public readonly badgeConfig: ViewportAnimationConfig = {
     animation: 'scaleIn',
     duration: 0.5,
     threshold: 0.1,
@@ -138,7 +138,7 @@ export class HeroContentOverlayComponent {
   /**
    * Headline entrance - dramatic slide up
    */
-  readonly headlineConfig: ViewportAnimationConfig = {
+  public readonly headlineConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
     duration: 0.8,
     delay: 0.15,
@@ -149,7 +149,7 @@ export class HeroContentOverlayComponent {
   /**
    * Subheadline - fade in after headline
    */
-  readonly subheadlineConfig: ViewportAnimationConfig = {
+  public readonly subheadlineConfig: ViewportAnimationConfig = {
     animation: 'fadeIn',
     duration: 0.7,
     delay: 0.3,
@@ -159,7 +159,7 @@ export class HeroContentOverlayComponent {
   /**
    * CTAs - slide up together
    */
-  readonly ctaConfig: ViewportAnimationConfig = {
+  public readonly ctaConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
     duration: 0.6,
     delay: 0.45,
@@ -170,7 +170,7 @@ export class HeroContentOverlayComponent {
   /**
    * Stats - fade in last
    */
-  readonly socialProofConfig: ViewportAnimationConfig = {
+  public readonly socialProofConfig: ViewportAnimationConfig = {
     animation: 'fadeIn',
     duration: 0.6,
     delay: 0.6,

@@ -6,14 +6,14 @@ Detailed workflow diagrams and guidance for all 6 execution strategies plus crea
 
 ## Strategy Overview
 
-| Strategy       | Complexity | Primary Agents                      | User Checkpoints |
-|----------------|------------|-------------------------------------|------------------|
-| FEATURE        | Full       | PM, Architect, Team-Leader, Devs, QA | Scope, Requirements, Architecture, QA |
-| BUGFIX         | Streamlined | Team-Leader, Devs, QA              | QA              |
-| REFACTORING    | Focused    | Architect, Team-Leader, Devs, QA    | Architecture, QA |
-| DOCUMENTATION  | Minimal    | PM, Developer, Style Reviewer       | Requirements    |
-| RESEARCH       | Investigation | Researcher                        | None            |
-| DEVOPS         | Infrastructure | PM, Architect, DevOps Engineer, QA | Requirements, Architecture, QA |
+| Strategy      | Complexity     | Primary Agents                       | User Checkpoints                      |
+| ------------- | -------------- | ------------------------------------ | ------------------------------------- |
+| FEATURE       | Full           | PM, Architect, Team-Leader, Devs, QA | Scope, Requirements, Architecture, QA |
+| BUGFIX        | Streamlined    | Team-Leader, Devs, QA                | QA                                    |
+| REFACTORING   | Focused        | Architect, Team-Leader, Devs, QA     | Architecture, QA                      |
+| DOCUMENTATION | Minimal        | PM, Developer, Style Reviewer        | Requirements                          |
+| RESEARCH      | Investigation  | Researcher                           | None                                  |
+| DEVOPS        | Infrastructure | PM, Architect, DevOps Engineer, QA   | Requirements, Architecture, QA        |
 
 ---
 
@@ -66,10 +66,10 @@ Phase 8: modernization-detector --> Creates future-enhancements.md
 
 ### Conditional Agent Triggers
 
-| Agent             | Invoke When                                               |
-|-------------------|-----------------------------------------------------------|
+| Agent             | Invoke When                                                 |
+| ----------------- | ----------------------------------------------------------- |
 | researcher-expert | Technical complexity > 3, unknown libraries/APIs, needs POC |
-| ui-ux-designer    | Landing pages, visual redesigns, new UI components        |
+| ui-ux-designer    | Landing pages, visual redesigns, new UI components          |
 
 ---
 
@@ -118,6 +118,7 @@ team-leader MODE 1 --> MODE 2 (loop) --> MODE 3
 ### Why Skip PM
 
 Refactoring requirements are typically clear:
+
 - "Extract service from component"
 - "Optimize database queries"
 - "Consolidate duplicate code"
@@ -147,11 +148,11 @@ Git
 
 ### Developer Selection
 
-| Documentation Type | Developer        |
-|--------------------|------------------|
-| API docs           | backend-developer |
+| Documentation Type | Developer          |
+| ------------------ | ------------------ |
+| API docs           | backend-developer  |
 | Component docs     | frontend-developer |
-| CI/CD docs         | devops-engineer  |
+| CI/CD docs         | devops-engineer    |
 | General guides     | frontend-developer |
 
 ---
@@ -210,6 +211,7 @@ Phase 6: modernization-detector --> Creates future-enhancements.md
 ### DEVOPS Trigger Keywords
 
 Invoke DEVOPS strategy when task involves:
+
 - CI/CD pipelines, GitHub Actions, GitLab CI
 - Docker, Kubernetes, container orchestration
 - Terraform, CloudFormation, infrastructure-as-code
@@ -267,8 +269,8 @@ if exists(design_system_path):
 
 ### Creative Request Detection
 
-| User Says                         | Workflow                               |
-|-----------------------------------|----------------------------------------|
+| User Says                         | Workflow                                |
+| --------------------------------- | --------------------------------------- |
 | "Create landing page"             | Design check -> ui-ux -> content-writer |
 | "Design our homepage"             | Design check -> ui-ux -> content-writer |
 | "Marketing content for..."        | Design check -> content-writer          |
@@ -340,10 +342,12 @@ Orchestrator:
 ### Parallel vs Sequential Execution
 
 **Sequential (Default for Creative)**:
+
 - Design system MUST complete before content
 - Content informs implementation
 
 **Parallel (When Design Exists)**:
+
 - Multiple content pieces can be created in parallel
 - Different content types (blog + video) can run simultaneously
 
@@ -360,7 +364,7 @@ ui-ux-designer --> technical-content-writer --> frontend-developer
 ### Creative Output Locations
 
 | Agent                    | Output File                                                | Purpose                           |
-|--------------------------|------------------------------------------------------------|-----------------------------------|
+| ------------------------ | ---------------------------------------------------------- | --------------------------------- |
 | ui-ux-designer           | `.claude/skills/technical-content-writer/DESIGN-SYSTEM.md` | Design tokens, colors, typography |
 | ui-ux-designer           | `task-tracking/TASK_[ID]/visual-design-specification.md`   | Page-specific visual specs        |
 | technical-content-writer | `task-tracking/TASK_[ID]/content-specification.md`         | Content with design integration   |
@@ -380,6 +384,7 @@ ui-ux-designer --> technical-content-writer --> frontend-developer
 **Animation Patterns**: [Key effects to reference]
 
 Content writer should:
+
 - Reference DESIGN-SYSTEM.md for all visual specs
 - Use LANDING-PAGES.md templates with design integration
 - Include animation/effect specifications in content
@@ -390,11 +395,12 @@ Content writer should:
 ```markdown
 ## Content Handoff for Implementation
 
-**Content Spec**: task-tracking/TASK_[ID]/content-specification.md
+**Content Spec**: task-tracking/TASK\_[ID]/content-specification.md
 **Design System**: .claude/skills/technical-content-writer/DESIGN-SYSTEM.md
 **Assets Needed**: [List from asset briefs]
 
 Developer should:
+
 - Implement content following visual specs
 - Use design system tokens exactly
 - Generate/source assets from briefs

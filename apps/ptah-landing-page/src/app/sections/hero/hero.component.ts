@@ -95,7 +95,7 @@ export class HeroComponent {
    * Background parallax - moves at 30% scroll speed for depth effect
    * Creates the illusion of distance
    */
-  readonly backgroundParallaxConfig: ScrollAnimationConfig = {
+  public readonly backgroundParallaxConfig: ScrollAnimationConfig = {
     animation: 'parallax',
     speed: 0.3,
     scrub: 1.5,
@@ -105,7 +105,7 @@ export class HeroComponent {
    * Vignette intensity increases on scroll for dramatic effect
    * Opacity goes from 1 to 1.3 (slightly stronger) as user scrolls
    */
-  readonly vignetteScrollConfig: ScrollAnimationConfig = {
+  public readonly vignetteScrollConfig: ScrollAnimationConfig = {
     animation: 'custom',
     start: 'top top',
     end: 'bottom 60%',

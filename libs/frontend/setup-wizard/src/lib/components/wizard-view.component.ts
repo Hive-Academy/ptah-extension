@@ -34,7 +34,12 @@
  * @see SetupWizardStateService
  */
 
-import { Component, inject, ChangeDetectionStrategy, signal } from '@angular/core';
+import {
+  Component,
+  inject,
+  ChangeDetectionStrategy,
+  signal,
+} from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
 
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
@@ -65,64 +70,57 @@ type LicenseState = 'checking' | 'valid' | 'invalid';
   template: `
     <!-- License checking state -->
     @if (licenseState() === 'checking') {
-      <div class="hero min-h-screen bg-base-200">
-        <div class="hero-content text-center">
-          <div class="max-w-md">
-            <span class="loading loading-spinner loading-lg text-primary"></span>
-            <p class="mt-4 text-lg text-base-content/70">Verifying license...</p>
-          </div>
+    <div class="hero min-h-screen bg-base-200">
+      <div class="hero-content text-center">
+        <div class="max-w-md">
+          <span class="loading loading-spinner loading-lg text-primary"></span>
+          <p class="mt-4 text-lg text-base-content/70">Verifying license...</p>
         </div>
       </div>
+    </div>
     }
 
     <!-- Invalid license - show upsell -->
     @else if (licenseState() === 'invalid') {
-      <ptah-premium-upsell
-        [features]="premiumFeatures"
-        [errorMessage]="licenseError()"
-        (retry)="checkLicense()"
-      />
+    <ptah-premium-upsell
+      [features]="premiumFeatures"
+      [errorMessage]="licenseError()"
+      (retry)="checkLicense()"
+    />
     }
 
     <!-- Valid license - show wizard -->
     @else {
-      <div class="wizard-container h-full flex flex-col bg-base-100">
-        <!-- Progress indicator -->
-        <div class="wizard-progress p-4 border-b border-base-300">
-          <ul class="steps steps-horizontal w-full">
-            <li class="step" [class.step-primary]="stepIndex() >= 0">Welcome</li>
-            <li class="step" [class.step-primary]="stepIndex() >= 1">Scan</li>
-            <li class="step" [class.step-primary]="stepIndex() >= 2">Analysis</li>
-            <li class="step" [class.step-primary]="stepIndex() >= 3">Select</li>
-            <li class="step" [class.step-primary]="stepIndex() >= 4">Generate</li>
-            <li class="step" [class.step-primary]="stepIndex() >= 5">Complete</li>
-          </ul>
-        </div>
-
-        <!-- Step content -->
-        <div class="wizard-content flex-1 overflow-y-auto p-4">
-          @switch (currentStep()) {
-            @case ('welcome') {
-              <ptah-welcome />
-            }
-            @case ('scan') {
-              <ptah-scan-progress />
-            }
-            @case ('analysis') {
-              <ptah-analysis-results />
-            }
-            @case ('selection') {
-              <ptah-agent-selection />
-            }
-            @case ('generation') {
-              <ptah-generation-progress />
-            }
-            @case ('completion') {
-              <ptah-completion />
-            }
-          }
-        </div>
+    <div class="wizard-container h-full flex flex-col bg-base-100">
+      <!-- Progress indicator -->
+      <div class="wizard-progress p-4 border-b border-base-300">
+        <ul class="steps steps-horizontal w-full">
+          <li class="step" [class.step-primary]="stepIndex() >= 0">Welcome</li>
+          <li class="step" [class.step-primary]="stepIndex() >= 1">Scan</li>
+          <li class="step" [class.step-primary]="stepIndex() >= 2">Analysis</li>
+          <li class="step" [class.step-primary]="stepIndex() >= 3">Select</li>
+          <li class="step" [class.step-primary]="stepIndex() >= 4">Generate</li>
+          <li class="step" [class.step-primary]="stepIndex() >= 5">Complete</li>
+        </ul>
       </div>
+
+      <!-- Step content -->
+      <div class="wizard-content flex-1 overflow-y-auto p-4">
+        @switch (currentStep()) { @case ('welcome') {
+        <ptah-welcome />
+        } @case ('scan') {
+        <ptah-scan-progress />
+        } @case ('analysis') {
+        <ptah-analysis-results />
+        } @case ('selection') {
+        <ptah-agent-selection />
+        } @case ('generation') {
+        <ptah-generation-progress />
+        } @case ('completion') {
+        <ptah-completion />
+        } }
+      </div>
+    </div>
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
