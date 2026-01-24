@@ -18,11 +18,14 @@ export const environment = {
 
   /**
    * Paddle configuration (sandbox for development)
-   * TODO: Replace with real price IDs from Paddle dashboard
+   * @see docs/PADDLE_SETUP_SIMPLIFIED.md for pricing model details
    */
   paddle: {
+    /** Paddle environment: 'sandbox' for testing, 'production' for live */
     environment: 'sandbox' as const,
-    priceIdEarlyAdopter: 'pri_01jqbkwnq87xxxxxxxxx',
-    priceIdPro: 'pri_01jqbkwnq87yyyyyyyyy',
+    /** Price ID for Pro Monthly ($8/month) - from Paddle dashboard */
+    priceIdMonthly: 'pri_01jqbkwnq87xxxxxxxxx', // TODO: Replace with real Paddle price ID
+    /** Price ID for Pro Yearly ($80/year) - from Paddle dashboard */
+    priceIdYearly: 'pri_01jqbkwnq87yyyyyyyyy', // TODO: Replace with real Paddle price ID
   },
 };
