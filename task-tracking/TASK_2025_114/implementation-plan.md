@@ -8,17 +8,18 @@
 
 ### Libraries Discovered
 
-| Library | Purpose | Path | Key Exports |
-|---------|---------|------|-------------|
-| Angular HTTP | API calls | `@angular/common/http` | HttpClient, HttpInterceptorFn |
-| Angular Router | Navigation | `@angular/router` | Router, Routes, CanActivateFn |
-| Angular Signals | State management | `@angular/core` | signal, computed, effect |
-| DaisyUI | UI Components | Tailwind config | btn, alert, loading classes |
-| @hive-academy/angular-gsap | Animations | External | ViewportAnimationDirective |
+| Library                    | Purpose          | Path                   | Key Exports                   |
+| -------------------------- | ---------------- | ---------------------- | ----------------------------- |
+| Angular HTTP               | API calls        | `@angular/common/http` | HttpClient, HttpInterceptorFn |
+| Angular Router             | Navigation       | `@angular/router`      | Router, Routes, CanActivateFn |
+| Angular Signals            | State management | `@angular/core`        | signal, computed, effect      |
+| DaisyUI                    | UI Components    | Tailwind config        | btn, alert, loading classes   |
+| @hive-academy/angular-gsap | Animations       | External               | ViewportAnimationDirective    |
 
 ### Patterns Identified
 
 **Pattern 1: Service Architecture**
+
 - **Evidence**: `auth.service.ts:28-58`
 - **Components**: Injectable service with RxJS observables
 - **Conventions**:
@@ -27,6 +28,7 @@
   - HTTP calls return Observables with error handling
 
 **Pattern 2: Signal-Based State (Components)**
+
 - **Evidence**: `profile-page.component.ts:207-209`
 - **Components**: Angular signals for reactive state
 - **Conventions**:
@@ -35,27 +37,30 @@
   - Template reads via `signalName()`
 
 **Pattern 3: Environment Configuration**
+
 - **Evidence**: `environment.ts:1-29`, `environment.production.ts:1-27`
 - **Structure**: Typed configuration object with paddle namespace
 - **Conventions**: Separate files for dev/prod with identical structure
 
 **Pattern 4: API Interceptor**
+
 - **Evidence**: `api.interceptor.ts:18-35`
 - **Pattern**: Prepend base URL for `/api` and `/auth` routes
 - **Key**: Uses `withCredentials: true` for cookie auth
 
 **Pattern 5: Pricing Plan Interface**
+
 - **Evidence**: `pricing-plan.interface.ts:1-42`
 - **Fields**: name, tier, price, priceSubtext, priceId, features, ctaText, ctaAction
 
 ### Integration Points
 
-| Service/API | Purpose | Location | Interface |
-|-------------|---------|----------|-----------|
-| AuthService | User authentication state | `services/auth.service.ts` | `getCurrentUser()` returns Observable<AuthUser \| null> |
-| API Interceptor | Base URL prefixing | `interceptors/api.interceptor.ts` | Auto-prepends apiBaseUrl |
-| Environment Config | App configuration | `environments/environment.ts` | `environment.paddle.*` |
-| Paddle Webhook | Backend subscription handling | `POST /webhooks/paddle` | Already implemented (TASK_2025_112) |
+| Service/API        | Purpose                       | Location                          | Interface                                               |
+| ------------------ | ----------------------------- | --------------------------------- | ------------------------------------------------------- |
+| AuthService        | User authentication state     | `services/auth.service.ts`        | `getCurrentUser()` returns Observable<AuthUser \| null> |
+| API Interceptor    | Base URL prefixing            | `interceptors/api.interceptor.ts` | Auto-prepends apiBaseUrl                                |
+| Environment Config | App configuration             | `environments/environment.ts`     | `environment.paddle.*`                                  |
+| Paddle Webhook     | Backend subscription handling | `POST /webhooks/paddle`           | Already implemented (TASK_2025_112)                     |
 
 ---
 
@@ -65,12 +70,14 @@
 
 **Chosen Approach**: Hybrid Service Architecture with Signals
 **Rationale**:
+
 1. Matches existing `auth.service.ts` pattern for service structure
 2. Uses signals for UI state (per `profile-page.component.ts` pattern)
 3. Dynamic script loading to avoid blocking initial page load
 4. Environment-driven configuration (per existing `environment.ts` pattern)
 
 **Evidence**:
+
 - Service pattern: `auth.service.ts:28-58`
 - Signal pattern: `profile-page.component.ts:207-209`
 - Environment pattern: `environment.ts:23-28`
@@ -167,12 +174,14 @@ User clicks "Subscribe Monthly"
 **Evidence**: `environment.ts:23-28`, `environment.production.ts:22-26`
 
 **Responsibilities**:
+
 - Define Paddle environment (sandbox/production)
 - Store monthly price ID
 - Store yearly price ID
 - Optional: Store client token for enhanced features
 
 **Current Configuration** (needs update):
+
 ```typescript
 // environment.ts:23-28
 paddle: {
@@ -183,6 +192,7 @@ paddle: {
 ```
 
 **New Configuration**:
+
 ```typescript
 // Pattern source: environment.ts:23-28 (structure)
 // Updated field names per PADDLE_SETUP_SIMPLIFIED.md
@@ -197,12 +207,14 @@ paddle: {
 ```
 
 **Quality Requirements**:
+
 - Type safety via `as const` for environment literal
 - Clear documentation comments
 - Placeholder values with TODO for replacement
 - Production file must use `'production'` environment
 
 **Files Affected**:
+
 - `d:\projects\ptah-extension\apps\ptah-landing-page\src\environments\environment.ts` (MODIFY)
 - `d:\projects\ptah-extension\apps\ptah-landing-page\src\environments\environment.production.ts` (MODIFY)
 
@@ -214,10 +226,12 @@ paddle: {
 
 **Pattern**: Injectable Service with Signal State
 **Evidence**:
+
 - Service pattern: `auth.service.ts:28-58`
 - Signal state pattern: `profile-page.component.ts:207-209`
 
 **Responsibilities**:
+
 1. Dynamically load Paddle.js SDK from CDN
 2. Initialize Paddle with correct environment
 3. Provide reactive state via signals (isReady, isLoading, error)
@@ -226,6 +240,7 @@ paddle: {
 6. Retry logic for SDK loading failures (3 attempts)
 
 **Dependencies** (verified):
+
 - `@angular/core` - inject, Injectable, signal
 - `@angular/router` - Router (for navigation on success)
 - `./auth.service.ts` - AuthService (for customer email)
@@ -315,9 +330,7 @@ export class PaddleCheckoutService {
   public readonly error = this._error.asReadonly();
 
   // Computed: Can checkout if ready and not loading
-  public readonly canCheckout = computed(() =>
-    this._isReady() && !this._isLoading()
-  );
+  public readonly canCheckout = computed(() => this._isReady() && !this._isLoading());
 
   private initAttempts = 0;
   private scriptElement: HTMLScriptElement | null = null;
@@ -434,9 +447,7 @@ export class PaddleCheckoutService {
       setTimeout(() => this.loadScript(), delay);
     } else {
       this._isLoading.set(false);
-      this._error.set(
-        'Payment system temporarily unavailable. Please try again later.'
-      );
+      this._error.set('Payment system temporarily unavailable. Please try again later.');
     }
   }
 
@@ -465,6 +476,7 @@ export class PaddleCheckoutService {
 ```
 
 **Quality Requirements**:
+
 - Functional: SDK loads successfully from CDN
 - Functional: Checkout overlay opens with correct price ID
 - Functional: Customer email pre-filled when authenticated
@@ -474,6 +486,7 @@ export class PaddleCheckoutService {
 - Non-Functional: Graceful degradation if SDK fails
 
 **Files Affected**:
+
 - `d:\projects\ptah-extension\apps\ptah-landing-page\src\app\services\paddle-checkout.service.ts` (CREATE)
 
 ---
@@ -486,6 +499,7 @@ export class PaddleCheckoutService {
 **Evidence**: `pricing-grid.component.ts:1-147`
 
 **Responsibilities**:
+
 1. Inject PaddleCheckoutService and AuthService
 2. Initialize Paddle SDK on component init
 3. Source price IDs from environment config (not hardcoded)
@@ -494,6 +508,7 @@ export class PaddleCheckoutService {
 6. Display error state if Paddle unavailable
 
 **Dependencies** (verified):
+
 - `@angular/core` - inject, signal, OnInit
 - `@angular/router` - Router
 - `./paddle-checkout.service.ts` - PaddleCheckoutService
@@ -501,6 +516,7 @@ export class PaddleCheckoutService {
 - `../../environments/environment` - environment.paddle config
 
 **Current Implementation** (needs update):
+
 ```typescript
 // pricing-grid.component.ts:130-146
 public handleCtaClick(plan: PricingPlan): void {
@@ -514,6 +530,7 @@ public handleCtaClick(plan: PricingPlan): void {
 ```
 
 **Updated Implementation Pattern**:
+
 ```typescript
 // Pattern source: pricing-grid.component.ts (existing structure)
 // Pattern source: profile-page.component.ts:201-204 (service injection)
@@ -546,14 +563,7 @@ export class PricingGridComponent implements OnInit {
       tier: 'free',
       price: '$0',
       priceSubtext: '14 days',
-      features: [
-        'All Pro features included',
-        'No credit card required',
-        'Full SDK access',
-        'Workspace intelligence',
-        'Custom MCP tools',
-        'Session history',
-      ],
+      features: ['All Pro features included', 'No credit card required', 'Full SDK access', 'Workspace intelligence', 'Custom MCP tools', 'Session history'],
       ctaText: 'Start Free Trial',
       ctaAction: 'signup',
     },
@@ -563,13 +573,7 @@ export class PricingGridComponent implements OnInit {
       price: '$8',
       priceSubtext: 'per month',
       priceId: this.paddleConfig.priceIdMonthly,
-      features: [
-        'Everything in trial',
-        'Unlimited sessions',
-        'Priority support',
-        'Early access to features',
-        'Cancel anytime',
-      ],
+      features: ['Everything in trial', 'Unlimited sessions', 'Priority support', 'Early access to features', 'Cancel anytime'],
       ctaText: 'Subscribe Monthly',
       ctaAction: 'checkout',
       highlight: true,
@@ -581,13 +585,7 @@ export class PricingGridComponent implements OnInit {
       priceSubtext: 'per year',
       priceId: this.paddleConfig.priceIdYearly,
       savings: 'Save $16/year',
-      features: [
-        'Everything in monthly',
-        '~17% discount vs monthly',
-        'Billed annually',
-        'Priority support',
-        'Cancel anytime',
-      ],
+      features: ['Everything in monthly', '~17% discount vs monthly', 'Billed annually', 'Priority support', 'Cancel anytime'],
       ctaText: 'Subscribe Yearly',
       ctaAction: 'checkout',
       badge: 'plan_badge_early_adopter.png',
@@ -643,9 +641,7 @@ export class PricingGridComponent implements OnInit {
    * Check if price ID is a placeholder that needs replacement
    */
   private isPriceIdPlaceholder(priceId: string): boolean {
-    return priceId.includes('REPLACE') ||
-           priceId.includes('xxxxxxxxx') ||
-           priceId.includes('yyyyyyyyy');
+    return priceId.includes('REPLACE') || priceId.includes('xxxxxxxxx') || priceId.includes('yyyyyyyyy');
   }
 
   public retryPaddleInit(): void {
@@ -655,20 +651,22 @@ export class PricingGridComponent implements OnInit {
 ```
 
 **Template Updates** (add error display):
+
 ```html
 <!-- Add at top of template, after opening div -->
 @if (paddleError()) {
-  <div class="alert alert-warning mb-8 max-w-xl mx-auto">
-    <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-    </svg>
-    <span>{{ paddleError() }}</span>
-    <button class="btn btn-sm btn-secondary" (click)="retryPaddleInit()">Retry</button>
-  </div>
+<div class="alert alert-warning mb-8 max-w-xl mx-auto">
+  <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+  </svg>
+  <span>{{ paddleError() }}</span>
+  <button class="btn btn-sm btn-secondary" (click)="retryPaddleInit()">Retry</button>
+</div>
 }
 ```
 
 **Quality Requirements**:
+
 - Functional: Price IDs sourced from environment config
 - Functional: Checkout opens with correct price ID
 - Functional: Per-plan loading state tracked
@@ -676,6 +674,7 @@ export class PricingGridComponent implements OnInit {
 - Non-Functional: No hardcoded price IDs in component
 
 **Files Affected**:
+
 - `d:\projects\ptah-extension\apps\ptah-landing-page\src\app\pages\pricing\components\pricing-grid.component.ts` (MODIFY)
 
 ---
@@ -688,6 +687,7 @@ export class PricingGridComponent implements OnInit {
 **Evidence**: `plan-card.component.ts:1-115`
 
 **Responsibilities**:
+
 1. Accept `isLoading` input for button state
 2. Display spinner during checkout loading
 3. Disable button when loading or price ID invalid
@@ -695,10 +695,12 @@ export class PricingGridComponent implements OnInit {
 5. Visual feedback for disabled state
 
 **Dependencies** (verified):
+
 - `@angular/core` - input, output
 - `../models/pricing-plan.interface.ts` - PricingPlan
 
 **Current Implementation** (needs update):
+
 ```typescript
 // plan-card.component.ts:92-101
 <button
@@ -712,6 +714,7 @@ export class PricingGridComponent implements OnInit {
 ```
 
 **Updated Implementation Pattern**:
+
 ```typescript
 // Pattern source: plan-card.component.ts (existing structure)
 // Enhanced per requirements: task-description.md:229-259
@@ -733,9 +736,7 @@ export class PlanCardComponent {
     if (p.ctaAction !== 'checkout') return false;
     if (!p.priceId) return true;
     // Check for placeholder patterns
-    if (p.priceId.includes('REPLACE') ||
-        p.priceId.includes('xxxxxxxxx') ||
-        p.priceId.includes('yyyyyyyyy')) {
+    if (p.priceId.includes('REPLACE') || p.priceId.includes('xxxxxxxxx') || p.priceId.includes('yyyyyyyyy')) {
       return true;
     }
     return false;
@@ -744,35 +745,24 @@ export class PlanCardComponent {
 ```
 
 **Template Updates**:
+
 ```html
 <!-- CTA Button - Enhanced with loading state -->
-<button
-  class="btn w-full transition-all duration-300"
-  [class.btn-secondary]="plan().highlight"
-  [class.btn-outline]="!plan().highlight"
-  [class.btn-disabled]="isButtonDisabled()"
-  [disabled]="isButtonDisabled()"
-  [attr.aria-busy]="isLoading()"
-  [attr.aria-disabled]="isButtonDisabled()"
-  (click)="!isButtonDisabled() && ctaClick.emit(plan())"
->
+<button class="btn w-full transition-all duration-300" [class.btn-secondary]="plan().highlight" [class.btn-outline]="!plan().highlight" [class.btn-disabled]="isButtonDisabled()" [disabled]="isButtonDisabled()" [attr.aria-busy]="isLoading()" [attr.aria-disabled]="isButtonDisabled()" (click)="!isButtonDisabled() && ctaClick.emit(plan())">
   @if (isLoading()) {
-    <span class="loading loading-spinner loading-sm"></span>
-    <span>Processing...</span>
-  } @else {
-    {{ plan().ctaText }}
-  }
+  <span class="loading loading-spinner loading-sm"></span>
+  <span>Processing...</span>
+  } @else { {{ plan().ctaText }} }
 </button>
 
 <!-- Tooltip for disabled state (when not loading) -->
 @if (isButtonDisabled() && !isLoading() && plan().ctaAction === 'checkout') {
-  <div class="text-center text-xs text-base-content/50 mt-2">
-    Checkout temporarily unavailable
-  </div>
+<div class="text-center text-xs text-base-content/50 mt-2">Checkout temporarily unavailable</div>
 }
 ```
 
 **Quality Requirements**:
+
 - Functional: Loading spinner displayed during checkout
 - Functional: Button disabled when loading or invalid price ID
 - Functional: "Processing..." text during loading
@@ -780,6 +770,7 @@ export class PlanCardComponent {
 - Non-Functional: Focus returns to button after checkout closes
 
 **Files Affected**:
+
 - `d:\projects\ptah-extension\apps\ptah-landing-page\src\app\pages\pricing\components\plan-card.component.ts` (MODIFY)
 
 ---
@@ -792,10 +783,12 @@ export class PlanCardComponent {
 **Evidence**: `pricing-plan.interface.ts:1-42`
 
 **Responsibilities**:
+
 1. Add `isCheckoutLoading` optional field
 2. Maintain backward compatibility
 
 **Implementation Pattern**:
+
 ```typescript
 // pricing-plan.interface.ts - Add new field
 export interface PricingPlan {
@@ -811,6 +804,7 @@ export interface PricingPlan {
 **Decision**: NO CHANGE to interface. Loading state tracked via `loadingPlanName` signal in `pricing-grid.component.ts`.
 
 **Files Affected**:
+
 - None (loading state tracked in component, not interface)
 
 ---
@@ -819,13 +813,13 @@ export interface PricingPlan {
 
 ### Integration Points
 
-| Integration | How Components Connect | Pattern | Evidence |
-|-------------|------------------------|---------|----------|
-| PaddleCheckoutService -> Paddle.js | Dynamic script injection | Script loading pattern | Standard browser API |
-| pricing-grid -> PaddleCheckoutService | Angular DI injection | `inject()` function | `auth.service.ts:30` |
-| pricing-grid -> AuthService | Angular DI injection | `inject()` function | `profile-page.component.ts:203` |
-| plan-card -> pricing-grid | Input/Output binding | `input()`, `output()` | `plan-card.component.ts:113-114` |
-| Environment -> Components | Direct import | Module import | `api.interceptor.ts:2` |
+| Integration                           | How Components Connect   | Pattern                | Evidence                         |
+| ------------------------------------- | ------------------------ | ---------------------- | -------------------------------- |
+| PaddleCheckoutService -> Paddle.js    | Dynamic script injection | Script loading pattern | Standard browser API             |
+| pricing-grid -> PaddleCheckoutService | Angular DI injection     | `inject()` function    | `auth.service.ts:30`             |
+| pricing-grid -> AuthService           | Angular DI injection     | `inject()` function    | `profile-page.component.ts:203`  |
+| plan-card -> pricing-grid             | Input/Output binding     | `input()`, `output()`  | `plan-card.component.ts:113-114` |
+| Environment -> Components             | Direct import            | Module import          | `api.interceptor.ts:2`           |
 
 ### Data Flow
 
@@ -927,22 +921,26 @@ export interface PricingPlan {
 ### Non-Functional Requirements
 
 **Performance**:
+
 - Paddle.js loads async, doesn't block page render
 - Checkout overlay appears within 500ms of button click
 - Service adds < 5KB to main bundle (SDK loaded separately)
 
 **Security**:
+
 - No API keys or secrets in frontend code
 - Paddle handles all payment data (PCI compliance)
 - All SDK requests over HTTPS
 - Price IDs validated before checkout
 
 **Reliability**:
+
 - 3 retry attempts with exponential backoff for SDK loading
 - Graceful degradation: pricing page works without Paddle (disabled buttons)
 - Error states clearly communicated to user
 
 **Accessibility**:
+
 - Loading states have `aria-busy` attribute
 - Disabled buttons have `aria-disabled` attribute
 - Focus management after checkout closes
@@ -951,14 +949,14 @@ export interface PricingPlan {
 
 All implementations must follow patterns verified from codebase:
 
-| Pattern | Verified At | Must Follow |
-|---------|-------------|-------------|
-| Service with `providedIn: 'root'` | `auth.service.ts:28` | Yes |
-| Signal state in services | `profile-page.component.ts:207` | Yes |
-| `inject()` for DI | `auth.service.ts:30` | Yes |
-| Environment config import | `api.interceptor.ts:2` | Yes |
-| OnPush change detection | `plan-card.component.ts:24` | Yes |
-| DaisyUI button classes | `plan-card.component.ts:93-95` | Yes |
+| Pattern                           | Verified At                     | Must Follow |
+| --------------------------------- | ------------------------------- | ----------- |
+| Service with `providedIn: 'root'` | `auth.service.ts:28`            | Yes         |
+| Signal state in services          | `profile-page.component.ts:207` | Yes         |
+| `inject()` for DI                 | `auth.service.ts:30`            | Yes         |
+| Environment config import         | `api.interceptor.ts:2`          | Yes         |
+| OnPush change detection           | `plan-card.component.ts:24`     | Yes         |
+| DaisyUI button classes            | `plan-card.component.ts:93-95`  | Yes         |
 
 ---
 
@@ -969,6 +967,7 @@ All implementations must follow patterns verified from codebase:
 **Recommended Developer**: frontend-developer
 
 **Rationale**:
+
 - 100% Angular/TypeScript work
 - UI component modifications
 - Browser API integration (script loading)
@@ -991,9 +990,11 @@ All implementations must follow patterns verified from codebase:
 ### Files Affected Summary
 
 **CREATE**:
+
 - `d:\projects\ptah-extension\apps\ptah-landing-page\src\app\services\paddle-checkout.service.ts`
 
 **MODIFY**:
+
 - `d:\projects\ptah-extension\apps\ptah-landing-page\src\environments\environment.ts`
 - `d:\projects\ptah-extension\apps\ptah-landing-page\src\environments\environment.production.ts`
 - `d:\projects\ptah-extension\apps\ptah-landing-page\src\app\pages\pricing\components\pricing-grid.component.ts`
@@ -1004,17 +1005,20 @@ All implementations must follow patterns verified from codebase:
 **Before Implementation, Developer Must Verify**:
 
 1. **All imports exist in codebase**:
+
    - `signal`, `computed`, `inject` from `@angular/core`
    - `Router` from `@angular/router`
    - `environment` from `../../environments/environment`
    - `AuthService` from `./auth.service.ts`
 
 2. **All patterns verified from examples**:
+
    - Service pattern: `auth.service.ts:28-58`
    - Signal pattern: `profile-page.component.ts:207-209`
    - Input/Output pattern: `plan-card.component.ts:113-114`
 
 3. **Paddle.js API verified**:
+
    - `Paddle.Initialize()` - SDK initialization
    - `Paddle.Checkout.open()` - Opens overlay
    - `Paddle.Checkout.close()` - Closes overlay
@@ -1042,27 +1046,27 @@ All implementations must follow patterns verified from codebase:
 
 ### Unit Testing
 
-| Component | Test Focus |
-|-----------|------------|
+| Component             | Test Focus                                        |
+| --------------------- | ------------------------------------------------- |
 | PaddleCheckoutService | Script loading, state transitions, error handling |
-| pricing-grid | CTA click handling, loading state, error display |
-| plan-card | Button disabled states, loading display |
+| pricing-grid          | CTA click handling, loading state, error display  |
+| plan-card             | Button disabled states, loading display           |
 
 ### Integration Testing
 
-| Flow | Steps |
-|------|-------|
+| Flow                | Steps                                                                    |
+| ------------------- | ------------------------------------------------------------------------ |
 | Checkout Happy Path | Click subscribe -> Paddle loads -> Overlay opens -> Complete -> Redirect |
-| Checkout Cancel | Click subscribe -> Overlay opens -> Close -> Stay on page |
-| SDK Failure | Block CDN -> Error displayed -> Retry works |
+| Checkout Cancel     | Click subscribe -> Overlay opens -> Close -> Stay on page                |
+| SDK Failure         | Block CDN -> Error displayed -> Retry works                              |
 
 ### E2E Testing (Sandbox)
 
-| Scenario | Test Card | Expected |
-|----------|-----------|----------|
+| Scenario           | Test Card           | Expected             |
+| ------------------ | ------------------- | -------------------- |
 | Successful payment | 4242 4242 4242 4242 | Redirect to /profile |
-| Card declined | 4000 0000 0000 0002 | Error in overlay |
-| Cancel checkout | N/A | Stay on /pricing |
+| Card declined      | 4000 0000 0000 0002 | Error in overlay     |
+| Cancel checkout    | N/A                 | Stay on /pricing     |
 
 ---
 

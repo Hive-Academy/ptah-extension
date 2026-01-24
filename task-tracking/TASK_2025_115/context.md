@@ -15,6 +15,7 @@
 ### Affected Components
 
 1. **Primary Target**: `libs/backend/agent-generation/`
+
    - Build issues need to be identified and resolved
    - Setup wizard service requires decomposition
 
@@ -33,6 +34,7 @@
 ### Strategy Rationale
 
 Using **REFACTORING** strategy because:
+
 - Requirements are clear: fix build + decompose service
 - Architecture planning needed to determine service boundaries
 - No new features, pure code quality improvement

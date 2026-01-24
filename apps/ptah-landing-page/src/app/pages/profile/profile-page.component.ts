@@ -183,7 +183,11 @@ import {
         <!-- Actions -->
         <div class="mt-8">
           <a routerLink="/pricing" class="btn btn-outline btn-secondary w-full">
-            {{ license()?.plan === 'free' ? 'View Pricing Plans' : 'Manage Subscription' }}
+            {{
+              license()?.plan === 'free'
+                ? 'View Pricing Plans'
+                : 'Manage Subscription'
+            }}
           </a>
         </div>
       </div>

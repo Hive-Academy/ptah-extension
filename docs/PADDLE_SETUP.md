@@ -13,11 +13,13 @@ This guide walks you through setting up Paddle Billing v2 for the Ptah license s
 ## Step 1: Create Paddle Account
 
 ### Sandbox (Testing)
+
 1. Go to https://sandbox-vendors.paddle.com/
 2. Create account or sign in
 3. Complete business profile setup
 
 ### Production (Live)
+
 1. Go to https://vendors.paddle.com/
 2. Create account or sign in
 3. Complete business verification (required before going live)
@@ -114,6 +116,7 @@ This guide walks you through setting up Paddle Billing v2 for the Ptah license s
 Select the following events (critical for license system):
 
 **Subscription Events** (required):
+
 - ✅ `subscription.created` - New subscription purchased
 - ✅ `subscription.activated` - Subscription became active (PRIMARY event)
 - ✅ `subscription.updated` - Plan change or renewal
@@ -123,6 +126,7 @@ Select the following events (critical for license system):
 - ✅ `subscription.resumed` - Subscription resumed
 
 **Optional Events** (for future use):
+
 - `transaction.completed` - One-time purchases
 - `transaction.payment_failed` - Failed payments
 
@@ -157,6 +161,7 @@ ngrok http 3000
 ```
 
 **Test the webhook**:
+
 1. Go to **Developer Tools** → **Webhooks** → Your destination
 2. Click **"Send test event"**
 3. Select `subscription.activated`
@@ -283,17 +288,20 @@ async unmarshalWebhook(signature: string, rawBody: string): Promise<EventEntity 
 ### 8.2 Test End-to-End Flow
 
 1. **Start Backend**:
+
    ```bash
    cd apps/ptah-license-server
    npm run dev
    ```
 
 2. **Start Frontend**:
+
    ```bash
    npx nx serve ptah-landing-page
    ```
 
 3. **Send Test Event** from Paddle dashboard:
+
    - Go to **Developer Tools** → **Webhooks** → Your destination
    - Click **"Send test event"**
    - Select `subscription.activated`
@@ -311,6 +319,7 @@ async unmarshalWebhook(signature: string, rawBody: string): Promise<EventEntity 
 Before going live with production Paddle:
 
 ### Backend
+
 - [ ] Replace sandbox API key with production key (`pdl_live_`)
 - [ ] Update `NODE_ENV=production` in `.env`
 - [ ] Verify webhook URL is HTTPS and publicly accessible
@@ -319,12 +328,14 @@ Before going live with production Paddle:
 - [ ] Set up database backups
 
 ### Frontend
+
 - [ ] Replace sandbox price IDs with production price IDs
 - [ ] Update `environment.production.ts` with production API URL
 - [ ] Test checkout flow on staging environment
 - [ ] Verify email delivery (SendGrid production)
 
 ### Paddle Dashboard
+
 - [ ] Complete business verification
 - [ ] Add payment methods (bank account for payouts)
 - [ ] Configure tax settings (Paddle handles this)
@@ -332,6 +343,7 @@ Before going live with production Paddle:
 - [ ] Enable production mode
 
 ### Security
+
 - [ ] Rotate all secrets (JWT_SECRET, ADMIN_API_KEY)
 - [ ] Enable HTTPS for license server (Let's Encrypt on DigitalOcean)
 - [ ] Configure CORS properly
@@ -347,6 +359,7 @@ Before going live with production Paddle:
 **Cause**: Signature verification failed
 
 **Fix**:
+
 1. Verify `PADDLE_WEBHOOK_SECRET` matches Paddle dashboard
 2. Check backend logs for signature mismatch
 3. Ensure raw body is preserved (configured in `main.ts`)
@@ -357,6 +370,7 @@ Before going live with production Paddle:
 **Cause**: Webhook not received or event handler failed
 
 **Fix**:
+
 1. Check Paddle dashboard → Webhooks → Event log
 2. Verify webhook URL is correct and accessible
 3. Check backend logs for errors in `paddle.service.ts`
@@ -368,6 +382,7 @@ Before going live with production Paddle:
 **Cause**: Frontend using old/wrong price ID
 
 **Fix**:
+
 1. Verify price IDs in `pricing-grid.component.ts`
 2. Clear browser cache
 3. Rebuild frontend: `npx nx build ptah-landing-page`
@@ -378,6 +393,7 @@ Before going live with production Paddle:
 **Cause**: Database operation too slow
 
 **Fix**:
+
 1. Add database indexes (already configured in Prisma schema)
 2. Use transactions for atomic operations (already implemented)
 3. Offload email sending to background job queue
@@ -388,6 +404,7 @@ Before going live with production Paddle:
 ## Environment Variables Reference
 
 **Backend** (`apps/ptah-license-server/.env.local`):
+
 ```bash
 PADDLE_API_KEY=pdl_sbox_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 PADDLE_WEBHOOK_SECRET=pdl_ntfset_XXXXXXXXXXXXXXXXXXXXXXXX
@@ -396,6 +413,7 @@ PADDLE_PRICE_ID_PRO=pri_YYYYYYYYYYYYYYYYYYYYYYYY
 ```
 
 **Frontend** (`apps/ptah-landing-page/src/environments/environment.ts`):
+
 ```typescript
 paddle: {
   environment: 'sandbox' as const,
@@ -428,11 +446,13 @@ paddle: {
 After Paddle setup is complete:
 
 1. **Implement Paddle Checkout Integration** (frontend)
+
    - Add Paddle.js script to index.html
    - Implement checkout initiation in `pricing-grid.component.ts`
    - Handle success/error callbacks
 
 2. **Test Subscription Lifecycle**
+
    - Create subscription
    - Update subscription (upgrade/downgrade)
    - Cancel subscription

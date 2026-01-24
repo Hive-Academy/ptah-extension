@@ -17,7 +17,8 @@ import { environment } from '../../environments/environment';
  */
 export const apiInterceptor: HttpInterceptorFn = (req, next) => {
   // Only intercept API and auth requests
-  const isApiRequest = req.url.startsWith('/api') || req.url.startsWith('/auth');
+  const isApiRequest =
+    req.url.startsWith('/api') || req.url.startsWith('/auth');
 
   if (!isApiRequest) {
     return next(req);

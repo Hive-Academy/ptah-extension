@@ -168,33 +168,39 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                   </div>
 
                   <!-- Retry button for failed items -->
-                  @if (item.status === 'error') {
-                    @if (canRetry(item.id)) {
-                    <button
-                      class="btn btn-error btn-sm"
-                      (click)="onRetryItem(item.id)"
-                      [attr.aria-label]="'Retry ' + item.name + ' (' + getRemainingRetries(item.id) + ' attempts remaining)'"
+                  @if (item.status === 'error') { @if (canRetry(item.id)) {
+                  <button
+                    class="btn btn-error btn-sm"
+                    (click)="onRetryItem(item.id)"
+                    [attr.aria-label]="
+                      'Retry ' +
+                      item.name +
+                      ' (' +
+                      getRemainingRetries(item.id) +
+                      ' attempts remaining)'
+                    "
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
                     >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        class="h-4 w-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                        />
-                      </svg>
-                      Retry ({{ getRemainingRetries(item.id) }} left)
-                    </button>
-                    } @else {
-                    <span class="text-error text-sm font-medium">Max retries reached</span>
-                    }
-                  }
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
+                    </svg>
+                    Retry ({{ getRemainingRetries(item.id) }} left)
+                  </button>
+                  } @else {
+                  <span class="text-error text-sm font-medium"
+                    >Max retries reached</span
+                  >
+                  } }
                 </div>
               </div>
             </div>
@@ -290,33 +296,39 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                   </div>
 
                   <!-- Retry button for failed items -->
-                  @if (item.status === 'error') {
-                    @if (canRetry(item.id)) {
-                    <button
-                      class="btn btn-error btn-sm"
-                      (click)="onRetryItem(item.id)"
-                      [attr.aria-label]="'Retry ' + item.name + ' (' + getRemainingRetries(item.id) + ' attempts remaining)'"
+                  @if (item.status === 'error') { @if (canRetry(item.id)) {
+                  <button
+                    class="btn btn-error btn-sm"
+                    (click)="onRetryItem(item.id)"
+                    [attr.aria-label]="
+                      'Retry ' +
+                      item.name +
+                      ' (' +
+                      getRemainingRetries(item.id) +
+                      ' attempts remaining)'
+                    "
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
                     >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        class="h-4 w-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                        />
-                      </svg>
-                      Retry ({{ getRemainingRetries(item.id) }} left)
-                    </button>
-                    } @else {
-                    <span class="text-error text-sm font-medium">Max retries reached</span>
-                    }
-                  }
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
+                    </svg>
+                    Retry ({{ getRemainingRetries(item.id) }} left)
+                  </button>
+                  } @else {
+                  <span class="text-error text-sm font-medium"
+                    >Max retries reached</span
+                  >
+                  } }
                 </div>
               </div>
             </div>
@@ -412,33 +424,39 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                   </div>
 
                   <!-- Retry button for failed items -->
-                  @if (item.status === 'error') {
-                    @if (canRetry(item.id)) {
-                    <button
-                      class="btn btn-error btn-sm"
-                      (click)="onRetryItem(item.id)"
-                      [attr.aria-label]="'Retry ' + item.name + ' (' + getRemainingRetries(item.id) + ' attempts remaining)'"
+                  @if (item.status === 'error') { @if (canRetry(item.id)) {
+                  <button
+                    class="btn btn-error btn-sm"
+                    (click)="onRetryItem(item.id)"
+                    [attr.aria-label]="
+                      'Retry ' +
+                      item.name +
+                      ' (' +
+                      getRemainingRetries(item.id) +
+                      ' attempts remaining)'
+                    "
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
                     >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        class="h-4 w-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                        />
-                      </svg>
-                      Retry ({{ getRemainingRetries(item.id) }} left)
-                    </button>
-                    } @else {
-                    <span class="text-error text-sm font-medium">Max retries reached</span>
-                    }
-                  }
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
+                    </svg>
+                    Retry ({{ getRemainingRetries(item.id) }} left)
+                  </button>
+                  } @else {
+                  <span class="text-error text-sm font-medium"
+                    >Max retries reached</span
+                  >
+                  } }
                 </div>
               </div>
             </div>
@@ -649,7 +667,10 @@ export class GenerationProgressComponent implements OnDestroy {
    */
   protected canRetry(itemId: string): boolean {
     const count = this.retryCounts.get(itemId) ?? 0;
-    return count < GenerationProgressComponent.MAX_RETRIES && !this.pendingRetries.has(itemId);
+    return (
+      count < GenerationProgressComponent.MAX_RETRIES &&
+      !this.pendingRetries.has(itemId)
+    );
   }
 
   /**
@@ -693,8 +714,9 @@ export class GenerationProgressComponent implements OnDestroy {
     this.retryCounts.set(itemId, currentRetries + 1);
 
     // Apply exponential backoff delay: 1s, 2s, 4s
-    const delay = GenerationProgressComponent.BASE_DELAY_MS * Math.pow(2, currentRetries);
-    await new Promise(resolve => setTimeout(resolve, delay));
+    const delay =
+      GenerationProgressComponent.BASE_DELAY_MS * Math.pow(2, currentRetries);
+    await new Promise((resolve) => setTimeout(resolve, delay));
 
     // Reset item status to pending
     this.wizardState.retryGenerationItem(itemId);
@@ -705,13 +727,17 @@ export class GenerationProgressComponent implements OnDestroy {
     } catch (error) {
       // Update item with error status and remaining retries info
       const message = error instanceof Error ? error.message : 'Retry failed';
-      const retriesLeft = GenerationProgressComponent.MAX_RETRIES - (currentRetries + 1);
+      const retriesLeft =
+        GenerationProgressComponent.MAX_RETRIES - (currentRetries + 1);
 
       this.wizardState.updateSkillGenerationItem(itemId, {
         status: 'error',
-        errorMessage: retriesLeft > 0
-          ? `${message} (${retriesLeft} ${retriesLeft === 1 ? 'retry' : 'retries'} remaining)`
-          : `${message}. Maximum retries reached.`,
+        errorMessage:
+          retriesLeft > 0
+            ? `${message} (${retriesLeft} ${
+                retriesLeft === 1 ? 'retry' : 'retries'
+              } remaining)`
+            : `${message}. Maximum retries reached.`,
       });
     } finally {
       this.pendingRetries.delete(itemId);

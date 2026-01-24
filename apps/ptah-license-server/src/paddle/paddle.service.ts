@@ -46,7 +46,9 @@ export class PaddleService {
     if (apiKey) {
       this.paddle = new Paddle(apiKey, { environment });
       this.logger.log(
-        `Paddle SDK initialized in ${environment === Environment.production ? 'production' : 'sandbox'} mode`
+        `Paddle SDK initialized in ${
+          environment === Environment.production ? 'production' : 'sandbox'
+        } mode`
       );
     } else {
       this.logger.warn(
@@ -166,7 +168,9 @@ export class PaddleService {
 
     try {
       // Parse timestamp from signature header: ts=1234567890;h1=abc123...
-      const timestampPart = signature.split(';').find((p) => p.startsWith('ts='));
+      const timestampPart = signature
+        .split(';')
+        .find((p) => p.startsWith('ts='));
 
       if (!timestampPart) {
         this.logger.warn('Invalid signature format - missing timestamp');
@@ -193,7 +197,9 @@ export class PaddleService {
       if (!isWithinWindow) {
         this.logger.warn(
           `Webhook timestamp outside acceptable window. ` +
-            `Timestamp: ${timestamp}, Now: ${now}, Diff: ${Math.abs(now - timestamp)}s`
+            `Timestamp: ${timestamp}, Now: ${now}, Diff: ${Math.abs(
+              now - timestamp
+            )}s`
         );
       }
 
@@ -234,7 +240,9 @@ export class PaddleService {
     }
 
     if (!this.paddle) {
-      this.logger.error('Paddle SDK not initialized - cannot unmarshal webhook');
+      this.logger.error(
+        'Paddle SDK not initialized - cannot unmarshal webhook'
+      );
       return null;
     }
 

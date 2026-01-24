@@ -446,7 +446,8 @@ export class AgentSelectionComponent {
   ): AgentRecommendation[] {
     if (category === 'other') {
       return this.sortedRecommendations().filter(
-        (agent) => !this.knownCategories.includes(agent.category as AgentCategory)
+        (agent) =>
+          !this.knownCategories.includes(agent.category as AgentCategory)
       );
     }
     return this.sortedRecommendations().filter(
@@ -625,11 +626,15 @@ export class AgentSelectionComponent {
         const selectedAgents = this.buildSelectedAgents();
 
         // Submit selection and verify acknowledgment
-        const response = await this.wizardRpc.submitAgentSelection(selectedAgents);
+        const response = await this.wizardRpc.submitAgentSelection(
+          selectedAgents
+        );
 
         // Verify backend acknowledgment before transitioning
         if (!response?.success) {
-          throw new Error(response?.error ?? 'Backend did not acknowledge selection');
+          throw new Error(
+            response?.error ?? 'Backend did not acknowledge selection'
+          );
         }
 
         return response;
@@ -637,7 +642,10 @@ export class AgentSelectionComponent {
       'Starting agent generation',
       (error) => {
         this.errorMessage.set(error.message);
-        console.error('Agent generation failed:', error.details ?? error.message);
+        console.error(
+          'Agent generation failed:',
+          error.details ?? error.message
+        );
       }
     );
 

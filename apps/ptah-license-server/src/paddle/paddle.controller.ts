@@ -100,7 +100,9 @@ export class PaddleController {
     // Step 3: Verify webhook timestamp (replay attack prevention)
     const isTimestampValid = this.paddleService.verifyTimestamp(signature);
     if (!isTimestampValid) {
-      this.logger.warn('Webhook timestamp outside acceptable window - possible replay attack');
+      this.logger.warn(
+        'Webhook timestamp outside acceptable window - possible replay attack'
+      );
       throw new UnauthorizedException('Webhook timestamp expired');
     }
 

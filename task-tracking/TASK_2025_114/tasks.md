@@ -17,11 +17,11 @@
 
 ### Risks Identified
 
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| Environment config uses old naming (priceIdEarlyAdopter/priceIdPro) | LOW | Task 1.1 updates to priceIdMonthly/priceIdYearly before service creation |
-| Placeholder price IDs in production could cause checkout failures | MEDIUM | Placeholder detection logic added to pricing-grid and plan-card |
-| Paddle SDK load failure blocks checkout | LOW | Retry logic with exponential backoff (3 attempts) + graceful degradation |
+| Risk                                                                | Severity | Mitigation                                                               |
+| ------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------ |
+| Environment config uses old naming (priceIdEarlyAdopter/priceIdPro) | LOW      | Task 1.1 updates to priceIdMonthly/priceIdYearly before service creation |
+| Placeholder price IDs in production could cause checkout failures   | MEDIUM   | Placeholder detection logic added to pricing-grid and plan-card          |
+| Paddle SDK load failure blocks checkout                             | LOW      | Retry logic with exponential backoff (3 attempts) + graceful degradation |
 
 ### Edge Cases to Handle
 
@@ -46,6 +46,7 @@
 **Pattern to Follow**: environment.ts:23-27 (existing paddle config structure)
 
 **Quality Requirements**:
+
 - Rename `priceIdEarlyAdopter` to `priceIdMonthly`
 - Rename `priceIdPro` to `priceIdYearly`
 - Add documentation comments explaining each field
@@ -53,6 +54,7 @@
 - Production: Use production environment with REPLACE markers
 
 **Implementation Details**:
+
 - Keep `as const` for environment literal type safety
 - Preserve existing `apiBaseUrl` field
 - Add TODO comments for price ID replacement
@@ -67,6 +69,7 @@
 **Pattern to Follow**: auth.service.ts:28-58 (service structure), profile-page.component.ts:207-209 (signal state)
 
 **Quality Requirements**:
+
 - Injectable service with providedIn: 'root'
 - Signal-based reactive state (isReady, isLoading, error)
 - Dynamic Paddle.js script loading from CDN
@@ -79,6 +82,7 @@
 - TypeScript interfaces for Paddle.js API (PaddleInitOptions, PaddleCheckoutOptions, PaddleEvent)
 
 **Implementation Details**:
+
 - Imports: Injectable, signal, inject, computed from @angular/core
 - Imports: Router from @angular/router
 - Imports: environment from ../../environments/environment
@@ -89,6 +93,7 @@
 ---
 
 **Batch 1 Verification**:
+
 - Both environment files updated with new naming
 - PaddleCheckoutService created with full implementation
 - Build passes: `npx nx build ptah-landing-page`
@@ -110,6 +115,7 @@
 **Pattern to Follow**: pricing-grid.component.ts:52-54 (existing inject pattern)
 
 **Quality Requirements**:
+
 - Inject PaddleCheckoutService and AuthService
 - Initialize Paddle SDK in ngOnInit lifecycle
 - Source price IDs from environment.paddle config (not hardcoded)
@@ -120,6 +126,7 @@
 - Add retryPaddleInit() method for error recovery
 
 **Implementation Details**:
+
 - Imports: PaddleCheckoutService from ../../../services/paddle-checkout.service
 - Imports: AuthService from ../../../services/auth.service
 - Imports: environment from ../../../../environments/environment
@@ -137,6 +144,7 @@
 **Pattern to Follow**: plan-card.component.ts:112-114 (existing input/output pattern)
 
 **Quality Requirements**:
+
 - Add isLoading input for button state
 - Display DaisyUI loading spinner during checkout
 - Disable button when loading or price ID invalid/placeholder
@@ -146,6 +154,7 @@
 - Prevent click propagation when disabled
 
 **Implementation Details**:
+
 - Imports: input from @angular/core (already present)
 - Add isLoading input with default false
 - Add isButtonDisabled() method checking loading state and placeholder patterns
@@ -156,6 +165,7 @@
 ---
 
 **Batch 2 Verification**:
+
 - pricing-grid.component.ts uses environment config for price IDs
 - plan-card.component.ts shows loading states correctly
 - Template error display works with retry
@@ -178,6 +188,7 @@
 **Pattern to Follow**: DaisyUI alert component pattern
 
 **Quality Requirements**:
+
 - Add error alert at top of template when paddleError() is truthy
 - Include warning icon SVG
 - Display error message from paddleError()
@@ -186,6 +197,7 @@
 - Center alert with max-w-xl mx-auto
 
 **Implementation Details**:
+
 - Add @if (paddleError()) block at template start
 - Use DaisyUI alert alert-warning mb-8 classes
 - Warning SVG icon from DaisyUI docs
@@ -200,11 +212,13 @@
 **Pattern to Follow**: pricing-grid.component.ts:38 (existing input binding)
 
 **Quality Requirements**:
+
 - Bind isLoading input on ptah-plan-card
 - Calculate per-plan loading state using loadingPlanName and paddleService.isLoading
 - Add isPlanLoading(planName) method if not already present
 
 **Implementation Details**:
+
 - Update template: [isLoading]="isPlanLoading(plan.name)"
 - Ensure isPlanLoading() method exists from Task 2.1
 
@@ -217,6 +231,7 @@
 **Spec Reference**: implementation-plan.md:951-961
 
 **Quality Requirements**:
+
 - Remove all TODO comments related to Paddle integration (except price ID placeholders in env)
 - Remove console.log statements (except the one in paddle service for debugging)
 - Ensure all imports are used
@@ -225,6 +240,7 @@
 - Final lint check passes
 
 **Implementation Details**:
+
 - Remove lines 136-145 (commented out future implementation) in pricing-grid.component.ts
 - Remove line 137 console.log in pricing-grid.component.ts (replaced by real implementation)
 - Ensure template animations still work (ViewportAnimationDirective)
@@ -232,6 +248,7 @@
 ---
 
 **Batch 3 Verification**:
+
 - Error handling visible in template (lines 39-47 pricing-grid.component.ts)
 - Loading states pass to plan cards correctly (line 53 pricing-grid.component.ts)
 - All TODO comments for Paddle integration removed (except env file placeholders)
@@ -244,22 +261,24 @@
 
 ## Status Icons Reference
 
-| Status | Meaning | Who Sets |
-|--------|---------|----------|
-| [PENDING] | Not started | team-leader (initial) |
-| [IN PROGRESS] | Assigned to developer | team-leader |
-| [IMPLEMENTED] | Developer done, awaiting verify | developer |
-| [COMPLETE] | Verified and committed | team-leader |
-| [FAILED] | Verification failed | team-leader |
+| Status        | Meaning                         | Who Sets              |
+| ------------- | ------------------------------- | --------------------- |
+| [PENDING]     | Not started                     | team-leader (initial) |
+| [IN PROGRESS] | Assigned to developer           | team-leader           |
+| [IMPLEMENTED] | Developer done, awaiting verify | developer             |
+| [COMPLETE]    | Verified and committed          | team-leader           |
+| [FAILED]      | Verification failed             | team-leader           |
 
 ---
 
 ## Files Summary
 
 **CREATE**:
+
 - d:\projects\ptah-extension\apps\ptah-landing-page\src\app\services\paddle-checkout.service.ts
 
 **MODIFY**:
+
 - d:\projects\ptah-extension\apps\ptah-landing-page\src\environments\environment.ts
 - d:\projects\ptah-extension\apps\ptah-landing-page\src\environments\environment.production.ts
 - d:\projects\ptah-extension\apps\ptah-landing-page\src\app\pages\pricing\components\pricing-grid.component.ts

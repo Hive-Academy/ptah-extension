@@ -49,7 +49,10 @@ import { ArchitecturePattern } from '@ptah-extension/shared';
           <div class="p-4 bg-base-100 rounded-lg">
             <div class="flex justify-between items-center mb-2">
               <span class="font-semibold">{{ pattern.name }}</span>
-              <span class="badge" [class]="getConfidenceBadgeClass(pattern.confidence)">
+              <span
+                class="badge"
+                [class]="getConfidenceBadgeClass(pattern.confidence)"
+              >
                 {{ pattern.confidence }}% confidence
               </span>
             </div>
@@ -58,12 +61,15 @@ import { ArchitecturePattern } from '@ptah-extension/shared';
               [class]="getConfidenceProgressClass(pattern.confidence)"
               [value]="pattern.confidence"
               max="100"
-              [attr.aria-label]="pattern.name + ' confidence: ' + pattern.confidence + ' percent'"
+              [attr.aria-label]="
+                pattern.name + ' confidence: ' + pattern.confidence + ' percent'
+              "
             ></progress>
             @if (pattern.description) {
-            <p class="text-sm text-base-content/70 mt-2">{{ pattern.description }}</p>
-            }
-            @if (pattern.evidence && pattern.evidence.length > 0) {
+            <p class="text-sm text-base-content/70 mt-2">
+              {{ pattern.description }}
+            </p>
+            } @if (pattern.evidence && pattern.evidence.length > 0) {
             <div class="mt-2">
               <span class="text-xs text-base-content/60">Evidence: </span>
               <span class="text-xs text-base-content/60">{{

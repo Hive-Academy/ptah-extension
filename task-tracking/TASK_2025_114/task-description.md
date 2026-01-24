@@ -33,6 +33,7 @@ The Ptah VS Code extension requires a complete frontend subscription flow to ena
 #### Acceptance Criteria
 
 1. WHEN the application builds THEN environment configuration SHALL include:
+
    - `paddle.environment`: 'sandbox' | 'production'
    - `paddle.priceIdMonthly`: Paddle price ID for monthly plan
    - `paddle.priceIdYearly`: Paddle price ID for yearly plan
@@ -47,16 +48,18 @@ The Ptah VS Code extension requires a complete frontend subscription flow to ena
 #### Technical Details
 
 **Files to Modify:**
+
 - `apps/ptah-landing-page/src/environments/environment.ts`
 - `apps/ptah-landing-page/src/environments/environment.production.ts`
 
 **Updated Interface:**
+
 ```typescript
 interface PaddleEnvironmentConfig {
   environment: 'sandbox' | 'production';
-  priceIdMonthly: string;  // pri_XXXXX format
-  priceIdYearly: string;   // pri_YYYYY format
-  clientToken?: string;    // Optional: pdl_ctk_XXXXX
+  priceIdMonthly: string; // pri_XXXXX format
+  priceIdYearly: string; // pri_YYYYY format
+  clientToken?: string; // Optional: pdl_ctk_XXXXX
 }
 ```
 
@@ -73,6 +76,7 @@ interface PaddleEnvironmentConfig {
 2. WHEN Paddle.js initialization succeeds THEN the service SHALL emit a ready signal that components can observe
 
 3. WHEN Paddle.js initialization fails THEN the service SHALL:
+
    - Log the error for debugging
    - Display a user-friendly error message
    - Provide a retry mechanism
@@ -88,6 +92,7 @@ interface PaddleEnvironmentConfig {
 **New Service:** `apps/ptah-landing-page/src/app/services/paddle-checkout.service.ts`
 
 **Service Interface:**
+
 ```typescript
 @Injectable({ providedIn: 'root' })
 export class PaddleCheckoutService {
@@ -111,6 +116,7 @@ interface CheckoutOptions {
 ```
 
 **Paddle.js Script Loading:**
+
 ```typescript
 // Load from CDN: https://cdn.paddle.com/paddle/v2/paddle.js
 // Initialize with: Paddle.Initialize({ environment, token? })
@@ -141,19 +147,22 @@ interface CheckoutOptions {
 #### Technical Details
 
 **Files to Modify:**
+
 - `apps/ptah-landing-page/src/app/pages/pricing/components/pricing-grid.component.ts`
 - `apps/ptah-landing-page/src/app/pages/pricing/models/pricing-plan.interface.ts`
 
 **Updated PricingPlan Interface:**
+
 ```typescript
 export interface PricingPlan {
   // ... existing fields ...
-  priceId?: string;           // Now sourced from environment
+  priceId?: string; // Now sourced from environment
   isCheckoutLoading?: boolean; // Track per-plan loading state
 }
 ```
 
 **Integration Pattern:**
+
 ```typescript
 // Inject environment config
 private readonly paddleConfig = environment.paddle;
@@ -183,11 +192,13 @@ plans = signal<PricingPlan[]>([
 #### Acceptance Criteria
 
 1. WHEN Paddle checkout completes successfully THEN the application SHALL:
+
    - Display a success message/page
    - Inform user that license key will be emailed
    - Provide link to VS Code extension activation instructions
 
 2. WHEN Paddle checkout is canceled THEN the application SHALL:
+
    - Close the overlay gracefully
    - Return user to pricing page
    - Not show any error messages (cancellation is intentional)
@@ -199,6 +210,7 @@ plans = signal<PricingPlan[]>([
 **New Component (Optional):** `apps/ptah-landing-page/src/app/pages/checkout-success/checkout-success-page.component.ts`
 
 **Paddle Event Callbacks:**
+
 ```typescript
 Paddle.Checkout.open({
   items: [{ priceId: 'pri_xxxxx', quantity: 1 }],
@@ -206,7 +218,7 @@ Paddle.Checkout.open({
   settings: {
     successUrl: '/checkout/success',
     displayMode: 'overlay',
-  }
+  },
 });
 
 // Or use event callbacks
@@ -238,9 +250,11 @@ Paddle.Checkout.on('checkout.closed', (event) => {
 #### Technical Details
 
 **Files to Modify:**
+
 - `apps/ptah-landing-page/src/app/pages/pricing/components/plan-card.component.ts`
 
 **Enhanced Button State:**
+
 ```typescript
 <button
   class="btn w-full"
@@ -267,6 +281,7 @@ Paddle.Checkout.on('checkout.closed', (event) => {
 #### Acceptance Criteria
 
 1. WHEN Paddle.js fails to load THEN the application SHALL:
+
    - Display "Payment system temporarily unavailable" message
    - Log detailed error for debugging
    - Suggest user try again later or contact support
@@ -280,6 +295,7 @@ Paddle.Checkout.on('checkout.closed', (event) => {
 #### Technical Details
 
 **Toast/Alert Component Integration:**
+
 ```typescript
 // Use DaisyUI alert classes
 @if (checkoutError()) {
@@ -334,18 +350,18 @@ Paddle.Checkout.on('checkout.closed', (event) => {
 
 ### Primary Stakeholders
 
-| Stakeholder | Role | Needs | Success Metrics |
-|-------------|------|-------|-----------------|
-| End Users | Subscribers | Seamless checkout experience | Checkout completion rate > 80% |
-| Business | Revenue | Enable paid subscriptions | Subscription conversion from trial |
-| Dev Team | Implementers | Clear integration patterns | Clean, testable code |
+| Stakeholder | Role         | Needs                        | Success Metrics                    |
+| ----------- | ------------ | ---------------------------- | ---------------------------------- |
+| End Users   | Subscribers  | Seamless checkout experience | Checkout completion rate > 80%     |
+| Business    | Revenue      | Enable paid subscriptions    | Subscription conversion from trial |
+| Dev Team    | Implementers | Clear integration patterns   | Clean, testable code               |
 
 ### Secondary Stakeholders
 
-| Stakeholder | Role | Needs | Success Metrics |
-|-------------|------|-------|-----------------|
-| Support Team | Issue Resolution | Clear error messages | Low support tickets for payment issues |
-| Operations | Deployment | Easy environment switching | Zero-downtime deployments |
+| Stakeholder  | Role             | Needs                      | Success Metrics                        |
+| ------------ | ---------------- | -------------------------- | -------------------------------------- |
+| Support Team | Issue Resolution | Clear error messages       | Low support tickets for payment issues |
+| Operations   | Deployment       | Easy environment switching | Zero-downtime deployments              |
 
 ---
 
@@ -353,25 +369,25 @@ Paddle.Checkout.on('checkout.closed', (event) => {
 
 ### Technical Risks
 
-| Risk | Probability | Impact | Mitigation | Contingency |
-|------|-------------|--------|------------|-------------|
-| Paddle.js CDN unavailable | Low | High | Use Paddle's official CDN with fallback | Display "temporarily unavailable" message |
-| Environment config mismatch | Medium | High | Build-time validation of price IDs | Clear error messages in console |
-| SDK version breaking changes | Low | Medium | Pin to specific Paddle.js version | Document upgrade process |
+| Risk                         | Probability | Impact | Mitigation                              | Contingency                               |
+| ---------------------------- | ----------- | ------ | --------------------------------------- | ----------------------------------------- |
+| Paddle.js CDN unavailable    | Low         | High   | Use Paddle's official CDN with fallback | Display "temporarily unavailable" message |
+| Environment config mismatch  | Medium      | High   | Build-time validation of price IDs      | Clear error messages in console           |
+| SDK version breaking changes | Low         | Medium | Pin to specific Paddle.js version       | Document upgrade process                  |
 
 ### Business Risks
 
-| Risk | Probability | Impact | Mitigation | Contingency |
-|------|-------------|--------|------------|-------------|
-| Sandbox/production price ID mix-up | Medium | Critical | Different env files, build validation | Automated tests for config |
-| Checkout abandonment | Medium | Medium | Optimize UX, pre-fill email | Follow up emails (Paddle feature) |
+| Risk                               | Probability | Impact   | Mitigation                            | Contingency                       |
+| ---------------------------------- | ----------- | -------- | ------------------------------------- | --------------------------------- |
+| Sandbox/production price ID mix-up | Medium      | Critical | Different env files, build validation | Automated tests for config        |
+| Checkout abandonment               | Medium      | Medium   | Optimize UX, pre-fill email           | Follow up emails (Paddle feature) |
 
 ### Integration Risks
 
-| Risk | Probability | Impact | Mitigation | Contingency |
-|------|-------------|--------|------------|-------------|
-| Auth state not syncing with checkout | Medium | Medium | Test auth flow end-to-end | Allow manual email entry |
-| Backend webhook delays | Low | Low | Paddle handles retries | User notification of license delivery time |
+| Risk                                 | Probability | Impact | Mitigation                | Contingency                                |
+| ------------------------------------ | ----------- | ------ | ------------------------- | ------------------------------------------ |
+| Auth state not syncing with checkout | Medium      | Medium | Test auth flow end-to-end | Allow manual email entry                   |
+| Backend webhook delays               | Low         | Low    | Paddle handles retries    | User notification of license delivery time |
 
 ---
 
@@ -379,19 +395,19 @@ Paddle.Checkout.on('checkout.closed', (event) => {
 
 ### Quantitative Metrics
 
-| Metric | Target | Measurement Method |
-|--------|--------|-------------------|
-| Checkout Initiation Rate | 90%+ buttons work | Automated E2E tests |
-| Checkout Completion Rate | 70%+ of initiated | Paddle Analytics |
-| Page Load Impact | < 200ms added | Lighthouse performance |
-| Error Rate | < 1% of checkout attempts | Error logging |
+| Metric                   | Target                    | Measurement Method     |
+| ------------------------ | ------------------------- | ---------------------- |
+| Checkout Initiation Rate | 90%+ buttons work         | Automated E2E tests    |
+| Checkout Completion Rate | 70%+ of initiated         | Paddle Analytics       |
+| Page Load Impact         | < 200ms added             | Lighthouse performance |
+| Error Rate               | < 1% of checkout attempts | Error logging          |
 
 ### Qualitative Metrics
 
-| Metric | Target | Measurement Method |
-|--------|--------|-------------------|
-| User Experience | Seamless flow | User feedback |
-| Code Quality | Clean, documented | Code review |
+| Metric          | Target                 | Measurement Method |
+| --------------- | ---------------------- | ------------------ |
+| User Experience | Seamless flow          | User feedback      |
+| Code Quality    | Clean, documented      | Code review        |
 | Maintainability | Easy to update configs | Developer feedback |
 
 ---
@@ -400,42 +416,46 @@ Paddle.Checkout.on('checkout.closed', (event) => {
 
 ### External Dependencies
 
-| Dependency | Type | Risk Level | Notes |
-|------------|------|------------|-------|
-| Paddle.js SDK | External CDN | Low | Official Paddle CDN with high availability |
-| Paddle Dashboard | Configuration | Low | Required for price ID creation |
-| Backend License Server | Internal API | Medium | Must be deployed and accessible |
+| Dependency             | Type          | Risk Level | Notes                                      |
+| ---------------------- | ------------- | ---------- | ------------------------------------------ |
+| Paddle.js SDK          | External CDN  | Low        | Official Paddle CDN with high availability |
+| Paddle Dashboard       | Configuration | Low        | Required for price ID creation             |
+| Backend License Server | Internal API  | Medium     | Must be deployed and accessible            |
 
 ### Internal Dependencies
 
-| Dependency | Status | Notes |
-|------------|--------|-------|
-| TASK_2025_112 (Backend) | In Progress | Paddle webhook handling implemented |
-| Auth Service | Complete | Magic link authentication exists |
-| Environment Config | Partial | Paddle config structure exists, needs update |
+| Dependency              | Status      | Notes                                        |
+| ----------------------- | ----------- | -------------------------------------------- |
+| TASK_2025_112 (Backend) | In Progress | Paddle webhook handling implemented          |
+| Auth Service            | Complete    | Magic link authentication exists             |
+| Environment Config      | Partial     | Paddle config structure exists, needs update |
 
 ---
 
 ## Implementation Phases
 
 ### Phase 1: Environment Configuration (1-2 hours)
+
 - Update environment files with new Paddle config structure
 - Add build-time validation for price IDs
 - Document configuration process
 
 ### Phase 2: Paddle Service Implementation (2-3 hours)
+
 - Create `PaddleCheckoutService`
 - Implement Paddle.js script loading
 - Add initialization and checkout methods
 - Implement error handling and retry logic
 
 ### Phase 3: Component Integration (2-3 hours)
+
 - Update `pricing-grid.component.ts` to use environment config
 - Update `plan-card.component.ts` with loading states
 - Integrate `PaddleCheckoutService` with checkout flow
 - Add success/cancel handling
 
 ### Phase 4: Testing and Validation (1-2 hours)
+
 - Test with Paddle sandbox environment
 - Test card success/failure scenarios
 - Verify webhook processing creates licenses
@@ -446,12 +466,14 @@ Paddle.Checkout.on('checkout.closed', (event) => {
 ## Quality Gates
 
 ### Pre-Implementation Checklist
+
 - [ ] Paddle sandbox account created
 - [ ] Price IDs obtained from Paddle dashboard
 - [ ] Backend webhook endpoint accessible
 - [ ] Environment configuration documented
 
 ### Post-Implementation Checklist
+
 - [ ] All checkout buttons functional (Monthly, Yearly)
 - [ ] Paddle.js loads without errors
 - [ ] Loading states display correctly
@@ -462,6 +484,7 @@ Paddle.Checkout.on('checkout.closed', (event) => {
 - [ ] Mobile responsive checkout flow
 
 ### Security Checklist
+
 - [ ] No API keys in frontend code
 - [ ] All external scripts loaded via HTTPS
 - [ ] CSP headers updated if needed

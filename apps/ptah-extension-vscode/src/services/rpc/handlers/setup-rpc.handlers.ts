@@ -466,19 +466,21 @@ export class SetupRpcHandlers {
 
         try {
           // First attempt: resolve via token with validation
-          recommendationService = this.resolveService<RecommendationServiceType>(
-            AGENT_GENERATION_TOKENS.AGENT_RECOMMENDATION_SERVICE,
-            'AgentRecommendationService'
-          );
+          recommendationService =
+            this.resolveService<RecommendationServiceType>(
+              AGENT_GENERATION_TOKENS.AGENT_RECOMMENDATION_SERVICE,
+              'AgentRecommendationService'
+            );
         } catch {
           // If token resolution fails, fallback to direct class resolution
           this.logger.debug(
             'AgentRecommendationService not registered via token, using direct class resolution'
           );
-          recommendationService = this.resolveService<RecommendationServiceType>(
-            AgentRecommendationService as unknown as symbol,
-            'AgentRecommendationService (direct)'
-          );
+          recommendationService =
+            this.resolveService<RecommendationServiceType>(
+              AgentRecommendationService as unknown as symbol,
+              'AgentRecommendationService (direct)'
+            );
         }
 
         // Calculate recommendations using validated analysis

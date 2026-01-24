@@ -41,8 +41,12 @@ import { LanguageStats } from '@ptah-extension/shared';
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <!-- Project Type -->
           <div>
-            <span class="font-semibold text-base-content/80">Project Type:</span>
-            <span class="ml-2 badge badge-primary badge-lg">{{ projectType }}</span>
+            <span class="font-semibold text-base-content/80"
+              >Project Type:</span
+            >
+            <span class="ml-2 badge badge-primary badge-lg">{{
+              projectType
+            }}</span>
           </div>
 
           <!-- File Count -->
@@ -58,7 +62,9 @@ import { LanguageStats } from '@ptah-extension/shared';
               @for (framework of frameworks; track framework) {
               <span class="badge badge-secondary">{{ framework }}</span>
               } @empty {
-              <span class="text-base-content/60 text-sm">No frameworks detected</span>
+              <span class="text-base-content/60 text-sm"
+                >No frameworks detected</span
+              >
               }
             </div>
           </div>
@@ -69,7 +75,9 @@ import { LanguageStats } from '@ptah-extension/shared';
             <span class="font-semibold text-base-content/80">Monorepo:</span>
             <span class="ml-2 text-success">
               Yes
-              <span class="text-base-content/60 text-sm">({{ monorepoType }})</span>
+              <span class="text-base-content/60 text-sm"
+                >({{ monorepoType }})</span
+              >
             </span>
           </div>
           }
@@ -104,13 +112,17 @@ import { LanguageStats } from '@ptah-extension/shared';
           <div>
             <div class="flex justify-between text-sm mb-1">
               <span class="font-medium">{{ lang.language }}</span>
-              <span class="text-base-content/70">{{ lang.percentage }}% ({{ lang.fileCount }} files)</span>
+              <span class="text-base-content/70"
+                >{{ lang.percentage }}% ({{ lang.fileCount }} files)</span
+              >
             </div>
             <progress
               class="progress progress-info w-full"
               [value]="lang.percentage"
               max="100"
-              [attr.aria-label]="lang.language + ': ' + lang.percentage + ' percent'"
+              [attr.aria-label]="
+                lang.language + ': ' + lang.percentage + ' percent'
+              "
             ></progress>
           </div>
           }
