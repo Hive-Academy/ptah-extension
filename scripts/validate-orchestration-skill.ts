@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env npx ts-node
 /**
  * Validation Script for Orchestration Skill
  *
@@ -8,15 +8,84 @@
  * 3. Content completeness (all 6 strategies, all 13 agents documented)
  * 4. Consistency (invocation patterns match agent-catalog)
  *
- * Run: node scripts/validate-orchestration-skill.js
+ * Run: npx ts-node scripts/validate-orchestration-skill.ts
  * Exit codes: 0 = success, 1 = validation failures found
  */
 
-const fs = require('fs');
-const path = require('path');
+import * as fs from 'fs';
+import * as path from 'path';
 
-// ANSI color codes for console output
-const colors = {
+// ============================================================================
+// Type Definitions
+// ============================================================================
+
+/**
+ * Represents a validation error found during checks.
+ */
+interface ValidationError {
+  /** Source file where the error was found */
+  file: string;
+  /** Error type category */
+  type: 'syntax' | 'reference' | 'content' | 'consistency';
+  /** Human-readable error message */
+  message: string;
+  /** Suggestion for fixing the error */
+  suggestion: string;
+  /** Line number where error occurred (optional) */
+  line?: number;
+}
+
+/**
+ * Represents the complete result of validation.
+ */
+interface ValidationResult {
+  /** List of errors that must be fixed */
+  errors: ValidationError[];
+  /** List of warnings that should be reviewed */
+  warnings: ValidationError[];
+  /** Number of files checked */
+  filesChecked: number;
+  /** Whether validation passed (no errors) */
+  passed: boolean;
+}
+
+/**
+ * Represents an extracted markdown link.
+ */
+interface ExtractedLink {
+  /** The link path */
+  link: string;
+  /** Line number where link appears */
+  line: number;
+}
+
+/**
+ * ANSI color codes for console output.
+ */
+interface ColorCodes {
+  reset: string;
+  red: string;
+  green: string;
+  yellow: string;
+  blue: string;
+  cyan: string;
+  bold: string;
+}
+
+/**
+ * Section requirement for SKILL.md validation.
+ */
+interface RequiredSection {
+  pattern: RegExp;
+  name: string;
+}
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/** ANSI color codes for console output */
+const colors: ColorCodes = {
   reset: '\x1b[0m',
   red: '\x1b[31m',
   green: '\x1b[32m',
@@ -26,18 +95,18 @@ const colors = {
   bold: '\x1b[1m',
 };
 
-// Required strategies that must be documented
-const REQUIRED_STRATEGIES = [
+/** Required strategies that must be documented */
+const REQUIRED_STRATEGIES: readonly string[] = [
   'FEATURE',
   'BUGFIX',
   'REFACTORING',
   'DOCUMENTATION',
   'RESEARCH',
   'DEVOPS',
-];
+] as const;
 
-// Required agents that must be documented (all 13)
-const REQUIRED_AGENTS = [
+/** Required agents that must be documented (all 13) */
+const REQUIRED_AGENTS: readonly string[] = [
   'project-manager',
   'software-architect',
   'team-leader',
@@ -51,29 +120,60 @@ const REQUIRED_AGENTS = [
   'modernization-detector',
   'ui-ux-designer',
   'technical-content-writer',
-];
+] as const;
+
+/** Required sections in SKILL.md */
+const SKILL_REQUIRED_SECTIONS: readonly RequiredSection[] = [
+  { pattern: /##\s+Quick Start/i, name: 'Quick Start' },
+  { pattern: /##\s+Your Role/i, name: 'Your Role' },
+  { pattern: /##\s+Workflow Selection/i, name: 'Workflow Selection Matrix' },
+  { pattern: /##\s+Core Orchestration Loop/i, name: 'Core Orchestration Loop' },
+  { pattern: /##\s+Validation Checkpoints/i, name: 'Validation Checkpoints' },
+  { pattern: /##\s+Team-Leader Integration/i, name: 'Team-Leader Integration' },
+  { pattern: /##\s+Reference Index/i, name: 'Reference Index' },
+] as const;
+
+/** Required reference files */
+const REQUIRED_REFERENCES: readonly string[] = [
+  'strategies.md',
+  'agent-catalog.md',
+  'team-leader-modes.md',
+  'task-tracking.md',
+  'checkpoints.md',
+  'git-standards.md',
+] as const;
+
+/** Target line count for SKILL.md */
+const TARGET_SKILL_LINES = 300;
 
 // Skill directory paths
-const SKILL_ROOT = path.join(
+const SKILL_ROOT: string = path.join(
   process.cwd(),
   '.claude',
   'skills',
   'orchestration'
 );
-const AGENTS_DIR = path.join(process.cwd(), '.claude', 'agents');
-const REFERENCES_DIR = path.join(SKILL_ROOT, 'references');
+const AGENTS_DIR: string = path.join(process.cwd(), '.claude', 'agents');
+const REFERENCES_DIR: string = path.join(SKILL_ROOT, 'references');
+
+// ============================================================================
+// Logging Functions
+// ============================================================================
 
 /**
- * Logs a colored message to console
+ * Logs a colored message to console.
+ * @param color - Color key from colors object
+ * @param message - Message to log
  */
-function log(color, message) {
+function log(color: keyof ColorCodes, message: string): void {
   console.log(`${colors[color]}${message}${colors.reset}`);
 }
 
 /**
- * Logs an error with formatting
+ * Logs an error with formatting.
+ * @param error - Validation error to log
  */
-function logError(error) {
+function logError(error: ValidationError): void {
   const lineInfo = error.line ? `:${error.line}` : '';
   console.log(
     `  ${colors.red}[${error.type.toUpperCase()}]${colors.reset} ${
@@ -87,26 +187,32 @@ function logError(error) {
 }
 
 /**
- * Logs a warning with formatting
+ * Logs a warning with formatting.
+ * @param warning - Validation warning to log
  */
-function logWarning(error) {
-  const lineInfo = error.line ? `:${error.line}` : '';
+function logWarning(warning: ValidationError): void {
+  const lineInfo = warning.line ? `:${warning.line}` : '';
   console.log(
-    `  ${colors.yellow}[WARNING]${colors.reset} ${error.file}${lineInfo}`
+    `  ${colors.yellow}[WARNING]${colors.reset} ${warning.file}${lineInfo}`
   );
-  console.log(`    ${colors.yellow}Message:${colors.reset} ${error.message}`);
+  console.log(`    ${colors.yellow}Message:${colors.reset} ${warning.message}`);
   console.log(
-    `    ${colors.cyan}Suggestion:${colors.reset} ${error.suggestion}`
+    `    ${colors.cyan}Suggestion:${colors.reset} ${warning.suggestion}`
   );
 }
 
-/**
- * Gets all markdown files in the skill directory recursively
- */
-function getSkillMarkdownFiles() {
-  const files = [];
+// ============================================================================
+// File Discovery Functions
+// ============================================================================
 
-  function scanDir(dir) {
+/**
+ * Gets all markdown files in the skill directory recursively.
+ * @returns Array of absolute file paths to markdown files
+ */
+function getSkillMarkdownFiles(): string[] {
+  const files: string[] = [];
+
+  function scanDir(dir: string): void {
     if (!fs.existsSync(dir)) {
       return;
     }
@@ -128,11 +234,21 @@ function getSkillMarkdownFiles() {
   return files;
 }
 
+// ============================================================================
+// Validation Functions
+// ============================================================================
+
 /**
- * Validates markdown syntax by checking for common issues
+ * Validates markdown syntax by checking for common issues.
+ * @param filePath - Path to the file being validated
+ * @param content - File content
+ * @returns Array of syntax validation errors
  */
-function validateMarkdownSyntax(filePath, content) {
-  const errors = [];
+function validateMarkdownSyntax(
+  filePath: string,
+  content: string
+): ValidationError[] {
+  const errors: ValidationError[] = [];
   const lines = content.split('\n');
 
   // Check for unclosed code blocks
@@ -184,21 +300,24 @@ function validateMarkdownSyntax(filePath, content) {
 }
 
 /**
- * Extracts markdown links from content
+ * Extracts markdown links from content.
+ * @param content - File content to extract links from
+ * @returns Array of extracted links with line numbers
  */
-function extractMarkdownLinks(content) {
-  const links = [];
+function extractMarkdownLinks(content: string): ExtractedLink[] {
+  const links: ExtractedLink[] = [];
   const lines = content.split('\n');
 
   // Match [text](link) pattern, excluding external URLs
   const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
 
   lines.forEach((line, index) => {
-    let match;
+    let match: RegExpExecArray | null;
     while ((match = linkRegex.exec(line)) !== null) {
       const link = match[2];
       // Skip external URLs and anchors
       if (
+        link !== undefined &&
         !link.startsWith('http://') &&
         !link.startsWith('https://') &&
         !link.startsWith('#')
@@ -212,10 +331,16 @@ function extractMarkdownLinks(content) {
 }
 
 /**
- * Validates internal references point to existing files
+ * Validates internal references point to existing files.
+ * @param filePath - Path to the file being validated
+ * @param content - File content
+ * @returns Array of reference validation errors
  */
-function validateInternalReferences(filePath, content) {
-  const errors = [];
+function validateInternalReferences(
+  filePath: string,
+  content: string
+): ValidationError[] {
+  const errors: ValidationError[] = [];
   const links = extractMarkdownLinks(content);
   const fileDir = path.dirname(filePath);
 
@@ -245,10 +370,16 @@ function validateInternalReferences(filePath, content) {
 }
 
 /**
- * Validates all required strategies are documented
+ * Validates all required strategies are documented.
+ * @param strategiesFile - Path to strategies.md
+ * @param content - File content
+ * @returns Array of content validation errors
  */
-function validateStrategiesDocumented(strategiesFile, content) {
-  const errors = [];
+function validateStrategiesDocumented(
+  strategiesFile: string,
+  content: string
+): ValidationError[] {
+  const errors: ValidationError[] = [];
 
   for (const strategy of REQUIRED_STRATEGIES) {
     // Look for strategy heading (## STRATEGY_NAME)
@@ -267,10 +398,16 @@ function validateStrategiesDocumented(strategiesFile, content) {
 }
 
 /**
- * Validates all required agents are documented in agent-catalog
+ * Validates all required agents are documented in agent-catalog.
+ * @param catalogFile - Path to agent-catalog.md
+ * @param content - File content
+ * @returns Array of content validation errors
  */
-function validateAgentsDocumented(catalogFile, content) {
-  const errors = [];
+function validateAgentsDocumented(
+  catalogFile: string,
+  content: string
+): ValidationError[] {
+  const errors: ValidationError[] = [];
 
   for (const agent of REQUIRED_AGENTS) {
     // Look for agent heading (### agent-name)
@@ -292,10 +429,11 @@ function validateAgentsDocumented(catalogFile, content) {
 }
 
 /**
- * Validates agent files exist in .claude/agents/
+ * Validates agent files exist in .claude/agents/.
+ * @returns Array of content validation errors
  */
-function validateAgentFilesExist() {
-  const errors = [];
+function validateAgentFilesExist(): ValidationError[] {
+  const errors: ValidationError[] = [];
 
   for (const agent of REQUIRED_AGENTS) {
     const agentFile = path.join(AGENTS_DIR, `${agent}.md`);
@@ -314,28 +452,18 @@ function validateAgentFilesExist() {
 }
 
 /**
- * Validates SKILL.md has required sections
+ * Validates SKILL.md has required sections.
+ * @param skillFile - Path to SKILL.md
+ * @param content - File content
+ * @returns Array of content validation errors
  */
-function validateSkillStructure(skillFile, content) {
-  const errors = [];
+function validateSkillStructure(
+  skillFile: string,
+  content: string
+): ValidationError[] {
+  const errors: ValidationError[] = [];
 
-  const requiredSections = [
-    { pattern: /##\s+Quick Start/i, name: 'Quick Start' },
-    { pattern: /##\s+Your Role/i, name: 'Your Role' },
-    { pattern: /##\s+Workflow Selection/i, name: 'Workflow Selection Matrix' },
-    {
-      pattern: /##\s+Core Orchestration Loop/i,
-      name: 'Core Orchestration Loop',
-    },
-    { pattern: /##\s+Validation Checkpoints/i, name: 'Validation Checkpoints' },
-    {
-      pattern: /##\s+Team-Leader Integration/i,
-      name: 'Team-Leader Integration',
-    },
-    { pattern: /##\s+Reference Index/i, name: 'Reference Index' },
-  ];
-
-  for (const section of requiredSections) {
+  for (const section of SKILL_REQUIRED_SECTIONS) {
     if (!section.pattern.test(content)) {
       errors.push({
         file: path.relative(process.cwd(), skillFile),
@@ -350,19 +478,25 @@ function validateSkillStructure(skillFile, content) {
 }
 
 /**
- * Validates invocation patterns in agent-catalog match actual agent names
+ * Validates invocation patterns in agent-catalog match actual agent names.
+ * @param catalogFile - Path to agent-catalog.md
+ * @param content - File content
+ * @returns Array of consistency validation errors
  */
-function validateInvocationPatterns(catalogFile, content) {
-  const errors = [];
+function validateInvocationPatterns(
+  catalogFile: string,
+  content: string
+): ValidationError[] {
+  const errors: ValidationError[] = [];
 
   // Extract subagent_type values from code blocks
   const subagentPattern = /subagent_type:\s*['"]([^'"]+)['"]/g;
-  let match;
+  let match: RegExpExecArray | null;
 
   while ((match = subagentPattern.exec(content)) !== null) {
     const agentName = match[1];
 
-    if (!REQUIRED_AGENTS.includes(agentName)) {
+    if (agentName !== undefined && !REQUIRED_AGENTS.includes(agentName)) {
       errors.push({
         file: path.relative(process.cwd(), catalogFile),
         type: 'consistency',
@@ -378,21 +512,13 @@ function validateInvocationPatterns(catalogFile, content) {
 }
 
 /**
- * Validates reference files exist
+ * Validates reference files exist.
+ * @returns Array of content validation errors
  */
-function validateReferenceFilesExist() {
-  const errors = [];
+function validateReferenceFilesExist(): ValidationError[] {
+  const errors: ValidationError[] = [];
 
-  const requiredReferences = [
-    'strategies.md',
-    'agent-catalog.md',
-    'team-leader-modes.md',
-    'task-tracking.md',
-    'checkpoints.md',
-    'git-standards.md',
-  ];
-
-  for (const refFile of requiredReferences) {
+  for (const refFile of REQUIRED_REFERENCES) {
     const refPath = path.join(REFERENCES_DIR, refFile);
 
     if (!fs.existsSync(refPath)) {
@@ -409,18 +535,23 @@ function validateReferenceFilesExist() {
 }
 
 /**
- * Validates SKILL.md line count is under target
+ * Validates SKILL.md line count is under target.
+ * @param skillFile - Path to SKILL.md
+ * @param content - File content
+ * @returns Array of validation warnings
  */
-function validateSkillLineCount(skillFile, content) {
-  const warnings = [];
+function validateSkillLineCount(
+  skillFile: string,
+  content: string
+): ValidationError[] {
+  const warnings: ValidationError[] = [];
   const lineCount = content.split('\n').length;
-  const TARGET_LINES = 300;
 
-  if (lineCount > TARGET_LINES) {
+  if (lineCount > TARGET_SKILL_LINES) {
     warnings.push({
       file: path.relative(process.cwd(), skillFile),
       type: 'content',
-      message: `SKILL.md is ${lineCount} lines (target: <${TARGET_LINES})`,
+      message: `SKILL.md is ${lineCount} lines (target: <${TARGET_SKILL_LINES})`,
       suggestion: 'Consider moving detailed content to reference files',
     });
   }
@@ -428,11 +559,16 @@ function validateSkillLineCount(skillFile, content) {
   return warnings;
 }
 
+// ============================================================================
+// Main Validation Function
+// ============================================================================
+
 /**
- * Main validation function
+ * Main validation function that orchestrates all checks.
+ * @returns Complete validation result
  */
-function validateOrchestrationSkill() {
-  const result = {
+function validateOrchestrationSkill(): ValidationResult {
+  const result: ValidationResult = {
     errors: [],
     warnings: [],
     filesChecked: 0,
@@ -504,10 +640,15 @@ function validateOrchestrationSkill() {
   return result;
 }
 
+// ============================================================================
+// Results Printing
+// ============================================================================
+
 /**
- * Prints validation summary and results
+ * Prints validation summary and results.
+ * @param result - Validation result to print
  */
-function printResults(result) {
+function printResults(result: ValidationResult): void {
   // Print errors
   if (result.errors.length > 0) {
     log(
@@ -552,6 +693,10 @@ function printResults(result) {
 
   console.log('');
 }
+
+// ============================================================================
+// Main Execution
+// ============================================================================
 
 // Run validation
 const result = validateOrchestrationSkill();

@@ -41,7 +41,7 @@
     "serve:webview": "nx serve ptah-extension-webview",
     "serve:extension": "nx serve ptah-extension-vscode",
     "prepare": "husky",
-    "validate-skill": "node scripts/validate-orchestration-skill.js"
+    "validate-skill": "npx ts-node scripts/validate-orchestration-skill.ts"
   },
   "private": true,
   "dependencies": {

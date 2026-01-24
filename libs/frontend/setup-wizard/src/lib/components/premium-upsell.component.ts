@@ -25,6 +25,7 @@ import {
   input,
   output,
   inject,
+  signal,
 } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
 
@@ -133,8 +134,13 @@ import { VSCodeService } from '@ptah-extension/core';
           <button
             class="btn btn-primary btn-lg gap-2"
             (click)="onUpgradeClick()"
+            [disabled]="isOpeningUrl()"
             aria-label="Upgrade to Premium"
           >
+            @if (isOpeningUrl()) {
+            <span class="loading loading-spinner loading-sm"></span>
+            Opening...
+            } @else {
             <svg
               xmlns="http://www.w3.org/2000/svg"
               class="h-5 w-5"
@@ -151,7 +157,29 @@ import { VSCodeService } from '@ptah-extension/core';
               />
             </svg>
             Upgrade to Premium
+            }
           </button>
+
+          <!-- URL feedback message -->
+          @if (urlFeedback()) {
+          <div class="alert alert-info mt-4 max-w-md mx-auto">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="stroke-current shrink-0 h-6 w-6"
+              fill="none"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <span>{{ urlFeedback() }}</span>
+          </div>
+          }
 
           <!-- Additional info -->
           <p class="text-sm text-base-content/50 mt-6">
@@ -173,6 +201,15 @@ import { VSCodeService } from '@ptah-extension/core';
 export class PremiumUpsellComponent {
   private readonly vscodeService = inject(VSCodeService);
 
+  /** Upgrade URL for the pricing page */
+  private static readonly UPGRADE_URL = 'https://ptah.dev/pricing';
+
+  /** Timeout before clearing loading state (assume success) */
+  private static readonly LOADING_CLEAR_TIMEOUT_MS = 1000;
+
+  /** Timeout before showing fallback message */
+  private static readonly FALLBACK_MESSAGE_TIMEOUT_MS = 3000;
+
   /**
    * List of premium features to display
    */
@@ -189,6 +226,16 @@ export class PremiumUpsellComponent {
   readonly retry = output<void>();
 
   /**
+   * Loading state for URL opening
+   */
+  protected readonly isOpeningUrl = signal(false);
+
+  /**
+   * Feedback message for URL opening (shown if browser may be opening in background)
+   */
+  protected readonly urlFeedback = signal<string | null>(null);
+
+  /**
    * Handle retry button click
    */
   protected onRetry(): void {
@@ -196,17 +243,49 @@ export class PremiumUpsellComponent {
   }
 
   /**
-   * Handle upgrade button click
-   * Opens the upgrade page in an external browser
+   * Handle upgrade button click.
+   * Opens the upgrade page in an external browser with loading feedback.
    */
   protected onUpgradeClick(): void {
-    // Send message to extension to open upgrade URL in external browser
-    this.vscodeService.postMessage({
-      type: 'command',
-      payload: {
-        command: 'vscode.open',
-        args: ['https://ptah.dev/pricing'],
-      },
-    });
+    // Prevent double-click
+    if (this.isOpeningUrl()) {
+      return;
+    }
+
+    this.isOpeningUrl.set(true);
+    this.urlFeedback.set(null);
+
+    try {
+      // Send message to extension to open upgrade URL in external browser
+      this.vscodeService.postMessage({
+        type: 'command',
+        payload: {
+          command: 'vscode.open',
+          args: [PremiumUpsellComponent.UPGRADE_URL],
+        },
+      });
+
+      // Set timeout for fallback message if browser is slow
+      setTimeout(() => {
+        if (this.isOpeningUrl()) {
+          // If still loading after 3s, show fallback message
+          this.isOpeningUrl.set(false);
+          this.urlFeedback.set(
+            `Browser may be opening in the background. If not, visit: ${PremiumUpsellComponent.UPGRADE_URL}`
+          );
+        }
+      }, PremiumUpsellComponent.FALLBACK_MESSAGE_TIMEOUT_MS);
+
+      // Clear loading state after short delay (assume success)
+      setTimeout(() => {
+        this.isOpeningUrl.set(false);
+      }, PremiumUpsellComponent.LOADING_CLEAR_TIMEOUT_MS);
+    } catch {
+      // Handle error gracefully
+      this.isOpeningUrl.set(false);
+      this.urlFeedback.set(
+        `Failed to open browser. Please visit: ${PremiumUpsellComponent.UPGRADE_URL}`
+      );
+    }
   }
 }
