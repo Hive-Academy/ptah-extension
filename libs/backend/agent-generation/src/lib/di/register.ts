@@ -27,6 +27,7 @@ import { VsCodeLmService } from '../services/vscode-lm.service';
 import {
   WizardContextMapperService,
   WizardStepMachineService,
+  WizardSessionManagerService,
 } from '../services/wizard';
 
 /**
@@ -77,6 +78,13 @@ export function registerAgentGenerationServices(
   container.register(
     AGENT_GENERATION_TOKENS.WIZARD_STEP_MACHINE,
     { useClass: WizardStepMachineService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Wizard session manager service - session CRUD and persistence
+  container.register(
+    AGENT_GENERATION_TOKENS.WIZARD_SESSION_MANAGER,
+    { useClass: WizardSessionManagerService },
     { lifecycle: Lifecycle.Singleton }
   );
 
@@ -143,6 +151,7 @@ export function registerAgentGenerationServices(
       'TEMPLATE_STORAGE_SERVICE',
       'WIZARD_CONTEXT_MAPPER',
       'WIZARD_STEP_MACHINE',
+      'WIZARD_SESSION_MANAGER',
       'VSCODE_LM_SERVICE',
       'AGENT_SELECTION_SERVICE',
       'CONTENT_GENERATION_SERVICE',
