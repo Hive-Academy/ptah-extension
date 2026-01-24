@@ -94,11 +94,27 @@ import { PricingPlan } from '../models/pricing-plan.interface';
         [class.btn-secondary]="plan().highlight"
         [class.btn-outline]="!plan().highlight"
         [class.btn-secondary-outline]="!plan().highlight"
-        [class.hover:scale-102]="true"
-        [disabled]="plan().ctaAction === 'checkout' && !plan().priceId"
+        [class.btn-disabled]="isButtonDisabled()"
+        [class.hover:scale-102]="!isButtonDisabled()"
+        [disabled]="isButtonDisabled()"
+        [attr.aria-busy]="isLoading()"
+        [attr.aria-disabled]="isButtonDisabled()"
+        (click)="!isButtonDisabled() && ctaClick.emit(plan())"
       >
-        {{ plan().ctaText }}
+        @if (isLoading()) {
+          <span class="loading loading-spinner loading-sm"></span>
+          <span>Processing...</span>
+        } @else {
+          {{ plan().ctaText }}
+        }
       </button>
+
+      <!-- Tooltip for disabled state (when not loading) -->
+      @if (isButtonDisabled() && !isLoading() && plan().ctaAction === 'checkout') {
+        <div class="text-center text-xs text-base-content/50 mt-2">
+          Checkout temporarily unavailable
+        </div>
+      }
     </div>
   `,
   styles: [
@@ -111,5 +127,39 @@ import { PricingPlan } from '../models/pricing-plan.interface';
 })
 export class PlanCardComponent {
   public readonly plan = input.required<PricingPlan>();
+  public readonly isLoading = input<boolean>(false);
   public readonly ctaClick = output<PricingPlan>();
+
+  /**
+   * Computed: Button should be disabled if:
+   * - Checkout action with no price ID
+   * - Currently loading
+   * - Price ID is placeholder
+   *
+   * Evidence: Task 2.2 - Disable button when loading or price ID invalid/placeholder
+   */
+  protected isButtonDisabled(): boolean {
+    const p = this.plan();
+
+    // Always disable if loading
+    if (this.isLoading()) return true;
+
+    // Only validate for checkout actions
+    if (p.ctaAction !== 'checkout') return false;
+
+    // Disabled if no price ID
+    if (!p.priceId) return true;
+
+    // Check for placeholder patterns
+    if (
+      p.priceId.includes('REPLACE') ||
+      p.priceId.includes('xxxxxxxxx') ||
+      p.priceId.includes('yyyyyyyyy') ||
+      p.priceId.includes('REPLACE_ME')
+    ) {
+      return true;
+    }
+
+    return false;
+  }
 }
