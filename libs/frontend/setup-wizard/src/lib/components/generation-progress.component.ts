@@ -3,6 +3,7 @@ import {
   inject,
   ChangeDetectionStrategy,
   computed,
+  OnDestroy,
 } from '@angular/core';
 import {
   SetupWizardStateService,
@@ -168,27 +169,31 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
 
                   <!-- Retry button for failed items -->
                   @if (item.status === 'error') {
-                  <button
-                    class="btn btn-error btn-sm"
-                    (click)="onRetryItem(item.id)"
-                    [attr.aria-label]="'Retry ' + item.name"
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      class="h-4 w-4"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
+                    @if (canRetry(item.id)) {
+                    <button
+                      class="btn btn-error btn-sm"
+                      (click)="onRetryItem(item.id)"
+                      [attr.aria-label]="'Retry ' + item.name + ' (' + getRemainingRetries(item.id) + ' attempts remaining)'"
                     >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                      />
-                    </svg>
-                    Retry
-                  </button>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        class="h-4 w-4"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                        />
+                      </svg>
+                      Retry ({{ getRemainingRetries(item.id) }} left)
+                    </button>
+                    } @else {
+                    <span class="text-error text-sm font-medium">Max retries reached</span>
+                    }
                   }
                 </div>
               </div>
@@ -286,27 +291,31 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
 
                   <!-- Retry button for failed items -->
                   @if (item.status === 'error') {
-                  <button
-                    class="btn btn-error btn-sm"
-                    (click)="onRetryItem(item.id)"
-                    [attr.aria-label]="'Retry ' + item.name"
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      class="h-4 w-4"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
+                    @if (canRetry(item.id)) {
+                    <button
+                      class="btn btn-error btn-sm"
+                      (click)="onRetryItem(item.id)"
+                      [attr.aria-label]="'Retry ' + item.name + ' (' + getRemainingRetries(item.id) + ' attempts remaining)'"
                     >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                      />
-                    </svg>
-                    Retry
-                  </button>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        class="h-4 w-4"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                        />
+                      </svg>
+                      Retry ({{ getRemainingRetries(item.id) }} left)
+                    </button>
+                    } @else {
+                    <span class="text-error text-sm font-medium">Max retries reached</span>
+                    }
                   }
                 </div>
               </div>
@@ -404,27 +413,31 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
 
                   <!-- Retry button for failed items -->
                   @if (item.status === 'error') {
-                  <button
-                    class="btn btn-error btn-sm"
-                    (click)="onRetryItem(item.id)"
-                    [attr.aria-label]="'Retry ' + item.name"
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      class="h-4 w-4"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
+                    @if (canRetry(item.id)) {
+                    <button
+                      class="btn btn-error btn-sm"
+                      (click)="onRetryItem(item.id)"
+                      [attr.aria-label]="'Retry ' + item.name + ' (' + getRemainingRetries(item.id) + ' attempts remaining)'"
                     >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                      />
-                    </svg>
-                    Retry
-                  </button>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        class="h-4 w-4"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                        />
+                      </svg>
+                      Retry ({{ getRemainingRetries(item.id) }} left)
+                    </button>
+                    } @else {
+                    <span class="text-error text-sm font-medium">Max retries reached</span>
+                    }
                   }
                 </div>
               </div>
@@ -525,9 +538,34 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
     </div>
   `,
 })
-export class GenerationProgressComponent {
+export class GenerationProgressComponent implements OnDestroy {
   private readonly wizardState = inject(SetupWizardStateService);
   private readonly wizardRpc = inject(WizardRpcService);
+
+  /**
+   * Maximum retry attempts per item.
+   * After this limit, retry button is disabled and user sees error message.
+   */
+  private static readonly MAX_RETRIES = 3;
+
+  /**
+   * Base delay for exponential backoff in milliseconds.
+   * Actual delay = BASE_DELAY_MS * 2^(retryCount - 1)
+   * Example: 1s, 2s, 4s for retries 1, 2, 3
+   */
+  private static readonly BASE_DELAY_MS = 1000;
+
+  /**
+   * Track pending retry operations.
+   * Prevents duplicate concurrent retries for the same item.
+   */
+  private pendingRetries = new Set<string>();
+
+  /**
+   * Track retry count per item ID.
+   * Used to enforce MAX_RETRIES limit and calculate backoff delay.
+   */
+  private retryCounts = new Map<string, number>();
 
   /**
    * All skill generation progress items from state service.
@@ -603,10 +641,61 @@ export class GenerationProgressComponent {
   }
 
   /**
-   * Retry a failed generation item.
-   * Resets the item status and triggers regeneration.
+   * Check if an item can be retried.
+   * Returns false if max retries reached or retry is already pending.
+   *
+   * @param itemId - Item identifier to check
+   * @returns true if retry is allowed
+   */
+  protected canRetry(itemId: string): boolean {
+    const count = this.retryCounts.get(itemId) ?? 0;
+    return count < GenerationProgressComponent.MAX_RETRIES && !this.pendingRetries.has(itemId);
+  }
+
+  /**
+   * Get remaining retry count for display in UI.
+   *
+   * @param itemId - Item identifier
+   * @returns Number of retries remaining (0 to MAX_RETRIES)
+   */
+  protected getRemainingRetries(itemId: string): number {
+    const count = this.retryCounts.get(itemId) ?? 0;
+    return Math.max(0, GenerationProgressComponent.MAX_RETRIES - count);
+  }
+
+  /**
+   * Retry a failed generation item with exponential backoff.
+   * - Enforces MAX_RETRIES limit per item
+   * - Prevents duplicate concurrent retries
+   * - Applies exponential backoff delay
+   * - Updates UI with remaining retries count
+   *
+   * @param itemId - Item identifier to retry
    */
   protected async onRetryItem(itemId: string): Promise<void> {
+    const currentRetries = this.retryCounts.get(itemId) ?? 0;
+
+    // Check if max retries reached
+    if (currentRetries >= GenerationProgressComponent.MAX_RETRIES) {
+      this.wizardState.updateSkillGenerationItem(itemId, {
+        status: 'error',
+        errorMessage: `Maximum retry attempts (${GenerationProgressComponent.MAX_RETRIES}) reached. Please contact support or try again later.`,
+      });
+      return;
+    }
+
+    // Prevent concurrent retries for same item
+    if (this.pendingRetries.has(itemId)) {
+      return;
+    }
+
+    this.pendingRetries.add(itemId);
+    this.retryCounts.set(itemId, currentRetries + 1);
+
+    // Apply exponential backoff delay: 1s, 2s, 4s
+    const delay = GenerationProgressComponent.BASE_DELAY_MS * Math.pow(2, currentRetries);
+    await new Promise(resolve => setTimeout(resolve, delay));
+
     // Reset item status to pending
     this.wizardState.retryGenerationItem(itemId);
 
@@ -614,12 +703,18 @@ export class GenerationProgressComponent {
       // Trigger regeneration via RPC
       await this.wizardRpc.retryGenerationItem(itemId);
     } catch (error) {
-      // Update item with error status
+      // Update item with error status and remaining retries info
       const message = error instanceof Error ? error.message : 'Retry failed';
+      const retriesLeft = GenerationProgressComponent.MAX_RETRIES - (currentRetries + 1);
+
       this.wizardState.updateSkillGenerationItem(itemId, {
         status: 'error',
-        errorMessage: message,
+        errorMessage: retriesLeft > 0
+          ? `${message} (${retriesLeft} ${retriesLeft === 1 ? 'retry' : 'retries'} remaining)`
+          : `${message}. Maximum retries reached.`,
       });
+    } finally {
+      this.pendingRetries.delete(itemId);
     }
   }
 
@@ -628,5 +723,14 @@ export class GenerationProgressComponent {
    */
   protected onContinue(): void {
     this.wizardState.setCurrentStep('completion');
+  }
+
+  /**
+   * Cleanup on component destruction.
+   * Clears pending retries and retry counts to prevent memory leaks.
+   */
+  ngOnDestroy(): void {
+    this.pendingRetries.clear();
+    this.retryCounts.clear();
   }
 }

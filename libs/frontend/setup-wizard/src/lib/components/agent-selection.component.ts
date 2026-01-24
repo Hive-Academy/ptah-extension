@@ -11,6 +11,7 @@ import {
 } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
 import { AgentCategory } from '@ptah-extension/shared';
+import { withErrorHandling } from '../utils/error-handling';
 
 /**
  * AgentSelectionComponent - Agent selection with relevance scores and recommendations
@@ -573,7 +574,39 @@ export class AgentSelectionComponent {
   }
 
   /**
+   * Build selected agents array from selection map.
+   * Converts internal selection state to format expected by RPC.
+   */
+  private buildSelectedAgents(): Array<{
+    id: string;
+    name: string;
+    selected: boolean;
+    score: number;
+    reason: string;
+    autoInclude: boolean;
+  }> {
+    const selectedAgentIds = Object.entries(this.selectedAgentsMap())
+      .filter(([_, isSelected]) => isSelected)
+      .map(([agentId]) => agentId);
+
+    return selectedAgentIds.map((agentId) => {
+      const recommendation = this.sortedRecommendations().find(
+        (r) => r.agentId === agentId
+      );
+      return {
+        id: agentId,
+        name: recommendation?.agentName ?? agentId,
+        selected: true,
+        score: recommendation?.relevanceScore ?? 0,
+        reason: recommendation?.matchedCriteria?.join(', ') ?? '',
+        autoInclude: (recommendation?.relevanceScore ?? 0) >= 80,
+      };
+    });
+  }
+
+  /**
    * Submit selected agents and transition to generation step.
+   * - Uses standardized error handling utility for consistent error messages
    * - Show loading state during RPC call
    * - Verify backend acknowledgment before step transition
    * - Display user-facing error message on failure
@@ -587,47 +620,33 @@ export class AgentSelectionComponent {
     this.isGenerating.set(true);
     this.errorMessage.set(null);
 
-    try {
-      const selectedAgentIds = Object.entries(this.selectedAgentsMap())
-        .filter(([_, isSelected]) => isSelected)
-        .map(([agentId]) => agentId);
+    const result = await withErrorHandling(
+      async () => {
+        const selectedAgents = this.buildSelectedAgents();
 
-      // Convert to AgentSelection format expected by RPC
-      const selectedAgents = selectedAgentIds.map((agentId) => {
-        const recommendation = this.sortedRecommendations().find(
-          (r) => r.agentId === agentId
-        );
-        return {
-          id: agentId,
-          name: recommendation?.agentName ?? agentId,
-          selected: true,
-          score: recommendation?.relevanceScore ?? 0,
-          reason: recommendation?.matchedCriteria?.join(', ') ?? '',
-          autoInclude: (recommendation?.relevanceScore ?? 0) >= 80,
-        };
-      });
+        // Submit selection and verify acknowledgment
+        const response = await this.wizardRpc.submitAgentSelection(selectedAgents);
 
-      // Submit selection and verify acknowledgment
-      const response = await this.wizardRpc.submitAgentSelection(selectedAgents);
+        // Verify backend acknowledgment before transitioning
+        if (!response?.success) {
+          throw new Error(response?.error ?? 'Backend did not acknowledge selection');
+        }
 
-      // Verify backend acknowledgment before transitioning
-      if (!response?.success) {
-        throw new Error(response?.error ?? 'Backend did not acknowledge selection');
+        return response;
+      },
+      'Starting agent generation',
+      (error) => {
+        this.errorMessage.set(error.message);
+        console.error('Agent generation failed:', error.details ?? error.message);
       }
+    );
 
+    if (result) {
       // Only transition after confirmed acknowledgment
       this.wizardState.setCurrentStep('generation');
-    } catch (error) {
-      // Handle RPC error with user-facing message
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Failed to start agent generation. Please try again.';
-      this.errorMessage.set(message);
-      console.error('Agent generation failed:', error);
-    } finally {
-      // Always reset loading state
-      this.isGenerating.set(false);
     }
+
+    // Always reset loading state
+    this.isGenerating.set(false);
   }
 }

@@ -186,6 +186,39 @@ export class SetupRpcHandlers {
   ) {}
 
   /**
+   * Safely resolve a service from the DI container with validation.
+   *
+   * Provides consistent error handling and logging for dynamic service resolution.
+   * Throws descriptive errors when resolution fails, including the service name
+   * and original error details for debugging.
+   *
+   * @param token - The DI token (symbol or string) identifying the service
+   * @param serviceName - Human-readable name for error messages
+   * @returns The resolved service instance
+   * @throws Error if service is not registered or resolves to null/undefined
+   *
+   * @remarks
+   * TASK_2025_113 T5.5: Added for standardized runtime validation of dynamic service resolution
+   */
+  private resolveService<T>(token: symbol | string, serviceName: string): T {
+    try {
+      const service = this.container.resolve(token);
+
+      if (service === null || service === undefined) {
+        throw new Error(`${serviceName} resolved to null/undefined`);
+      }
+
+      return service as T;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to resolve ${serviceName}`, { error: message });
+      throw new Error(
+        `${serviceName} not available. Ensure the agent-generation module is properly initialized. Details: ${message}`
+      );
+    }
+  }
+
+  /**
    * Register all setup RPC methods
    */
   register(): void {
@@ -226,16 +259,14 @@ export class SetupRpcHandlers {
           '@ptah-extension/agent-generation'
         );
 
-        // Resolve SetupStatusService from DI container
-        const setupStatusService = this.container.resolve(
-          AGENT_GENERATION_TOKENS.SETUP_STATUS_SERVICE
-        ) as {
+        // Resolve SetupStatusService from DI container with validation
+        const setupStatusService = this.resolveService<{
           getStatus: (uri: vscode.Uri) => Promise<{
             isErr: () => boolean;
             value?: SetupStatusResponse;
             error?: Error;
           }>;
-        };
+        }>(AGENT_GENERATION_TOKENS.SETUP_STATUS_SERVICE, 'SetupStatusService');
 
         // Get status
         const result = await setupStatusService.getStatus(workspaceFolder.uri);
@@ -276,15 +307,13 @@ export class SetupRpcHandlers {
           '@ptah-extension/agent-generation'
         );
 
-        // Resolve SetupWizardService from DI container
-        const setupWizardService = this.container.resolve(
-          AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE
-        ) as {
+        // Resolve SetupWizardService from DI container with validation
+        const setupWizardService = this.resolveService<{
           launchWizard: (uri: vscode.Uri) => Promise<{
             isErr: () => boolean;
             error?: Error;
           }>;
-        };
+        }>(AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE, 'SetupWizardService');
 
         // Launch wizard
         const result = await setupWizardService.launchWizard(
@@ -335,17 +364,15 @@ export class SetupRpcHandlers {
           '@ptah-extension/agent-generation'
         );
 
-        // Resolve SetupWizardService from DI container
-        const setupWizardService = this.container.resolve(
-          AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE
-        ) as {
+        // Resolve SetupWizardService from DI container with validation
+        const setupWizardService = this.resolveService<{
           performDeepAnalysis: (uri: vscode.Uri) => Promise<{
             isErr: () => boolean;
             isOk: () => boolean;
             value?: DeepProjectAnalysis;
             error?: Error;
           }>;
-        };
+        }>(AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE, 'SetupWizardService');
 
         // Perform deep analysis
         const result = await setupWizardService.performDeepAnalysis(
@@ -427,28 +454,30 @@ export class SetupRpcHandlers {
         const { AGENT_GENERATION_TOKENS, AgentRecommendationService } =
           await import('@ptah-extension/agent-generation');
 
-        // Try to resolve from container first, fallback to direct instantiation
-        let recommendationService: {
+        // Define the service interface type for reuse
+        type RecommendationServiceType = {
           calculateRecommendations: (
             analysis: DeepProjectAnalysis
           ) => AgentRecommendation[];
         };
 
+        // Try to resolve from container first, fallback to direct instantiation
+        let recommendationService: RecommendationServiceType;
+
         try {
-          recommendationService = this.container.resolve(
-            AGENT_GENERATION_TOKENS.AGENT_RECOMMENDATION_SERVICE
-          ) as {
-            calculateRecommendations: (
-              analysis: DeepProjectAnalysis
-            ) => AgentRecommendation[];
-          };
-        } catch {
-          // If not registered in container, create new instance with logger
-          this.logger.debug(
-            'AgentRecommendationService not in container, creating instance'
+          // First attempt: resolve via token with validation
+          recommendationService = this.resolveService<RecommendationServiceType>(
+            AGENT_GENERATION_TOKENS.AGENT_RECOMMENDATION_SERVICE,
+            'AgentRecommendationService'
           );
-          recommendationService = this.container.resolve(
-            AgentRecommendationService
+        } catch {
+          // If token resolution fails, fallback to direct class resolution
+          this.logger.debug(
+            'AgentRecommendationService not registered via token, using direct class resolution'
+          );
+          recommendationService = this.resolveService<RecommendationServiceType>(
+            AgentRecommendationService as unknown as symbol,
+            'AgentRecommendationService (direct)'
           );
         }
 

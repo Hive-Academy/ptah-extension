@@ -1,4 +1,4 @@
-import { Injectable, signal, computed, inject, OnDestroy } from '@angular/core';
+import { Injectable, signal, computed, inject } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
 import {
   ArchitecturePattern,
@@ -155,14 +155,20 @@ export interface SkillGenerationProgressItem {
 @Injectable({
   providedIn: 'root',
 })
-export class SetupWizardStateService implements OnDestroy {
+export class SetupWizardStateService {
   private readonly vscodeService = inject(VSCodeService);
 
   /**
-   * Message listener cleanup function.
-   * Called in ngOnDestroy to prevent memory leaks.
+   * Track whether message listener is registered.
+   * Prevents duplicate registration for root-level service.
    */
-  private messageListenerCleanup: (() => void) | null = null;
+  private isMessageListenerRegistered = false;
+
+  /**
+   * Message handler reference for cleanup.
+   * Stored to allow removal during dispose().
+   */
+  private messageHandler: ((event: MessageEvent) => void) | null = null;
 
   // === State Signals ===
 
@@ -308,7 +314,21 @@ export class SetupWizardStateService implements OnDestroy {
   readonly selectedAgentsMap = this.selectedAgentsMapSignal.asReadonly();
 
   constructor() {
+    this.ensureMessageListenerRegistered();
+  }
+
+  /**
+   * Ensure message listener is registered exactly once.
+   * Safe to call multiple times - uses flag to prevent duplicate registration.
+   * This is the proper pattern for root-level services that are never destroyed.
+   */
+  private ensureMessageListenerRegistered(): void {
+    if (this.isMessageListenerRegistered) {
+      return;
+    }
+
     this.setupMessageListener();
+    this.isMessageListenerRegistered = true;
   }
 
   // === Computed Signals ===
@@ -663,9 +683,10 @@ export class SetupWizardStateService implements OnDestroy {
    * Setup message listener for backend progress updates.
    * Uses discriminated union for type-safe message handling.
    * Handles all setup-wizard:* messages from the extension backend.
+   * Stores handler reference for cleanup in dispose().
    */
   private setupMessageListener(): void {
-    const messageHandler = (event: MessageEvent) => {
+    this.messageHandler = (event: MessageEvent) => {
       const message = event.data;
 
       // Validate message is a wizard message using discriminated union type guard
@@ -716,12 +737,7 @@ export class SetupWizardStateService implements OnDestroy {
       }
     };
 
-    window.addEventListener('message', messageHandler);
-
-    // Store cleanup function for ngOnDestroy
-    this.messageListenerCleanup = () => {
-      window.removeEventListener('message', messageHandler);
-    };
+    window.addEventListener('message', this.messageHandler);
   }
 
   /**
@@ -833,16 +849,23 @@ export class SetupWizardStateService implements OnDestroy {
   }
 
   /**
-   * Angular lifecycle hook - cleanup on service destruction.
-   * Removes message listener to prevent memory leaks.
+   * Cleanup for testing or explicit teardown.
+   * Removes message listener and resets registration flag.
    *
    * Note: Root services (providedIn: 'root') are never destroyed in normal operation.
-   * This cleanup is provided for testing scenarios and explicit teardown.
+   * This method is provided for:
+   * - Unit tests that need to clean up between test runs
+   * - Explicit teardown scenarios
+   * - Debugging memory leaks
+   *
+   * In production, this method is typically not called since root services
+   * persist for the lifetime of the application.
    */
-  ngOnDestroy(): void {
-    if (this.messageListenerCleanup) {
-      this.messageListenerCleanup();
-      this.messageListenerCleanup = null;
+  dispose(): void {
+    if (this.messageHandler) {
+      window.removeEventListener('message', this.messageHandler);
+      this.messageHandler = null;
+      this.isMessageListenerRegistered = false;
     }
   }
 }
