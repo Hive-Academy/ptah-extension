@@ -42,3 +42,16 @@ export {
   SetupStatusService,
   type SetupStatus,
 } from './lib/services/setup-status.service';
+
+// Wizard child services (TASK_2025_115)
+export {
+  WizardWebviewLifecycleService,
+  WizardSessionManagerService,
+  WizardStepMachineService,
+  DeepProjectAnalysisService,
+  CodeHealthAnalysisService,
+  WizardContextMapperService,
+  type StepDataResult,
+  type CustomMessageHandler,
+  type WizardPanelInitialData,
+} from './lib/services/wizard';

@@ -40,6 +40,15 @@ The **agent-generation library** provides intelligent, project-adaptive agent ge
 │  ├─ SetupStatusService         - Setup tracking      │
 │  └─ VsCodeLmService            - VS Code LM API      │
 ├──────────────────────────────────────────────────────┤
+│  Setup Wizard (Facade + Child Services)              │
+│  └─ SetupWizardService (Facade)                      │
+│     ├─ WizardWebviewLifecycleService - Panel mgmt    │
+│     ├─ WizardSessionManagerService   - Session CRUD  │
+│     ├─ WizardStepMachineService      - Step machine  │
+│     ├─ DeepProjectAnalysisService    - Architecture  │
+│     ├─ CodeHealthAnalysisService     - Code health   │
+│     └─ WizardContextMapperService    - Context map   │
+├──────────────────────────────────────────────────────┤
 │  Template Management                                  │
 │  └─ TemplateStorageService                           │
 │     ├─ Template loading from assets                  │
@@ -83,6 +92,19 @@ The **agent-generation library** provides intelligent, project-adaptive agent ge
 - `services/agent-selection.service.ts` - Agent selection and recommendation
 - `services/vscode-lm.service.ts` - VS Code Language Model API integration
 - `services/setup-status.service.ts` - Setup state tracking and verification
+- `services/setup-wizard.service.ts` - Setup wizard facade (orchestrates child services)
+
+### Wizard Child Services (TASK_2025_115)
+
+The setup wizard functionality has been decomposed following SRP into focused child services:
+
+- `services/wizard/webview-lifecycle.service.ts` - Webview panel creation, RPC responses, progress emission
+- `services/wizard/session-manager.service.ts` - Session CRUD and workspace state persistence (24hr expiry)
+- `services/wizard/step-machine.service.ts` - Step state machine (welcome->scan->review->select->generate->complete)
+- `services/wizard/deep-analysis.service.ts` - Architecture pattern detection, key file locations, language stats
+- `services/wizard/code-health.service.ts` - Diagnostics summary, code conventions, test coverage estimation
+- `services/wizard/context-mapper.service.ts` - Frontend-to-backend context transformation
+- `services/wizard/index.ts` - Barrel exports for all wizard child services
 
 ### Utilities
 
@@ -662,6 +684,7 @@ nx test agent-generation --testFile=content-generation.service.spec.ts
 ## File Paths Reference
 
 - **Services**: `src/lib/services/`
+- **Wizard Services**: `src/lib/services/wizard/` (child services for setup wizard)
 - **Utilities**: `src/lib/utils/`
 - **Patterns**: `src/lib/patterns/`
 - **Types**: `src/lib/types/`
