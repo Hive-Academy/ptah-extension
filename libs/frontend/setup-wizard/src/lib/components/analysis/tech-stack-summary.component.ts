@@ -1,5 +1,6 @@
 import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
+import { LucideAngularModule, Code2 } from 'lucide-angular';
 import { LanguageStats } from '@ptah-extension/shared';
 
 /**
@@ -30,7 +31,7 @@ import { LanguageStats } from '@ptah-extension/shared';
 @Component({
   selector: 'ptah-tech-stack-summary',
   standalone: true,
-  imports: [DecimalPipe],
+  imports: [DecimalPipe, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <!-- Project Overview Card -->
@@ -90,20 +91,11 @@ import { LanguageStats } from '@ptah-extension/shared';
     <div class="card bg-base-200 shadow-xl mb-6">
       <div class="card-body">
         <h3 class="card-title text-lg mb-4">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
+          <lucide-angular
+            [img]="Code2Icon"
             class="h-5 w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
-            />
-          </svg>
+            aria-hidden="true"
+          />
           Language Distribution
         </h3>
 
@@ -133,6 +125,8 @@ import { LanguageStats } from '@ptah-extension/shared';
   `,
 })
 export class TechStackSummaryComponent {
+  protected readonly Code2Icon = Code2;
+
   /**
    * Project type (e.g., 'Angular', 'Node.js', 'React').
    */

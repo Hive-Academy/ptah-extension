@@ -4,6 +4,7 @@ import {
   ChangeDetectionStrategy,
   signal,
 } from '@angular/core';
+import { LucideAngularModule, XCircle } from 'lucide-angular';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
 
@@ -30,7 +31,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
 @Component({
   selector: 'ptah-welcome',
   standalone: true,
-  imports: [],
+  imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="hero min-h-screen bg-base-200">
@@ -49,19 +50,11 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
 
           @if (errorMessage()) {
           <div class="alert alert-error mb-6 max-w-md mx-auto">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
+            <lucide-angular
+              [img]="XCircleIcon"
               class="stroke-current shrink-0 h-6 w-6"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
+              aria-hidden="true"
+            />
             <span>{{ errorMessage() }}</span>
           </div>
           }
@@ -88,6 +81,8 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
 export class WelcomeComponent {
   private readonly wizardState = inject(SetupWizardStateService);
   private readonly wizardRpc = inject(WizardRpcService);
+
+  protected readonly XCircleIcon = XCircle;
 
   // Component-local loading state (not in global state)
   protected readonly isStarting = signal(false);

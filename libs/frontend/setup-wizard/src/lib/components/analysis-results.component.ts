@@ -5,6 +5,7 @@ import {
   computed,
   ViewChild,
 } from '@angular/core';
+import { LucideAngularModule, TriangleAlert } from 'lucide-angular';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { ConfirmationModalComponent } from './confirmation-modal.component';
 import { ArchitecturePatternsCardComponent } from './analysis/architecture-patterns-card.component';
@@ -41,6 +42,7 @@ import { TechStackSummaryComponent } from './analysis/tech-stack-summary.compone
   selector: 'ptah-analysis-results',
   standalone: true,
   imports: [
+    LucideAngularModule,
     ConfirmationModalComponent,
     ArchitecturePatternsCardComponent,
     KeyFileLocationsCardComponent,
@@ -87,19 +89,11 @@ import { TechStackSummaryComponent } from './analysis/tech-stack-summary.compone
 
       <!-- Confirmation Warning -->
       <div class="alert alert-warning shadow-md mb-6">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
+        <lucide-angular
+          [img]="TriangleAlertIcon"
           class="stroke-current shrink-0 h-6 w-6"
-          fill="none"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-          />
-        </svg>
+          aria-hidden="true"
+        />
         <div>
           <div class="font-semibold">Does this look correct?</div>
           <div class="text-sm text-base-content/80">
@@ -118,7 +112,7 @@ import { TechStackSummaryComponent } from './analysis/tech-stack-summary.compone
         </button>
       </div>
 
-      } @else if (projectContext(); as context) {
+      } @if (projectContext(); as context) {
       <!-- Fallback: Show basic project context if deep analysis not available -->
       <div class="card bg-base-200 shadow-xl mb-6">
         <div class="card-body">
@@ -188,19 +182,11 @@ import { TechStackSummaryComponent } from './analysis/tech-stack-summary.compone
 
       <!-- Confirmation Warning -->
       <div class="alert alert-warning shadow-md mb-6">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
+        <lucide-angular
+          [img]="TriangleAlertIcon"
           class="stroke-current shrink-0 h-6 w-6"
-          fill="none"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-          />
-        </svg>
+          aria-hidden="true"
+        />
         <div>
           <div class="font-semibold">Does this look correct?</div>
           <div class="text-sm text-base-content/80">
@@ -231,15 +217,8 @@ import { TechStackSummaryComponent } from './analysis/tech-stack-summary.compone
     <!-- Alert Modal for Future Enhancement -->
     <ptah-confirmation-modal
       #alertModal
-      [title]="'Manual Adjustment Coming Soon'"
-      [message]="
-        'Manual adjustment is coming soon!
-
-For now, you can:
-1. Continue with detected settings
-2. Cancel and manually configure your .claude folder
-3. Contact support for custom configuration help'
-      "
+      title="Manual Adjustment Coming Soon"
+      [message]="confirmationMessage"
       [mode]="'alert'"
       [confirmText]="'OK'"
       (confirmed)="onAlertOk()"
@@ -249,8 +228,15 @@ For now, you can:
 export class AnalysisResultsComponent {
   private readonly wizardState = inject(SetupWizardStateService);
 
+  protected readonly TriangleAlertIcon = TriangleAlert;
+
   @ViewChild('alertModal') alertModal!: ConfirmationModalComponent;
 
+  public readonly confirmationMessage = `Manual adjustment is coming soon!
+For now, you can:
+1. Continue with detected settings
+2. Cancel and manually configure your .claude folder
+3. Contact support for custom configuration help`;
   /**
    * Reactive deep analysis from state service.
    * Contains comprehensive project insights from MCP-powered analysis.

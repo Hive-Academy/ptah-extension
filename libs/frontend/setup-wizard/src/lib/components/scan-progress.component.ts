@@ -6,6 +6,7 @@ import {
   signal,
   ViewChild,
 } from '@angular/core';
+import { LucideAngularModule, XCircle, Info } from 'lucide-angular';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
 import { ConfirmationModalComponent } from './confirmation-modal.component';
@@ -32,7 +33,7 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
 @Component({
   selector: 'ptah-scan-progress',
   standalone: true,
-  imports: [ConfirmationModalComponent],
+  imports: [LucideAngularModule, ConfirmationModalComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="container mx-auto px-6 py-12 max-w-3xl">
@@ -40,19 +41,11 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
 
       @if (errorMessage(); as error) {
       <div class="alert alert-error mb-4" role="alert">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
+        <lucide-angular
+          [img]="XCircleIcon"
           class="h-6 w-6 shrink-0 stroke-current"
-          fill="none"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
-          />
-        </svg>
+          aria-hidden="true"
+        />
         <span>{{ error }}</span>
       </div>
       } @if (progress(); as progressData) {
@@ -89,19 +82,11 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
         <h3 class="text-lg font-semibold text-base-content/80">Detections:</h3>
         @for (detection of progressData.detections; track detection) {
         <div class="alert alert-info shadow-md">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
+          <lucide-angular
+            [img]="InfoIcon"
             class="stroke-current shrink-0 w-6 h-6"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            ></path>
-          </svg>
+            aria-hidden="true"
+          />
           <span>{{ detection }}</span>
         </div>
         } @empty {
@@ -156,6 +141,9 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
 export class ScanProgressComponent {
   private readonly wizardState = inject(SetupWizardStateService);
   private readonly wizardRpc = inject(WizardRpcService);
+
+  protected readonly XCircleIcon = XCircle;
+  protected readonly InfoIcon = Info;
 
   @ViewChild('confirmModal') confirmModal!: ConfirmationModalComponent;
 
