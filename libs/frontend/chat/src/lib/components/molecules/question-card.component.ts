@@ -9,6 +9,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { LucideAngularModule, HelpCircle } from 'lucide-angular';
 import type { QuestionItem } from '@ptah-extension/shared';
 
 /**
@@ -63,24 +64,18 @@ export interface AskUserQuestionResponse {
 @Component({
   selector: 'ptah-question-card',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="card bg-info/10 border border-info/30 p-3">
       <!-- Header with timer -->
       <div class="flex items-center justify-between mb-2">
         <div class="flex items-center gap-2">
-          <svg
+          <lucide-angular
+            [img]="HelpCircleIcon"
             class="w-4 h-4 text-info"
-            fill="currentColor"
-            viewBox="0 0 20 20"
-          >
-            <path
-              fill-rule="evenodd"
-              d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z"
-              clip-rule="evenodd"
-            />
-          </svg>
+            aria-hidden="true"
+          />
           <span class="text-xs font-medium text-info"
             >Claude needs your input</span
           >
@@ -149,6 +144,9 @@ export interface AskUserQuestionResponse {
   `,
 })
 export class QuestionCardComponent implements OnInit, OnDestroy {
+  /** Lucide icon reference for template binding */
+  protected readonly HelpCircleIcon = HelpCircle;
+
   /** The question request containing questions to display */
   readonly request = input.required<AskUserQuestionRequest>();
 

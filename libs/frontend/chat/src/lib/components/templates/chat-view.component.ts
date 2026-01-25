@@ -11,6 +11,7 @@ import {
   DestroyRef,
 } from '@angular/core';
 import { NgOptimizedImage } from '@angular/common';
+import { LucideAngularModule, Bell } from 'lucide-angular';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { ChatInputComponent } from '../molecules/chat-input.component';
 import { PermissionBadgeComponent } from '../molecules/permission-badge.component';
@@ -52,6 +53,7 @@ import {
   selector: 'ptah-chat-view',
   imports: [
     NgOptimizedImage,
+    LucideAngularModule,
     MessageBubbleComponent,
     ChatInputComponent,
     PermissionBadgeComponent,
@@ -69,6 +71,9 @@ export class ChatViewComponent {
   private readonly vscodeService = inject(VSCodeService);
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
+
+  /** Lucide icon reference for template binding */
+  protected readonly BellIcon = Bell;
 
   /**
    * MutationObserver for auto-scroll behavior.

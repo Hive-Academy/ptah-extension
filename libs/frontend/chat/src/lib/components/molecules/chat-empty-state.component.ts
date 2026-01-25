@@ -1,5 +1,6 @@
 import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
 import { NgOptimizedImage } from '@angular/common';
+import { LucideAngularModule, ScanSearch } from 'lucide-angular';
 import { SetupStatusWidgetComponent } from './setup-status-widget.component';
 import { VSCodeService } from '@ptah-extension/core';
 
@@ -33,7 +34,7 @@ import { VSCodeService } from '@ptah-extension/core';
  */
 @Component({
   selector: 'ptah-chat-empty-state',
-  imports: [SetupStatusWidgetComponent, NgOptimizedImage],
+  imports: [SetupStatusWidgetComponent, NgOptimizedImage, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <!--
@@ -90,31 +91,11 @@ import { VSCodeService } from '@ptah-extension/core';
               <div
                 class="flex items-center justify-center w-10 h-10 rounded-lg bg-secondary/10 text-secondary shrink-0 agent-working"
               >
-                <svg
+                <lucide-angular
+                  [img]="ScanSearchIcon"
                   class="w-5 h-5 md:w-6 md:h-6"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                >
-                  <path
-                    d="M9.5 2A1.5 1.5 0 0111 3.5V5a1.5 1.5 0 01-1.5 1.5H5A1.5 1.5 0 013.5 5V3.5A1.5 1.5 0 015 2h4.5z"
-                    class="fill-secondary/20"
-                  />
-                  <path
-                    d="M9.5 17A1.5 1.5 0 0111 18.5V20a1.5 1.5 0 01-1.5 1.5H5A1.5 1.5 0 013.5 20v-1.5A1.5 1.5 0 015 17h4.5z"
-                    class="fill-secondary/20"
-                  />
-                  <path
-                    d="M19 2a1.5 1.5 0 011.5 1.5V5A1.5 1.5 0 0119 6.5h-4.5A1.5 1.5 0 0113 5V3.5A1.5 1.5 0 0114.5 2H19z"
-                    class="fill-secondary/20"
-                  />
-                  <path
-                    d="M19 17a1.5 1.5 0 011.5 1.5V20a1.5 1.5 0 01-1.5 1.5h-4.5A1.5 1.5 0 0113 20v-1.5a1.5 1.5 0 011.5-1.5H19z"
-                    class="fill-secondary/20"
-                  />
-                  <path d="M12 8v8M8 12h8" stroke-linecap="round" />
-                </svg>
+                  aria-hidden="true"
+                />
               </div>
               <div class="flex-1">
                 <h3
@@ -264,6 +245,9 @@ import { VSCodeService } from '@ptah-extension/core';
 })
 export class ChatEmptyStateComponent {
   private readonly vscodeService = inject(VSCodeService);
+
+  /** Lucide icon reference for template binding */
+  protected readonly ScanSearchIcon = ScanSearch;
 
   /** Ptah icon URI - uses same method as app-shell component */
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();

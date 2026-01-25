@@ -7,6 +7,7 @@ import {
   inject,
 } from '@angular/core';
 import { Subject } from 'rxjs';
+import { LucideAngularModule, AlertCircle } from 'lucide-angular';
 
 // UPDATED: Import from @ptah-extension/core library
 import {
@@ -22,12 +23,15 @@ import { AppShellComponent } from '@ptah-extension/chat';
 
 @Component({
   selector: 'ptah-root',
-  imports: [AppShellComponent],
+  imports: [AppShellComponent, LucideAngularModule],
   templateUrl: './app.html',
   styleUrls: ['./app.css'],
 })
 export class App implements OnInit, OnDestroy {
   private readonly destroy$ = new Subject<void>();
+
+  /** Lucide icon reference for template binding */
+  protected readonly AlertCircleIcon = AlertCircle;
 
   // ANGULAR 20 PATTERN: Use inject() instead of constructor injection
   public readonly appState = inject(AppStateManager);
