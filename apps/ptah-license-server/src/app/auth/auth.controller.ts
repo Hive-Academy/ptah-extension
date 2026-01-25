@@ -11,11 +11,15 @@ import {
   BadRequestException,
   Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { Request, Response } from 'express';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
-import { AuthService, OAuthProvider } from './services/auth.service';
-import { TicketService } from './services/ticket.service';
-import { MagicLinkService } from './services/magic-link.service';
+import {
+  AuthService,
+  OAuthProvider,
+  TicketService,
+  MagicLinkService,
+} from './services';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../../email/services/email.service';
 
@@ -53,10 +57,37 @@ const STATE_COOKIE_MAX_AGE_MS = 5 * 60 * 1000;
 /**
  * Authentication Controller
  *
- * Handles WorkOS authentication flow with PKCE (OAuth 2.1 compliant)
- * and JWT session management.
+ * Handles multiple authentication flows with JWT session management.
  *
- * PKCE Flow (Proof Key for Code Exchange):
+ * ============================================================================
+ * COOKIE NAMING CONVENTION - CRITICAL FOR AUTHENTICATION
+ * ============================================================================
+ *
+ * This application uses TWO SEPARATE authentication cookies for different flows:
+ *
+ * 1. **access_token** - WorkOS OAuth Flow (Main Application)
+ *    - Set by: POST /auth/callback, POST /auth/login/email, POST /auth/verify-email
+ *    - Validated by: JwtAuthGuard
+ *    - Used for: Main application authentication with WorkOS
+ *    - Endpoints: All authenticated endpoints using @UseGuards(JwtAuthGuard)
+ *
+ * 2. **ptah_auth** - Magic Link Portal Flow (Customer Portal)
+ *    - Set by: GET /auth/verify (magic link verification)
+ *    - Validated by: PtahJwtAuthGuard (also accepts access_token as fallback)
+ *    - Used for: Customer portal authentication (/profile dashboard)
+ *    - Endpoints: GET /api/v1/licenses/me (customer license details)
+ *
+ * IMPORTANT NOTE:
+ * - JwtAuthGuard is STRICT: Only accepts access_token cookie
+ * - PtahJwtAuthGuard is FLEXIBLE: Accepts ptah_auth OR access_token cookie
+ * - This means users can access /profile regardless of login method!
+ *
+ * Logout clears BOTH cookies to ensure complete session termination.
+ *
+ * ============================================================================
+ * WORKOS OAUTH FLOW (PKCE - OAuth 2.1 Compliant)
+ * ============================================================================
+ *
  * 1. User visits `/auth/login`
  *    → Generate code_verifier and code_challenge
  *    → Store code_verifier server-side (mapped to state)
@@ -70,7 +101,7 @@ const STATE_COOKIE_MAX_AGE_MS = 5 * 60 * 1000;
  *    → Validate state from cookie matches state from query
  *    → Retrieve code_verifier for this state
  *    → Exchange code + code_verifier for tokens
- *    → Generate JWT and set in HTTP-only cookie
+ *    → Generate JWT and set in HTTP-only cookie (access_token)
  *
  * Security Properties:
  * - PKCE prevents authorization code interception attacks
@@ -81,14 +112,26 @@ const STATE_COOKIE_MAX_AGE_MS = 5 * 60 * 1000;
 @Controller('auth')
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
+  private readonly isProduction: boolean;
+  private readonly frontendUrl: string;
+  private readonly logoutRedirectUri: string | undefined;
 
   constructor(
     private readonly authService: AuthService,
     private readonly ticketService: TicketService,
     private readonly magicLinkService: MagicLinkService,
     private readonly prisma: PrismaService,
-    private readonly emailService: EmailService
-  ) {}
+    private readonly emailService: EmailService,
+    private readonly configService: ConfigService
+  ) {
+    this.isProduction =
+      this.configService.get<string>('NODE_ENV') === 'production';
+    this.frontendUrl =
+      this.configService.get<string>('FRONTEND_URL') || 'http://localhost:4200';
+    this.logoutRedirectUri = this.configService.get<string>(
+      'WORKOS_LOGOUT_REDIRECT_URI'
+    );
+  }
 
   /**
    * Initiate WorkOS login flow with PKCE
@@ -120,7 +163,7 @@ export class AuthController {
     // This cookie will be compared against the state parameter in the callback URL
     res.cookie(WORKOS_STATE_COOKIE, state, {
       httpOnly: true, // Prevents JavaScript access (XSS protection)
-      secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+      secure: this.isProduction, // HTTPS only in production
       sameSite: 'lax', // Allows cookie to be sent on redirect from WorkOS
       maxAge: STATE_COOKIE_MAX_AGE_MS, // 5 minutes - matches server-side state TTL
       path: '/', // Available for callback route
@@ -214,7 +257,7 @@ export class AuthController {
     // Step 4: Clear state cookie (single-use, prevents replay)
     res.clearCookie(WORKOS_STATE_COOKIE, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: this.isProduction,
       sameSite: 'lax',
       path: '/',
     });
@@ -227,25 +270,37 @@ export class AuthController {
       // Step 5: Exchange code for tokens with PKCE verification
       // The service will validate state against server-side storage
       // and use the stored code_verifier for the token exchange
-      const { token } = await this.authService.authenticateWithCode(
-        code,
-        state
-      );
+      // Also returns returnUrl and plan if they were stored with the OAuth state
+      const { token, returnUrl, plan } =
+        await this.authService.authenticateWithCode(code, state);
 
       // Step 6: Set JWT in HTTP-only cookie for session management
       res.cookie('access_token', token, {
         httpOnly: true, // Prevents JavaScript access (XSS protection)
-        secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+        secure: this.isProduction, // HTTPS only in production
         sameSite: 'lax', // CSRF protection
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
         path: '/', // Available to all routes
       });
 
-      this.logger.debug('Authentication successful, JWT cookie set');
+      this.logger.debug(
+        `Authentication successful, JWT cookie set${
+          returnUrl ? ` returnUrl=${returnUrl}` : ''
+        }${plan ? ` plan=${plan}` : ''}`
+      );
 
-      // Step 7: Redirect to frontend application
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
-      res.redirect(frontendUrl);
+      // Step 7: Redirect to frontend application (with optional returnUrl and plan)
+      if (returnUrl) {
+        // Build redirect URL with returnUrl path and optional autoCheckout param
+        const redirectUrl = new URL(returnUrl, this.frontendUrl);
+        if (plan) {
+          redirectUrl.searchParams.set('autoCheckout', plan);
+        }
+        res.redirect(redirectUrl.toString());
+      } else {
+        // Default: redirect to frontend root
+        res.redirect(this.frontendUrl);
+      }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`Authentication failed: ${message}`);
@@ -259,25 +314,38 @@ export class AuthController {
   /**
    * Logout user
    *
-   * Clears JWT cookie and optionally redirects to WorkOS logout.
+   * Clears ALL JWT cookies (both WorkOS OAuth and magic link portal cookies).
+   *
+   * Cookie Naming Convention:
+   * - access_token: WorkOS OAuth flow (validated by JwtAuthGuard)
+   * - ptah_auth: Magic link portal flow (validated by PtahJwtAuthGuard)
    *
    * @example
    * POST /auth/logout
-   * → Clears cookie: access_token
+   * → Clears cookie: access_token (WorkOS OAuth)
+   * → Clears cookie: ptah_auth (Magic Link Portal)
    * → Returns: { success: true }
    */
   @Post('logout')
   logout(@Res() res: Response): void {
+    // Clear WorkOS OAuth cookie (used by main application auth)
     res.clearCookie('access_token', {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: this.isProduction,
       sameSite: 'lax',
       path: '/',
     });
 
-    const logoutRedirectUri = process.env.WORKOS_LOGOUT_REDIRECT_URI;
-    if (logoutRedirectUri) {
-      res.redirect(logoutRedirectUri);
+    // Clear magic link portal cookie (used by customer portal /profile)
+    res.clearCookie('ptah_auth', {
+      httpOnly: true,
+      secure: this.isProduction,
+      sameSite: 'lax',
+      path: '/',
+    });
+
+    if (this.logoutRedirectUri) {
+      res.redirect(this.logoutRedirectUri);
     } else {
       res.json({ success: true, message: 'Logged out successfully' });
     }
@@ -391,8 +459,7 @@ export class AuthController {
     @Res() res: Response
   ): Promise<void> {
     if (!token) {
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
-      res.redirect(`${frontendUrl}/login?error=token_missing`);
+      res.redirect(`${this.frontendUrl}/login?error=token_missing`);
       return;
     }
 
@@ -401,8 +468,7 @@ export class AuthController {
 
     if (!result.valid) {
       // Step 1a: Token invalid - redirect to login with error
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
-      res.redirect(`${frontendUrl}/login?error=${result.error}`);
+      res.redirect(`${this.frontendUrl}/login?error=${result.error}`);
       return;
     }
 
@@ -413,8 +479,7 @@ export class AuthController {
 
     if (!user) {
       // User was deleted between magic link creation and verification
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
-      res.redirect(`${frontendUrl}/login?error=user_not_found`);
+      res.redirect(`${this.frontendUrl}/login?error=user_not_found`);
       return;
     }
 
@@ -425,18 +490,19 @@ export class AuthController {
     };
     const jwtToken = this.authService.generateJwtToken(jwtPayload);
 
-    // Step 4: Set HTTP-only cookie with JWT (use access_token for consistency)
-    res.cookie('access_token', jwtToken, {
+    // Step 4: Set HTTP-only cookie with JWT for portal authentication
+    // IMPORTANT: Use 'ptah_auth' cookie name for magic link portal auth
+    // This is validated by PtahJwtAuthGuard (used by /api/v1/licenses/me endpoint)
+    res.cookie('ptah_auth', jwtToken, {
       httpOnly: true, // Prevents JavaScript access (XSS protection)
-      secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+      secure: this.isProduction, // HTTPS only in production
       sameSite: 'lax', // CSRF protection
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: '/', // Available to all routes
     });
 
     // Step 5: Redirect to profile page
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
-    res.redirect(`${frontendUrl}/profile`);
+    res.redirect(`${this.frontendUrl}/profile`);
   }
 
   /**
@@ -515,7 +581,7 @@ export class AuthController {
     // Set JWT in HTTP-only cookie
     res.cookie('access_token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: this.isProduction,
       sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: '/',
@@ -608,7 +674,7 @@ export class AuthController {
     // Set JWT in HTTP-only cookie
     res.cookie('access_token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: this.isProduction,
       sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: '/',
@@ -668,10 +734,15 @@ export class AuthController {
    * - github: GitHub OAuth
    * - google: Google OAuth
    *
+   * Query Parameters:
+   * - returnUrl: Optional URL path to redirect to after auth (e.g., '/pricing')
+   * - plan: Optional plan key for auto-checkout (e.g., 'pro-monthly', 'pro-yearly')
+   *
    * @example
-   * GET /auth/oauth/github
+   * GET /auth/oauth/github?returnUrl=/pricing&plan=pro-monthly
    * → Sets cookie: workos_state=<state>
    * → Redirect to: https://github.com/login/oauth/authorize?...
+   * → After auth: Redirect to /pricing?autoCheckout=pro-monthly
    *
    * @example
    * GET /auth/oauth/google
@@ -681,6 +752,8 @@ export class AuthController {
   @Get('oauth/:provider')
   async oauthLogin(
     @Param('provider') provider: string,
+    @Query('returnUrl') returnUrl: string | undefined,
+    @Query('plan') plan: string | undefined,
     @Res() res: Response
   ): Promise<void> {
     // Validate provider
@@ -693,15 +766,17 @@ export class AuthController {
       );
     }
 
-    // Generate authorization URL for the specific provider
+    // Generate authorization URL for the specific provider (with optional returnUrl/plan)
     const { url, state } = await this.authService.getOAuthAuthorizationUrl(
-      provider as OAuthProvider
+      provider as OAuthProvider,
+      returnUrl,
+      plan
     );
 
     // Set state in HTTP-only cookie for CSRF validation in callback
     res.cookie(WORKOS_STATE_COOKIE, state, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: this.isProduction,
       sameSite: 'lax',
       maxAge: STATE_COOKIE_MAX_AGE_MS,
       path: '/',
@@ -711,7 +786,9 @@ export class AuthController {
       `OAuth login initiated for ${provider}, state: ${state.substring(
         0,
         8
-      )}...`
+      )}...${returnUrl ? ` returnUrl=${returnUrl}` : ''}${
+        plan ? ` plan=${plan}` : ''
+      }`
     );
 
     // Redirect directly to OAuth provider

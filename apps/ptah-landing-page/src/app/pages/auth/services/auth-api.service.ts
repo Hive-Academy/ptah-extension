@@ -94,25 +94,60 @@ export class AuthApiService {
   }
 
   /**
-   * Redirect to OAuth provider
+   * Redirect to OAuth provider with optional return URL and plan
    * Note: This performs a browser redirect, not an HTTP request
+   *
+   * @param provider - OAuth provider (github, google)
+   * @param returnUrl - Optional URL path to redirect to after auth
+   * @param plan - Optional plan key for auto-checkout (e.g., 'pro-monthly', 'pro-yearly')
    */
-  public redirectToOAuth(provider: OAuthProvider): void {
-    window.location.href = `${this.baseUrl}/oauth/${provider}`;
+  public redirectToOAuth(
+    provider: OAuthProvider,
+    returnUrl?: string | null,
+    plan?: string | null
+  ): void {
+    let url = `${this.baseUrl}/oauth/${provider}`;
+    const params = new URLSearchParams();
+
+    if (returnUrl) {
+      params.set('returnUrl', returnUrl);
+    }
+    if (plan) {
+      params.set('plan', plan);
+    }
+
+    const queryString = params.toString();
+    if (queryString) {
+      url += `?${queryString}`;
+    }
+
+    window.location.href = url;
   }
 
   /**
    * Redirect to GitHub OAuth
+   *
+   * @param returnUrl - Optional URL path to redirect to after auth
+   * @param plan - Optional plan key for auto-checkout
    */
-  public loginWithGitHub(): void {
-    this.redirectToOAuth('github');
+  public loginWithGitHub(
+    returnUrl?: string | null,
+    plan?: string | null
+  ): void {
+    this.redirectToOAuth('github', returnUrl, plan);
   }
 
   /**
    * Redirect to Google OAuth
+   *
+   * @param returnUrl - Optional URL path to redirect to after auth
+   * @param plan - Optional plan key for auto-checkout
    */
-  public loginWithGoogle(): void {
-    this.redirectToOAuth('google');
+  public loginWithGoogle(
+    returnUrl?: string | null,
+    plan?: string | null
+  ): void {
+    this.redirectToOAuth('google', returnUrl, plan);
   }
 
   /**

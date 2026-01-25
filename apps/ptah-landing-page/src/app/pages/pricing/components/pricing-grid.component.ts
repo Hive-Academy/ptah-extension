@@ -7,7 +7,7 @@ import {
   effect,
   OnDestroy,
 } from '@angular/core';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { PlanCardComponent } from './plan-card.component';
 import { ProPlanCardComponent } from './pro-plan-card.component';
 import { PricingPlan } from '../models/pricing-plan.interface';
@@ -106,13 +106,16 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   public readonly CircleXIcon = CircleX;
 
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly paddleService = inject(PaddleCheckoutService);
   private readonly authService = inject(AuthService);
   private readonly STAGGER_DELAY = 0.15;
   private readonly CHECKOUT_TIMEOUT = 30000; // 30 seconds
+  private readonly AUTO_CHECKOUT_TIMEOUT = 10000; // 10 seconds max wait for Paddle
 
   private readonly paddleConfig = environment.paddle;
   private loadingTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private autoCheckoutIntervalId: ReturnType<typeof setInterval> | null = null;
 
   // Configuration error state (for placeholder detection)
   public readonly configError = signal<string | null>(null);
@@ -190,6 +193,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     ctaText: 'Start Pro Trial',
     ctaAction: 'checkout',
     highlight: true,
+    badge: 'plan_badge_early_adopter.png',
   };
 
   /**
@@ -220,16 +224,60 @@ export class PricingGridComponent implements OnInit, OnDestroy {
 
   /**
    * ngOnInit - Initialize Paddle SDK when component loads
+   * Also checks for autoCheckout query param for returning from login
    */
   public ngOnInit(): void {
     this.paddleService.initialize();
+
+    // Check for auto-checkout param from login redirect
+    const planKey = this.route.snapshot.queryParamMap.get('autoCheckout');
+    if (planKey) {
+      this.triggerAutoCheckout(planKey);
+    }
   }
 
   /**
-   * ngOnDestroy - Cleanup timeout on component destroy
+   * ngOnDestroy - Cleanup timeouts on component destroy
    */
   public ngOnDestroy(): void {
     this.clearLoadingTimeout();
+    this.clearAutoCheckoutInterval();
+  }
+
+  /**
+   * Clear auto-checkout interval if set
+   */
+  private clearAutoCheckoutInterval(): void {
+    if (this.autoCheckoutIntervalId !== null) {
+      clearInterval(this.autoCheckoutIntervalId);
+      this.autoCheckoutIntervalId = null;
+    }
+  }
+
+  /**
+   * Trigger auto-checkout after returning from login
+   * Waits for Paddle to be ready, then opens checkout for the specified plan
+   */
+  private triggerAutoCheckout(planKey: string): void {
+    // Determine which plan to checkout based on key
+    const plan =
+      planKey === 'pro-yearly' ? this.proYearlyPlan : this.proMonthlyPlan;
+
+    // Wait for Paddle to be ready, then trigger checkout
+    const startTime = Date.now();
+    this.autoCheckoutIntervalId = setInterval(() => {
+      if (this.isPaddleReady()) {
+        this.clearAutoCheckoutInterval();
+        // Small delay to ensure UI is fully rendered
+        setTimeout(() => {
+          this.proceedWithCheckout(plan);
+        }, 500);
+      } else if (Date.now() - startTime > this.AUTO_CHECKOUT_TIMEOUT) {
+        // Timeout - stop waiting
+        this.clearAutoCheckoutInterval();
+        console.warn('Auto-checkout timed out waiting for Paddle');
+      }
+    }, 100);
   }
 
   /**
@@ -260,6 +308,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     }
 
     if (plan.ctaAction === 'checkout') {
+      // Validate price ID first
       if (isPriceIdPlaceholder(plan.priceId)) {
         this.configError.set(
           'Checkout is not configured yet. Please try again later.'
@@ -267,31 +316,68 @@ export class PricingGridComponent implements OnInit, OnDestroy {
         return;
       }
 
-      this.clearLoadingTimeout();
-      this.paddleService.setLoadingPlan(plan.name);
+      // Check authentication FIRST before checkout
+      this.authService.isAuthenticated().subscribe({
+        next: (isAuth) => {
+          if (!isAuth) {
+            // Not authenticated - redirect to login with return URL
+            const planKey =
+              plan.priceSubtext === 'per year' ? 'pro-yearly' : 'pro-monthly';
+            this.router.navigate(['/login'], {
+              queryParams: {
+                returnUrl: '/pricing',
+                plan: planKey,
+              },
+            });
+            return;
+          }
 
-      this.loadingTimeoutId = setTimeout(() => {
-        this.paddleService.setLoadingPlan(null);
-        this.loadingTimeoutId = null;
-      }, this.CHECKOUT_TIMEOUT);
-
-      this.authService.getCurrentUser().subscribe({
-        next: (user) => {
-          this.paddleService.openCheckout({
-            priceId: plan.priceId!,
-            customerEmail: user?.email,
-          });
+          // Authenticated - proceed with checkout
+          this.proceedWithCheckout(plan);
         },
         error: () => {
-          this.paddleService.openCheckout({
-            priceId: plan.priceId!,
+          // Auth check failed - redirect to login as fallback
+          const planKey =
+            plan.priceSubtext === 'per year' ? 'pro-yearly' : 'pro-monthly';
+          this.router.navigate(['/login'], {
+            queryParams: {
+              returnUrl: '/pricing',
+              plan: planKey,
+            },
           });
-        },
-        complete: () => {
-          this.clearLoadingTimeout();
         },
       });
     }
+  }
+
+  /**
+   * Proceed with Paddle checkout (called after auth check passes)
+   */
+  private proceedWithCheckout(plan: PricingPlan): void {
+    this.clearLoadingTimeout();
+    this.paddleService.setLoadingPlan(plan.name);
+
+    this.loadingTimeoutId = setTimeout(() => {
+      this.paddleService.setLoadingPlan(null);
+      this.loadingTimeoutId = null;
+    }, this.CHECKOUT_TIMEOUT);
+
+    this.authService.getCurrentUser().subscribe({
+      next: (user) => {
+        this.paddleService.openCheckout({
+          priceId: plan.priceId!,
+          customerEmail: user?.email,
+        });
+      },
+      error: () => {
+        this.paddleService.openCheckout({
+          priceId: plan.priceId!,
+        });
+      },
+      complete: () => {
+        this.clearLoadingTimeout();
+      },
+    });
   }
 
   /**

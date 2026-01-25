@@ -192,6 +192,12 @@ export class AuthPageComponent implements OnInit {
   /** Email value from form (for magic link validation) */
   private readonly currentEmail = signal('');
 
+  /** Return URL after successful login (from query params) */
+  private readonly returnUrl = signal<string | null>(null);
+
+  /** Selected plan for auto-checkout after login (from query params) */
+  private readonly selectedPlan = signal<string | null>(null);
+
   // ============================================
   // EMAIL VERIFICATION STATE
   // ============================================
@@ -233,6 +239,18 @@ export class AuthPageComponent implements OnInit {
     const path = this.route.snapshot.routeConfig?.path;
     if (path === 'signup') {
       this.mode.set('signup');
+    }
+
+    // Capture return URL and plan from query params
+    // These are set when redirecting from pricing page for unauthenticated checkout
+    const returnUrl = this.route.snapshot.queryParamMap.get('returnUrl');
+    const plan = this.route.snapshot.queryParamMap.get('plan');
+
+    if (returnUrl) {
+      this.returnUrl.set(returnUrl);
+    }
+    if (plan) {
+      this.selectedPlan.set(plan);
     }
   }
 
@@ -306,7 +324,7 @@ export class AuthPageComponent implements OnInit {
       next: (response) => {
         this.isLoading.set(false);
         if (response.success) {
-          this.router.navigate(['/profile']);
+          this.navigateAfterAuth();
         }
       },
       error: (error: AuthErrorResponse) => {
@@ -330,6 +348,25 @@ export class AuthPageComponent implements OnInit {
         );
       },
     });
+  }
+
+  /**
+   * Navigate to appropriate page after successful authentication
+   * If returnUrl and plan were set (from pricing redirect), goes back with autoCheckout param
+   * Otherwise, defaults to profile page
+   */
+  private navigateAfterAuth(): void {
+    const returnUrl = this.returnUrl();
+    const plan = this.selectedPlan();
+
+    if (returnUrl) {
+      // Build query params for return URL (e.g., /pricing?autoCheckout=pro-monthly)
+      const queryParams = plan ? { autoCheckout: plan } : {};
+      this.router.navigate([returnUrl], { queryParams });
+    } else {
+      // Default: go to profile
+      this.router.navigate(['/profile']);
+    }
   }
 
   /**
@@ -383,8 +420,8 @@ export class AuthPageComponent implements OnInit {
             this.pendingVerification.set(false);
             this.pendingUserId.set('');
             this.pendingEmail.set('');
-            // Navigate to profile
-            this.router.navigate(['/profile']);
+            // Navigate to return URL or profile
+            this.navigateAfterAuth();
           }
         },
         error: (error: AuthErrorResponse) => {
@@ -438,16 +475,22 @@ export class AuthPageComponent implements OnInit {
 
   /**
    * Login with GitHub OAuth
+   * Passes returnUrl and plan to the OAuth flow for post-auth redirect
    */
   public loginWithGitHub(): void {
-    this.authApi.loginWithGitHub();
+    const returnUrl = this.returnUrl();
+    const plan = this.selectedPlan();
+    this.authApi.loginWithGitHub(returnUrl, plan);
   }
 
   /**
    * Login with Google OAuth
+   * Passes returnUrl and plan to the OAuth flow for post-auth redirect
    */
   public loginWithGoogle(): void {
-    this.authApi.loginWithGoogle();
+    const returnUrl = this.returnUrl();
+    const plan = this.selectedPlan();
+    this.authApi.loginWithGoogle(returnUrl, plan);
   }
 
   // ============================================

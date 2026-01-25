@@ -57,11 +57,20 @@ export class AuthService {
 
   /**
    * Get OAuth authorization URL for specific provider
+   *
+   * @param provider - OAuth provider (github, google)
+   * @param returnUrl - Optional URL to redirect to after auth
+   * @param plan - Optional plan key for auto-checkout after auth
    */
   async getOAuthAuthorizationUrl(
-    provider: OAuthProvider
+    provider: OAuthProvider,
+    returnUrl?: string,
+    plan?: string
   ): Promise<{ url: string; state: string }> {
-    const { codeChallenge, state } = this.pkceService.generatePkceParams();
+    const { codeChallenge, state } = this.pkceService.generatePkceParams({
+      returnUrl,
+      plan,
+    });
 
     const url = this.workosUserService.getOAuthAuthorizationUrl(
       provider,
@@ -79,14 +88,21 @@ export class AuthService {
 
   /**
    * Authenticate with OAuth callback code
+   *
+   * @returns Token, user, and optional returnUrl/plan from PKCE state
    */
   async authenticateWithCode(
     code: string,
     state: string
-  ): Promise<{ token: string; user: RequestUser }> {
-    // Validate and consume PKCE state
-    const codeVerifier = this.pkceService.consumeVerifier(state);
-    if (!codeVerifier) {
+  ): Promise<{
+    token: string;
+    user: RequestUser;
+    returnUrl?: string | null;
+    plan?: string | null;
+  }> {
+    // Validate and consume PKCE state (now returns full state with returnUrl/plan)
+    const pkceResult = this.pkceService.consumeVerifier(state);
+    if (!pkceResult) {
       throw new UnauthorizedException(
         'Invalid or expired state. Please try again.'
       );
@@ -95,7 +111,7 @@ export class AuthService {
     // Authenticate with WorkOS
     const result = await this.workosUserService.authenticateWithCode(
       code,
-      codeVerifier
+      pkceResult.verifier
     );
 
     // Sync user to database
@@ -111,7 +127,12 @@ export class AuthService {
       result.organizationId
     );
 
-    return { token, user };
+    return {
+      token,
+      user,
+      returnUrl: pkceResult.returnUrl,
+      plan: pkceResult.plan,
+    };
   }
 
   /**

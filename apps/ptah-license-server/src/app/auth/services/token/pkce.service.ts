@@ -8,6 +8,32 @@ import { createHash, randomBytes } from 'crypto';
 interface PKCEState {
   verifier: string;
   expiresAt: number;
+  /** Optional return URL for post-auth redirect */
+  returnUrl?: string | null;
+  /** Optional plan key for auto-checkout after auth */
+  plan?: string | null;
+}
+
+/**
+ * Options for generating PKCE parameters
+ */
+export interface PkceOptions {
+  /** URL to redirect to after authentication */
+  returnUrl?: string;
+  /** Plan key for auto-checkout (e.g., 'pro-monthly', 'pro-yearly') */
+  plan?: string;
+}
+
+/**
+ * Result from consuming a PKCE state
+ */
+export interface PkceConsumeResult {
+  /** The code verifier for token exchange */
+  verifier: string;
+  /** Optional return URL stored with the state */
+  returnUrl?: string | null;
+  /** Optional plan key stored with the state */
+  plan?: string | null;
 }
 
 /**
@@ -42,9 +68,10 @@ export class PkceService implements OnModuleDestroy {
   /**
    * Generate PKCE parameters for authorization request
    *
+   * @param options - Optional settings for return URL and plan
    * @returns code_verifier, code_challenge, and state
    */
-  generatePkceParams(): {
+  generatePkceParams(options?: PkceOptions): {
     codeVerifier: string;
     codeChallenge: string;
     state: string;
@@ -60,14 +87,18 @@ export class PkceService implements OnModuleDestroy {
     // Generate state for CSRF protection
     const state = randomBytes(16).toString('hex');
 
-    // Store verifier mapped to state
+    // Store verifier mapped to state (with optional returnUrl and plan)
     this.states.set(state, {
       verifier: codeVerifier,
       expiresAt: Date.now() + this.STATE_TTL_MS,
+      returnUrl: options?.returnUrl || null,
+      plan: options?.plan || null,
     });
 
     this.logger.debug(
-      `Generated PKCE state: ${state.substring(0, 8)}... (expires in 5 min)`
+      `Generated PKCE state: ${state.substring(0, 8)}... (expires in 5 min)${
+        options?.returnUrl ? ` returnUrl=${options.returnUrl}` : ''
+      }${options?.plan ? ` plan=${options.plan}` : ''}`
     );
 
     return { codeVerifier, codeChallenge, state };
@@ -77,9 +108,9 @@ export class PkceService implements OnModuleDestroy {
    * Retrieve and consume code verifier for token exchange
    *
    * @param state - State parameter from callback
-   * @returns code_verifier or null if invalid/expired
+   * @returns PkceConsumeResult with verifier and optional returnUrl/plan, or null if invalid/expired
    */
-  consumeVerifier(state: string): string | null {
+  consumeVerifier(state: string): PkceConsumeResult | null {
     const entry = this.states.get(state);
 
     if (!entry) {
@@ -101,7 +132,11 @@ export class PkceService implements OnModuleDestroy {
       })`
     );
 
-    return entry.verifier;
+    return {
+      verifier: entry.verifier,
+      returnUrl: entry.returnUrl,
+      plan: entry.plan,
+    };
   }
 
   /**
