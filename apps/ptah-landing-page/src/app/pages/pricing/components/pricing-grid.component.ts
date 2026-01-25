@@ -6,7 +6,9 @@ import {
   OnInit,
   effect,
   OnDestroy,
+  DestroyRef,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { PlanCardComponent } from './plan-card.component';
 import { ProPlanCardComponent } from './pro-plan-card.component';
@@ -69,6 +71,18 @@ import { LucideAngularModule, TriangleAlert, CircleX } from 'lucide-angular';
           Dismiss
         </button>
       </div>
+      } @if (autoCheckoutError()) {
+      <div class="alert alert-warning mb-8 max-w-xl mx-auto">
+        <lucide-angular
+          [img]="TriangleAlertIcon"
+          class="stroke-current shrink-0 h-6 w-6"
+          aria-hidden="true"
+        />
+        <span>{{ autoCheckoutError() }}</span>
+        <button class="btn btn-sm" (click)="autoCheckoutError.set(null)">
+          Dismiss
+        </button>
+      </div>
       }
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8">
         <!-- Free Plan Card -->
@@ -109,6 +123,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly paddleService = inject(PaddleCheckoutService);
   private readonly authService = inject(AuthService);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly STAGGER_DELAY = 0.15;
   private readonly CHECKOUT_TIMEOUT = 30000; // 30 seconds
   private readonly AUTO_CHECKOUT_TIMEOUT = 10000; // 10 seconds max wait for Paddle
@@ -119,6 +134,9 @@ export class PricingGridComponent implements OnInit, OnDestroy {
 
   // Configuration error state (for placeholder detection)
   public readonly configError = signal<string | null>(null);
+
+  // Auto-checkout error state (for timeout handling)
+  public readonly autoCheckoutError = signal<string | null>(null);
 
   // Expose paddle state for template
   public readonly paddleError = this.paddleService.error;
@@ -259,6 +277,18 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    * Waits for Paddle to be ready, then opens checkout for the specified plan
    */
   private triggerAutoCheckout(planKey: string): void {
+    // Validate plan key - only allow known values
+    const validPlanKeys = ['pro-monthly', 'pro-yearly'];
+    if (!validPlanKeys.includes(planKey)) {
+      this.autoCheckoutError.set(
+        'Invalid checkout plan. Please select a plan manually.'
+      );
+      return;
+    }
+
+    // Clear any previous error
+    this.autoCheckoutError.set(null);
+
     // Determine which plan to checkout based on key
     const plan =
       planKey === 'pro-yearly' ? this.proYearlyPlan : this.proMonthlyPlan;
@@ -273,9 +303,11 @@ export class PricingGridComponent implements OnInit, OnDestroy {
           this.proceedWithCheckout(plan);
         }, 500);
       } else if (Date.now() - startTime > this.AUTO_CHECKOUT_TIMEOUT) {
-        // Timeout - stop waiting
+        // Timeout - stop waiting and show user-visible error
         this.clearAutoCheckoutInterval();
-        console.warn('Auto-checkout timed out waiting for Paddle');
+        this.autoCheckoutError.set(
+          'Unable to start checkout automatically. Please click the checkout button to try again.'
+        );
       }
     }, 100);
   }
@@ -317,10 +349,29 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       }
 
       // Check authentication FIRST before checkout
-      this.authService.isAuthenticated().subscribe({
-        next: (isAuth) => {
-          if (!isAuth) {
-            // Not authenticated - redirect to login with return URL
+      this.authService
+        .isAuthenticated()
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (isAuth) => {
+            if (!isAuth) {
+              // Not authenticated - redirect to login with return URL
+              const planKey =
+                plan.priceSubtext === 'per year' ? 'pro-yearly' : 'pro-monthly';
+              this.router.navigate(['/login'], {
+                queryParams: {
+                  returnUrl: '/pricing',
+                  plan: planKey,
+                },
+              });
+              return;
+            }
+
+            // Authenticated - proceed with checkout
+            this.proceedWithCheckout(plan);
+          },
+          error: () => {
+            // Auth check failed - redirect to login as fallback
             const planKey =
               plan.priceSubtext === 'per year' ? 'pro-yearly' : 'pro-monthly';
             this.router.navigate(['/login'], {
@@ -329,24 +380,8 @@ export class PricingGridComponent implements OnInit, OnDestroy {
                 plan: planKey,
               },
             });
-            return;
-          }
-
-          // Authenticated - proceed with checkout
-          this.proceedWithCheckout(plan);
-        },
-        error: () => {
-          // Auth check failed - redirect to login as fallback
-          const planKey =
-            plan.priceSubtext === 'per year' ? 'pro-yearly' : 'pro-monthly';
-          this.router.navigate(['/login'], {
-            queryParams: {
-              returnUrl: '/pricing',
-              plan: planKey,
-            },
-          });
-        },
-      });
+          },
+        });
     }
   }
 
@@ -362,22 +397,25 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       this.loadingTimeoutId = null;
     }, this.CHECKOUT_TIMEOUT);
 
-    this.authService.getCurrentUser().subscribe({
-      next: (user) => {
-        this.paddleService.openCheckout({
-          priceId: plan.priceId!,
-          customerEmail: user?.email,
-        });
-      },
-      error: () => {
-        this.paddleService.openCheckout({
-          priceId: plan.priceId!,
-        });
-      },
-      complete: () => {
-        this.clearLoadingTimeout();
-      },
-    });
+    this.authService
+      .getCurrentUser()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (user) => {
+          this.paddleService.openCheckout({
+            priceId: plan.priceId!,
+            customerEmail: user?.email,
+          });
+        },
+        error: () => {
+          this.paddleService.openCheckout({
+            priceId: plan.priceId!,
+          });
+        },
+        complete: () => {
+          this.clearLoadingTimeout();
+        },
+      });
   }
 
   /**

@@ -73,6 +73,10 @@ export interface SignupRequest {
  */
 export interface MagicLinkRequest {
   email: string;
+  /** Optional return URL for post-auth redirect */
+  returnUrl?: string;
+  /** Optional plan key for auto-checkout (e.g., 'pro-monthly', 'pro-yearly') */
+  plan?: string;
 }
 
 // ============================================

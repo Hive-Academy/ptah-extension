@@ -24,6 +24,20 @@ interface MagicLinkToken {
   token: string;
   expiresAt: Date;
   used: boolean;
+  /** Optional return URL for post-auth redirect */
+  returnUrl?: string | null;
+  /** Optional plan key for auto-checkout after auth */
+  plan?: string | null;
+}
+
+/**
+ * Options for creating a magic link
+ */
+export interface MagicLinkOptions {
+  /** URL to redirect to after authentication */
+  returnUrl?: string;
+  /** Plan key for auto-checkout (e.g., 'pro-monthly', 'pro-yearly') */
+  plan?: string;
 }
 
 @Injectable()
@@ -47,25 +61,33 @@ export class MagicLinkService {
    * and returns a full magic link URL for the user to click.
    *
    * @param email - User's email address
+   * @param options - Optional returnUrl and plan for post-auth redirect
    * @returns Full magic link URL (e.g., https://ptah.dev/auth/verify?token=abc123...)
    */
-  async createMagicLink(email: string): Promise<string> {
+  async createMagicLink(
+    email: string,
+    options?: MagicLinkOptions
+  ): Promise<string> {
     // Step 1: Generate 64-char hex token (256-bit entropy via crypto.randomBytes)
     const token = randomBytes(32).toString('hex');
 
     // Step 2: Calculate expiration timestamp (30 seconds from now)
     const expiresAt = new Date(Date.now() + this.ttlMs);
 
-    // Step 3: Store token in memory with metadata
+    // Step 3: Store token in memory with metadata (including optional returnUrl/plan)
     this.tokens.set(token, {
       email,
       token,
       expiresAt,
       used: false,
+      returnUrl: options?.returnUrl || null,
+      plan: options?.plan || null,
     });
 
     this.logger.log(
-      `Magic link created for email (token will expire in ${this.ttlMs}ms)`
+      `Magic link created for email (token will expire in ${this.ttlMs}ms)${
+        options?.returnUrl ? ` returnUrl=${options.returnUrl}` : ''
+      }${options?.plan ? ` plan=${options.plan}` : ''}`
     );
 
     // Step 4: Build full magic link URL
@@ -81,7 +103,7 @@ export class MagicLinkService {
    * Expired tokens are also deleted to prevent memory leaks.
    *
    * @param token - Magic link token from URL query parameter
-   * @returns Validation result with email if valid, or error reason
+   * @returns Validation result with email and optional returnUrl/plan if valid, or error reason
    *
    * Error reasons:
    * - 'token_not_found': Token doesn't exist (never created or already consumed)
@@ -91,6 +113,8 @@ export class MagicLinkService {
   async validateAndConsume(token: string): Promise<{
     valid: boolean;
     email?: string;
+    returnUrl?: string | null;
+    plan?: string | null;
     error?: 'token_not_found' | 'token_already_used' | 'token_expired';
   }> {
     // Step 1: Retrieve token from storage
@@ -127,10 +151,12 @@ export class MagicLinkService {
     this.tokens.delete(token);
     this.logger.log(`Magic link token validated and consumed for email`);
 
-    // Step 5: Return success with user email
+    // Step 5: Return success with user email and optional returnUrl/plan
     return {
       valid: true,
       email: magicLink.email,
+      returnUrl: magicLink.returnUrl,
+      plan: magicLink.plan,
     };
   }
 

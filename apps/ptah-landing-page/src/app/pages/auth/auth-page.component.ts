@@ -499,6 +499,7 @@ export class AuthPageComponent implements OnInit {
 
   /**
    * Send magic link for passwordless login
+   * Passes returnUrl and plan to preserve checkout intent after auth
    */
   public sendMagicLink(): void {
     const email = this.currentEmail();
@@ -511,19 +512,29 @@ export class AuthPageComponent implements OnInit {
     this.errorMessage.set('');
     this.isLoading.set(true);
 
-    this.authApi.requestMagicLink({ email }).subscribe({
-      next: () => {
-        this.isLoading.set(false);
-        this.successMessage.set(
-          'Magic link sent! Check your email and click the link to sign in.'
-        );
-      },
-      error: (error: AuthErrorResponse) => {
-        this.isLoading.set(false);
-        this.errorMessage.set(
-          error.message || 'Failed to send magic link. Please try again.'
-        );
-      },
-    });
+    // Include returnUrl and plan so checkout intent is preserved after magic link auth
+    const returnUrl = this.returnUrl();
+    const plan = this.selectedPlan();
+
+    this.authApi
+      .requestMagicLink({
+        email,
+        returnUrl: returnUrl ?? undefined,
+        plan: plan ?? undefined,
+      })
+      .subscribe({
+        next: () => {
+          this.isLoading.set(false);
+          this.successMessage.set(
+            'Magic link sent! Check your email and click the link to sign in.'
+          );
+        },
+        error: (error: AuthErrorResponse) => {
+          this.isLoading.set(false);
+          this.errorMessage.set(
+            error.message || 'Failed to send magic link. Please try again.'
+          );
+        },
+      });
   }
 }

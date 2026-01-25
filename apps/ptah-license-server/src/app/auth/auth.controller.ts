@@ -22,31 +22,13 @@ import {
 } from './services';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../../email/services/email.service';
-
-/** DTO for email/password login */
-interface LoginDto {
-  email: string;
-  password: string;
-}
-
-/** DTO for user signup */
-interface SignupDto {
-  email: string;
-  password: string;
-  firstName?: string;
-  lastName?: string;
-}
-
-/** DTO for email verification */
-interface VerifyEmailDto {
-  userId: string;
-  code: string;
-}
-
-/** DTO for resend verification */
-interface ResendVerificationDto {
-  userId: string;
-}
+import {
+  LoginDto,
+  SignupDto,
+  VerifyEmailDto,
+  ResendVerificationDto,
+  MagicLinkDto,
+} from './dto';
 
 /** Cookie name for PKCE state parameter (CSRF protection) */
 const WORKOS_STATE_COOKIE = 'workos_state';
@@ -116,6 +98,12 @@ export class AuthController {
   private readonly frontendUrl: string;
   private readonly logoutRedirectUri: string | undefined;
 
+  /** Allowed return URL paths for post-auth redirect (prevents open redirect) */
+  private readonly ALLOWED_RETURN_PATHS = ['/pricing', '/profile', '/dashboard'];
+
+  /** Valid plan keys for checkout */
+  private readonly VALID_PLAN_KEYS = ['pro-monthly', 'pro-yearly'];
+
   constructor(
     private readonly authService: AuthService,
     private readonly ticketService: TicketService,
@@ -131,6 +119,64 @@ export class AuthController {
     this.logoutRedirectUri = this.configService.get<string>(
       'WORKOS_LOGOUT_REDIRECT_URI'
     );
+  }
+
+  /**
+   * Validate returnUrl to prevent open redirect attacks.
+   * Only allows relative paths from the whitelist.
+   *
+   * @param returnUrl - URL to validate
+   * @returns Validated returnUrl or null if invalid
+   */
+  private validateReturnUrl(returnUrl: string | undefined): string | null {
+    if (!returnUrl) return null;
+
+    // Must start with / and not be protocol-relative (//)
+    if (!returnUrl.startsWith('/') || returnUrl.startsWith('//')) {
+      this.logger.warn(`Rejected invalid returnUrl: ${returnUrl}`);
+      return null;
+    }
+
+    // Check against whitelist of allowed paths
+    const pathOnly = returnUrl.split('?')[0]; // Remove query params for comparison
+    if (!this.ALLOWED_RETURN_PATHS.includes(pathOnly)) {
+      this.logger.warn(`Rejected non-whitelisted returnUrl: ${returnUrl}`);
+      return null;
+    }
+
+    // Final safety check: ensure constructed URL stays on same origin
+    try {
+      const constructed = new URL(returnUrl, this.frontendUrl);
+      const frontendOrigin = new URL(this.frontendUrl).origin;
+      if (constructed.origin !== frontendOrigin) {
+        this.logger.warn(
+          `Rejected returnUrl that escaped origin: ${returnUrl}`
+        );
+        return null;
+      }
+    } catch {
+      this.logger.warn(`Rejected malformed returnUrl: ${returnUrl}`);
+      return null;
+    }
+
+    return returnUrl;
+  }
+
+  /**
+   * Validate plan key against allowed values.
+   *
+   * @param plan - Plan key to validate
+   * @returns Validated plan key or null if invalid
+   */
+  private validatePlanKey(plan: string | undefined): string | null {
+    if (!plan) return null;
+
+    if (!this.VALID_PLAN_KEYS.includes(plan)) {
+      this.logger.warn(`Rejected invalid plan key: ${plan}`);
+      return null;
+    }
+
+    return plan;
   }
 
   /**
@@ -283,18 +329,22 @@ export class AuthController {
         path: '/', // Available to all routes
       });
 
+      // Step 7: Validate returnUrl and plan again (defense in depth)
+      const validatedReturnUrl = this.validateReturnUrl(returnUrl ?? undefined);
+      const validatedPlan = this.validatePlanKey(plan ?? undefined);
+
       this.logger.debug(
         `Authentication successful, JWT cookie set${
-          returnUrl ? ` returnUrl=${returnUrl}` : ''
-        }${plan ? ` plan=${plan}` : ''}`
+          validatedReturnUrl ? ` returnUrl=${validatedReturnUrl}` : ''
+        }${validatedPlan ? ` plan=${validatedPlan}` : ''}`
       );
 
-      // Step 7: Redirect to frontend application (with optional returnUrl and plan)
-      if (returnUrl) {
+      // Step 8: Redirect to frontend application (with validated returnUrl and plan)
+      if (validatedReturnUrl) {
         // Build redirect URL with returnUrl path and optional autoCheckout param
-        const redirectUrl = new URL(returnUrl, this.frontendUrl);
-        if (plan) {
-          redirectUrl.searchParams.set('autoCheckout', plan);
+        const redirectUrl = new URL(validatedReturnUrl, this.frontendUrl);
+        if (validatedPlan) {
+          redirectUrl.searchParams.set('autoCheckout', validatedPlan);
         }
         res.redirect(redirectUrl.toString());
       } else {
@@ -380,26 +430,29 @@ export class AuthController {
    * - Only sends email if user exists in database
    * - Magic link valid for 30 seconds
    * - Single-use token enforcement
+   * - returnUrl and plan are validated before storing
    *
    * **Flow**:
    * 1. User enters email on portal login page
    * 2. Backend checks if user exists (has license)
-   * 3. If user exists: Create magic link, send email
+   * 3. If user exists: Create magic link with optional returnUrl/plan, send email
    * 4. If user doesn't exist: Return success but don't send email (security)
-   * 5. User clicks link in email → GET /auth/verify
+   * 5. User clicks link in email → GET /auth/verify → redirects with autoCheckout
    *
    * @example
    * POST /auth/magic-link
-   * Body: { "email": "user@example.com" }
+   * Body: { "email": "user@example.com", "returnUrl": "/pricing", "plan": "pro-monthly" }
    * → Returns: { success: true, message: "Check your email for login link" }
    */
   @Post('magic-link')
   async requestMagicLink(
-    @Body('email') email: string
+    @Body() body: MagicLinkDto
   ): Promise<{ success: boolean; message: string }> {
-    if (!email) {
-      throw new BadRequestException('Email is required');
-    }
+    const { email, returnUrl, plan } = body;
+
+    // Validate returnUrl and plan to prevent security issues
+    const validatedReturnUrl = this.validateReturnUrl(returnUrl);
+    const validatedPlan = this.validatePlanKey(plan);
 
     // Step 1: Check if user exists in database
     const user = await this.prisma.user.findUnique({
@@ -409,8 +462,11 @@ export class AuthController {
     // Step 2: Only send email if user exists (but always return success)
     if (user) {
       try {
-        // Step 2a: Create magic link token
-        const magicLink = await this.magicLinkService.createMagicLink(email);
+        // Step 2a: Create magic link token with optional returnUrl/plan
+        const magicLink = await this.magicLinkService.createMagicLink(email, {
+          returnUrl: validatedReturnUrl ?? undefined,
+          plan: validatedPlan ?? undefined,
+        });
 
         // Step 2b: Send email with magic link
         await this.emailService.sendMagicLink({ email, magicLink });
@@ -433,7 +489,7 @@ export class AuthController {
    * Verify magic link token and authenticate user
    *
    * Validates magic link token, generates JWT, sets HTTP-only cookie,
-   * and redirects to portal dashboard.
+   * and redirects to portal dashboard or returnUrl with autoCheckout.
    *
    * **Security**:
    * - No authentication required (public endpoint)
@@ -441,17 +497,18 @@ export class AuthController {
    * - JWT stored in HTTP-only cookie (XSS protection)
    * - Secure flag enabled in production (HTTPS only)
    * - SameSite=lax for CSRF protection
+   * - returnUrl/plan validated again before redirect (defense in depth)
    *
    * **Flow**:
    * 1. User clicks magic link in email
    * 2. Backend validates token (30s TTL, single-use)
-   * 3. If valid: Generate JWT, set cookie, redirect to portal
+   * 3. If valid: Generate JWT, set cookie, redirect with optional autoCheckout
    * 4. If invalid: Redirect to login with error message
    *
    * @example
    * GET /auth/verify?token=abc123...
-   * → Success: Sets cookie + redirects to /portal/dashboard
-   * → Failure: Redirects to /auth/login?error=token_expired
+   * → Success: Sets cookie + redirects to returnUrl?autoCheckout=plan or /profile
+   * → Failure: Redirects to /login?error=token_expired
    */
   @Get('verify')
   async verifyMagicLink(
@@ -463,7 +520,7 @@ export class AuthController {
       return;
     }
 
-    // Step 1: Validate and consume token
+    // Step 1: Validate and consume token (now includes returnUrl/plan)
     const result = await this.magicLinkService.validateAndConsume(token);
 
     if (!result.valid) {
@@ -501,8 +558,25 @@ export class AuthController {
       path: '/', // Available to all routes
     });
 
-    // Step 5: Redirect to profile page
-    res.redirect(`${this.frontendUrl}/profile`);
+    // Step 5: Validate returnUrl and plan again (defense in depth)
+    const validatedReturnUrl = this.validateReturnUrl(
+      result.returnUrl ?? undefined
+    );
+    const validatedPlan = this.validatePlanKey(result.plan ?? undefined);
+
+    // Step 6: Redirect to returnUrl with autoCheckout or default to profile
+    if (validatedReturnUrl) {
+      const redirectUrl = new URL(validatedReturnUrl, this.frontendUrl);
+      if (validatedPlan) {
+        redirectUrl.searchParams.set('autoCheckout', validatedPlan);
+      }
+      this.logger.debug(
+        `Magic link auth successful, redirecting to: ${redirectUrl.toString()}`
+      );
+      res.redirect(redirectUrl.toString());
+    } else {
+      res.redirect(`${this.frontendUrl}/profile`);
+    }
   }
 
   /**
@@ -766,11 +840,15 @@ export class AuthController {
       );
     }
 
-    // Generate authorization URL for the specific provider (with optional returnUrl/plan)
+    // Validate returnUrl and plan to prevent security issues
+    const validatedReturnUrl = this.validateReturnUrl(returnUrl);
+    const validatedPlan = this.validatePlanKey(plan);
+
+    // Generate authorization URL for the specific provider (with validated params)
     const { url, state } = await this.authService.getOAuthAuthorizationUrl(
       provider as OAuthProvider,
-      returnUrl,
-      plan
+      validatedReturnUrl ?? undefined,
+      validatedPlan ?? undefined
     );
 
     // Set state in HTTP-only cookie for CSRF validation in callback
@@ -786,8 +864,8 @@ export class AuthController {
       `OAuth login initiated for ${provider}, state: ${state.substring(
         0,
         8
-      )}...${returnUrl ? ` returnUrl=${returnUrl}` : ''}${
-        plan ? ` plan=${plan}` : ''
+      )}...${validatedReturnUrl ? ` returnUrl=${validatedReturnUrl}` : ''}${
+        validatedPlan ? ` plan=${validatedPlan}` : ''
       }`
     );
 
