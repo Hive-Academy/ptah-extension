@@ -1,9 +1,11 @@
 import {
+  Inject,
   Injectable,
   Logger,
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../generated-prisma-client/client';
 
@@ -23,17 +25,12 @@ export class PrismaService
 {
   private readonly logger = new Logger(PrismaService.name);
 
-  constructor() {
-    const connectionString = process.env['DATABASE_URL'] as string;
-
-    // Debug logging - mask password in connection string
-    const maskedUrl = connectionString
-      ? connectionString.replace(/:[^:@]+@/, ':****@')
-      : 'NOT SET';
-    console.log(`[PrismaService] DATABASE_URL: ${maskedUrl}`);
+  constructor(@Inject(ConfigService) configService: ConfigService) {
+    const connectionString = configService.get<string>('DATABASE_URL');
 
     if (!connectionString) {
       console.error('[PrismaService] ERROR: DATABASE_URL is not set!');
+      throw new Error('DATABASE_URL environment variable is required');
     }
 
     // Create Prisma adapter with connection string (as per official docs)

@@ -10,6 +10,7 @@
  */
 
 import { Logger, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app/app.module';
 import cookieParser = require('cookie-parser');
@@ -38,8 +39,12 @@ async function bootstrap() {
     })
   );
 
+  // Get ConfigService for environment variables
+  const configService = app.get(ConfigService);
+
   // Configure CORS for cross-origin requests from frontend
-  const frontendUrl = process.env['FRONTEND_URL'] || 'http://localhost:4200';
+  const frontendUrl =
+    configService.get<string>('FRONTEND_URL') || 'http://localhost:4200';
   app.enableCors({
     origin: [frontendUrl],
     credentials: true, // Allow cookies to be sent with requests
@@ -48,7 +53,7 @@ async function bootstrap() {
   });
 
   // Set global API prefix for all routes
-  // Routes will be: /api/auth/*, /api/licenses/*, /webhooks/paddle
+  // Routes will be: /api/auth/*, /api/v1/licenses/*, /api/v1/admin/*
   const globalPrefix = 'api';
   app.setGlobalPrefix(globalPrefix, {
     // Exclude webhook routes from the global prefix
@@ -58,16 +63,17 @@ async function bootstrap() {
   });
 
   // Start the server
-  const port = process.env['PORT'] || 3000;
+  const port = configService.get<number>('PORT') || 3000;
   await app.listen(port);
 
+  const nodeEnv = configService.get<string>('NODE_ENV') || 'development';
   Logger.log(
     `Application is running on: http://localhost:${port}/${globalPrefix}`
   );
   Logger.log(
     `Webhook endpoint available at: http://localhost:${port}/webhooks/paddle`
   );
-  Logger.log(`Environment: ${process.env['NODE_ENV'] || 'development'}`);
+  Logger.log(`Environment: ${nodeEnv}`);
 }
 
 bootstrap();

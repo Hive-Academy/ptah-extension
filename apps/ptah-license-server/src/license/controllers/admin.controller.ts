@@ -11,8 +11,10 @@ import { EmailService } from '../../email/services/email.service';
  *
  * Endpoints:
  * - POST /api/v1/admin/licenses - Create license and send email
+ *
+ * Routes: /api/v1/admin/* (global prefix 'api' is added automatically)
  */
-@Controller('api/v1/admin')
+@Controller('v1/admin')
 @UseGuards(AdminApiKeyGuard)
 export class AdminController {
   private readonly logger = new Logger(AdminController.name);

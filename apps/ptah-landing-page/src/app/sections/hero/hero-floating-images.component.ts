@@ -13,6 +13,8 @@ import {
   GsapCoreService,
   ScrollAnimationDirective,
   ScrollAnimationConfig,
+  ViewportAnimationDirective,
+  ViewportAnimationConfig,
 } from '@hive-academy/angular-gsap';
 
 /**
@@ -34,14 +36,12 @@ interface FloatingImage {
   };
   /** Parallax depth multiplier (0.1-1.0, lower = slower/farther) */
   depth: number;
-  /** Base floating animation offset */
-  floatOffset: number;
-  /** Float animation duration */
-  floatDuration: number;
   /** Initial rotation in degrees */
   rotation: number;
   /** Scroll parallax speed (different from mouse depth for layered effect) */
   scrollSpeed: number;
+  /** Slide direction for entrance animation */
+  slideDirection: 'slideLeft' | 'slideRight';
 }
 
 /**
@@ -49,9 +49,9 @@ interface FloatingImage {
  *
  * Features:
  * - 4 floating images positioned around hero
- * - Mouse-following parallax using GSAP quickTo (immediate response)
+ * - Viewport entrance animation using ViewportAnimationDirective (slide from left/right)
+ * - Mouse-following parallax using GSAP quickTo (faster than mouse movement)
  * - Scroll parallax using ScrollAnimationDirective (depth effect)
- * - Base floating/bobbing animation
  * - Different depths for 3D parallax effect
  * - Respects prefers-reduced-motion
  * - Circular images with amber glow effect
@@ -59,7 +59,11 @@ interface FloatingImage {
 @Component({
   selector: 'ptah-hero-floating-images',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgOptimizedImage, ScrollAnimationDirective],
+  imports: [
+    NgOptimizedImage,
+    ScrollAnimationDirective,
+    ViewportAnimationDirective,
+  ],
   template: `
     <div
       class="absolute inset-0 pointer-events-none overflow-hidden"
@@ -76,35 +80,42 @@ interface FloatingImage {
         [style.left]="image.position.left || 'auto'"
         [style.right]="image.position.right || 'auto'"
       >
-        <!-- Inner mouse parallax + float animation target -->
+        <!-- Viewport entrance animation wrapper -->
         <div
-          class="floating-image transition-opacity duration-500"
-          [style.width.px]="image.size"
-          [style.height.px]="image.size"
-          [style.opacity]="reducedMotion() ? 0.6 : 0.85"
-          [attr.data-depth]="image.depth"
-          [attr.data-index]="i"
+          viewportAnimation
+          [viewportConfig]="getViewportConfig(image.slideDirection, i)"
+          (viewportEnter)="onViewportEnter(i)"
         >
+          <!-- Inner mouse parallax target -->
           <div
-            class="relative w-full h-full rounded-full overflow-hidden shadow-2xl"
-            [style.transform]="'rotate(' + image.rotation + 'deg)'"
+            class="floating-image"
+            [style.width.px]="image.size"
+            [style.height.px]="image.size"
+            [style.opacity]="reducedMotion() ? 0.6 : 0.85"
+            [attr.data-depth]="image.depth"
+            [attr.data-index]="i"
           >
-            <!-- Glow effect -->
             <div
-              class="absolute -inset-2 rounded-full bg-amber-500/20 blur-xl"
-            ></div>
-
-            <!-- Image container with border -->
-            <div
-              class="relative w-full h-full rounded-full overflow-hidden border-2 border-amber-500/30"
+              class="relative w-full h-full rounded-full overflow-hidden shadow-2xl"
+              [style.transform]="'rotate(' + image.rotation + 'deg)'"
             >
-              <img
-                [ngSrc]="image.src"
-                [alt]="image.alt"
-                fill
-                class="object-cover"
-                priority
-              />
+              <!-- Glow effect -->
+              <div
+                class="absolute -inset-2 rounded-full bg-amber-500/20 blur-xl"
+              ></div>
+
+              <!-- Image container with border -->
+              <div
+                class="relative w-full h-full rounded-full overflow-hidden border-2 border-amber-500/30"
+              >
+                <img
+                  [ngSrc]="image.src"
+                  [alt]="image.alt"
+                  fill
+                  class="object-cover"
+                  priority
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -153,11 +164,11 @@ export class HeroFloatingImagesComponent implements OnDestroy {
     { x: gsap.QuickToFunc; y: gsap.QuickToFunc }
   > = new Map();
 
-  /** Floating animation timelines */
-  private floatTimelines: gsap.core.Timeline[] = [];
-
   /** Mouse move listener cleanup */
   private mouseMoveCleanup: (() => void) | null = null;
+
+  /** Track which images have entered viewport (for mouse parallax activation) */
+  private viewportEnteredImages = new Set<number>();
 
   /** Configuration for all floating images with mouse + scroll parallax */
   public readonly floatingImages: FloatingImage[] = [
@@ -167,10 +178,9 @@ export class HeroFloatingImagesComponent implements OnDestroy {
       size: 180,
       position: { top: '8%', left: '22%' },
       depth: 0.15, // Mouse parallax: Slowest - appears farthest
-      floatOffset: 18,
-      floatDuration: 4,
       rotation: -10,
-      scrollSpeed: 0.4, // Scroll parallax: Slow
+      scrollSpeed: 0.7, // Scroll parallax: Slow
+      slideDirection: 'slideRight', // Slides in from left
     },
     {
       src: '/assets/textures/scarab.png',
@@ -178,10 +188,9 @@ export class HeroFloatingImagesComponent implements OnDestroy {
       size: 160,
       position: { top: '12%', right: '20%' },
       depth: 0.25,
-      floatOffset: 14,
-      floatDuration: 3.5,
       rotation: 5,
-      scrollSpeed: 0.55, // Scroll parallax: Medium
+      scrollSpeed: 1.55, // Scroll parallax: Medium
+      slideDirection: 'slideLeft', // Slides in from right
     },
     {
       src: '/assets/textures/eye_of_horus.png',
@@ -189,10 +198,9 @@ export class HeroFloatingImagesComponent implements OnDestroy {
       size: 150,
       position: { bottom: '15%', left: '20%' },
       depth: 0.35,
-      floatOffset: 12,
-      floatDuration: 4.5,
       rotation: -5,
-      scrollSpeed: 0.65, // Scroll parallax: Faster
+      scrollSpeed: 1.95, // Scroll parallax: Faster
+      slideDirection: 'slideRight', // Slides in from left
     },
     {
       src: '/assets/textures/sun_disk_ra.png',
@@ -200,10 +208,9 @@ export class HeroFloatingImagesComponent implements OnDestroy {
       size: 170,
       position: { bottom: '8%', right: '22%' },
       depth: 0.2,
-      floatOffset: 16,
-      floatDuration: 3.8,
       rotation: 8,
-      scrollSpeed: 0.5, // Scroll parallax: Medium-slow
+      scrollSpeed: 0.7, // Scroll parallax: Medium-slow
+      slideDirection: 'slideLeft', // Slides in from right
     },
   ];
 
@@ -217,6 +224,32 @@ export class HeroFloatingImagesComponent implements OnDestroy {
       speed: speed,
       scrub: 1.5,
     };
+  }
+
+  /**
+   * Generate viewport entrance animation config
+   * Images slide in from left or right with staggered delays
+   */
+  public getViewportConfig(
+    direction: 'slideLeft' | 'slideRight',
+    index: number
+  ): ViewportAnimationConfig {
+    return {
+      animation: direction,
+      duration: 1.2,
+      delay: 0.1 + index * 0.15, // Stagger effect
+      ease: 'power3.out',
+      distance: 300,
+      once: true, // Only animate once
+    };
+  }
+
+  /**
+   * Called when an image enters the viewport
+   * Enables mouse parallax for that image
+   */
+  public onViewportEnter(index: number): void {
+    this.viewportEnteredImages.add(index);
   }
 
   public constructor() {
@@ -240,7 +273,8 @@ export class HeroFloatingImagesComponent implements OnDestroy {
   }
 
   /**
-   * Initialize all GSAP animations
+   * Initialize mouse parallax animations
+   * Entrance animations are handled by ViewportAnimationDirective
    */
   private initializeAnimations(): void {
     const gsap = this.gsapCore.gsap;
@@ -249,28 +283,17 @@ export class HeroFloatingImagesComponent implements OnDestroy {
     const container = this.elementRef.nativeElement as HTMLElement;
     const images = container.querySelectorAll('.floating-image');
 
-    // Initialize floating animations and quickTo for each image
+    // Create quickTo functions for smooth mouse tracking
     images.forEach((imageEl, index) => {
-      const image = this.floatingImages[index];
       const element = imageEl as HTMLElement;
 
-      // Create floating/bobbing animation
-      const floatTl = gsap.timeline({ repeat: -1, yoyo: true });
-      floatTl.to(element, {
-        y: image.floatOffset,
-        duration: image.floatDuration,
-        ease: 'sine.inOut',
-      });
-      this.floatTimelines.push(floatTl);
-
-      // Create quickTo functions for smooth mouse tracking
       const xTo = gsap.quickTo(element, 'x', {
-        duration: 0.8,
-        ease: 'power3.out',
+        duration: 0.6,
+        ease: 'power2.out',
       });
       const yTo = gsap.quickTo(element, 'y', {
-        duration: 0.8,
-        ease: 'power3.out',
+        duration: 0.6,
+        ease: 'power2.out',
       });
 
       this.quickToFunctions.set(index, { x: xTo, y: yTo });
@@ -282,6 +305,7 @@ export class HeroFloatingImagesComponent implements OnDestroy {
 
   /**
    * Set up mouse movement tracking for parallax effect
+   * Images move faster than the mouse cursor for dramatic effect
    */
   private setupMouseTracking(): void {
     if (!isPlatformBrowser(this.platformId)) return;
@@ -299,13 +323,22 @@ export class HeroFloatingImagesComponent implements OnDestroy {
       this.mouseY.set(normalizedY);
 
       // Apply parallax to each image based on depth
+      // Images move FASTER than mouse (multiplier > 1) for dramatic effect
       this.quickToFunctions.forEach((quickTo, index) => {
-        const image = this.floatingImages[index];
-        const maxOffset = 50; // Maximum pixel offset
+        // Only apply parallax to images that have entered viewport
+        if (!this.viewportEnteredImages.has(index)) return;
 
-        // Calculate offset based on depth (deeper = less movement)
-        const offsetX = normalizedX * maxOffset * image.depth * -1;
-        const offsetY = normalizedY * maxOffset * image.depth * -1;
+        const image = this.floatingImages[index];
+        const baseOffset = 120; // Base pixel offset (increased for faster movement)
+        const speedMultiplier = 2.5; // Images move 2.5x faster than mouse
+
+        // Calculate offset: negative = opposite direction (follows mouse)
+        // depth creates layered parallax (farther objects move less)
+        const depthFactor = 0.5 + image.depth * 1.5; // Range: 0.65 to 1.025
+        const offsetX =
+          normalizedX * baseOffset * depthFactor * speedMultiplier * -1;
+        const offsetY =
+          normalizedY * baseOffset * depthFactor * speedMultiplier * -1;
 
         quickTo.x(offsetX);
         quickTo.y(offsetY);
@@ -335,14 +368,11 @@ export class HeroFloatingImagesComponent implements OnDestroy {
    * Clean up all animations and listeners
    */
   private cleanup(): void {
-    // Stop and kill all float timelines
-    this.floatTimelines.forEach((tl) => {
-      tl.kill();
-    });
-    this.floatTimelines = [];
-
     // Clear quickTo functions
     this.quickToFunctions.clear();
+
+    // Clear viewport tracking
+    this.viewportEnteredImages.clear();
 
     // Remove mouse listener
     if (this.mouseMoveCleanup) {

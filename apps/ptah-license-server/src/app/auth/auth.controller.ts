@@ -99,7 +99,11 @@ export class AuthController {
   private readonly logoutRedirectUri: string | undefined;
 
   /** Allowed return URL paths for post-auth redirect (prevents open redirect) */
-  private readonly ALLOWED_RETURN_PATHS = ['/pricing', '/profile', '/dashboard'];
+  private readonly ALLOWED_RETURN_PATHS = [
+    '/pricing',
+    '/profile',
+    '/dashboard',
+  ];
 
   /** Valid plan keys for checkout */
   private readonly VALID_PLAN_KEYS = ['pro-monthly', 'pro-yearly'];

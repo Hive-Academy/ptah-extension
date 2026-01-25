@@ -19,8 +19,10 @@ import { getPlanConfig, PlanName } from '../../config/plans.config';
  *
  * Provides the public API for license verification.
  * No authentication required - this is a public endpoint used by VS Code extensions.
+ *
+ * Routes: /api/v1/licenses/* (global prefix 'api' is added automatically)
  */
-@Controller('api/v1/licenses')
+@Controller('v1/licenses')
 export class LicenseController {
   constructor(
     private readonly licenseService: LicenseService,
@@ -95,9 +97,28 @@ export class LicenseController {
   @Get('me')
   @UseGuards(PtahJwtAuthGuard)
   async getMyLicense(@Req() req: Request) {
-    const user = req.user as any;
+    const user = req.user as { id: string; email: string };
 
-    // Step 1: Find user's active license
+    // Step 1: Find full user data with subscriptions
+    const fullUser = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      include: {
+        subscriptions: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+    });
+
+    if (!fullUser) {
+      return {
+        plan: 'free',
+        status: 'none',
+        message: 'User not found',
+      };
+    }
+
+    // Step 2: Find user's active license
     const license = await this.prisma.license.findFirst({
       where: {
         userId: user.id,
@@ -108,16 +129,35 @@ export class LicenseController {
       },
     });
 
-    // Step 2: No active license found - return free tier
+    // Step 3: Get subscription data if exists
+    const subscription = fullUser.subscriptions[0] || null;
+
+    // Step 4: No active license found - return free tier with user info
     if (!license) {
+      const freePlanConfig = getPlanConfig('free');
       return {
+        // User info
+        user: {
+          email: fullUser.email,
+          firstName: fullUser.firstName,
+          lastName: fullUser.lastName,
+          memberSince: fullUser.createdAt.toISOString(),
+          emailVerified: fullUser.emailVerified,
+        },
+        // License info
         plan: 'free',
+        planName: freePlanConfig.name,
+        planDescription: freePlanConfig.description,
         status: 'none',
-        message: 'No active license found',
+        features: freePlanConfig.features,
+        message:
+          'No active license found. Start your free trial or upgrade to Pro!',
+        // Subscription info
+        subscription: null,
       };
     }
 
-    // Step 3: Calculate days remaining (if applicable)
+    // Step 5: Calculate days remaining (if applicable)
     let daysRemaining: number | undefined;
     if (license.expiresAt) {
       const now = Date.now();
@@ -125,18 +165,36 @@ export class LicenseController {
       daysRemaining = Math.ceil((expiresAtMs - now) / (24 * 60 * 60 * 1000));
     }
 
-    // Step 4: Get plan configuration for features
+    // Step 6: Get plan configuration for features
     const planConfig = getPlanConfig(license.plan as PlanName);
 
-    // Step 5: Return license details (NEVER include licenseKey)
+    // Step 7: Return complete account details (NEVER include licenseKey)
     return {
+      // User info
+      user: {
+        email: fullUser.email,
+        firstName: fullUser.firstName,
+        lastName: fullUser.lastName,
+        memberSince: fullUser.createdAt.toISOString(),
+        emailVerified: fullUser.emailVerified,
+      },
+      // License info
       plan: license.plan,
+      planName: planConfig.name,
+      planDescription: planConfig.description,
       status: license.status,
       expiresAt: license.expiresAt?.toISOString() || null,
       daysRemaining,
-      email: user.email,
-      createdAt: license.createdAt.toISOString(),
+      licenseCreatedAt: license.createdAt.toISOString(),
       features: planConfig.features,
+      // Subscription info (if Pro with Paddle subscription)
+      subscription: subscription
+        ? {
+            status: subscription.status,
+            currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
+            canceledAt: subscription.canceledAt?.toISOString() || null,
+          }
+        : null,
     };
   }
 }

@@ -39,13 +39,13 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
       </div>
 
       <!-- LIMITED Badge for yearly -->
-      @if (billingPeriod() === 'yearly' && yearlyPlan().badge) {
+      @if (yearlyPlan().badge) {
       <img
         [ngSrc]="'/assets/images/license-system/' + yearlyPlan().badge"
         alt="LIMITED"
-        width="100"
-        height="50"
-        class="absolute -top-2 -right-2 w-24 drop-shadow-[0_0_15px_rgba(212,175,55,0.5)]
+        width="120"
+        height="80"
+        class="absolute -top-[10px] -right-6 w-26 drop-shadow-[0_0_15px_rgba(212,175,55,0.5)]
                animate-pulse"
       />
       }

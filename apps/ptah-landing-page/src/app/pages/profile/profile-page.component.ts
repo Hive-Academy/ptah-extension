@@ -5,31 +5,43 @@ import {
   signal,
   inject,
 } from '@angular/core';
-import { NgOptimizedImage } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { Router, RouterLink } from '@angular/router';
-import { LucideAngularModule, Check } from 'lucide-angular';
+import { LucideAngularModule, Settings, Shield } from 'lucide-angular';
 import { AuthService } from '../../services/auth.service';
 import { LicenseData } from './models/license-data.interface';
 import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
 } from '@hive-academy/angular-gsap';
+import {
+  ProfileHeaderComponent,
+  ProfileDetailsComponent,
+  ProfileFeaturesComponent,
+} from './components';
 
 /**
- * ProfilePageComponent - User account dashboard
+ * ProfilePageComponent - Enhanced user account dashboard
+ *
+ * Orchestrating component that composes:
+ * - ProfileHeaderComponent: Hero with avatar, stats, badges
+ * - ProfileDetailsComponent: Account info and subscription status
+ * - ProfileFeaturesComponent: Categorized feature list
+ *
+ * Responsibilities:
+ * - Data fetching from /api/v1/licenses/me
+ * - Loading/error state management
+ * - Logout handling
+ * - Action buttons
  *
  * Angular 21 patterns:
  * - signal() for state management
  * - inject() for DI
- * - Tailwind/DaisyUI for styling
- * - @if/@for control flow
+ * - Composition over inheritance
+ * - Tailwind/DaisyUI with Anubis theme
  *
  * Protected Route: Requires authentication via AuthGuard
  * Backend API: GET /api/v1/licenses/me
- *
- * Note: License key is NOT returned by backend for security reasons.
- * License key is only sent via email after purchase.
  */
 @Component({
   selector: 'ptah-profile-page',
@@ -37,155 +49,87 @@ import {
   imports: [
     ViewportAnimationDirective,
     RouterLink,
-    NgOptimizedImage,
     LucideAngularModule,
+    ProfileHeaderComponent,
+    ProfileDetailsComponent,
+    ProfileFeaturesComponent,
   ],
   template: `
-    <div class="min-h-screen bg-base-100 p-6 text-base-content">
-      <!-- Header -->
-      <div class="max-w-4xl mx-auto mb-12 flex justify-between items-center">
-        <h1
-          class="font-display text-4xl md:text-5xl font-bold
-                 bg-gradient-to-r from-amber-300 to-secondary bg-clip-text text-transparent"
-        >
-          Your Account
-        </h1>
-        <button class="btn btn-outline btn-secondary" (click)="handleLogout()">
-          Logout
-        </button>
-      </div>
-
+    <div class="min-h-screen bg-base-100">
       <!-- Loading State -->
       @if (isLoading()) {
-      <div class="max-w-4xl mx-auto text-center py-16">
-        <span class="loading loading-spinner loading-lg text-secondary"></span>
-        <p class="mt-4 text-neutral-content">Loading account details...</p>
+      <div class="min-h-screen flex items-center justify-center">
+        <div class="text-center">
+          <span
+            class="loading loading-spinner loading-lg text-secondary"
+          ></span>
+          <p class="mt-4 text-neutral-content">Loading your account...</p>
+        </div>
       </div>
       }
 
       <!-- Error State -->
-      @if (errorMessage()) {
-      <div class="max-w-md mx-auto">
-        <div class="alert alert-error">
-          <h3 class="font-bold">Error Loading Account</h3>
-          <p>{{ errorMessage() }}</p>
+      @if (errorMessage() && !isLoading()) {
+      <div class="min-h-screen flex items-center justify-center p-4">
+        <div
+          class="max-w-md w-full bg-base-200/95 backdrop-blur-xl border border-error/30 rounded-3xl p-8 shadow-2xl"
+        >
+          <div class="alert alert-error mb-4">
+            <h3 class="font-bold">Error Loading Account</h3>
+            <p>{{ errorMessage() }}</p>
+          </div>
+          <button class="btn btn-error w-full" (click)="loadLicense()">
+            Retry
+          </button>
         </div>
-        <button class="btn btn-error mt-4 w-full" (click)="loadLicense()">
-          Retry
-        </button>
       </div>
       }
 
-      <!-- License Data -->
+      <!-- Main Profile Content -->
       @if (license() && !isLoading()) {
-      <div class="max-w-4xl mx-auto relative">
-        <!-- 3D Floating Badge (hidden on mobile) -->
-        @if (license()?.plan !== 'free') {
-        <div
-          class="hidden lg:block absolute -top-20 -right-24 z-0 pointer-events-none"
-        >
-          <img
-            ngSrc="/assets/images/license-system/license_badge_3d.png"
-            alt="License Badge"
-            width="288"
-            height="288"
-            class="w-72 animate-bounce drop-shadow-[0_20px_60px_rgba(212,175,55,0.4)]"
-            priority
-          />
-        </div>
-        }
+      <!-- Profile Header with Avatar, Stats, Badges -->
+      <ptah-profile-header [license]="license()" (logout)="handleLogout()" />
 
-        <!-- Account Card -->
-        <div
-          viewportAnimation
-          [viewportConfig]="cardConfig"
-          class="relative z-10 bg-base-200/90 backdrop-blur-3xl
-                   border border-secondary/20 rounded-3xl p-8 shadow-2xl"
-        >
-          <!-- Badges -->
-          <div class="flex flex-wrap gap-3 mb-6">
-            <span class="badge badge-lg" [class]="getPlanBadgeClass()">
-              {{ getPlanName() }}
-            </span>
-            <span class="badge badge-lg" [class]="getStatusBadgeClass()">
-              {{ (license()?.status ?? 'none').toUpperCase() }}
-            </span>
-          </div>
+      <!-- Content Container -->
+      <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
+        <!-- Account Details & Upgrade CTA -->
+        <ptah-profile-details [license]="license()" />
 
-          <!-- Free Tier Message -->
-          @if (license()?.message) {
-          <div class="alert alert-info mb-6">
-            <p>{{ license()?.message }}</p>
-            <a routerLink="/pricing" class="btn btn-sm btn-secondary">
-              Upgrade Now
-            </a>
-          </div>
-          }
-
-          <!-- Account Details -->
-          <div class="space-y-4">
-            <div class="flex justify-between py-3 border-b border-secondary/10">
-              <span class="text-neutral-content">Email</span>
-              <span>{{ license()?.email ?? 'N/A' }}</span>
-            </div>
-
-            <div class="flex justify-between py-3 border-b border-secondary/10">
-              <span class="text-neutral-content">Member Since</span>
-              <span>{{ formatDate(license()?.createdAt ?? null) }}</span>
-            </div>
-
-            @if (license()?.expiresAt) {
-            <div class="flex justify-between py-3 border-b border-secondary/10">
-              <span class="text-neutral-content">Expires</span>
-              <span [class]="getExpiryClass()">
-                {{ formatDate(license()?.expiresAt ?? null) }}
-                @if (license()?.daysRemaining !== undefined) {
-                <span class="text-sm ml-2">
-                  ({{ license()?.daysRemaining }} days remaining)
-                </span>
-                }
-              </span>
-            </div>
-            } @else if (license()?.plan !== 'free') {
-            <div class="flex justify-between py-3 border-b border-secondary/10">
-              <span class="text-neutral-content">Validity</span>
-              <span class="text-secondary font-semibold">
-                Lifetime License
-              </span>
-            </div>
-            }
-          </div>
-
-          <!-- Features List -->
-          @if (license()?.features && license()!.features.length > 0) {
-          <div class="mt-8">
-            <h3 class="text-lg font-semibold mb-4 text-secondary">
-              Your Features
-            </h3>
-            <ul class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              @for (feature of license()?.features ?? []; track feature) {
-              <li class="flex items-center gap-2 text-base-content/80">
-                <lucide-angular
-                  [img]="CheckIcon"
-                  class="w-5 h-5 text-success flex-shrink-0"
-                  aria-hidden="true"
-                />
-                <span>{{ feature }}</span>
-              </li>
-              }
-            </ul>
-          </div>
-          }
+        <!-- Features Section -->
+        <div class="mt-6">
+          <ptah-profile-features [features]="license()?.features ?? []" />
         </div>
 
         <!-- Actions -->
-        <div class="mt-8">
-          <a routerLink="/pricing" class="btn btn-outline btn-secondary w-full">
+        <div
+          viewportAnimation
+          [viewportConfig]="actionsConfig"
+          class="mt-6 mb-12 grid grid-cols-1 sm:grid-cols-2 gap-4"
+        >
+          <a routerLink="/pricing" class="btn btn-outline btn-secondary">
+            <lucide-angular
+              [img]="SettingsIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
             {{
               license()?.plan === 'free'
                 ? 'View Pricing Plans'
                 : 'Manage Subscription'
             }}
+          </a>
+          <a
+            href="https://docs.ptah.dev"
+            target="_blank"
+            rel="noopener"
+            class="btn btn-ghost"
+          >
+            <lucide-angular
+              [img]="ShieldIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
+            Documentation
           </a>
         </div>
       </div>
@@ -201,8 +145,9 @@ import {
   ],
 })
 export class ProfilePageComponent implements OnInit {
-  /** Lucide icon reference */
-  public readonly CheckIcon = Check;
+  /** Lucide icon references */
+  public readonly SettingsIcon = Settings;
+  public readonly ShieldIcon = Shield;
 
   private readonly http = inject(HttpClient);
   private readonly authService = inject(AuthService);
@@ -213,12 +158,12 @@ export class ProfilePageComponent implements OnInit {
   public readonly isLoading = signal(true);
   public readonly errorMessage = signal('');
 
-  // Animation config
-  public readonly cardConfig: ViewportAnimationConfig = {
-    animation: 'slideUp',
-    duration: 0.6,
+  // Animation config for actions
+  public readonly actionsConfig: ViewportAnimationConfig = {
+    animation: 'fadeIn',
+    duration: 0.4,
     threshold: 0.1,
-    ease: 'power2.out',
+    delay: 0.4,
   };
 
   public ngOnInit(): void {
@@ -247,44 +192,6 @@ export class ProfilePageComponent implements OnInit {
     this.authService.logout().subscribe({
       next: () => this.router.navigate(['/login']),
       error: () => this.router.navigate(['/login']),
-    });
-  }
-
-  public getPlanName(): string {
-    const plan = this.license()?.plan;
-    if (plan === 'early_adopter') return 'Early Adopter';
-    if (plan === 'pro') return 'Pro';
-    return 'Free';
-  }
-
-  public getPlanBadgeClass(): string {
-    const plan = this.license()?.plan;
-    if (plan === 'early_adopter') return 'badge-secondary';
-    if (plan === 'pro') return 'badge-primary';
-    return 'badge-ghost';
-  }
-
-  public getStatusBadgeClass(): string {
-    const status = this.license()?.status;
-    if (status === 'active') return 'badge-success';
-    if (status === 'expired') return 'badge-error';
-    return 'badge-ghost';
-  }
-
-  public getExpiryClass(): string {
-    const days = this.license()?.daysRemaining;
-    if (days === undefined) return '';
-    if (days <= 7) return 'text-error';
-    if (days <= 30) return 'text-warning';
-    return 'text-success';
-  }
-
-  public formatDate(isoDate: string | null): string {
-    if (!isoDate) return 'N/A';
-    return new Date(isoDate).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
     });
   }
 }

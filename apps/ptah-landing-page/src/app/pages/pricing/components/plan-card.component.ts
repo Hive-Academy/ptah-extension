@@ -57,7 +57,7 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
         alt="LIMITED"
         width="100"
         height="50"
-        class="absolute -top-2 -right-2 w-24 drop-shadow-[0_0_15px_rgba(212,175,55,0.5)]
+        class="absolute -top-[-5px] -right-2 w-24 drop-shadow-[0_0_15px_rgba(212,175,55,0.5)]
                animate-pulse"
       />
       }
