@@ -103,6 +103,7 @@ import {
             <lucide-angular
               [img]="CheckIcon"
               class="w-5 h-5 text-success"
+              aria-hidden="true"
             />
             <span class="text-sm font-medium">{{ signal }}</span>
           </div>

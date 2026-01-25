@@ -163,6 +163,7 @@ import {
                 <lucide-angular
                   [img]="CheckIcon"
                   class="w-5 h-5 text-success flex-shrink-0"
+                  aria-hidden="true"
                 />
                 <span>{{ feature }}</span>
               </li>
