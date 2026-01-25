@@ -118,7 +118,7 @@ import { LucideAngularModule, Github } from 'lucide-angular';
 })
 export class NavigationComponent {
   /** Lucide icon reference */
-  readonly GithubIcon = Github;
+  public readonly GithubIcon = Github;
 
   /**
    * Signal tracking scroll position

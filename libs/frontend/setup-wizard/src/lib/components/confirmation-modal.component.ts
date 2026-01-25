@@ -1,10 +1,10 @@
 import {
   Component,
   ChangeDetectionStrategy,
-  ViewChild,
   ElementRef,
   input,
   output,
+  viewChild,
 } from '@angular/core';
 import { NgClass } from '@angular/common';
 
@@ -26,7 +26,6 @@ import { NgClass } from '@angular/common';
  *
  * Usage (Confirm Mode):
  * ```typescript
- * @ViewChild('confirmModal') confirmModal!: ConfirmationModalComponent;
  *
  * async onDelete() {
  *   this.confirmModal.show();
@@ -50,7 +49,6 @@ import { NgClass } from '@angular/common';
  *
  * Usage (Alert Mode):
  * ```typescript
- * @ViewChild('alertModal') alertModal!: ConfirmationModalComponent;
  *
  * async showInfo() {
  *   this.alertModal.show();
@@ -119,15 +117,15 @@ import { NgClass } from '@angular/common';
   `,
 })
 export class ConfirmationModalComponent {
-  @ViewChild('modal', { static: true }) modal!: ElementRef<HTMLDialogElement>;
+  readonly modal = viewChild.required<ElementRef<HTMLDialogElement>>('modal');
 
   // Inputs
-  title = input.required<string>();
-  message = input.required<string>();
-  confirmText = input<string>('Confirm');
-  cancelText = input<string>('Cancel');
-  mode = input<'confirm' | 'alert'>('confirm');
-  confirmClass = input<string>('btn-primary');
+  public readonly title = input.required<string>();
+  public readonly message = input.required<string>();
+  public readonly confirmText = input<string>('Confirm');
+  public readonly cancelText = input<string>('Cancel');
+  public readonly mode = input<'confirm' | 'alert'>('confirm');
+  public readonly confirmClass = input<string>('btn-primary');
 
   // Outputs
   confirmed = output<void>();
@@ -137,14 +135,14 @@ export class ConfirmationModalComponent {
    * Show the modal
    */
   show(): void {
-    this.modal.nativeElement.showModal();
+    this.modal().nativeElement.showModal();
   }
 
   /**
    * Hide the modal
    */
   hide(): void {
-    this.modal.nativeElement.close();
+    this.modal().nativeElement.close();
   }
 
   /**

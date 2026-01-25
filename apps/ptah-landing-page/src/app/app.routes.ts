@@ -1,7 +1,7 @@
 import { Routes } from '@angular/router';
 import { LandingPageComponent } from './pages/landing-page.component';
 import { PricingPageComponent } from './pages/pricing/pricing-page.component';
-import { LoginPageComponent } from './pages/login/login-page.component';
+import { AuthPageComponent } from './pages/auth/auth-page.component';
 import { ProfilePageComponent } from './pages/profile/profile-page.component';
 import { AuthGuard } from './guards/auth.guard';
 
@@ -13,11 +13,22 @@ import { AuthGuard } from './guards/auth.guard';
  * Routes:
  * - `/` → Landing page (home)
  * - `/pricing` → Pricing plans page
- * - `/login` → Magic link authentication
+ * - `/login` → Unified auth page (Sign In mode)
+ * - `/signup` → Unified auth page (Sign Up mode)
  * - `/profile` → User license dashboard (protected by AuthGuard)
  * - `/**` → Wildcard redirects to home (404 handling)
  *
- * Evidence: implementation-plan.md Phase 1 - Routing Infrastructure
+ * Authentication:
+ * Uses unified AuthPageComponent with child components:
+ * - AuthFormComponent: Email/password form
+ * - SocialLoginButtonsComponent: GitHub, Google OAuth
+ * - AuthHeroComponent: Right-side hero section
+ *
+ * Backend Integration:
+ * - POST /api/auth/login/email - Email/password login
+ * - POST /api/auth/signup - User registration
+ * - GET /api/auth/oauth/:provider - OAuth redirects
+ * - POST /api/auth/magic-link - Passwordless login
  */
 export const routes: Routes = [
   {
@@ -30,7 +41,11 @@ export const routes: Routes = [
   },
   {
     path: 'login',
-    component: LoginPageComponent,
+    component: AuthPageComponent,
+  },
+  {
+    path: 'signup',
+    component: AuthPageComponent,
   },
   {
     path: 'profile',

@@ -1,12 +1,17 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { EmailService } from './services/email.service';
+import {
+  SendGridMailProvider,
+  SENDGRID_MAIL_SERVICE,
+} from './providers/sendgrid.provider';
 
 /**
  * EmailModule - Email delivery services for license server
  *
  * Provides:
- * - EmailService for SendGrid integration
+ * - SendGrid mail client (properly initialized via DI)
+ * - EmailService for email delivery with retry logic
  * - License key email delivery
  * - Magic link email delivery
  *
@@ -21,7 +26,7 @@ import { EmailService } from './services/email.service';
  */
 @Module({
   imports: [ConfigModule],
-  providers: [EmailService],
-  exports: [EmailService], // Export for use in LicenseModule (AdminController)
+  providers: [SendGridMailProvider, EmailService],
+  exports: [EmailService, SENDGRID_MAIL_SERVICE],
 })
 export class EmailModule {}

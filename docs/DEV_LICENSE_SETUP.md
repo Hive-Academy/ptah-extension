@@ -55,7 +55,7 @@ npm install
 
 # 3. Copy environment files
 cp .env.docker.example .env.docker
-cp apps/ptah-license-server/.env.local.example apps/ptah-license-server/.env.local
+cp apps/ptah-license-server/.env.example apps/ptah-license-server/.env
 
 # 4. Start all services
 docker-compose up -d
@@ -124,9 +124,9 @@ REDIS_PORT=6379
 LICENSE_SERVER_PORT=3000
 ```
 
-### License Server Environment (.env.local)
+### License Server Environment (.env)
 
-Located at `apps/ptah-license-server/.env.local`:
+Located at `apps/ptah-license-server/.env`:
 
 ```env
 # ============================================
@@ -426,9 +426,9 @@ sudo systemctl start redis
 
 ```bash
 cd apps/ptah-license-server
-cp .env.example .env.local
+cp .env.example .env
 
-# Edit .env.local with local URLs:
+# Edit .env with local URLs:
 # DATABASE_URL="postgresql://postgres:postgres@localhost:5432/ptah_licenses"
 # REDIS_URL="redis://localhost:6379"
 ```
@@ -521,7 +521,7 @@ LICENSE_SERVER_PORT=3001
 
 ### API Key Mismatch (401 Unauthorized)
 
-1. Verify `ADMIN_API_KEY` in `.env.local`
+1. Verify `ADMIN_API_KEY` in `.env`
 2. Verify `X-API-Key` header matches exactly
 3. Restart license server after changing env vars:
 

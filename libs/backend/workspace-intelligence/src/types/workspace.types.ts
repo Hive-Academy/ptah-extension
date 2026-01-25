@@ -24,6 +24,7 @@ export enum ProjectType {
   PHP = 'php',
   Ruby = 'ruby',
   General = 'general',
+  Unknown = 'unknown',
 }
 
 /**
@@ -39,6 +40,15 @@ export enum Framework {
   Django = 'django',
   Laravel = 'laravel',
   Rails = 'rails',
+  // Additional frontend frameworks
+  Svelte = 'svelte',
+  Astro = 'astro',
+  // Additional backend frameworks
+  NestJS = 'nestjs',
+  Fastify = 'fastify',
+  Flask = 'flask',
+  FastAPI = 'fastapi',
+  Spring = 'spring',
 }
 
 /**

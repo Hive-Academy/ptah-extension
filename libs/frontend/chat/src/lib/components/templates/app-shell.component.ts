@@ -3,7 +3,7 @@ import {
   inject,
   signal,
   effect,
-  ViewChild,
+  viewChild,
   ElementRef,
   ChangeDetectionStrategy,
 } from '@angular/core';
@@ -122,15 +122,16 @@ export class AppShellComponent {
   readonly sessionNameInput = signal('');
 
   // ViewChild for session name input (programmatic focus)
-  @ViewChild('sessionNameInputRef')
-  sessionNameInputRef?: ElementRef<HTMLInputElement>;
+  readonly sessionNameInputRef = viewChild<ElementRef<HTMLInputElement>>(
+    'sessionNameInputRef'
+  );
 
   constructor() {
     // Focus sidebar input when popover opens
     effect(() => {
       if (this.sessionNamePopoverOpen()) {
         setTimeout(() => {
-          this.sessionNameInputRef?.nativeElement.focus();
+          this.sessionNameInputRef()?.nativeElement.focus();
         }, 0);
       }
     });

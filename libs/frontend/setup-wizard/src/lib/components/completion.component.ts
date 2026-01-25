@@ -1,15 +1,20 @@
 import {
-  Component,
-  inject,
   ChangeDetectionStrategy,
+  Component,
   computed,
+  inject,
 } from '@angular/core';
-import {
-  SetupWizardStateService,
-  SkillGenerationProgressItem,
-} from '../services/setup-wizard-state.service';
 import { VSCodeService } from '@ptah-extension/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import {
+  Check,
+  Folder,
+  Info,
+  LucideAngularModule,
+  MessageCircle,
+  Zap,
+} from 'lucide-angular';
+import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 
 /**
  * CompletionComponent - Success screen with quick start guide and orchestration examples
@@ -38,7 +43,7 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
 @Component({
   selector: 'ptah-completion',
   standalone: true,
-  imports: [],
+  imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="container mx-auto px-4 py-8">
@@ -47,20 +52,10 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
         <div class="text-center mb-8">
           <div class="flex justify-center mb-6">
             <div class="rounded-full bg-success/20 p-6">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
+              <lucide-angular
+                [img]="CheckIcon"
                 class="h-20 w-20 text-success"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M5 13l4 4L19 7"
-                />
-              </svg>
+              />
             </div>
           </div>
           <h1 class="text-4xl font-bold mb-4">Setup Complete!</h1>
@@ -94,20 +89,7 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
         <div class="card bg-base-200 shadow-xl mb-8">
           <div class="card-body">
             <h2 class="card-title text-xl mb-4">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="h-6 w-6"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-                />
-              </svg>
+              <lucide-angular [img]="FolderIcon" class="h-6 w-6" />
               Generated Files
             </h2>
 
@@ -123,20 +105,10 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
                 <ul class="space-y-1 text-sm">
                   @for (file of agentFiles(); track file.id) {
                   <li class="flex items-center gap-2">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
+                    <lucide-angular
+                      [img]="CheckIcon"
                       class="h-4 w-4 text-success"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M5 13l4 4L19 7"
-                      />
-                    </svg>
+                    />
                     <span
                       class="font-mono text-xs truncate"
                       [title]="file.name"
@@ -159,20 +131,10 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
                 <ul class="space-y-1 text-sm">
                   @for (file of commandFiles(); track file.id) {
                   <li class="flex items-center gap-2">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
+                    <lucide-angular
+                      [img]="CheckIcon"
                       class="h-4 w-4 text-success"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M5 13l4 4L19 7"
-                      />
-                    </svg>
+                    />
                     <span
                       class="font-mono text-xs truncate"
                       [title]="file.name"
@@ -195,20 +157,10 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
                 <ul class="space-y-1 text-sm">
                   @for (file of skillFiles(); track file.id) {
                   <li class="flex items-center gap-2">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
+                    <lucide-angular
+                      [img]="CheckIcon"
                       class="h-4 w-4 text-success"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M5 13l4 4L19 7"
-                      />
-                    </svg>
+                    />
                     <span
                       class="font-mono text-xs truncate"
                       [title]="file.name"
@@ -227,20 +179,7 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
         <div class="card bg-base-200 shadow-xl mb-8">
           <div class="card-body">
             <h2 class="card-title text-xl mb-4">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="h-6 w-6"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M13 10V3L4 14h7v7l9-11h-7z"
-                />
-              </svg>
+              <lucide-angular [img]="ZapIcon" class="h-6 w-6" />
               Quick Start Guide
             </h2>
 
@@ -363,19 +302,7 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
         <!-- Tips Card -->
         <div class="alert alert-info mb-8">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            class="stroke-current shrink-0 w-6 h-6"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            ></path>
-          </svg>
+          <lucide-angular [img]="InfoIcon" class="shrink-0 w-6 h-6" />
           <div>
             <h3 class="font-bold mb-1">Pro Tips</h3>
             <ul class="text-sm space-y-1">
@@ -408,57 +335,18 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
         <!-- Action Buttons -->
         <div class="flex flex-col sm:flex-row gap-4 justify-center">
           <button class="btn btn-primary btn-lg" (click)="onOpenClaudeFolder()">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-5 w-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-              />
-            </svg>
+            <lucide-angular [img]="FolderIcon" class="h-5 w-5" />
             Open .claude Folder
           </button>
           <button
             class="btn btn-secondary btn-lg"
             (click)="onTestOrchestration()"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-5 w-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M13 10V3L4 14h7v7l9-11h-7z"
-              />
-            </svg>
+            <lucide-angular [img]="ZapIcon" class="h-5 w-5" />
             Test /orchestrate
           </button>
           <button class="btn btn-ghost btn-lg" (click)="onStartNewChat()">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-5 w-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-              />
-            </svg>
+            <lucide-angular [img]="MessageCircleIcon" class="h-5 w-5" />
             Start New Chat
           </button>
         </div>
@@ -469,6 +357,13 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
 export class CompletionComponent {
   private readonly wizardState = inject(SetupWizardStateService);
   private readonly vscodeService = inject(VSCodeService);
+
+  // Lucide icon references
+  protected readonly CheckIcon = Check;
+  protected readonly FolderIcon = Folder;
+  protected readonly ZapIcon = Zap;
+  protected readonly InfoIcon = Info;
+  protected readonly MessageCircleIcon = MessageCircle;
 
   /**
    * All completed generation items from skill generation progress.

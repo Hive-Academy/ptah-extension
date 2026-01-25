@@ -3,7 +3,7 @@ import {
   inject,
   ChangeDetectionStrategy,
   computed,
-  ViewChild,
+  viewChild,
 } from '@angular/core';
 import { LucideAngularModule, TriangleAlert } from 'lucide-angular';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
@@ -230,7 +230,8 @@ export class AnalysisResultsComponent {
 
   protected readonly TriangleAlertIcon = TriangleAlert;
 
-  @ViewChild('alertModal') alertModal!: ConfirmationModalComponent;
+  readonly alertModal =
+    viewChild.required<ConfirmationModalComponent>('alertModal');
 
   public readonly confirmationMessage = `Manual adjustment is coming soon!
 For now, you can:
@@ -267,7 +268,7 @@ For now, you can:
    * - Show DaisyUI modal for future enhancement notice
    */
   protected onManualAdjust(): void {
-    this.alertModal.show();
+    this.alertModal().show();
   }
 
   /**

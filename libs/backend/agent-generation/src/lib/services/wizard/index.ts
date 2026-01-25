@@ -21,3 +21,10 @@ export { WizardStepMachineService } from './step-machine.service';
 export { DeepProjectAnalysisService } from './deep-analysis.service';
 export { CodeHealthAnalysisService } from './code-health.service';
 export { WizardContextMapperService } from './context-mapper.service';
+
+// Type exports
+export type {
+  CustomMessageHandler,
+  WizardPanelInitialData,
+} from './webview-lifecycle.service';
+export type { StepDataResult } from './step-machine.service';

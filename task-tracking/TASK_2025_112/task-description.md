@@ -107,7 +107,7 @@ This task transforms the existing simplified license server (TASK_2025_075) into
 - Services: `postgres`, `redis`, `license-server`, `frontend-dev`
 - Volumes: `postgres-data`, `redis-data`
 - Networks: `ptah-network` (bridge)
-- Environment files: `.env.local` (git-ignored)
+- Environment files: `.env` (git-ignored)
 
 ---
 

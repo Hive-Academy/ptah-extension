@@ -313,7 +313,7 @@ if [ "$LOGIN_CODE" = "302" ] || [ "$LOGIN_CODE" = "301" ] || [ "$LOGIN_CODE" = "
     print_pass
 elif [ "$LOGIN_CODE" = "500" ]; then
     print_warn "Got 500 - WorkOS credentials may not be configured"
-    echo "    Configure WORKOS_API_KEY and WORKOS_CLIENT_ID in .env.local"
+    echo "    Configure WORKOS_API_KEY and WORKOS_CLIENT_ID in .env"
 elif [ "$LOGIN_CODE" = "404" ]; then
     print_fail "Login endpoint not found (404)"
 else
@@ -402,8 +402,8 @@ if [ $FAILED -eq 0 ]; then
     echo "Phase A infrastructure is ready."
     echo ""
     echo "Next steps:"
-    echo "  1. Configure WorkOS credentials in .env.local (if not done)"
-    echo "  2. Configure Paddle credentials in .env.local (if not done)"
+    echo "  1. Configure WorkOS credentials in .env (if not done)"
+    echo "  2. Configure Paddle credentials in .env (if not done)"
     echo "  3. Run Prisma migrations if subscriptions table missing"
     echo "  4. Test authentication flow manually"
     echo ""

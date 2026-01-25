@@ -7,7 +7,7 @@ import {
   input,
   OnDestroy,
   output,
-  ViewChild,
+  viewChild,
 } from '@angular/core';
 import { POPOVER_POSITION_MAP } from '../shared/overlay-positions';
 
@@ -77,7 +77,8 @@ export class PopoverComponent implements OnDestroy {
   private readonly focusTrapFactory = inject(FocusTrapFactory);
   private focusTrap: FocusTrap | null = null;
 
-  @ViewChild('popoverContent') popoverContent!: ElementRef<HTMLElement>;
+  readonly popoverContent =
+    viewChild<ElementRef<HTMLElement>>('popoverContent');
 
   // Inputs
   readonly isOpen = input.required<boolean>();
@@ -122,10 +123,9 @@ export class PopoverComponent implements OnDestroy {
    */
   handleAttach(): void {
     // Create focus trap when popover opens
-    if (this.popoverContent) {
-      this.focusTrap = this.focusTrapFactory.create(
-        this.popoverContent.nativeElement
-      );
+    const content = this.popoverContent();
+    if (content) {
+      this.focusTrap = this.focusTrapFactory.create(content.nativeElement);
       this.focusTrap.focusInitialElementWhenReady();
     }
     this.opened.emit();

@@ -1,32 +1,27 @@
-import { Injectable, signal, computed, inject } from '@angular/core';
+import { computed, inject, Injectable, signal } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
 import {
-  ArchitecturePattern,
-  KeyFileLocations,
-  DiagnosticSummary,
-  TestCoverageEstimate,
   AgentRecommendation,
-  AgentCategory,
-  ProjectAnalysisResult,
-  WizardMessage,
-  WizardMessageType,
-  ScanProgressPayload,
   AnalysisCompletePayload,
   AvailableAgentsPayload,
-  GenerationProgressPayload,
   GenerationCompletePayload,
+  GenerationProgressPayload,
+  ProjectAnalysisResult,
+  ScanProgressPayload,
   WizardErrorPayload,
+  WizardMessage,
+  WizardMessageType,
 } from '@ptah-extension/shared';
 
 // Re-export shared types for backward compatibility with existing consumers
 export type {
-  ArchitecturePattern,
-  KeyFileLocations,
-  DiagnosticSummary,
-  TestCoverageEstimate,
-  AgentRecommendation,
   AgentCategory,
+  AgentRecommendation,
+  ArchitecturePattern,
+  DiagnosticSummary,
+  KeyFileLocations,
   ProjectAnalysisResult,
+  TestCoverageEstimate,
 } from '@ptah-extension/shared';
 
 /**

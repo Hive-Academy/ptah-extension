@@ -14,10 +14,10 @@ interface AuthUser {
  * AuthService - Handles authentication state
  *
  * API endpoints:
- * - GET /auth/me → Check if authenticated, get user data
- * - POST /auth/logout → Clear session
+ * - GET /api/auth/me → Check if authenticated, get user data
+ * - POST /api/auth/logout → Clear session
  *
- * Uses HTTP-only cookies (ptah_auth) - no token storage needed.
+ * Uses HTTP-only cookies (access_token) - no token storage needed.
  *
  * Angular 21 patterns:
  * - inject() for DI
@@ -28,13 +28,14 @@ interface AuthUser {
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly http = inject(HttpClient);
+  private readonly baseUrl = '/api/auth';
 
   /**
    * Check if user is authenticated
    * @returns Observable<boolean>
    */
   public isAuthenticated(): Observable<boolean> {
-    return this.http.get('/auth/me').pipe(
+    return this.http.get(`${this.baseUrl}/me`).pipe(
       map(() => true),
       catchError(() => of(false))
     );
@@ -45,7 +46,9 @@ export class AuthService {
    * @returns Observable<AuthUser | null>
    */
   public getCurrentUser(): Observable<AuthUser | null> {
-    return this.http.get<AuthUser>('/auth/me').pipe(catchError(() => of(null)));
+    return this.http
+      .get<AuthUser>(`${this.baseUrl}/me`)
+      .pipe(catchError(() => of(null)));
   }
 
   /**
@@ -53,6 +56,6 @@ export class AuthService {
    * @returns Observable<void>
    */
   public logout(): Observable<void> {
-    return this.http.post<void>('/auth/logout', {});
+    return this.http.post<void>(`${this.baseUrl}/logout`, {});
   }
 }

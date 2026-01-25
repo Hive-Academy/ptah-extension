@@ -1,6 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as sgMail from '@sendgrid/mail';
+import type { MailDataRequired } from '@sendgrid/mail';
+import {
+  SENDGRID_MAIL_SERVICE,
+  SendGridMailService,
+} from '../providers/sendgrid.provider';
 
 /**
  * EmailService - SendGrid email delivery with retry logic
@@ -12,7 +16,7 @@ import * as sgMail from '@sendgrid/mail';
  * - Graceful error handling (throws after 3 failures)
  *
  * Configuration (environment variables):
- * - SENDGRID_API_KEY: SendGrid API key
+ * - SENDGRID_API_KEY: SendGrid API key (required)
  * - SENDGRID_FROM_EMAIL: Sender email address
  * - SENDGRID_FROM_NAME: Sender display name
  * - FRONTEND_URL: Customer portal URL for links
@@ -21,17 +25,12 @@ import * as sgMail from '@sendgrid/mail';
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
 
-  constructor(private readonly config: ConfigService) {
-    const apiKey = this.config.get<string>('SENDGRID_API_KEY');
-
-    if (!apiKey) {
-      this.logger.warn(
-        'SENDGRID_API_KEY not configured - email sending will fail'
-      );
-    } else {
-      sgMail.setApiKey(apiKey);
-      this.logger.log('SendGrid initialized successfully');
-    }
+  constructor(
+    private readonly config: ConfigService,
+    @Inject(SENDGRID_MAIL_SERVICE)
+    private readonly mailService: SendGridMailService
+  ) {
+    this.logger.log('Email service initialized with SendGrid');
   }
 
   /**
@@ -48,7 +47,7 @@ export class EmailService {
   }): Promise<void> {
     const { email, licenseKey, plan, expiresAt } = params;
 
-    const msg = {
+    const msg: MailDataRequired = {
       to: email,
       from: {
         email:
@@ -76,7 +75,7 @@ export class EmailService {
   }): Promise<void> {
     const { email, magicLink } = params;
 
-    const msg = {
+    const msg: MailDataRequired = {
       to: email,
       from: {
         email:
@@ -103,12 +102,12 @@ export class EmailService {
    * @throws Error if all attempts fail
    */
   private async sendWithRetry(
-    msg: sgMail.MailDataRequired,
+    msg: MailDataRequired,
     attempts: number
   ): Promise<void> {
     for (let i = 0; i < attempts; i++) {
       try {
-        await sgMail.send(msg);
+        await this.mailService.send(msg);
         return; // Success - exit retry loop
       } catch (error) {
         const errorMessage =

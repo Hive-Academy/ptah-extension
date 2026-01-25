@@ -12,6 +12,14 @@ import {
 import { WizardRpcService } from '../services/wizard-rpc.service';
 import { AgentCategory } from '@ptah-extension/shared';
 import { withErrorHandling } from '../utils/error-handling';
+import {
+  LucideAngularModule,
+  XCircle,
+  Check,
+  Users,
+  ChevronLeft,
+  Zap,
+} from 'lucide-angular';
 
 /**
  * AgentSelectionComponent - Agent selection with relevance scores and recommendations
@@ -42,7 +50,7 @@ import { withErrorHandling } from '../utils/error-handling';
 @Component({
   selector: 'ptah-agent-selection',
   standalone: true,
-  imports: [],
+  imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="container mx-auto px-4 py-8">
@@ -57,19 +65,7 @@ import { withErrorHandling } from '../utils/error-handling';
 
         @if (errorMessage(); as error) {
         <div class="alert alert-error mb-4" role="alert">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-6 w-6 shrink-0 stroke-current"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
+          <lucide-angular [img]="XCircleIcon" class="h-6 w-6 shrink-0" />
           <span>{{ error }}</span>
         </div>
         }
@@ -84,20 +80,7 @@ import { withErrorHandling } from '../utils/error-handling';
               (click)="onSelectAllRecommended()"
               [disabled]="allRecommendedSelected()"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M5 13l4 4L19 7"
-                />
-              </svg>
+              <lucide-angular [img]="CheckIcon" class="h-4 w-4" />
               Select Recommended
             </button>
             <button
@@ -110,20 +93,7 @@ import { withErrorHandling } from '../utils/error-handling';
           </div>
           <div class="flex items-center gap-3">
             <div class="badge badge-primary badge-lg gap-2">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M5 13l4 4L19 7"
-                />
-              </svg>
+              <lucide-angular [img]="CheckIcon" class="h-4 w-4" />
               {{ selectedCount() }} selected
             </div>
             <div class="badge badge-outline badge-lg">
@@ -136,20 +106,10 @@ import { withErrorHandling } from '../utils/error-handling';
         <!-- No recommendations available -->
         <div class="card bg-base-200 shadow-xl">
           <div class="card-body items-center text-center py-12">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
+            <lucide-angular
+              [img]="UsersIcon"
               class="h-16 w-16 text-base-content/30 mb-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-              />
-            </svg>
+            />
             <h3 class="text-xl font-semibold mb-2">No Agent Recommendations</h3>
             <p class="text-base-content/60 max-w-md">
               Unable to load agent recommendations. Please go back and restart
@@ -216,20 +176,7 @@ import { withErrorHandling } from '../utils/error-handling';
                         <span class="font-semibold">{{ agent.agentName }}</span>
                         @if (agent.recommended) {
                         <span class="badge badge-success badge-sm gap-1">
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            class="h-3 w-3"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                          >
-                            <path
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              stroke-width="2"
-                              d="M5 13l4 4L19 7"
-                            />
-                          </svg>
+                          <lucide-angular [img]="CheckIcon" class="h-3 w-3" />
                           Recommended
                         </span>
                         }
@@ -301,20 +248,7 @@ import { withErrorHandling } from '../utils/error-handling';
           class="flex flex-col sm:flex-row gap-4 justify-between items-center mt-8 pt-6 border-t border-base-300"
         >
           <button class="btn btn-ghost" (click)="onBack()">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-5 w-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M15 19l-7-7 7-7"
-              />
-            </svg>
+            <lucide-angular [img]="ChevronLeftIcon" class="h-5 w-5" />
             Back
           </button>
 
@@ -333,20 +267,7 @@ import { withErrorHandling } from '../utils/error-handling';
             @if (isGenerating()) {
             <span class="loading loading-spinner"></span>
             Generating... } @else {
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-5 w-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M13 10V3L4 14h7v7l9-11h-7z"
-              />
-            </svg>
+            <lucide-angular [img]="ZapIcon" class="h-5 w-5" />
             Generate {{ selectedCount() }} Agent{{
               selectedCount() === 1 ? '' : 's'
             }}
@@ -360,6 +281,13 @@ import { withErrorHandling } from '../utils/error-handling';
 export class AgentSelectionComponent {
   private readonly wizardState = inject(SetupWizardStateService);
   private readonly wizardRpc = inject(WizardRpcService);
+
+  // Lucide icon references
+  protected readonly XCircleIcon = XCircle;
+  protected readonly CheckIcon = Check;
+  protected readonly UsersIcon = Users;
+  protected readonly ChevronLeftIcon = ChevronLeft;
+  protected readonly ZapIcon = Zap;
 
   /**
    * Known agent categories for filtering.

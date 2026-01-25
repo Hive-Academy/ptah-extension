@@ -12,7 +12,7 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app/app.module';
-import * as cookieParser from 'cookie-parser';
+import cookieParser = require('cookie-parser');
 
 async function bootstrap() {
   // Create NestJS application with raw body enabled for webhook signature verification
@@ -39,7 +39,7 @@ async function bootstrap() {
   );
 
   // Configure CORS for cross-origin requests from frontend
-  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
+  const frontendUrl = process.env['FRONTEND_URL'] || 'http://localhost:4200';
   app.enableCors({
     origin: [frontendUrl],
     credentials: true, // Allow cookies to be sent with requests
@@ -53,11 +53,12 @@ async function bootstrap() {
   app.setGlobalPrefix(globalPrefix, {
     // Exclude webhook routes from the global prefix
     // Paddle webhooks expect: POST /webhooks/paddle (not /api/webhooks/paddle)
-    exclude: ['webhooks/paddle', 'webhooks/paddle/(.*)'],
+    // Note: NestJS 11+ uses path-to-regexp v8 which requires named parameters
+    exclude: ['webhooks/paddle', 'webhooks/paddle/{*path}'],
   });
 
   // Start the server
-  const port = process.env.PORT || 3000;
+  const port = process.env['PORT'] || 3000;
   await app.listen(port);
 
   Logger.log(
@@ -66,7 +67,7 @@ async function bootstrap() {
   Logger.log(
     `Webhook endpoint available at: http://localhost:${port}/webhooks/paddle`
   );
-  Logger.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  Logger.log(`Environment: ${process.env['NODE_ENV'] || 'development'}`);
 }
 
 bootstrap();

@@ -97,10 +97,9 @@ export class DeepProjectAnalysisService {
       const vscodeApi = await import('vscode');
 
       // Step 1: Get basic workspace analysis from orchestrator
-      const basicResult = await this.orchestrator.analyzeWorkspace({
-        workspaceUri,
-        threshold: 50,
-      });
+      const basicResult = await this.orchestrator.analyzeWorkspace(
+        workspaceUri
+      );
 
       let projectType: (typeof ProjectType)[keyof typeof ProjectType] =
         ProjectType.Unknown;

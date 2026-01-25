@@ -8,6 +8,7 @@ import {
 import { ClaudeRpcService } from '@ptah-extension/core';
 
 import { SetupStatusGetResponse } from '@ptah-extension/shared';
+import { LucideAngularModule, XCircle } from 'lucide-angular';
 
 /**
  * SetupStatus type - Agent configuration status information
@@ -36,7 +37,7 @@ export type SetupStatus = SetupStatusGetResponse;
 @Component({
   selector: 'ptah-setup-status-widget',
   standalone: true,
-  imports: [],
+  imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="border border-base-300 rounded-md bg-base-200/50 p-2.5">
@@ -55,20 +56,7 @@ export type SetupStatus = SetupStatusGetResponse;
       } @else if (error()) {
       <!-- Compact error state -->
       <div class="flex items-center gap-2 text-error">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          class="shrink-0 w-4 h-4"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
-          />
-        </svg>
+        <lucide-angular [img]="XCircleIcon" class="shrink-0 w-4 h-4" />
         <span class="text-xs flex-1 truncate">{{ error() }}</span>
         <button
           class="btn btn-xs btn-ghost"
@@ -132,6 +120,9 @@ export type SetupStatus = SetupStatusGetResponse;
 })
 export class SetupStatusWidgetComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
+
+  // Lucide icon reference
+  protected readonly XCircleIcon = XCircle;
 
   // Signals for reactive state
   readonly status = signal<SetupStatus | null>(null);

@@ -1,23 +1,33 @@
 // Prisma Schema for Ptah License Server
 // Database: PostgreSQL with driver adapters (Nx monorepo compatible)
 // Prisma 7.1.0+ - URL configured in prisma.config.ts, adapter passed at runtime
+//
+// IMPORTANT: url field is DEPRECATED in Prisma 7 and should NOT be in schema
+// Configure datasource.url in prisma.config.ts instead
 
 datasource db {
   provider = "postgresql"
 }
-
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
+  output   = "../src/generated-prisma-client"
 }
 
-// User model - stores user email addresses for license ownership
+// User model - stores user information for license ownership
+// Syncs with WorkOS User Management for authentication
 model User {
   id            String         @id @default(uuid()) @db.Uuid
+  workosId      String?        @unique @map("workos_id") // WorkOS user ID for sync
   email         String         @unique
+  firstName     String?        @map("first_name")
+  lastName      String?        @map("last_name")
+  emailVerified Boolean        @default(false) @map("email_verified")
   createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
   licenses      License[]
   subscriptions Subscription[]
 
+  @@index([workosId])
   @@map("users")
 }
 
@@ -27,7 +37,7 @@ model Subscription {
   userId               String    @map("user_id") @db.Uuid
   paddleSubscriptionId String    @unique @map("paddle_subscription_id")
   paddleCustomerId     String    @map("paddle_customer_id")
-  status               String    // "active" | "paused" | "canceled" | "past_due"
+  status               String // "active" | "paused" | "canceled" | "past_due"
   priceId              String    @map("price_id")
   currentPeriodEnd     DateTime  @map("current_period_end")
   canceledAt           DateTime? @map("canceled_at")
@@ -46,7 +56,7 @@ model License {
   id         String    @id @default(uuid()) @db.Uuid
   userId     String    @map("user_id") @db.Uuid
   licenseKey String    @unique @map("license_key")
-  plan       String    // "free" | "early_adopter"
+  plan       String // "free" | "early_adopter"
   status     String    @default("active") // "active" | "expired" | "revoked"
   expiresAt  DateTime? @map("expires_at")
   createdAt  DateTime  @default(now()) @map("created_at")

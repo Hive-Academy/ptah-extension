@@ -9,10 +9,10 @@ export class CreateLicenseDto {
   @IsEmail({}, { message: 'Invalid email format' })
   email!: string;
 
-  @IsIn(['free', 'early_adopter'], {
-    message: 'Plan must be either "free" or "early_adopter"',
+  @IsIn(['free', 'pro'], {
+    message: 'Plan must be either "free" or "pro"',
   })
-  plan!: 'free' | 'early_adopter';
+  plan!: 'free' | 'pro';
 
   @IsBoolean()
   @IsOptional()

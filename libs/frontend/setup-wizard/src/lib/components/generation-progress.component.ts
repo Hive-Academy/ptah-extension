@@ -1,22 +1,19 @@
 import {
-  Component,
-  inject,
   ChangeDetectionStrategy,
+  Component,
   computed,
+  inject,
   OnDestroy,
 } from '@angular/core';
 import {
-  LucideAngularModule,
-  CircleCheck,
-  CircleAlert,
-  RotateCw,
   Check,
+  CircleAlert,
+  CircleCheck,
+  LucideAngularModule,
+  RotateCw,
   TriangleAlert,
 } from 'lucide-angular';
-import {
-  SetupWizardStateService,
-  SkillGenerationProgressItem,
-} from '../services/setup-wizard-state.service';
+import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
 
 /**

@@ -1,5 +1,7 @@
-import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
+import { NgClass } from '@angular/common';
+import { Component, ChangeDetectionStrategy, input } from '@angular/core';
 import { ArchitecturePattern } from '@ptah-extension/shared';
+import { LucideAngularModule, Building } from 'lucide-angular';
 
 /**
  * ArchitecturePatternsCardComponent - Displays detected architecture patterns with confidence scores
@@ -22,43 +24,36 @@ import { ArchitecturePattern } from '@ptah-extension/shared';
 @Component({
   selector: 'ptah-architecture-patterns-card',
   standalone: true,
+  imports: [NgClass, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="card bg-base-200 shadow-xl mb-6">
       <div class="card-body">
         <h3 class="card-title text-xl mb-4">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-6 w-6"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
-            />
-          </svg>
+          <lucide-angular [img]="BuildingIcon" class="h-6 w-6" />
           Architecture Patterns Detected
         </h3>
 
         <div class="space-y-4">
-          @for (pattern of patterns; track pattern.name) {
+          @for (pattern of patterns(); track pattern.name) {
           <div class="p-4 bg-base-100 rounded-lg">
             <div class="flex justify-between items-center mb-2">
               <span class="font-semibold">{{ pattern.name }}</span>
               <span
-                class="badge"
-                [class]="getConfidenceBadgeClass(pattern.confidence)"
+                [ngClass]="[
+                  'badge',
+                  getConfidenceBadgeClass(pattern.confidence)
+                ]"
               >
                 {{ pattern.confidence }}% confidence
               </span>
             </div>
             <progress
-              class="progress w-full"
-              [class]="getConfidenceProgressClass(pattern.confidence)"
+              [ngClass]="[
+                'progress',
+                'w-full',
+                getConfidenceProgressClass(pattern.confidence)
+              ]"
               [value]="pattern.confidence"
               max="100"
               [attr.aria-label]="
@@ -90,10 +85,13 @@ import { ArchitecturePattern } from '@ptah-extension/shared';
   `,
 })
 export class ArchitecturePatternsCardComponent {
+  // Lucide icon reference
+  protected readonly BuildingIcon = Building;
+
   /**
    * Architecture patterns to display.
    */
-  @Input({ required: true }) patterns!: ArchitecturePattern[];
+  readonly patterns = input.required<ArchitecturePattern[]>();
 
   /**
    * Get badge class based on confidence score.

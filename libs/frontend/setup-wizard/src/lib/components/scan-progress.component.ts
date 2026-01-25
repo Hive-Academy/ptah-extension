@@ -4,7 +4,7 @@ import {
   ChangeDetectionStrategy,
   computed,
   signal,
-  ViewChild,
+  viewChild,
 } from '@angular/core';
 import { LucideAngularModule, XCircle, Info } from 'lucide-angular';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
@@ -145,7 +145,8 @@ export class ScanProgressComponent {
   protected readonly XCircleIcon = XCircle;
   protected readonly InfoIcon = Info;
 
-  @ViewChild('confirmModal') confirmModal!: ConfirmationModalComponent;
+  readonly confirmModal =
+    viewChild.required<ConfirmationModalComponent>('confirmModal');
 
   /**
    * Reactive progress data from state service
@@ -180,7 +181,7 @@ export class ScanProgressComponent {
     }
 
     // Show confirmation modal
-    this.confirmModal.show();
+    this.confirmModal().show();
   }
 
   /**

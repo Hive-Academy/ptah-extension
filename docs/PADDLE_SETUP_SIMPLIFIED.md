@@ -42,7 +42,7 @@
 4. Copy the API key:
    - Sandbox: `pdl_sbox_XXXXX`
    - Production: `pdl_live_XXXXX`
-5. Add to `.env.local`:
+5. Add to `.env`:
 
    ```bash
    PADDLE_API_KEY=pdl_sbox_YOUR_KEY_HERE
@@ -145,7 +145,7 @@ To offer $5/month for the first 3 months:
 
 ## Step 7: Update Environment Variables
 
-### Backend (.env.local)
+### Backend (.env)
 
 ```bash
 # Paddle API Configuration
@@ -278,7 +278,7 @@ ngrok http 3000
 ## Environment Variables Reference
 
 ```bash
-# Backend: apps/ptah-license-server/.env.local
+# Backend: apps/ptah-license-server/.env
 PADDLE_API_KEY=pdl_sbox_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 PADDLE_WEBHOOK_SECRET=pdl_ntfset_XXXXXXXXXXXXXXXXXXXXXXXX
 PADDLE_PRICE_ID_PRO_MONTHLY=pri_XXXXXXXXXXXXXXXXXXXXXXXX

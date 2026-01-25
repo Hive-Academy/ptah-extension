@@ -4,111 +4,186 @@ import {
   input,
   output,
 } from '@angular/core';
-import { NgOptimizedImage } from '@angular/common';
-import { LucideAngularModule, Check } from 'lucide-angular';
+import { NgOptimizedImage, NgClass } from '@angular/common';
+import { LucideAngularModule, Check, ArrowRight } from 'lucide-angular';
 import { PricingPlan } from '../models/pricing-plan.interface';
 import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
 
 /**
- * PlanCardComponent - Reusable pricing plan card
+ * PlanCardComponent - Premium pricing plan card
  *
- * Features:
- * - Glass morphism design via Tailwind + DaisyUI
- * - Hover animations
- * - LIMITED badge for Early Adopter tier
- * - Responsive layout
+ * Design inspired by reference with:
+ * - Clean card layout with subtle borders
+ * - "Ideal for" description
+ * - Large price with subtext
+ * - Feature sections with icons
+ * - Gradient CTA button with arrow
  *
  * Design: Uses anubis theme from tailwind.config.js
- * Evidence: implementation-plan.md Phase 2 - plan-card.component.ts
+ * Evidence: Redesign based on reference design with Ptah Egyptian theme
  */
 @Component({
   selector: 'ptah-plan-card',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgOptimizedImage, LucideAngularModule],
+  imports: [NgOptimizedImage, NgClass, LucideAngularModule],
   template: `
     <div
-      class="relative bg-base-300 border border-base-content/20 rounded-2xl p-8 
-             transition-all duration-300 cursor-pointer h-full flex flex-col
-             hover:-translate-y-2 hover:shadow-glow-gold group"
-      [class.border-secondary]="plan().highlight"
-      [class.shadow-glow-gold]="plan().highlight"
-      [class.hover:border-secondary]="!plan().highlight"
+      class="relative rounded-2xl p-6 lg:p-8 h-full flex flex-col
+             transition-all duration-500 cursor-pointer group"
+      [ngClass]="{
+        'bg-gradient-to-b from-base-200/80 to-base-300/50 border border-secondary/50 shadow-xl shadow-amber-500/10':
+          plan().highlight,
+        'bg-base-200/40 border border-base-content/10 hover:border-base-content/20':
+          !plan().highlight
+      }"
       (click)="ctaClick.emit(plan())"
     >
+      <!-- Popular Badge -->
+      @if (plan().highlight) {
+      <div
+        class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+               bg-gradient-to-r from-amber-500 to-secondary rounded-full
+               text-xs font-bold text-base-100 uppercase tracking-wider
+               shadow-lg shadow-amber-500/30"
+      >
+        Most Popular
+      </div>
+      }
+
       <!-- LIMITED Badge (Early Adopter only) -->
       @if (plan().badge) {
       <img
         [ngSrc]="'/assets/images/license-system/' + plan().badge"
         alt="LIMITED"
-        width="128"
-        height="64"
-        class="absolute -top-3 right-6 w-32 drop-shadow-[0_0_20px_rgba(212,175,55,0.6)] 
-                 animate-glow-pulse"
+        width="100"
+        height="50"
+        class="absolute -top-2 -right-2 w-24 drop-shadow-[0_0_15px_rgba(212,175,55,0.5)]
+               animate-pulse"
       />
       }
 
       <!-- Plan Header -->
-      <div class="mb-8">
-        <h3 class="font-display text-2xl font-semibold text-base-content mb-2">
+      <div class="mb-6">
+        <h3
+          class="font-display text-xl lg:text-2xl font-semibold text-base-content tracking-wide uppercase mb-1"
+        >
           {{ plan().name }}
         </h3>
-        <div
-          class="text-4xl font-bold bg-gradient-to-r from-amber-300 to-secondary
-                 bg-clip-text text-transparent"
-        >
-          {{ plan().price }}
-        </div>
-        @if (plan().priceSubtext) {
-        <p class="text-base-content/60 text-sm mt-1">
-          {{ plan().priceSubtext }}
-        </p>
-        } @if (plan().savings) {
-        <div class="badge badge-success mt-2">{{ plan().savings }}</div>
+        @if (plan().idealFor) {
+        <p class="text-sm text-base-content/50">{{ plan().idealFor }}</p>
         }
       </div>
 
-      <!-- Features List -->
-      <ul class="list-none p-0 m-0 mb-8 flex-1 space-y-3">
-        @for (feature of plan().features; track feature) {
-        <li
-          class="flex items-start gap-3 text-base-content/80 text-sm leading-relaxed"
+      <!-- Price Section -->
+      <div class="mb-6">
+        <div class="flex items-baseline gap-2">
+          <span
+            class="text-5xl lg:text-6xl font-bold"
+            [ngClass]="{
+              'bg-gradient-to-r from-amber-300 to-secondary bg-clip-text text-transparent':
+                plan().highlight || plan().tier === 'pro',
+              'text-base-content': plan().tier === 'free'
+            }"
+          >
+            {{ plan().price }}
+          </span>
+          @if (plan().priceSubtext) {
+          <span class="text-base-content/50 text-sm">
+            / {{ plan().priceSubtext }}
+          </span>
+          }
+        </div>
+        @if (plan().savings) {
+        <div
+          class="inline-block mt-2 px-3 py-1 rounded-full text-xs font-semibold
+                 bg-success/20 text-success"
         >
-          <lucide-angular
-            [img]="CheckIcon"
-            class="flex-shrink-0 w-5 h-5 text-success mt-0.5"
-          />
-          <span>{{ feature }}</span>
-        </li>
+          {{ plan().savings }}
+        </div>
         }
-      </ul>
+      </div>
+
+      <!-- Divider -->
+      <div class="h-px bg-base-content/10 mb-6"></div>
+
+      <!-- Features Section -->
+      <div class="flex-1 space-y-6">
+        @if (plan().standoutFeatures && plan().standoutFeatures!.length > 0) {
+        <div>
+          <h4
+            class="text-xs font-semibold text-base-content/40 uppercase tracking-wider mb-3"
+          >
+            Standout Features
+          </h4>
+          <ul class="space-y-2.5">
+            @for (feature of plan().standoutFeatures; track feature) {
+            <li class="flex items-start gap-2.5">
+              <lucide-angular
+                [img]="CheckIcon"
+                class="flex-shrink-0 w-4 h-4 text-amber-400 mt-0.5"
+              />
+              <span class="text-sm text-base-content/80">{{ feature }}</span>
+            </li>
+            }
+          </ul>
+        </div>
+        }
+
+        <!-- Regular features if no standout features -->
+        @if (!plan().standoutFeatures || plan().standoutFeatures!.length === 0)
+        {
+        <ul class="space-y-2.5">
+          @for (feature of plan().features; track feature) {
+          <li class="flex items-start gap-2.5">
+            <lucide-angular
+              [img]="CheckIcon"
+              class="flex-shrink-0 w-4 h-4 text-amber-400 mt-0.5"
+            />
+            <span class="text-sm text-base-content/80">{{ feature }}</span>
+          </li>
+          }
+        </ul>
+        }
+      </div>
 
       <!-- CTA Button -->
       <button
-        class="btn w-full transition-all duration-300"
-        [class.btn-secondary]="plan().highlight"
-        [class.btn-outline]="!plan().highlight"
-        [class.btn-secondary-outline]="!plan().highlight"
-        [class.btn-disabled]="isButtonDisabled()"
-        [class.hover:scale-102]="!isButtonDisabled()"
+        class="mt-8 w-full py-3.5 px-6 rounded-xl font-semibold text-sm
+               flex items-center justify-center gap-2 transition-all duration-300
+               group-hover:gap-3"
+        [ngClass]="{
+          'bg-gradient-to-r from-amber-500 to-secondary text-base-100 shadow-lg shadow-amber-500/25 hover:shadow-amber-500/40':
+            plan().highlight,
+          'bg-base-content/10 text-base-content hover:bg-base-content/20':
+            !plan().highlight
+        }"
+        [class.opacity-50]="isButtonDisabled()"
+        [class.cursor-not-allowed]="isButtonDisabled()"
         [disabled]="isButtonDisabled()"
         [attr.aria-busy]="isLoading()"
         [attr.aria-disabled]="isButtonDisabled()"
-        (click)="!isButtonDisabled() && ctaClick.emit(plan())"
+        (click)="
+          $event.stopPropagation(); !isButtonDisabled() && ctaClick.emit(plan())
+        "
       >
         @if (isLoading()) {
         <span class="loading loading-spinner loading-sm"></span>
         <span>Processing...</span>
         } @else {
-        {{ plan().ctaText }}
+        <span>{{ plan().ctaText }}</span>
+        <lucide-angular
+          [img]="ArrowRightIcon"
+          class="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1"
+        />
         }
       </button>
 
-      <!-- Tooltip for disabled state (when not loading) -->
+      <!-- Disabled tooltip -->
       @if (isButtonDisabled() && !isLoading() && plan().ctaAction ===
       'checkout') {
-      <div class="text-center text-xs text-base-content/50 mt-2">
+      <p class="text-center text-xs text-base-content/40 mt-2">
         Checkout temporarily unavailable
-      </div>
+      </p>
       }
     </div>
   `,
@@ -121,8 +196,9 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
   ],
 })
 export class PlanCardComponent {
-  /** Lucide icon reference */
+  /** Lucide icon references */
   readonly CheckIcon = Check;
+  readonly ArrowRightIcon = ArrowRight;
 
   public readonly plan = input.required<PricingPlan>();
   public readonly isLoading = input<boolean>(false);

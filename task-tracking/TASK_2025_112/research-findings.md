@@ -723,7 +723,7 @@ networks:
 
 1. Move project to WSL2 filesystem: `~/projects/ptah-extension`
 2. Create `docker-compose.yml` with health checks and dependency order
-3. Create `.env.local` with database credentials
+3. Create `.env` with database credentials
 4. Run `docker-compose up` → all services start automatically
 5. Edit code → hot reload triggers within 2 seconds
 

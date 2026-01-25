@@ -280,8 +280,9 @@ describe('WelcomeComponent', () => {
 
       try {
         await component['onStartSetup']();
-      } catch (error) {
+      } catch (e) {
         // Expected
+        console.log('Caught expected error:', e);
       }
 
       expect(component['isStarting']()).toBe(false);

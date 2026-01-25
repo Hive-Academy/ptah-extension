@@ -114,7 +114,7 @@ Create development Dockerfile for license server with Node 20, Prisma client gen
 **Files**:
 
 - D:\projects\ptah-extension\.env.docker.example
-- D:\projects\ptah-extension\apps\ptah-license-server\.env.local.example
+- D:\projects\ptah-extension\apps\ptah-license-server\.env.example
 
 **Description**:
 Create environment variable template files for Docker Compose and license server local development. Include clear documentation and WSL2 performance recommendations.
@@ -126,14 +126,14 @@ Create environment variable template files for Docker Compose and license server
 **Implementation Details**:
 
 - .env.docker.example: PostgreSQL, Redis, and server port configuration
-- .env.local.example: License server specific variables for Docker environment
+- .env.examplense server specific variables for Docker environment
 - Include WSL2 performance documentation as comments
 - Security warnings for production values
 
 **Acceptance Criteria**:
 
 - [x] .env.docker.example created at project root
-- [x] .env.local.example created for license server
+- [x] .env.exampleed for license server
 - [x] All variables documented with descriptions
 - [x] WSL2 recommendation documented
 - [x] Security warnings included
@@ -516,14 +516,14 @@ Ensure .gitignore includes all new environment files and Docker-related files th
 **Implementation Details**:
 
 - Add .env.docker (Docker environment)
-- Add .env.local (license server local environment)
+- Add .env (license server local environment)
 - Add docker-compose.override.yml (local Docker overrides)
 - Verify postgres-data and redis-data volumes are ignored (handled by Docker)
 
 **Acceptance Criteria**:
 
 - [x] .env.docker ignored
-- [x] .env.local patterns ignored
+- [x] .env patterns ignored
 - [x] docker-compose.override.yml ignored
 - [x] No sensitive files exposed
 
@@ -746,7 +746,7 @@ Create verification script that tests all Phase A components: Docker services, d
 - D:\projects\ptah-extension\docker-compose.yml
 - D:\projects\ptah-extension\.env.docker.example
 - D:\projects\ptah-extension\apps\ptah-license-server\Dockerfile.dev
-- D:\projects\ptah-extension\apps\ptah-license-server\.env.local.example
+- D:\projects\ptah-extension\apps\ptah-license-server\.env.example
 - D:\projects\ptah-extension\apps\ptah-license-server\src\paddle\paddle.module.ts
 - D:\projects\ptah-extension\apps\ptah-license-server\src\paddle\paddle.controller.ts
 - D:\projects\ptah-extension\apps\ptah-license-server\src\paddle\paddle.service.ts

@@ -7,6 +7,7 @@ import {
 } from '@angular/core';
 import { PermissionRequest, PermissionResponse } from '@ptah-extension/shared';
 import { PermissionRequestCardComponent } from './permission-request-card.component';
+import { LucideAngularModule, AlertTriangle, X } from 'lucide-angular';
 
 /**
  * PermissionBadgeComponent - Collapsed notification badge for unmatched permissions
@@ -29,7 +30,7 @@ import { PermissionRequestCardComponent } from './permission-request-card.compon
 @Component({
   selector: 'ptah-permission-badge',
   standalone: true,
-  imports: [PermissionRequestCardComponent],
+  imports: [PermissionRequestCardComponent, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (permissions().length > 0) {
@@ -42,13 +43,7 @@ import { PermissionRequestCardComponent } from './permission-request-card.compon
         aria-label="Permission requests pending"
       >
         <!-- Warning icon -->
-        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-          <path
-            fill-rule="evenodd"
-            d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-            clip-rule="evenodd"
-          />
-        </svg>
+        <lucide-angular [img]="AlertTriangleIcon" class="w-4 h-4" />
         <!-- Count badge -->
         <span
           class="badge badge-error badge-xs absolute -top-1 -right-1 min-w-4 h-4 text-[10px]"
@@ -78,19 +73,7 @@ import { PermissionRequestCardComponent } from './permission-request-card.compon
             class="btn btn-ghost btn-xs"
             aria-label="Close"
           >
-            <svg
-              class="w-3 h-3"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
+            <lucide-angular [img]="XIcon" class="w-3 h-3" />
           </button>
         </div>
         @for (request of permissions(); track request.id) {
@@ -106,6 +89,10 @@ import { PermissionRequestCardComponent } from './permission-request-card.compon
   `,
 })
 export class PermissionBadgeComponent {
+  // Lucide icon references
+  protected readonly AlertTriangleIcon = AlertTriangle;
+  protected readonly XIcon = X;
+
   /** Array of unmatched permission requests to display */
   readonly permissions = input.required<PermissionRequest[]>();
 

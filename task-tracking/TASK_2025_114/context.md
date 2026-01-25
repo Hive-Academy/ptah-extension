@@ -16,7 +16,7 @@ FEATURE (Frontend Integration)
 
 **Medium-High** (Estimated 6-8 hours)
 
-### Complexity Factors:
+### Complexity Factors
 
 1. **Security Critical**: Payment integration requires careful handling
 2. **Multiple Components**: Pricing UI, Paddle.js SDK, backend API integration
@@ -27,7 +27,7 @@ FEATURE (Frontend Integration)
 
 FEATURE (Full Workflow)
 
-### Planned Agent Sequence:
+### Planned Agent Sequence
 
 1. **project-manager** - Define requirements and scope from PADDLE_SETUP_SIMPLIFIED.md
 2. **software-architect** - Design integration architecture (Paddle.js, API calls, state management)
@@ -40,7 +40,7 @@ FEATURE (Full Workflow)
 
 - `docs/PADDLE_SETUP_SIMPLIFIED.md` - Integration requirements
 - `apps/ptah-landing-page/src/environments/environment.ts` - Configuration
-- `apps/ptah-license-server/.env.local` - Backend environment (reference)
+- `apps/ptah-license-server/.env` - Backend environment (reference)
 
 ## Related Tasks
 

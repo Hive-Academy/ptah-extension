@@ -86,7 +86,6 @@ import type {
       [node]="node()"
       [getPermissionForTool]="getPermissionForTool()"
       (permissionResponded)="permissionResponded.emit($event)"
-      (resumeRequested)="resumeRequested.emit($event)"
     />
     } @placeholder {
     <div class="flex items-center gap-2 text-[10px] text-base-content/40 py-2">
@@ -100,7 +99,6 @@ import type {
       [isStreaming]="isStreaming()"
       [getPermissionForTool]="getPermissionForTool()"
       (permissionResponded)="permissionResponded.emit($event)"
-      (resumeRequested)="resumeRequested.emit($event)"
     />
     } } @case ('system') {
     <!-- System messages (session init, etc.) -->

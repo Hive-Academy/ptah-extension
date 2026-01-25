@@ -34,7 +34,12 @@ import {
 @Component({
   selector: 'ptah-profile-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ViewportAnimationDirective, RouterLink, NgOptimizedImage, LucideAngularModule],
+  imports: [
+    ViewportAnimationDirective,
+    RouterLink,
+    NgOptimizedImage,
+    LucideAngularModule,
+  ],
   template: `
     <div class="min-h-screen bg-base-100 p-6 text-base-content">
       <!-- Header -->
@@ -197,7 +202,7 @@ import {
 })
 export class ProfilePageComponent implements OnInit {
   /** Lucide icon reference */
-  readonly CheckIcon = Check;
+  public readonly CheckIcon = Check;
 
   private readonly http = inject(HttpClient);
   private readonly authService = inject(AuthService);

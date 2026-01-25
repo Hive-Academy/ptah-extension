@@ -7,16 +7,42 @@ import {
   Res,
   UseGuards,
   Body,
+  Param,
   BadRequestException,
   Logger,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
-import { AuthService } from './services/auth.service';
+import { AuthService, OAuthProvider } from './services/auth.service';
 import { TicketService } from './services/ticket.service';
 import { MagicLinkService } from './services/magic-link.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../../email/services/email.service';
+
+/** DTO for email/password login */
+interface LoginDto {
+  email: string;
+  password: string;
+}
+
+/** DTO for user signup */
+interface SignupDto {
+  email: string;
+  password: string;
+  firstName?: string;
+  lastName?: string;
+}
+
+/** DTO for email verification */
+interface VerifyEmailDto {
+  userId: string;
+  code: string;
+}
+
+/** DTO for resend verification */
+interface ResendVerificationDto {
+  userId: string;
+}
 
 /** Cookie name for PKCE state parameter (CSRF protection) */
 const WORKOS_STATE_COOKIE = 'workos_state';
@@ -366,7 +392,7 @@ export class AuthController {
   ): Promise<void> {
     if (!token) {
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
-      res.redirect(`${frontendUrl}/auth/login?error=token_missing`);
+      res.redirect(`${frontendUrl}/login?error=token_missing`);
       return;
     }
 
@@ -376,7 +402,7 @@ export class AuthController {
     if (!result.valid) {
       // Step 1a: Token invalid - redirect to login with error
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
-      res.redirect(`${frontendUrl}/auth/login?error=${result.error}`);
+      res.redirect(`${frontendUrl}/login?error=${result.error}`);
       return;
     }
 
@@ -388,7 +414,7 @@ export class AuthController {
     if (!user) {
       // User was deleted between magic link creation and verification
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
-      res.redirect(`${frontendUrl}/auth/login?error=user_not_found`);
+      res.redirect(`${frontendUrl}/login?error=user_not_found`);
       return;
     }
 
@@ -399,8 +425,8 @@ export class AuthController {
     };
     const jwtToken = this.authService.generateJwtToken(jwtPayload);
 
-    // Step 4: Set HTTP-only cookie with JWT
-    res.cookie('ptah_auth', jwtToken, {
+    // Step 4: Set HTTP-only cookie with JWT (use access_token for consistency)
+    res.cookie('access_token', jwtToken, {
       httpOnly: true, // Prevents JavaScript access (XSS protection)
       secure: process.env.NODE_ENV === 'production', // HTTPS only in production
       sameSite: 'lax', // CSRF protection
@@ -408,9 +434,9 @@ export class AuthController {
       path: '/', // Available to all routes
     });
 
-    // Step 5: Redirect to portal dashboard
+    // Step 5: Redirect to profile page
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
-    res.redirect(`${frontendUrl}/portal/dashboard`);
+    res.redirect(`${frontendUrl}/profile`);
   }
 
   /**
@@ -450,5 +476,245 @@ export class AuthController {
       user.tenantId
     );
     return { ticket };
+  }
+
+  // ============================================
+  // CUSTOM FRONTEND AUTH ENDPOINTS
+  // These endpoints support full frontend control
+  // without using WorkOS AuthKit hosted UI
+  // ============================================
+
+  /**
+   * Email/Password Login
+   *
+   * Authenticates user with email and password directly via WorkOS API.
+   * Returns JWT token in HTTP-only cookie and user data in response.
+   *
+   * @example
+   * POST /auth/login/email
+   * Body: { "email": "user@example.com", "password": "secret123" }
+   * → Sets cookie: access_token=<jwt>
+   * → Returns: { success: true, user: { id, email, ... } }
+   */
+  @Post('login/email')
+  async loginWithEmail(
+    @Body() body: LoginDto,
+    @Res() res: Response
+  ): Promise<void> {
+    const { email, password } = body;
+
+    if (!email || !password) {
+      throw new BadRequestException('Email and password are required');
+    }
+
+    const { token, user } = await this.authService.authenticateWithPassword(
+      email,
+      password
+    );
+
+    // Set JWT in HTTP-only cookie
+    res.cookie('access_token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      path: '/',
+    });
+
+    this.logger.log(`Email login successful for: ${email}`);
+
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        roles: user.roles,
+        tier: user.tier,
+      },
+    });
+  }
+
+  /**
+   * User Signup with Email/Password
+   *
+   * Creates a new user with email and password via WorkOS API.
+   * Returns pending_verification status - user must verify email first.
+   * WorkOS automatically sends a verification email with a 6-digit code.
+   *
+   * @example
+   * POST /auth/signup
+   * Body: { "email": "user@example.com", "password": "secret123", "firstName": "John" }
+   * → Returns: { success: true, pendingVerification: true, userId: "...", email: "..." }
+   */
+  @Post('signup')
+  async signup(@Body() body: SignupDto, @Res() res: Response): Promise<void> {
+    const { email, password, firstName, lastName } = body;
+
+    if (!email || !password) {
+      throw new BadRequestException('Email and password are required');
+    }
+
+    const result = await this.authService.createUserWithPassword(
+      email,
+      password,
+      firstName,
+      lastName
+    );
+
+    this.logger.log(
+      `User signup initiated for: ${email} (pending verification)`
+    );
+
+    // Return pending verification status - no cookie yet
+    res.json({
+      success: true,
+      pendingVerification: result.pendingVerification,
+      userId: result.userId,
+      email: result.email,
+      message: 'Please check your email for a verification code.',
+    });
+  }
+
+  /**
+   * Verify Email with Code
+   *
+   * Verifies user's email with the 6-digit code sent by WorkOS.
+   * On success, issues JWT token in HTTP-only cookie.
+   *
+   * @example
+   * POST /auth/verify-email
+   * Body: { "userId": "user_xxx", "code": "123456" }
+   * → Sets cookie: access_token=<jwt>
+   * → Returns: { success: true, user: { id, email, ... } }
+   */
+  @Post('verify-email')
+  async verifyEmail(
+    @Body() body: VerifyEmailDto,
+    @Res() res: Response
+  ): Promise<void> {
+    const { userId, code } = body;
+
+    if (!userId || !code) {
+      throw new BadRequestException(
+        'User ID and verification code are required'
+      );
+    }
+
+    const { token, user } = await this.authService.verifyEmailCode(
+      userId,
+      code
+    );
+
+    // Set JWT in HTTP-only cookie
+    res.cookie('access_token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      path: '/',
+    });
+
+    this.logger.log(`Email verified for: ${user.email}`);
+
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        roles: user.roles,
+        tier: user.tier,
+      },
+    });
+  }
+
+  /**
+   * Resend Verification Code
+   *
+   * Sends a new verification code to the user's email.
+   *
+   * @example
+   * POST /auth/resend-verification
+   * Body: { "userId": "user_xxx" }
+   * → Returns: { success: true, message: "..." }
+   */
+  @Post('resend-verification')
+  async resendVerification(
+    @Body() body: ResendVerificationDto,
+    @Res() res: Response
+  ): Promise<void> {
+    const { userId } = body;
+
+    if (!userId) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    await this.authService.resendVerificationCode(userId);
+
+    this.logger.log(`Verification code resent for user: ${userId}`);
+
+    res.json({
+      success: true,
+      message: 'A new verification code has been sent to your email.',
+    });
+  }
+
+  /**
+   * Direct OAuth Login (GitHub/Google)
+   *
+   * Redirects directly to OAuth provider without going through WorkOS AuthKit.
+   * After authentication, user is redirected back to /auth/callback.
+   *
+   * Supported providers:
+   * - github: GitHub OAuth
+   * - google: Google OAuth
+   *
+   * @example
+   * GET /auth/oauth/github
+   * → Sets cookie: workos_state=<state>
+   * → Redirect to: https://github.com/login/oauth/authorize?...
+   *
+   * @example
+   * GET /auth/oauth/google
+   * → Sets cookie: workos_state=<state>
+   * → Redirect to: https://accounts.google.com/o/oauth2/auth?...
+   */
+  @Get('oauth/:provider')
+  async oauthLogin(
+    @Param('provider') provider: string,
+    @Res() res: Response
+  ): Promise<void> {
+    // Validate provider
+    const validProviders: OAuthProvider[] = ['github', 'google'];
+    if (!validProviders.includes(provider as OAuthProvider)) {
+      throw new BadRequestException(
+        `Invalid OAuth provider: ${provider}. Supported: ${validProviders.join(
+          ', '
+        )}`
+      );
+    }
+
+    // Generate authorization URL for the specific provider
+    const { url, state } = await this.authService.getOAuthAuthorizationUrl(
+      provider as OAuthProvider
+    );
+
+    // Set state in HTTP-only cookie for CSRF validation in callback
+    res.cookie(WORKOS_STATE_COOKIE, state, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: STATE_COOKIE_MAX_AGE_MS,
+      path: '/',
+    });
+
+    this.logger.debug(
+      `OAuth login initiated for ${provider}, state: ${state.substring(
+        0,
+        8
+      )}...`
+    );
+
+    // Redirect directly to OAuth provider
+    res.redirect(url);
   }
 }

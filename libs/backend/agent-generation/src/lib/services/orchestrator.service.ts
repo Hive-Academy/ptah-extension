@@ -372,9 +372,9 @@ export class AgentGenerationOrchestratorService {
    * @param workspaceUri - Workspace URI to analyze
    * @param progressCallback - Progress callback for updates
    * @returns Result with AgentProjectContext or error
-   * @private
+   * @public - Exposed for DeepProjectAnalysisService
    */
-  private async analyzeWorkspace(
+  public async analyzeWorkspace(
     workspaceUri: vscode.Uri,
     progressCallback?: (progress: GenerationProgress) => void
   ): Promise<Result<AgentProjectContext, Error>> {

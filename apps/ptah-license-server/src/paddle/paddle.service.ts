@@ -1,10 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
-import { Paddle, Environment, type EventEntity } from '@paddle/paddle-node-sdk';
+import type { EventEntity } from '@paddle/paddle-node-sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/services/email.service';
 import { PaddleSubscriptionDataDto } from './dto/paddle-webhook.dto';
+import { PADDLE_CLIENT, PaddleClient } from './providers/paddle.provider';
 
 /**
  * PaddleService - Paddle webhook processing and license provisioning
@@ -21,40 +22,23 @@ import { PaddleSubscriptionDataDto } from './dto/paddle-webhook.dto';
  * - Idempotent processing via createdBy field with paddle_{eventId}
  *
  * Configuration (environment variables):
- * - PADDLE_API_KEY: Paddle API key (for SDK initialization)
- * - PADDLE_WEBHOOK_SECRET: Webhook signature secret
- * - PADDLE_PRICE_ID_EARLY_ADOPTER: Price ID for early adopter plan
- * - PADDLE_PRICE_ID_PRO: Price ID for pro plan
+ * - PADDLE_API_KEY: Paddle API key (required)
+ * - PADDLE_WEBHOOK_SECRET: Webhook signature secret (required)
+ * - PADDLE_PRICE_ID_PRO_MONTHLY: Price ID for pro monthly plan
+ * - PADDLE_PRICE_ID_PRO_YEARLY: Price ID for pro yearly plan
  */
 @Injectable()
 export class PaddleService {
   private readonly logger = new Logger(PaddleService.name);
-  private readonly paddle: Paddle | null = null;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
-    private readonly emailService: EmailService
+    private readonly emailService: EmailService,
+    @Inject(PADDLE_CLIENT)
+    private readonly paddle: PaddleClient
   ) {
-    // Initialize Paddle SDK
-    const apiKey = this.configService.get<string>('PADDLE_API_KEY');
-    const environment =
-      this.configService.get<string>('NODE_ENV') === 'production'
-        ? Environment.production
-        : Environment.sandbox;
-
-    if (apiKey) {
-      this.paddle = new Paddle(apiKey, { environment });
-      this.logger.log(
-        `Paddle SDK initialized in ${
-          environment === Environment.production ? 'production' : 'sandbox'
-        } mode`
-      );
-    } else {
-      this.logger.warn(
-        'PADDLE_API_KEY not configured - SDK features unavailable'
-      );
-    }
+    this.logger.log('Paddle service initialized');
 
     // Log webhook configuration status
     const webhookSecret = this.configService.get<string>(
@@ -64,8 +48,6 @@ export class PaddleService {
       this.logger.warn(
         'PADDLE_WEBHOOK_SECRET not configured - webhook verification will fail'
       );
-    } else {
-      this.logger.log('Paddle service initialized successfully');
     }
   }
 
@@ -239,15 +221,8 @@ export class PaddleService {
       return null;
     }
 
-    if (!this.paddle) {
-      this.logger.error(
-        'Paddle SDK not initialized - cannot unmarshal webhook'
-      );
-      return null;
-    }
-
     try {
-      const event = this.paddle.webhooks.unmarshal(
+      const event = await this.paddle.webhooks.unmarshal(
         rawBody,
         webhookSecret,
         signature
@@ -681,26 +656,25 @@ export class PaddleService {
    * Map Paddle price ID to internal plan name
    *
    * Uses environment variables for price ID configuration.
+   * Both monthly and yearly price IDs map to 'pro' plan.
    * Defaults to 'free' if price ID is not recognized.
    *
    * @param priceId - Paddle price ID from webhook
-   * @returns Internal plan name ('early_adopter', 'pro', or 'free')
+   * @returns Internal plan name ('pro' or 'free')
    */
   private mapPriceIdToPlan(priceId: string | undefined): string {
     if (!priceId) {
       return 'free';
     }
 
-    const earlyAdopterPriceId = this.configService.get<string>(
-      'PADDLE_PRICE_ID_EARLY_ADOPTER'
+    const proMonthlyPriceId = this.configService.get<string>(
+      'PADDLE_PRICE_ID_PRO_MONTHLY'
     );
-    const proPriceId = this.configService.get<string>('PADDLE_PRICE_ID_PRO');
+    const proYearlyPriceId = this.configService.get<string>(
+      'PADDLE_PRICE_ID_PRO_YEARLY'
+    );
 
-    if (priceId === earlyAdopterPriceId) {
-      return 'early_adopter';
-    }
-
-    if (priceId === proPriceId) {
+    if (priceId === proMonthlyPriceId || priceId === proYearlyPriceId) {
       return 'pro';
     }
 

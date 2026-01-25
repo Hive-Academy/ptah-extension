@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { PlanCardComponent } from './plan-card.component';
+import { ProPlanCardComponent } from './pro-plan-card.component';
 import { PricingPlan } from '../models/pricing-plan.interface';
 import {
   ViewportAnimationDirective,
@@ -23,23 +24,27 @@ import { LucideAngularModule, TriangleAlert, CircleX } from 'lucide-angular';
 /**
  * PricingGridComponent - Grid of pricing plan cards
  *
- * New Pricing Model (Updated):
- * - Free Trial: 14 days, all features, no credit card
- * - Pro Monthly: $8/month
- * - Pro Yearly: $80/year (save ~17%)
+ * Ptah Pricing Model (2 plans only):
+ * - Free: Visual interface with user's own Claude Pro/Max subscription
+ * - Pro: $3/month for first 3 months, then $8/month OR $80/year
  *
- * Optional Paddle Promotions:
- * - First 3 months discount: Configure in Paddle dashboard
- * - Seasonal discounts: Configure in Paddle dashboard
+ * The Pro card contains its own monthly/yearly toggle.
  *
- * Evidence: Updated per user feedback - single plan with monthly/yearly options
+ * Evidence: Updated per user feedback - only 2 real plans
  */
 @Component({
   selector: 'ptah-pricing-grid',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PlanCardComponent, ViewportAnimationDirective, LucideAngularModule],
+  imports: [
+    PlanCardComponent,
+    ProPlanCardComponent,
+    ViewportAnimationDirective,
+    LucideAngularModule,
+  ],
   template: `
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-16">
+    <div
+      class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-16 mt-[-150px]"
+    >
       @if (paddleError()) {
       <div class="alert alert-warning mb-8 max-w-xl mx-auto">
         <lucide-angular
@@ -65,16 +70,25 @@ import { LucideAngularModule, TriangleAlert, CircleX } from 'lucide-angular';
         </button>
       </div>
       }
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-        @for (plan of plans(); track plan.name; let i = $index) {
-        <div viewportAnimation [viewportConfig]="getCardAnimationConfig(i)">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8">
+        <!-- Free Plan Card -->
+        <div viewportAnimation [viewportConfig]="getCardAnimationConfig(0)">
           <ptah-plan-card
-            [plan]="plan"
-            [isLoading]="isPlanLoading(plan.name)"
+            [plan]="freePlan"
+            [isLoading]="isPlanLoading(freePlan.name)"
             (ctaClick)="handleCtaClick($event)"
           />
         </div>
-        }
+
+        <!-- Pro Plan Card with integrated billing toggle -->
+        <div viewportAnimation [viewportConfig]="getCardAnimationConfig(1)">
+          <ptah-pro-plan-card
+            [monthlyPlan]="proMonthlyPlan"
+            [yearlyPlan]="proYearlyPlan"
+            [isLoading]="isPlanLoading('Professional')"
+            (ctaClick)="handleCtaClick($event)"
+          />
+        </div>
       </div>
     </div>
   `,
@@ -88,8 +102,8 @@ import { LucideAngularModule, TriangleAlert, CircleX } from 'lucide-angular';
 })
 export class PricingGridComponent implements OnInit, OnDestroy {
   /** Lucide icon references */
-  readonly TriangleAlertIcon = TriangleAlert;
-  readonly CircleXIcon = CircleX;
+  public readonly TriangleAlertIcon = TriangleAlert;
+  public readonly CircleXIcon = CircleX;
 
   private readonly router = inject(Router);
   private readonly paddleService = inject(PaddleCheckoutService);
@@ -110,7 +124,6 @@ export class PricingGridComponent implements OnInit, OnDestroy {
 
   public constructor() {
     // Sync loading state with paddle service
-    // Reset local loading state when paddle service loading becomes false
     effect(() => {
       if (!this.paddleService.isLoading()) {
         this.clearLoadingTimeout();
@@ -121,7 +134,6 @@ export class PricingGridComponent implements OnInit, OnDestroy {
 
   /**
    * Returns animation config for a card at given index with staggered delay.
-   * Workaround for ViewportAnimationDirective stagger bug.
    */
   public getCardAnimationConfig(index: number): ViewportAnimationConfig {
     return {
@@ -134,68 +146,80 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Pricing plans data
-   *
-   * Price IDs sourced from environment.paddle config
-   * Evidence: Task 2.1 - Use environment config for price IDs
+   * Free plan - always shown
    */
-  public readonly plans = signal<PricingPlan[]>([
-    {
-      name: 'Free Trial',
-      tier: 'free',
-      price: '$0',
-      priceSubtext: '14 days',
-      features: [
-        'All Pro features included',
-        'No credit card required',
-        'Full SDK access',
-        'Workspace intelligence',
-        'Custom MCP tools',
-        'Session history',
-      ],
-      ctaText: 'Start Free Trial',
-      ctaAction: 'signup',
-    },
-    {
-      name: 'Pro Monthly',
-      tier: 'pro',
-      price: '$8',
-      priceSubtext: 'per month',
-      priceId: this.paddleConfig.priceIdMonthly,
-      features: [
-        'Everything in trial',
-        'Unlimited sessions',
-        'Priority support',
-        'Early access to features',
-        'Cancel anytime',
-      ],
-      ctaText: 'Subscribe Monthly',
-      ctaAction: 'checkout',
-      highlight: true,
-    },
-    {
-      name: 'Pro Yearly',
-      tier: 'pro',
-      price: '$80',
-      priceSubtext: 'per year',
-      priceId: this.paddleConfig.priceIdYearly,
-      savings: 'Save $16/year',
-      features: [
-        'Everything in monthly',
-        '~17% discount vs monthly',
-        'Billed annually',
-        'Priority support',
-        'Cancel anytime',
-      ],
-      ctaText: 'Subscribe Yearly',
-      ctaAction: 'checkout',
-      badge: 'plan_badge_early_adopter.png', // Reuse badge for yearly plan
-    },
-  ]);
+  public readonly freePlan: PricingPlan = {
+    name: 'Free',
+    tier: 'free',
+    price: '$0',
+    priceSubtext: 'forever',
+    idealFor: 'Ideal for trying Ptah',
+    features: [],
+    standoutFeatures: [
+      'Beautiful visual interface',
+      'Use your Claude Pro/Max subscription',
+      'Native VS Code integration',
+      'Real-time streaming responses',
+      'Session history & management',
+      'Basic workspace context',
+    ],
+    ctaText: 'Install Free',
+    ctaAction: 'download',
+  };
+
+  /**
+   * Pro Monthly plan data
+   */
+  public readonly proMonthlyPlan: PricingPlan = {
+    name: 'Professional',
+    tier: 'pro',
+    price: '$3',
+    priceSubtext: 'per month',
+    priceId: this.paddleConfig.priceIdMonthly,
+    idealFor: 'For serious developers',
+    savings: '$3 for first 3 months, then $8/mo',
+    features: [],
+    standoutFeatures: [
+      'All Free features included',
+      'Intelligent Setup Wizard',
+      'Code Execution MCP Server',
+      'Workspace Intelligence (13+ project types)',
+      'OpenRouter proxy (200+ models)',
+      'Project-adaptive agent generation',
+    ],
+    ctaText: 'Start Pro Trial',
+    ctaAction: 'checkout',
+    highlight: true,
+  };
+
+  /**
+   * Pro Yearly plan data
+   */
+  public readonly proYearlyPlan: PricingPlan = {
+    name: 'Professional',
+    tier: 'pro',
+    price: '$80',
+    priceSubtext: 'per year',
+    priceId: this.paddleConfig.priceIdYearly,
+    idealFor: 'For serious developers',
+    savings: 'Save ~17% vs monthly',
+    features: [],
+    standoutFeatures: [
+      'All Free features included',
+      'Intelligent Setup Wizard',
+      'Code Execution MCP Server',
+      'Workspace Intelligence (13+ project types)',
+      'OpenRouter proxy (200+ models)',
+      'Project-adaptive agent generation',
+    ],
+    ctaText: 'Subscribe Yearly',
+    ctaAction: 'checkout',
+    highlight: true,
+    badge: 'plan_badge_early_adopter.png',
+  };
 
   /**
    * ngOnInit - Initialize Paddle SDK when component loads
-   * Evidence: Task 2.1 - Initialize Paddle in ngOnInit lifecycle
    */
   public ngOnInit(): void {
     this.paddleService.initialize();
@@ -220,9 +244,16 @@ export class PricingGridComponent implements OnInit, OnDestroy {
 
   /**
    * Handle CTA button click from plan card
-   * Evidence: Task 2.1 - Handle checkout with email pre-fill from AuthService
    */
   public handleCtaClick(plan: PricingPlan): void {
+    if (plan.ctaAction === 'download') {
+      window.open(
+        'https://marketplace.visualstudio.com/items?itemName=ptah.ptah',
+        '_blank'
+      );
+      return;
+    }
+
     if (plan.ctaAction === 'signup') {
       this.router.navigate(['/login']);
       return;
@@ -236,19 +267,14 @@ export class PricingGridComponent implements OnInit, OnDestroy {
         return;
       }
 
-      // Clear any existing timeout
       this.clearLoadingTimeout();
-
-      // Set loading state for this specific plan
       this.paddleService.setLoadingPlan(plan.name);
 
-      // Set timeout to prevent stuck loading state
       this.loadingTimeoutId = setTimeout(() => {
         this.paddleService.setLoadingPlan(null);
         this.loadingTimeoutId = null;
       }, this.CHECKOUT_TIMEOUT);
 
-      // Get authenticated user email for pre-fill
       this.authService.getCurrentUser().subscribe({
         next: (user) => {
           this.paddleService.openCheckout({
@@ -257,14 +283,11 @@ export class PricingGridComponent implements OnInit, OnDestroy {
           });
         },
         error: () => {
-          // Auth check failed, proceed without email pre-fill
-          // User will need to enter email manually in Paddle checkout overlay
           this.paddleService.openCheckout({
             priceId: plan.priceId!,
           });
         },
         complete: () => {
-          // Clear timeout on completion (success or error)
           this.clearLoadingTimeout();
         },
       });
@@ -273,7 +296,6 @@ export class PricingGridComponent implements OnInit, OnDestroy {
 
   /**
    * Check if a plan's checkout is currently loading
-   * Evidence: Task 2.1 - Track per-plan loading state
    */
   public isPlanLoading(planName: string): boolean {
     return (
@@ -283,7 +305,6 @@ export class PricingGridComponent implements OnInit, OnDestroy {
 
   /**
    * Retry Paddle SDK initialization after failure
-   * Evidence: Task 2.1 - Add retryPaddleInit method for error recovery
    */
   public retryPaddleInit(): void {
     this.paddleService.retryInitialization();

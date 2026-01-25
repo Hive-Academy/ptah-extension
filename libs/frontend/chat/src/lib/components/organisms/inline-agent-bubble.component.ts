@@ -29,6 +29,7 @@ import type {
   PermissionRequest,
   PermissionResponse,
 } from '@ptah-extension/shared';
+import { NgClass } from '@angular/common';
 
 /**
  * InlineAgentBubbleComponent - Unified agent rendering for both streaming and replay
@@ -52,17 +53,20 @@ import type {
     ExecutionNodeComponent,
     TypingCursorComponent,
     CostBadgeComponent,
+    NgClass,
   ],
   template: `
     <!-- TASK_2025_109: Enhanced styling for interrupted agents -->
     <!-- Interrupted agents get warning border + tinted background to stand out -->
     <div
       class="my-3 border-l-2 rounded-lg overflow-hidden transition-colors"
-      [class.bg-base-200/50]="!isInterrupted()"
-      [class.bg-warning/10]="isInterrupted()"
-      [class.border-warning]="isInterrupted()"
-      [class.ring-1]="isInterrupted()"
-      [class.ring-warning/30]="isInterrupted()"
+      [ngClass]="{
+        'bg-base-200/50': !isInterrupted(),
+        'bg-warning/10': isInterrupted(),
+        'border-warning': isInterrupted(),
+        'ring-1': isInterrupted(),
+        'ring-warning/30': isInterrupted()
+      }"
       [style.border-left-color]="isInterrupted() ? null : agentColor()"
     >
       <!-- Agent Header (clickable to toggle) -->

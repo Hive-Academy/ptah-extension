@@ -63,9 +63,12 @@ interface TimelineStep {
             }"
           >
             <div class="w-[800px] h-[800px] text-[#d4af37]/10 opacity-30">
-              <svg viewBox="0 0 100 100" fill="currentColor">
-                <circle cx="50" cy="50" r="40" />
-              </svg>
+              <img
+                src="assets/icons/decorative-circle.svg"
+                alt=""
+                aria-hidden="true"
+                class="w-full h-full"
+              />
             </div>
           </div>
 
@@ -311,8 +314,8 @@ interface TimelineStep {
 })
 export class FeaturesHijackedScrollComponent {
   /** Lucide icon references */
-  readonly EyeIcon = Eye;
-  readonly CheckIcon = Check;
+  public readonly EyeIcon = Eye;
+  public readonly CheckIcon = Check;
 
   public readonly features = signal<TimelineStep[]>([
     {

@@ -1,5 +1,6 @@
-import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
+import { Component, ChangeDetectionStrategy, input } from '@angular/core';
 import { KeyFileLocations } from '@ptah-extension/shared';
+import { LucideAngularModule, Folder } from 'lucide-angular';
 
 /**
  * KeyFileLocationsCardComponent - Displays key file locations organized by type
@@ -16,25 +17,13 @@ import { KeyFileLocations } from '@ptah-extension/shared';
 @Component({
   selector: 'ptah-key-file-locations-card',
   standalone: true,
+  imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="card bg-base-200 shadow-xl mb-6">
       <div class="card-body">
         <h3 class="card-title text-xl mb-4">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-6 w-6"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-            />
-          </svg>
+          <lucide-angular [img]="FolderIcon" class="h-6 w-6" />
           Key File Locations
         </h3>
         <div class="space-y-2">
@@ -68,7 +57,10 @@ import { KeyFileLocations } from '@ptah-extension/shared';
   `,
 })
 export class KeyFileLocationsCardComponent {
-  @Input({ required: true }) locations!: KeyFileLocations;
+  // Lucide icon reference
+  protected readonly FolderIcon = Folder;
+
+  readonly locations = input.required<KeyFileLocations>();
 
   protected readonly sections = [
     { key: 'entryPoints' as const, label: 'Entry Points' },
@@ -80,7 +72,7 @@ export class KeyFileLocationsCardComponent {
   ];
 
   protected getItems(key: keyof KeyFileLocations): string[] {
-    return (this.locations[key] as string[] | undefined) ?? [];
+    return (this.locations()[key] as string[] | undefined) ?? [];
   }
 
   protected getDisplayItems(key: keyof KeyFileLocations): string[] {

@@ -38,8 +38,11 @@ COPY apps/ptah-license-server/project.json ./apps/ptah-license-server/
 COPY apps/ptah-license-server/tsconfig*.json ./apps/ptah-license-server/
 COPY apps/ptah-license-server/webpack.config.js ./apps/ptah-license-server/
 
-# Copy Prisma schema for client generation
+# Copy Prisma schema and config for client generation
+# prisma.config.ts is required for Prisma 7 CLI commands (generate, migrate)
+# IMPORTANT: prisma.config.ts must be at the app root, not inside prisma/ directory
 COPY apps/ptah-license-server/prisma ./apps/ptah-license-server/prisma/
+COPY apps/ptah-license-server/prisma.config.ts ./apps/ptah-license-server/
 
 # Install all dependencies (including devDependencies for development)
 # Using --ignore-scripts to prevent postinstall issues in Docker build
@@ -47,7 +50,8 @@ RUN npm ci --ignore-scripts
 
 # Generate Prisma client
 # This must happen after npm ci installs prisma
-RUN npx prisma generate --schema=apps/ptah-license-server/prisma/schema.prisma
+# Prisma 7 requires running from the app directory where prisma.config.ts is located
+RUN cd apps/ptah-license-server && npx prisma generate
 
 # Copy source code
 # NOTE: In development, this is overwritten by the volume mount in docker-compose.yml

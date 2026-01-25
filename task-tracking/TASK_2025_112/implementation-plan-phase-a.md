@@ -136,7 +136,7 @@ services:
       redis:
         condition: service_healthy
     env_file:
-      - apps/ptah-license-server/.env.local
+      - apps/ptah-license-server/.env
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ptah_licenses
       REDIS_URL: redis://redis:6379
@@ -664,8 +664,8 @@ export class PaddleService {
 # ============================================
 # Ptah License Server Environment Configuration
 # ============================================
-# Copy this file to .env.local and fill in your values
-# NEVER commit .env.local to version control
+# Copy this file to .env and fill in your values
+# NEVER commit .env to version control
 
 # ============================================
 # DATABASE CONFIGURATION
@@ -857,13 +857,14 @@ LICENSE_SERVER_PORT=3000
    ```
 
 5. **Cost Estimation**
-   | Service | Size | Monthly Cost |
-   |---------|------|--------------|
-   | App Platform | Basic | $5 |
-   | Managed PostgreSQL | 1GB | $15 |
-   | Managed Redis | 1GB | $15 |
-   | Spaces + CDN | 250GB | $5 |
-   | **Total** | | **~$40/month** |
+
+   | Service            | Size  | Monthly Cost   |
+   | ------------------ | ----- | -------------- |
+   | App Platform       | Basic | $5             |
+   | Managed PostgreSQL | 1GB   | $15            |
+   | Managed Redis      | 1GB   | $15            |
+   | Spaces + CDN       | 250GB | $5             |
+   | **Total**          |       | **~$40/month** |
 
 6. **Scaling Guidelines**
    - When to upgrade PostgreSQL (CPU > 70%)
@@ -965,12 +966,12 @@ npm install ioredis@^5.0.0  # For session storage (if needed)
 
 ### External Services Setup
 
-| Service      | Purpose  | Setup URL                           |
-| ------------ | -------- | ----------------------------------- |
-| Paddle       | Payments | https://sandbox-vendors.paddle.com/ |
-| WorkOS       | Auth     | https://dashboard.workos.com/       |
-| SendGrid     | Email    | https://app.sendgrid.com/           |
-| DigitalOcean | Hosting  | https://cloud.digitalocean.com/     |
+| Service      | Purpose  | Setup URL                             |
+| ------------ | -------- | ------------------------------------- |
+| Paddle       | Payments | <https://sandbox-vendors.paddle.com/> |
+| WorkOS       | Auth     | <https://dashboard.workos.com/>       |
+| SendGrid     | Email    | <https://app.sendgrid.com/>           |
+| DigitalOcean | Hosting  | <https://cloud.digitalocean.com/>     |
 
 ---
 

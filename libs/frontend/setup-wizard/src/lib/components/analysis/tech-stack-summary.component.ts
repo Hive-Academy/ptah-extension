@@ -1,4 +1,4 @@
-import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
+import { Component, ChangeDetectionStrategy, input } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { LucideAngularModule, Code2 } from 'lucide-angular';
 import { LanguageStats } from '@ptah-extension/shared';
@@ -46,21 +46,23 @@ import { LanguageStats } from '@ptah-extension/shared';
               >Project Type:</span
             >
             <span class="ml-2 badge badge-primary badge-lg">{{
-              projectType
+              projectType()
             }}</span>
           </div>
 
           <!-- File Count -->
           <div>
             <span class="font-semibold text-base-content/80">Total Files:</span>
-            <span class="ml-2 text-base-content">{{ fileCount | number }}</span>
+            <span class="ml-2 text-base-content">{{
+              fileCount() | number
+            }}</span>
           </div>
 
           <!-- Frameworks -->
           <div class="md:col-span-2">
             <span class="font-semibold text-base-content/80">Frameworks:</span>
             <div class="flex flex-wrap gap-2 mt-2">
-              @for (framework of frameworks; track framework) {
+              @for (framework of frameworks(); track framework) {
               <span class="badge badge-secondary">{{ framework }}</span>
               } @empty {
               <span class="text-base-content/60 text-sm"
@@ -71,13 +73,13 @@ import { LanguageStats } from '@ptah-extension/shared';
           </div>
 
           <!-- Monorepo Information -->
-          @if (monorepoType) {
+          @if (monorepoType()) {
           <div class="md:col-span-2">
             <span class="font-semibold text-base-content/80">Monorepo:</span>
             <span class="ml-2 text-success">
               Yes
               <span class="text-base-content/60 text-sm"
-                >({{ monorepoType }})</span
+                >({{ monorepoType() }})</span
               >
             </span>
           </div>
@@ -87,7 +89,7 @@ import { LanguageStats } from '@ptah-extension/shared';
     </div>
 
     <!-- Language Distribution Card -->
-    @if (languageDistribution && languageDistribution.length > 0) {
+    @if (languageDistribution(); as langs) { @if (langs.length > 0) {
     <div class="card bg-base-200 shadow-xl mb-6">
       <div class="card-body">
         <h3 class="card-title text-lg mb-4">
@@ -100,7 +102,7 @@ import { LanguageStats } from '@ptah-extension/shared';
         </h3>
 
         <div class="space-y-3">
-          @for (lang of languageDistribution; track lang.language) {
+          @for (lang of langs; track lang.language) {
           <div>
             <div class="flex justify-between text-sm mb-1">
               <span class="font-medium">{{ lang.language }}</span>
@@ -121,7 +123,7 @@ import { LanguageStats } from '@ptah-extension/shared';
         </div>
       </div>
     </div>
-    }
+    } }
   `,
 })
 export class TechStackSummaryComponent {
@@ -130,25 +132,25 @@ export class TechStackSummaryComponent {
   /**
    * Project type (e.g., 'Angular', 'Node.js', 'React').
    */
-  @Input({ required: true }) projectType!: string;
+  readonly projectType = input.required<string>();
 
   /**
    * Total file count in the project.
    */
-  @Input({ required: true }) fileCount!: number;
+  readonly fileCount = input.required<number>();
 
   /**
    * List of detected frameworks.
    */
-  @Input({ required: true }) frameworks!: string[];
+  readonly frameworks = input.required<string[]>();
 
   /**
    * Monorepo type if applicable (e.g., 'Nx', 'Lerna').
    */
-  @Input() monorepoType?: string;
+  readonly monorepoType = input<string>();
 
   /**
    * Language distribution statistics.
    */
-  @Input() languageDistribution?: LanguageStats[];
+  readonly languageDistribution = input<LanguageStats[]>();
 }

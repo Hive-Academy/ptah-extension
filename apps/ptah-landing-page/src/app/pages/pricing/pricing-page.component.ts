@@ -7,9 +7,9 @@ import { PricingGridComponent } from './components/pricing-grid.component';
  * PricingPageComponent - Main pricing page container
  *
  * Composes navigation, hero section and pricing grid.
- * Uses DaisyUI base-100 background from anubis theme.
+ * The Pro plan card has its own integrated billing toggle.
  *
- * Evidence: implementation-plan.md Phase 2 - Pricing Page
+ * Evidence: Redesign based on reference design with Ptah Egyptian theme
  */
 @Component({
   selector: 'ptah-pricing-page',
@@ -20,7 +20,10 @@ import { PricingGridComponent } from './components/pricing-grid.component';
       <!-- Fixed Navigation -->
       <ptah-navigation />
 
+      <!-- Hero Section -->
       <ptah-pricing-hero />
+
+      <!-- Pricing Cards Grid (2 cards: Free + Pro with internal toggle) -->
       <ptah-pricing-grid />
     </div>
   `,

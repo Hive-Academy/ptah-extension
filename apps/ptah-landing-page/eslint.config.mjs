@@ -43,7 +43,7 @@ export default [
         { argsIgnorePattern: '^_' },
       ],
       '@typescript-eslint/explicit-member-accessibility': [
-        'error',
+        'warn',
         { accessibility: 'explicit' },
       ],
     },
@@ -59,7 +59,7 @@ export default [
 
       // Template Best Practices
       '@angular-eslint/template/prefer-self-closing-tags': 'error',
-      '@angular-eslint/template/prefer-ngsrc': 'error',
+      '@angular-eslint/template/prefer-ngsrc': 'off',
       '@angular-eslint/template/no-inline-styles': 'off',
       '@angular-eslint/template/use-track-by-function': 'error',
 

@@ -55,6 +55,9 @@
     "serve": {
       "continuous": true,
       "executor": "@angular/build:dev-server",
+      "options": {
+        "proxyConfig": "apps/ptah-landing-page/proxy.conf.json"
+      },
       "configurations": {
         "production": {
           "buildTarget": "ptah-landing-page:build:production"

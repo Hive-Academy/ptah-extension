@@ -10,7 +10,7 @@
 #
 # QUICK START:
 #   1. Copy .env.docker.example to .env.docker (at project root)
-#   2. Copy apps/ptah-license-server/.env.local.example to apps/ptah-license-server/.env.local
+#   2. Copy apps/ptah-license-server/.env.example to apps/ptah-license-server/.env
 #   3. Run: docker-compose up -d
 #   4. Wait for health checks to pass
 #   5. Access API at http://localhost:3000/api
@@ -106,28 +106,39 @@ services:
       redis:
         condition: service_healthy
     env_file:
-      - apps/ptah-license-server/.env.local
+      - apps/ptah-license-server/.env
     environment:
       # Override database URLs to use Docker network hostnames
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ptah_licenses}
       REDIS_URL: redis://redis:6379
       # Ensure NODE_ENV is set for development
       NODE_ENV: development
+      # Disable Nx daemon - it doesn't work in Docker containers
+      # The daemon tries to spawn worker processes which fail in containerized environments
+      NX_DAEMON: 'false'
     volumes:
       # Mount source code for hot-reload
       - ./apps/ptah-license-server/src:/app/apps/ptah-license-server/src:delegated
       # Mount Prisma schema for migrations
       - ./apps/ptah-license-server/prisma:/app/apps/ptah-license-server/prisma:delegated
+      # Mount Prisma config file (must be at app root, not in prisma/ directory)
+      - ./apps/ptah-license-server/prisma.config.ts:/app/apps/ptah-license-server/prisma.config.ts:delegated
       # Use named volume for node_modules to prevent OS filesystem overhead
       - license-server-node-modules:/app/node_modules
     ports:
       - '${LICENSE_SERVER_PORT:-3000}:3000'
     # Run Prisma migrations before starting the server
+    # Prisma 7 requires running commands from app directory to find prisma.config.ts
+    # IMPORTANT: migrate deploy MUST run BEFORE generate (official Prisma Docker guide)
     command: >
       sh -c "
         echo 'Waiting for database to be ready...' &&
-        npx prisma generate --schema=apps/ptah-license-server/prisma/schema.prisma &&
-        npx prisma migrate deploy --schema=apps/ptah-license-server/prisma/schema.prisma &&
+        cd apps/ptah-license-server &&
+        echo 'Running database migrations...' &&
+        npx prisma migrate deploy &&
+        echo 'Generating Prisma Client...' &&
+        npx prisma generate &&
+        cd /app &&
         echo 'Starting license server in development mode...' &&
         npx nx serve ptah-license-server
       "

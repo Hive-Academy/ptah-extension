@@ -4,43 +4,48 @@ import { JwtModule } from '@nestjs/jwt';
 import { AuthController } from './auth.controller';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { PtahJwtAuthGuard } from './guards/ptah-jwt-auth.guard';
-import { AuthService } from './services/auth.service';
-import { TicketService } from './services/ticket.service';
-import { MagicLinkService } from './services/magic-link.service';
+// Services
+import {
+  AuthService,
+  WorkosUserService,
+  JwtTokenService,
+  PkceService,
+  TicketService,
+  MagicLinkService,
+  UserSyncService,
+} from './services';
+// Infrastructure
 import { PrismaModule } from '../../prisma/prisma.module';
 import { EmailModule } from '../../email/email.module';
+import {
+  WorkOSClientProvider,
+  WORKOS_CLIENT,
+} from './providers/workos.provider';
 
 /**
  * Authentication Module
  *
  * Provides JWT-based authentication with WorkOS integration.
  *
+ * **Architecture** (Single Responsibility Services):
+ * - `PkceService`: OAuth 2.1 PKCE state management
+ * - `WorkosUserService`: WorkOS User Management API operations
+ * - `JwtTokenService`: JWT generation and validation
+ * - `UserSyncService`: Database synchronization
+ * - `AuthService`: Orchestrator that coordinates the above
+ *
  * **Features**:
  * - WorkOS AuthKit integration (hosted authentication)
+ * - Email/password authentication with email verification
+ * - OAuth (GitHub, Google) authentication
+ * - Magic link passwordless authentication
  * - JWT token generation and validation
  * - HTTP-only cookie session management
- * - Request user context injection
  *
  * **Exports**:
- * - `AuthService`: For manual token operations
+ * - `AuthService`: For authentication operations
  * - `JwtAuthGuard`: For protecting routes with `@UseGuards(JwtAuthGuard)`
- *
- * **Usage in other modules**:
- * ```typescript
- * @Module({
- *   imports: [AuthModule],
- *   // ...
- * })
- * export class MyModule {}
- *
- * // In controllers:
- * @UseGuards(JwtAuthGuard)
- * @Get('protected')
- * async protected(@Req() req: Request) {
- *   const userId = req.user.id;
- *   // ...
- * }
- * ```
+ * - `JwtModule`: For services that need JwtService
  */
 @Module({
   imports: [
@@ -70,9 +75,18 @@ import { EmailModule } from '../../email/email.module';
   ],
   controllers: [AuthController],
   providers: [
+    // WorkOS Client
+    WorkOSClientProvider,
+    // Auth Services (ordered by dependency)
+    PkceService,
+    WorkosUserService,
+    JwtTokenService,
+    UserSyncService,
     AuthService,
+    // Guards
     JwtAuthGuard,
     PtahJwtAuthGuard,
+    // Other Services
     TicketService,
     MagicLinkService,
   ],
@@ -82,6 +96,8 @@ import { EmailModule } from '../../email/email.module';
     PtahJwtAuthGuard,
     TicketService,
     MagicLinkService,
-  ], // Export for use in other modules
+    JwtModule, // Required for guards that depend on JwtService
+    WORKOS_CLIENT, // Export for services that need direct WorkOS access
+  ],
 })
 export class AuthModule {}
