@@ -27,31 +27,31 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import {
+  LucideAngularModule,
+  Sparkles,
+  TriangleAlert,
+  CircleCheck,
+  Zap,
+  Info,
+} from 'lucide-angular';
 import { VSCodeService } from '@ptah-extension/core';
 
 @Component({
   selector: 'ptah-premium-upsell',
+  standalone: true,
+  imports: [LucideAngularModule],
   template: `
     <div class="hero min-h-screen bg-base-200">
       <div class="hero-content text-center">
         <div class="max-w-2xl">
           <!-- Premium badge -->
           <div class="badge badge-primary badge-lg gap-2 mb-6">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
+            <lucide-angular
+              [img]="SparklesIcon"
               class="h-4 w-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
               aria-hidden="true"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
-              />
-            </svg>
+            />
             Premium Feature
           </div>
 
@@ -70,20 +70,11 @@ import { VSCodeService } from '@ptah-extension/core';
           <!-- Error message with retry -->
           @if (errorMessage()) {
           <div class="alert alert-warning mb-6 max-w-md mx-auto">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
+            <lucide-angular
+              [img]="TriangleAlertIcon"
               class="stroke-current shrink-0 h-6 w-6"
-              fill="none"
-              viewBox="0 0 24 24"
               aria-hidden="true"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-              />
-            </svg>
+            />
             <div class="text-left">
               <span>{{ errorMessage() }}</span>
               <button
@@ -108,21 +99,11 @@ import { VSCodeService } from '@ptah-extension/core';
               <ul class="space-y-3 text-left">
                 @for (feature of features(); track feature) {
                 <li class="flex items-start gap-3">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
+                  <lucide-angular
+                    [img]="CircleCheckIcon"
                     class="h-6 w-6 text-success shrink-0"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
                     aria-hidden="true"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M5 13l4 4L19 7"
-                    />
-                  </svg>
+                  />
                   <span class="text-base-content">{{ feature }}</span>
                 </li>
                 }
@@ -140,41 +121,22 @@ import { VSCodeService } from '@ptah-extension/core';
             @if (isOpeningUrl()) {
             <span class="loading loading-spinner loading-sm"></span>
             Opening... } @else {
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
+            <lucide-angular
+              [img]="ZapIcon"
               class="h-5 w-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
               aria-hidden="true"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M13 10V3L4 14h7v7l9-11h-7z"
-              />
-            </svg>
+            />
             Upgrade to Premium }
           </button>
 
           <!-- URL feedback message -->
           @if (urlFeedback()) {
           <div class="alert alert-info mt-4 max-w-md mx-auto">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
+            <lucide-angular
+              [img]="InfoIcon"
               class="stroke-current shrink-0 h-6 w-6"
-              fill="none"
-              viewBox="0 0 24 24"
               aria-hidden="true"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
+            />
             <span>{{ urlFeedback() }}</span>
           </div>
           }
@@ -198,6 +160,13 @@ import { VSCodeService } from '@ptah-extension/core';
 })
 export class PremiumUpsellComponent {
   private readonly vscodeService = inject(VSCodeService);
+
+  /** Lucide icon references for template binding */
+  protected readonly SparklesIcon = Sparkles;
+  protected readonly TriangleAlertIcon = TriangleAlert;
+  protected readonly CircleCheckIcon = CircleCheck;
+  protected readonly ZapIcon = Zap;
+  protected readonly InfoIcon = Info;
 
   /** Upgrade URL for the pricing page */
   private static readonly UPGRADE_URL = 'https://ptah.dev/pricing';

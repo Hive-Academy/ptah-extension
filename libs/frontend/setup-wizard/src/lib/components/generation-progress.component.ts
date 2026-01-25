@@ -6,6 +6,14 @@ import {
   OnDestroy,
 } from '@angular/core';
 import {
+  LucideAngularModule,
+  CircleCheck,
+  CircleAlert,
+  RotateCw,
+  Check,
+  TriangleAlert,
+} from 'lucide-angular';
+import {
   SetupWizardStateService,
   SkillGenerationProgressItem,
 } from '../services/setup-wizard-state.service';
@@ -39,7 +47,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
 @Component({
   selector: 'ptah-generation-progress',
   standalone: true,
-  imports: [],
+  imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="container mx-auto px-4 py-8">
@@ -111,35 +119,17 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                       class="loading loading-spinner loading-sm text-primary"
                     ></span>
                     } @case ('complete') {
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
+                    <lucide-angular
+                      [img]="CircleCheckIcon"
                       class="h-6 w-6 text-success"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M5 13l4 4L19 7"
-                      />
-                    </svg>
+                      aria-hidden="true"
+                    />
                     } @case ('error') {
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
+                    <lucide-angular
+                      [img]="CircleAlertIcon"
                       class="h-6 w-6 text-error"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
-                    </svg>
+                      aria-hidden="true"
+                    />
                     } }
 
                     <!-- Item name and progress -->
@@ -180,20 +170,11 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                       ' attempts remaining)'
                     "
                   >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
+                    <lucide-angular
+                      [img]="RotateCwIcon"
                       class="h-4 w-4"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                      />
-                    </svg>
+                      aria-hidden="true"
+                    />
                     Retry ({{ getRemainingRetries(item.id) }} left)
                   </button>
                   } @else {
@@ -239,35 +220,17 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                       class="loading loading-spinner loading-sm text-secondary"
                     ></span>
                     } @case ('complete') {
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
+                    <lucide-angular
+                      [img]="CircleCheckIcon"
                       class="h-6 w-6 text-success"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M5 13l4 4L19 7"
-                      />
-                    </svg>
+                      aria-hidden="true"
+                    />
                     } @case ('error') {
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
+                    <lucide-angular
+                      [img]="CircleAlertIcon"
                       class="h-6 w-6 text-error"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
-                    </svg>
+                      aria-hidden="true"
+                    />
                     } }
 
                     <!-- Item name and progress -->
@@ -308,20 +271,11 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                       ' attempts remaining)'
                     "
                   >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
+                    <lucide-angular
+                      [img]="RotateCwIcon"
                       class="h-4 w-4"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                      />
-                    </svg>
+                      aria-hidden="true"
+                    />
                     Retry ({{ getRemainingRetries(item.id) }} left)
                   </button>
                   } @else {
@@ -367,35 +321,17 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                       class="loading loading-spinner loading-sm text-accent"
                     ></span>
                     } @case ('complete') {
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
+                    <lucide-angular
+                      [img]="CircleCheckIcon"
                       class="h-6 w-6 text-success"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M5 13l4 4L19 7"
-                      />
-                    </svg>
+                      aria-hidden="true"
+                    />
                     } @case ('error') {
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
+                    <lucide-angular
+                      [img]="CircleAlertIcon"
                       class="h-6 w-6 text-error"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
-                    </svg>
+                      aria-hidden="true"
+                    />
                     } }
 
                     <!-- Item name and progress -->
@@ -436,20 +372,11 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                       ' attempts remaining)'
                     "
                   >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
+                    <lucide-angular
+                      [img]="RotateCwIcon"
                       class="h-4 w-4"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                      />
-                    </svg>
+                      aria-hidden="true"
+                    />
                     Retry ({{ getRemainingRetries(item.id) }} left)
                   </button>
                   } @else {
@@ -488,19 +415,11 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
           [class.alert-warning]="failedCount() > 0"
         >
           @if (failedCount() === 0) {
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
+          <lucide-angular
+            [img]="CircleCheckIcon"
             class="h-6 w-6 shrink-0 stroke-current"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
+            aria-hidden="true"
+          />
           <div>
             <div class="font-semibold">Generation Complete!</div>
             <div class="text-sm">
@@ -508,19 +427,11 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
             </div>
           </div>
           } @else {
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
+          <lucide-angular
+            [img]="TriangleAlertIcon"
             class="h-6 w-6 shrink-0 stroke-current"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-            />
-          </svg>
+            aria-hidden="true"
+          />
           <div>
             <div class="font-semibold">Generation Completed with Errors</div>
             <div class="text-sm">
@@ -534,20 +445,11 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
 
         <div class="flex justify-end">
           <button class="btn btn-primary btn-lg" (click)="onContinue()">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
+            <lucide-angular
+              [img]="CheckIcon"
               class="h-5 w-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M5 13l4 4L19 7"
-              />
-            </svg>
+              aria-hidden="true"
+            />
             Continue to Completion
           </button>
         </div>
@@ -559,6 +461,13 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
 export class GenerationProgressComponent implements OnDestroy {
   private readonly wizardState = inject(SetupWizardStateService);
   private readonly wizardRpc = inject(WizardRpcService);
+
+  /** Lucide icon references for template binding */
+  protected readonly CircleCheckIcon = CircleCheck;
+  protected readonly CircleAlertIcon = CircleAlert;
+  protected readonly RotateCwIcon = RotateCw;
+  protected readonly CheckIcon = Check;
+  protected readonly TriangleAlertIcon = TriangleAlert;
 
   /**
    * Maximum retry attempts per item.
