@@ -5,6 +5,7 @@ import {
   output,
 } from '@angular/core';
 import { NgOptimizedImage } from '@angular/common';
+import { LucideAngularModule, Check } from 'lucide-angular';
 import { PricingPlan } from '../models/pricing-plan.interface';
 import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
 
@@ -23,7 +24,7 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
 @Component({
   selector: 'ptah-plan-card',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgOptimizedImage],
+  imports: [NgOptimizedImage, LucideAngularModule],
   template: `
     <div
       class="relative bg-base-300 border border-base-content/20 rounded-2xl p-8 
@@ -72,19 +73,10 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
         <li
           class="flex items-start gap-3 text-base-content/80 text-sm leading-relaxed"
         >
-          <svg
+          <lucide-angular
+            [img]="CheckIcon"
             class="flex-shrink-0 w-5 h-5 text-success mt-0.5"
-            viewBox="0 0 20 20"
-            fill="none"
-          >
-            <path
-              d="M16.25 5.625L7.5 14.375L3.75 10.625"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
+          />
           <span>{{ feature }}</span>
         </li>
         }
@@ -129,6 +121,9 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
   ],
 })
 export class PlanCardComponent {
+  /** Lucide icon reference */
+  readonly CheckIcon = Check;
+
   public readonly plan = input.required<PricingPlan>();
   public readonly isLoading = input<boolean>(false);
   public readonly ctaClick = output<PricingPlan>();

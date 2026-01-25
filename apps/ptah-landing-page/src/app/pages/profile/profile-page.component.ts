@@ -8,6 +8,7 @@ import {
 import { NgOptimizedImage } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { Router, RouterLink } from '@angular/router';
+import { LucideAngularModule, Check } from 'lucide-angular';
 import { AuthService } from '../../services/auth.service';
 import { LicenseData } from './models/license-data.interface';
 import {
@@ -33,7 +34,7 @@ import {
 @Component({
   selector: 'ptah-profile-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ViewportAnimationDirective, RouterLink, NgOptimizedImage],
+  imports: [ViewportAnimationDirective, RouterLink, NgOptimizedImage, LucideAngularModule],
   template: `
     <div class="min-h-screen bg-base-100 p-6 text-base-content">
       <!-- Header -->
@@ -159,19 +160,10 @@ import {
             <ul class="grid grid-cols-1 md:grid-cols-2 gap-3">
               @for (feature of license()?.features ?? []; track feature) {
               <li class="flex items-center gap-2 text-base-content/80">
-                <svg
+                <lucide-angular
+                  [img]="CheckIcon"
                   class="w-5 h-5 text-success flex-shrink-0"
-                  viewBox="0 0 20 20"
-                  fill="none"
-                >
-                  <path
-                    d="M16.25 5.625L7.5 14.375L3.75 10.625"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  />
-                </svg>
+                />
                 <span>{{ feature }}</span>
               </li>
               }
@@ -203,6 +195,9 @@ import {
   ],
 })
 export class ProfilePageComponent implements OnInit {
+  /** Lucide icon reference */
+  readonly CheckIcon = Check;
+
   private readonly http = inject(HttpClient);
   private readonly authService = inject(AuthService);
   private readonly router = inject(Router);
