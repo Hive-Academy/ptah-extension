@@ -5,6 +5,7 @@ import {
   ScrollAnimationDirective,
 } from '@hive-academy/angular-gsap';
 import { NgClass, NgOptimizedImage } from '@angular/common';
+import { LucideAngularModule, Eye, Check } from 'lucide-angular';
 
 interface TimelineStep {
   id: string;
@@ -31,6 +32,7 @@ interface TimelineStep {
     FeatureShowcaseTimelineComponent,
     ViewportAnimationDirective,
     ScrollAnimationDirective,
+    LucideAngularModule,
   ],
   styles: [
     `
@@ -77,14 +79,11 @@ interface TimelineStep {
               <span
                 class="inline-flex items-center gap-2 px-6 py-2 bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-full text-sm font-semibold text-[#f4d47c]"
               >
-                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-                  <path
-                    fill-rule="evenodd"
-                    d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
+                <lucide-angular
+                  [img]="EyeIcon"
+                  class="w-4 h-4"
+                  aria-hidden="true"
+                />
                 NEXT-GEN VISIBILITY
               </span>
             </div>
@@ -292,19 +291,11 @@ interface TimelineStep {
                 <div class="space-y-4">
                   @for (note of step.notes; track $index) {
                   <div class="flex items-start gap-3">
-                    <svg
+                    <lucide-angular
+                      [img]="CheckIcon"
                       class="w-6 h-6 text-[#d4af37] mt-0.5 flex-shrink-0"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M5 13l4 4L19 7"
-                      />
-                    </svg>
+                      aria-hidden="true"
+                    />
                     <p class="text-base text-gray-400">{{ note }}</p>
                   </div>
                   }
@@ -319,6 +310,10 @@ interface TimelineStep {
   `,
 })
 export class FeaturesHijackedScrollComponent {
+  /** Lucide icon references */
+  readonly EyeIcon = Eye;
+  readonly CheckIcon = Check;
+
   public readonly features = signal<TimelineStep[]>([
     {
       id: 'visual-interface',

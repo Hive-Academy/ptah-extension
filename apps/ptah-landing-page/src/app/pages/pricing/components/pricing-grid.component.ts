@@ -18,6 +18,7 @@ import { PaddleCheckoutService } from '../../../services/paddle-checkout.service
 import { AuthService } from '../../../services/auth.service';
 import { environment } from '../../../../environments/environment';
 import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
+import { LucideAngularModule, TriangleAlert, CircleX } from 'lucide-angular';
 
 /**
  * PricingGridComponent - Grid of pricing plan cards
@@ -36,24 +37,16 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
 @Component({
   selector: 'ptah-pricing-grid',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PlanCardComponent, ViewportAnimationDirective],
+  imports: [PlanCardComponent, ViewportAnimationDirective, LucideAngularModule],
   template: `
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-16">
       @if (paddleError()) {
       <div class="alert alert-warning mb-8 max-w-xl mx-auto">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
+        <lucide-angular
+          [img]="TriangleAlertIcon"
           class="stroke-current shrink-0 h-6 w-6"
-          fill="none"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-          />
-        </svg>
+          aria-hidden="true"
+        />
         <span>{{ paddleError() }}</span>
         <button class="btn btn-sm btn-secondary" (click)="retryPaddleInit()">
           Retry
@@ -61,19 +54,11 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
       </div>
       } @if (configError()) {
       <div class="alert alert-error mb-8 max-w-xl mx-auto">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
+        <lucide-angular
+          [img]="CircleXIcon"
           class="stroke-current shrink-0 h-6 w-6"
-          fill="none"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
-          />
-        </svg>
+          aria-hidden="true"
+        />
         <span>{{ configError() }}</span>
         <button class="btn btn-sm" (click)="configError.set(null)">
           Dismiss
@@ -102,6 +87,10 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
   ],
 })
 export class PricingGridComponent implements OnInit, OnDestroy {
+  /** Lucide icon references */
+  readonly TriangleAlertIcon = TriangleAlert;
+  readonly CircleXIcon = CircleX;
+
   private readonly router = inject(Router);
   private readonly paddleService = inject(PaddleCheckoutService);
   private readonly authService = inject(AuthService);
