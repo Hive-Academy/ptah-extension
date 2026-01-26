@@ -549,23 +549,52 @@ export interface SetupWizardLaunchResponse {
 /** Parameters for license:getStatus RPC method */
 export type LicenseGetStatusParams = Record<string, never>;
 
-/** License tier (matches LicenseService backend) */
-export type LicenseTier = 'free' | 'early_adopter';
+/**
+ * License tier values for RPC communication
+ *
+ * TASK_2025_121: Two-tier paid model
+ * - 'basic': Active Basic subscription ($3/month)
+ * - 'pro': Active Pro subscription ($5/month)
+ * - 'trial_basic': Basic plan during 14-day trial
+ * - 'trial_pro': Pro plan during 14-day trial
+ * - 'expired': No valid subscription (extension blocked)
+ *
+ * NOTE: Legacy values 'free' and 'early_adopter' are mapped in server code:
+ * - 'early_adopter' -> 'pro' (grandfathered users)
+ * - 'free' -> 'trial_basic' or 'expired' depending on trial status
+ */
+export type LicenseTier =
+  | 'basic'
+  | 'pro'
+  | 'trial_basic'
+  | 'trial_pro'
+  | 'expired';
 
-/** Response from license:getStatus RPC method */
+/**
+ * Response from license:getStatus RPC method
+ *
+ * TASK_2025_121: Updated for two-tier paid model with trial support
+ */
 export interface LicenseGetStatusResponse {
   /** Whether the license is valid */
   valid: boolean;
-  /** License tier (free or early_adopter) */
+  /** License tier (basic, pro, trial_basic, trial_pro, or expired) */
   tier: LicenseTier;
-  /** Whether the user has premium features enabled */
+  /** Whether the user has premium features enabled (Pro tier) */
   isPremium: boolean;
-  /** Days remaining before expiration (null if not applicable) */
+  /** Whether the user has Basic tier features (convenience flag) */
+  isBasic: boolean;
+  /** Days remaining before subscription expires (null if not applicable) */
   daysRemaining: number | null;
-  /** Plan details (if premium) */
+  /** Whether user is currently in trial period */
+  trialActive: boolean;
+  /** Days remaining in trial period (null if not in trial) */
+  trialDaysRemaining: number | null;
+  /** Plan details (if has valid license) */
   plan?: {
     name: string;
     description: string;
+    features: string[];
   };
 }
 

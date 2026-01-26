@@ -107,6 +107,10 @@ export type {
   AuthCredentialType,
 } from './services/auth-secrets.service';
 
-// License Service (TASK_2025_075)
+// License Service (TASK_2025_075, TASK_2025_121)
 export { LicenseService } from './services/license.service';
-export type { LicenseStatus, LicenseEvents } from './services/license.service';
+export type {
+  LicenseStatus,
+  LicenseEvents,
+  LicenseTierValue,
+} from './services/license.service';

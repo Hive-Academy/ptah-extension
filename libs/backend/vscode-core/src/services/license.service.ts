@@ -16,22 +16,54 @@ import { Logger } from '../logging';
 import { TOKENS } from '../di/tokens';
 
 /**
+ * License tier values for the two-tier paid model
+ *
+ * TASK_2025_121: New tier system
+ * - 'basic': Active Basic subscription ($3/month)
+ * - 'pro': Active Pro subscription ($5/month)
+ * - 'trial_basic': Basic plan during 14-day trial
+ * - 'trial_pro': Pro plan during 14-day trial
+ * - 'expired': No valid subscription (extension blocked)
+ *
+ * NOTE: Legacy values 'free' and 'early_adopter' are mapped in server code:
+ * - 'early_adopter' -> 'pro' (grandfathered users)
+ * - 'free' -> 'trial_basic' or 'expired' depending on trial status
+ */
+export type LicenseTierValue =
+  | 'basic'
+  | 'pro'
+  | 'trial_basic'
+  | 'trial_pro'
+  | 'expired';
+
+/**
  * License verification status returned by the server
+ *
+ * TASK_2025_121: Updated for two-tier paid model with trial support
  */
 export interface LicenseStatus {
+  /** Whether the license is currently valid */
   valid: boolean;
-  tier: 'free' | 'early_adopter';
+  /** Current license tier (basic, pro, trial_basic, trial_pro, or expired) */
+  tier: LicenseTierValue;
+  /** Plan details (if applicable) */
   plan?: {
     name: string;
     features: string[];
     expiresAfterDays: number | null;
-    futurePrice?: number;
     isPremium: boolean;
     description: string;
   };
+  /** Subscription/trial expiration timestamp (ISO 8601) */
   expiresAt?: string;
+  /** Days remaining before subscription expires */
   daysRemaining?: number;
-  reason?: 'expired' | 'revoked' | 'not_found';
+  /** Whether user is currently in trial period */
+  trialActive?: boolean;
+  /** Days remaining in trial period (only set during trial) */
+  trialDaysRemaining?: number;
+  /** Reason for invalid status */
+  reason?: 'expired' | 'revoked' | 'not_found' | 'trial_ended';
 }
 
 /**
@@ -89,20 +121,22 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
   /**
    * Verify license key with server (or return cached result).
    *
+   * TASK_2025_121: Updated for two-tier paid model
+   *
    * Flow:
    * 1. Check cache validity (1-hour TTL)
    * 2. Get license key from SecretStorage
-   * 3. If no key: return free tier status
+   * 3. If no key: return expired tier status (extension blocked)
    * 4. POST to server /api/v1/licenses/verify
    * 5. Cache result and emit events
-   * 6. On error: return cached status or free tier
+   * 6. On error: return cached status or expired tier
    *
    * @returns License status with tier, plan details, expiration
    *
    * @example
    * ```typescript
    * const status = await licenseService.verifyLicense();
-   * if (status.valid && status.tier === 'early_adopter') {
+   * if (status.valid && (status.tier === 'pro' || status.tier === 'trial_pro')) {
    *   console.log('Premium license active');
    * }
    * ```
@@ -128,12 +162,17 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
       );
 
       if (!licenseKey) {
-        const freeStatus: LicenseStatus = { valid: false, tier: 'free' };
-        this.updateCache(freeStatus);
+        // TASK_2025_121: No license key = expired (extension blocked)
+        const expiredStatus: LicenseStatus = {
+          valid: false,
+          tier: 'expired',
+          reason: 'not_found',
+        };
+        this.updateCache(expiredStatus);
         this.logger.info(
-          '[LicenseService.verifyLicense] No license key found, returning free tier'
+          '[LicenseService.verifyLicense] No license key found, returning expired tier'
         );
-        return freeStatus;
+        return expiredStatus;
       }
 
       // Step 3: Verify with server
@@ -206,9 +245,13 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
         return this.cache.status;
       }
 
-      // No cache: return free tier
-      const freeStatus: LicenseStatus = { valid: false, tier: 'free' };
-      return freeStatus;
+      // TASK_2025_121: No cache = expired (extension blocked)
+      const expiredStatus: LicenseStatus = {
+        valid: false,
+        tier: 'expired',
+        reason: 'not_found',
+      };
+      return expiredStatus;
     }
   }
 
@@ -244,25 +287,31 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
   /**
    * Remove license key from SecretStorage.
    *
+   * TASK_2025_121: Updated for two-tier paid model
+   *
    * Flow:
    * 1. Delete key from SecretStorage
-   * 2. Update cache to free tier
+   * 2. Update cache to expired tier (extension blocked)
    * 3. Emit license:updated event
    *
    * @example
    * ```typescript
    * await licenseService.clearLicenseKey();
-   * // License key removed, tier set to free
+   * // License key removed, tier set to expired
    * ```
    */
   async clearLicenseKey(): Promise<void> {
     await this.context.secrets.delete(LicenseService.SECRET_KEY);
     this.logger.info('[LicenseService.clearLicenseKey] License key removed');
 
-    // Update to free tier
-    const freeStatus: LicenseStatus = { valid: false, tier: 'free' };
-    this.updateCache(freeStatus);
-    this.emit('license:updated', freeStatus);
+    // TASK_2025_121: Update to expired tier (extension blocked)
+    const expiredStatus: LicenseStatus = {
+      valid: false,
+      tier: 'expired',
+      reason: 'not_found',
+    };
+    this.updateCache(expiredStatus);
+    this.emit('license:updated', expiredStatus);
   }
 
   /**

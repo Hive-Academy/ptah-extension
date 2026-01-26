@@ -1,46 +1,54 @@
 /**
  * Plan Configuration for Ptah License Server
  *
+ * TASK_2025_121: Two-Tier Paid Model
+ *
  * Pricing Model:
- * - free: 14-day trial with all features (no credit card required)
- * - pro: $8/month or $80/year subscription with ongoing access
+ * - basic: $3/month or $30/year - Core visual editor features (14-day trial)
+ * - pro: $5/month or $50/year - All premium features (14-day trial)
  *
  * Plans are hardcoded (not stored in database) to simplify the architecture.
- * Paddle manages billing cycles and promotional pricing.
+ * Paddle manages billing cycles, trials, and promotional pricing.
+ *
+ * NOTE: Legacy tier values ('free', 'early_adopter') are mapped in application code:
+ * - 'early_adopter' -> 'pro' (grandfathered users)
+ * - 'free' -> 'trial_basic' or 'expired' depending on trial status
  */
 
 export const PLANS = {
-  free: {
-    name: 'Free Trial',
+  basic: {
+    name: 'Basic',
     features: [
       'basic_cli_wrapper',
       'session_history',
       'permission_management',
-      'mcp_configuration',
-      'sdk_access', // Include during trial
-      'custom_tools', // Include during trial
+      'sdk_access',
+      'real_time_streaming',
+      'basic_workspace_context',
     ],
-    expiresAfterDays: 14, // 2-week free trial
+    expiresAfterDays: null, // Subscription-based (managed by Paddle)
+    monthlyPrice: 3, // USD/month
+    yearlyPrice: 30, // USD/year (~17% discount)
     isPremium: false,
-    description: '14-day trial with full access to all features',
+    description: 'Core visual editor for Claude Code',
   },
   pro: {
     name: 'Pro',
     features: [
-      'all_premium_features',
-      'sdk_access',
+      'all_basic_features',
+      'mcp_server',
+      'workspace_intelligence',
+      'openrouter_proxy',
       'custom_tools',
-      'workspace_semantic_search',
-      'editor_context_awareness',
-      'git_workspace_info',
+      'setup_wizard',
+      'cost_tracking',
       'priority_support',
-      'unlimited_sessions',
     ],
     expiresAfterDays: null, // Subscription-based (managed by Paddle)
-    monthlyPrice: 8, // USD/month
-    yearlyPrice: 80, // USD/year (~17% discount)
+    monthlyPrice: 5, // USD/month
+    yearlyPrice: 50, // USD/year (~17% discount)
     isPremium: true,
-    description: 'Full workspace intelligence with ongoing updates',
+    description: 'Full workspace intelligence suite',
   },
 } as const;
 
@@ -52,30 +60,36 @@ export type PlanName = keyof typeof PLANS;
 /**
  * Get plan configuration by plan name
  *
- * @param plan - The plan name ('free' | 'pro')
+ * @param plan - The plan name ('basic' | 'pro')
  * @returns The plan configuration object
  */
-export function getPlanConfig(plan: PlanName) {
+export function getPlanConfig(plan: PlanName): (typeof PLANS)[PlanName] {
   return PLANS[plan];
 }
 
 /**
  * Calculate expiration date for a plan
  *
- * @param plan - The plan name ('free' | 'pro')
- * @returns The expiration date, or null if subscription-based
+ * TASK_2025_121: Both Basic and Pro are subscription-based (managed by Paddle).
+ * This function always returns null since there are no time-limited plans.
+ * Expiration is determined by subscription billing cycle, not plan type.
+ *
+ * @param plan - The plan name ('basic' | 'pro')
+ * @returns Always null (subscription managed by Paddle)
  *
  * @example
- * calculateExpirationDate('free') // Date 14 days from now
+ * calculateExpirationDate('basic') // null (subscription managed by Paddle)
  * calculateExpirationDate('pro') // null (subscription managed by Paddle)
  */
 export function calculateExpirationDate(plan: PlanName): Date | null {
   const config = PLANS[plan];
 
   if (config.expiresAfterDays === null) {
-    return null; // Pro plan is subscription-based
+    return null; // All plans are subscription-based
   }
 
+  // Note: This code path is unreachable with current plan configuration
+  // Kept for potential future time-limited plans
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + config.expiresAfterDays);
   return expiresAt;
