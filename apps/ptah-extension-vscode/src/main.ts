@@ -1,12 +1,12 @@
 // CRITICAL: reflect-metadata MUST be imported first for TSyringe to work
 import 'reflect-metadata';
 
-import type {
-  Logger,
-  LicenseService,
-  LicenseStatus,
+import {
+  type Logger,
+  type LicenseService,
+  type LicenseStatus,
+  TOKENS,
 } from '@ptah-extension/vscode-core';
-import { TOKENS } from '@ptah-extension/vscode-core';
 import * as vscode from 'vscode';
 import { PtahExtension } from './core/ptah-extension';
 import { DIContainer } from './di/container';
@@ -32,8 +32,8 @@ async function showLicenseRequiredUI(
     status.reason === 'expired'
       ? 'Your Ptah subscription has expired. Please renew to continue using the extension.'
       : status.reason === 'trial_ended'
-        ? 'Your Ptah trial has ended. Subscribe to continue using the extension.'
-        : 'Ptah requires a subscription to use. Start your 14-day free trial today!';
+      ? 'Your Ptah trial has ended. Subscribe to continue using the extension.'
+      : 'Ptah requires a subscription to use. Start your 14-day free trial today!';
 
   const selection = await vscode.window.showWarningMessage(
     message,
@@ -114,7 +114,9 @@ export async function activate(
     // ========================================
     // Initialize minimal DI container with only license-related services
     // This allows license verification before full service initialization
-    console.log('[Activate] Step 1: Setting up minimal DI for license check...');
+    console.log(
+      '[Activate] Step 1: Setting up minimal DI for license check...'
+    );
     DIContainer.setupMinimal(context);
     console.log('[Activate] Step 1: Minimal DI setup complete');
 
@@ -132,7 +134,9 @@ export async function activate(
     if (!licenseStatus.valid) {
       // BLOCK EXTENSION - License is invalid
       console.log(
-        `[Activate] BLOCKED: License invalid (reason: ${licenseStatus.reason || 'unknown'})`
+        `[Activate] BLOCKED: License invalid (reason: ${
+          licenseStatus.reason || 'unknown'
+        })`
       );
 
       // Handle blocking flow (show UI, register minimal commands)
@@ -208,7 +212,9 @@ export async function activate(
         });
       });
     }
-    console.log('[Activate] Step 7: SDK authentication initialization complete');
+    console.log(
+      '[Activate] Step 7: SDK authentication initialization complete'
+    );
 
     // Step 8: Import existing Claude Code sessions (TASK_2025_091)
     console.log('[Activate] Step 8: Importing existing sessions...');

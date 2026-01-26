@@ -39,7 +39,14 @@ export type ProOnlyFeature =
  * Basic tier features are available to all licensed users.
  * Pro tier features require Pro or trial_pro subscription.
  */
-export type Feature = ProOnlyFeature | 'basic_cli_wrapper' | 'session_history' | 'permission_management' | 'sdk_access' | 'real_time_streaming' | 'basic_workspace_context';
+export type Feature =
+  | ProOnlyFeature
+  | 'basic_cli_wrapper'
+  | 'session_history'
+  | 'permission_management'
+  | 'sdk_access'
+  | 'real_time_streaming'
+  | 'basic_workspace_context';
 
 /**
  * Features that require Pro tier subscription
@@ -131,29 +138,38 @@ export class FeatureGateService {
 
     // No valid license = no features
     if (!status.valid) {
-      this.logger.debug('[FeatureGateService.isFeatureEnabled] License invalid, feature disabled', {
-        feature,
-        tier: status.tier,
-      });
+      this.logger.debug(
+        '[FeatureGateService.isFeatureEnabled] License invalid, feature disabled',
+        {
+          feature,
+          tier: status.tier,
+        }
+      );
       return false;
     }
 
     // Pro-only features require Pro tier (or Pro trial)
     if (this.isProOnlyFeature(feature)) {
       const isEnabled = status.tier === 'pro' || status.tier === 'trial_pro';
-      this.logger.debug('[FeatureGateService.isFeatureEnabled] Pro feature check', {
-        feature,
-        tier: status.tier,
-        enabled: isEnabled,
-      });
+      this.logger.debug(
+        '[FeatureGateService.isFeatureEnabled] Pro feature check',
+        {
+          feature,
+          tier: status.tier,
+          enabled: isEnabled,
+        }
+      );
       return isEnabled;
     }
 
     // All other features are available to any valid license (Basic or Pro)
-    this.logger.debug('[FeatureGateService.isFeatureEnabled] Basic feature enabled', {
-      feature,
-      tier: status.tier,
-    });
+    this.logger.debug(
+      '[FeatureGateService.isFeatureEnabled] Basic feature enabled',
+      {
+        feature,
+        tier: status.tier,
+      }
+    );
     return true;
   }
 

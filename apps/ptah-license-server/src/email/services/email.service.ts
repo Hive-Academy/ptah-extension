@@ -243,8 +243,8 @@ export class EmailService {
         <a href="${magicLink}" class="login-button">Login to Portal</a>
 
         <div class="warning">
-          <strong>⏱️ This link expires in 30 seconds</strong><br>
-          Please click the link immediately to avoid expiration.
+          <strong>⏱️ This link expires in 2 minutes</strong><br>
+          Please click the link soon to avoid expiration.
         </div>
 
         <p>If the button doesn't work, copy and paste this link into your browser:</p>

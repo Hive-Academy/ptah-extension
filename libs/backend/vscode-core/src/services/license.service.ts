@@ -568,8 +568,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
       return false;
     }
 
-    const gracePeriodEnd =
-      cache.persistedAt + LicenseService.GRACE_PERIOD_MS;
+    const gracePeriodEnd = cache.persistedAt + LicenseService.GRACE_PERIOD_MS;
     return Date.now() < gracePeriodEnd;
   }
 
@@ -580,8 +579,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
    * @returns Remaining time string (e.g., "3 days 5 hours")
    */
   private getGracePeriodRemaining(cache: PersistedLicenseCache): string {
-    const gracePeriodEnd =
-      cache.persistedAt + LicenseService.GRACE_PERIOD_MS;
+    const gracePeriodEnd = cache.persistedAt + LicenseService.GRACE_PERIOD_MS;
     const remainingMs = gracePeriodEnd - Date.now();
 
     if (remainingMs <= 0) {
@@ -594,7 +592,9 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
     );
 
     if (days > 0) {
-      return `${days} day${days === 1 ? '' : 's'} ${hours} hour${hours === 1 ? '' : 's'}`;
+      return `${days} day${days === 1 ? '' : 's'} ${hours} hour${
+        hours === 1 ? '' : 's'
+      }`;
     }
     return `${hours} hour${hours === 1 ? '' : 's'}`;
   }

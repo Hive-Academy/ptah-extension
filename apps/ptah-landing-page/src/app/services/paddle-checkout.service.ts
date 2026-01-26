@@ -246,7 +246,13 @@ export class PaddleCheckoutService {
    * @returns true if config is valid, false otherwise
    */
   private validateConfig(): boolean {
-    const { environment, priceIdMonthly, priceIdYearly } = this.paddleConfig;
+    const {
+      environment,
+      basicPriceIdMonthly,
+      basicPriceIdYearly,
+      proPriceIdMonthly,
+      proPriceIdYearly,
+    } = this.paddleConfig;
 
     // Check environment is valid
     if (environment !== 'sandbox' && environment !== 'production') {
@@ -263,19 +269,20 @@ export class PaddleCheckoutService {
       'placeholder',
     ];
 
-    const isMonthlyPlaceholder = placeholderPatterns.some(
-      (pattern) =>
-        !priceIdMonthly ||
-        priceIdMonthly.toLowerCase().includes(pattern.toLowerCase())
-    );
+    const isPlaceholder = (priceId: string | undefined): boolean =>
+      placeholderPatterns.some(
+        (pattern) =>
+          !priceId || priceId.toLowerCase().includes(pattern.toLowerCase())
+      );
 
-    const isYearlyPlaceholder = placeholderPatterns.some(
-      (pattern) =>
-        !priceIdYearly ||
-        priceIdYearly.toLowerCase().includes(pattern.toLowerCase())
-    );
+    // Check all 4 price IDs (Basic monthly/yearly, Pro monthly/yearly)
+    const hasPlaceholders =
+      isPlaceholder(basicPriceIdMonthly) ||
+      isPlaceholder(basicPriceIdYearly) ||
+      isPlaceholder(proPriceIdMonthly) ||
+      isPlaceholder(proPriceIdYearly);
 
-    if (isMonthlyPlaceholder || isYearlyPlaceholder) {
+    if (hasPlaceholders) {
       this._error.set(
         'Paddle price IDs not configured. Please check environment configuration.'
       );
@@ -449,7 +456,7 @@ export class PaddleCheckoutService {
               count: this.LICENSE_VERIFY_RETRIES,
               delay: this.LICENSE_VERIFY_DELAY,
             }),
-            catchError(() => of({ plan: 'free', status: 'none' }))
+            catchError(() => of({ plan: 'trial', status: 'none' }))
           )
       );
 

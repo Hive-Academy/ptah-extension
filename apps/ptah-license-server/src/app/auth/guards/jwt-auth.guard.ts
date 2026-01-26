@@ -13,6 +13,11 @@ import { AuthService } from '../services/auth.service';
  * Protects routes by validating JWT tokens from HTTP-only cookies.
  * Attaches validated user information to the request object.
  *
+ * Uses unified `ptah_auth` cookie for all authentication methods:
+ * - OAuth (GitHub, Google)
+ * - Email/password login
+ * - Magic link login
+ *
  * **CRITICAL**: This guard populates `request.user` which is required by:
  * - Neo4j security decorators (`@RequireAuth`, `@TenantIsolation`)
  * - ChromaDB `@TenantAware` decorator
@@ -36,8 +41,8 @@ export class JwtAuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
 
-    // Extract JWT token from HTTP-only cookie
-    const token = request.cookies?.access_token;
+    // Extract JWT token from unified HTTP-only cookie
+    const token = request.cookies?.ptah_auth;
 
     if (!token) {
       throw new UnauthorizedException(

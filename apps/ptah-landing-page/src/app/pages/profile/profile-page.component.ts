@@ -113,7 +113,7 @@ import {
               aria-hidden="true"
             />
             {{
-              license()?.plan === 'free'
+              license()?.plan === 'trial'
                 ? 'View Pricing Plans'
                 : 'Manage Subscription'
             }}

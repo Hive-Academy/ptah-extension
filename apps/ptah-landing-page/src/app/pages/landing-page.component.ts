@@ -99,6 +99,7 @@ import { HeroComponent } from '../sections/hero/hero.component';
     `
       :host {
         display: block;
+        overflow-x: hidden;
       }
     `,
   ],

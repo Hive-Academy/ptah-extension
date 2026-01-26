@@ -10,9 +10,9 @@ import {
 import type { Request } from 'express';
 import { LicenseService } from '../services/license.service';
 import { VerifyLicenseDto } from '../dto/verify-license.dto';
-import { PtahJwtAuthGuard } from '../../app/auth/guards/ptah-jwt-auth.guard';
+import { JwtAuthGuard } from '../../app/auth/guards/jwt-auth.guard';
 import { PrismaService } from '../../prisma/prisma.service';
-import { getPlanConfig, PlanName } from '../../config/plans.config';
+import { getPlanConfig, PlanName, PLANS } from '../../config/plans.config';
 
 /**
  * LicenseController - Public license verification endpoint
@@ -95,7 +95,7 @@ export class LicenseController {
    * - License key only sent via email
    */
   @Get('me')
-  @UseGuards(PtahJwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   async getMyLicense(@Req() req: Request) {
     const user = req.user as { id: string; email: string };
 
@@ -132,9 +132,9 @@ export class LicenseController {
     // Step 3: Get subscription data if exists
     const subscription = fullUser.subscriptions[0] || null;
 
-    // Step 4: No active license found - return free tier with user info
+    // Step 4: No active license found - return unlicensed response
+    // Note: 'free' tier no longer exists in PLANS, return hardcoded response
     if (!license) {
-      const freePlanConfig = getPlanConfig('free');
       return {
         // User info
         user: {
@@ -144,14 +144,14 @@ export class LicenseController {
           memberSince: fullUser.createdAt.toISOString(),
           emailVerified: fullUser.emailVerified,
         },
-        // License info
-        plan: 'free',
-        planName: freePlanConfig.name,
-        planDescription: freePlanConfig.description,
+        // License info (no active plan)
+        plan: null,
+        planName: 'No Plan',
+        planDescription: 'Start a trial or subscribe to use Ptah Extension',
         status: 'none',
-        features: freePlanConfig.features,
+        features: [],
         message:
-          'No active license found. Start your free trial or upgrade to Pro!',
+          'No active license found. Start your free trial to get started!',
         // Subscription info
         subscription: null,
       };
@@ -166,7 +166,13 @@ export class LicenseController {
     }
 
     // Step 6: Get plan configuration for features
-    const planConfig = getPlanConfig(license.plan as PlanName);
+    // Map legacy plans to valid plan names (early_adopter -> pro)
+    const normalizedPlan =
+      license.plan === 'early_adopter' ? 'pro' : license.plan;
+    const planConfig =
+      normalizedPlan === 'basic' || normalizedPlan === 'pro'
+        ? getPlanConfig(normalizedPlan as PlanName)
+        : PLANS.basic; // Safe fallback for unknown plans
 
     // Step 7: Return complete account details (NEVER include licenseKey)
     return {

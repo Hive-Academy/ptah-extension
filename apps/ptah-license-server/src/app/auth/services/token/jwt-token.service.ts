@@ -17,13 +17,28 @@ export class JwtTokenService {
   constructor(private readonly jwtService: JwtService) {}
 
   /**
-   * Generate JWT token from WorkOS user
+   * Generate JWT token using database user ID
+   *
+   * The JWT sub claim contains the database UUID (not the WorkOS user ID).
+   * This allows downstream services to query the database directly.
+   *
+   * @param databaseUserId - The database UUID for the user
+   * @param workosUser - WorkOS user for extracting roles/permissions
+   * @param organizationId - Optional organization ID
    */
-  generateToken(user: User, organizationId?: string): string {
-    const requestUser = this.mapWorkOSUserToRequestUser(user, organizationId);
+  generateToken(
+    databaseUserId: string,
+    workosUser: User,
+    organizationId?: string
+  ): string {
+    const requestUser = this.mapWorkOSUserToRequestUser(
+      workosUser,
+      organizationId,
+      databaseUserId
+    );
 
     const payload: Omit<JWTPayload, 'iat' | 'exp'> = {
-      sub: requestUser.id,
+      sub: databaseUserId, // Database UUID, NOT WorkOS ID
       email: requestUser.email,
       tenantId: requestUser.tenantId,
       organizationId: requestUser.organizationId,
@@ -65,15 +80,25 @@ export class JwtTokenService {
 
   /**
    * Get RequestUser from WorkOS user without generating token
+   *
+   * @param user - WorkOS user
+   * @param organizationId - Optional organization ID
+   * @param databaseUserId - Optional database UUID to use instead of WorkOS user ID
    */
-  mapWorkOSUserToRequestUser(user: User, organizationId?: string): RequestUser {
+  mapWorkOSUserToRequestUser(
+    user: User,
+    organizationId?: string,
+    databaseUserId?: string
+  ): RequestUser {
     const roles = this.extractRoles(user);
     const permissions = this.extractPermissions(user, roles);
     const tier = this.determineTier(organizationId);
-    const tenantId = organizationId || `user_${user.id}`;
+    // Use database UUID if provided, otherwise fall back to WorkOS ID
+    const userId = databaseUserId || user.id;
+    const tenantId = organizationId || `user_${userId}`;
 
     return {
-      id: user.id,
+      id: userId,
       email: user.email,
       tenantId,
       organizationId,

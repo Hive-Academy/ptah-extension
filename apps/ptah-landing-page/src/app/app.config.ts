@@ -22,11 +22,13 @@ export const appConfig: ApplicationConfig = {
     provideZoneChangeDetection({ eventCoalescing: true }),
     // Markdown rendering for chat messages (required by ExecutionNodeComponent from @ptah-extension/chat)
     provideMarkdown(),
-    // Paddle checkout configuration with DI token
+    // Paddle checkout configuration with DI token (Basic + Pro plans)
     providePaddleConfig({
       environment: environment.paddle.environment,
-      priceIdMonthly: environment.paddle.priceIdMonthly,
-      priceIdYearly: environment.paddle.priceIdYearly,
+      basicPriceIdMonthly: environment.paddle.basicPriceIdMonthly,
+      basicPriceIdYearly: environment.paddle.basicPriceIdYearly,
+      proPriceIdMonthly: environment.paddle.proPriceIdMonthly,
+      proPriceIdYearly: environment.paddle.proPriceIdYearly,
       maxRetries: 3,
       baseRetryDelay: 1000,
       licenseVerifyRetries: 3,

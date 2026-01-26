@@ -23,7 +23,7 @@ import { PricingGridComponent } from './components/pricing-grid.component';
       <!-- Hero Section -->
       <ptah-pricing-hero />
 
-      <!-- Pricing Cards Grid (2 cards: Free + Pro with internal toggle) -->
+      <!-- Pricing Cards Grid (2 cards: Basic + Pro with internal toggle) -->
       <ptah-pricing-grid />
     </div>
   `,

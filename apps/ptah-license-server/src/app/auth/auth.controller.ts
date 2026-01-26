@@ -42,29 +42,20 @@ const STATE_COOKIE_MAX_AGE_MS = 5 * 60 * 1000;
  * Handles multiple authentication flows with JWT session management.
  *
  * ============================================================================
- * COOKIE NAMING CONVENTION - CRITICAL FOR AUTHENTICATION
+ * UNIFIED COOKIE AUTHENTICATION
  * ============================================================================
  *
- * This application uses TWO SEPARATE authentication cookies for different flows:
+ * This application uses a SINGLE authentication cookie for ALL auth flows:
  *
- * 1. **access_token** - WorkOS OAuth Flow (Main Application)
- *    - Set by: POST /auth/callback, POST /auth/login/email, POST /auth/verify-email
+ * **ptah_auth** - Unified JWT Cookie
+ *    - Set by: All authentication endpoints (OAuth, email/password, magic link)
  *    - Validated by: JwtAuthGuard
- *    - Used for: Main application authentication with WorkOS
- *    - Endpoints: All authenticated endpoints using @UseGuards(JwtAuthGuard)
+ *    - Used for: All authenticated endpoints
  *
- * 2. **ptah_auth** - Magic Link Portal Flow (Customer Portal)
- *    - Set by: GET /auth/verify (magic link verification)
- *    - Validated by: PtahJwtAuthGuard (also accepts access_token as fallback)
- *    - Used for: Customer portal authentication (/profile dashboard)
- *    - Endpoints: GET /api/v1/licenses/me (customer license details)
- *
- * IMPORTANT NOTE:
- * - JwtAuthGuard is STRICT: Only accepts access_token cookie
- * - PtahJwtAuthGuard is FLEXIBLE: Accepts ptah_auth OR access_token cookie
- * - This means users can access /profile regardless of login method!
- *
- * Logout clears BOTH cookies to ensure complete session termination.
+ * Supported authentication methods (all use the same ptah_auth cookie):
+ * - OAuth (GitHub, Google) via WorkOS
+ * - Email/password login
+ * - Magic link passwordless login
  *
  * ============================================================================
  * WORKOS OAUTH FLOW (PKCE - OAuth 2.1 Compliant)
@@ -83,7 +74,7 @@ const STATE_COOKIE_MAX_AGE_MS = 5 * 60 * 1000;
  *    → Validate state from cookie matches state from query
  *    → Retrieve code_verifier for this state
  *    → Exchange code + code_verifier for tokens
- *    → Generate JWT and set in HTTP-only cookie (access_token)
+ *    → Generate JWT and set in HTTP-only cookie (ptah_auth)
  *
  * Security Properties:
  * - PKCE prevents authorization code interception attacks
@@ -247,7 +238,7 @@ export class AuthController {
    * Cookie: workos_state=xyz789
    * → Validates state match
    * → Clears workos_state cookie
-   * → Sets cookie: access_token=<jwt>
+   * → Sets cookie: ptah_auth=<jwt>
    * → Redirects to: http://localhost:4200
    */
   @Get('callback')
@@ -325,7 +316,7 @@ export class AuthController {
         await this.authService.authenticateWithCode(code, state);
 
       // Step 6: Set JWT in HTTP-only cookie for session management
-      res.cookie('access_token', token, {
+      res.cookie('ptah_auth', token, {
         httpOnly: true, // Prevents JavaScript access (XSS protection)
         secure: this.isProduction, // HTTPS only in production
         sameSite: 'lax', // CSRF protection
@@ -368,29 +359,16 @@ export class AuthController {
   /**
    * Logout user
    *
-   * Clears ALL JWT cookies (both WorkOS OAuth and magic link portal cookies).
-   *
-   * Cookie Naming Convention:
-   * - access_token: WorkOS OAuth flow (validated by JwtAuthGuard)
-   * - ptah_auth: Magic link portal flow (validated by PtahJwtAuthGuard)
+   * Clears the unified ptah_auth JWT cookie.
    *
    * @example
    * POST /auth/logout
-   * → Clears cookie: access_token (WorkOS OAuth)
-   * → Clears cookie: ptah_auth (Magic Link Portal)
+   * → Clears cookie: ptah_auth
    * → Returns: { success: true }
    */
   @Post('logout')
   logout(@Res() res: Response): void {
-    // Clear WorkOS OAuth cookie (used by main application auth)
-    res.clearCookie('access_token', {
-      httpOnly: true,
-      secure: this.isProduction,
-      sameSite: 'lax',
-      path: '/',
-    });
-
-    // Clear magic link portal cookie (used by customer portal /profile)
+    // Clear unified authentication cookie
     res.clearCookie('ptah_auth', {
       httpOnly: true,
       secure: this.isProduction,
@@ -413,7 +391,7 @@ export class AuthController {
    *
    * @example
    * GET /auth/me
-   * Cookie: access_token=<jwt>
+   * Cookie: ptah_auth=<jwt>
    * → Returns: { id, email, tenantId, roles, permissions, tier }
    */
   @Get('me')
@@ -432,7 +410,7 @@ export class AuthController {
    * - No authentication required (public endpoint)
    * - Always returns success (prevents email enumeration)
    * - Only sends email if user exists in database
-   * - Magic link valid for 30 seconds
+   * - Magic link valid for 2 minutes
    * - Single-use token enforcement
    * - returnUrl and plan are validated before storing
    *
@@ -505,7 +483,7 @@ export class AuthController {
    *
    * **Flow**:
    * 1. User clicks magic link in email
-   * 2. Backend validates token (30s TTL, single-use)
+   * 2. Backend validates token (2-minute TTL, single-use)
    * 3. If valid: Generate JWT, set cookie, redirect with optional autoCheckout
    * 4. If invalid: Redirect to login with error message
    *
@@ -519,7 +497,21 @@ export class AuthController {
     @Query('token') token: string,
     @Res() res: Response
   ): Promise<void> {
+    // Debug: Log the received token
+    this.logger.debug(
+      `Magic link verification requested. Token received: ${
+        token
+          ? `${token.substring(0, 8)}...${token.substring(
+              token.length - 8
+            )} (length: ${token.length})`
+          : 'MISSING'
+      }`
+    );
+
     if (!token) {
+      this.logger.warn(
+        'Magic link verification failed: no token in query string'
+      );
       res.redirect(`${this.frontendUrl}/login?error=token_missing`);
       return;
     }
@@ -551,9 +543,9 @@ export class AuthController {
     };
     const jwtToken = this.authService.generateJwtToken(jwtPayload);
 
-    // Step 4: Set HTTP-only cookie with JWT for portal authentication
-    // IMPORTANT: Use 'ptah_auth' cookie name for magic link portal auth
-    // This is validated by PtahJwtAuthGuard (used by /api/v1/licenses/me endpoint)
+    // Step 4: Set HTTP-only cookie with JWT for unified authentication
+    // All auth methods use the same 'ptah_auth' cookie
+    // This is validated by JwtAuthGuard for all protected endpoints
     res.cookie('ptah_auth', jwtToken, {
       httpOnly: true, // Prevents JavaScript access (XSS protection)
       secure: this.isProduction, // HTTPS only in production
@@ -603,7 +595,7 @@ export class AuthController {
    *
    * @example
    * POST /auth/stream/ticket
-   * Cookie: access_token=<jwt>
+   * Cookie: ptah_auth=<jwt>
    * → Returns: { ticket: "abc123..." }
    *
    * Then use:
@@ -637,7 +629,7 @@ export class AuthController {
    * @example
    * POST /auth/login/email
    * Body: { "email": "user@example.com", "password": "secret123" }
-   * → Sets cookie: access_token=<jwt>
+   * → Sets cookie: ptah_auth=<jwt>
    * → Returns: { success: true, user: { id, email, ... } }
    */
   @Post('login/email')
@@ -657,7 +649,7 @@ export class AuthController {
     );
 
     // Set JWT in HTTP-only cookie
-    res.cookie('access_token', token, {
+    res.cookie('ptah_auth', token, {
       httpOnly: true,
       secure: this.isProduction,
       sameSite: 'lax',
@@ -728,7 +720,7 @@ export class AuthController {
    * @example
    * POST /auth/verify-email
    * Body: { "userId": "user_xxx", "code": "123456" }
-   * → Sets cookie: access_token=<jwt>
+   * → Sets cookie: ptah_auth=<jwt>
    * → Returns: { success: true, user: { id, email, ... } }
    */
   @Post('verify-email')
@@ -750,7 +742,7 @@ export class AuthController {
     );
 
     // Set JWT in HTTP-only cookie
-    res.cookie('access_token', token, {
+    res.cookie('ptah_auth', token, {
       httpOnly: true,
       secure: this.isProduction,
       sameSite: 'lax',

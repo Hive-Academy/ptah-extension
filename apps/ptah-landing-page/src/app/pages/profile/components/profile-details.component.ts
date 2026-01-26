@@ -23,7 +23,7 @@ import { LicenseData } from '../models/license-data.interface';
  * - Email and plan information
  * - Plan description
  * - Subscription status for Pro users
- * - Upgrade CTA for free users
+ * - Upgrade CTA for trial users
  *
  * @input license - User license data
  */
@@ -32,7 +32,7 @@ import { LicenseData } from '../models/license-data.interface';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [ViewportAnimationDirective, RouterLink, LucideAngularModule],
   template: `
-    <!-- Upgrade CTA for Free Users -->
+    <!-- Upgrade CTA for Trial Users -->
     @if (license()?.message) {
     <div
       viewportAnimation

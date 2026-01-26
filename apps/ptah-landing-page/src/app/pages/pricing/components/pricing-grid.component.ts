@@ -443,6 +443,14 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    * Proceed with Paddle checkout (called after auth check passes)
    */
   private proceedWithCheckout(plan: PricingPlan): void {
+    // Validate priceId exists before proceeding
+    if (!plan.priceId) {
+      this.configError.set(
+        'Price configuration error. Please contact support.'
+      );
+      return;
+    }
+
     this.clearLoadingTimeout();
     this.paddleService.setLoadingPlan(plan.name);
 
@@ -451,19 +459,22 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       this.loadingTimeoutId = null;
     }, this.CHECKOUT_TIMEOUT);
 
+    // Capture priceId to avoid TypeScript narrowing issues in callback
+    const priceId = plan.priceId;
+
     this.authService
       .getCurrentUser()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (user) => {
           this.paddleService.openCheckout({
-            priceId: plan.priceId!,
+            priceId,
             customerEmail: user?.email,
           });
         },
         error: () => {
           this.paddleService.openCheckout({
-            priceId: plan.priceId!,
+            priceId,
           });
         },
         complete: () => {

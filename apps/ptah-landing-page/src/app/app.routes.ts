@@ -4,6 +4,7 @@ import { PricingPageComponent } from './pages/pricing/pricing-page.component';
 import { AuthPageComponent } from './pages/auth/auth-page.component';
 import { ProfilePageComponent } from './pages/profile/profile-page.component';
 import { AuthGuard } from './guards/auth.guard';
+import { GuestGuard } from './guards/guest.guard';
 
 /**
  * Application Routes
@@ -13,10 +14,14 @@ import { AuthGuard } from './guards/auth.guard';
  * Routes:
  * - `/` → Landing page (home)
  * - `/pricing` → Pricing plans page
- * - `/login` → Unified auth page (Sign In mode)
- * - `/signup` → Unified auth page (Sign Up mode)
+ * - `/login` → Unified auth page (Sign In mode) - GuestGuard redirects to /profile if already logged in
+ * - `/signup` → Unified auth page (Sign Up mode) - GuestGuard redirects to /profile if already logged in
  * - `/profile` → User license dashboard (protected by AuthGuard)
  * - `/**` → Wildcard redirects to home (404 handling)
+ *
+ * Guards:
+ * - AuthGuard: Protects authenticated routes, redirects guests to /login
+ * - GuestGuard: Protects guest-only routes, redirects authenticated users to /profile
  *
  * Authentication:
  * Uses unified AuthPageComponent with child components:
@@ -42,10 +47,12 @@ export const routes: Routes = [
   {
     path: 'login',
     component: AuthPageComponent,
+    canActivate: [GuestGuard],
   },
   {
     path: 'signup',
     component: AuthPageComponent,
+    canActivate: [GuestGuard],
   },
   {
     path: 'profile',

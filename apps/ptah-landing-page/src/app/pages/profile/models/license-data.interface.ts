@@ -44,7 +44,7 @@ export interface LicenseData {
   user: UserInfo;
 
   /** License plan identifier */
-  plan: 'free' | 'early_adopter' | 'pro';
+  plan: 'trial' | 'basic' | 'early_adopter' | 'pro';
 
   /** Human-readable plan name */
   planName: string;

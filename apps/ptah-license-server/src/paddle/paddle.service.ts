@@ -800,15 +800,13 @@ export class PaddleService {
   /**
    * Generate a cryptographically secure license key
    *
-   * Format: PTAH-XXXX-XXXX-XXXX (uppercase hex)
-   * Entropy: 96 bits (12 bytes = 24 hex chars = 3 x 4 segments)
+   * Format: ptah_lic_{64 lowercase hex chars}
+   * Entropy: 256 bits (32 bytes = 64 hex chars)
    *
-   * @returns A unique license key in PTAH-XXXX-XXXX-XXXX format
+   * @returns A unique license key in ptah_lic_ format (73 chars total)
    */
   private generateLicenseKey(): string {
-    const segment1 = randomBytes(4).toString('hex').toUpperCase();
-    const segment2 = randomBytes(4).toString('hex').toUpperCase();
-    const segment3 = randomBytes(4).toString('hex').toUpperCase();
-    return `PTAH-${segment1}-${segment2}-${segment3}`;
+    const bytes = randomBytes(32);
+    return `ptah_lic_${bytes.toString('hex')}`;
   }
 }

@@ -114,17 +114,20 @@ export class AuthService {
       pkceResult.verifier
     );
 
-    // Sync user to database
-    await this.userSyncService.syncUser(result.user);
+    // Sync user to database and get database user ID (NOT WorkOS ID)
+    const dbUser = await this.userSyncService.syncUser(result.user);
 
-    // Generate JWT
+    // Generate JWT using DATABASE user ID (not WorkOS user ID)
+    // This ensures the JWT sub claim matches the database UUID
     const token = this.jwtTokenService.generateToken(
+      dbUser.id,
       result.user,
       result.organizationId
     );
     const user = this.jwtTokenService.mapWorkOSUserToRequestUser(
       result.user,
-      result.organizationId
+      result.organizationId,
+      dbUser.id
     );
 
     return {
@@ -154,16 +157,19 @@ export class AuthService {
       this.throwVerificationRequired(result);
     }
 
-    // Authentication successful
-    await this.userSyncService.syncUser(result.user);
+    // Authentication successful - sync and get database user ID
+    const dbUser = await this.userSyncService.syncUser(result.user);
 
+    // Generate JWT using DATABASE user ID (not WorkOS user ID)
     const token = this.jwtTokenService.generateToken(
+      dbUser.id,
       result.user,
       result.organizationId
     );
     const user = this.jwtTokenService.mapWorkOSUserToRequestUser(
       result.user,
-      result.organizationId
+      result.organizationId,
+      dbUser.id
     );
 
     this.logger.log(`User authenticated: ${email}`);
@@ -209,10 +215,16 @@ export class AuthService {
   ): Promise<{ token: string; user: RequestUser }> {
     const workosUser = await this.workosUserService.verifyEmail(userId, code);
 
-    await this.userSyncService.syncUser(workosUser);
+    // Sync and get database user ID
+    const dbUser = await this.userSyncService.syncUser(workosUser);
 
-    const token = this.jwtTokenService.generateToken(workosUser);
-    const user = this.jwtTokenService.mapWorkOSUserToRequestUser(workosUser);
+    // Generate JWT using DATABASE user ID (not WorkOS user ID)
+    const token = this.jwtTokenService.generateToken(dbUser.id, workosUser);
+    const user = this.jwtTokenService.mapWorkOSUserToRequestUser(
+      workosUser,
+      undefined,
+      dbUser.id
+    );
 
     return { token, user };
   }

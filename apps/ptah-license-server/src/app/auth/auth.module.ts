@@ -3,7 +3,6 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { AuthController } from './auth.controller';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
-import { PtahJwtAuthGuard } from './guards/ptah-jwt-auth.guard';
 // Services
 import {
   AuthService,
@@ -85,7 +84,6 @@ import {
     AuthService,
     // Guards
     JwtAuthGuard,
-    PtahJwtAuthGuard,
     // Other Services
     TicketService,
     MagicLinkService,
@@ -93,7 +91,6 @@ import {
   exports: [
     AuthService,
     JwtAuthGuard,
-    PtahJwtAuthGuard,
     TicketService,
     MagicLinkService,
     JwtModule, // Required for guards that depend on JwtService

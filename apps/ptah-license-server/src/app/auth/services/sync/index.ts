@@ -3,4 +3,4 @@
  *
  * Database synchronization for WorkOS users
  */
-export { UserSyncService } from './user-sync.service';
+export { UserSyncService, SyncedUser } from './user-sync.service';

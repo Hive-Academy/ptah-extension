@@ -20,6 +20,7 @@ import { VerificationCodeComponent } from './components/verification-code.compon
 
 // Services & Types
 import { AuthApiService } from './services/auth-api.service';
+import { AuthService } from '../../services/auth.service';
 import {
   AuthMode,
   AUTH_ERROR_MESSAGES,
@@ -164,6 +165,7 @@ import { isValidEmail } from './utils/auth-validation.utils';
 })
 export class AuthPageComponent implements OnInit {
   private readonly authApi = inject(AuthApiService);
+  private readonly authService = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
@@ -356,6 +358,9 @@ export class AuthPageComponent implements OnInit {
    * Otherwise, defaults to profile page
    */
   private navigateAfterAuth(): void {
+    // Set auth hint so future auth checks don't make unnecessary API calls
+    this.authService.setAuthHint();
+
     const returnUrl = this.returnUrl();
     const plan = this.selectedPlan();
 

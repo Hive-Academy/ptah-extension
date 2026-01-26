@@ -21,9 +21,6 @@ import 'reflect-metadata';
 import { container, DependencyContainer } from 'tsyringe';
 import * as vscode from 'vscode';
 
-// Import TOKENS (single source of truth)
-import { TOKENS } from '@ptah-extension/vscode-core';
-
 // Import Logger and OutputManager (must be registered directly - cannot be in registration function)
 // Logger depends on OutputManager, so OutputManager must be registered BEFORE Logger is resolved
 // TASK_2025_103: Import SubagentRegistryService for subagent resumption
@@ -32,6 +29,9 @@ import {
   OutputManager,
   LlmRpcHandlers,
   SubagentRegistryService,
+  TOKENS,
+  registerVsCodeCoreServices,
+  LicenseService,
 } from '@ptah-extension/vscode-core';
 
 // Import app-level RPC service and handlers (TASK_2025_074: Modular architecture)
@@ -58,10 +58,6 @@ import { registerSdkServices } from '@ptah-extension/agent-sdk';
 // Import agent-generation services (TASK_2025_069)
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { registerAgentGenerationServices } from '@ptah-extension/agent-generation';
-
-// Import registration functions (TASK_2025_071 Batch 3)
-
-import { registerVsCodeCoreServices } from '@ptah-extension/vscode-core';
 
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
 
@@ -121,8 +117,7 @@ export class DIContainer {
     // PHASE 2: License Service for verification
     // ========================================
     // License Service only depends on EXTENSION_CONTEXT and LOGGER
-    // Import LicenseService locally to avoid circular dependencies
-    const { LicenseService } = require('@ptah-extension/vscode-core');
+
     container.registerSingleton(TOKENS.LICENSE_SERVICE, LicenseService);
 
     return container;

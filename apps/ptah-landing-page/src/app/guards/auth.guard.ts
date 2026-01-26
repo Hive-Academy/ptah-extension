@@ -9,20 +9,24 @@ import { AuthService } from '../services/auth.service';
  * Protects routes that require authentication.
  * Redirects unauthenticated users to /login.
  *
+ * Uses verifyAuthentication() which always makes an API call.
+ * This is necessary because OAuth/magic link redirects may land
+ * on protected routes before the localStorage hint is set.
+ *
  * Usage in routes:
  * { path: 'profile', component: ProfilePageComponent, canActivate: [AuthGuard] }
  *
  * Angular 21 patterns:
  * - Functional guard (not class-based)
  * - inject() for DI
- *
- * Evidence: implementation-plan.md Phase 1 - Auth Guard
  */
 export const AuthGuard: CanActivateFn = () => {
   const authService = inject(AuthService);
   const router = inject(Router);
 
-  return authService.isAuthenticated().pipe(
+  // Use verifyAuthentication() to always check with backend
+  // This handles OAuth/magic link redirects where cookie exists but no hint yet
+  return authService.verifyAuthentication().pipe(
     map((isAuth) => {
       if (!isAuth) {
         router.navigate(['/login']);

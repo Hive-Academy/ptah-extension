@@ -12,7 +12,7 @@ import {
  * Purpose: Final call-to-action section with enhanced typography and golden divider
  *
  * Batch 5 Enhancements (Task 5.1):
- * - Golden gradient headline "Get Started Free" with scaleIn animation
+ * - Golden gradient headline "Start Your Free Trial" with scaleIn animation
  * - Primary CTA with pulse animation (CSS keyframes)
  * - Secondary CTAs with fadeIn animation
  * - Trust signals with staggered fadeIn animations
@@ -32,25 +32,25 @@ import {
   selector: 'ptah-cta-section',
   imports: [CommonModule, ViewportAnimationDirective, LucideAngularModule],
   template: `
-    <section id="cta" class="py-32 bg-base-100">
-      <div class="container mx-auto px-6 text-center">
+    <section id="cta" class="py-16 sm:py-24 md:py-32 bg-base-100">
+      <div class="container mx-auto px-4 sm:px-6 text-center">
         <!-- Headline with gold gradient and scaleIn animation -->
         <h2
           viewportAnimation
           [viewportConfig]="headlineConfig"
-          class="text-7xl font-display font-bold mb-6 gradient-text-gold"
+          class="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-display font-bold mb-6 gradient-text-gold"
         >
-          Get Started Free
+          Start Your Free Trial
         </h2>
 
         <!-- Subheadline with fadeIn animation -->
         <p
           viewportAnimation
           [viewportConfig]="subheadlineConfig"
-          class="text-xl text-base-content/70 mb-12 max-w-2xl mx-auto"
+          class="text-base sm:text-lg md:text-xl text-base-content/70 mb-8 sm:mb-10 md:mb-12 max-w-2xl mx-auto"
         >
-          Free to install. No configuration needed. Works with your existing
-          Claude Code setup.
+          14 days free. No credit card required. Works with your existing Claude
+          Code setup.
         </p>
 
         <!-- Primary CTA Button with pulse animation via CSS keyframes -->
@@ -59,7 +59,7 @@ import {
             href="https://marketplace.visualstudio.com/items?itemName=ptah.ptah"
             target="_blank"
             rel="noopener noreferrer"
-            class="cta-button inline-block px-12 py-6 text-xl font-bold rounded-xl
+            class="cta-button inline-block px-8 py-4 text-base sm:px-10 sm:py-5 sm:text-lg md:px-12 md:py-6 md:text-xl font-bold rounded-xl
                     bg-gradient-to-r from-secondary to-accent
                     text-base-100 shadow-glow-gold
                     hover:scale-105 hover:shadow-glow-gold-lg
@@ -93,7 +93,9 @@ import {
         </div>
 
         <!-- Trust Signals with staggered fadeIn -->
-        <div class="mt-12 flex flex-wrap justify-center gap-8">
+        <div
+          class="mt-8 sm:mt-10 md:mt-12 flex flex-wrap justify-center gap-4 sm:gap-6 md:gap-8"
+        >
           @for (signal of trustSignals; track signal; let i = $index) {
           <div
             viewportAnimation
@@ -130,7 +132,9 @@ import {
         >
           <!-- Brand -->
           <div class="mb-8">
-            <h3 class="text-2xl font-display font-bold text-secondary mb-2">
+            <h3
+              class="text-xl sm:text-2xl font-display font-bold text-secondary mb-2"
+            >
               Ptah
             </h3>
             <p class="text-base-content/60">Craftsman of AI Development</p>
@@ -138,7 +142,7 @@ import {
 
           <!-- Navigation Links -->
           <nav
-            class="flex flex-wrap justify-center gap-6 mb-8"
+            class="flex flex-wrap justify-center gap-4 sm:gap-6 mb-8"
             aria-label="Footer navigation"
           >
             <a
@@ -233,9 +237,9 @@ export class CTASectionComponent {
    * Trust signals displayed with staggered fadeIn animations
    */
   public readonly trustSignals = [
-    'Free Forever',
-    'No Account Required',
-    'Open Source',
+    '14-Day Free Trial',
+    'No Credit Card Required',
+    'Cancel Anytime',
   ];
 
   /**

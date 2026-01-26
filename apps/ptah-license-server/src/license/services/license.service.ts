@@ -213,11 +213,12 @@ export class LicenseService {
         : undefined;
 
     // Step 9: Get plan configuration - extract base plan from tier
-    const basePlan = tier.replace('trial_', '') as PlanName;
-    const planConfig =
-      basePlan === 'basic' || basePlan === 'pro'
-        ? getPlanConfig(basePlan)
-        : undefined;
+    // Safe extraction: tier could be 'basic', 'pro', 'trial_basic', 'trial_pro', or 'expired'
+    const basePlan = tier.replace('trial_', '');
+    const isValidPlan = basePlan === 'basic' || basePlan === 'pro';
+    const planConfig = isValidPlan
+      ? getPlanConfig(basePlan as PlanName)
+      : undefined;
 
     this.logger.debug(
       `License verified: ${license.id}, tier: ${tier}, trial: ${isInTrial}`

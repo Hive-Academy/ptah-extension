@@ -21,8 +21,9 @@ export type OAuthProvider = 'github' | 'google';
 
 /**
  * User tier levels (matches backend tier system)
+ * Updated for two-tier paid model: Basic ($3/mo) + Pro ($5/mo)
  */
-export type UserTier = 'free' | 'pro' | 'enterprise';
+export type UserTier = 'trial' | 'basic' | 'pro' | 'enterprise';
 
 /**
  * User response from authentication endpoints

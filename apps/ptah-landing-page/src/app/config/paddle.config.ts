@@ -4,7 +4,7 @@ import { InjectionToken } from '@angular/core';
  * Paddle configuration interface
  *
  * Defines all configuration parameters needed for Paddle SDK initialization
- * and checkout operations.
+ * and checkout operations. Supports two-tier pricing (Basic + Pro).
  */
 export interface PaddleConfig {
   /**
@@ -15,16 +15,28 @@ export interface PaddleConfig {
   environment: 'sandbox' | 'production';
 
   /**
-   * Monthly subscription price ID from Paddle dashboard
+   * Basic plan monthly subscription price ID from Paddle dashboard
    * Example: 'pri_01htxv8fqjyj5r3qj5t4qj5t4q'
    */
-  priceIdMonthly: string;
+  basicPriceIdMonthly: string;
 
   /**
-   * Yearly subscription price ID from Paddle dashboard
+   * Basic plan yearly subscription price ID from Paddle dashboard
    * Example: 'pri_01htxv8fqjyj5r3qj5t4qj5t4r'
    */
-  priceIdYearly: string;
+  basicPriceIdYearly: string;
+
+  /**
+   * Pro plan monthly subscription price ID from Paddle dashboard
+   * Example: 'pri_01htxv8fqjyj5r3qj5t4qj5t4q'
+   */
+  proPriceIdMonthly: string;
+
+  /**
+   * Pro plan yearly subscription price ID from Paddle dashboard
+   * Example: 'pri_01htxv8fqjyj5r3qj5t4qj5t4r'
+   */
+  proPriceIdYearly: string;
 
   /**
    * Maximum number of retry attempts for SDK loading
@@ -84,8 +96,10 @@ export const PADDLE_CONFIG = new InjectionToken<PaddleConfig>('PADDLE_CONFIG');
  *   providers: [
  *     providePaddleConfig({
  *       environment: environment.paddle.environment,
- *       priceIdMonthly: environment.paddle.priceIdMonthly,
- *       priceIdYearly: environment.paddle.priceIdYearly,
+ *       basicPriceIdMonthly: environment.paddle.basicPriceIdMonthly,
+ *       basicPriceIdYearly: environment.paddle.basicPriceIdYearly,
+ *       proPriceIdMonthly: environment.paddle.proPriceIdMonthly,
+ *       proPriceIdYearly: environment.paddle.proPriceIdYearly,
  *       maxRetries: 3,
  *       baseRetryDelay: 1000,
  *       licenseVerifyRetries: 3,

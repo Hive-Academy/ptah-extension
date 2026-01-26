@@ -80,13 +80,13 @@ import { LucideAngularModule, DollarSign } from 'lucide-angular';
           class="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-2 leading-tight
                  [text-shadow:_0_2px_0_#1a1a1a,_0_4px_0_#0d0d0d,_0_6px_10px_rgba(0,0,0,0.8),_0_10px_40px_rgba(0,0,0,0.6)]"
         >
-          Get started for
+          Try
           <span
             class="bg-gradient-to-r from-amber-300 via-amber-400 to-secondary
                    bg-clip-text text-transparent
                    [filter:_drop-shadow(0_2px_0_#8a6d10)_drop-shadow(0_4px_8px_rgba(0,0,0,0.8))]"
           >
-            free
+            14 days free
           </span>
           today
         </h1>

@@ -70,7 +70,7 @@ import {
           rel="noopener"
           class="px-5 sm:px-8 py-3 sm:py-4 text-sm sm:text-base font-semibold text-slate-900 bg-gradient-to-r from-amber-400 to-amber-500 rounded-lg hover:from-amber-300 hover:to-amber-400 transform hover:-translate-y-0.5 transition-all duration-200 shadow-lg shadow-amber-500/25 text-center"
         >
-          Install Free from VS Code Marketplace
+          Try 14 Days Free — Install Now
         </a>
         <a
           href="#demo"
