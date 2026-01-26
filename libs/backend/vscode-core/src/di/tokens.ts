@@ -111,6 +111,11 @@ export const LICENSE_SERVICE = Symbol.for('LicenseService');
 export const LICENSE_COMMANDS = Symbol.for('LicenseCommands');
 
 // ========================================
+// Feature Gate Service Token (TASK_2025_121)
+// ========================================
+export const FEATURE_GATE_SERVICE = Symbol.for('FeatureGateService');
+
+// ========================================
 // Template Generation Service Tokens
 // ========================================
 // TASK_2025_071 Batch 5: Dedicated token for template-generation's FileSystemAdapter
@@ -277,6 +282,9 @@ export const TOKENS = {
   // License Service (TASK_2025_075)
   LICENSE_SERVICE,
   LICENSE_COMMANDS,
+
+  // Feature Gate Service (TASK_2025_121)
+  FEATURE_GATE_SERVICE,
 
   // ========================================
   // Template Generation

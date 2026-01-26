@@ -10,37 +10,171 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import * as vscode from 'vscode';
 import { PtahExtension } from './core/ptah-extension';
 import { DIContainer } from './di/container';
+import { LicenseCommands } from './commands/license-commands';
 
 let ptahExtension: PtahExtension | undefined;
+
+/**
+ * Show license required UI with blocking modal (TASK_2025_121 Batch 3)
+ *
+ * Displays a modal dialog when license is invalid, offering options to:
+ * - Start Trial: Opens pricing page
+ * - Enter License Key: Triggers license entry command
+ * - View Pricing: Opens pricing page
+ *
+ * @param status - Current license status with reason
+ * @returns Selected action or undefined if dismissed
+ */
+async function showLicenseRequiredUI(
+  status: LicenseStatus
+): Promise<string | undefined> {
+  const message =
+    status.reason === 'expired'
+      ? 'Your Ptah subscription has expired. Please renew to continue using the extension.'
+      : status.reason === 'trial_ended'
+        ? 'Your Ptah trial has ended. Subscribe to continue using the extension.'
+        : 'Ptah requires a subscription to use. Start your 14-day free trial today!';
+
+  const selection = await vscode.window.showWarningMessage(
+    message,
+    { modal: true },
+    'Start Trial',
+    'Enter License Key',
+    'View Pricing'
+  );
+
+  return selection;
+}
+
+/**
+ * Register only license-related commands when extension is blocked (TASK_2025_121 Batch 3)
+ *
+ * When license is invalid, only these commands are available:
+ * - ptah.enterLicenseKey: Enter license key
+ * - ptah.checkLicenseStatus: Check current status
+ * - ptah.openPricing: Open pricing page
+ *
+ * @param context - VS Code extension context
+ * @param licenseService - License service instance
+ */
+function registerLicenseOnlyCommands(
+  context: vscode.ExtensionContext,
+  licenseService: LicenseService
+): void {
+  // Create LicenseCommands instance manually (DI not fully setup)
+  const licenseCommands = new LicenseCommands(licenseService);
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('ptah.enterLicenseKey', async () => {
+      await licenseCommands.enterLicenseKey();
+      // After license key entry, reload window to complete activation
+    }),
+    vscode.commands.registerCommand('ptah.checkLicenseStatus', async () => {
+      await licenseCommands.checkLicenseStatus();
+    }),
+    vscode.commands.registerCommand('ptah.openPricing', () => {
+      vscode.env.openExternal(vscode.Uri.parse('https://ptah.dev/pricing'));
+    })
+  );
+}
+
+/**
+ * Handle license blocking flow and user actions (TASK_2025_121 Batch 3)
+ *
+ * @param context - VS Code extension context
+ * @param licenseService - License service instance
+ * @param status - Current license status
+ */
+async function handleLicenseBlocking(
+  context: vscode.ExtensionContext,
+  licenseService: LicenseService,
+  status: LicenseStatus
+): Promise<void> {
+  // Register minimal commands for license management
+  registerLicenseOnlyCommands(context, licenseService);
+
+  // Show blocking UI and handle user selection
+  const selection = await showLicenseRequiredUI(status);
+
+  if (selection === 'Start Trial' || selection === 'View Pricing') {
+    await vscode.env.openExternal(vscode.Uri.parse('https://ptah.dev/pricing'));
+  } else if (selection === 'Enter License Key') {
+    await vscode.commands.executeCommand('ptah.enterLicenseKey');
+  }
+  // If modal dismissed, extension remains blocked but commands are available
+}
 
 export async function activate(
   context: vscode.ExtensionContext
 ): Promise<void> {
   console.log('===== PTAH ACTIVATION START =====');
   try {
-    // Initialize centralized DI Container with ALL services
-    console.log('[Activate] Step 1: Setting up DI Container...');
+    // ========================================
+    // STEP 1: MINIMAL DI SETUP FOR LICENSE CHECK (TASK_2025_121)
+    // ========================================
+    // Initialize minimal DI container with only license-related services
+    // This allows license verification before full service initialization
+    console.log('[Activate] Step 1: Setting up minimal DI for license check...');
+    DIContainer.setupMinimal(context);
+    console.log('[Activate] Step 1: Minimal DI setup complete');
+
+    // ========================================
+    // STEP 2: LICENSE VERIFICATION (BLOCKING)
+    // ========================================
+    // CRITICAL: License verification MUST happen BEFORE full service init
+    // If license is invalid, block extension and show license UI
+    console.log('[Activate] Step 2: Verifying license (BLOCKING)...');
+    const licenseService = DIContainer.resolve<LicenseService>(
+      TOKENS.LICENSE_SERVICE
+    );
+    const licenseStatus: LicenseStatus = await licenseService.verifyLicense();
+
+    if (!licenseStatus.valid) {
+      // BLOCK EXTENSION - License is invalid
+      console.log(
+        `[Activate] BLOCKED: License invalid (reason: ${licenseStatus.reason || 'unknown'})`
+      );
+
+      // Handle blocking flow (show UI, register minimal commands)
+      await handleLicenseBlocking(context, licenseService, licenseStatus);
+
+      // DO NOT continue with normal activation
+      console.log('[Activate] Extension blocked - awaiting valid license');
+      return;
+    }
+
+    console.log(
+      `[Activate] Step 2: License verified (tier: ${licenseStatus.tier})`
+    );
+
+    // ========================================
+    // STEP 3: FULL DI SETUP (Licensed users only)
+    // ========================================
+    console.log('[Activate] Step 3: Setting up full DI Container...');
     DIContainer.setup(context);
-    console.log('[Activate] Step 1: DI Container setup complete');
+    console.log('[Activate] Step 3: Full DI Container setup complete');
 
     // Get logger from DI container
-    console.log('[Activate] Step 2: Resolving Logger...');
+    console.log('[Activate] Step 4: Resolving Logger...');
     const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
-    logger.info('Activating Ptah extension...');
-    console.log('[Activate] Step 2: Logger resolved');
+    logger.info('Activating Ptah extension (licensed user)...', {
+      tier: licenseStatus.tier,
+      valid: licenseStatus.valid,
+    });
+    console.log('[Activate] Step 4: Logger resolved');
 
     // Register RPC Methods (Phase 2 - TASK_2025_021)
     // Extracted to RpcMethodRegistrationService for clean separation
-    console.log('[Activate] Step 3.6: Registering RPC methods...');
+    console.log('[Activate] Step 5: Registering RPC methods...');
     const rpcMethodRegistration = DIContainer.resolve(
       TOKENS.RPC_METHOD_REGISTRATION_SERVICE
     ) as { registerAll: () => void };
     rpcMethodRegistration.registerAll();
-    console.log('[Activate] Step 3.6: RPC methods registered');
+    console.log('[Activate] Step 5: RPC methods registered');
 
     // Initialize autocomplete discovery watchers (TASK_2025_019 Phase 2)
     // NOTE: MCP discovery service was planned but never implemented - only agent and command discovery exist
-    console.log('[Activate] Step 3.7: Initializing autocomplete watchers...');
+    console.log('[Activate] Step 6: Initializing autocomplete watchers...');
     const agentDiscovery = DIContainer.resolve(
       TOKENS.AGENT_DISCOVERY_SERVICE
     ) as { initializeWatchers: () => void };
@@ -50,10 +184,10 @@ export async function activate(
     agentDiscovery.initializeWatchers();
     commandDiscovery.initializeWatchers();
     logger.info('Autocomplete discovery watchers initialized (2 services)');
-    console.log('[Activate] Step 3.7: Autocomplete watchers initialized');
+    console.log('[Activate] Step 6: Autocomplete watchers initialized');
 
-    // Step 3.8: Initialize SDK authentication (TASK_2025_057 Batch 1)
-    console.log('[Activate] Step 3.8: Initializing SDK authentication...');
+    // Step 7: Initialize SDK authentication (TASK_2025_057 Batch 1)
+    console.log('[Activate] Step 7: Initializing SDK authentication...');
     const sdkAdapter = DIContainer.resolve(TOKENS.SDK_AGENT_ADAPTER) as {
       initialize: () => Promise<boolean>;
       preloadSdk: () => Promise<void>;
@@ -67,24 +201,17 @@ export async function activate(
 
       // Pre-load SDK in background (non-blocking) to speed up first chat
       // This shifts ~100-200ms import cost from first user interaction to activation
-      console.log('[Activate] Step 3.8.1: Pre-loading SDK in background...');
+      console.log('[Activate] Step 7.1: Pre-loading SDK in background...');
       sdkAdapter.preloadSdk().catch((err) => {
         logger.warn('SDK preload failed (will retry on first use)', {
           error: err instanceof Error ? err.message : String(err),
         });
       });
     }
-    console.log(
-      '[Activate] Step 3.8: SDK authentication initialization complete'
-    );
+    console.log('[Activate] Step 7: SDK authentication initialization complete');
 
-    // Step 3.9: DELETED in TASK_2025_092
-    // SdkRpcHandlers was dead code - only used for permission emitter initialization
-    // Permission emitter now initialized directly in SdkPermissionHandler constructor
-    // (resolved as part of registerSdkServices in DIContainer.setup)
-
-    // Step 3.10: Import existing Claude Code sessions (TASK_2025_091)
-    console.log('[Activate] Step 3.10: Importing existing sessions...');
+    // Step 8: Import existing Claude Code sessions (TASK_2025_091)
+    console.log('[Activate] Step 8: Importing existing sessions...');
     const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (workspacePath) {
       try {
@@ -107,67 +234,38 @@ export async function activate(
         });
       }
     }
-    console.log('[Activate] Step 3.10: Session import complete');
+    console.log('[Activate] Step 8: Session import complete');
 
     // Initialize main extension controller
-    console.log('[Activate] Step 4: Creating PtahExtension instance...');
+    console.log('[Activate] Step 9: Creating PtahExtension instance...');
     ptahExtension = new PtahExtension(context);
-    console.log('[Activate] Step 4: PtahExtension instance created');
+    console.log('[Activate] Step 9: PtahExtension instance created');
 
-    console.log('[Activate] Step 5: Calling ptahExtension.initialize()...');
+    console.log('[Activate] Step 10: Calling ptahExtension.initialize()...');
     await ptahExtension.initialize();
-    console.log('[Activate] Step 5: ptahExtension.initialize() complete');
+    console.log('[Activate] Step 10: ptahExtension.initialize() complete');
 
     // Show onboarding UI if authentication not configured (TASK_2025_057 Batch 1)
     if (!authInitialized) {
-      console.log('[Activate] Step 5.5: Showing authentication onboarding...');
+      console.log('[Activate] Step 10.1: Showing authentication onboarding...');
       await ptahExtension.showAuthenticationOnboarding();
-      console.log('[Activate] Step 5.5: Authentication onboarding displayed');
+      console.log('[Activate] Step 10.1: Authentication onboarding displayed');
     }
-
-    // Register late-binding adapters (require PtahExtension initialization)
-    console.log('[Activate] Step 6: Registering late-binding adapters...');
-    // NOTE: Most late-binding adapters removed in TASK_2025_023 purge
-    console.log(
-      '[Activate] Step 6: Late-binding adapters registered (analytics removed)'
-    );
 
     // Register all providers, commands, and services
-    console.log('[Activate] Step 7: Calling ptahExtension.registerAll()...');
+    console.log('[Activate] Step 11: Calling ptahExtension.registerAll()...');
     await ptahExtension.registerAll();
-    console.log('[Activate] Step 7: ptahExtension.registerAll() complete');
+    console.log('[Activate] Step 11: ptahExtension.registerAll() complete');
 
     // ========================================
-    // NEW STEP 7.5: LICENSE VERIFICATION
+    // STEP 12: CONDITIONAL MCP SERVER START (TASK_2025_121)
     // ========================================
-    console.log('[Activate] Step 7.5: Verifying license...');
-    const licenseService = DIContainer.resolve<LicenseService>(
-      TOKENS.LICENSE_SERVICE
-    );
-    const licenseStatus: LicenseStatus = await licenseService.verifyLicense();
+    // MCP Server only starts for Pro tier users (Pro-only feature)
+    console.log('[Activate] Step 12: Conditional MCP Server registration...');
 
-    if (licenseStatus.valid && licenseStatus.tier !== 'free') {
-      logger.info('Premium license verified', {
-        tier: licenseStatus.tier,
-        expiresAt: licenseStatus.expiresAt,
-      });
-    } else {
-      logger.info('Free tier user (no premium features)', {
-        reason: licenseStatus.reason || 'no_license',
-      });
-    }
-    console.log(
-      `[Activate] Step 7.5: License verified (tier: ${licenseStatus.tier})`
-    );
-
-    // ========================================
-    // MODIFIED STEP 8: CONDITIONAL MCP SERVER START
-    // ========================================
-    console.log('[Activate] Step 8: Conditional MCP Server registration...');
-
-    if (licenseStatus.valid && licenseStatus.tier !== 'free') {
-      // PREMIUM USER: Register MCP Server
-      logger.info('Registering premium MCP server (licensed user)');
+    if (licenseStatus.tier === 'pro' || licenseStatus.tier === 'trial_pro') {
+      // PRO USER: Register MCP Server (Pro-only feature)
+      logger.info('Registering premium MCP server (Pro tier user)');
       const codeExecutionMCP = DIContainer.resolve(TOKENS.CODE_EXECUTION_MCP);
       const mcpPort = await (
         codeExecutionMCP as { start: () => Promise<number> }
@@ -175,12 +273,16 @@ export async function activate(
       context.subscriptions.push(codeExecutionMCP as vscode.Disposable);
       logger.info(`Code Execution MCP Server started on port ${mcpPort}`);
       console.log(
-        `[Activate] Step 8: Premium MCP Server started (port ${mcpPort})`
+        `[Activate] Step 12: Pro MCP Server started (port ${mcpPort})`
       );
     } else {
-      // FREE USER: Skip MCP Server Registration
-      logger.info('Skipping premium MCP server (free tier user)');
-      console.log('[Activate] Step 8: MCP Server skipped (free tier)');
+      // BASIC USER: Skip MCP Server (Pro-only feature)
+      logger.info('Skipping MCP server (Basic tier - Pro feature only)', {
+        tier: licenseStatus.tier,
+      });
+      console.log(
+        `[Activate] Step 12: MCP Server skipped (tier: ${licenseStatus.tier})`
+      );
     }
 
     // Note: MCP config (.mcp.json) writing removed - SDK tools are now native
@@ -189,20 +291,17 @@ export async function activate(
     // directly with the SDK via mcpServers option in SdkAgentAdapter.
 
     // ========================================
-    // NEW STEP 9: LICENSE STATUS WATCHER
+    // STEP 13: LICENSE STATUS WATCHER
     // ========================================
-    console.log('[Activate] Step 9: Setting up license status watcher...');
+    console.log('[Activate] Step 13: Setting up license status watcher...');
 
     // Handle dynamic license changes (upgrade/expire)
-    licenseService.on('license:verified', async (status: LicenseStatus) => {
-      logger.info('License upgraded - registering premium features', {
-        status,
-      });
-      // Note: Dynamic registration requires checking if MCP is already running
+    licenseService.on('license:verified', async (newStatus: LicenseStatus) => {
+      logger.info('License status changed', { newStatus });
       // For simplicity, we show a message prompting user to reload window
       vscode.window
         .showInformationMessage(
-          'Premium license activated! Reload window to enable premium features.',
+          'License status updated! Reload window to apply changes.',
           'Reload Window'
         )
         .then((action) => {
@@ -212,14 +311,16 @@ export async function activate(
         });
     });
 
-    licenseService.on('license:expired', (status: LicenseStatus) => {
-      logger.warn('License expired - premium features disabled', { status });
+    licenseService.on('license:expired', (newStatus: LicenseStatus) => {
+      logger.warn('License expired - extension will be blocked on reload', {
+        newStatus,
+      });
       vscode.window.showWarningMessage(
-        'Your Ptah premium license has expired. Reload window to disable premium features.'
+        'Your Ptah license has expired. Please renew your subscription to continue using the extension.'
       );
     });
 
-    console.log('[Activate] Step 9: License status watcher initialized');
+    console.log('[Activate] Step 13: License status watcher initialized');
 
     // Background revalidation (every 24 hours)
     const revalidationInterval = setInterval(

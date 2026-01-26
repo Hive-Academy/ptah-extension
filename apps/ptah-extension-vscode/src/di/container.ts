@@ -87,6 +87,48 @@ import { LicenseCommands } from '../commands/license-commands';
  */
 export class DIContainer {
   /**
+   * Minimal DI setup for license verification (TASK_2025_121 Batch 3)
+   *
+   * Called BEFORE license check. Only registers services required for license verification:
+   * 1. EXTENSION_CONTEXT (required by all services)
+   * 2. OUTPUT_MANAGER (required by Logger)
+   * 3. LOGGER (required for logging)
+   * 4. LICENSE_SERVICE (for license verification)
+   *
+   * This minimal setup ensures license can be verified without initializing
+   * unnecessary services that depend on license status.
+   *
+   * @param context - VS Code extension context
+   * @returns Configured DependencyContainer with minimal services
+   */
+  static setupMinimal(context: vscode.ExtensionContext): DependencyContainer {
+    // ========================================
+    // PHASE 0: Extension Context (MUST BE FIRST)
+    // ========================================
+    container.register(TOKENS.EXTENSION_CONTEXT, { useValue: context });
+
+    // ========================================
+    // PHASE 1: Logger Dependencies
+    // ========================================
+    // CRITICAL: OutputManager must be registered BEFORE Logger
+    // because Logger depends on OutputManager (@inject(OUTPUT_MANAGER))
+    container.registerSingleton(TOKENS.OUTPUT_MANAGER, OutputManager);
+
+    // Now Logger can be registered and resolved safely
+    container.registerSingleton(TOKENS.LOGGER, Logger);
+
+    // ========================================
+    // PHASE 2: License Service for verification
+    // ========================================
+    // License Service only depends on EXTENSION_CONTEXT and LOGGER
+    // Import LicenseService locally to avoid circular dependencies
+    const { LicenseService } = require('@ptah-extension/vscode-core');
+    container.registerSingleton(TOKENS.LICENSE_SERVICE, LicenseService);
+
+    return container;
+  }
+
+  /**
    * Setup and orchestrate all service registrations
    *
    * Order matters:
@@ -100,6 +142,9 @@ export class DIContainer {
    * 8. template-generation (NEW)
    * 9. App-level services (RPC, storage, webview)
    *
+   * IMPORTANT (TASK_2025_121): This method should only be called AFTER license
+   * verification passes. Use setupMinimal() first to check license status.
+   *
    * @param context - VS Code extension context
    * @returns Configured DependencyContainer
    */
@@ -107,19 +152,27 @@ export class DIContainer {
     // ========================================
     // PHASE 0: Extension Context (MUST BE FIRST)
     // ========================================
-    // Extension Context must be registered BEFORE any services that depend on it
-    container.register(TOKENS.EXTENSION_CONTEXT, { useValue: context });
+    // TASK_2025_121: Check if already registered by setupMinimal()
+    // If not, register now (supports both flows: with/without setupMinimal)
+    if (!container.isRegistered(TOKENS.EXTENSION_CONTEXT)) {
+      container.register(TOKENS.EXTENSION_CONTEXT, { useValue: context });
+    }
 
     // ========================================
     // PHASE 1: Infrastructure Services (vscode-core)
     // ========================================
+    // TASK_2025_121: Check if already registered by setupMinimal()
     // CRITICAL: OutputManager must be registered BEFORE Logger
     // because Logger depends on OutputManager (@inject(OUTPUT_MANAGER))
     // Dependency chain: Logger → OutputManager → EXTENSION_CONTEXT
-    container.registerSingleton(TOKENS.OUTPUT_MANAGER, OutputManager);
+    if (!container.isRegistered(TOKENS.OUTPUT_MANAGER)) {
+      container.registerSingleton(TOKENS.OUTPUT_MANAGER, OutputManager);
+    }
 
     // Now Logger can be registered and resolved safely
-    container.registerSingleton(TOKENS.LOGGER, Logger);
+    if (!container.isRegistered(TOKENS.LOGGER)) {
+      container.registerSingleton(TOKENS.LOGGER, Logger);
+    }
     const logger = container.resolve<Logger>(TOKENS.LOGGER);
 
     // PHASE 1.5: Register remaining vscode-core infrastructure services

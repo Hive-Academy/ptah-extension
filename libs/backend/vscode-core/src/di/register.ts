@@ -32,6 +32,7 @@ import { AgentSessionWatcherService } from '../services/agent-session-watcher.se
 import { WebviewMessageHandlerService } from '../services/webview-message-handler.service';
 import { AuthSecretsService } from '../services/auth-secrets.service';
 import { LicenseService } from '../services/license.service';
+import { FeatureGateService } from '../services/feature-gate.service';
 
 /**
  * Register vscode-core infrastructure services in DI container
@@ -119,8 +120,18 @@ export function registerVsCodeCoreServices(
 
   // ============================================================
   // License Service (TASK_2025_075 Batch 5)
+  // TASK_2025_121: Skip if already registered by setupMinimal()
   // ============================================================
-  container.registerSingleton(TOKENS.LICENSE_SERVICE, LicenseService);
+  if (!container.isRegistered(TOKENS.LICENSE_SERVICE)) {
+    container.registerSingleton(TOKENS.LICENSE_SERVICE, LicenseService);
+  }
+
+  // ============================================================
+  // Feature Gate Service (TASK_2025_121 Batch 3)
+  // Provides centralized feature access control based on license tier
+  // Depends on LICENSE_SERVICE (must be registered after)
+  // ============================================================
+  container.registerSingleton(TOKENS.FEATURE_GATE_SERVICE, FeatureGateService);
 
   logger.info('[VS Code Core] Infrastructure services registered', {
     services: [
@@ -137,6 +148,7 @@ export function registerVsCodeCoreServices(
       'WEBVIEW_MESSAGE_HANDLER',
       'AUTH_SECRETS_SERVICE',
       'LICENSE_SERVICE',
+      'FEATURE_GATE_SERVICE',
     ],
   });
 }

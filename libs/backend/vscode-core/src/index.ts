@@ -114,3 +114,10 @@ export type {
   LicenseEvents,
   LicenseTierValue,
 } from './services/license.service';
+
+// Feature Gate Service (TASK_2025_121)
+export { FeatureGateService } from './services/feature-gate.service';
+export type {
+  Feature,
+  ProOnlyFeature,
+} from './services/feature-gate.service';

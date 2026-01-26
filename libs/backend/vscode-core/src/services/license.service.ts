@@ -5,6 +5,13 @@
  * Uses VS Code's SecretStorage for encrypted license key storage.
  *
  * TASK_2025_075 Batch 5: License verification with 1-hour cache
+ * TASK_2025_121 Batch 3: Added offline grace period (7 days) for network failures
+ *
+ * Offline Grace Period:
+ * - When network verification fails, the service checks for a persisted cache
+ * - If cache exists and is within 7-day grace period, use cached license status
+ * - Grace period is for NETWORK FAILURES only (not expired licenses)
+ * - Clear warning logged when using offline cache
  *
  * @packageDocumentation
  */
@@ -14,6 +21,21 @@ import * as vscode from 'vscode';
 import EventEmitter from 'eventemitter3';
 import { Logger } from '../logging';
 import { TOKENS } from '../di/tokens';
+
+/**
+ * Persisted cache structure for offline grace period
+ *
+ * Stored in VS Code globalState to survive restarts.
+ * Used when network verification fails.
+ */
+interface PersistedLicenseCache {
+  /** Cached license status */
+  status: LicenseStatus;
+  /** Timestamp when cache was persisted (ms since epoch) */
+  persistedAt: number;
+  /** Timestamp when cache was last validated (ms since epoch) */
+  lastValidatedAt: number;
+}
 
 /**
  * License tier values for the two-tier paid model
@@ -95,11 +117,25 @@ export interface LicenseEvents {
 @injectable()
 export class LicenseService extends EventEmitter<LicenseEvents> {
   private static readonly SECRET_KEY = 'ptah.licenseKey';
+  private static readonly PERSISTED_CACHE_KEY = 'ptah.licenseCache';
   private static readonly LICENSE_SERVER_URL =
     process.env['PTAH_LICENSE_SERVER_URL'] || 'https://api.ptah.dev';
   private static readonly CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
   private static readonly NETWORK_TIMEOUT_MS = 5000; // 5 seconds
 
+  /**
+   * Offline grace period: 7 days
+   *
+   * TASK_2025_121 Batch 3: Grace period for network failures
+   * - When network verification fails, use persisted cache if within grace period
+   * - Grace period is ONLY for network failures (not expired licenses)
+   * - After grace period, license is treated as expired
+   */
+  private static readonly GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+  /**
+   * In-memory cache for quick access (1-hour TTL)
+   */
   private cache: {
     status: LicenseStatus | null;
     timestamp: number | null;
@@ -115,6 +151,21 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
     this.logger.info('[LicenseService.constructor] Service initialized', {
       serverUrl: LicenseService.LICENSE_SERVER_URL,
       cacheTtlMs: LicenseService.CACHE_TTL_MS,
+      gracePeriodMs: LicenseService.GRACE_PERIOD_MS,
+    });
+
+    // Load persisted cache on initialization (for offline grace period)
+    this.loadPersistedCache().then((persistedCache) => {
+      if (persistedCache) {
+        this.logger.debug(
+          '[LicenseService.constructor] Loaded persisted cache',
+          {
+            tier: persistedCache.status.tier,
+            persistedAt: new Date(persistedCache.persistedAt).toISOString(),
+            isWithinGracePeriod: this.isWithinGracePeriod(persistedCache),
+          }
+        );
+      }
     });
   }
 
@@ -214,6 +265,12 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
         this.updateCache(status);
         this.emitLicenseEvent(status);
 
+        // Step 5: Persist cache to globalState (TASK_2025_121 - offline grace period)
+        // Only persist valid licenses (we don't want to cache expired status)
+        if (status.valid) {
+          await this.persistCacheToStorage(status);
+        }
+
         this.logger.info(
           '[LicenseService.verifyLicense] License verified successfully',
           {
@@ -233,10 +290,34 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
         error: error instanceof Error ? error.message : String(error),
       });
 
-      // Graceful degradation: Return cached status if available
+      // TASK_2025_121: Check offline grace period cache
+      // Grace period is for NETWORK FAILURES only (not expired licenses)
+      const persistedCache = await this.loadPersistedCache();
+
+      if (persistedCache && this.isWithinGracePeriod(persistedCache)) {
+        // Within grace period - use persisted cache
+        this.logger.warn(
+          '[LicenseService.verifyLicense] Network error - using offline cached license (grace period)',
+          {
+            tier: persistedCache.status.tier,
+            persistedAt: new Date(persistedCache.persistedAt).toISOString(),
+            gracePeriodRemaining: this.getGracePeriodRemaining(persistedCache),
+          }
+        );
+
+        // Update in-memory cache from persisted cache
+        this.cache = {
+          status: persistedCache.status,
+          timestamp: persistedCache.lastValidatedAt,
+        };
+
+        return persistedCache.status;
+      }
+
+      // Outside grace period or no cache - check in-memory cache
       if (this.cache.status) {
         this.logger.warn(
-          '[LicenseService.verifyLicense] Returning stale cached status',
+          '[LicenseService.verifyLicense] Returning stale in-memory cached status',
           {
             tier: this.cache.status.tier,
             cacheAge: Date.now() - this.cache.timestamp!,
@@ -245,7 +326,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
         return this.cache.status;
       }
 
-      // TASK_2025_121: No cache = expired (extension blocked)
+      // TASK_2025_121: No cache and outside grace period = expired (extension blocked)
       const expiredStatus: LicenseStatus = {
         valid: false,
         tier: 'expired',
@@ -303,6 +384,9 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
   async clearLicenseKey(): Promise<void> {
     await this.context.secrets.delete(LicenseService.SECRET_KEY);
     this.logger.info('[LicenseService.clearLicenseKey] License key removed');
+
+    // TASK_2025_121: Clear persisted cache as well (no grace period for manual removal)
+    await this.clearPersistedCache();
 
     // TASK_2025_121: Update to expired tier (extension blocked)
     const expiredStatus: LicenseStatus = {
@@ -385,5 +469,133 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
     } else {
       this.emit('license:expired', status);
     }
+  }
+
+  // ============================================================
+  // TASK_2025_121 Batch 3: Offline Grace Period Methods
+  // ============================================================
+
+  /**
+   * Persist license cache to VS Code globalState
+   *
+   * Persisted cache survives VS Code restarts and is used for offline grace period.
+   * Only called when license verification succeeds (valid license).
+   *
+   * @param status - Valid license status to persist
+   */
+  private async persistCacheToStorage(status: LicenseStatus): Promise<void> {
+    const persistedCache: PersistedLicenseCache = {
+      status,
+      persistedAt: Date.now(),
+      lastValidatedAt: Date.now(),
+    };
+
+    await this.context.globalState.update(
+      LicenseService.PERSISTED_CACHE_KEY,
+      persistedCache
+    );
+
+    this.logger.debug(
+      '[LicenseService.persistCacheToStorage] Cache persisted to globalState',
+      {
+        tier: status.tier,
+        persistedAt: new Date(persistedCache.persistedAt).toISOString(),
+      }
+    );
+  }
+
+  /**
+   * Load persisted cache from VS Code globalState
+   *
+   * Used for offline grace period when network verification fails.
+   *
+   * @returns Persisted cache or null if not found
+   */
+  private async loadPersistedCache(): Promise<PersistedLicenseCache | null> {
+    const persistedCache = this.context.globalState.get<PersistedLicenseCache>(
+      LicenseService.PERSISTED_CACHE_KEY
+    );
+
+    if (!persistedCache) {
+      return null;
+    }
+
+    // Validate cache structure
+    if (
+      !persistedCache.status ||
+      typeof persistedCache.persistedAt !== 'number'
+    ) {
+      this.logger.warn(
+        '[LicenseService.loadPersistedCache] Invalid persisted cache structure, clearing'
+      );
+      await this.clearPersistedCache();
+      return null;
+    }
+
+    return persistedCache;
+  }
+
+  /**
+   * Clear persisted cache from VS Code globalState
+   *
+   * Called when license key is removed or cache is invalid.
+   */
+  private async clearPersistedCache(): Promise<void> {
+    await this.context.globalState.update(
+      LicenseService.PERSISTED_CACHE_KEY,
+      undefined
+    );
+
+    this.logger.debug(
+      '[LicenseService.clearPersistedCache] Persisted cache cleared'
+    );
+  }
+
+  /**
+   * Check if persisted cache is within grace period (7 days)
+   *
+   * Grace period is for NETWORK FAILURES only:
+   * - Cache must exist
+   * - Cache must be within 7-day grace period
+   * - Original cached license must have been valid
+   *
+   * @param cache - Persisted cache to check
+   * @returns true if within grace period
+   */
+  private isWithinGracePeriod(cache: PersistedLicenseCache): boolean {
+    // Grace period only applies to valid licenses
+    if (!cache.status.valid) {
+      return false;
+    }
+
+    const gracePeriodEnd =
+      cache.persistedAt + LicenseService.GRACE_PERIOD_MS;
+    return Date.now() < gracePeriodEnd;
+  }
+
+  /**
+   * Get remaining time in grace period (in human-readable format)
+   *
+   * @param cache - Persisted cache
+   * @returns Remaining time string (e.g., "3 days 5 hours")
+   */
+  private getGracePeriodRemaining(cache: PersistedLicenseCache): string {
+    const gracePeriodEnd =
+      cache.persistedAt + LicenseService.GRACE_PERIOD_MS;
+    const remainingMs = gracePeriodEnd - Date.now();
+
+    if (remainingMs <= 0) {
+      return '0 days';
+    }
+
+    const days = Math.floor(remainingMs / (24 * 60 * 60 * 1000));
+    const hours = Math.floor(
+      (remainingMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000)
+    );
+
+    if (days > 0) {
+      return `${days} day${days === 1 ? '' : 's'} ${hours} hour${hours === 1 ? '' : 's'}`;
+    }
+    return `${hours} hour${hours === 1 ? '' : 's'}`;
   }
 }
