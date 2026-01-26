@@ -9,16 +9,10 @@ import {
   ElementRef,
 } from '@angular/core';
 import { isPlatformBrowser, NgOptimizedImage } from '@angular/common';
-import {
-  GsapCoreService,
-  ScrollAnimationDirective,
-  ScrollAnimationConfig,
-  ViewportAnimationDirective,
-  ViewportAnimationConfig,
-} from '@hive-academy/angular-gsap';
+import { GsapCoreService } from '@hive-academy/angular-gsap';
 
 /**
- * Configuration for a floating image with parallax depth
+ * Configuration for a floating image in the orbital animation
  */
 interface FloatingImage {
   /** Image source path */
@@ -27,73 +21,53 @@ interface FloatingImage {
   alt: string;
   /** Size in pixels */
   size: number;
-  /** Initial position (percentage from edge) */
-  position: {
-    top?: string;
-    bottom?: string;
-    left?: string;
-    right?: string;
-  };
-  /** Parallax depth multiplier (0.1-1.0, lower = slower/farther) */
-  depth: number;
-  /** Initial rotation in degrees */
+  /** Starting angle offset in degrees (0, 90, 180, 270 for 4 images) */
+  angleOffset: number;
+  /** Image rotation for visual interest */
   rotation: number;
-  /** Scroll parallax speed (different from mouse depth for layered effect) */
-  scrollSpeed: number;
   /** Slide direction for entrance animation */
   slideDirection: 'slideLeft' | 'slideRight';
 }
 
 /**
- * HeroFloatingImagesComponent - Floating Egyptian symbols with mouse + scroll parallax
+ * HeroFloatingImagesComponent - Orbital Egyptian symbols around hero
  *
  * Features:
- * - 4 floating images positioned around hero
- * - Viewport entrance animation using ViewportAnimationDirective (slide from left/right)
- * - Mouse-following parallax using GSAP quickTo (faster than mouse movement)
- * - Scroll parallax using ScrollAnimationDirective (depth effect)
- * - Different depths for 3D parallax effect
- * - Respects prefers-reduced-motion
+ * - 4 floating images orbiting around hero center (race track style)
+ * - Continuous clockwise rotation (20 seconds per full orbit)
+ * - Mouse-controlled orbit radius (center = smaller, edges = larger)
+ * - Viewport entrance animation using ViewportAnimationDirective
  * - Circular images with amber glow effect
+ * - Respects prefers-reduced-motion
  */
 @Component({
   selector: 'ptah-hero-floating-images',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
-    NgOptimizedImage,
-    ScrollAnimationDirective,
-    ViewportAnimationDirective,
-  ],
+  imports: [NgOptimizedImage],
   template: `
     <div
       class="absolute inset-0 pointer-events-none overflow-hidden"
       aria-hidden="true"
     >
-      @for (image of floatingImages; track image.src; let i = $index) {
-      <!-- Outer scroll parallax wrapper -->
+      <!-- Orbit container centered on hero -->
       <div
-        scrollAnimation
-        [scrollConfig]="getScrollConfig(image.scrollSpeed)"
-        class="absolute"
-        [style.top]="image.position.top || 'auto'"
-        [style.bottom]="image.position.bottom || 'auto'"
-        [style.left]="image.position.left || 'auto'"
-        [style.right]="image.position.right || 'auto'"
+        class="orbit-container absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
       >
-        <!-- Viewport entrance animation wrapper -->
+        @for (image of floatingImages; track image.src; let i = $index) {
+        <!-- Orbit item - positioned and animated via GSAP -->
         <div
-          viewportAnimation
-          [viewportConfig]="getViewportConfig(image.slideDirection, i)"
-          (viewportEnter)="onViewportEnter(i)"
+          class="orbit-item absolute"
+          [attr.data-index]="i"
+          [attr.data-direction]="image.slideDirection"
         >
-          <!-- Inner mouse parallax target -->
+          <!-- Floating image -->
           <div
             class="floating-image"
             [style.width.px]="image.size"
             [style.height.px]="image.size"
             [style.opacity]="reducedMotion() ? 0.6 : 0.85"
-            [attr.data-depth]="image.depth"
-            [attr.data-index]="i"
+            [style.marginLeft.px]="-image.size / 2"
+            [style.marginTop.px]="-image.size / 2"
           >
             <div
               class="relative w-full h-full rounded-full overflow-hidden shadow-2xl"
@@ -119,8 +93,8 @@ interface FloatingImage {
             </div>
           </div>
         </div>
+        }
       </div>
-      }
     </div>
   `,
   styles: [
@@ -132,12 +106,24 @@ interface FloatingImage {
         z-index: 4;
       }
 
+      .orbit-container {
+        width: 0;
+        height: 0;
+      }
+
+      .orbit-item {
+        top: 0;
+        left: 0;
+        will-change: transform;
+      }
+
       .floating-image {
         will-change: transform;
       }
 
       /* Reduced motion - disable animations */
       @media (prefers-reduced-motion: reduce) {
+        .orbit-item,
         .floating-image {
           animation: none !important;
           transform: none !important;
@@ -154,103 +140,61 @@ export class HeroFloatingImagesComponent implements OnDestroy {
   /** Whether user prefers reduced motion */
   public readonly reducedMotion = signal(false);
 
-  /** Mouse position for parallax calculation */
-  private readonly mouseX = signal(0);
-  private readonly mouseY = signal(0);
+  /** Current orbit radius (controlled by mouse) */
+  private readonly currentRadius = signal(280);
 
-  /** GSAP quickTo functions for smooth animation */
-  private quickToFunctions: Map<
-    number,
-    { x: gsap.QuickToFunc; y: gsap.QuickToFunc }
-  > = new Map();
+  /** Orbit configuration */
+  private readonly MIN_RADIUS = 430;
+  private readonly MAX_RADIUS = 260;
+  private readonly ROTATION_DURATION = 25; // seconds for full orbit
+
+  /** GSAP animation timeline */
+  private orbitTimeline: gsap.core.Timeline | null = null;
+
+  /** GSAP quickTo for smooth radius transitions */
+  private radiusQuickTo: gsap.QuickToFunc | null = null;
 
   /** Mouse move listener cleanup */
   private mouseMoveCleanup: (() => void) | null = null;
 
-  /** Track which images have entered viewport (for mouse parallax activation) */
-  private viewportEnteredImages = new Set<number>();
+  /** Current angle offset for the orbit (0-360) */
+  private currentAngle = 0;
 
-  /** Configuration for all floating images with mouse + scroll parallax */
+  /** Configuration for all floating images in orbital animation */
   public readonly floatingImages: FloatingImage[] = [
     {
       src: '/assets/textures/ankh-sphere.png',
       alt: 'Ankh symbol',
       size: 180,
-      position: { top: '8%', left: '22%' },
-      depth: 0.15, // Mouse parallax: Slowest - appears farthest
+      angleOffset: 0, // 12 o'clock position
       rotation: -10,
-      scrollSpeed: 0.7, // Scroll parallax: Slow
-      slideDirection: 'slideRight', // Slides in from left
+      slideDirection: 'slideRight',
     },
     {
       src: '/assets/textures/scarab.png',
       alt: 'Sacred scarab',
       size: 160,
-      position: { top: '12%', right: '20%' },
-      depth: 0.25,
+      angleOffset: 90, // 3 o'clock position
       rotation: 5,
-      scrollSpeed: 1.55, // Scroll parallax: Medium
-      slideDirection: 'slideLeft', // Slides in from right
+      slideDirection: 'slideLeft',
     },
     {
       src: '/assets/textures/eye_of_horus.png',
       alt: 'Eye of Horus',
       size: 150,
-      position: { bottom: '15%', left: '20%' },
-      depth: 0.35,
+      angleOffset: 180, // 6 o'clock position
       rotation: -5,
-      scrollSpeed: 1.95, // Scroll parallax: Faster
-      slideDirection: 'slideRight', // Slides in from left
+      slideDirection: 'slideRight',
     },
     {
       src: '/assets/textures/sun_disk_ra.png',
       alt: 'Sun disk of Ra',
       size: 170,
-      position: { bottom: '8%', right: '22%' },
-      depth: 0.2,
+      angleOffset: 270, // 9 o'clock position
       rotation: 8,
-      scrollSpeed: 0.7, // Scroll parallax: Medium-slow
-      slideDirection: 'slideLeft', // Slides in from right
+      slideDirection: 'slideLeft',
     },
   ];
-
-  /**
-   * Generate scroll parallax config for each image based on its speed
-   * Different speeds create layered depth effect on scroll
-   */
-  public getScrollConfig(speed: number): ScrollAnimationConfig {
-    return {
-      animation: 'parallax',
-      speed: speed,
-      scrub: 1.5,
-    };
-  }
-
-  /**
-   * Generate viewport entrance animation config
-   * Images slide in from left or right with staggered delays
-   */
-  public getViewportConfig(
-    direction: 'slideLeft' | 'slideRight',
-    index: number
-  ): ViewportAnimationConfig {
-    return {
-      animation: direction,
-      duration: 1.2,
-      delay: 0.1 + index * 0.15, // Stagger effect
-      ease: 'power3.out',
-      distance: 300,
-      once: true, // Only animate once
-    };
-  }
-
-  /**
-   * Called when an image enters the viewport
-   * Enables mouse parallax for that image
-   */
-  public onViewportEnter(index: number): void {
-    this.viewportEnteredImages.add(index);
-  }
 
   public constructor() {
     afterNextRender(() => {
@@ -263,7 +207,12 @@ export class HeroFloatingImagesComponent implements OnDestroy {
       this.reducedMotion.set(prefersReducedMotion);
 
       if (!prefersReducedMotion) {
-        this.initializeAnimations();
+        this.initializeMouseTracking();
+        // Start entrance animation which leads to orbit
+        this.playEntranceAnimation();
+      } else {
+        // For reduced motion, just set final positions
+        this.setInitialOrbitPositions();
       }
     });
   }
@@ -273,79 +222,185 @@ export class HeroFloatingImagesComponent implements OnDestroy {
   }
 
   /**
-   * Initialize mouse parallax animations
-   * Entrance animations are handled by ViewportAnimationDirective
+   * Set initial positions on the orbit circle
+   * Called immediately so images are positioned before entrance animation
    */
-  private initializeAnimations(): void {
+  private setInitialOrbitPositions(): void {
+    const container = this.elementRef.nativeElement as HTMLElement;
+    const orbitItems = container.querySelectorAll('.orbit-item');
+    this.updateOrbitPositions(orbitItems, 0);
+  }
+
+  /**
+   * Calculate the orbital position for an image at a given angle
+   */
+  private getOrbitPosition(
+    index: number,
+    baseAngle: number
+  ): { x: number; y: number } {
+    const radius = this.currentRadius();
+    const image = this.floatingImages[index];
+    const angle = baseAngle + image.angleOffset;
+    const radians = (angle * Math.PI) / 180;
+
+    return {
+      x: Math.sin(radians) * radius,
+      y: -Math.cos(radians) * radius,
+    };
+  }
+
+  /**
+   * Play entrance animation - images slide from off-screen to their orbital positions
+   * Then starts the continuous orbit rotation
+   */
+  private playEntranceAnimation(): void {
     const gsap = this.gsapCore.gsap;
     if (!gsap) return;
 
     const container = this.elementRef.nativeElement as HTMLElement;
-    const images = container.querySelectorAll('.floating-image');
+    const orbitItems = container.querySelectorAll('.orbit-item');
+    const entranceDistance = 400;
 
-    // Create quickTo functions for smooth mouse tracking
-    images.forEach((imageEl, index) => {
-      const element = imageEl as HTMLElement;
+    // Set initial state: hidden and offset based on slide direction
+    orbitItems.forEach((item, index) => {
+      const element = item as HTMLElement;
+      const image = this.floatingImages[index];
+      const targetPos = this.getOrbitPosition(index, 0);
 
-      const xTo = gsap.quickTo(element, 'x', {
-        duration: 0.6,
-        ease: 'power2.out',
+      // Calculate start position (off-screen based on direction)
+      const offsetX =
+        image.slideDirection === 'slideRight'
+          ? -entranceDistance
+          : entranceDistance;
+
+      gsap.set(element, {
+        x: targetPos.x + offsetX,
+        y: targetPos.y,
+        opacity: 0,
       });
-      const yTo = gsap.quickTo(element, 'y', {
-        duration: 0.6,
-        ease: 'power2.out',
-      });
-
-      this.quickToFunctions.set(index, { x: xTo, y: yTo });
     });
 
-    // Set up mouse move listener
-    this.setupMouseTracking();
+    // Animate each image to its orbital position with stagger
+    orbitItems.forEach((item, index) => {
+      const element = item as HTMLElement;
+      const targetPos = this.getOrbitPosition(index, 0);
+
+      gsap.to(element, {
+        x: targetPos.x,
+        y: targetPos.y,
+        opacity: 1,
+        duration: 1.2,
+        delay: 0.1 + index * 0.15,
+        ease: 'power3.out',
+        onComplete:
+          index === orbitItems.length - 1
+            ? () => this.startOrbitAnimation()
+            : undefined,
+      });
+    });
   }
 
   /**
-   * Set up mouse movement tracking for parallax effect
-   * Images move faster than the mouse cursor for dramatic effect
+   * Start the continuous orbital animation
    */
-  private setupMouseTracking(): void {
+  private startOrbitAnimation(): void {
+    const gsap = this.gsapCore.gsap;
+    if (!gsap || this.reducedMotion()) return;
+
+    const container = this.elementRef.nativeElement as HTMLElement;
+    const orbitItems = container.querySelectorAll('.orbit-item');
+
+    // Set initial positions
+    this.updateOrbitPositions(orbitItems, 0);
+
+    // Create continuous rotation animation
+    this.orbitTimeline = gsap.timeline({ repeat: -1 });
+
+    this.orbitTimeline.to(
+      {},
+      {
+        duration: this.ROTATION_DURATION,
+        ease: 'none',
+        onUpdate: () => {
+          // Calculate current angle based on timeline progress
+          const progress = this.orbitTimeline?.progress() || 0;
+          this.currentAngle = progress * 360;
+          this.updateOrbitPositions(orbitItems, this.currentAngle);
+        },
+      }
+    );
+
+    // Create quickTo for smooth radius changes
+    const radiusProxy = { value: this.currentRadius() };
+    this.radiusQuickTo = gsap.quickTo(radiusProxy, 'value', {
+      duration: 0.8,
+      ease: 'power2.out',
+      onUpdate: () => {
+        this.currentRadius.set(radiusProxy.value);
+      },
+    });
+  }
+
+  /**
+   * Update positions of all orbit items based on current angle and radius
+   */
+  private updateOrbitPositions(
+    items: NodeListOf<Element>,
+    baseAngle: number
+  ): void {
+    const radius = this.currentRadius();
+
+    items.forEach((item, index) => {
+      const element = item as HTMLElement;
+      const image = this.floatingImages[index];
+
+      // Calculate position: base angle + individual offset
+      // Clockwise: we add angles (in standard math, this would be counter-clockwise,
+      // but since Y-axis is inverted in screen coordinates, it becomes clockwise)
+      const angle = baseAngle + image.angleOffset;
+      const radians = (angle * Math.PI) / 180;
+
+      // Calculate x, y position on the circle
+      const x = Math.sin(radians) * radius;
+      const y = -Math.cos(radians) * radius; // Negative because Y is inverted
+
+      element.style.transform = `translate(${x}px, ${y}px)`;
+    });
+  }
+
+  /**
+   * Set up mouse movement tracking for dynamic radius
+   */
+  private initializeMouseTracking(): void {
     if (!isPlatformBrowser(this.platformId)) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      // Calculate mouse position relative to viewport center
+      // Calculate mouse distance from viewport center
       const centerX = window.innerWidth / 2;
       const centerY = window.innerHeight / 2;
 
-      // Normalized mouse position (-1 to 1)
-      const normalizedX = (e.clientX - centerX) / centerX;
-      const normalizedY = (e.clientY - centerY) / centerY;
+      const deltaX = e.clientX - centerX;
+      const deltaY = e.clientY - centerY;
 
-      this.mouseX.set(normalizedX);
-      this.mouseY.set(normalizedY);
+      // Normalized distance from center (0 at center, 1 at corners)
+      const maxDistance = Math.sqrt(centerX * centerX + centerY * centerY);
+      const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+      const normalizedDistance = Math.min(distance / maxDistance, 1);
 
-      // Apply parallax to each image based on depth
-      // Images move FASTER than mouse (multiplier > 1) for dramatic effect
-      this.quickToFunctions.forEach((quickTo, index) => {
-        // Only apply parallax to images that have entered viewport
-        if (!this.viewportEnteredImages.has(index)) return;
+      // Interpolate radius based on mouse distance from center
+      const targetRadius =
+        this.MIN_RADIUS +
+        normalizedDistance * (this.MAX_RADIUS - this.MIN_RADIUS);
 
-        const image = this.floatingImages[index];
-        const baseOffset = 120; // Base pixel offset (increased for faster movement)
-        const speedMultiplier = 2.5; // Images move 2.5x faster than mouse
-
-        // Calculate offset: negative = opposite direction (follows mouse)
-        // depth creates layered parallax (farther objects move less)
-        const depthFactor = 0.5 + image.depth * 1.5; // Range: 0.65 to 1.025
-        const offsetX =
-          normalizedX * baseOffset * depthFactor * speedMultiplier * -1;
-        const offsetY =
-          normalizedY * baseOffset * depthFactor * speedMultiplier * -1;
-
-        quickTo.x(offsetX);
-        quickTo.y(offsetY);
-      });
+      // Use quickTo for smooth transition
+      if (this.radiusQuickTo) {
+        this.radiusQuickTo(targetRadius);
+      } else {
+        this.currentRadius.set(targetRadius);
+      }
     };
 
-    // Add throttled mouse move listener
+    // Throttled mouse move listener
     let ticking = false;
     const throttledHandler = (e: MouseEvent) => {
       if (!ticking) {
@@ -368,16 +423,18 @@ export class HeroFloatingImagesComponent implements OnDestroy {
    * Clean up all animations and listeners
    */
   private cleanup(): void {
-    // Clear quickTo functions
-    this.quickToFunctions.clear();
-
-    // Clear viewport tracking
-    this.viewportEnteredImages.clear();
+    // Kill orbit timeline
+    if (this.orbitTimeline) {
+      this.orbitTimeline.kill();
+      this.orbitTimeline = null;
+    }
 
     // Remove mouse listener
     if (this.mouseMoveCleanup) {
       this.mouseMoveCleanup();
       this.mouseMoveCleanup = null;
     }
+
+    this.radiusQuickTo = null;
   }
 }

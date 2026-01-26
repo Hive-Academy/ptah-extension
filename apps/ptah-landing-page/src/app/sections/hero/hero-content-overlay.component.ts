@@ -62,19 +62,19 @@ import {
       <div
         viewportAnimation
         [viewportConfig]="ctaConfig"
-        class="flex flex-col sm:flex-row gap-4 mb-16"
+        class="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-12 sm:mb-16 w-full sm:w-auto px-2 sm:px-0"
       >
         <a
           href="https://marketplace.visualstudio.com/items?itemName=ptah.ptah"
           target="_blank"
           rel="noopener"
-          class="px-8 py-4 text-base font-semibold text-slate-900 bg-gradient-to-r from-amber-400 to-amber-500 rounded-lg hover:from-amber-300 hover:to-amber-400 transform hover:-translate-y-0.5 transition-all duration-200 shadow-lg shadow-amber-500/25"
+          class="px-5 sm:px-8 py-3 sm:py-4 text-sm sm:text-base font-semibold text-slate-900 bg-gradient-to-r from-amber-400 to-amber-500 rounded-lg hover:from-amber-300 hover:to-amber-400 transform hover:-translate-y-0.5 transition-all duration-200 shadow-lg shadow-amber-500/25 text-center"
         >
           Install Free from VS Code Marketplace
         </a>
         <a
           href="#demo"
-          class="px-8 py-4 text-base font-medium text-white/90 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-white/20 transition-all duration-200"
+          class="px-5 sm:px-8 py-3 sm:py-4 text-sm sm:text-base font-medium text-white/90 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-white/20 transition-all duration-200 text-center"
         >
           Watch 3-Minute Demo
         </a>
@@ -84,14 +84,14 @@ import {
       <div
         viewportAnimation
         [viewportConfig]="socialProofConfig"
-        class="grid grid-cols-2 gap-4 sm:gap-6 md:flex md:flex-wrap md:justify-center md:gap-10"
+        class="grid grid-cols-2 gap-x-6 gap-y-4 sm:gap-6 md:flex md:flex-wrap md:justify-center md:gap-10 w-full max-w-sm sm:max-w-none mx-auto"
       >
         @for (stat of stats; track stat.value) {
-        <div class="flex items-baseline gap-2">
-          <span class="text-2xl font-semibold text-white/90">{{
+        <div class="flex items-baseline justify-center gap-1.5 sm:gap-2">
+          <span class="text-xl sm:text-2xl font-semibold text-white/90">{{
             stat.value
           }}</span>
-          <span class="text-sm text-white/50">{{ stat.label }}</span>
+          <span class="text-xs sm:text-sm text-white/50">{{ stat.label }}</span>
         </div>
         }
       </div>
