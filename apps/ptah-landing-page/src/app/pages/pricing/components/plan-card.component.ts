@@ -50,6 +50,18 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
       </div>
       }
 
+      <!-- Trial Badge -->
+      @if (plan().trialDays && !plan().highlight) {
+      <div
+        class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+               bg-gradient-to-r from-sky-500 to-cyan-500 rounded-full
+               text-xs font-bold text-base-100 uppercase tracking-wider
+               shadow-lg shadow-sky-500/30"
+      >
+        {{ plan().trialDays }}-Day Free Trial
+      </div>
+      }
+
       <!-- LIMITED Badge (Early Adopter only) -->
       @if (plan().badge) {
       <img
@@ -82,7 +94,7 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
             [ngClass]="{
               'bg-gradient-to-r from-amber-300 to-secondary bg-clip-text text-transparent':
                 plan().highlight || plan().tier === 'pro',
-              'text-base-content': plan().tier === 'free'
+              'text-base-content': plan().tier === 'basic'
             }"
           >
             {{ plan().price }}
@@ -191,6 +203,7 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
     `
       :host {
         display: block;
+        height: 100%;
       }
     `,
   ],

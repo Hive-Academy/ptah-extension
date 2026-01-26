@@ -10,7 +10,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
-import { PlanCardComponent } from './plan-card.component';
+import { BasicPlanCardComponent } from './basic-plan-card.component';
 import { ProPlanCardComponent } from './pro-plan-card.component';
 import { PricingPlan } from '../models/pricing-plan.interface';
 import {
@@ -26,19 +26,20 @@ import { LucideAngularModule, TriangleAlert, CircleX } from 'lucide-angular';
 /**
  * PricingGridComponent - Grid of pricing plan cards
  *
- * Ptah Pricing Model (2 plans only):
- * - Free: Visual interface with user's own Claude Pro/Max subscription
- * - Pro: $3/month for first 3 months, then $8/month OR $80/year
+ * Ptah Pricing Model (TASK_2025_121 - Two-Tier Paid Model):
+ * - Basic: $3/month, $30/year (14-day trial) - Core visual editor features
+ * - Pro: $5/month, $50/year (14-day trial) - Basic + MCP server + all premium features
  *
- * The Pro card contains its own monthly/yearly toggle.
+ * Both plans have their own monthly/yearly toggle.
+ * FREE tier has been removed entirely.
  *
- * Evidence: Updated per user feedback - only 2 real plans
+ * Evidence: TASK_2025_121 - Two-Tier Paid Extension Model
  */
 @Component({
   selector: 'ptah-pricing-grid',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    PlanCardComponent,
+    BasicPlanCardComponent,
     ProPlanCardComponent,
     ViewportAnimationDirective,
     LucideAngularModule,
@@ -84,22 +85,31 @@ import { LucideAngularModule, TriangleAlert, CircleX } from 'lucide-angular';
         </button>
       </div>
       }
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8">
-        <!-- Free Plan Card -->
-        <div viewportAnimation [viewportConfig]="getCardAnimationConfig(0)">
-          <ptah-plan-card
-            [plan]="freePlan"
-            [isLoading]="isPlanLoading(freePlan.name)"
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8 items-stretch">
+        <!-- Basic Plan Card with integrated billing toggle -->
+        <div
+          class="h-full"
+          viewportAnimation
+          [viewportConfig]="getCardAnimationConfig(0)"
+        >
+          <ptah-basic-plan-card
+            [monthlyPlan]="basicMonthlyPlan"
+            [yearlyPlan]="basicYearlyPlan"
+            [isLoading]="isPlanLoading('Basic')"
             (ctaClick)="handleCtaClick($event)"
           />
         </div>
 
         <!-- Pro Plan Card with integrated billing toggle -->
-        <div viewportAnimation [viewportConfig]="getCardAnimationConfig(1)">
+        <div
+          class="h-full"
+          viewportAnimation
+          [viewportConfig]="getCardAnimationConfig(1)"
+        >
           <ptah-pro-plan-card
             [monthlyPlan]="proMonthlyPlan"
             [yearlyPlan]="proYearlyPlan"
-            [isLoading]="isPlanLoading('Professional')"
+            [isLoading]="isPlanLoading('Pro')"
             (ctaClick)="handleCtaClick($event)"
           />
         </div>
@@ -167,14 +177,16 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Free plan - always shown
+   * Basic Monthly plan data
    */
-  public readonly freePlan: PricingPlan = {
-    name: 'Free',
-    tier: 'free',
-    price: '$0',
-    priceSubtext: 'forever',
-    idealFor: 'Ideal for trying Ptah',
+  public readonly basicMonthlyPlan: PricingPlan = {
+    name: 'Basic',
+    tier: 'basic',
+    price: '$3',
+    priceSubtext: 'per month',
+    priceId: this.paddleConfig.basicPriceIdMonthly,
+    idealFor: 'Perfect for individual developers',
+    trialDays: 14,
     features: [],
     standoutFeatures: [
       'Beautiful visual interface',
@@ -184,60 +196,84 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       'Session history & management',
       'Basic workspace context',
     ],
-    ctaText: 'Install Free',
-    ctaAction: 'download',
+    ctaText: 'Start 14-Day Free Trial',
+    ctaAction: 'checkout',
+  };
+
+  /**
+   * Basic Yearly plan data
+   */
+  public readonly basicYearlyPlan: PricingPlan = {
+    name: 'Basic',
+    tier: 'basic',
+    price: '$30',
+    priceSubtext: 'per year',
+    priceId: this.paddleConfig.basicPriceIdYearly,
+    idealFor: 'Perfect for individual developers',
+    savings: 'Save ~17% vs monthly',
+    trialDays: 14,
+    features: [],
+    standoutFeatures: [
+      'Beautiful visual interface',
+      'Use your Claude Pro/Max subscription',
+      'Native VS Code integration',
+      'Real-time streaming responses',
+      'Session history & management',
+      'Basic workspace context',
+    ],
+    ctaText: 'Start 14-Day Free Trial',
+    ctaAction: 'checkout',
   };
 
   /**
    * Pro Monthly plan data
    */
   public readonly proMonthlyPlan: PricingPlan = {
-    name: 'Professional',
+    name: 'Pro',
     tier: 'pro',
-    price: '$3',
+    price: '$5',
     priceSubtext: 'per month',
-    priceId: this.paddleConfig.priceIdMonthly,
+    priceId: this.paddleConfig.proPriceIdMonthly,
     idealFor: 'For serious developers',
-    savings: '$3 for first 3 months, then $8/mo',
+    trialDays: 14,
     features: [],
     standoutFeatures: [
-      'All Free features included',
+      'All Basic features included',
       'Intelligent Setup Wizard',
       'Code Execution MCP Server',
       'Workspace Intelligence (13+ project types)',
       'OpenRouter proxy (200+ models)',
       'Project-adaptive agent generation',
     ],
-    ctaText: 'Start Pro Trial',
+    ctaText: 'Start 14-Day Free Trial',
     ctaAction: 'checkout',
     highlight: true,
-    badge: 'plan_badge_early_adopter.png',
   };
 
   /**
    * Pro Yearly plan data
    */
   public readonly proYearlyPlan: PricingPlan = {
-    name: 'Professional',
+    name: 'Pro',
     tier: 'pro',
-    price: '$80',
+    price: '$50',
     priceSubtext: 'per year',
-    priceId: this.paddleConfig.priceIdYearly,
+    priceId: this.paddleConfig.proPriceIdYearly,
     idealFor: 'For serious developers',
     savings: 'Save ~17% vs monthly',
+    trialDays: 14,
     features: [],
     standoutFeatures: [
-      'All Free features included',
+      'All Basic features included',
       'Intelligent Setup Wizard',
       'Code Execution MCP Server',
       'Workspace Intelligence (13+ project types)',
       'OpenRouter proxy (200+ models)',
       'Project-adaptive agent generation',
     ],
-    ctaText: 'Subscribe Yearly',
+    ctaText: 'Start 14-Day Free Trial',
     ctaAction: 'checkout',
     highlight: true,
-    badge: 'plan_badge_early_adopter.png',
   };
 
   /**
@@ -278,7 +314,12 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    */
   private triggerAutoCheckout(planKey: string): void {
     // Validate plan key - only allow known values
-    const validPlanKeys = ['pro-monthly', 'pro-yearly'];
+    const validPlanKeys = [
+      'basic-monthly',
+      'basic-yearly',
+      'pro-monthly',
+      'pro-yearly',
+    ];
     if (!validPlanKeys.includes(planKey)) {
       this.autoCheckoutError.set(
         'Invalid checkout plan. Please select a plan manually.'
@@ -290,8 +331,22 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     this.autoCheckoutError.set(null);
 
     // Determine which plan to checkout based on key
-    const plan =
-      planKey === 'pro-yearly' ? this.proYearlyPlan : this.proMonthlyPlan;
+    let plan: PricingPlan;
+    switch (planKey) {
+      case 'basic-monthly':
+        plan = this.basicMonthlyPlan;
+        break;
+      case 'basic-yearly':
+        plan = this.basicYearlyPlan;
+        break;
+      case 'pro-yearly':
+        plan = this.proYearlyPlan;
+        break;
+      case 'pro-monthly':
+      default:
+        plan = this.proMonthlyPlan;
+        break;
+    }
 
     // Wait for Paddle to be ready, then trigger checkout
     const startTime = Date.now();
@@ -326,19 +381,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    * Handle CTA button click from plan card
    */
   public handleCtaClick(plan: PricingPlan): void {
-    if (plan.ctaAction === 'download') {
-      window.open(
-        'https://marketplace.visualstudio.com/items?itemName=ptah.ptah',
-        '_blank'
-      );
-      return;
-    }
-
-    if (plan.ctaAction === 'signup') {
-      this.router.navigate(['/login']);
-      return;
-    }
-
+    // All plans now use checkout action (no more download or signup)
     if (plan.ctaAction === 'checkout') {
       // Validate price ID first
       if (isPriceIdPlaceholder(plan.priceId)) {
@@ -356,8 +399,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
           next: (isAuth) => {
             if (!isAuth) {
               // Not authenticated - redirect to login with return URL
-              const planKey =
-                plan.priceSubtext === 'per year' ? 'pro-yearly' : 'pro-monthly';
+              const planKey = this.getPlanKey(plan);
               this.router.navigate(['/login'], {
                 queryParams: {
                   returnUrl: '/pricing',
@@ -372,8 +414,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
           },
           error: () => {
             // Auth check failed - redirect to login as fallback
-            const planKey =
-              plan.priceSubtext === 'per year' ? 'pro-yearly' : 'pro-monthly';
+            const planKey = this.getPlanKey(plan);
             this.router.navigate(['/login'], {
               queryParams: {
                 returnUrl: '/pricing',
@@ -383,6 +424,19 @@ export class PricingGridComponent implements OnInit, OnDestroy {
           },
         });
     }
+  }
+
+  /**
+   * Get the plan key for auto-checkout redirect
+   */
+  private getPlanKey(plan: PricingPlan): string {
+    const isYearly = plan.priceSubtext === 'per year';
+    const isBasic = plan.tier === 'basic';
+
+    if (isBasic) {
+      return isYearly ? 'basic-yearly' : 'basic-monthly';
+    }
+    return isYearly ? 'pro-yearly' : 'pro-monthly';
   }
 
   /**

@@ -12,48 +12,37 @@ import { PricingPlan } from '../models/pricing-plan.interface';
 import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
 
 /**
- * ProPlanCardComponent - Pro plan card with integrated billing toggle
+ * BasicPlanCardComponent - Basic plan card with integrated billing toggle
  *
- * This component handles the Pro plan which has both monthly and yearly options.
+ * This component handles the Basic plan which has both monthly and yearly options.
  * The billing toggle is integrated directly into the card.
  *
  * Evidence: TASK_2025_121 - Two-Tier Paid Extension Model
  */
 @Component({
-  selector: 'ptah-pro-plan-card',
+  selector: 'ptah-basic-plan-card',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [NgClass, LucideAngularModule],
   template: `
     <div
       class="relative rounded-2xl p-6 lg:p-8 h-full flex flex-col
-             bg-gradient-to-b from-base-200/80 to-base-300/50
-             border border-secondary/50 shadow-xl shadow-amber-500/10
+             bg-base-200/40 border border-base-content/10 hover:border-base-content/20
              transition-all duration-500 group"
     >
-      <!-- Popular Badge + Trial Badge combined -->
-      <div
-        class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
-               bg-gradient-to-r from-amber-500 to-secondary rounded-full
-               text-xs font-bold text-base-100 uppercase tracking-wider
-               shadow-lg shadow-amber-500/30"
-      >
-        Most Popular
-      </div>
-
-      <!-- Trial Badge on right side -->
+      <!-- Trial Badge -->
       @if (activePlan().trialDays) {
       <div
-        class="absolute -top-3 right-4 px-3 py-1
+        class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
                bg-gradient-to-r from-sky-500 to-cyan-500 rounded-full
-               text-[10px] font-bold text-base-100 uppercase tracking-wider
+               text-xs font-bold text-base-100 uppercase tracking-wider
                shadow-lg shadow-sky-500/30"
       >
-        {{ activePlan().trialDays }}-Day Trial
+        {{ activePlan().trialDays }}-Day Free Trial
       </div>
       }
 
       <!-- Plan Header -->
-      <div class="mb-4">
+      <div class="mb-4 mt-2">
         <h3
           class="font-display text-xl lg:text-2xl font-semibold text-base-content tracking-wide uppercase mb-1"
         >
@@ -71,7 +60,7 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
             type="button"
             class="px-4 py-1.5 text-sm font-medium rounded-full transition-all duration-300"
             [ngClass]="{
-              'bg-amber-500 text-base-100 shadow-md':
+              'bg-sky-500 text-base-100 shadow-md':
                 billingPeriod() === 'monthly',
               'text-base-content/60 hover:text-base-content':
                 billingPeriod() !== 'monthly'
@@ -84,7 +73,7 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
             type="button"
             class="px-4 py-1.5 text-sm font-medium rounded-full transition-all duration-300 flex items-center gap-2"
             [ngClass]="{
-              'bg-amber-500 text-base-100 shadow-md':
+              'bg-sky-500 text-base-100 shadow-md':
                 billingPeriod() === 'yearly',
               'text-base-content/60 hover:text-base-content':
                 billingPeriod() !== 'yearly'
@@ -104,10 +93,7 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
       <!-- Price Section -->
       <div class="mb-6">
         <div class="flex items-baseline gap-2">
-          <span
-            class="text-5xl lg:text-6xl font-bold
-                   bg-gradient-to-r from-amber-300 to-secondary bg-clip-text text-transparent"
-          >
+          <span class="text-5xl lg:text-6xl font-bold text-base-content">
             {{ activePlan().price }}
           </span>
           <span class="text-base-content/50 text-sm">
@@ -132,14 +118,14 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
         <h4
           class="text-xs font-semibold text-base-content/40 uppercase tracking-wider mb-3"
         >
-          Everything in Basic, plus:
+          Core Features
         </h4>
         <ul class="space-y-2.5">
-          @for (feature of proFeatures; track feature) {
+          @for (feature of basicFeatures; track feature) {
           <li class="flex items-start gap-2.5">
             <lucide-angular
               [img]="CheckIcon"
-              class="flex-shrink-0 w-4 h-4 text-amber-400 mt-0.5"
+              class="flex-shrink-0 w-4 h-4 text-sky-400 mt-0.5"
             />
             <span class="text-sm text-base-content/80">{{ feature }}</span>
           </li>
@@ -150,8 +136,7 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
       <!-- CTA Button -->
       <button
         class="mt-8 w-full py-3.5 px-6 rounded-xl font-semibold text-sm
-               bg-gradient-to-r from-amber-500 to-secondary text-base-100
-               shadow-lg shadow-amber-500/25 hover:shadow-amber-500/40
+               bg-base-content/10 text-base-content hover:bg-base-content/20
                flex items-center justify-center gap-2 transition-all duration-300
                group-hover:gap-3 cursor-pointer"
         [class.opacity-50]="isButtonDisabled()"
@@ -189,7 +174,7 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
     `,
   ],
 })
-export class ProPlanCardComponent {
+export class BasicPlanCardComponent {
   /** Lucide icon references */
   public readonly CheckIcon = Check;
   public readonly ArrowRightIcon = ArrowRight;
@@ -214,14 +199,14 @@ export class ProPlanCardComponent {
     this.billingPeriod() === 'yearly' ? this.yearlyPlan() : this.monthlyPlan()
   );
 
-  /** Pro features list (same for both monthly and yearly) */
-  public readonly proFeatures = [
-    'Intelligent Setup Wizard',
-    'Code Execution MCP Server',
-    'Workspace Intelligence (13+ project types)',
-    'OpenRouter proxy (200+ models)',
-    'Project-adaptive agent generation',
-    'Real-time cost tracking',
+  /** Basic features list (same for both monthly and yearly) */
+  public readonly basicFeatures = [
+    'Beautiful visual interface',
+    'Use your Claude Pro/Max subscription',
+    'Native VS Code integration',
+    'Real-time streaming responses',
+    'Session history & management',
+    'Basic workspace context',
   ];
 
   /**

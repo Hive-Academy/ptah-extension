@@ -64,7 +64,9 @@ import { LucideAngularModule, DollarSign } from 'lucide-angular';
       </div>
 
       <!-- Content -->
-      <div class="relative z-10 text-center px-6 py-20 max-w-5xl mx-auto">
+      <div
+        class="relative z-10 text-center px-4 sm:px-6 py-16 sm:py-20 max-w-5xl mx-auto"
+      >
         <!-- Text backdrop for readability -->
         <!-- <div
           class="absolute inset-0 -top-10 bg-gradient-to-b from-black/60 via-black/40 to-transparent
@@ -93,23 +95,23 @@ import { LucideAngularModule, DollarSign } from 'lucide-angular';
         <div
           viewportAnimation
           [viewportConfig]="promoConfig"
-          class="flex flex-wrap items-center justify-center gap-3 mb-6"
+          class="flex flex-wrap items-center justify-center gap-2 sm:gap-3 mb-6"
         >
           <span
-            class="text-2xl md:text-3xl lg:text-4xl text-white
+            class="text-xl sm:text-2xl md:text-3xl lg:text-4xl text-white
                    [text-shadow:_0_2px_0_#1a1a1a,_0_4px_8px_rgba(0,0,0,0.7)]"
           >
             unlock
           </span>
           <span
-            class="font-display text-3xl md:text-4xl lg:text-5xl italic p-1
+            class="font-display text-2xl sm:text-3xl md:text-4xl lg:text-5xl italic p-1
                    bg-gradient-to-r from-amber-300 to-secondary bg-clip-text text-transparent
                    [filter:_drop-shadow(0_2px_0_#6b5510)_drop-shadow(0_4px_4px_rgba(0,0,0,0.8))_drop-shadow(0_0_30px_rgba(212,175,55,0.5))]"
           >
             only $3
           </span>
           <span
-            class="text-2xl md:text-3xl lg:text-4xl text-white
+            class="text-xl sm:text-2xl md:text-3xl lg:text-4xl text-white
                    [text-shadow:_0_2px_0_#1a1a1a,_0_4px_8px_rgba(0,0,0,0.7)]"
           >
             for your first 3 months

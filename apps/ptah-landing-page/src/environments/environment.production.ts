@@ -18,13 +18,23 @@ export const environment = {
   /**
    * Paddle configuration (production)
    * @see docs/PADDLE_SETUP_SIMPLIFIED.md for pricing model details
+   *
+   * New Pricing Model (TASK_2025_121):
+   * - Basic: $3/month, $30/year (14-day trial)
+   * - Pro: $5/month, $50/year (14-day trial)
    */
   paddle: {
     /** Paddle environment: 'sandbox' for testing, 'production' for live */
     environment: 'production' as const,
-    /** Price ID for Pro Monthly ($8/month) - from Paddle dashboard */
-    priceIdMonthly: 'pri_REPLACE_WITH_REAL_ID', // TODO: Replace with real Paddle price ID
-    /** Price ID for Pro Yearly ($80/year) - from Paddle dashboard */
-    priceIdYearly: 'pri_REPLACE_WITH_REAL_ID', // TODO: Replace with real Paddle price ID
+
+    /** Price ID for Basic Monthly ($3/month with 14-day trial) - from Paddle dashboard */
+    basicPriceIdMonthly: 'pri_REPLACE_BASIC_MONTHLY', // TODO: Replace with real Paddle price ID
+    /** Price ID for Basic Yearly ($30/year with 14-day trial) - from Paddle dashboard */
+    basicPriceIdYearly: 'pri_REPLACE_BASIC_YEARLY', // TODO: Replace with real Paddle price ID
+
+    /** Price ID for Pro Monthly ($5/month with 14-day trial) - from Paddle dashboard */
+    proPriceIdMonthly: 'pri_REPLACE_PRO_MONTHLY', // TODO: Replace with real Paddle price ID
+    /** Price ID for Pro Yearly ($50/year with 14-day trial) - from Paddle dashboard */
+    proPriceIdYearly: 'pri_REPLACE_PRO_YEARLY', // TODO: Replace with real Paddle price ID
   },
 };
