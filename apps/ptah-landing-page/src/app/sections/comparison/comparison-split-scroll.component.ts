@@ -46,11 +46,11 @@ interface PerformanceMetric {
       class="relative py-24 bg-gradient-to-b from-slate-900 to-slate-950"
     >
       <!-- Section Header -->
-      <div class="text-center mb-20 px-4">
+      <div class="text-center mb-16 md:mb-20 px-4 sm:px-6 lg:px-8">
         <h2
           viewportAnimation
           [viewportConfig]="headerConfig"
-          class="text-4xl md:text-5xl font-bold text-white"
+          class="text-3xl sm:text-4xl md:text-5xl font-bold text-white"
         >
           The Ptah Difference
         </h2>
@@ -66,10 +66,10 @@ interface PerformanceMetric {
 
       <!-- Comparison Grid -->
       <div class="container mx-auto px-4 max-w-7xl">
-        <div class="grid md:grid-cols-2 gap-8 lg:gap-12">
+        <div class="grid md:grid-cols-2 gap-6 md:gap-8 lg:gap-12">
           <!-- Before Ptah Column -->
           <div
-            class="relative rounded-3xl bg-slate-800/40 border border-red-500/20 p-8 md:p-12"
+            class="relative rounded-3xl bg-slate-800/40 border border-red-500/20 p-6 md:p-8 lg:p-12"
             viewportAnimation
             [viewportConfig]="{ animation: 'slideRight', duration: 0.6 }"
           >
@@ -116,7 +116,7 @@ interface PerformanceMetric {
 
           <!-- With Ptah Column -->
           <div
-            class="relative rounded-3xl bg-slate-800/40 border border-emerald-500/20 p-8 md:p-12"
+            class="relative rounded-3xl bg-slate-800/40 border border-emerald-500/20 p-6 md:p-8 lg:p-12"
             viewportAnimation
             [viewportConfig]="{ animation: 'slideLeft', duration: 0.6 }"
           >
@@ -178,12 +178,14 @@ interface PerformanceMetric {
             Performance That Speaks
           </h3>
 
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div
+            class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6"
+          >
             @for (metric of metrics; track metric.name; let i = $index) {
             <div
               viewportAnimation
               [viewportConfig]="getMetricConfig(i)"
-              class="p-6 rounded-2xl bg-slate-800/60 border border-slate-700/50 backdrop-blur-sm text-center"
+              class="p-4 sm:p-6 rounded-2xl bg-slate-800/60 border border-slate-700/50 backdrop-blur-sm text-center"
             >
               <div
                 class="text-sm text-slate-400 mb-4 font-medium uppercase tracking-wide"
