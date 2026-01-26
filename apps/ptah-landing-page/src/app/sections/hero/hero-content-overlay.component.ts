@@ -42,7 +42,7 @@ import {
       <h1
         viewportAnimation
         [viewportConfig]="headlineConfig"
-        class="text-6xl md:text-7xl lg:text-8xl font-bold mb-8 leading-none tracking-tight bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 bg-clip-text text-transparent"
+        class="text-4xl sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl font-bold mb-8 leading-none tracking-tight bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 bg-clip-text text-transparent"
       >
         Ptah
       </h1>
@@ -84,7 +84,7 @@ import {
       <div
         viewportAnimation
         [viewportConfig]="socialProofConfig"
-        class="flex flex-wrap justify-center gap-10"
+        class="grid grid-cols-2 gap-4 sm:gap-6 md:flex md:flex-wrap md:justify-center md:gap-10"
       >
         @for (stat of stats; track stat.value) {
         <div class="flex items-baseline gap-2">
