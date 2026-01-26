@@ -67,15 +67,29 @@ export class PaddleBillingPeriodDto {
 /**
  * Paddle Subscription Data DTO - Core subscription data from webhook
  *
+ * TASK_2025_121: Added trial_end field for trial detection
+ *
  * Used by:
  * - subscription.created
  * - subscription.updated
  * - subscription.canceled
+ * - subscription.activated
+ *
+ * Status values:
+ * - 'trialing': Subscription is in trial period
+ * - 'active': Subscription is active with payment
+ * - 'past_due': Payment failed, in dunning period
+ * - 'paused': User paused subscription
+ * - 'canceled': Subscription canceled
  */
 export class PaddleSubscriptionDataDto {
   @IsString()
   id!: string;
 
+  /**
+   * Subscription status
+   * 'trialing' | 'active' | 'past_due' | 'paused' | 'canceled'
+   */
   @IsString()
   status!: string;
 
@@ -97,6 +111,15 @@ export class PaddleSubscriptionDataDto {
   @ValidateNested()
   @Type(() => PaddleBillingPeriodDto)
   current_billing_period!: PaddleBillingPeriodDto;
+
+  /**
+   * TASK_2025_121: Trial end date (ISO 8601 format)
+   * Present when subscription.status === 'trialing'
+   * Used to determine when trial period expires
+   */
+  @IsDateString()
+  @IsOptional()
+  trial_end?: string;
 
   @IsDateString()
   @IsOptional()

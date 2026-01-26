@@ -32,14 +32,16 @@ model User {
 }
 
 // Subscription model - tracks Paddle subscription state for payment lifecycle
+// TASK_2025_121: Added trialEnd field for trial period tracking
 model Subscription {
   id                   String    @id @default(uuid()) @db.Uuid
   userId               String    @map("user_id") @db.Uuid
   paddleSubscriptionId String    @unique @map("paddle_subscription_id")
   paddleCustomerId     String    @map("paddle_customer_id")
-  status               String // "active" | "paused" | "canceled" | "past_due"
+  status               String // "active" | "trialing" | "paused" | "canceled" | "past_due"
   priceId              String    @map("price_id")
   currentPeriodEnd     DateTime  @map("current_period_end")
+  trialEnd             DateTime? @map("trial_end") // TASK_2025_121: Trial end date (null if not in trial)
   canceledAt           DateTime? @map("canceled_at")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
@@ -52,12 +54,13 @@ model Subscription {
 }
 
 // License model - stores license keys with plan, status, and expiration
+// TASK_2025_121: Updated plan values to support new two-tier system
 model License {
   id         String    @id @default(uuid()) @db.Uuid
   userId     String    @map("user_id") @db.Uuid
   licenseKey String    @unique @map("license_key")
-  plan       String // "free" | "early_adopter"
-  status     String    @default("active") // "active" | "expired" | "revoked"
+  plan       String // "basic" | "pro" | "trial_basic" | "trial_pro" (Legacy: "free" | "early_adopter" mapped in code)
+  status     String    @default("active") // "active" | "expired" | "revoked" | "paused"
   expiresAt  DateTime? @map("expires_at")
   createdAt  DateTime  @default(now()) @map("created_at")
   createdBy  String    @default("admin") @map("created_by")

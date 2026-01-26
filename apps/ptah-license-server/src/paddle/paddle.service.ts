@@ -24,6 +24,8 @@ import { PADDLE_CLIENT, PaddleClient } from './providers/paddle.provider';
  * Configuration (environment variables):
  * - PADDLE_API_KEY: Paddle API key (required)
  * - PADDLE_WEBHOOK_SECRET: Webhook signature secret (required)
+ * - PADDLE_PRICE_ID_BASIC_MONTHLY: Price ID for basic monthly plan
+ * - PADDLE_PRICE_ID_BASIC_YEARLY: Price ID for basic yearly plan
  * - PADDLE_PRICE_ID_PRO_MONTHLY: Price ID for pro monthly plan
  * - PADDLE_PRICE_ID_PRO_YEARLY: Price ID for pro yearly plan
  */
@@ -241,12 +243,20 @@ export class PaddleService {
   /**
    * Handle subscription.created event
    *
+   * TASK_2025_121: Enhanced with trial status detection
+   *
    * Process:
    * 1. Check for duplicate processing via eventId (idempotency)
-   * 2. Create or find user by email
-   * 3. Create subscription record in database
-   * 4. Generate and create license
-   * 5. Send license key email
+   * 2. Detect trial status from subscription.status === 'trialing'
+   * 3. Create or find user by email
+   * 4. Create subscription record with trial end date
+   * 5. Generate and create license with trial-aware plan
+   * 6. Send license key email
+   *
+   * Trial handling:
+   * - When data.status === 'trialing', license plan becomes 'trial_basic' or 'trial_pro'
+   * - trialEnd date is stored in subscription record from data.trial_end
+   * - When subscription.activated fires, plan is updated to non-trial version
    *
    * All database operations are wrapped in a transaction for atomicity.
    * If any step fails, all changes are rolled back.
@@ -260,7 +270,7 @@ export class PaddleService {
     eventId: string
   ): Promise<{ success: boolean; duplicate?: boolean; licenseId?: string }> {
     this.logger.log(
-      `Processing subscription.created event: ${eventId} for customer: ${data.customer.email}`
+      `Processing subscription.created event: ${eventId} for customer: ${data.customer.email}, status: ${data.status}`
     );
 
     // Step 1: Idempotency check - prevent duplicate processing
@@ -275,16 +285,29 @@ export class PaddleService {
 
     const email = data.customer.email.toLowerCase();
     const priceId = data.items[0]?.price?.id;
-    const plan = this.mapPriceIdToPlan(priceId);
+    const basePlan = this.mapPriceIdToPlan(priceId);
     const customerId = data.customer.id;
     const subscriptionId = data.id;
     const periodEnd = new Date(data.current_billing_period.ends_at);
     const licenseKey = this.generateLicenseKey();
 
+    // Step 2: Detect trial status from Paddle webhook
+    const isInTrial = data.status === 'trialing';
+    const licensePlan = isInTrial ? `trial_${basePlan}` : basePlan;
+    const trialEnd = data.trial_end ? new Date(data.trial_end) : null;
+
+    if (isInTrial) {
+      this.logger.log(
+        `Subscription ${subscriptionId} is in trial period until ${
+          trialEnd?.toISOString() || 'unknown'
+        }`
+      );
+    }
+
     // Wrap all database operations in a transaction for atomicity
     // If any operation fails, all changes are rolled back
     const license = await this.prisma.$transaction(async (tx) => {
-      // Step 2: Find or create user
+      // Step 3: Find or create user
       let user = await tx.user.findUnique({ where: { email } });
       if (!user) {
         user = await tx.user.create({
@@ -293,7 +316,7 @@ export class PaddleService {
         this.logger.log(`Created new user for email: ${email}`);
       }
 
-      // Step 3: Revoke any existing active licenses (one active license per user)
+      // Step 4: Revoke any existing active licenses (one active license per user)
       const revokedCount = await tx.license.updateMany({
         where: {
           userId: user.id,
@@ -309,20 +332,24 @@ export class PaddleService {
         );
       }
 
-      // Step 4: Create new license
+      // Step 5: Create new license with trial-aware plan
       const newLicense = await tx.license.create({
         data: {
           userId: user.id,
           licenseKey,
-          plan,
+          plan: licensePlan,
           status: 'active',
           expiresAt: periodEnd,
           createdBy: `paddle_${eventId}`,
         },
       });
-      this.logger.log(`Created license: ${newLicense.id} for plan: ${plan}`);
+      this.logger.log(
+        `Created license: ${newLicense.id} for plan: ${licensePlan}${
+          isInTrial ? ' (trial)' : ''
+        }`
+      );
 
-      // Step 5: Create subscription record
+      // Step 6: Create subscription record with trial end date
       await tx.subscription.create({
         data: {
           userId: user.id,
@@ -331,19 +358,22 @@ export class PaddleService {
           status: data.status,
           priceId: priceId || '',
           currentPeriodEnd: periodEnd,
+          trialEnd, // Store trial end date for trial detection
         },
       });
-      this.logger.log(`Created subscription record: ${subscriptionId}`);
+      this.logger.log(
+        `Created subscription record: ${subscriptionId}, status: ${data.status}`
+      );
 
       return newLicense;
     });
 
-    // Step 6: Send license key email (outside transaction - non-critical)
+    // Step 7: Send license key email (outside transaction - non-critical)
     try {
       await this.emailService.sendLicenseKey({
         email,
         licenseKey,
-        plan,
+        plan: licensePlan,
         expiresAt: periodEnd,
       });
       this.logger.log(`License key email sent to: ${email}`);
@@ -489,15 +519,17 @@ export class PaddleService {
   /**
    * Handle subscription.activated event (Paddle Billing v2 recommended)
    *
-   * This is the recommended event for license provisioning in Paddle Billing v2.
-   * It confirms the subscription has transitioned from trial/pending to active state.
+   * TASK_2025_121: Enhanced to handle trial-to-active transitions
    *
-   * When to use subscription.activated vs subscription.created:
-   * - subscription.created: Fires when subscription is created (may be in trial)
-   * - subscription.activated: Fires when subscription becomes fully active (payment confirmed)
+   * This event fires when subscription becomes fully active (payment confirmed).
+   * For trial subscriptions, this fires when:
+   * - Trial period ends and first payment is successful
+   * - User upgrades from trial to paid before trial ends
    *
-   * For most use cases, using subscription.activated is preferred as it guarantees
-   * payment has been processed successfully.
+   * Process:
+   * 1. Check if subscription already exists (from earlier subscription.created)
+   * 2. If exists: Update license plan from trial_X to X (remove trial prefix)
+   * 3. If not exists: Create new license (delegate to handleSubscriptionCreated)
    *
    * @param data - Subscription data from webhook payload
    * @param eventId - Unique event ID for idempotency
@@ -510,8 +542,58 @@ export class PaddleService {
     this.logger.log(
       `Processing subscription.activated event: ${eventId} for customer: ${data.customer.email}`
     );
-    // Delegate to handleSubscriptionCreated as the logic is the same
-    // The difference is semantic - activated confirms payment is complete
+
+    const email = data.customer.email.toLowerCase();
+    const subscriptionId = data.id;
+    const priceId = data.items[0]?.price?.id;
+    const basePlan = this.mapPriceIdToPlan(priceId);
+    const periodEnd = new Date(data.current_billing_period.ends_at);
+
+    // Check if we have an existing subscription (created during trial)
+    const existingSubscription = await this.prisma.subscription.findUnique({
+      where: { paddleSubscriptionId: subscriptionId },
+      include: { user: true },
+    });
+
+    if (existingSubscription) {
+      // Subscription exists - this is a trial-to-active transition
+      this.logger.log(
+        `Trial-to-active transition for subscription ${subscriptionId}`
+      );
+
+      // Update subscription status to active and clear trial end
+      await this.prisma.subscription.update({
+        where: { paddleSubscriptionId: subscriptionId },
+        data: {
+          status: 'active',
+          currentPeriodEnd: periodEnd,
+          trialEnd: null, // Clear trial end date
+        },
+      });
+
+      // Update license plan from trial_X to X
+      const updateResult = await this.prisma.license.updateMany({
+        where: {
+          userId: existingSubscription.userId,
+          status: 'active',
+          plan: { startsWith: 'trial_' },
+        },
+        data: {
+          plan: basePlan, // Remove trial_ prefix
+          expiresAt: periodEnd,
+        },
+      });
+
+      this.logger.log(
+        `Updated ${updateResult.count} license(s) from trial to ${basePlan}`
+      );
+
+      return { success: true };
+    }
+
+    // No existing subscription - delegate to handleSubscriptionCreated
+    // This handles the case where subscription.activated fires without
+    // a prior subscription.created event
     return this.handleSubscriptionCreated(data, eventId);
   }
 
@@ -655,18 +737,33 @@ export class PaddleService {
   /**
    * Map Paddle price ID to internal plan name
    *
-   * Uses environment variables for price ID configuration.
-   * Both monthly and yearly price IDs map to 'pro' plan.
-   * Defaults to 'free' if price ID is not recognized.
+   * TASK_2025_121: Supports 4 price IDs for Basic and Pro plans
+   *
+   * Price ID to Plan mapping:
+   * - PADDLE_PRICE_ID_BASIC_MONTHLY -> 'basic'
+   * - PADDLE_PRICE_ID_BASIC_YEARLY -> 'basic'
+   * - PADDLE_PRICE_ID_PRO_MONTHLY -> 'pro'
+   * - PADDLE_PRICE_ID_PRO_YEARLY -> 'pro'
+   * - Unknown/null -> 'expired' (no valid plan)
    *
    * @param priceId - Paddle price ID from webhook
-   * @returns Internal plan name ('pro' or 'free')
+   * @returns Internal plan name ('basic' | 'pro' | 'expired')
    */
   private mapPriceIdToPlan(priceId: string | undefined): string {
     if (!priceId) {
-      return 'free';
+      this.logger.warn('No price ID provided - returning expired tier');
+      return 'expired';
     }
 
+    // Basic plan price IDs
+    const basicMonthlyPriceId = this.configService.get<string>(
+      'PADDLE_PRICE_ID_BASIC_MONTHLY'
+    );
+    const basicYearlyPriceId = this.configService.get<string>(
+      'PADDLE_PRICE_ID_BASIC_YEARLY'
+    );
+
+    // Pro plan price IDs
     const proMonthlyPriceId = this.configService.get<string>(
       'PADDLE_PRICE_ID_PRO_MONTHLY'
     );
@@ -674,12 +771,30 @@ export class PaddleService {
       'PADDLE_PRICE_ID_PRO_YEARLY'
     );
 
+    // Map to basic plan
+    if (priceId === basicMonthlyPriceId || priceId === basicYearlyPriceId) {
+      return 'basic';
+    }
+
+    // Map to pro plan
     if (priceId === proMonthlyPriceId || priceId === proYearlyPriceId) {
       return 'pro';
     }
 
-    this.logger.warn(`Unknown price ID: ${priceId} - defaulting to 'free'`);
-    return 'free';
+    this.logger.warn(
+      `Unknown price ID: ${priceId} - returning 'expired'. ` +
+        `Expected one of: ${
+          [
+            basicMonthlyPriceId,
+            basicYearlyPriceId,
+            proMonthlyPriceId,
+            proYearlyPriceId,
+          ]
+            .filter(Boolean)
+            .join(', ') || 'no price IDs configured'
+        }`
+    );
+    return 'expired';
   }
 
   /**

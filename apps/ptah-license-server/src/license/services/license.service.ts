@@ -1,89 +1,237 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PLANS, getPlanConfig, PlanName } from '../../config/plans.config';
 import { randomBytes } from 'crypto';
 
 /**
+ * License Tier type for TASK_2025_121
+ *
+ * Tier values:
+ * - 'basic': Paid Basic plan (active subscription)
+ * - 'pro': Paid Pro plan (active subscription)
+ * - 'trial_basic': Basic plan in trial period
+ * - 'trial_pro': Pro plan in trial period
+ * - 'expired': License expired, revoked, or not found
+ */
+export type LicenseTier =
+  | 'basic'
+  | 'pro'
+  | 'trial_basic'
+  | 'trial_pro'
+  | 'expired';
+
+/**
+ * License verification response structure
+ */
+export interface LicenseVerificationResponse {
+  valid: boolean;
+  tier: LicenseTier;
+  plan?: (typeof PLANS)[keyof typeof PLANS];
+  expiresAt?: string;
+  daysRemaining?: number;
+  trialActive?: boolean;
+  trialDaysRemaining?: number;
+  reason?: 'expired' | 'revoked' | 'not_found' | 'trial_ended';
+}
+
+/**
+ * Map legacy tier values to new tier system
+ *
+ * TASK_2025_121: Backward compatibility for existing licenses
+ *
+ * Legacy mapping:
+ * - 'early_adopter' -> 'pro' (grandfathered users keep Pro access)
+ * - 'free' -> 'expired' (no more free tier, must subscribe)
+ * - 'basic' | 'pro' | 'trial_basic' | 'trial_pro' -> pass through
+ * - unknown -> 'expired'
+ *
+ * @param dbPlan - Plan value from database (may be legacy)
+ * @param isInTrial - Whether subscription is in trial period
+ * @returns Mapped LicenseTier value
+ */
+function mapLegacyTier(dbPlan: string, isInTrial: boolean): LicenseTier {
+  switch (dbPlan) {
+    case 'early_adopter':
+      // Grandfathered users keep Pro access
+      return 'pro';
+
+    case 'free':
+      // Legacy 'free' tier is now expired - must subscribe
+      return 'expired';
+
+    case 'basic':
+      return isInTrial ? 'trial_basic' : 'basic';
+
+    case 'pro':
+      return isInTrial ? 'trial_pro' : 'pro';
+
+    case 'trial_basic':
+    case 'trial_pro':
+      // Already trial-prefixed plans pass through
+      return dbPlan as LicenseTier;
+
+    default:
+      // Unknown plan values are treated as expired
+      return 'expired';
+  }
+}
+
+/**
  * LicenseService - Core license management logic
+ *
+ * TASK_2025_121: Enhanced with new tier system and trial support
  *
  * Responsibilities:
  * - Verify license key validity and return plan details
+ * - Support new tier values: basic, pro, trial_basic, trial_pro, expired
+ * - Detect trial status from subscription.status === 'trialing'
+ * - Map legacy tier values (early_adopter, free) for backward compatibility
  * - Create new licenses with proper expiration
  * - Generate cryptographically secure license keys
  */
 @Injectable()
 export class LicenseService {
+  private readonly logger = new Logger(LicenseService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   /**
    * Verify a license key's validity and return plan details
    *
-   * @param licenseKey - The license key to verify (format: ptah_lic_{64-hex})
-   * @returns License status with validity, tier, plan details, and expiration info
+   * TASK_2025_121: Enhanced with trial detection and legacy tier mapping
+   *
+   * @param licenseKey - The license key to verify (format: ptah_lic_{64-hex} or PTAH-XXXX-XXXX-XXXX)
+   * @returns License status with validity, tier, plan details, trial info, and expiration
    *
    * Response cases:
-   * - Valid license: { valid: true, tier, plan, expiresAt, daysRemaining }
-   * - Expired: { valid: false, tier: "free", reason: "expired" }
-   * - Revoked: { valid: false, tier: "free", reason: "revoked" }
-   * - Not found: { valid: false, tier: "free", reason: "not_found" }
+   * - Valid license: { valid: true, tier, plan, expiresAt, daysRemaining, trialActive?, trialDaysRemaining? }
+   * - Expired: { valid: false, tier: "expired", reason: "expired" }
+   * - Revoked: { valid: false, tier: "expired", reason: "revoked" }
+   * - Not found: { valid: false, tier: "expired", reason: "not_found" }
+   * - Trial ended: { valid: false, tier: "expired", reason: "trial_ended" }
    */
-  async verifyLicense(licenseKey: string): Promise<{
-    valid: boolean;
-    tier: 'free' | 'early_adopter';
-    plan?: (typeof PLANS)[keyof typeof PLANS];
-    expiresAt?: string;
-    daysRemaining?: number;
-    reason?: 'expired' | 'revoked' | 'not_found';
-  }> {
-    // Step 1: Find license in database (indexed query on licenseKey)
+  async verifyLicense(
+    licenseKey: string
+  ): Promise<LicenseVerificationResponse> {
+    // Step 1: Find license in database with user and subscription data for trial detection
     const license = await this.prisma.license.findUnique({
       where: { licenseKey },
+      include: {
+        user: {
+          include: {
+            subscriptions: {
+              orderBy: { createdAt: 'desc' },
+              take: 1, // Get most recent subscription
+            },
+          },
+        },
+      },
     });
 
     // Step 2: Check if license exists
     if (!license) {
+      this.logger.debug(`License not found: ${licenseKey.substring(0, 10)}...`);
       return {
         valid: false,
-        tier: 'free',
+        tier: 'expired',
         reason: 'not_found',
       };
     }
 
     // Step 3: Check if license is revoked
     if (license.status === 'revoked') {
+      this.logger.debug(`License revoked: ${license.id}`);
       return {
         valid: false,
-        tier: 'free',
+        tier: 'expired',
         reason: 'revoked',
       };
     }
 
     // Step 4: Check if license is expired
     if (license.expiresAt && new Date() > license.expiresAt) {
+      this.logger.debug(
+        `License expired: ${
+          license.id
+        }, expired at ${license.expiresAt.toISOString()}`
+      );
       return {
         valid: false,
-        tier: 'free',
+        tier: 'expired',
         reason: 'expired',
       };
     }
 
-    // Step 5: Calculate days remaining (if expiration exists)
+    // Step 5: Detect trial status from subscription
+    const subscription = license.user.subscriptions[0];
+    const isInTrial = subscription?.status === 'trialing';
+    const trialEnd = subscription?.trialEnd;
+
+    // Check if trial has ended (subscription.trialEnd < now)
+    if (isInTrial && trialEnd && new Date() > trialEnd) {
+      this.logger.debug(
+        `Trial ended for license: ${
+          license.id
+        }, trial ended at ${trialEnd.toISOString()}`
+      );
+      return {
+        valid: false,
+        tier: 'expired',
+        reason: 'trial_ended',
+      };
+    }
+
+    // Step 6: Map legacy tier values and determine final tier
+    const tier = mapLegacyTier(license.plan, isInTrial);
+
+    // If tier mapped to 'expired' (e.g., legacy 'free' tier), return invalid
+    if (tier === 'expired') {
+      this.logger.debug(
+        `License has expired tier: ${license.id}, plan: ${license.plan}`
+      );
+      return {
+        valid: false,
+        tier: 'expired',
+        reason: 'expired',
+      };
+    }
+
+    // Step 7: Calculate days remaining (if expiration exists)
     const daysRemaining = license.expiresAt
       ? Math.ceil(
           (license.expiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
         )
       : undefined;
 
-    // Step 6: Get plan configuration from hardcoded PLANS
-    const planConfig = getPlanConfig(license.plan as PlanName);
+    // Step 8: Calculate trial days remaining
+    const trialDaysRemaining =
+      isInTrial && trialEnd
+        ? Math.max(
+            0,
+            Math.ceil((trialEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+          )
+        : undefined;
 
-    // Step 7: Return valid license with full details
+    // Step 9: Get plan configuration - extract base plan from tier
+    const basePlan = tier.replace('trial_', '') as PlanName;
+    const planConfig =
+      basePlan === 'basic' || basePlan === 'pro'
+        ? getPlanConfig(basePlan)
+        : undefined;
+
+    this.logger.debug(
+      `License verified: ${license.id}, tier: ${tier}, trial: ${isInTrial}`
+    );
+
+    // Step 10: Return valid license with full details
     return {
       valid: true,
-      tier: license.plan as 'free' | 'early_adopter',
+      tier,
       plan: planConfig,
       expiresAt: license.expiresAt?.toISOString(),
       daysRemaining,
+      trialActive: isInTrial,
+      trialDaysRemaining,
     };
   }
 
