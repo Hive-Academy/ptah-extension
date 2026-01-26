@@ -92,7 +92,7 @@ interface TimelineStep {
             </div>
 
             <h2
-              class="text-6xl md:text-7xl font-bold text-white mb-8 leading-tight"
+              class="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold text-white mb-8 leading-tight"
               viewportAnimation
               [viewportConfig]="{
                 animation: 'slideUp',
@@ -127,13 +127,15 @@ interface TimelineStep {
 
         <!-- Feature Steps - Custom Implementation -->
         @for (step of features(); track step.id; let i = $index) {
-        <section class="relative min-h-screen flex w-full overflow-hidden">
+        <section
+          class="relative min-h-screen flex flex-col md:flex-row w-full overflow-hidden"
+        >
           <!-- Image Side -->
           <div
-            class="absolute inset-y-0 w-1/2"
+            class="relative h-64 sm:h-80 w-full md:absolute md:inset-y-0 md:w-1/2 md:h-auto order-first"
             [ngClass]="{
-              'right-0': step.layout === 'left',
-              'left-0': step.layout === 'right'
+              'md:right-0': step.layout === 'left',
+              'md:left-0': step.layout === 'right'
             }"
             scrollAnimation
             [scrollConfig]="{
@@ -171,8 +173,8 @@ interface TimelineStep {
                 <img
                   [ngSrc]="step.image"
                   [alt]="step.title"
-                  width="800"
-                  height="600"
+                  width="1024"
+                  height="1024"
                   class="w-full h-full object-cover object-center"
                   priority
                 />
@@ -187,14 +189,14 @@ interface TimelineStep {
 
           <!-- Text Content Side -->
           <div
-            class="relative z-20 w-1/2 min-h-screen flex items-center"
+            class="relative z-20 w-full md:w-1/2 min-h-[60vh] md:min-h-screen flex items-center"
             [ngClass]="{
-              'ml-0': step.layout === 'left',
-              'ml-auto': step.layout === 'right'
+              'md:ml-0': step.layout === 'left',
+              'md:ml-auto': step.layout === 'right'
             }"
           >
             <div
-              class="px-8 lg:px-16 py-20 max-w-2xl"
+              class="px-4 sm:px-6 md:px-8 lg:px-16 py-12 md:py-20 max-w-2xl"
               [ngClass]="{
                 'ml-auto': step.layout === 'left',
                 'mr-auto': step.layout === 'right'
@@ -247,7 +249,7 @@ interface TimelineStep {
                 }"
               >
                 <h3
-                  class="text-4xl md:text-5xl font-bold text-white mb-6 leading-tight"
+                  class="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-6 leading-tight"
                 >
                   {{ step.title }}
                 </h3>
