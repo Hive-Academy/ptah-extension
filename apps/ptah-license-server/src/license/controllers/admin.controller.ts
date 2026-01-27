@@ -1,4 +1,5 @@
 import { Controller, Post, Body, UseGuards, Logger } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AdminApiKeyGuard } from '../guards/admin-api-key.guard';
 import { LicenseService } from '../services/license.service';
 import { CreateLicenseDto } from '../dto/create-license.dto';
@@ -8,6 +9,7 @@ import { EmailService } from '../../email/services/email.service';
  * AdminController - Admin-only license management endpoints
  *
  * Security: All endpoints require X-API-Key header validation
+ * Rate Limit: 30 requests per minute (TASK_2025_125)
  *
  * Endpoints:
  * - POST /api/v1/admin/licenses - Create license and send email
@@ -16,6 +18,7 @@ import { EmailService } from '../../email/services/email.service';
  */
 @Controller('v1/admin')
 @UseGuards(AdminApiKeyGuard)
+@Throttle({ default: { limit: 30, ttl: 60000 } })
 export class AdminController {
   private readonly logger = new Logger(AdminController.name);
 

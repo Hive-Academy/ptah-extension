@@ -255,12 +255,14 @@ export class WebviewMessageHandlerService {
       });
 
       // Send response back (correlationId and data are the canonical fields)
+      // TASK_2025_124: Include errorCode for license-related errors
       await webview.postMessage({
         type: MESSAGE_TYPES.RPC_RESPONSE,
         correlationId: reqId,
         success: response.success,
         data: response.data,
         error: response.error ? { message: response.error } : undefined,
+        errorCode: response.errorCode,
       });
     } catch (error) {
       await webview.postMessage({

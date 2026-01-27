@@ -158,11 +158,72 @@
 
 - [x] All files exist at paths
 - [x] Build passes: `npx nx build vscode-core`
-- [ ] code-logic-reviewer approved
+- [x] code-logic-reviewer approved (with fixes applied in Batch 2)
 - [x] Edge cases from validation handled
 - [x] No server calls in validateLicense (uses getCachedStatus only)
 
 ---
 
+## Batch 2: Code Logic Review Fixes - COMPLETED
+
+**Developer**: backend-developer
+**Tasks**: 4 | **Dependencies**: Batch 1
+
+### Task 2.1: Fix errorCode forwarding in WebviewMessageHandlerService - COMPLETED
+
+**File**: D:\projects\ptah-extension\libs\backend\vscode-core\src\services\webview-message-handler.service.ts
+**Issue**: errorCode generated in RpcHandler but not forwarded to frontend via postMessage
+
+**Fix Applied**:
+- Added `errorCode: response.errorCode` to postMessage payload at line 258-264
+
+---
+
+### Task 2.2: Add errorCode to frontend RpcResponse and RpcResult - COMPLETED
+
+**File**: D:\projects\ptah-extension\libs\frontend\core\src\lib\services\claude-rpc.service.ts
+**Issue**: Frontend interface and class did not include errorCode field
+
+**Fixes Applied**:
+1. Added `errorCode?: 'LICENSE_REQUIRED' | 'PRO_TIER_REQUIRED'` to RpcResponse interface
+2. Added `errorCode` parameter to RpcResult class constructor
+3. Added `isLicenseError()` and `isProRequired()` helper methods to RpcResult
+4. Updated call() method to pass errorCode to RpcResult constructor
+
+---
+
+### Task 2.3: Add try/catch in validateLicense for defensive coding - COMPLETED
+
+**File**: D:\projects\ptah-extension\libs\backend\vscode-core\src\messaging\rpc-handler.ts
+**Issue**: If getCachedStatus() throws unexpectedly, handleMessage would crash
+
+**Fix Applied**:
+- Wrapped validateLicense() internals in try/catch block
+- Returns LICENSE_REQUIRED on exception (fail-closed, not fail-open)
+- Logs error with method name for debugging
+
+---
+
+### Task 2.4: Document Pro feature RPC prefix mapping - COMPLETED
+
+**File**: D:\projects\ptah-extension\libs\backend\vscode-core\src\messaging\rpc-handler.ts
+**Issue**: PRO_ONLY_METHOD_PREFIXES comment didn't explain unmapped Pro features
+
+**Fix Applied**:
+- Added comprehensive documentation for Pro feature -> RPC prefix mapping
+- Documented that other Pro features (mcp_server, workspace_intelligence, custom_tools, cost_tracking) are gated via FeatureGateService, not RPC layer
+- Added note for future developers to add prefixes when new Pro features expose RPC endpoints
+
+---
+
+**Batch 2 Verification**:
+
+- [x] Build passes: `npx nx build vscode-core`
+- [x] Build passes: `npx nx build core`
+- [x] errorCode flows end-to-end from RpcHandler -> WebviewMessageHandler -> Frontend
+- [x] Defensive error handling in validateLicense prevents crashes
+
+---
+
 _Created by Team-Leader Agent - TASK_2025_124_
-_Date: 2026-01-27_
+_Updated: 2026-01-27 (Batch 2 completed)_

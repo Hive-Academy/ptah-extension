@@ -65,9 +65,19 @@ const ALLOWED_METHOD_PREFIXES = [
  * RPC methods requiring Pro tier subscription (TASK_2025_124)
  *
  * Prefix matching: 'setup-status:' matches 'setup-status:get-status'
- * Derived from PRO_ONLY_FEATURES in FeatureGateService:
- * - setup_wizard -> setup-status:, setup-wizard:, wizard:
- * - openrouter_proxy -> openrouter:
+ *
+ * Mapping from PRO_ONLY_FEATURES (FeatureGateService) to RPC prefixes:
+ * - setup_wizard      -> setup-status:, setup-wizard:, wizard:
+ * - openrouter_proxy  -> openrouter:
+ *
+ * Other Pro features WITHOUT RPC endpoints (gated via FeatureGateService):
+ * - mcp_server            -> Backend-only, no RPC (uses MCP protocol)
+ * - workspace_intelligence -> Internal service, no direct RPC
+ * - custom_tools          -> Not yet implemented
+ * - cost_tracking         -> Backend analytics, no direct RPC
+ *
+ * IMPORTANT: When adding new Pro features with RPC endpoints, add their
+ * prefixes here to enforce Pro tier gating at the RPC layer.
  */
 const PRO_ONLY_METHOD_PREFIXES = [
   'setup-status:', // setup_wizard feature
@@ -319,68 +329,90 @@ export class RpcHandler {
       return { allowed: true };
     }
 
-    // Step 2: Get cached license status (NO server call - O(1) memory read)
-    const status: LicenseStatus | null = this.licenseService.getCachedStatus();
+    // TASK_2025_124: Defensive coding - wrap in try/catch to handle unexpected errors
+    // This prevents handleMessage from crashing if getCachedStatus throws
+    try {
+      // Step 2: Get cached license status (NO server call - O(1) memory read)
+      const status: LicenseStatus | null =
+        this.licenseService.getCachedStatus();
 
-    // Step 3: Handle edge case - no cached status
-    // This can happen if:
-    // - Extension just started and verifyLicense() hasn't completed
-    // - Cache was cleared unexpectedly
-    // Solution: Return LICENSE_REQUIRED, user should restart extension
-    if (!status) {
-      this.logger.info('RpcHandler: No cached license status, rejecting RPC', {
-        method,
-      });
-      return {
-        allowed: false,
-        error: {
-          code: 'LICENSE_REQUIRED',
-          message:
-            'License verification required. Please restart the extension.',
-        },
-      };
-    }
+      // Step 3: Handle edge case - no cached status
+      // This can happen if:
+      // - Extension just started and verifyLicense() hasn't completed
+      // - Cache was cleared unexpectedly
+      // Solution: Return LICENSE_REQUIRED, user should restart extension
+      if (!status) {
+        this.logger.info(
+          'RpcHandler: No cached license status, rejecting RPC',
+          {
+            method,
+          }
+        );
+        return {
+          allowed: false,
+          error: {
+            code: 'LICENSE_REQUIRED',
+            message:
+              'License verification required. Please restart the extension.',
+          },
+        };
+      }
 
-    // Step 4: Handle edge case - invalid license (expired, revoked, not found)
-    // Block all non-exempt methods when license is invalid
-    if (!status.valid) {
-      this.logger.info('RpcHandler: Invalid license, blocking RPC', {
-        method,
-        tier: status.tier,
-        reason: status.reason,
-      });
-      return {
-        allowed: false,
-        error: {
-          code: 'LICENSE_REQUIRED',
-          message:
-            'Valid subscription required. Please subscribe to use this feature.',
-        },
-      };
-    }
-
-    // Step 5: Handle edge case - Pro-only method with Basic tier
-    // Pro-only methods: setup-status:*, setup-wizard:*, wizard:*, openrouter:*
-    if (this.isProOnlyMethod(method)) {
-      const isPro = status.tier === 'pro' || status.tier === 'trial_pro';
-      if (!isPro) {
-        this.logger.info('RpcHandler: Pro tier required, blocking RPC', {
+      // Step 4: Handle edge case - invalid license (expired, revoked, not found)
+      // Block all non-exempt methods when license is invalid
+      if (!status.valid) {
+        this.logger.info('RpcHandler: Invalid license, blocking RPC', {
           method,
           tier: status.tier,
+          reason: status.reason,
         });
         return {
           allowed: false,
           error: {
-            code: 'PRO_TIER_REQUIRED',
+            code: 'LICENSE_REQUIRED',
             message:
-              'Pro subscription required for this feature. Please upgrade to Pro.',
+              'Valid subscription required. Please subscribe to use this feature.',
           },
         };
       }
-    }
 
-    // Valid license, allowed to proceed
-    return { allowed: true };
+      // Step 5: Handle edge case - Pro-only method with Basic tier
+      // Pro-only methods: setup-status:*, setup-wizard:*, wizard:*, openrouter:*
+      if (this.isProOnlyMethod(method)) {
+        const isPro = status.tier === 'pro' || status.tier === 'trial_pro';
+        if (!isPro) {
+          this.logger.info('RpcHandler: Pro tier required, blocking RPC', {
+            method,
+            tier: status.tier,
+          });
+          return {
+            allowed: false,
+            error: {
+              code: 'PRO_TIER_REQUIRED',
+              message:
+                'Pro subscription required for this feature. Please upgrade to Pro.',
+            },
+          };
+        }
+      }
+
+      // Valid license, allowed to proceed
+      return { allowed: true };
+    } catch (error) {
+      // Defensive: If license check fails unexpectedly, block the request
+      // This ensures we fail-closed rather than fail-open
+      this.logger.error('RpcHandler: License validation error', {
+        method,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        allowed: false,
+        error: {
+          code: 'LICENSE_REQUIRED',
+          message: 'License verification failed. Please restart the extension.',
+        },
+      };
+    }
   }
 
   /**

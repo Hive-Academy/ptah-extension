@@ -31,7 +31,13 @@ export class RpcResult<T> {
   constructor(
     public readonly success: boolean,
     public readonly data?: T,
-    public readonly error?: string
+    public readonly error?: string,
+    /**
+     * Error code for programmatic handling (TASK_2025_124)
+     * - 'LICENSE_REQUIRED': No valid license (subscription expired or not found)
+     * - 'PRO_TIER_REQUIRED': Pro subscription required for this feature
+     */
+    public readonly errorCode?: 'LICENSE_REQUIRED' | 'PRO_TIER_REQUIRED'
   ) {}
 
   /**
@@ -47,6 +53,23 @@ export class RpcResult<T> {
   isError(): this is RpcResult<T> & { success: false; error: string } {
     return !this.success;
   }
+
+  /**
+   * Check if error is license-related (TASK_2025_124)
+   */
+  isLicenseError(): boolean {
+    return (
+      this.errorCode === 'LICENSE_REQUIRED' ||
+      this.errorCode === 'PRO_TIER_REQUIRED'
+    );
+  }
+
+  /**
+   * Check if Pro tier is required (TASK_2025_124)
+   */
+  isProRequired(): boolean {
+    return this.errorCode === 'PRO_TIER_REQUIRED';
+  }
 }
 
 /**
@@ -56,6 +79,12 @@ interface RpcResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
+  /**
+   * Error code for programmatic handling (TASK_2025_124)
+   * - 'LICENSE_REQUIRED': No valid license (subscription expired or not found)
+   * - 'PRO_TIER_REQUIRED': Pro subscription required for this feature
+   */
+  errorCode?: 'LICENSE_REQUIRED' | 'PRO_TIER_REQUIRED';
   correlationId: string;
 }
 
@@ -127,8 +156,14 @@ export class ClaudeRpcService {
         (response: RpcResponse<RpcMethodResult<T>>) => {
           this.pendingCalls.delete(correlationId);
           clearTimeout(timer);
+          // TASK_2025_124: Pass errorCode for license-related errors
           resolve(
-            new RpcResult(response.success, response.data, response.error)
+            new RpcResult(
+              response.success,
+              response.data,
+              response.error,
+              response.errorCode
+            )
           );
         }
       );

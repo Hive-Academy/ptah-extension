@@ -7,6 +7,7 @@ import {
   Req,
   Inject,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { LicenseService } from '../services/license.service';
 import { VerifyLicenseDto } from '../dto/verify-license.dto';
@@ -36,6 +37,7 @@ export class LicenseController {
    *
    * Authentication: None (public endpoint)
    * Performance: <200ms p95 latency target
+   * Rate Limit: 10 requests per minute (TASK_2025_125)
    *
    * @param dto - VerifyLicenseDto containing the license key
    * @returns License verification result with plan details
@@ -47,7 +49,12 @@ export class LicenseController {
    *   tier: "basic",
    *   reason: "expired" | "revoked" | "not_found"
    * }
+   *
+   * Response (rate limited):
+   * Status: 429 Too Many Requests
+   * Headers: Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining
    */
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('verify')
   async verify(@Body() dto: VerifyLicenseDto) {
     return this.licenseService.verifyLicense(dto.licenseKey);

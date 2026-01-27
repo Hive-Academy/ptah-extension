@@ -12,6 +12,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import {
@@ -414,6 +415,10 @@ export class AuthController {
    * Sends a magic link email to the user's email address.
    * Always returns success to prevent email enumeration attacks.
    *
+   * Rate Limit: 3 requests per minute (TASK_2025_125)
+   * - Prevents email spam/abuse
+   * - Stricter than default global limit
+   *
    * **Security**:
    * - No authentication required (public endpoint)
    * - Always returns success (prevents email enumeration)
@@ -434,6 +439,7 @@ export class AuthController {
    * Body: { "email": "user@example.com", "returnUrl": "/pricing", "plan": "pro-monthly" }
    * → Returns: { success: true, message: "Check your email for login link" }
    */
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
   @Post('magic-link')
   async requestMagicLink(
     @Body() body: MagicLinkDto
@@ -638,12 +644,17 @@ export class AuthController {
    * Authenticates user with email and password directly via WorkOS API.
    * Returns JWT token in HTTP-only cookie and user data in response.
    *
+   * Rate Limit: 5 requests per minute (TASK_2025_125)
+   * - Prevents password brute-force attacks
+   * - Stricter than default global limit
+   *
    * @example
    * POST /auth/login/email
    * Body: { "email": "user@example.com", "password": "secret123" }
    * → Sets cookie: ptah_auth=<jwt>
    * → Returns: { success: true, user: { id, email, ... } }
    */
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('login/email')
   async loginWithEmail(
     @Body() body: LoginDto,
@@ -689,11 +700,16 @@ export class AuthController {
    * Returns pending_verification status - user must verify email first.
    * A verification email with a 6-digit code is sent after user creation.
    *
+   * Rate Limit: 5 requests per minute (TASK_2025_125)
+   * - Prevents mass account creation
+   * - Stricter than default global limit
+   *
    * @example
    * POST /auth/signup
    * Body: { "email": "user@example.com", "password": "secret123", "firstName": "John" }
    * → Returns: { success: true, pendingVerification: true, userId: "...", email: "..." }
    */
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('signup')
   async signup(@Body() body: SignupDto, @Res() res: Response): Promise<void> {
     const { email, password, firstName, lastName } = body;

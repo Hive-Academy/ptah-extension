@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { timingSafeEqual } from 'crypto';
 
 /**
  * AdminApiKeyGuard - Validates X-API-Key header for admin endpoints
@@ -26,6 +27,10 @@ export class AdminApiKeyGuard implements CanActivate {
   /**
    * Validate admin API key from request header
    *
+   * TASK_2025_125: Uses constant-time comparison to prevent timing attacks.
+   * The timingSafeEqual function ensures comparison takes the same time
+   * regardless of where strings differ, preventing information leakage.
+   *
    * @param context - Execution context containing HTTP request
    * @returns true if API key is valid, throws UnauthorizedException otherwise
    */
@@ -34,11 +39,11 @@ export class AdminApiKeyGuard implements CanActivate {
     const apiKey = request.headers['x-api-key'];
 
     // Validate API key presence
-    if (!apiKey) {
+    if (!apiKey || typeof apiKey !== 'string') {
       throw new UnauthorizedException('Invalid API key');
     }
 
-    // Compare with environment variable (constant-time comparison to prevent timing attacks)
+    // Get valid API key from environment
     const validApiKey = this.config.get<string>('ADMIN_API_KEY');
 
     if (!validApiKey) {
@@ -47,7 +52,14 @@ export class AdminApiKeyGuard implements CanActivate {
       );
     }
 
-    if (apiKey !== validApiKey) {
+    // TASK_2025_125: Constant-time comparison to prevent timing attacks
+    // 1. Check length first (prevents buffer allocation timing leak)
+    // 2. Use timingSafeEqual for content comparison
+    const isValid =
+      apiKey.length === validApiKey.length &&
+      timingSafeEqual(Buffer.from(apiKey), Buffer.from(validApiKey));
+
+    if (!isValid) {
       throw new UnauthorizedException('Invalid API key');
     }
 
