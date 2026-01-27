@@ -4,8 +4,19 @@ import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import type { EventEntity } from '@paddle/paddle-node-sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/services/email.service';
-import { PaddleSubscriptionDataDto } from './dto/paddle-webhook.dto';
+import { EventsService } from '../events/events.service';
+import {
+  PaddleSubscriptionDataDto,
+  PaddleTransactionDataDto,
+} from './dto/paddle-webhook.dto';
 import { PADDLE_CLIENT, PaddleClient } from './providers/paddle.provider';
+
+/**
+ * Extended subscription data that includes resolved customer email
+ */
+interface ResolvedSubscriptionData extends PaddleSubscriptionDataDto {
+  resolvedEmail: string;
+}
 
 /**
  * PaddleService - Paddle webhook processing and license provisioning
@@ -37,6 +48,7 @@ export class PaddleService {
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
+    private readonly eventsService: EventsService,
     @Inject(PADDLE_CLIENT)
     private readonly paddle: PaddleClient
   ) {
@@ -241,6 +253,62 @@ export class PaddleService {
   }
 
   /**
+   * Fetch customer email from Paddle API using customer ID
+   *
+   * Paddle Billing v2 webhooks only include customer_id, not the full customer object.
+   * This method fetches the customer details to get the email address.
+   *
+   * @param customerId - Paddle customer ID (ctm_xxx format)
+   * @returns Customer email address or null if fetch fails
+   */
+  async getCustomerEmail(customerId: string): Promise<string | null> {
+    if (!customerId) {
+      this.logger.warn('No customer ID provided for email lookup');
+      return null;
+    }
+
+    try {
+      const customer = await this.paddle.customers.get(customerId);
+      this.logger.log(`Fetched customer ${customerId}: ${customer.email}`);
+      return customer.email;
+    } catch (error) {
+      this.logger.error(
+        `Failed to fetch customer ${customerId}`,
+        error instanceof Error ? error.message : 'Unknown error'
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Resolve customer email from subscription data
+   *
+   * Tries multiple sources in order:
+   * 1. data.customer.email (if present in webhook)
+   * 2. Fetch from Paddle API using data.customer_id or data.customer.id
+   *
+   * @param data - Subscription data from webhook
+   * @returns Email address or null if not found
+   */
+  async resolveCustomerEmail(
+    data: PaddleSubscriptionDataDto
+  ): Promise<string | null> {
+    // Try embedded customer email first
+    if (data.customer?.email) {
+      return data.customer.email;
+    }
+
+    // Fall back to fetching from API using customer_id
+    const customerId = data.customer_id || data.customer?.id;
+    if (customerId) {
+      return this.getCustomerEmail(customerId);
+    }
+
+    this.logger.warn('No customer ID or email found in subscription data');
+    return null;
+  }
+
+  /**
    * Handle subscription.created event
    *
    * TASK_2025_121: Enhanced with trial status detection
@@ -385,6 +453,15 @@ export class PaddleService {
       );
     }
 
+    // Step 8: Emit SSE event for real-time frontend updates
+    // NOTE: License key is NOT included in SSE for security - it's sent via email only
+    this.eventsService.emitLicenseUpdated({
+      email,
+      plan: licensePlan,
+      status: isInTrial ? 'trialing' : 'active',
+      expiresAt: periodEnd.toISOString(),
+    });
+
     return { success: true, licenseId: license.id };
   }
 
@@ -449,6 +526,14 @@ export class PaddleService {
       } license(s) to plan: ${newPlan}, expires: ${periodEnd.toISOString()}`
     );
 
+    // Emit SSE event for real-time frontend updates
+    this.eventsService.emitLicenseUpdated({
+      email,
+      plan: newPlan,
+      status: 'active',
+      expiresAt: periodEnd.toISOString(),
+    });
+
     return { success: true };
   }
 
@@ -512,6 +597,19 @@ export class PaddleService {
         updateResult.count
       } license(s) with cancellation expiry: ${periodEnd.toISOString()}`
     );
+
+    // Emit SSE events for real-time frontend updates
+    // Get current plan for the notification
+    const currentLicense = await this.prisma.license.findFirst({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    this.eventsService.emitSubscriptionStatus({
+      email,
+      status: 'canceled',
+      plan: currentLicense?.plan || 'unknown',
+    });
 
     return { success: true };
   }
@@ -588,6 +686,20 @@ export class PaddleService {
         `Updated ${updateResult.count} license(s) from trial to ${basePlan}`
       );
 
+      // Emit SSE event for trial-to-active transition
+      this.eventsService.emitLicenseUpdated({
+        email,
+        plan: basePlan,
+        status: 'active',
+        expiresAt: periodEnd.toISOString(),
+      });
+
+      this.eventsService.emitSubscriptionStatus({
+        email,
+        status: 'active',
+        plan: basePlan,
+      });
+
       return { success: true };
     }
 
@@ -634,6 +746,22 @@ export class PaddleService {
       `Subscription ${subscriptionId} is past due for ${email} - payment retry in progress`
     );
 
+    // Emit SSE event for past_due status
+    // Get current plan for the notification
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    const currentLicense = user
+      ? await this.prisma.license.findFirst({
+          where: { userId: user.id },
+          orderBy: { createdAt: 'desc' },
+        })
+      : null;
+
+    this.eventsService.emitSubscriptionStatus({
+      email,
+      status: 'past_due',
+      plan: currentLicense?.plan || 'unknown',
+    });
+
     return { success: true };
   }
 
@@ -669,6 +797,11 @@ export class PaddleService {
     // Find user and update license status
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (user) {
+      // Get license before update for plan info
+      const license = await this.prisma.license.findFirst({
+        where: { userId: user.id, status: 'active' },
+      });
+
       await this.prisma.license.updateMany({
         where: { userId: user.id, status: 'active' },
         data: { status: 'paused' },
@@ -676,6 +809,13 @@ export class PaddleService {
       this.logger.log(
         `License(s) paused for user ${email} - subscription ${subscriptionId}`
       );
+
+      // Emit SSE events for paused status
+      this.eventsService.emitSubscriptionStatus({
+        email,
+        status: 'paused',
+        plan: license?.plan || 'unknown',
+      });
     } else {
       this.logger.warn(`User not found for email: ${email} during pause event`);
     }
@@ -717,6 +857,11 @@ export class PaddleService {
     // Find user and reactivate license
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (user) {
+      // Get license before update for plan info
+      const license = await this.prisma.license.findFirst({
+        where: { userId: user.id, status: 'paused' },
+      });
+
       await this.prisma.license.updateMany({
         where: { userId: user.id, status: 'paused' },
         data: { status: 'active', expiresAt: periodEnd },
@@ -724,6 +869,20 @@ export class PaddleService {
       this.logger.log(
         `License(s) reactivated for user ${email} - expires ${periodEnd.toISOString()}`
       );
+
+      // Emit SSE events for resumed (active) status
+      this.eventsService.emitLicenseUpdated({
+        email,
+        plan: license?.plan || 'unknown',
+        status: 'active',
+        expiresAt: periodEnd.toISOString(),
+      });
+
+      this.eventsService.emitSubscriptionStatus({
+        email,
+        status: 'active',
+        plan: license?.plan || 'unknown',
+      });
     } else {
       this.logger.warn(
         `User not found for email: ${email} during resume event`
@@ -731,6 +890,129 @@ export class PaddleService {
     }
 
     this.logger.log(`Subscription ${subscriptionId} resumed for ${email}`);
+    return { success: true };
+  }
+
+  /**
+   * Handle transaction.completed event
+   *
+   * TASK_2025_123: Added for subscription renewal handling
+   *
+   * This event fires when a payment is successful. For subscription renewals,
+   * it extends the license expiration to the new billing period end.
+   *
+   * Process:
+   * 1. Verify this is a subscription transaction (has subscription_id)
+   * 2. Find existing subscription by paddleSubscriptionId
+   * 3. Update subscription currentPeriodEnd to new billing period
+   * 4. Update license expiresAt to new billing period end
+   * 5. Emit SSE event for real-time frontend updates
+   *
+   * For one-time purchases (no subscription_id), the event is acknowledged
+   * but no action is taken (one-time purchases are handled differently).
+   *
+   * @param data - Transaction data from webhook payload
+   * @param eventId - Unique event ID for idempotency logging
+   * @returns Processing result
+   */
+  async handleTransactionCompleted(
+    data: PaddleTransactionDataDto,
+    eventId: string
+  ): Promise<{ success: boolean; skipped?: boolean; error?: string }> {
+    this.logger.log(
+      `Processing transaction.completed event: ${eventId}, transaction: ${data.id}`
+    );
+
+    // Step 1: Check if this is a subscription transaction
+    if (!data.subscription_id) {
+      this.logger.log(
+        `Transaction ${data.id} is not a subscription transaction (one-time purchase) - skipping`
+      );
+      return { success: true, skipped: true };
+    }
+
+    const subscriptionId = data.subscription_id;
+    this.logger.log(
+      `Transaction ${data.id} is for subscription ${subscriptionId}`
+    );
+
+    // Step 2: Verify billing period exists (required for renewals)
+    if (!data.billing_period) {
+      this.logger.warn(
+        `Transaction ${data.id} has subscription_id but no billing_period - cannot extend license`
+      );
+      return {
+        success: false,
+        error: 'No billing_period in transaction data',
+      };
+    }
+
+    const newPeriodEnd = new Date(data.billing_period.ends_at);
+
+    // Step 3: Find existing subscription
+    const subscription = await this.prisma.subscription.findUnique({
+      where: { paddleSubscriptionId: subscriptionId },
+      include: { user: true },
+    });
+
+    if (!subscription) {
+      this.logger.warn(
+        `No local subscription found for Paddle subscription ${subscriptionId} - ` +
+          `this may be a new subscription not yet processed by subscription.created`
+      );
+      return {
+        success: false,
+        error: `Subscription ${subscriptionId} not found in database`,
+      };
+    }
+
+    const email = subscription.user.email;
+
+    // Step 4: Update subscription currentPeriodEnd
+    await this.prisma.subscription.update({
+      where: { paddleSubscriptionId: subscriptionId },
+      data: {
+        currentPeriodEnd: newPeriodEnd,
+        status: 'active', // Successful payment means subscription is active
+      },
+    });
+    this.logger.log(
+      `Updated subscription ${subscriptionId} period end to ${newPeriodEnd.toISOString()}`
+    );
+
+    // Step 5: Update license expiresAt
+    const updateResult = await this.prisma.license.updateMany({
+      where: {
+        userId: subscription.userId,
+        status: 'active',
+      },
+      data: {
+        expiresAt: newPeriodEnd,
+      },
+    });
+
+    this.logger.log(
+      `Extended ${updateResult.count} license(s) for user ${email} to ${newPeriodEnd.toISOString()}`
+    );
+
+    // Step 6: Get current license plan for SSE event
+    const currentLicense = await this.prisma.license.findFirst({
+      where: { userId: subscription.userId, status: 'active' },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Step 7: Emit SSE event for real-time frontend updates
+    this.eventsService.emitLicenseUpdated({
+      email,
+      plan: currentLicense?.plan || 'unknown',
+      status: 'active',
+      expiresAt: newPeriodEnd.toISOString(),
+    });
+
+    this.logger.log(
+      `Renewal processed successfully for subscription ${subscriptionId}, user ${email}`
+    );
+
     return { success: true };
   }
 

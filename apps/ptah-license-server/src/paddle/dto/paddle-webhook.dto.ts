@@ -201,3 +201,95 @@ export function isSubscriptionEvent(
 ): eventType is SubscriptionEventType {
   return SUBSCRIPTION_EVENTS.includes(eventType as SubscriptionEventType);
 }
+
+/**
+ * Transaction events supported by Paddle Billing v2
+ *
+ * transaction.completed: Fires when a payment succeeds. For subscriptions,
+ * this occurs on renewals after the initial payment (which uses subscription.created).
+ */
+const TRANSACTION_EVENTS = ['transaction.completed'] as const;
+
+export type TransactionEventType = (typeof TRANSACTION_EVENTS)[number];
+
+/**
+ * All handled Paddle webhook events (subscriptions + transactions)
+ */
+export const HANDLED_EVENTS = [
+  ...SUBSCRIPTION_EVENTS,
+  ...TRANSACTION_EVENTS,
+] as const;
+
+export type HandledEventType = (typeof HANDLED_EVENTS)[number];
+
+/**
+ * Check if event type is a transaction event
+ */
+export function isTransactionEvent(
+  eventType: string
+): eventType is TransactionEventType {
+  return TRANSACTION_EVENTS.includes(eventType as TransactionEventType);
+}
+
+/**
+ * Check if event type is any handled event (subscription or transaction)
+ */
+export function isHandledEvent(
+  eventType: string
+): eventType is HandledEventType {
+  return HANDLED_EVENTS.includes(eventType as HandledEventType);
+}
+
+/**
+ * Paddle Transaction Data DTO - Transaction data from webhook
+ *
+ * Used by:
+ * - transaction.completed: Successful payment (initial or renewal)
+ *
+ * For subscription renewals:
+ * - subscription_id is present (links to subscription)
+ * - billing_period contains the new period dates
+ *
+ * For one-time purchases:
+ * - subscription_id is NOT present
+ * - billing_period may not be present
+ */
+export class PaddleTransactionDataDto {
+  @IsString()
+  id!: string;
+
+  /**
+   * Subscription ID - present ONLY for subscription transactions (renewals)
+   * Null/undefined for one-time purchases
+   */
+  @IsString()
+  @IsOptional()
+  subscription_id?: string;
+
+  /**
+   * Transaction status
+   * 'completed' for successful payments
+   * 'billed' for invoiced but not yet paid
+   * 'canceled', 'past_due', etc.
+   */
+  @IsString()
+  status!: string;
+
+  /**
+   * Billing period for subscription renewals
+   * Contains the NEW period dates after successful renewal
+   * Not present for one-time purchases
+   */
+  @IsObject()
+  @ValidateNested()
+  @Type(() => PaddleBillingPeriodDto)
+  @IsOptional()
+  billing_period?: PaddleBillingPeriodDto;
+
+  /**
+   * Customer ID for fetching customer details
+   */
+  @IsString()
+  @IsOptional()
+  customer_id?: string;
+}
