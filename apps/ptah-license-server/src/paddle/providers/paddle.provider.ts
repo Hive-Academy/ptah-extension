@@ -1,12 +1,148 @@
 import { Provider, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Paddle, Environment, type EventEntity } from '@paddle/paddle-node-sdk';
+import {
+  Paddle,
+  Environment,
+  type EventEntity,
+  type Subscription as PaddleSDKSubscription,
+  type SubscriptionCollection,
+  type CustomerPortalSession as PaddleSDKCustomerPortalSession,
+} from '@paddle/paddle-node-sdk';
+
+/**
+ * Paddle Customer Response Interface
+ */
+export interface PaddleCustomer {
+  id: string;
+  email: string;
+  name?: string;
+}
+
+/**
+ * Paddle Subscription Status
+ * Matches Paddle SDK SubscriptionStatus type
+ */
+export type PaddleSubscriptionStatus =
+  | 'active'
+  | 'canceled'
+  | 'past_due'
+  | 'paused'
+  | 'trialing';
+
+/**
+ * Paddle Subscription Item
+ * Represents a single item in a subscription
+ */
+export interface PaddleSubscriptionItem {
+  status: string;
+  quantity: number;
+  price: {
+    id: string;
+    description?: string;
+  };
+  product: {
+    id: string;
+    name: string;
+  };
+  trialDates?: {
+    startsAt: string;
+    endsAt: string;
+  } | null;
+}
+
+/**
+ * Paddle Subscription Time Period
+ */
+export interface PaddleSubscriptionTimePeriod {
+  startsAt: string;
+  endsAt: string;
+}
+
+/**
+ * Paddle Subscription Scheduled Change
+ */
+export interface PaddleScheduledChange {
+  action: string;
+  effectiveAt: string;
+  resumeAt?: string | null;
+}
+
+/**
+ * Paddle Subscription Interface
+ *
+ * Represents a subscription from Paddle API
+ * Based on Paddle SDK Subscription entity
+ */
+export interface PaddleSubscription {
+  id: string;
+  status: PaddleSubscriptionStatus;
+  customerId: string;
+  addressId: string;
+  currencyCode: string;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  firstBilledAt: string | null;
+  nextBilledAt: string | null;
+  pausedAt: string | null;
+  canceledAt: string | null;
+  currentBillingPeriod: PaddleSubscriptionTimePeriod | null;
+  billingCycle: {
+    interval: string;
+    frequency: number;
+  };
+  scheduledChange: PaddleScheduledChange | null;
+  items: PaddleSubscriptionItem[];
+}
+
+/**
+ * Paddle Portal Session Urls
+ */
+export interface PaddlePortalUrls {
+  general: {
+    overview: string;
+  };
+  subscriptions: Array<{
+    id: string;
+    cancelSubscription: string;
+    updateSubscription: string;
+  }>;
+}
+
+/**
+ * Paddle Customer Portal Session Interface
+ *
+ * Represents a portal session from Paddle API
+ * Based on Paddle SDK CustomerPortalSession entity
+ */
+export interface PaddlePortalSession {
+  id: string;
+  customerId: string | null;
+  urls: PaddlePortalUrls;
+  createdAt: string;
+}
+
+/**
+ * List Subscription Query Parameters
+ */
+export interface ListSubscriptionParams {
+  customerId?: string[];
+  status?: PaddleSubscriptionStatus[];
+  addressId?: string[];
+  priceId?: string[];
+  id?: string[];
+  orderBy?: string;
+  perPage?: number;
+  after?: string;
+}
 
 /**
  * Paddle Client Interface
  *
  * Typed interface for the Paddle client to enable
  * proper dependency injection and testability.
+ *
+ * TASK_2025_123: Extended with subscription and portal session methods
  */
 export interface PaddleClient {
   webhooks: {
@@ -15,6 +151,19 @@ export interface PaddleClient {
       secretKey: string,
       signature: string
     ): Promise<EventEntity>;
+  };
+  customers: {
+    get(customerId: string): Promise<PaddleCustomer>;
+  };
+  subscriptions: {
+    list(params?: ListSubscriptionParams): SubscriptionCollection;
+    get(subscriptionId: string): Promise<PaddleSDKSubscription>;
+  };
+  customerPortalSessions: {
+    create(
+      customerId: string,
+      subscriptionIds: string[]
+    ): Promise<PaddleSDKCustomerPortalSession>;
   };
 }
 
