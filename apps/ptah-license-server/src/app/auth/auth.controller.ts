@@ -745,12 +745,17 @@ export class AuthController {
    * Verifies user's email with the 6-digit code sent by WorkOS.
    * On success, issues JWT token in HTTP-only cookie.
    *
+   * Rate Limit: 10 requests per minute (TASK_2025_125)
+   * - Prevents verification code brute-force attacks
+   * - 6-digit code = 1 million combinations, limit prevents exhaustive search
+   *
    * @example
    * POST /auth/verify-email
    * Body: { "userId": "user_xxx", "code": "123456" }
    * → Sets cookie: ptah_auth=<jwt>
    * → Returns: { success: true, user: { id, email, ... } }
    */
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('verify-email')
   async verifyEmail(
     @Body() body: VerifyEmailDto,
@@ -796,11 +801,16 @@ export class AuthController {
    *
    * Sends a new verification code to the user's email.
    *
+   * Rate Limit: 3 requests per minute (TASK_2025_125)
+   * - Prevents email spam/abuse
+   * - Same limit as magic-link endpoint
+   *
    * @example
    * POST /auth/resend-verification
    * Body: { "userId": "user_xxx" }
    * → Returns: { success: true, message: "..." }
    */
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
   @Post('resend-verification')
   async resendVerification(
     @Body() body: ResendVerificationDto,

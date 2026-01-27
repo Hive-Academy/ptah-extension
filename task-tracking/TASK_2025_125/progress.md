@@ -105,5 +105,52 @@ Implement rate limiting on the Ptah License Server to protect against DoS attack
 
 ---
 
+## Reviewer Fixes Applied (2026-01-27)
+
+### Critical Issue Fix: Timing Attack Mitigation
+
+**Problem**: Original implementation used length check before `timingSafeEqual`:
+```typescript
+// VULNERABLE: Length check leaks API key length via timing
+const isValid = apiKey.length === validApiKey.length &&
+  timingSafeEqual(Buffer.from(apiKey), Buffer.from(validApiKey));
+```
+
+**Solution**: Hash-based constant-time comparison:
+```typescript
+// SECURE: Hash both keys first, then compare fixed-length hashes
+private hashKey(key: string): Buffer {
+  return createHash('sha256').update(key).digest();
+}
+
+// Both hashes are always 32 bytes, no length leak
+const providedHash = this.hashKey(apiKey);
+const expectedHash = this.hashKey(validApiKey);
+const isValid = timingSafeEqual(providedHash, expectedHash);
+```
+
+### Missing Rate Limits Added
+
+| Endpoint | Limit | Purpose |
+|----------|-------|---------|
+| POST /auth/verify-email | 10/min | Prevent code brute-force (6-digit = 1M combos) |
+| POST /auth/resend-verification | 3/min | Prevent email spam |
+
+### Updated Rate Limiting Summary
+
+| Endpoint | Limit | Purpose |
+|----------|-------|---------|
+| Global default | 100/min | General protection |
+| POST /api/v1/licenses/verify | 10/min | License verification |
+| POST /api/v1/admin/* | 30/min | Admin operations |
+| POST /auth/login/email | 5/min | Password brute-force |
+| POST /auth/magic-link | 3/min | Email spam prevention |
+| POST /auth/signup | 5/min | Mass account prevention |
+| POST /auth/verify-email | 10/min | Code brute-force |
+| POST /auth/resend-verification | 3/min | Email spam prevention |
+
+---
+
 _Created: 2026-01-27_
 _Completed: 2026-01-27_
+_Reviewer Fixes: 2026-01-27_
