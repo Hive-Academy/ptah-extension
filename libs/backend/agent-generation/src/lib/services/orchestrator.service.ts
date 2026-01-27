@@ -774,6 +774,7 @@ export class AgentGenerationOrchestratorService {
       [ProjectType.PHP]: ['PHP'],
       [ProjectType.Ruby]: ['Ruby'],
       [ProjectType.General]: ['Unknown'],
+      [ProjectType.Unknown]: ['Unknown'],
     };
 
     return languageMap[projectType] || ['Unknown'];
