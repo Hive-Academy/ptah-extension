@@ -1,40 +1,32 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
-import type { EventEntity } from '@paddle/paddle-node-sdk';
+import { randomBytes } from 'crypto';
+import type {
+  SubscriptionNotification,
+  SubscriptionCreatedNotification,
+  TransactionNotification,
+  SubscriptionStatus,
+} from '@paddle/paddle-node-sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/services/email.service';
 import { EventsService } from '../events/events.service';
-import {
-  PaddleSubscriptionDataDto,
-  PaddleTransactionDataDto,
-} from './dto/paddle-webhook.dto';
 import { PADDLE_CLIENT, PaddleClient } from './providers/paddle.provider';
 
 /**
- * Extended subscription data that includes resolved customer email
- */
-interface ResolvedSubscriptionData extends PaddleSubscriptionDataDto {
-  resolvedEmail: string;
-}
-
-/**
- * PaddleService - Paddle webhook processing and license provisioning
+ * PaddleService - Paddle business logic and license provisioning
  *
  * Responsibilities:
- * - Verify webhook signatures using HMAC SHA256
- * - Handle subscription lifecycle events (created, updated, canceled)
+ * - Handle subscription lifecycle events with SDK-typed data
  * - Provision licenses for new subscriptions
  * - Update licenses on plan changes or cancellations
  * - Send license key emails to customers
+ * - Fetch customer details from Paddle API
  *
- * Security:
- * - Timing-safe signature comparison to prevent timing attacks
- * - Idempotent processing via createdBy field with paddle_{eventId}
+ * All handlers accept SDK notification types directly from PaddleWebhookService.
+ * Customer email is resolved by PaddleWebhookService before calling handlers.
  *
  * Configuration (environment variables):
  * - PADDLE_API_KEY: Paddle API key (required)
- * - PADDLE_WEBHOOK_SECRET: Webhook signature secret (required)
  * - PADDLE_PRICE_ID_BASIC_MONTHLY: Price ID for basic monthly plan
  * - PADDLE_PRICE_ID_BASIC_YEARLY: Price ID for basic yearly plan
  * - PADDLE_PRICE_ID_PRO_MONTHLY: Price ID for pro monthly plan
@@ -53,209 +45,12 @@ export class PaddleService {
     private readonly paddle: PaddleClient
   ) {
     this.logger.log('Paddle service initialized');
-
-    // Log webhook configuration status
-    const webhookSecret = this.configService.get<string>(
-      'PADDLE_WEBHOOK_SECRET'
-    );
-    if (!webhookSecret) {
-      this.logger.warn(
-        'PADDLE_WEBHOOK_SECRET not configured - webhook verification will fail'
-      );
-    }
-  }
-
-  /**
-   * Verify Paddle webhook signature using HMAC SHA256
-   *
-   * Paddle signature format: ts={timestamp};h1={signature}
-   *
-   * Verification process:
-   * 1. Parse timestamp and signature from header
-   * 2. Construct signed payload: {timestamp}:{rawBody}
-   * 3. Compute HMAC SHA256 with webhook secret
-   * 4. Compare using timing-safe comparison
-   *
-   * @param signature - The paddle-signature header value
-   * @param rawBody - The raw request body as Buffer
-   * @returns true if signature is valid, false otherwise
-   */
-  verifySignature(signature: string, rawBody: Buffer): boolean {
-    if (!signature || !rawBody) {
-      this.logger.warn('Missing signature or raw body for verification');
-      return false;
-    }
-
-    const webhookSecret = this.configService.get<string>(
-      'PADDLE_WEBHOOK_SECRET'
-    );
-    if (!webhookSecret) {
-      this.logger.error('PADDLE_WEBHOOK_SECRET not configured');
-      return false;
-    }
-
-    try {
-      // Parse signature header: ts=1234567890;h1=abc123...
-      const parts = signature.split(';');
-      const timestampPart = parts.find((p) => p.startsWith('ts='));
-      const signaturePart = parts.find((p) => p.startsWith('h1='));
-
-      if (!timestampPart || !signaturePart) {
-        this.logger.warn('Invalid signature format - missing ts or h1');
-        return false;
-      }
-
-      const timestamp = timestampPart.split('=')[1];
-      const receivedSignature = signaturePart.split('=')[1];
-
-      // Construct the signed payload: {timestamp}:{rawBody}
-      const signedPayload = `${timestamp}:${rawBody.toString()}`;
-
-      // Compute expected signature using HMAC SHA256
-      const expectedSignature = createHmac('sha256', webhookSecret)
-        .update(signedPayload)
-        .digest('hex');
-
-      // Timing-safe comparison to prevent timing attacks
-      const receivedBuffer = Buffer.from(receivedSignature, 'hex');
-      const expectedBuffer = Buffer.from(expectedSignature, 'hex');
-
-      // Ensure buffers are same length before comparison
-      if (receivedBuffer.length !== expectedBuffer.length) {
-        this.logger.warn('Signature length mismatch');
-        return false;
-      }
-
-      const isValid = timingSafeEqual(receivedBuffer, expectedBuffer);
-
-      if (!isValid) {
-        this.logger.warn('Webhook signature verification failed');
-      }
-
-      return isValid;
-    } catch (error) {
-      this.logger.error(
-        'Error verifying webhook signature',
-        error instanceof Error ? error.message : 'Unknown error'
-      );
-      return false;
-    }
-  }
-
-  /**
-   * Verify webhook timestamp is within acceptable window (5 minutes)
-   *
-   * Prevents replay attacks by rejecting webhooks with stale timestamps.
-   * Paddle includes a Unix timestamp in the signature header.
-   *
-   * Security:
-   * - 5-minute window accounts for clock skew and network latency
-   * - Rejects both past and future timestamps outside window
-   * - Must be called BEFORE processing webhook payload
-   *
-   * @param signature - The paddle-signature header value (format: ts={timestamp};h1={signature})
-   * @returns true if timestamp is within 5-minute window, false otherwise
-   */
-  verifyTimestamp(signature: string): boolean {
-    if (!signature) {
-      this.logger.warn('Missing signature for timestamp verification');
-      return false;
-    }
-
-    try {
-      // Parse timestamp from signature header: ts=1234567890;h1=abc123...
-      const timestampPart = signature
-        .split(';')
-        .find((p) => p.startsWith('ts='));
-
-      if (!timestampPart) {
-        this.logger.warn('Invalid signature format - missing timestamp');
-        return false;
-      }
-
-      const timestampStr = timestampPart.split('=')[1];
-      if (!timestampStr) {
-        this.logger.warn('Invalid timestamp format in signature');
-        return false;
-      }
-
-      const timestamp = parseInt(timestampStr, 10);
-      if (isNaN(timestamp)) {
-        this.logger.warn(`Invalid timestamp value: ${timestampStr}`);
-        return false;
-      }
-
-      const now = Math.floor(Date.now() / 1000);
-      const fiveMinutes = 5 * 60; // 300 seconds
-
-      const isWithinWindow = Math.abs(now - timestamp) <= fiveMinutes;
-
-      if (!isWithinWindow) {
-        this.logger.warn(
-          `Webhook timestamp outside acceptable window. ` +
-            `Timestamp: ${timestamp}, Now: ${now}, Diff: ${Math.abs(
-              now - timestamp
-            )}s`
-        );
-      }
-
-      return isWithinWindow;
-    } catch (error) {
-      this.logger.error(
-        'Error verifying webhook timestamp',
-        error instanceof Error ? error.message : 'Unknown error'
-      );
-      return false;
-    }
-  }
-
-  /**
-   * Unmarshal and verify webhook using Paddle SDK (Paddle Billing v2 best practice)
-   *
-   * This method uses the official Paddle SDK for type-safe webhook verification.
-   * It's an alternative to manual HMAC verification that provides:
-   * - Type-safe event entities
-   * - Automatic signature verification
-   * - Built-in timestamp validation
-   *
-   * @param signature - The paddle-signature header value
-   * @param rawBody - The raw request body as string
-   * @returns Typed EventEntity or null if verification fails
-   */
-  async unmarshalWebhook(
-    signature: string,
-    rawBody: string
-  ): Promise<EventEntity | null> {
-    const webhookSecret = this.configService.get<string>(
-      'PADDLE_WEBHOOK_SECRET'
-    );
-
-    if (!webhookSecret) {
-      this.logger.error('PADDLE_WEBHOOK_SECRET not configured');
-      return null;
-    }
-
-    try {
-      const event = await this.paddle.webhooks.unmarshal(
-        rawBody,
-        webhookSecret,
-        signature
-      );
-      this.logger.log(`Webhook unmarshaled successfully: ${event.eventType}`);
-      return event;
-    } catch (error) {
-      this.logger.error(
-        'Webhook unmarshal failed',
-        error instanceof Error ? error.message : 'Unknown error'
-      );
-      return null;
-    }
   }
 
   /**
    * Fetch customer email from Paddle API using customer ID
    *
-   * Paddle Billing v2 webhooks only include customer_id, not the full customer object.
+   * Paddle webhooks include customerId but not email directly.
    * This method fetches the customer details to get the email address.
    *
    * @param customerId - Paddle customer ID (ctm_xxx format)
@@ -281,64 +76,28 @@ export class PaddleService {
   }
 
   /**
-   * Resolve customer email from subscription data
-   *
-   * Tries multiple sources in order:
-   * 1. data.customer.email (if present in webhook)
-   * 2. Fetch from Paddle API using data.customer_id or data.customer.id
-   *
-   * @param data - Subscription data from webhook
-   * @returns Email address or null if not found
-   */
-  async resolveCustomerEmail(
-    data: PaddleSubscriptionDataDto
-  ): Promise<string | null> {
-    // Try embedded customer email first
-    if (data.customer?.email) {
-      return data.customer.email;
-    }
-
-    // Fall back to fetching from API using customer_id
-    const customerId = data.customer_id || data.customer?.id;
-    if (customerId) {
-      return this.getCustomerEmail(customerId);
-    }
-
-    this.logger.warn('No customer ID or email found in subscription data');
-    return null;
-  }
-
-  /**
-   * Handle subscription.created event
-   *
-   * TASK_2025_121: Enhanced with trial status detection
+   * Handle subscription.created event (SDK-typed)
    *
    * Process:
    * 1. Check for duplicate processing via eventId (idempotency)
-   * 2. Detect trial status from subscription.status === 'trialing'
+   * 2. Detect trial status from subscription status
    * 3. Create or find user by email
    * 4. Create subscription record with trial end date
-   * 5. Generate and create license with trial-aware plan
+   * 5. Generate and create license
    * 6. Send license key email
    *
-   * Trial handling:
-   * - When data.status === 'trialing', license plan becomes 'trial_basic' or 'trial_pro'
-   * - trialEnd date is stored in subscription record from data.trial_end
-   * - When subscription.activated fires, plan is updated to non-trial version
-   *
-   * All database operations are wrapped in a transaction for atomicity.
-   * If any step fails, all changes are rolled back.
-   *
-   * @param data - Subscription data from webhook payload
+   * @param data - SubscriptionCreatedNotification from SDK
+   * @param email - Resolved customer email
    * @param eventId - Unique event ID for idempotency
    * @returns Processing result
    */
-  async handleSubscriptionCreated(
-    data: PaddleSubscriptionDataDto,
+  async handleSubscriptionCreatedEvent(
+    data: SubscriptionCreatedNotification,
+    email: string,
     eventId: string
   ): Promise<{ success: boolean; duplicate?: boolean; licenseId?: string }> {
     this.logger.log(
-      `Processing subscription.created event: ${eventId} for customer: ${data.customer.email}, status: ${data.status}`
+      `Processing subscription.created event: ${eventId} for customer: ${email}, status: ${data.status}`
     );
 
     // Step 1: Idempotency check - prevent duplicate processing
@@ -351,18 +110,23 @@ export class PaddleService {
       return { success: true, duplicate: true };
     }
 
-    const email = data.customer.email.toLowerCase();
+    const normalizedEmail = email.toLowerCase();
     const priceId = data.items[0]?.price?.id;
     const basePlan = this.mapPriceIdToPlan(priceId);
-    const customerId = data.customer.id;
+    const customerId = data.customerId;
     const subscriptionId = data.id;
-    const periodEnd = new Date(data.current_billing_period.ends_at);
+    const periodEnd = data.currentBillingPeriod
+      ? new Date(data.currentBillingPeriod.endsAt)
+      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // Default 30 days if missing
     const licenseKey = this.generateLicenseKey();
 
-    // Step 2: Detect trial status from Paddle webhook
+    // Step 2: Detect trial status from SDK type
     const isInTrial = data.status === 'trialing';
     const licensePlan = isInTrial ? `trial_${basePlan}` : basePlan;
-    const trialEnd = data.trial_end ? new Date(data.trial_end) : null;
+
+    // Extract trial end from item's trialDates
+    const trialDates = data.items[0]?.trialDates;
+    const trialEnd = trialDates?.endsAt ? new Date(trialDates.endsAt) : null;
 
     if (isInTrial) {
       this.logger.log(
@@ -373,15 +137,14 @@ export class PaddleService {
     }
 
     // Wrap all database operations in a transaction for atomicity
-    // If any operation fails, all changes are rolled back
     const license = await this.prisma.$transaction(async (tx) => {
       // Step 3: Find or create user
-      let user = await tx.user.findUnique({ where: { email } });
+      let user = await tx.user.findUnique({ where: { email: normalizedEmail } });
       if (!user) {
         user = await tx.user.create({
-          data: { email },
+          data: { email: normalizedEmail },
         });
-        this.logger.log(`Created new user for email: ${email}`);
+        this.logger.log(`Created new user for email: ${normalizedEmail}`);
       }
 
       // Step 4: Revoke any existing active licenses (one active license per user)
@@ -396,11 +159,11 @@ export class PaddleService {
       });
       if (revokedCount.count > 0) {
         this.logger.log(
-          `Revoked ${revokedCount.count} existing license(s) for user: ${email}`
+          `Revoked ${revokedCount.count} existing license(s) for user: ${normalizedEmail}`
         );
       }
 
-      // Step 5: Create new license with trial-aware plan
+      // Step 5: Create new license
       const newLicense = await tx.license.create({
         data: {
           userId: user.id,
@@ -417,7 +180,7 @@ export class PaddleService {
         }`
       );
 
-      // Step 6: Create subscription record with trial end date
+      // Step 6: Create subscription record
       await tx.subscription.create({
         data: {
           userId: user.id,
@@ -426,7 +189,7 @@ export class PaddleService {
           status: data.status,
           priceId: priceId || '',
           currentPeriodEnd: periodEnd,
-          trialEnd, // Store trial end date for trial detection
+          trialEnd,
         },
       });
       this.logger.log(
@@ -439,24 +202,22 @@ export class PaddleService {
     // Step 7: Send license key email (outside transaction - non-critical)
     try {
       await this.emailService.sendLicenseKey({
-        email,
+        email: normalizedEmail,
         licenseKey,
         plan: licensePlan,
         expiresAt: periodEnd,
       });
-      this.logger.log(`License key email sent to: ${email}`);
+      this.logger.log(`License key email sent to: ${normalizedEmail}`);
     } catch (error) {
-      // Log error but don't fail the webhook - license is already created
       this.logger.error(
-        `Failed to send license email to ${email}:`,
+        `Failed to send license email to ${normalizedEmail}:`,
         error instanceof Error ? error.message : 'Unknown error'
       );
     }
 
     // Step 8: Emit SSE event for real-time frontend updates
-    // NOTE: License key is NOT included in SSE for security - it's sent via email only
     this.eventsService.emitLicenseUpdated({
-      email,
+      email: normalizedEmail,
       plan: licensePlan,
       status: isInTrial ? 'trialing' : 'active',
       expiresAt: periodEnd.toISOString(),
@@ -466,33 +227,131 @@ export class PaddleService {
   }
 
   /**
-   * Handle subscription.updated event
+   * Handle subscription.activated event (SDK-typed)
    *
-   * Updates license plan and expiration based on subscription changes.
-   * Handles plan upgrades/downgrades and billing period changes.
+   * Fires when subscription becomes fully active (payment confirmed).
+   * For trials, this fires when trial ends and first payment succeeds.
    *
-   * @param data - Subscription data from webhook payload
+   * @param data - SubscriptionNotification from SDK
+   * @param email - Resolved customer email
    * @param eventId - Unique event ID for logging
    * @returns Processing result
    */
-  async handleSubscriptionUpdated(
-    data: PaddleSubscriptionDataDto,
+  async handleSubscriptionActivatedEvent(
+    data: SubscriptionNotification,
+    email: string,
+    eventId: string
+  ): Promise<{ success: boolean; duplicate?: boolean; licenseId?: string }> {
+    this.logger.log(
+      `Processing subscription.activated event: ${eventId} for customer: ${email}`
+    );
+
+    const normalizedEmail = email.toLowerCase();
+    const subscriptionId = data.id;
+    const priceId = data.items[0]?.price?.id;
+    const basePlan = this.mapPriceIdToPlan(priceId);
+    const periodEnd = data.currentBillingPeriod
+      ? new Date(data.currentBillingPeriod.endsAt)
+      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    // Check if we have an existing subscription (created during trial)
+    const existingSubscription = await this.prisma.subscription.findUnique({
+      where: { paddleSubscriptionId: subscriptionId },
+      include: { user: true },
+    });
+
+    if (existingSubscription) {
+      // Subscription exists - this is a trial-to-active transition
+      this.logger.log(
+        `Trial-to-active transition for subscription ${subscriptionId}`
+      );
+
+      // Update subscription status to active and clear trial end
+      await this.prisma.subscription.update({
+        where: { paddleSubscriptionId: subscriptionId },
+        data: {
+          status: 'active',
+          currentPeriodEnd: periodEnd,
+          trialEnd: null,
+        },
+      });
+
+      // Update license plan from trial_X to X
+      const updateResult = await this.prisma.license.updateMany({
+        where: {
+          userId: existingSubscription.userId,
+          status: 'active',
+          plan: { startsWith: 'trial_' },
+        },
+        data: {
+          plan: basePlan,
+          expiresAt: periodEnd,
+        },
+      });
+
+      this.logger.log(
+        `Updated ${updateResult.count} license(s) from trial to ${basePlan}`
+      );
+
+      // Emit SSE events for trial-to-active transition
+      this.eventsService.emitLicenseUpdated({
+        email: normalizedEmail,
+        plan: basePlan,
+        status: 'active',
+        expiresAt: periodEnd.toISOString(),
+      });
+
+      this.eventsService.emitSubscriptionStatus({
+        email: normalizedEmail,
+        status: 'active',
+        plan: basePlan,
+      });
+
+      return { success: true };
+    }
+
+    // No existing subscription - create new (delegate to created handler logic)
+    // This handles cases where activated fires without prior created event
+    return this.handleSubscriptionCreatedEvent(
+      data as unknown as SubscriptionCreatedNotification,
+      email,
+      eventId
+    );
+  }
+
+  /**
+   * Handle subscription.updated event (SDK-typed)
+   *
+   * Updates license plan and expiration based on subscription changes.
+   *
+   * @param data - SubscriptionNotification from SDK
+   * @param email - Resolved customer email
+   * @param eventId - Unique event ID for logging
+   * @returns Processing result
+   */
+  async handleSubscriptionUpdatedEvent(
+    data: SubscriptionNotification,
+    email: string,
     eventId: string
   ): Promise<{ success: boolean; error?: string }> {
     this.logger.log(
-      `Processing subscription.updated event: ${eventId} for customer: ${data.customer.email}`
+      `Processing subscription.updated event: ${eventId} for customer: ${email}`
     );
 
-    const email = data.customer.email.toLowerCase();
+    const normalizedEmail = email.toLowerCase();
     const priceId = data.items[0]?.price?.id;
     const newPlan = this.mapPriceIdToPlan(priceId);
-    const periodEnd = new Date(data.current_billing_period.ends_at);
+    const periodEnd = data.currentBillingPeriod
+      ? new Date(data.currentBillingPeriod.endsAt)
+      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     const subscriptionId = data.id;
 
     // Find user by email
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
     if (!user) {
-      this.logger.warn(`User not found for email: ${email}`);
+      this.logger.warn(`User not found for email: ${normalizedEmail}`);
       return { success: false, error: 'User not found' };
     }
 
@@ -503,7 +362,7 @@ export class PaddleService {
         status: data.status,
         priceId: priceId || '',
         currentPeriodEnd: periodEnd,
-        canceledAt: data.canceled_at ? new Date(data.canceled_at) : null,
+        canceledAt: data.canceledAt ? new Date(data.canceledAt) : null,
       },
     });
     this.logger.log(`Updated subscription: ${subscriptionId}`);
@@ -528,7 +387,7 @@ export class PaddleService {
 
     // Emit SSE event for real-time frontend updates
     this.eventsService.emitLicenseUpdated({
-      email,
+      email: normalizedEmail,
       plan: newPlan,
       status: 'active',
       expiresAt: periodEnd.toISOString(),
@@ -538,35 +397,37 @@ export class PaddleService {
   }
 
   /**
-   * Handle subscription.canceled event
+   * Handle subscription.canceled event (SDK-typed)
    *
-   * Sets license expiration to the end of the current billing period.
-   * User keeps access until their paid period ends.
-   * A cron job should mark licenses as 'expired' after expiresAt passes.
+   * Sets license expiration to end of current billing period.
    *
-   * @param data - Subscription data from webhook payload
+   * @param data - SubscriptionNotification from SDK
+   * @param email - Resolved customer email
    * @param eventId - Unique event ID for logging
    * @returns Processing result
    */
-  async handleSubscriptionCanceled(
-    data: PaddleSubscriptionDataDto,
+  async handleSubscriptionCanceledEvent(
+    data: SubscriptionNotification,
+    email: string,
     eventId: string
   ): Promise<{ success: boolean; error?: string }> {
     this.logger.log(
-      `Processing subscription.canceled event: ${eventId} for customer: ${data.customer.email}`
+      `Processing subscription.canceled event: ${eventId} for customer: ${email}`
     );
 
-    const email = data.customer.email.toLowerCase();
-    const periodEnd = new Date(data.current_billing_period.ends_at);
-    const subscriptionId = data.id;
-    const canceledAt = data.canceled_at
-      ? new Date(data.canceled_at)
+    const normalizedEmail = email.toLowerCase();
+    const periodEnd = data.currentBillingPeriod
+      ? new Date(data.currentBillingPeriod.endsAt)
       : new Date();
+    const subscriptionId = data.id;
+    const canceledAt = data.canceledAt ? new Date(data.canceledAt) : new Date();
 
     // Find user by email
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
     if (!user) {
-      this.logger.warn(`User not found for email: ${email}`);
+      this.logger.warn(`User not found for email: ${normalizedEmail}`);
       return { success: false, error: 'User not found' };
     }
 
@@ -598,15 +459,15 @@ export class PaddleService {
       } license(s) with cancellation expiry: ${periodEnd.toISOString()}`
     );
 
-    // Emit SSE events for real-time frontend updates
     // Get current plan for the notification
     const currentLicense = await this.prisma.license.findFirst({
       where: { userId: user.id },
       orderBy: { createdAt: 'desc' },
     });
 
+    // Emit SSE event for canceled status
     this.eventsService.emitSubscriptionStatus({
-      email,
+      email: normalizedEmail,
       status: 'canceled',
       plan: currentLicense?.plan || 'unknown',
     });
@@ -615,124 +476,25 @@ export class PaddleService {
   }
 
   /**
-   * Handle subscription.activated event (Paddle Billing v2 recommended)
+   * Handle subscription.past_due event (SDK-typed)
    *
-   * TASK_2025_121: Enhanced to handle trial-to-active transitions
+   * Payment failed but subscription not yet canceled (dunning period).
    *
-   * This event fires when subscription becomes fully active (payment confirmed).
-   * For trial subscriptions, this fires when:
-   * - Trial period ends and first payment is successful
-   * - User upgrades from trial to paid before trial ends
-   *
-   * Process:
-   * 1. Check if subscription already exists (from earlier subscription.created)
-   * 2. If exists: Update license plan from trial_X to X (remove trial prefix)
-   * 3. If not exists: Create new license (delegate to handleSubscriptionCreated)
-   *
-   * @param data - Subscription data from webhook payload
-   * @param eventId - Unique event ID for idempotency
-   * @returns Processing result
-   */
-  async handleSubscriptionActivated(
-    data: PaddleSubscriptionDataDto,
-    eventId: string
-  ): Promise<{ success: boolean; duplicate?: boolean; licenseId?: string }> {
-    this.logger.log(
-      `Processing subscription.activated event: ${eventId} for customer: ${data.customer.email}`
-    );
-
-    const email = data.customer.email.toLowerCase();
-    const subscriptionId = data.id;
-    const priceId = data.items[0]?.price?.id;
-    const basePlan = this.mapPriceIdToPlan(priceId);
-    const periodEnd = new Date(data.current_billing_period.ends_at);
-
-    // Check if we have an existing subscription (created during trial)
-    const existingSubscription = await this.prisma.subscription.findUnique({
-      where: { paddleSubscriptionId: subscriptionId },
-      include: { user: true },
-    });
-
-    if (existingSubscription) {
-      // Subscription exists - this is a trial-to-active transition
-      this.logger.log(
-        `Trial-to-active transition for subscription ${subscriptionId}`
-      );
-
-      // Update subscription status to active and clear trial end
-      await this.prisma.subscription.update({
-        where: { paddleSubscriptionId: subscriptionId },
-        data: {
-          status: 'active',
-          currentPeriodEnd: periodEnd,
-          trialEnd: null, // Clear trial end date
-        },
-      });
-
-      // Update license plan from trial_X to X
-      const updateResult = await this.prisma.license.updateMany({
-        where: {
-          userId: existingSubscription.userId,
-          status: 'active',
-          plan: { startsWith: 'trial_' },
-        },
-        data: {
-          plan: basePlan, // Remove trial_ prefix
-          expiresAt: periodEnd,
-        },
-      });
-
-      this.logger.log(
-        `Updated ${updateResult.count} license(s) from trial to ${basePlan}`
-      );
-
-      // Emit SSE event for trial-to-active transition
-      this.eventsService.emitLicenseUpdated({
-        email,
-        plan: basePlan,
-        status: 'active',
-        expiresAt: periodEnd.toISOString(),
-      });
-
-      this.eventsService.emitSubscriptionStatus({
-        email,
-        status: 'active',
-        plan: basePlan,
-      });
-
-      return { success: true };
-    }
-
-    // No existing subscription - delegate to handleSubscriptionCreated
-    // This handles the case where subscription.activated fires without
-    // a prior subscription.created event
-    return this.handleSubscriptionCreated(data, eventId);
-  }
-
-  /**
-   * Handle subscription.past_due event
-   *
-   * Occurs when payment fails but the subscription isn't canceled yet.
-   * Paddle will retry payment according to dunning settings.
-   *
-   * During this period:
-   * - Subscription is still technically active
-   * - User should be warned about payment issues
-   * - Consider limiting some features or showing banners
-   *
-   * @param data - Subscription data from webhook payload
+   * @param data - SubscriptionNotification from SDK
+   * @param email - Resolved customer email
    * @param eventId - Unique event ID for logging
    * @returns Processing result
    */
-  async handleSubscriptionPastDue(
-    data: PaddleSubscriptionDataDto,
+  async handleSubscriptionPastDueEvent(
+    data: SubscriptionNotification,
+    email: string,
     eventId: string
   ): Promise<{ success: boolean }> {
     this.logger.log(
-      `Processing subscription.past_due event: ${eventId} for customer: ${data.customer.email}`
+      `Processing subscription.past_due event: ${eventId} for customer: ${email}`
     );
 
-    const email = data.customer.email.toLowerCase();
+    const normalizedEmail = email.toLowerCase();
     const subscriptionId = data.id;
 
     // Update subscription status to past_due
@@ -741,14 +503,14 @@ export class PaddleService {
       data: { status: 'past_due' },
     });
 
-    // Log warning - business may want to send reminder emails
     this.logger.warn(
-      `Subscription ${subscriptionId} is past due for ${email} - payment retry in progress`
+      `Subscription ${subscriptionId} is past due for ${normalizedEmail} - payment retry in progress`
     );
 
-    // Emit SSE event for past_due status
-    // Get current plan for the notification
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    // Get current license plan for the notification
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
     const currentLicense = user
       ? await this.prisma.license.findFirst({
           where: { userId: user.id },
@@ -756,8 +518,9 @@ export class PaddleService {
         })
       : null;
 
+    // Emit SSE event for past_due status
     this.eventsService.emitSubscriptionStatus({
-      email,
+      email: normalizedEmail,
       status: 'past_due',
       plan: currentLicense?.plan || 'unknown',
     });
@@ -766,27 +529,26 @@ export class PaddleService {
   }
 
   /**
-   * Handle subscription.paused event
+   * Handle subscription.paused event (SDK-typed)
    *
-   * User has paused their subscription. During pause:
-   * - No payments are collected
-   * - User loses access to premium features
-   * - Subscription can be resumed later
+   * User has paused subscription - lose access to premium features.
    *
-   * @param data - Subscription data from webhook payload
+   * @param data - SubscriptionNotification from SDK
+   * @param email - Resolved customer email
    * @param eventId - Unique event ID for logging
    * @returns Processing result
    */
-  async handleSubscriptionPaused(
-    data: PaddleSubscriptionDataDto,
+  async handleSubscriptionPausedEvent(
+    data: SubscriptionNotification,
+    email: string,
     eventId: string
   ): Promise<{ success: boolean }> {
     this.logger.log(
-      `Processing subscription.paused event: ${eventId} for customer: ${data.customer.email}`
+      `Processing subscription.paused event: ${eventId} for customer: ${email}`
     );
 
     const subscriptionId = data.id;
-    const email = data.customer.email.toLowerCase();
+    const normalizedEmail = email.toLowerCase();
 
     // Update subscription status to paused
     await this.prisma.subscription.updateMany({
@@ -795,7 +557,9 @@ export class PaddleService {
     });
 
     // Find user and update license status
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
     if (user) {
       // Get license before update for plan info
       const license = await this.prisma.license.findFirst({
@@ -807,46 +571,49 @@ export class PaddleService {
         data: { status: 'paused' },
       });
       this.logger.log(
-        `License(s) paused for user ${email} - subscription ${subscriptionId}`
+        `License(s) paused for user ${normalizedEmail} - subscription ${subscriptionId}`
       );
 
-      // Emit SSE events for paused status
+      // Emit SSE event for paused status
       this.eventsService.emitSubscriptionStatus({
-        email,
+        email: normalizedEmail,
         status: 'paused',
         plan: license?.plan || 'unknown',
       });
     } else {
-      this.logger.warn(`User not found for email: ${email} during pause event`);
+      this.logger.warn(
+        `User not found for email: ${normalizedEmail} during pause event`
+      );
     }
 
-    this.logger.log(`Subscription ${subscriptionId} paused for ${email}`);
+    this.logger.log(`Subscription ${subscriptionId} paused for ${normalizedEmail}`);
     return { success: true };
   }
 
   /**
-   * Handle subscription.resumed event
+   * Handle subscription.resumed event (SDK-typed)
    *
-   * User has resumed their previously paused subscription.
-   * - Payments resume
-   * - User regains access to premium features
-   * - Billing cycle continues from pause point
+   * User has resumed paused subscription - regain access.
    *
-   * @param data - Subscription data from webhook payload
+   * @param data - SubscriptionNotification from SDK
+   * @param email - Resolved customer email
    * @param eventId - Unique event ID for logging
    * @returns Processing result
    */
-  async handleSubscriptionResumed(
-    data: PaddleSubscriptionDataDto,
+  async handleSubscriptionResumedEvent(
+    data: SubscriptionNotification,
+    email: string,
     eventId: string
   ): Promise<{ success: boolean }> {
     this.logger.log(
-      `Processing subscription.resumed event: ${eventId} for customer: ${data.customer.email}`
+      `Processing subscription.resumed event: ${eventId} for customer: ${email}`
     );
 
     const subscriptionId = data.id;
-    const email = data.customer.email.toLowerCase();
-    const periodEnd = new Date(data.current_billing_period.ends_at);
+    const normalizedEmail = email.toLowerCase();
+    const periodEnd = data.currentBillingPeriod
+      ? new Date(data.currentBillingPeriod.endsAt)
+      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
     // Update subscription status to active
     await this.prisma.subscription.updateMany({
@@ -855,7 +622,9 @@ export class PaddleService {
     });
 
     // Find user and reactivate license
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
     if (user) {
       // Get license before update for plan info
       const license = await this.prisma.license.findFirst({
@@ -867,56 +636,43 @@ export class PaddleService {
         data: { status: 'active', expiresAt: periodEnd },
       });
       this.logger.log(
-        `License(s) reactivated for user ${email} - expires ${periodEnd.toISOString()}`
+        `License(s) reactivated for user ${normalizedEmail} - expires ${periodEnd.toISOString()}`
       );
 
-      // Emit SSE events for resumed (active) status
+      // Emit SSE events for resumed status
       this.eventsService.emitLicenseUpdated({
-        email,
+        email: normalizedEmail,
         plan: license?.plan || 'unknown',
         status: 'active',
         expiresAt: periodEnd.toISOString(),
       });
 
       this.eventsService.emitSubscriptionStatus({
-        email,
+        email: normalizedEmail,
         status: 'active',
         plan: license?.plan || 'unknown',
       });
     } else {
       this.logger.warn(
-        `User not found for email: ${email} during resume event`
+        `User not found for email: ${normalizedEmail} during resume event`
       );
     }
 
-    this.logger.log(`Subscription ${subscriptionId} resumed for ${email}`);
+    this.logger.log(`Subscription ${subscriptionId} resumed for ${normalizedEmail}`);
     return { success: true };
   }
 
   /**
-   * Handle transaction.completed event
+   * Handle transaction.completed event (SDK-typed)
    *
-   * TASK_2025_123: Added for subscription renewal handling
+   * Fires on successful payment - extends license for subscription renewals.
    *
-   * This event fires when a payment is successful. For subscription renewals,
-   * it extends the license expiration to the new billing period end.
-   *
-   * Process:
-   * 1. Verify this is a subscription transaction (has subscription_id)
-   * 2. Find existing subscription by paddleSubscriptionId
-   * 3. Update subscription currentPeriodEnd to new billing period
-   * 4. Update license expiresAt to new billing period end
-   * 5. Emit SSE event for real-time frontend updates
-   *
-   * For one-time purchases (no subscription_id), the event is acknowledged
-   * but no action is taken (one-time purchases are handled differently).
-   *
-   * @param data - Transaction data from webhook payload
-   * @param eventId - Unique event ID for idempotency logging
+   * @param data - TransactionNotification from SDK
+   * @param eventId - Unique event ID for logging
    * @returns Processing result
    */
-  async handleTransactionCompleted(
-    data: PaddleTransactionDataDto,
+  async handleTransactionCompletedEvent(
+    data: TransactionNotification,
     eventId: string
   ): Promise<{ success: boolean; skipped?: boolean; error?: string }> {
     this.logger.log(
@@ -924,22 +680,22 @@ export class PaddleService {
     );
 
     // Step 1: Check if this is a subscription transaction
-    if (!data.subscription_id) {
+    if (!data.subscriptionId) {
       this.logger.log(
         `Transaction ${data.id} is not a subscription transaction (one-time purchase) - skipping`
       );
       return { success: true, skipped: true };
     }
 
-    const subscriptionId = data.subscription_id;
+    const subscriptionId = data.subscriptionId;
     this.logger.log(
       `Transaction ${data.id} is for subscription ${subscriptionId}`
     );
 
     // Step 2: Verify billing period exists (required for renewals)
-    if (!data.billing_period) {
+    if (!data.billingPeriod) {
       this.logger.warn(
-        `Transaction ${data.id} has subscription_id but no billing_period - cannot extend license`
+        `Transaction ${data.id} has subscriptionId but no billingPeriod - cannot extend license`
       );
       return {
         success: false,
@@ -947,7 +703,7 @@ export class PaddleService {
       };
     }
 
-    const newPeriodEnd = new Date(data.billing_period.ends_at);
+    const newPeriodEnd = new Date(data.billingPeriod.endsAt);
 
     // Step 3: Find existing subscription
     const subscription = await this.prisma.subscription.findUnique({
@@ -973,7 +729,7 @@ export class PaddleService {
       where: { paddleSubscriptionId: subscriptionId },
       data: {
         currentPeriodEnd: newPeriodEnd,
-        status: 'active', // Successful payment means subscription is active
+        status: 'active',
       },
     });
     this.logger.log(
@@ -1019,16 +775,9 @@ export class PaddleService {
   /**
    * Map Paddle price ID to internal plan name
    *
-   * TASK_2025_121: Supports 4 price IDs for Basic and Pro plans
+   * Supports 4 price IDs for Basic and Pro plans (monthly/yearly each).
    *
-   * Price ID to Plan mapping:
-   * - PADDLE_PRICE_ID_BASIC_MONTHLY -> 'basic'
-   * - PADDLE_PRICE_ID_BASIC_YEARLY -> 'basic'
-   * - PADDLE_PRICE_ID_PRO_MONTHLY -> 'pro'
-   * - PADDLE_PRICE_ID_PRO_YEARLY -> 'pro'
-   * - Unknown/null -> 'expired' (no valid plan)
-   *
-   * @param priceId - Paddle price ID from webhook
+   * @param priceId - Paddle price ID from SDK notification
    * @returns Internal plan name ('basic' | 'pro' | 'expired')
    */
   private mapPriceIdToPlan(priceId: string | undefined): string {
