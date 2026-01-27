@@ -183,6 +183,9 @@ export class AuthService {
   /**
    * Create new user with email and password
    * Returns pending verification status (no token until verified)
+   *
+   * Note: WorkOS does NOT automatically send verification emails.
+   * We must explicitly call sendVerificationEmail after user creation.
    */
   async createUserWithPassword(
     email: string,
@@ -198,6 +201,9 @@ export class AuthService {
     );
 
     await this.userSyncService.syncUser(user);
+
+    // Send verification email (WorkOS does NOT auto-send on user creation)
+    await this.workosUserService.sendVerificationEmail(user.id);
 
     return {
       userId: user.id,

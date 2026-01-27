@@ -687,7 +687,7 @@ export class AuthController {
    *
    * Creates a new user with email and password via WorkOS API.
    * Returns pending_verification status - user must verify email first.
-   * WorkOS automatically sends a verification email with a 6-digit code.
+   * A verification email with a 6-digit code is sent after user creation.
    *
    * @example
    * POST /auth/signup
