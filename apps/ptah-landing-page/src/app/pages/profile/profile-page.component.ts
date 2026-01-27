@@ -1,29 +1,34 @@
+import { HttpClient } from '@angular/common/http';
 import {
-  Component,
   ChangeDetectionStrategy,
+  Component,
+  inject,
+  OnDestroy,
   OnInit,
   signal,
-  inject,
 } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
 import { Router, RouterLink } from '@angular/router';
-import { LucideAngularModule, Settings, Shield } from 'lucide-angular';
-import { AuthService } from '../../services/auth.service';
-import { LicenseData } from './models/license-data.interface';
 import {
-  ViewportAnimationDirective,
   ViewportAnimationConfig,
+  ViewportAnimationDirective,
 } from '@hive-academy/angular-gsap';
+import { LucideAngularModule, Settings, Shield } from 'lucide-angular';
+import { Subject, takeUntil } from 'rxjs';
+import { NavigationComponent } from '../../components/navigation.component';
+import { AuthService } from '../../services/auth.service';
+import { SSEEventsService } from '../../services/sse-events.service';
 import {
-  ProfileHeaderComponent,
   ProfileDetailsComponent,
   ProfileFeaturesComponent,
+  ProfileHeaderComponent,
 } from './components';
+import { LicenseData } from './models/license-data.interface';
 
 /**
  * ProfilePageComponent - Enhanced user account dashboard
  *
  * Orchestrating component that composes:
+ * - NavigationComponent: Top navigation bar
  * - ProfileHeaderComponent: Hero with avatar, stats, badges
  * - ProfileDetailsComponent: Account info and subscription status
  * - ProfileFeaturesComponent: Categorized feature list
@@ -53,9 +58,13 @@ import {
     ProfileHeaderComponent,
     ProfileDetailsComponent,
     ProfileFeaturesComponent,
+    NavigationComponent,
   ],
   template: `
     <div class="min-h-screen bg-base-100">
+      <!-- Navigation Header -->
+      <ptah-navigation />
+
       <!-- Loading State -->
       @if (isLoading()) {
       <div class="min-h-screen flex items-center justify-center">
@@ -88,12 +97,19 @@ import {
       <!-- Main Profile Content -->
       @if (license() && !isLoading()) {
       <!-- Profile Header with Avatar, Stats, Badges -->
-      <ptah-profile-header [license]="license()" (logout)="handleLogout()" />
+      <ptah-profile-header [license]="license()" />
 
       <!-- Content Container -->
       <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
         <!-- Account Details & Upgrade CTA -->
-        <ptah-profile-details [license]="license()" />
+        <ptah-profile-details
+          [license]="license()"
+          [isSyncing]="isSyncing()"
+          [syncError]="syncError()"
+          [syncSuccess]="syncSuccess()"
+          (syncRequested)="handleSyncWithPaddle()"
+          (manageSubscriptionRequested)="handleManageSubscription()"
+        />
 
         <!-- Features Section -->
         <div class="mt-6">
@@ -144,19 +160,28 @@ import {
     `,
   ],
 })
-export class ProfilePageComponent implements OnInit {
+export class ProfilePageComponent implements OnInit, OnDestroy {
   /** Lucide icon references */
   public readonly SettingsIcon = Settings;
   public readonly ShieldIcon = Shield;
 
   private readonly http = inject(HttpClient);
   private readonly authService = inject(AuthService);
+  private readonly sseService = inject(SSEEventsService);
   private readonly router = inject(Router);
+
+  /** Subject for managing subscriptions cleanup */
+  private readonly destroy$ = new Subject<void>();
 
   // State signals
   public readonly license = signal<LicenseData | null>(null);
   public readonly isLoading = signal(true);
   public readonly errorMessage = signal('');
+
+  // Sync state signals
+  public readonly isSyncing = signal(false);
+  public readonly syncError = signal<string | null>(null);
+  public readonly syncSuccess = signal(false);
 
   // Animation config for actions
   public readonly actionsConfig: ViewportAnimationConfig = {
@@ -168,6 +193,14 @@ export class ProfilePageComponent implements OnInit {
 
   public ngOnInit(): void {
     this.loadLicense();
+    this.setupSSEListeners();
+  }
+
+  public ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
+    // Keep SSE connection alive for other components
+    // Disconnect is handled by logout or auth service
   }
 
   public loadLicense(): void {
@@ -178,6 +211,10 @@ export class ProfilePageComponent implements OnInit {
       next: (data) => {
         this.license.set(data);
         this.isLoading.set(false);
+
+        // Connect to SSE for real-time updates
+        // The service handles authentication via ticket (obtained from JWT session)
+        this.sseService.connect();
       },
       error: (error) => {
         this.isLoading.set(false);
@@ -188,10 +225,157 @@ export class ProfilePageComponent implements OnInit {
     });
   }
 
-  public handleLogout(): void {
-    this.authService.logout().subscribe({
-      next: () => this.router.navigate(['/login']),
-      error: () => this.router.navigate(['/login']),
+  /**
+   * Setup SSE listeners for real-time license updates
+   * Refreshes license data when server emits license.updated or subscription status changes
+   */
+  private setupSSEListeners(): void {
+    // Listen for license updates (plan changes, status updates)
+    this.sseService.licenseUpdated$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((event) => {
+        console.log('[Profile] License updated event received:', event);
+        // Refresh license data from server to get complete updated info
+        this.refreshLicenseData();
+      });
+
+    // Listen for subscription status changes
+    this.sseService.subscriptionStatus$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((event) => {
+        console.log('[Profile] Subscription status changed:', event);
+        // Refresh license data to update UI
+        this.refreshLicenseData();
+      });
+
+    // Listen for reconciliation completed events
+    this.sseService.reconciliationCompleted$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((event) => {
+        console.log('[Profile] Reconciliation completed event received:', event);
+        // Refresh license data to reflect synced state
+        this.refreshLicenseData();
+
+        // Show success feedback if sync was successful
+        if (event.data.success) {
+          this.syncSuccess.set(true);
+          setTimeout(() => {
+            this.syncSuccess.set(false);
+          }, 5000);
+        }
+      });
+
+    // Log connection events for debugging
+    this.sseService.connected$.pipe(takeUntil(this.destroy$)).subscribe(() => {
+      console.log('[Profile] SSE connection established');
     });
+  }
+
+  /**
+   * Refresh license data without showing loading state
+   * Used for real-time updates where we want seamless UI updates
+   */
+  private refreshLicenseData(): void {
+    this.http.get<LicenseData>('/api/v1/licenses/me').subscribe({
+      next: (data) => {
+        this.license.set(data);
+        console.log(
+          '[Profile] License data refreshed:',
+          data.plan,
+          data.status
+        );
+      },
+      error: (error) => {
+        console.error('[Profile] Failed to refresh license data:', error);
+        // Don't show error to user for background refresh
+      },
+    });
+  }
+
+  /**
+   * Handle sync with Paddle request from profile details component
+   *
+   * Calls POST /api/v1/subscriptions/reconcile to sync local data with Paddle.
+   * Updates UI with loading states and success/error feedback.
+   */
+  public handleSyncWithPaddle(): void {
+    this.isSyncing.set(true);
+    this.syncError.set(null);
+    this.syncSuccess.set(false);
+
+    this.http
+      .post<{
+        success: boolean;
+        changes: {
+          subscriptionUpdated: boolean;
+          licenseUpdated: boolean;
+          statusBefore: string;
+          statusAfter: string;
+        };
+        errors?: string[];
+      }>('/api/v1/subscriptions/reconcile', {})
+      .subscribe({
+        next: (response) => {
+          this.isSyncing.set(false);
+
+          if (response.success) {
+            this.syncSuccess.set(true);
+            console.log('[Profile] Sync completed:', response.changes);
+
+            // Refresh license data to get updated information
+            this.refreshLicenseData();
+
+            // Clear success message after 5 seconds
+            setTimeout(() => {
+              this.syncSuccess.set(false);
+            }, 5000);
+          } else {
+            // Reconciliation returned errors
+            const errorMsg = response.errors?.join(', ') || 'Sync completed with errors';
+            this.syncError.set(errorMsg);
+            console.error('[Profile] Sync errors:', response.errors);
+          }
+        },
+        error: (error) => {
+          this.isSyncing.set(false);
+          const errorMsg = error.error?.message || 'Failed to sync with Paddle. Please try again.';
+          this.syncError.set(errorMsg);
+          console.error('[Profile] Sync failed:', error);
+        },
+      });
+  }
+
+  /**
+   * Handle manage subscription request from profile details component
+   *
+   * Calls POST /api/v1/subscriptions/portal-session to get a Paddle customer portal URL.
+   * Opens the portal in a new tab.
+   */
+  public handleManageSubscription(): void {
+    this.http
+      .post<{
+        url: string;
+        expiresAt: string;
+      }>('/api/v1/subscriptions/portal-session', {})
+      .subscribe({
+        next: (response) => {
+          // Open customer portal in new tab
+          window.open(response.url, '_blank', 'noopener,noreferrer');
+          console.log('[Profile] Opened customer portal');
+        },
+        error: (error) => {
+          // Show error to user
+          const errorMsg =
+            error.error?.message ||
+            'Failed to open subscription management. Please try again.';
+          this.syncError.set(errorMsg);
+          console.error('[Profile] Failed to get portal session:', error);
+
+          // Clear error after 5 seconds
+          setTimeout(() => {
+            this.syncError.set(null);
+          }, 5000);
+        },
+      });
   }
 }

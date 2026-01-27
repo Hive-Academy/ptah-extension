@@ -2,48 +2,12 @@ import { Injectable, signal, inject, computed } from '@angular/core';
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom, retry, catchError, of } from 'rxjs';
+import {
+  initializePaddle,
+  Paddle,
+  type PaddleEventData,
+} from '@paddle/paddle-js';
 import { PADDLE_CONFIG } from '../config/paddle.config';
-
-/**
- * Paddle.js global interface
- * @see https://developer.paddle.com/paddlejs/overview
- */
-declare global {
-  interface Window {
-    Paddle?: {
-      Initialize: (options: PaddleInitOptions) => void;
-      Checkout: {
-        open: (options: PaddleCheckoutOptions) => void;
-        close: () => void;
-      };
-      Environment: {
-        set: (env: 'sandbox' | 'production') => void;
-      };
-    };
-  }
-}
-
-interface PaddleInitOptions {
-  token?: string;
-  environment?: 'sandbox' | 'production';
-  eventCallback?: (event: PaddleEvent) => void;
-}
-
-interface PaddleCheckoutOptions {
-  items: Array<{ priceId: string; quantity: number }>;
-  customer?: { email?: string };
-  settings?: {
-    displayMode?: 'overlay' | 'inline';
-    successUrl?: string;
-    theme?: 'light' | 'dark';
-    locale?: string;
-  };
-}
-
-interface PaddleEvent {
-  name: string;
-  data?: unknown;
-}
 
 export interface CheckoutOptions {
   priceId: string;
@@ -52,18 +16,36 @@ export interface CheckoutOptions {
 }
 
 /**
+ * Response from POST /api/v1/subscriptions/validate-checkout
+ *
+ * Validates if user can proceed with checkout (prevents duplicate subscriptions).
+ */
+export interface ValidateCheckoutResponse {
+  canCheckout: boolean;
+  reason?: 'existing_subscription' | 'subscription_ending_soon' | 'none';
+  existingPlan?: string;
+  currentPeriodEnd?: string;
+  customerPortalUrl?: string;
+  message?: string;
+}
+
+/**
  * PaddleCheckoutService - Manages Paddle.js SDK and checkout flow
  *
  * Pattern: Injectable service with signal-based state
  * Evidence: auth.service.ts:28-58, profile-page.component.ts:207-209
  *
+ * Uses official @paddle/paddle-js npm package for:
+ * - TypeScript types out of the box
+ * - Cleaner async/await API
+ * - Better tree-shaking and bundling
+ *
  * Responsibilities:
- * 1. Dynamically load Paddle.js SDK from CDN
- * 2. Initialize Paddle with correct environment
- * 3. Provide reactive state via signals (isReady, isLoading, error)
- * 4. Open checkout overlay with pre-filled customer email
- * 5. Handle checkout callbacks (success, close)
- * 6. Retry logic for SDK loading failures (3 attempts)
+ * 1. Initialize Paddle with correct environment via npm package
+ * 2. Provide reactive state via signals (isReady, isLoading, error)
+ * 3. Open checkout overlay with pre-filled customer email
+ * 4. Handle checkout callbacks (success, close)
+ * 5. Retry logic for initialization failures (3 attempts)
  */
 @Injectable({ providedIn: 'root' })
 export class PaddleCheckoutService {
@@ -71,13 +53,14 @@ export class PaddleCheckoutService {
   private readonly http = inject(HttpClient);
   private readonly paddleConfig = inject(PADDLE_CONFIG);
 
-  private readonly PADDLE_SDK_URL =
-    'https://cdn.paddle.com/paddle/v2/paddle.js';
   private readonly MAX_RETRY_ATTEMPTS = this.paddleConfig.maxRetries ?? 3;
   private readonly LICENSE_VERIFY_RETRIES =
     this.paddleConfig.licenseVerifyRetries ?? 3;
   private readonly LICENSE_VERIFY_DELAY =
     this.paddleConfig.licenseVerifyDelay ?? 2000;
+
+  // Paddle instance from npm package
+  private paddleInstance: Paddle | null = null;
 
   // Reactive state signals
   private readonly _isReady = signal(false);
@@ -86,6 +69,9 @@ export class PaddleCheckoutService {
   private readonly _isVerifying = signal(false);
   private readonly _isCheckoutOpen = signal(false);
   private readonly _loadingPlanName = signal<string | null>(null);
+  private readonly _isValidating = signal(false);
+  private readonly _validationError = signal<string | null>(null);
+  private readonly _customerPortalUrl = signal<string | null>(null);
 
   // Public readonly signals
   public readonly isReady = this._isReady.asReadonly();
@@ -94,6 +80,9 @@ export class PaddleCheckoutService {
   public readonly isVerifying = this._isVerifying.asReadonly();
   public readonly isCheckoutOpen = this._isCheckoutOpen.asReadonly();
   public readonly loadingPlanName = this._loadingPlanName.asReadonly();
+  public readonly isValidating = this._isValidating.asReadonly();
+  public readonly validationError = this._validationError.asReadonly();
+  public readonly customerPortalUrl = this._customerPortalUrl.asReadonly();
 
   // Computed: Can checkout if ready and not loading
   public readonly canCheckout = computed(
@@ -101,16 +90,15 @@ export class PaddleCheckoutService {
   );
 
   private initAttempts = 0;
-  private scriptElement: HTMLScriptElement | null = null;
   private checkoutTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private initPromise: Promise<void> | null = null;
 
   private readonly CHECKOUT_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
   /**
-   * Initialize Paddle.js SDK
+   * Initialize Paddle.js SDK using npm package
    *
-   * Loads script from CDN and initializes with environment config.
+   * Uses initializePaddle from @paddle/paddle-js for cleaner async initialization.
    * Retries up to MAX_RETRY_ATTEMPTS on failure.
    * Guards against concurrent initialization calls.
    */
@@ -133,9 +121,7 @@ export class PaddleCheckoutService {
     this._error.set(null);
 
     // Create and store initialization promise
-    this.initPromise = new Promise<void>((resolve, reject) => {
-      this.loadScript(resolve, reject);
-    });
+    this.initPromise = this.initializePaddleWithRetry();
 
     // Clear promise when complete (success or failure)
     this.initPromise
@@ -150,6 +136,47 @@ export class PaddleCheckoutService {
   }
 
   /**
+   * Initialize Paddle with retry logic
+   */
+  private async initializePaddleWithRetry(): Promise<void> {
+    try {
+      const paddle = await this.retryWithBackoff(
+        () => this.doInitialize(),
+        this.MAX_RETRY_ATTEMPTS,
+        this.paddleConfig.baseRetryDelay ?? 1000
+      );
+
+      this.paddleInstance = paddle;
+      this._isReady.set(true);
+      this._isLoading.set(false);
+      this._error.set(null);
+    } catch (err) {
+      this._isLoading.set(false);
+      this._error.set(
+        'Payment system temporarily unavailable. Please try again later.'
+      );
+      throw err;
+    }
+  }
+
+  /**
+   * Perform the actual Paddle initialization
+   */
+  private async doInitialize(): Promise<Paddle> {
+    const paddle = await initializePaddle({
+      token: this.paddleConfig.token,
+      environment: this.paddleConfig.environment,
+      eventCallback: (event) => this.handlePaddleEvent(event),
+    });
+
+    if (!paddle) {
+      throw new Error('Paddle initialization returned undefined');
+    }
+
+    return paddle;
+  }
+
+  /**
    * Set the loading plan name
    * @param planName - Name of the plan currently loading, or null to clear
    */
@@ -158,12 +185,72 @@ export class PaddleCheckoutService {
   }
 
   /**
+   * Clear validation error state
+   * Call this when user dismisses the validation error dialog
+   */
+  public clearValidationError(): void {
+    this._validationError.set(null);
+    this._customerPortalUrl.set(null);
+  }
+
+  /**
+   * Validate checkout before opening Paddle overlay
+   *
+   * Calls POST /api/v1/subscriptions/validate-checkout to check if user
+   * already has an active subscription (prevents duplicate subscriptions).
+   *
+   * @param priceId - The Paddle price ID to validate checkout for
+   * @returns true if checkout can proceed, false if blocked by existing subscription
+   */
+  private async validateCheckoutBeforeOpen(priceId: string): Promise<boolean> {
+    this._isValidating.set(true);
+    this._validationError.set(null);
+    this._customerPortalUrl.set(null);
+
+    try {
+      const response = await firstValueFrom(
+        this.http.post<ValidateCheckoutResponse>(
+          '/api/v1/subscriptions/validate-checkout',
+          { priceId }
+        )
+      );
+
+      this._isValidating.set(false);
+
+      if (!response.canCheckout) {
+        // User has an existing subscription - show error with portal link
+        const errorMessage = response.message ||
+          `You already have an active ${response.existingPlan || 'subscription'}. ` +
+          'Please manage your existing subscription first.';
+
+        this._validationError.set(errorMessage);
+        this._customerPortalUrl.set(response.customerPortalUrl || null);
+
+        console.log('[Paddle] Checkout blocked:', response.reason, errorMessage);
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      this._isValidating.set(false);
+
+      // If validation API fails, log but allow checkout to proceed
+      // (fail-open approach - don't block checkout on validation API issues)
+      console.error('[Paddle] Checkout validation failed, proceeding anyway:', error);
+      return true;
+    }
+  }
+
+  /**
    * Open Paddle checkout overlay
+   *
+   * Validates checkout first to prevent duplicate subscriptions,
+   * then opens the Paddle overlay if validation passes.
    *
    * @param options - Checkout configuration with price ID and optional customer email
    */
-  public openCheckout(options: CheckoutOptions): void {
-    if (!window.Paddle || !this._isReady()) {
+  public async openCheckout(options: CheckoutOptions): Promise<void> {
+    if (!this.paddleInstance || !this._isReady()) {
       this._error.set('Paddle SDK not ready. Please try again.');
       return;
     }
@@ -173,6 +260,16 @@ export class PaddleCheckoutService {
       return;
     }
 
+    // Step 1: Validate checkout before opening overlay
+    const canProceed = await this.validateCheckoutBeforeOpen(options.priceId);
+
+    if (!canProceed) {
+      // Validation failed - error state already set by validateCheckoutBeforeOpen
+      // Do NOT open Paddle overlay
+      return;
+    }
+
+    // Step 2: Proceed with opening checkout
     this._isLoading.set(true);
     this._isCheckoutOpen.set(true);
 
@@ -184,17 +281,24 @@ export class PaddleCheckoutService {
       this.closeCheckout();
     }, this.CHECKOUT_TIMEOUT);
 
-    window.Paddle.Checkout.open({
+    const checkoutOptions = {
       items: [{ priceId: options.priceId, quantity: 1 }],
       customer: options.customerEmail
         ? { email: options.customerEmail }
         : undefined,
       settings: {
-        displayMode: 'overlay',
-        theme: 'dark', // Match anubis theme
+        displayMode: 'overlay' as const,
+        theme: 'dark' as const,
         locale: 'en',
       },
-    });
+    };
+
+    // Debug: log checkout options in development
+    if (!this.paddleConfig.environment || this.paddleConfig.environment === 'sandbox') {
+      console.log('[Paddle] Opening checkout with options:', JSON.stringify(checkoutOptions, null, 2));
+    }
+
+    this.paddleInstance.Checkout.open(checkoutOptions);
   }
 
   /**
@@ -202,8 +306,8 @@ export class PaddleCheckoutService {
    */
   public closeCheckout(): void {
     this.clearCheckoutTimeout();
-    if (window.Paddle) {
-      window.Paddle.Checkout.close();
+    if (this.paddleInstance) {
+      this.paddleInstance.Checkout.close();
     }
     this._isLoading.set(false);
     this._isCheckoutOpen.set(false);
@@ -227,12 +331,7 @@ export class PaddleCheckoutService {
     this._isReady.set(false);
     this._error.set(null);
     this.initPromise = null;
-
-    // Remove existing script if present
-    if (this.scriptElement) {
-      this.scriptElement.remove();
-      this.scriptElement = null;
-    }
+    this.paddleInstance = null;
 
     this.initialize();
   }
@@ -248,6 +347,7 @@ export class PaddleCheckoutService {
   private validateConfig(): boolean {
     const {
       environment,
+      token,
       basicPriceIdMonthly,
       basicPriceIdYearly,
       proPriceIdMonthly,
@@ -257,6 +357,23 @@ export class PaddleCheckoutService {
     // Check environment is valid
     if (environment !== 'sandbox' && environment !== 'production') {
       this._error.set('Invalid Paddle environment configuration');
+      return false;
+    }
+
+    // Check token is configured and matches environment
+    if (!token || token.includes('REPLACE')) {
+      this._error.set(
+        'Paddle client-side token not configured. Please check environment configuration.'
+      );
+      return false;
+    }
+
+    // Validate token prefix matches environment
+    const expectedPrefix = environment === 'sandbox' ? 'test_' : 'live_';
+    if (!token.startsWith(expectedPrefix)) {
+      this._error.set(
+        `Paddle token mismatch: ${environment} environment requires ${expectedPrefix} token`
+      );
       return false;
     }
 
@@ -292,116 +409,6 @@ export class PaddleCheckoutService {
     return true;
   }
 
-  private loadScript(
-    resolve: () => void,
-    reject: (reason?: Error) => void
-  ): void {
-    // Check if script already exists
-    if (document.querySelector(`script[src="${this.PADDLE_SDK_URL}"]`)) {
-      this.initializePaddle(resolve, reject);
-      return;
-    }
-
-    this.scriptElement = document.createElement('script');
-    this.scriptElement.src = this.PADDLE_SDK_URL;
-    this.scriptElement.async = true;
-
-    this.scriptElement.onload = () => this.initializePaddle(resolve, reject);
-    this.scriptElement.onerror = () => this.handleScriptError(reject);
-
-    document.head.appendChild(this.scriptElement);
-  }
-
-  /**
-   * Type guard to check if window.Paddle has expected SDK structure
-   *
-   * @param obj - Object to check (typically window.Paddle)
-   * @returns true if obj has Paddle SDK methods, false otherwise
-   */
-  private isPaddleSDK(obj: unknown): obj is NonNullable<typeof window.Paddle> {
-    if (!obj || typeof obj !== 'object') {
-      return false;
-    }
-
-    const paddle = obj as Record<string, unknown>;
-
-    // Check for required methods using bracket notation for index signatures
-    const hasInitialize = typeof paddle['Initialize'] === 'function';
-    const checkout = paddle['Checkout'];
-    const hasCheckout = typeof checkout === 'object' && checkout !== null;
-
-    if (!hasCheckout) {
-      return false;
-    }
-
-    const checkoutObj = checkout as Record<string, unknown>;
-    const hasOpen = typeof checkoutObj['open'] === 'function';
-    const hasClose = typeof checkoutObj['close'] === 'function';
-
-    return hasInitialize && hasOpen && hasClose;
-  }
-
-  private initializePaddle(
-    resolve: () => void,
-    reject: (reason?: Error) => void
-  ): void {
-    if (!this.isPaddleSDK(window.Paddle)) {
-      this.handleScriptError(reject);
-      return;
-    }
-
-    try {
-      window.Paddle.Initialize({
-        environment: this.paddleConfig.environment,
-        eventCallback: (event) => this.handlePaddleEvent(event),
-      });
-
-      this._isReady.set(true);
-      this._isLoading.set(false);
-      this._error.set(null);
-      resolve();
-    } catch {
-      this.handleScriptError(reject);
-    }
-  }
-
-  private handleScriptError(reject?: (reason?: Error) => void): void {
-    this.initAttempts++;
-
-    if (this.initAttempts < this.MAX_RETRY_ATTEMPTS) {
-      // Retry with exponential backoff using extracted method
-      this.retryWithBackoff(
-        () =>
-          new Promise<void>((resolve, reject) => {
-            this.loadScript(resolve, reject);
-          }),
-        this.MAX_RETRY_ATTEMPTS - this.initAttempts,
-        this.paddleConfig.baseRetryDelay ?? 1000
-      )
-        .then(() => {
-          // Retry succeeded, nothing to do
-        })
-        .catch(() => {
-          // All retries exhausted
-          this._isLoading.set(false);
-          this._error.set(
-            'Payment system temporarily unavailable. Please try again later.'
-          );
-          if (reject) {
-            reject(new Error('Paddle SDK loading failed after retries'));
-          }
-        });
-    } else {
-      this._isLoading.set(false);
-      this._error.set(
-        'Payment system temporarily unavailable. Please try again later.'
-      );
-      if (reject) {
-        reject(new Error('Paddle SDK loading failed'));
-      }
-    }
-  }
-
   /**
    * Retry a promise-returning function with exponential backoff
    *
@@ -422,6 +429,7 @@ export class PaddleCheckoutService {
         return await fn();
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
+        this.initAttempts++;
 
         if (attempt < maxRetries) {
           // Calculate exponential backoff delay
@@ -468,24 +476,35 @@ export class PaddleCheckoutService {
     }
   }
 
-  private handlePaddleEvent(event: PaddleEvent): void {
+  /**
+   * Handle Paddle events from the checkout
+   */
+  private handlePaddleEvent(event: PaddleEventData): void {
     switch (event.name) {
       case 'checkout.completed':
         this.clearCheckoutTimeout();
         this._isLoading.set(false);
         this._isCheckoutOpen.set(false);
-        // Verify license activation with backend before navigation
-        this.verifyLicenseActivation().then((isActive) => {
-          if (isActive) {
-            // Navigate to profile page after successful verification
-            this.router.navigate(['/profile']);
-          } else {
-            // Show error if verification fails
-            this._error.set(
-              'License verification failed. Please contact support if your payment was processed.'
-            );
+
+        // Close the Paddle overlay after a brief delay to show success message
+        setTimeout(() => {
+          if (this.paddleInstance) {
+            this.paddleInstance.Checkout.close();
           }
-        });
+
+          // Verify license activation with backend before navigation
+          this.verifyLicenseActivation().then((isActive) => {
+            if (isActive) {
+              // Navigate to profile page after successful verification
+              this.router.navigate(['/profile']);
+            } else {
+              // License might not be ready yet (webhook delay) - navigate anyway
+              // The profile page will show trial/pending status
+              console.log('[Paddle] License not yet active, navigating to profile anyway');
+              this.router.navigate(['/profile']);
+            }
+          });
+        }, 2000); // 2 second delay to let user see success message
         break;
 
       case 'checkout.closed':

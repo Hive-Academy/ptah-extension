@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, input } from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import {
   LucideAngularModule,
@@ -9,6 +9,10 @@ import {
   Clock,
   Sparkles,
   Zap,
+  RefreshCw,
+  ExternalLink,
+  CheckCircle,
+  AlertCircle,
 } from 'lucide-angular';
 import {
   ViewportAnimationDirective,
@@ -24,8 +28,15 @@ import { LicenseData } from '../models/license-data.interface';
  * - Plan description
  * - Subscription status for Pro users
  * - Upgrade CTA for trial users
+ * - Sync with Paddle button for subscription management
+ * - Manage Subscription link to Paddle customer portal
  *
  * @input license - User license data
+ * @input isSyncing - Whether a sync operation is in progress
+ * @input syncError - Error message from sync operation
+ * @input syncSuccess - Whether sync completed successfully
+ * @output syncRequested - Emits when user clicks Sync with Paddle button
+ * @output manageSubscriptionRequested - Emits when user clicks Manage Subscription
  */
 @Component({
   selector: 'ptah-profile-details',
@@ -141,6 +152,74 @@ import { LicenseData } from '../models/license-data.interface';
           </span>
         </div>
         } }
+
+        <!-- Sync Success Message -->
+        @if (syncSuccess()) {
+        <div class="px-6 py-4 flex items-center gap-2 bg-success/10 text-success">
+          <lucide-angular
+            [img]="CheckCircleIcon"
+            class="w-4 h-4"
+            aria-hidden="true"
+          />
+          <span class="text-sm font-medium">Subscription synced successfully</span>
+        </div>
+        }
+
+        <!-- Sync Error Message -->
+        @if (syncError()) {
+        <div class="px-6 py-4 flex items-center gap-2 bg-error/10 text-error">
+          <lucide-angular
+            [img]="AlertCircleIcon"
+            class="w-4 h-4"
+            aria-hidden="true"
+          />
+          <span class="text-sm">{{ syncError() }}</span>
+        </div>
+        }
+
+        <!-- Sync with Paddle Button -->
+        @if (license()?.subscription || requiresSync()) {
+        <div class="px-6 py-4 flex justify-between items-center">
+          <span class="text-neutral-content flex items-center gap-2">
+            <lucide-angular
+              [img]="RefreshCwIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
+            Subscription Sync
+          </span>
+          <button
+            class="btn btn-sm btn-ghost"
+            [disabled]="isSyncing()"
+            (click)="syncRequested.emit()">
+            @if (isSyncing()) {
+              <span class="loading loading-spinner loading-xs"></span>
+              Syncing...
+            } @else {
+              Sync with Paddle
+            }
+          </button>
+        </div>
+        }
+
+        <!-- Manage Subscription Link -->
+        @if (license()?.subscription) {
+        <div class="px-6 py-4 flex justify-between items-center">
+          <span class="text-neutral-content flex items-center gap-2">
+            <lucide-angular
+              [img]="ExternalLinkIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
+            Subscription Management
+          </span>
+          <button
+            class="btn btn-sm btn-secondary"
+            (click)="manageSubscriptionRequested.emit()">
+            Manage Subscription
+          </button>
+        </div>
+        }
       </div>
     </div>
   `,
@@ -161,9 +240,36 @@ export class ProfileDetailsComponent {
   public readonly ClockIcon = Clock;
   public readonly SparklesIcon = Sparkles;
   public readonly ZapIcon = Zap;
+  public readonly RefreshCwIcon = RefreshCw;
+  public readonly ExternalLinkIcon = ExternalLink;
+  public readonly CheckCircleIcon = CheckCircle;
+  public readonly AlertCircleIcon = AlertCircle;
 
   /** License data input */
   public readonly license = input<LicenseData | null>(null);
+
+  /** Sync state inputs from parent component */
+  public readonly isSyncing = input<boolean>(false);
+  public readonly syncError = input<string | null>(null);
+  public readonly syncSuccess = input<boolean>(false);
+
+  /** Output events for sync and manage subscription actions */
+  public readonly syncRequested = output<void>();
+  public readonly manageSubscriptionRequested = output<void>();
+
+  /**
+   * Check if license requires sync with Paddle
+   * This can be true when local data differs from Paddle data
+   */
+  public requiresSync(): boolean {
+    // Show sync button if there's a subscription or if license indicates sync is needed
+    const licenseData = this.license();
+    if (!licenseData) return false;
+
+    // Check for requiresSync flag in license data (if backend provides it)
+    // For now, show sync when user has subscription
+    return !!licenseData.subscription;
+  }
 
   // Animation configs
   public readonly alertConfig: ViewportAnimationConfig = {

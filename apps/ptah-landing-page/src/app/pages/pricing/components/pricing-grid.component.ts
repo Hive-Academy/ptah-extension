@@ -21,7 +21,7 @@ import { PaddleCheckoutService } from '../../../services/paddle-checkout.service
 import { AuthService } from '../../../services/auth.service';
 import { environment } from '../../../../environments/environment';
 import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
-import { LucideAngularModule, TriangleAlert, CircleX } from 'lucide-angular';
+import { LucideAngularModule, TriangleAlert, CircleX, ExternalLink } from 'lucide-angular';
 
 /**
  * PricingGridComponent - Grid of pricing plan cards
@@ -84,6 +84,35 @@ import { LucideAngularModule, TriangleAlert, CircleX } from 'lucide-angular';
           Dismiss
         </button>
       </div>
+      } @if (validationError()) {
+      <div class="alert alert-error mb-8 max-w-xl mx-auto shadow-lg">
+        <lucide-angular
+          [img]="CircleXIcon"
+          class="stroke-current shrink-0 h-6 w-6"
+          aria-hidden="true"
+        />
+        <div class="flex flex-col gap-2">
+          <span class="font-medium">{{ validationError() }}</span>
+          @if (customerPortalUrl()) {
+          <a
+            [href]="customerPortalUrl()"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="link link-secondary flex items-center gap-1"
+          >
+            <lucide-angular
+              [img]="ExternalLinkIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
+            Manage your subscription
+          </a>
+          }
+        </div>
+        <button class="btn btn-sm btn-ghost" (click)="dismissValidationError()">
+          Dismiss
+        </button>
+      </div>
       }
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8 items-stretch">
         <!-- Basic Plan Card with integrated billing toggle -->
@@ -128,6 +157,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   /** Lucide icon references */
   public readonly TriangleAlertIcon = TriangleAlert;
   public readonly CircleXIcon = CircleX;
+  public readonly ExternalLinkIcon = ExternalLink;
 
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
@@ -152,6 +182,9 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   public readonly paddleError = this.paddleService.error;
   public readonly isPaddleReady = this.paddleService.isReady;
   public readonly loadingPlanName = this.paddleService.loadingPlanName;
+  public readonly validationError = this.paddleService.validationError;
+  public readonly customerPortalUrl = this.paddleService.customerPortalUrl;
+  public readonly isValidating = this.paddleService.isValidating;
 
   public constructor() {
     // Sync loading state with paddle service
@@ -497,5 +530,13 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    */
   public retryPaddleInit(): void {
     this.paddleService.retryInitialization();
+  }
+
+  /**
+   * Dismiss validation error alert
+   * Clears both the error message and portal URL
+   */
+  public dismissValidationError(): void {
+    this.paddleService.clearValidationError();
   }
 }
