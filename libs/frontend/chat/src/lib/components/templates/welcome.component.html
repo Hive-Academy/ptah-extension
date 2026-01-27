@@ -1,0 +1,96 @@
+<!-- Welcome Page: Full-page hero layout for unlicensed users -->
+<!-- Pattern source: wizard-view.component.ts:70-124 (hero layout) -->
+<!-- Pattern source: settings.component.html (DaisyUI classes) -->
+
+<div class="hero min-h-screen bg-base-100">
+  <div class="hero-content text-center max-w-2xl">
+    <div class="flex flex-col items-center gap-6">
+
+      <!-- Ptah Logo -->
+      <img
+        [ngSrc]="ptahIconUri"
+        alt="Ptah"
+        class="w-20 h-20"
+        width="80"
+        height="80"
+        priority
+      />
+
+      <!-- Headline (context-aware based on license reason) -->
+      <h1 class="text-4xl font-bold text-base-content">
+        {{ getHeadline() }}
+      </h1>
+
+      <!-- Subheadline (context-aware based on license reason) -->
+      <p class="text-lg text-base-content/70 max-w-lg">
+        {{ getSubheadline() }}
+      </p>
+
+      <!-- Feature Highlights Grid -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 w-full max-w-xl">
+        @for (feature of features; track feature.title) {
+          <div class="card bg-base-200 p-4">
+            <div class="flex items-start gap-3">
+              <lucide-angular
+                [img]="feature.icon"
+                class="w-5 h-5 text-primary flex-shrink-0 mt-0.5"
+              />
+              <div class="text-left">
+                <h3 class="font-semibold text-sm">{{ feature.title }}</h3>
+                <p class="text-xs text-base-content/60">{{ feature.description }}</p>
+              </div>
+            </div>
+          </div>
+        }
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex flex-col sm:flex-row gap-3 mt-6 w-full max-w-sm">
+        <!-- Start Trial (Secondary style - left) -->
+        <button
+          class="btn btn-secondary btn-lg flex-1 gap-2"
+          (click)="startTrial()"
+          aria-label="Start 14-day free trial"
+        >
+          <lucide-angular [img]="SparklesIcon" class="w-5 h-5" />
+          Start 14-Day Trial
+        </button>
+
+        <!-- Enter License Key (Primary style - right) -->
+        <button
+          class="btn btn-primary btn-lg flex-1 gap-2"
+          (click)="enterLicenseKey()"
+          aria-label="Enter license key"
+        >
+          <lucide-angular [img]="KeyIcon" class="w-5 h-5" />
+          Enter License Key
+        </button>
+      </div>
+
+      <!-- View Pricing Link -->
+      <button
+        class="btn btn-ghost btn-sm gap-1 text-base-content/60"
+        (click)="viewPricing()"
+        aria-label="View pricing options"
+      >
+        <lucide-angular [img]="ExternalLinkIcon" class="w-4 h-4" />
+        View Pricing
+      </button>
+
+      <!-- Error State (shown when license status fetch fails) -->
+      @if (errorMessage()) {
+        <div class="alert alert-warning mt-4 max-w-sm">
+          <span>{{ errorMessage() }}</span>
+          <button
+            class="btn btn-sm btn-ghost"
+            (click)="retryStatus()"
+            aria-label="Retry loading license status"
+          >
+            Retry
+          </button>
+        </div>
+      }
+
+    </div>
+  </div>
+</div>

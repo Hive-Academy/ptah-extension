@@ -45,6 +45,7 @@ import { LicenseRpcHandlers } from './handlers/license-rpc.handlers';
 import { LlmRpcHandlers } from './handlers/llm-rpc.handlers';
 import { OpenRouterRpcHandlers } from './handlers/openrouter-rpc.handlers';
 import { SubagentRpcHandlers } from './handlers/subagent-rpc.handlers';
+import { CommandRpcHandlers } from './handlers/command-rpc.handlers';
 
 interface WebviewManager {
   sendMessage(viewType: string, type: string, payload: unknown): Promise<void>;
@@ -81,6 +82,7 @@ export class RpcMethodRegistrationService {
     private readonly llmHandlers: LlmRpcHandlers,
     private readonly openRouterHandlers: OpenRouterRpcHandlers,
     private readonly subagentHandlers: SubagentRpcHandlers,
+    private readonly commandHandlers: CommandRpcHandlers, // TASK_2025_126
     private readonly container: DependencyContainer
   ) {
     // Setup SDK callbacks and listeners
@@ -108,6 +110,7 @@ export class RpcMethodRegistrationService {
     this.llmHandlers.register();
     this.openRouterHandlers.register();
     this.subagentHandlers.register();
+    this.commandHandlers.register(); // TASK_2025_126
 
     this.logger.info('RPC methods registered (SDK-only mode)', {
       methods: this.rpcHandler.getRegisteredMethods(),

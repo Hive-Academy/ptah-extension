@@ -142,6 +142,25 @@ export class LicenseRpcHandlers {
       status.trialActive ??
       (status.tier === 'trial_basic' || status.tier === 'trial_pro');
 
+    // TASK_2025_126: Map reason field for context-aware welcome messaging
+    // Backend uses: 'expired' | 'revoked' | 'not_found' | 'trial_ended'
+    // Frontend expects: 'expired' | 'trial_ended' | 'no_license'
+    let reason: 'expired' | 'trial_ended' | 'no_license' | undefined;
+    if (status.reason) {
+      switch (status.reason) {
+        case 'expired':
+        case 'revoked':
+          reason = 'expired';
+          break;
+        case 'trial_ended':
+          reason = 'trial_ended';
+          break;
+        case 'not_found':
+          reason = 'no_license';
+          break;
+      }
+    }
+
     return {
       valid: status.valid,
       tier: status.tier as LicenseTier,
@@ -157,6 +176,7 @@ export class LicenseRpcHandlers {
             features: status.plan.features,
           }
         : undefined,
+      reason,
     };
   }
 }

@@ -79,7 +79,16 @@ function registerLicenseOnlyCommands(
 }
 
 /**
- * Handle license blocking flow and user actions (TASK_2025_121 Batch 3)
+ * Handle license blocking flow with embedded welcome page (TASK_2025_126)
+ *
+ * TASK_2025_126: Replaces the modal popup with an embedded welcome page
+ * inside the extension webview. This provides a better UX for unlicensed users.
+ *
+ * Flow:
+ * 1. Register minimal license commands (ptah.enterLicenseKey, ptah.openPricing)
+ * 2. Create minimal webview provider with initialView: 'welcome'
+ * 3. Handle license:getStatus and command:execute RPC calls inline
+ * 4. DO NOT show blocking modal (showLicenseRequiredUI)
  *
  * @param context - VS Code extension context
  * @param licenseService - License service instance
@@ -93,15 +102,120 @@ async function handleLicenseBlocking(
   // Register minimal commands for license management
   registerLicenseOnlyCommands(context, licenseService);
 
-  // Show blocking UI and handle user selection
-  const selection = await showLicenseRequiredUI(status);
+  // TASK_2025_126: Show webview with welcome view instead of modal
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { WebviewHtmlGenerator } = require('./services/webview-html-generator');
+  const htmlGenerator = new WebviewHtmlGenerator(context);
 
-  if (selection === 'Start Trial' || selection === 'View Pricing') {
-    await vscode.env.openExternal(vscode.Uri.parse('https://ptah.dev/pricing'));
-  } else if (selection === 'Enter License Key') {
-    await vscode.commands.executeCommand('ptah.enterLicenseKey');
+  // Map backend license reason to frontend reason format
+  // Backend uses: 'expired' | 'revoked' | 'not_found' | 'trial_ended'
+  // Frontend expects: 'expired' | 'trial_ended' | 'no_license'
+  let frontendReason: 'expired' | 'trial_ended' | 'no_license' | undefined;
+  if (status.reason) {
+    switch (status.reason) {
+      case 'expired':
+      case 'revoked':
+        frontendReason = 'expired';
+        break;
+      case 'trial_ended':
+        frontendReason = 'trial_ended';
+        break;
+      case 'not_found':
+        frontendReason = 'no_license';
+        break;
+    }
   }
-  // If modal dismissed, extension remains blocked but commands are available
+
+  // Create minimal webview provider for unlicensed users
+  const provider: vscode.WebviewViewProvider = {
+    resolveWebviewView(webviewView: vscode.WebviewView): void {
+      webviewView.webview.options = {
+        enableScripts: true,
+        localResourceRoots: [
+          vscode.Uri.joinPath(context.extensionUri, 'webview', 'browser'),
+          vscode.Uri.joinPath(context.extensionUri, 'assets'),
+          context.extensionUri,
+        ],
+      };
+
+      // Generate HTML with welcome view
+      const workspaceInfo = {
+        name: vscode.workspace.workspaceFolders?.[0]?.name || 'Workspace',
+        path: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '',
+      };
+
+      webviewView.webview.html = htmlGenerator.generateAngularWebviewContent(
+        webviewView.webview,
+        { workspaceInfo, initialView: 'welcome' }
+      );
+
+      // Setup minimal message listener for RPC calls (license status, command execution)
+      webviewView.webview.onDidReceiveMessage(async (message) => {
+        // Handle RPC calls - minimal handler for unlicensed state
+        if (message.type === 'rpc:call' || message.type === 'rpc:request') {
+          if (message.method === 'license:getStatus') {
+            // Return license status for context-aware welcome messaging
+            const response = {
+              success: true,
+              data: {
+                valid: false,
+                tier: status.tier || 'expired',
+                isPremium: false,
+                isBasic: false,
+                daysRemaining: null,
+                trialActive: false,
+                trialDaysRemaining: null,
+                reason: frontendReason,
+              },
+              correlationId: message.correlationId,
+            };
+            webviewView.webview.postMessage({ type: 'rpc:response', ...response });
+          } else if (message.method === 'command:execute') {
+            // Execute ptah.* commands only (security: same check as CommandRpcHandlers)
+            try {
+              const command = message.params?.command;
+              if (command && typeof command === 'string' && command.startsWith('ptah.')) {
+                await vscode.commands.executeCommand(command, ...(message.params?.args || []));
+                webviewView.webview.postMessage({
+                  type: 'rpc:response',
+                  success: true,
+                  data: { success: true },
+                  correlationId: message.correlationId,
+                });
+              } else {
+                webviewView.webview.postMessage({
+                  type: 'rpc:response',
+                  success: false,
+                  data: { success: false, error: 'Only ptah.* commands are allowed' },
+                  correlationId: message.correlationId,
+                });
+              }
+            } catch (error) {
+              webviewView.webview.postMessage({
+                type: 'rpc:response',
+                success: false,
+                data: {
+                  success: false,
+                  error: error instanceof Error ? error.message : String(error),
+                },
+                correlationId: message.correlationId,
+              });
+            }
+          }
+        }
+      });
+    },
+  };
+
+  // Register the webview provider
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider('ptah.main', provider, {
+      webviewOptions: { retainContextWhenHidden: true },
+    })
+  );
+
+  console.log('[Activate] Webview registered with welcome view for unlicensed user');
+  // DO NOT call showLicenseRequiredUI() - webview handles onboarding
 }
 
 export async function activate(

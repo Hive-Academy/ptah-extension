@@ -570,6 +570,7 @@ export type LicenseTier =
  * Response from license:getStatus RPC method
  *
  * TASK_2025_121: Updated for two-tier paid model with trial support
+ * TASK_2025_126: Added 'reason' field for context-aware welcome messaging
  */
 export interface LicenseGetStatusResponse {
   /** Whether the license is valid */
@@ -592,6 +593,35 @@ export interface LicenseGetStatusResponse {
     description: string;
     features: string[];
   };
+  /** Reason for invalid license (for context-aware welcome messaging) */
+  reason?: 'expired' | 'trial_ended' | 'no_license';
+}
+
+// ============================================================
+// Command RPC Types (TASK_2025_126)
+// ============================================================
+
+/**
+ * Parameters for command:execute RPC method
+ *
+ * TASK_2025_126: Allows webview to execute VS Code commands
+ * SECURITY: Only ptah.* commands are allowed (enforced by handler)
+ */
+export interface CommandExecuteParams {
+  /** VS Code command ID to execute (must start with 'ptah.') */
+  command: string;
+  /** Optional arguments for the command */
+  args?: unknown[];
+}
+
+/**
+ * Response from command:execute RPC method
+ */
+export interface CommandExecuteResponse {
+  /** Whether command executed successfully */
+  success: boolean;
+  /** Error message if failed */
+  error?: string;
 }
 
 // ============================================================
@@ -762,6 +792,12 @@ export interface RpcMethodRegistry {
     result: LicenseGetStatusResponse;
   };
 
+  // ---- Command Methods (TASK_2025_126) ----
+  'command:execute': {
+    params: CommandExecuteParams;
+    result: CommandExecuteResponse;
+  };
+
   // ---- LLM Provider Methods ----
   'llm:getProviderStatus': {
     params: LlmGetProviderStatusParams;
@@ -868,6 +904,9 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
 
   // License Methods
   'license:getStatus',
+
+  // Command Methods (TASK_2025_126)
+  'command:execute',
 
   // LLM Provider Methods
   'llm:getProviderStatus',

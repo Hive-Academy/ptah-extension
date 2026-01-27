@@ -14,7 +14,8 @@ export type ViewType =
   | 'analytics'
   | 'context-tree'
   | 'settings'
-  | 'setup-wizard';
+  | 'setup-wizard'
+  | 'welcome';
 
 export interface AppState {
   currentView: ViewType;
@@ -49,9 +50,16 @@ export class AppStateManager {
   readonly isConnected = this._isConnected.asReadonly();
 
   // Computed signals
-  readonly canSwitchViews = computed(
-    () => !this._isLoading() && this._isConnected()
-  );
+  // TASK_2025_126: Added welcome view check to prevent license bypass
+  // Users on welcome view (unlicensed) cannot navigate to other views
+  readonly canSwitchViews = computed(() => {
+    const onWelcomeView = this._currentView() === 'welcome';
+    if (onWelcomeView) {
+      // Block navigation from welcome view - license gate enforcement
+      return false;
+    }
+    return !this._isLoading() && this._isConnected();
+  });
   readonly appTitle = computed(() => {
     const workspace = this._workspaceInfo();
     return workspace ? `Ptah - ${workspace.name}` : 'Ptah';
@@ -92,6 +100,7 @@ export class AppStateManager {
   private initializeState(): void {
     const windowWithState = window as Window & { initialView?: ViewType };
     const initialView = windowWithState.initialView || 'chat';
+    console.log(`[AppStateManager] Initializing with view: ${initialView}`);
     this._currentView.set(initialView);
   }
 

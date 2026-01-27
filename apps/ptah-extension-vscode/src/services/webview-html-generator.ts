@@ -85,6 +85,7 @@ export class WebviewHtmlGenerator {
       'context-tree',
       'settings',
       'setup-wizard',
+      'welcome', // TASK_2025_126: Welcome view for unlicensed users
     ];
 
     if (initialView && !VALID_VIEWS.includes(initialView)) {

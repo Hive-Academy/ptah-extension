@@ -23,6 +23,13 @@
 </div>
 }
 
+<!-- Welcome: Full-width, standalone layout (no sidebar, no tabs) -->
+@case ('welcome') {
+<div class="h-full w-full">
+  <ptah-welcome />
+</div>
+}
+
 <!-- Chat (default): Sidebar + Header + Chat layout -->
 @default {
 <div class="flex h-full">

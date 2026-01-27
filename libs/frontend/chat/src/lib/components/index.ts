@@ -58,6 +58,7 @@ export * from './organisms/message-bubble.component';
 // ============================================================================
 export * from './templates/chat-view.component';
 export * from './templates/app-shell.component';
+export * from './templates/welcome.component';
 
 // ============================================================================
 // AUTOCOMPLETE COMPONENTS

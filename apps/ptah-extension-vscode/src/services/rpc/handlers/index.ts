@@ -7,6 +7,7 @@
  * TASK_2025_079: Added LicenseRpcHandlers for premium feature gating
  * TASK_2025_091: Added OpenRouterRpcHandlers for model selection
  * TASK_2025_103: Added SubagentRpcHandlers for subagent resumption
+ * TASK_2025_126: Added CommandRpcHandlers for webview command execution
  */
 
 export { ChatRpcHandlers } from './chat-rpc.handlers';
@@ -21,3 +22,4 @@ export { LicenseRpcHandlers } from './license-rpc.handlers';
 export { LlmRpcHandlers } from './llm-rpc.handlers';
 export { OpenRouterRpcHandlers } from './openrouter-rpc.handlers';
 export { SubagentRpcHandlers } from './subagent-rpc.handlers';
+export { CommandRpcHandlers } from './command-rpc.handlers';

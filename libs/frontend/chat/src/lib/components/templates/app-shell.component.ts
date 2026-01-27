@@ -24,6 +24,7 @@ import { ChatViewComponent } from './chat-view.component';
 import { TabBarComponent } from '../organisms/tab-bar.component';
 import { ConfirmationDialogComponent } from '../molecules/confirmation-dialog.component';
 import { SettingsComponent } from '../../settings/settings.component';
+import { WelcomeComponent } from './welcome.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { WizardViewComponent } from '@ptah-extension/setup-wizard';
 import { ThemeToggleComponent } from '../atoms/theme-toggle.component';
@@ -72,6 +73,7 @@ import { ConfirmationDialogService } from '../../services/confirmation-dialog.se
   imports: [
     ChatViewComponent,
     SettingsComponent,
+    WelcomeComponent,
     WizardViewComponent,
     TabBarComponent,
     ConfirmationDialogComponent,
