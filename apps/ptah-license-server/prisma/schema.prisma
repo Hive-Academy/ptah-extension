@@ -16,18 +16,20 @@ generator client {
 // User model - stores user information for license ownership
 // Syncs with WorkOS User Management for authentication
 model User {
-  id            String         @id @default(uuid()) @db.Uuid
-  workosId      String?        @unique @map("workos_id") // WorkOS user ID for sync
-  email         String         @unique
-  firstName     String?        @map("first_name")
-  lastName      String?        @map("last_name")
-  emailVerified Boolean        @default(false) @map("email_verified")
-  createdAt     DateTime       @default(now()) @map("created_at")
-  updatedAt     DateTime       @updatedAt @map("updated_at")
-  licenses      License[]
-  subscriptions Subscription[]
+  id               String         @id @default(uuid()) @db.Uuid
+  workosId         String?        @unique @map("workos_id") // WorkOS user ID for sync
+  paddleCustomerId String?        @unique @map("paddle_customer_id") // Paddle customer ID for billing
+  email            String         @unique
+  firstName        String?        @map("first_name")
+  lastName         String?        @map("last_name")
+  emailVerified    Boolean        @default(false) @map("email_verified")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  licenses         License[]
+  subscriptions    Subscription[]
 
   @@index([workosId])
+  @@index([paddleCustomerId])
   @@map("users")
 }
 

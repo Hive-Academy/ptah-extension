@@ -143,9 +143,18 @@ export class PaddleService {
       });
       if (!user) {
         user = await tx.user.create({
-          data: { email: normalizedEmail },
+          data: { email: normalizedEmail, paddleCustomerId: customerId },
         });
         this.logger.log(`Created new user for email: ${normalizedEmail}`);
+      } else if (!user.paddleCustomerId && customerId) {
+        // Save paddleCustomerId to user if not already set (for existing users)
+        user = await tx.user.update({
+          where: { id: user.id },
+          data: { paddleCustomerId: customerId },
+        });
+        this.logger.log(
+          `Saved Paddle customer ID ${customerId} to user: ${normalizedEmail}`
+        );
       }
 
       // Step 4: Revoke any existing active licenses (one active license per user)

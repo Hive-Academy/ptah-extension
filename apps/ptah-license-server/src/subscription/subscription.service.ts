@@ -424,6 +424,31 @@ export class SubscriptionService {
     };
   }
 
+  /**
+   * Get checkout info for a user
+   *
+   * Returns the user's Paddle customer ID if they have one.
+   * This allows the checkout to reuse the same customer,
+   * preventing duplicate customers when re-subscribing.
+   */
+  async getCheckoutInfo(
+    userId: string
+  ): Promise<{ email: string; paddleCustomerId?: string }> {
+    this.logger.debug(`Getting checkout info for user: ${userId}`);
+
+    const user = await this.dbService.findUserById(userId);
+
+    if (!user) {
+      this.logger.warn(`User not found: ${userId}`);
+      throw new Error('User not found');
+    }
+
+    return {
+      email: user.email,
+      paddleCustomerId: user.paddleCustomerId || undefined,
+    };
+  }
+
   // ===========================================================================
   // Private Helper Methods
   // ===========================================================================

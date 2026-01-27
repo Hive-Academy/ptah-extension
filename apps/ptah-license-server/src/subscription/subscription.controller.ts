@@ -179,4 +179,31 @@ export class SubscriptionController {
     const user = req.user as { id: string; email: string };
     return this.subscriptionService.createPortalSession(user.id);
   }
+
+  /**
+   * Get checkout info including Paddle customer ID if exists
+   *
+   * GET /api/v1/subscriptions/checkout-info
+   *
+   * Returns the user's Paddle customer ID if they have one, so the checkout
+   * can reuse the same customer. This prevents creating duplicate customers
+   * when a user re-subscribes after cancellation.
+   *
+   * @param req - Express request with authenticated user
+   * @returns Checkout info with optional customerId
+   *
+   * Response:
+   * {
+   *   email: string,
+   *   paddleCustomerId?: string
+   * }
+   */
+  @Get('checkout-info')
+  @UseGuards(JwtAuthGuard)
+  async getCheckoutInfo(
+    @Req() req: Request
+  ): Promise<{ email: string; paddleCustomerId?: string }> {
+    const user = req.user as { id: string; email: string };
+    return this.subscriptionService.getCheckoutInfo(user.id);
+  }
 }

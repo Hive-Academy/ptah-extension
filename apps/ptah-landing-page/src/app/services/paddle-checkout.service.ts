@@ -12,7 +12,18 @@ import { PADDLE_CONFIG } from '../config/paddle.config';
 export interface CheckoutOptions {
   priceId: string;
   customerEmail?: string;
+  customerId?: string;
   successUrl?: string;
+}
+
+/**
+ * Response from GET /api/v1/subscriptions/checkout-info
+ *
+ * Returns user's email and Paddle customer ID if they have one.
+ */
+export interface CheckoutInfoResponse {
+  email: string;
+  paddleCustomerId?: string;
 }
 
 /**
@@ -251,10 +262,32 @@ export class PaddleCheckoutService {
   }
 
   /**
+   * Fetch checkout info (email and Paddle customer ID) from backend
+   *
+   * This ensures we reuse the same Paddle customer for returning users,
+   * preventing duplicate customer accounts.
+   */
+  private async fetchCheckoutInfo(): Promise<CheckoutInfoResponse | null> {
+    try {
+      const response = await firstValueFrom(
+        this.http.get<CheckoutInfoResponse>(
+          '/api/v1/subscriptions/checkout-info'
+        )
+      );
+      return response;
+    } catch (error) {
+      console.warn('[Paddle] Failed to fetch checkout info:', error);
+      return null;
+    }
+  }
+
+  /**
    * Open Paddle checkout overlay
    *
-   * Validates checkout first to prevent duplicate subscriptions,
-   * then opens the Paddle overlay if validation passes.
+   * Flow:
+   * 1. Validates checkout to prevent duplicate subscriptions
+   * 2. Fetches checkout info (email + Paddle customer ID if exists)
+   * 3. Opens Paddle overlay with customer ID (reuses existing customer)
    *
    * @param options - Checkout configuration with price ID and optional customer email
    */
@@ -278,7 +311,10 @@ export class PaddleCheckoutService {
       return;
     }
 
-    // Step 2: Proceed with opening checkout
+    // Step 2: Fetch checkout info to get existing Paddle customer ID
+    const checkoutInfo = await this.fetchCheckoutInfo();
+
+    // Step 3: Proceed with opening checkout
     this._isLoading.set(true);
     this._isCheckoutOpen.set(true);
 
@@ -290,11 +326,23 @@ export class PaddleCheckoutService {
       this.closeCheckout();
     }, this.CHECKOUT_TIMEOUT);
 
+    // Build customer object - prefer ID over email to reuse existing customer
+    let customerConfig: { id: string } | { email: string } | undefined;
+
+    if (checkoutInfo?.paddleCustomerId) {
+      // Use existing Paddle customer ID (prevents duplicate customers)
+      customerConfig = { id: checkoutInfo.paddleCustomerId };
+    } else if (checkoutInfo?.email) {
+      // Fall back to email from checkout info
+      customerConfig = { email: checkoutInfo.email };
+    } else if (options.customerEmail) {
+      // Last resort: use provided email
+      customerConfig = { email: options.customerEmail };
+    }
+
     const checkoutOptions = {
       items: [{ priceId: options.priceId, quantity: 1 }],
-      customer: options.customerEmail
-        ? { email: options.customerEmail }
-        : undefined,
+      customer: customerConfig,
       settings: {
         displayMode: 'overlay' as const,
         theme: 'dark' as const,
