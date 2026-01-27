@@ -62,8 +62,14 @@ export type {
 // NOTE: RpcMethodRegistrationService moved to app layer (TASK_2025_051)
 // to break circular dependency between vscode-core and agent-sdk
 // TASK_2025_092: SdkRpcHandlers deleted (dead code - permission emitter moved to SdkPermissionHandler)
+// TASK_2025_124: RpcLicenseValidationResult added for license middleware testing
 export { RpcHandler } from './messaging';
-export type { RpcMessage, RpcResponse, RpcMethodHandler } from './messaging';
+export type {
+  RpcMessage,
+  RpcResponse,
+  RpcMethodHandler,
+  RpcLicenseValidationResult,
+} from './messaging';
 
 // RPC Registration Verification (TASK_2025_074)
 export {

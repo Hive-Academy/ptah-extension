@@ -30,6 +30,23 @@ export interface RpcResponse<T = unknown> {
   data?: T;
   /** Error message (if success=false) */
   error?: string;
+  /**
+   * Error code for programmatic handling by frontend.
+   * Used to distinguish license-related errors from other failures.
+   *
+   * - 'LICENSE_REQUIRED': No valid license (subscription expired or not found)
+   * - 'PRO_TIER_REQUIRED': Pro subscription required for this feature
+   *
+   * @example
+   * ```typescript
+   * if (response.errorCode === 'LICENSE_REQUIRED') {
+   *   showLicensePrompt();
+   * } else if (response.errorCode === 'PRO_TIER_REQUIRED') {
+   *   showUpgradePrompt();
+   * }
+   * ```
+   */
+  errorCode?: 'LICENSE_REQUIRED' | 'PRO_TIER_REQUIRED';
   /** Correlation ID matching the original request */
   correlationId: string;
 }

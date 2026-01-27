@@ -344,6 +344,11 @@ export class NavigationComponent implements OnInit {
 
   /**
    * Check authentication state from server
+   *
+   * Uses verifyAuthentication() instead of isAuthenticated() to always
+   * make an API call. This ensures that after OAuth/magic-link redirects,
+   * the HTTP-only cookie is properly validated and the localStorage hint
+   * is set for future calls.
    */
   private checkAuthState(): void {
     this.authService

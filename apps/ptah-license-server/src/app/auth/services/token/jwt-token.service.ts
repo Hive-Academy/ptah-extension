@@ -113,8 +113,8 @@ export class JwtTokenService {
    */
   private extractRoles(user: User): string[] {
     const metadata = user.metadata as Record<string, unknown> | undefined;
-    if (metadata?.roles && Array.isArray(metadata.roles)) {
-      return metadata.roles as string[];
+    if (metadata?.['roles'] && Array.isArray(metadata['roles'])) {
+      return metadata['roles'] as string[];
     }
     return ['user'];
   }
@@ -141,8 +141,8 @@ export class JwtTokenService {
 
     // Add custom permissions from metadata
     const metadata = user.metadata as Record<string, unknown> | undefined;
-    if (metadata?.permissions && Array.isArray(metadata.permissions)) {
-      (metadata.permissions as string[]).forEach((p) => permissions.add(p));
+    if (metadata?.['permissions'] && Array.isArray(metadata['permissions'])) {
+      (metadata['permissions'] as string[]).forEach((p) => permissions.add(p));
     }
 
     return Array.from(permissions);
@@ -150,11 +150,13 @@ export class JwtTokenService {
 
   /**
    * Determine subscription tier
+   * NOTE: No free tier - users must have active subscription
    */
   private determineTier(
     organizationId?: string
-  ): 'free' | 'pro' | 'enterprise' {
-    // TODO: Implement tier lookup from database
-    return organizationId ? 'pro' : 'free';
+  ): 'basic' | 'pro' | 'trial_basic' | 'trial_pro' | 'expired' {
+    // TODO: Implement tier lookup from database based on user's subscription
+    // For now, default to 'expired' - actual tier should come from license lookup
+    return organizationId ? 'pro' : 'expired';
   }
 }

@@ -46,10 +46,6 @@ interface PersistedLicenseCache {
  * - 'trial_basic': Basic plan during 14-day trial
  * - 'trial_pro': Pro plan during 14-day trial
  * - 'expired': No valid subscription (extension blocked)
- *
- * NOTE: Legacy values 'free' and 'early_adopter' are mapped in server code:
- * - 'early_adopter' -> 'pro' (grandfathered users)
- * - 'free' -> 'trial_basic' or 'expired' depending on trial status
  */
 export type LicenseTierValue =
   | 'basic'
@@ -558,14 +554,31 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
    * - Cache must exist
    * - Cache must be within 7-day grace period
    * - Original cached license must have been valid
+   * - License must not have expired since caching (expiresAt check)
    *
    * @param cache - Persisted cache to check
-   * @returns true if within grace period
+   * @returns true if within grace period and license not expired
    */
   private isWithinGracePeriod(cache: PersistedLicenseCache): boolean {
     // Grace period only applies to valid licenses
     if (!cache.status.valid) {
       return false;
+    }
+
+    // TASK_2025_121: Check if license has expired since caching
+    // Even during grace period, if expiresAt has passed, license is invalid
+    if (cache.status.expiresAt) {
+      const expiresAt = new Date(cache.status.expiresAt).getTime();
+      if (Date.now() > expiresAt) {
+        this.logger.info(
+          '[LicenseService.isWithinGracePeriod] Cached license has expired',
+          {
+            expiresAt: cache.status.expiresAt,
+            now: new Date().toISOString(),
+          }
+        );
+        return false;
+      }
     }
 
     const gracePeriodEnd = cache.persistedAt + LicenseService.GRACE_PERIOD_MS;

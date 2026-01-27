@@ -1,15 +1,14 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { randomBytes } from 'crypto';
 import type {
-  SubscriptionNotification,
   SubscriptionCreatedNotification,
+  SubscriptionNotification,
   TransactionNotification,
-  SubscriptionStatus,
 } from '@paddle/paddle-node-sdk';
-import { PrismaService } from '../prisma/prisma.service';
+import { randomBytes } from 'crypto';
 import { EmailService } from '../email/services/email.service';
 import { EventsService } from '../events/events.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { PADDLE_CLIENT, PaddleClient } from './providers/paddle.provider';
 
 /**
@@ -139,7 +138,9 @@ export class PaddleService {
     // Wrap all database operations in a transaction for atomicity
     const license = await this.prisma.$transaction(async (tx) => {
       // Step 3: Find or create user
-      let user = await tx.user.findUnique({ where: { email: normalizedEmail } });
+      let user = await tx.user.findUnique({
+        where: { email: normalizedEmail },
+      });
       if (!user) {
         user = await tx.user.create({
           data: { email: normalizedEmail },
@@ -586,7 +587,9 @@ export class PaddleService {
       );
     }
 
-    this.logger.log(`Subscription ${subscriptionId} paused for ${normalizedEmail}`);
+    this.logger.log(
+      `Subscription ${subscriptionId} paused for ${normalizedEmail}`
+    );
     return { success: true };
   }
 
@@ -658,7 +661,9 @@ export class PaddleService {
       );
     }
 
-    this.logger.log(`Subscription ${subscriptionId} resumed for ${normalizedEmail}`);
+    this.logger.log(
+      `Subscription ${subscriptionId} resumed for ${normalizedEmail}`
+    );
     return { success: true };
   }
 
@@ -748,7 +753,9 @@ export class PaddleService {
     });
 
     this.logger.log(
-      `Extended ${updateResult.count} license(s) for user ${email} to ${newPeriodEnd.toISOString()}`
+      `Extended ${
+        updateResult.count
+      } license(s) for user ${email} to ${newPeriodEnd.toISOString()}`
     );
 
     // Step 6: Get current license plan for SSE event

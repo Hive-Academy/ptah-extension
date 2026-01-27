@@ -101,3 +101,45 @@ export function isHandledEvent(
 ): eventType is HandledEventType {
   return HANDLED_EVENTS.includes(eventType as HandledEventType);
 }
+
+/**
+ * Maps a Paddle SDK EventEntity to a Prisma-compatible JSON payload
+ *
+ * The SDK's EventEntity contains class instances and Date objects that
+ * need to be serialized for JSON storage in the FailedWebhook table.
+ *
+ * @param event - The SDK EventEntity from webhooks.unmarshal()
+ * @returns A plain object safe for Prisma JSON storage
+ *
+ * @example
+ * ```typescript
+ * import { mapEventToStoredPayload } from './dto/paddle-webhook.dto';
+ *
+ * await prisma.failedWebhook.create({
+ *   data: {
+ *     eventId: event.eventId,
+ *     eventType: event.eventType,
+ *     rawPayload: mapEventToStoredPayload(event),
+ *     errorMessage: error.message,
+ *   },
+ * });
+ * ```
+ */
+export function mapEventToStoredPayload(event: {
+  eventId: string;
+  eventType: string;
+  occurredAt: Date | string;
+  notificationId?: string | null;
+  data: unknown;
+}) {
+  return {
+    eventId: event.eventId,
+    eventType: event.eventType,
+    occurredAt:
+      event.occurredAt instanceof Date
+        ? event.occurredAt.toISOString()
+        : String(event.occurredAt),
+    ...(event.notificationId && { notificationId: event.notificationId }),
+    data: JSON.parse(JSON.stringify(event.data)),
+  };
+}

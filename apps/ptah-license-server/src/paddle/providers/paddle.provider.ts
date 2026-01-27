@@ -144,28 +144,7 @@ export interface ListSubscriptionParams {
  *
  * TASK_2025_123: Extended with subscription and portal session methods
  */
-export interface PaddleClient {
-  webhooks: {
-    unmarshal(
-      rawBody: string,
-      secretKey: string,
-      signature: string
-    ): Promise<EventEntity>;
-  };
-  customers: {
-    get(customerId: string): Promise<PaddleCustomer>;
-  };
-  subscriptions: {
-    list(params?: ListSubscriptionParams): SubscriptionCollection;
-    get(subscriptionId: string): Promise<PaddleSDKSubscription>;
-  };
-  customerPortalSessions: {
-    create(
-      customerId: string,
-      subscriptionIds: string[]
-    ): Promise<PaddleSDKCustomerPortalSession>;
-  };
-}
+export type PaddleClient = Paddle;
 
 /**
  * Injection token for Paddle client

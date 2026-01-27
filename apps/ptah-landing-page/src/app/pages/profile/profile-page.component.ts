@@ -129,7 +129,7 @@ import { LicenseData } from './models/license-data.interface';
               aria-hidden="true"
             />
             {{
-              license()?.plan === 'trial'
+              license()?.plan?.startsWith('trial_')
                 ? 'View Pricing Plans'
                 : 'Manage Subscription'
             }}
@@ -252,7 +252,10 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
     this.sseService.reconciliationCompleted$
       .pipe(takeUntil(this.destroy$))
       .subscribe((event) => {
-        console.log('[Profile] Reconciliation completed event received:', event);
+        console.log(
+          '[Profile] Reconciliation completed event received:',
+          event
+        );
         // Refresh license data to reflect synced state
         this.refreshLicenseData();
 
@@ -331,14 +334,17 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
             }, 5000);
           } else {
             // Reconciliation returned errors
-            const errorMsg = response.errors?.join(', ') || 'Sync completed with errors';
+            const errorMsg =
+              response.errors?.join(', ') || 'Sync completed with errors';
             this.syncError.set(errorMsg);
             console.error('[Profile] Sync errors:', response.errors);
           }
         },
         error: (error) => {
           this.isSyncing.set(false);
-          const errorMsg = error.error?.message || 'Failed to sync with Paddle. Please try again.';
+          const errorMsg =
+            error.error?.message ||
+            'Failed to sync with Paddle. Please try again.';
           this.syncError.set(errorMsg);
           console.error('[Profile] Sync failed:', error);
         },

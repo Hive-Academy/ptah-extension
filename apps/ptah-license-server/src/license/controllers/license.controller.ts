@@ -40,19 +40,11 @@ export class LicenseController {
    * @param dto - VerifyLicenseDto containing the license key
    * @returns License verification result with plan details
    *
-   * Response (valid license):
-   * {
-   *   valid: true,
-   *   tier: "early_adopter",
-   *   plan: { name: "Early Adopter", features: [...], ... },
-   *   expiresAt: "2026-02-15T00:00:00Z",
-   *   daysRemaining: 45
-   * }
    *
    * Response (invalid license):
    * {
    *   valid: false,
-   *   tier: "free",
+   *   tier: "basic",
    *   reason: "expired" | "revoked" | "not_found"
    * }
    */
@@ -74,7 +66,7 @@ export class LicenseController {
    *
    * Response (user with license):
    * {
-   *   plan: "early_adopter",
+   *   plan: "basic",
    *   status: "active",
    *   expiresAt: "2026-02-15T00:00:00Z",
    *   daysRemaining: 45,
@@ -85,7 +77,7 @@ export class LicenseController {
    *
    * Response (user without license):
    * {
-   *   plan: "free",
+   *   plan: null,
    *   status: "none",
    *   message: "No active license found"
    * }
@@ -112,7 +104,7 @@ export class LicenseController {
 
     if (!fullUser) {
       return {
-        plan: 'free',
+        plan: null,
         status: 'none',
         message: 'User not found',
       };
@@ -133,7 +125,6 @@ export class LicenseController {
     const subscription = fullUser.subscriptions[0] || null;
 
     // Step 4: No active license found - return unlicensed response
-    // Note: 'free' tier no longer exists in PLANS, return hardcoded response
     if (!license) {
       return {
         // User info
@@ -166,12 +157,9 @@ export class LicenseController {
     }
 
     // Step 6: Get plan configuration for features
-    // Map legacy plans to valid plan names (early_adopter -> pro)
-    const normalizedPlan =
-      license.plan === 'early_adopter' ? 'pro' : license.plan;
     const planConfig =
-      normalizedPlan === 'basic' || normalizedPlan === 'pro'
-        ? getPlanConfig(normalizedPlan as PlanName)
+      license.plan === 'basic' || license.plan === 'pro'
+        ? getPlanConfig(license.plan as PlanName)
         : PLANS.basic; // Safe fallback for unknown plans
 
     // Step 7: Return complete account details (NEVER include licenseKey)

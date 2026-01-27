@@ -231,7 +231,7 @@ import {
 })
 export class CTASectionComponent {
   /** Lucide icon reference */
-  readonly CheckIcon = Check;
+  public readonly CheckIcon = Check;
 
   /**
    * Trust signals displayed with staggered fadeIn animations

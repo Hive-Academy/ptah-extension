@@ -96,8 +96,13 @@ export class AuthController {
     '/dashboard',
   ];
 
-  /** Valid plan keys for checkout */
-  private readonly VALID_PLAN_KEYS = ['pro-monthly', 'pro-yearly'];
+  /** Valid plan keys for checkout (TASK_2025_121: includes Basic and Pro) */
+  private readonly VALID_PLAN_KEYS = [
+    'basic-monthly',
+    'basic-yearly',
+    'pro-monthly',
+    'pro-yearly',
+  ];
 
   constructor(
     private readonly authService: AuthService,
@@ -335,16 +340,19 @@ export class AuthController {
       );
 
       // Step 8: Redirect to frontend application (with validated returnUrl and plan)
+      // Always include auth_hint=1 to signal frontend to set localStorage hint
+      // This syncs frontend auth state with backend HTTP-only cookie
       if (validatedReturnUrl) {
         // Build redirect URL with returnUrl path and optional autoCheckout param
         const redirectUrl = new URL(validatedReturnUrl, this.frontendUrl);
+        redirectUrl.searchParams.set('auth_hint', '1');
         if (validatedPlan) {
           redirectUrl.searchParams.set('autoCheckout', validatedPlan);
         }
         res.redirect(redirectUrl.toString());
       } else {
-        // Default: redirect to frontend root
-        res.redirect(this.frontendUrl);
+        // Default: redirect to frontend root with auth hint
+        res.redirect(`${this.frontendUrl}?auth_hint=1`);
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Unknown error';
@@ -561,8 +569,11 @@ export class AuthController {
     const validatedPlan = this.validatePlanKey(result.plan ?? undefined);
 
     // Step 6: Redirect to returnUrl with autoCheckout or default to profile
+    // Always include auth_hint=1 to signal frontend to set localStorage hint
+    // This syncs frontend auth state with backend HTTP-only cookie
     if (validatedReturnUrl) {
       const redirectUrl = new URL(validatedReturnUrl, this.frontendUrl);
+      redirectUrl.searchParams.set('auth_hint', '1');
       if (validatedPlan) {
         redirectUrl.searchParams.set('autoCheckout', validatedPlan);
       }
@@ -571,7 +582,7 @@ export class AuthController {
       );
       res.redirect(redirectUrl.toString());
     } else {
-      res.redirect(`${this.frontendUrl}/profile`);
+      res.redirect(`${this.frontendUrl}/profile?auth_hint=1`);
     }
   }
 
@@ -609,7 +620,8 @@ export class AuthController {
     const user = req.user as any;
     const ticket = await this.ticketService.create(
       user.userId || user.id,
-      user.tenantId
+      user.tenantId,
+      user.email
     );
     return { ticket };
   }

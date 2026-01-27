@@ -67,8 +67,8 @@ export class ChatRpcHandlers {
   ) {}
 
   /**
-   * Determines if the license grants premium features (TASK_2025_108)
-   * Premium = valid license AND (explicit isPremium flag OR early_adopter tier)
+   * Determines if the license grants premium (Pro) features
+   * Premium = valid license AND Pro tier (pro or trial_pro)
    *
    * @param licenseStatus - The license status from verification
    * @returns true if the user has premium features enabled
@@ -77,7 +77,8 @@ export class ChatRpcHandlers {
     return (
       licenseStatus.valid &&
       (licenseStatus.plan?.isPremium === true ||
-        licenseStatus.tier === 'early_adopter')
+        licenseStatus.tier === 'pro' ||
+        licenseStatus.tier === 'trial_pro')
     );
   }
 

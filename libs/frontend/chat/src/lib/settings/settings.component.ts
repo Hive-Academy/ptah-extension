@@ -63,7 +63,9 @@ export class SettingsComponent implements OnInit {
 
   // License status signals
   readonly isPremium = signal(false);
-  readonly licenseTier = signal<'free' | 'early_adopter'>('free');
+  readonly licenseTier = signal<
+    'basic' | 'pro' | 'trial_basic' | 'trial_pro' | 'expired'
+  >('expired');
   readonly isLoadingLicenseStatus = signal(true);
 
   /**
@@ -150,9 +152,9 @@ export class SettingsComponent implements OnInit {
         '[SettingsComponent] Failed to fetch license status:',
         error
       );
-      // Graceful degradation: assume free tier
+      // Graceful degradation: assume expired (no access without valid license)
       this.isPremium.set(false);
-      this.licenseTier.set('free');
+      this.licenseTier.set('expired');
     } finally {
       this.isLoadingLicenseStatus.set(false);
     }

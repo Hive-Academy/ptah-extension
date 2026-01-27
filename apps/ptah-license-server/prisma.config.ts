@@ -1,8 +1,10 @@
 import { defineConfig } from 'prisma/config';
+import { config } from 'dotenv';
+import { resolve } from 'path';
 
-// Note: DATABASE_URL is set by docker-compose.yml environment directive
-// or by the local .env file for local development
-// No need to import dotenv - environment variables are already available
+// Load .env file from the app directory for local development
+// Docker environments set DATABASE_URL directly via docker-compose.yml
+config({ path: resolve(__dirname, '.env') });
 
 export default defineConfig({
   schema: 'prisma/schema.prisma',

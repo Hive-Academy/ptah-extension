@@ -35,8 +35,9 @@ export interface RequestUser {
   /**
    * Subscription tier for the tenant
    * Used for feature gating and resource limits
+   * NOTE: 'basic' and 'pro' are the two paid plans (no free tier)
    */
-  tier: 'free' | 'pro' | 'enterprise';
+  tier: 'basic' | 'pro' | 'trial_basic' | 'trial_pro' | 'expired';
 }
 
 /**
@@ -76,8 +77,9 @@ export interface JWTPayload {
 
   /**
    * Subscription tier
+   * NOTE: 'basic' and 'pro' are the two paid plans (no free tier)
    */
-  tier: 'free' | 'pro' | 'enterprise';
+  tier: 'basic' | 'pro' | 'trial_basic' | 'trial_pro' | 'expired';
 
   /**
    * Issued at timestamp

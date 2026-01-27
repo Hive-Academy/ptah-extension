@@ -1,6 +1,10 @@
-import { Injectable, Inject, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  Inject,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { Prisma } from '../generated-prisma-client';
 import {
   EventName,
   type EventEntity,
@@ -19,6 +23,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { PaddleService } from './paddle.service';
 import { PADDLE_CLIENT, PaddleClient } from './providers/paddle.provider';
+import { mapEventToStoredPayload } from './dto/paddle-webhook.dto';
 
 /**
  * Webhook processing response type
@@ -101,12 +106,12 @@ export class PaddleWebhookService {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
       this.logger.warn(`Webhook verification failed: ${errorMessage}`);
-      throw new UnauthorizedException(`Invalid webhook signature: ${errorMessage}`);
+      throw new UnauthorizedException(
+        `Invalid webhook signature: ${errorMessage}`
+      );
     }
 
-    this.logger.log(
-      `Received webhook: ${event.eventType} (${event.eventId})`
-    );
+    this.logger.log(`Received webhook: ${event.eventType} (${event.eventId})`);
 
     // Wrap processing in try/catch for failed webhook storage
     // Always return 200 OK to Paddle - store failures for investigation
@@ -140,29 +145,43 @@ export class PaddleWebhookService {
     switch (event.eventType) {
       // Subscription lifecycle events
       case EventName.SubscriptionCreated:
-        return this.handleSubscriptionCreated(event as SubscriptionCreatedEvent);
+        return this.handleSubscriptionCreated(
+          event as SubscriptionCreatedEvent
+        );
 
       case EventName.SubscriptionActivated:
-        return this.handleSubscriptionActivated(event as SubscriptionActivatedEvent);
+        return this.handleSubscriptionActivated(
+          event as SubscriptionActivatedEvent
+        );
 
       case EventName.SubscriptionUpdated:
-        return this.handleSubscriptionUpdated(event as SubscriptionUpdatedEvent);
+        return this.handleSubscriptionUpdated(
+          event as SubscriptionUpdatedEvent
+        );
 
       case EventName.SubscriptionCanceled:
-        return this.handleSubscriptionCanceled(event as SubscriptionCanceledEvent);
+        return this.handleSubscriptionCanceled(
+          event as SubscriptionCanceledEvent
+        );
 
       case EventName.SubscriptionPastDue:
-        return this.handleSubscriptionPastDue(event as SubscriptionPastDueEvent);
+        return this.handleSubscriptionPastDue(
+          event as SubscriptionPastDueEvent
+        );
 
       case EventName.SubscriptionPaused:
         return this.handleSubscriptionPaused(event as SubscriptionPausedEvent);
 
       case EventName.SubscriptionResumed:
-        return this.handleSubscriptionResumed(event as SubscriptionResumedEvent);
+        return this.handleSubscriptionResumed(
+          event as SubscriptionResumedEvent
+        );
 
       // Transaction events
       case EventName.TransactionCompleted:
-        return this.handleTransactionCompleted(event as TransactionCompletedEvent);
+        return this.handleTransactionCompleted(
+          event as TransactionCompletedEvent
+        );
 
       default:
         // Acknowledge unknown events without processing
@@ -413,12 +432,7 @@ export class PaddleWebhookService {
         data: {
           eventId: event.eventId,
           eventType: event.eventType,
-          rawPayload: {
-            eventId: event.eventId,
-            eventType: event.eventType,
-            occurredAt: event.occurredAt,
-            data: event.data as unknown as Prisma.JsonValue,
-          } as Prisma.JsonValue,
+          rawPayload: mapEventToStoredPayload(event),
           errorMessage,
           stackTrace,
         },

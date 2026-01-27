@@ -558,10 +558,6 @@ export type LicenseGetStatusParams = Record<string, never>;
  * - 'trial_basic': Basic plan during 14-day trial
  * - 'trial_pro': Pro plan during 14-day trial
  * - 'expired': No valid subscription (extension blocked)
- *
- * NOTE: Legacy values 'free' and 'early_adopter' are mapped in server code:
- * - 'early_adopter' -> 'pro' (grandfathered users)
- * - 'free' -> 'trial_basic' or 'expired' depending on trial status
  */
 export type LicenseTier =
   | 'basic'

@@ -6,4 +6,4 @@
 export { JwtTokenService } from './jwt-token.service';
 export { PkceService } from './pkce.service';
 export { MagicLinkService } from './magic-link.service';
-export { TicketService } from './ticket.service';
+export { TicketService, type ValidatedTicket } from './ticket.service';

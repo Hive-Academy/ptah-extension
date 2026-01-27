@@ -9,10 +9,6 @@
  *
  * Plans are hardcoded (not stored in database) to simplify the architecture.
  * Paddle manages billing cycles, trials, and promotional pricing.
- *
- * NOTE: Legacy tier values ('free', 'early_adopter') are mapped in application code:
- * - 'early_adopter' -> 'pro' (grandfathered users)
- * - 'free' -> 'trial_basic' or 'expired' depending on trial status
  */
 
 export const PLANS = {

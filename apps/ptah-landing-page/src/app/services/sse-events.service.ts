@@ -176,7 +176,7 @@ export class SSEEventsService implements OnDestroy {
       )
     );
 
-  ngOnDestroy(): void {
+  public ngOnDestroy(): void {
     this.disconnect();
   }
 
@@ -188,7 +188,7 @@ export class SSEEventsService implements OnDestroy {
    * 2. Open SSE connection with the ticket
    * 3. Auto-reconnect on connection loss
    */
-  async connect(): Promise<void> {
+  public async connect(): Promise<void> {
     if (this.eventSource) {
       // Already connected or connecting
       if (this.connectionState() === 'connected') {
@@ -246,7 +246,7 @@ export class SSEEventsService implements OnDestroy {
    *
    * Call this on logout or when the component using SSE is destroyed.
    */
-  disconnect(): void {
+  public disconnect(): void {
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
@@ -259,7 +259,7 @@ export class SSEEventsService implements OnDestroy {
   /**
    * Check if currently connected
    */
-  isConnected(): boolean {
+  public isConnected(): boolean {
     return this.connectionState() === 'connected';
   }
 

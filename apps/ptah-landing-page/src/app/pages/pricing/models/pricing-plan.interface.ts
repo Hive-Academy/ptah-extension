@@ -43,7 +43,7 @@ export interface PricingPlan {
   /** Whether this plan should be highlighted (default: false) */
   highlight?: boolean;
 
-  /** Badge asset filename (e.g., "plan_badge_early_adopter.png") */
+  /** Badge asset filename (e.g., "plan_badge_pro.png") */
   badge?: string;
 
   /** Trial period in days (e.g., 14) */

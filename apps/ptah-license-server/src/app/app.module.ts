@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { PrismaModule } from '../prisma/prisma.module';
 import { LicenseModule } from '../license/license.module';
 import { AuthModule } from './auth/auth.module';
@@ -26,6 +27,9 @@ import { SubscriptionModule } from '../subscription/subscription.module';
   imports: [
     // Global configuration - makes ConfigService available everywhere
     ConfigModule.forRoot({ isGlobal: true }),
+
+    // Event emitter for async event handling
+    EventEmitterModule.forRoot(),
 
     // Core infrastructure
     PrismaModule,

@@ -3,8 +3,12 @@ import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '../prisma/prisma.module';
 import { EventsModule } from '../events/events.module';
 import { PaddleModule } from '../paddle/paddle.module';
+import { AuthModule } from '../app/auth/auth.module';
 import { SubscriptionController } from './subscription.controller';
 import { SubscriptionService } from './subscription.service';
+import { SubscriptionDbService } from './subscription-db.service';
+import { PaddleSyncService } from './paddle-sync.service';
+import { SubscriptionEventListener } from './events';
 
 /**
  * SubscriptionModule - Paddle subscription management for user-facing APIs
@@ -37,9 +41,15 @@ import { SubscriptionService } from './subscription.service';
     EventsModule,
     ConfigModule,
     PaddleModule, // Provides PADDLE_CLIENT token
+    AuthModule, // Provides AuthService for JwtAuthGuard
   ],
   controllers: [SubscriptionController],
-  providers: [SubscriptionService],
-  exports: [SubscriptionService],
+  providers: [
+    SubscriptionService,
+    SubscriptionDbService,
+    PaddleSyncService,
+    SubscriptionEventListener, // Handles async event processing
+  ],
+  exports: [SubscriptionService, SubscriptionDbService, PaddleSyncService],
 })
 export class SubscriptionModule {}

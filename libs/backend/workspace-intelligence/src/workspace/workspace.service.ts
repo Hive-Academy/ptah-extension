@@ -342,6 +342,7 @@ export class WorkspaceService implements vscode.Disposable {
       [ProjectType.PHP]: 'php',
       [ProjectType.Ruby]: 'ruby',
       [ProjectType.General]: 'general',
+      [ProjectType.Unknown]: 'unknown',
     };
 
     return templateMap[this.currentAnalysis.projectType] || 'general';
@@ -564,6 +565,7 @@ export class WorkspaceService implements vscode.Disposable {
       [ProjectType.PHP]: ['.php'],
       [ProjectType.Ruby]: ['.rb'],
       [ProjectType.General]: [],
+      [ProjectType.Unknown]: [],
     };
 
     const extensions = extensionsByType[projectType];

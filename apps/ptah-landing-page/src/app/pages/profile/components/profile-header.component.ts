@@ -3,7 +3,6 @@ import {
   Component,
   computed,
   input,
-  output,
 } from '@angular/core';
 import {
   ViewportAnimationConfig,
@@ -32,37 +31,32 @@ import { LicenseData } from '../models/license-data.interface';
   template: `
     <!-- Hero Header with Gradient Background -->
     <div
-      class="relative h-48 md:h-56 bg-gradient-to-br from-base-100 via-primary/30 to-base-100 overflow-hidden"
+      class="relative h-[28rem] md:h-[38rem] bg-gradient-to-br from-base-100 via-primary/30 to-base-100 overflow-hidden"
     >
       <!-- Background Image Layer -->
       <div
+        viewportAnimation
+        [viewportConfig]="cardConfig"
         class="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-60"
         style="background-image: url('/assets/backgrounds/floating_obelisks.png')"
       ></div>
 
       <!-- Radial glow overlay -->
       <div
-        class="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(212,175,55,0.2)_0%,transparent_70%)]"
+        class="absolute inset-0 z-[1] bg-gradient-to-b from-slate-950/30 via-slate-900/35 to-slate-950/45"
+        aria-hidden="true"
       ></div>
 
       <!-- Bottom fade for smooth transition -->
       <div
-        class="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-base-100 to-transparent"
+        class="absolute bottom-0 left-0 right-0 h-44 bg-gradient-to-t from-base-100 to-transparent"
       ></div>
-
-      <!-- Top bar with logout -->
-      <div class="absolute top-4 right-4 md:top-6 md:right-8 z-10">
-        <button
-          class="btn btn-sm btn-ghost text-primary-content hover:bg-white/10"
-          (click)="logout.emit()"
-        >
-          Logout
-        </button>
-      </div>
     </div>
 
     <!-- Profile Card (overlapping hero) -->
-    <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 -mt-24 relative z-10">
+    <div
+      class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 -mt-[240px] relative z-10"
+    >
       <div
         viewportAnimation
         [viewportConfig]="cardConfig"
@@ -204,9 +198,6 @@ export class ProfileHeaderComponent {
   /** License data input */
   public readonly license = input<LicenseData | null>(null);
 
-  /** Logout event */
-  public readonly logout = output<void>();
-
   // Animation config
   public readonly cardConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
@@ -244,8 +235,8 @@ export class ProfileHeaderComponent {
 
   public getPlanBadgeClass(): string {
     const plan = this.license()?.plan;
-    if (plan === 'early_adopter') return 'badge-secondary';
-    if (plan === 'pro') return 'badge-primary';
+    if (plan === 'pro' || plan === 'trial_pro') return 'badge-primary';
+    if (plan === 'basic' || plan === 'trial_basic') return 'badge-secondary';
     return 'badge-ghost';
   }
 

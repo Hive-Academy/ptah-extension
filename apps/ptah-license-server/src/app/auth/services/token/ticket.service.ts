@@ -27,27 +27,44 @@ import { randomBytes } from 'crypto';
  *
  * **Evidence**: implementation-plan.md:386-451
  */
+/**
+ * Ticket data stored for SSE authentication
+ */
+interface TicketData {
+  userId: string;
+  tenantId: string;
+  email: string;
+  createdAt: number;
+  timeoutId: NodeJS.Timeout;
+}
+
+/**
+ * Return type for ticket validation
+ */
+export interface ValidatedTicket {
+  userId: string;
+  tenantId: string;
+  email: string;
+}
+
 @Injectable()
 export class TicketService implements OnModuleDestroy {
   private readonly TICKET_TTL_MS = 30000; // 30 seconds
-  private readonly tickets = new Map<
-    string,
-    {
-      userId: string;
-      tenantId: string;
-      createdAt: number;
-      timeoutId: NodeJS.Timeout;
-    }
-  >();
+  private readonly tickets = new Map<string, TicketData>();
 
   /**
    * Generate a short-lived ticket for SSE authentication
    *
    * @param userId - User identifier
    * @param tenantId - Tenant identifier
+   * @param email - User email (required for SSE event filtering)
    * @returns Cryptographically secure ticket string
    */
-  async create(userId: string, tenantId: string): Promise<string> {
+  async create(
+    userId: string,
+    tenantId: string,
+    email: string
+  ): Promise<string> {
     // Generate cryptographically secure random ticket
     const ticket = randomBytes(32).toString('hex');
 
@@ -60,6 +77,7 @@ export class TicketService implements OnModuleDestroy {
     this.tickets.set(ticket, {
       userId,
       tenantId,
+      email: email.toLowerCase(),
       createdAt: Date.now(),
       timeoutId,
     });
@@ -73,9 +91,7 @@ export class TicketService implements OnModuleDestroy {
    * @param ticket - Ticket string to validate
    * @returns User context if valid, null if expired/invalid
    */
-  async validateAndConsume(
-    ticket: string
-  ): Promise<{ userId: string; tenantId: string } | null> {
+  async validate(ticket: string): Promise<ValidatedTicket | null> {
     const ticketData = this.tickets.get(ticket);
 
     if (!ticketData) {
@@ -93,7 +109,15 @@ export class TicketService implements OnModuleDestroy {
     return {
       userId: ticketData.userId,
       tenantId: ticketData.tenantId,
+      email: ticketData.email,
     };
+  }
+
+  /**
+   * @deprecated Use validate() instead
+   */
+  async validateAndConsume(ticket: string): Promise<ValidatedTicket | null> {
+    return this.validate(ticket);
   }
 
   /**

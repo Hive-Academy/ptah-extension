@@ -26,7 +26,7 @@ export const AuthGuard: CanActivateFn = () => {
 
   // Use verifyAuthentication() to always check with backend
   // This handles OAuth/magic link redirects where cookie exists but no hint yet
-  return authService.verifyAuthentication().pipe(
+  return authService.isAuthenticated().pipe(
     map((isAuth) => {
       if (!isAuth) {
         router.navigate(['/login']);

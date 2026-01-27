@@ -42,7 +42,7 @@ export class JwtAuthGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<Request>();
 
     // Extract JWT token from unified HTTP-only cookie
-    const token = request.cookies?.ptah_auth;
+    const token = request.cookies?.['ptah_auth'];
 
     if (!token) {
       throw new UnauthorizedException(

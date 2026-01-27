@@ -59,7 +59,7 @@ model License {
   id         String    @id @default(uuid()) @db.Uuid
   userId     String    @map("user_id") @db.Uuid
   licenseKey String    @unique @map("license_key")
-  plan       String // "basic" | "pro" | "trial_basic" | "trial_pro" (Legacy: "free" | "early_adopter" mapped in code)
+  plan       String // "basic" | "pro" | "trial_basic" | "trial_pro"
   status     String    @default("active") // "active" | "expired" | "revoked" | "paused"
   expiresAt  DateTime? @map("expires_at")
   createdAt  DateTime  @default(now()) @map("created_at")

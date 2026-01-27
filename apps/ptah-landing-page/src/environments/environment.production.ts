@@ -27,6 +27,9 @@ export const environment = {
     /** Paddle environment: 'sandbox' for testing, 'production' for live */
     environment: 'production' as const,
 
+    /** Client-side token for Paddle.js SDK (production) */
+    token: 'live_REPLACE_WITH_PRODUCTION_TOKEN', // TODO: Replace with real Paddle client-side token
+
     /** Price ID for Basic Monthly ($3/month with 14-day trial) - from Paddle dashboard */
     basicPriceIdMonthly: 'pri_REPLACE_BASIC_MONTHLY', // TODO: Replace with real Paddle price ID
     /** Price ID for Basic Yearly ($30/year with 14-day trial) - from Paddle dashboard */

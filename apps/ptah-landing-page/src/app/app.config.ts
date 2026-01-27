@@ -2,7 +2,9 @@ import {
   ApplicationConfig,
   provideBrowserGlobalErrorListeners,
   provideZoneChangeDetection,
+  APP_INITIALIZER,
 } from '@angular/core';
+import { AuthInitializerService } from './services/auth-initializer.service';
 import { provideRouter } from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideMarkdown } from 'ngx-markdown';
@@ -14,6 +16,15 @@ import { environment } from '../environments/environment';
 
 export const appConfig: ApplicationConfig = {
   providers: [
+    // Auth state synchronization from backend redirects (OAuth, magic link)
+    // Must run BEFORE routing to set localStorage hint from ?auth_hint=1 param
+    {
+      provide: APP_INITIALIZER,
+      useFactory: (authInit: AuthInitializerService) => () =>
+        authInit.initialize(),
+      deps: [AuthInitializerService],
+      multi: true,
+    },
     // Router configuration
     provideRouter(routes),
     // HTTP client with API interceptor for credentials and base URL
@@ -25,6 +36,7 @@ export const appConfig: ApplicationConfig = {
     // Paddle checkout configuration with DI token (Basic + Pro plans)
     providePaddleConfig({
       environment: environment.paddle.environment,
+      token: environment.paddle.token,
       basicPriceIdMonthly: environment.paddle.basicPriceIdMonthly,
       basicPriceIdYearly: environment.paddle.basicPriceIdYearly,
       proPriceIdMonthly: environment.paddle.proPriceIdMonthly,

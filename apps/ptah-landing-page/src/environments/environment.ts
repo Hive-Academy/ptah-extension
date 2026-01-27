@@ -28,10 +28,13 @@ export const environment = {
     /** Paddle environment: 'sandbox' for testing, 'production' for live */
     environment: 'sandbox' as const,
 
+    /** Client-side token for Paddle.js SDK (sandbox) */
+    token: 'test_4cc7e17dbf1a71a998fa7e12e31',
+
     /** Price ID for Basic Monthly ($3/month with 14-day trial) - Paddle sandbox */
-    basicPriceIdMonthly: 'pri_REPLACE_BASIC_MONTHLY',
+    basicPriceIdMonthly: 'pri_01kfxq4wv28cj0p5h57qevhj1n',
     /** Price ID for Basic Yearly ($30/year with 14-day trial) - Paddle sandbox */
-    basicPriceIdYearly: 'pri_REPLACE_BASIC_YEARLY',
+    basicPriceIdYearly: 'pri_01kfxq67q4sd3zsh6fc20a0een',
 
     /** Price ID for Pro Monthly ($5/month with 14-day trial) - Paddle sandbox */
     proPriceIdMonthly: 'pri_01kfr72reygmkapd0vtynrswm4',

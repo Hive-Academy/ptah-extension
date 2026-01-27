@@ -41,8 +41,13 @@ export interface SubscriptionDetails {
 /**
  * Response DTO for GET /subscriptions/status
  *
- * Returns current subscription status from Paddle API
- * with local fallback if API is unavailable.
+ * Returns current subscription status from Paddle API (source of truth)
+ * with local fallback if Paddle API is unavailable.
+ *
+ * Strategy:
+ * - Always query Paddle first (source of truth)
+ * - Fall back to local DB only if Paddle is unavailable
+ * - If Paddle and local differ, set requiresSync=true
  */
 export class SubscriptionStatusResponseDto {
   /** Whether user has an active subscription */
@@ -54,7 +59,7 @@ export class SubscriptionStatusResponseDto {
   /** Data source: 'paddle' for live API, 'local' for database fallback */
   source!: 'paddle' | 'local';
 
-  /** True if local data differs from Paddle - sync recommended */
+  /** True if local data differs from Paddle - user should click sync */
   requiresSync?: boolean;
 
   /** Customer portal URL for managing subscription */

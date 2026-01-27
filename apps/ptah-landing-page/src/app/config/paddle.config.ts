@@ -15,6 +15,14 @@ export interface PaddleConfig {
   environment: 'sandbox' | 'production';
 
   /**
+   * Client-side token for Paddle.js SDK authentication
+   * - Sandbox: starts with 'test_'
+   * - Production: starts with 'live_'
+   * @see https://developer.paddle.com/getting-started/client-side-token
+   */
+  token: string;
+
+  /**
    * Basic plan monthly subscription price ID from Paddle dashboard
    * Example: 'pri_01htxv8fqjyj5r3qj5t4qj5t4q'
    */

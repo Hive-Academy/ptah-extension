@@ -59,19 +59,6 @@ export class AuthService {
   }
 
   /**
-   * Verify authentication with backend (always makes API call)
-   *
-   * Use this for route guards and other critical auth checks.
-   * This handles OAuth/magic link redirects where the cookie exists
-   * but the localStorage hint hasn't been set yet.
-   *
-   * @returns Observable<boolean>
-   */
-  public verifyAuthentication(): Observable<boolean> {
-    return this.verifyWithBackend();
-  }
-
-  /**
    * Internal method to verify with backend
    */
   private verifyWithBackend(): Observable<boolean> {

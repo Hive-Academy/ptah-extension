@@ -43,8 +43,8 @@ export interface LicenseData {
   /** User profile information */
   user: UserInfo;
 
-  /** License plan identifier */
-  plan: 'trial' | 'basic' | 'early_adopter' | 'pro';
+  /** License plan identifier (Basic or Pro, with optional trial prefix) */
+  plan: 'basic' | 'pro' | 'trial_basic' | 'trial_pro';
 
   /** Human-readable plan name */
   planName: string;

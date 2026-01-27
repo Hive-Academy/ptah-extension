@@ -35,30 +35,14 @@ export interface LicenseVerificationResponse {
 }
 
 /**
- * Map legacy tier values to new tier system
+ * Map database plan to tier value with trial support
  *
- * TASK_2025_121: Backward compatibility for existing licenses
- *
- * Legacy mapping:
- * - 'early_adopter' -> 'pro' (grandfathered users keep Pro access)
- * - 'free' -> 'expired' (no more free tier, must subscribe)
- * - 'basic' | 'pro' | 'trial_basic' | 'trial_pro' -> pass through
- * - unknown -> 'expired'
- *
- * @param dbPlan - Plan value from database (may be legacy)
+ * @param dbPlan - Plan value from database ('basic' | 'pro')
  * @param isInTrial - Whether subscription is in trial period
- * @returns Mapped LicenseTier value
+ * @returns LicenseTier value
  */
-function mapLegacyTier(dbPlan: string, isInTrial: boolean): LicenseTier {
+function mapPlanToTier(dbPlan: string, isInTrial: boolean): LicenseTier {
   switch (dbPlan) {
-    case 'early_adopter':
-      // Grandfathered users keep Pro access
-      return 'pro';
-
-    case 'free':
-      // Legacy 'free' tier is now expired - must subscribe
-      return 'expired';
-
     case 'basic':
       return isInTrial ? 'trial_basic' : 'basic';
 
@@ -79,13 +63,12 @@ function mapLegacyTier(dbPlan: string, isInTrial: boolean): LicenseTier {
 /**
  * LicenseService - Core license management logic
  *
- * TASK_2025_121: Enhanced with new tier system and trial support
+ * TASK_2025_121: Two-tier paid model with trial support
  *
  * Responsibilities:
  * - Verify license key validity and return plan details
- * - Support new tier values: basic, pro, trial_basic, trial_pro, expired
+ * - Support tier values: basic, pro, trial_basic, trial_pro, expired
  * - Detect trial status from subscription.status === 'trialing'
- * - Map legacy tier values (early_adopter, free) for backward compatibility
  * - Create new licenses with proper expiration
  * - Generate cryptographically secure license keys
  */
@@ -181,10 +164,10 @@ export class LicenseService {
       };
     }
 
-    // Step 6: Map legacy tier values and determine final tier
-    const tier = mapLegacyTier(license.plan, isInTrial);
+    // Step 6: Determine tier based on plan and trial status
+    const tier = mapPlanToTier(license.plan, isInTrial);
 
-    // If tier mapped to 'expired' (e.g., legacy 'free' tier), return invalid
+    // If tier is 'expired' (unknown plan), return invalid
     if (tier === 'expired') {
       this.logger.debug(
         `License has expired tier: ${license.id}, plan: ${license.plan}`

@@ -100,7 +100,6 @@ export class LicenseRpcHandlers {
         );
 
         // Return expired tier on error (extension blocked)
-        // TASK_2025_121: No more 'free' tier - return 'expired' for failures
         return {
           valid: false,
           tier: 'expired' as LicenseTier,

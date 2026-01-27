@@ -210,8 +210,8 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
 })
 export class PlanCardComponent {
   /** Lucide icon references */
-  readonly CheckIcon = Check;
-  readonly ArrowRightIcon = ArrowRight;
+  public readonly CheckIcon = Check;
+  public readonly ArrowRightIcon = ArrowRight;
 
   public readonly plan = input.required<PricingPlan>();
   public readonly isLoading = input<boolean>(false);
