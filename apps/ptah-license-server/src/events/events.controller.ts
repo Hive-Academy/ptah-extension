@@ -129,7 +129,7 @@ export class EventsController implements OnModuleDestroy {
               data: { serverTime: new Date().toISOString() },
             }),
             type: 'heartbeat',
-          }) as MessageEvent<string>
+          } as MessageEvent<string>)
       )
     );
 

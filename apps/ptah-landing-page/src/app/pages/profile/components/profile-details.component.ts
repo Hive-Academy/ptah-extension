@@ -1,4 +1,9 @@
-import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  input,
+  output,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 import {
   LucideAngularModule,
@@ -155,13 +160,17 @@ import { LicenseData } from '../models/license-data.interface';
 
         <!-- Sync Success Message -->
         @if (syncSuccess()) {
-        <div class="px-6 py-4 flex items-center gap-2 bg-success/10 text-success">
+        <div
+          class="px-6 py-4 flex items-center gap-2 bg-success/10 text-success"
+        >
           <lucide-angular
             [img]="CheckCircleIcon"
             class="w-4 h-4"
             aria-hidden="true"
           />
-          <span class="text-sm font-medium">Subscription synced successfully</span>
+          <span class="text-sm font-medium"
+            >Subscription synced successfully</span
+          >
         </div>
         }
 
@@ -191,13 +200,11 @@ import { LicenseData } from '../models/license-data.interface';
           <button
             class="btn btn-sm btn-ghost"
             [disabled]="isSyncing()"
-            (click)="syncRequested.emit()">
+            (click)="syncRequested.emit()"
+          >
             @if (isSyncing()) {
-              <span class="loading loading-spinner loading-xs"></span>
-              Syncing...
-            } @else {
-              Sync with Paddle
-            }
+            <span class="loading loading-spinner loading-xs"></span>
+            Syncing... } @else { Sync with Paddle }
           </button>
         </div>
         }
@@ -215,7 +222,8 @@ import { LicenseData } from '../models/license-data.interface';
           </span>
           <button
             class="btn btn-sm btn-secondary"
-            (click)="manageSubscriptionRequested.emit()">
+            (click)="manageSubscriptionRequested.emit()"
+          >
             Manage Subscription
           </button>
         </div>

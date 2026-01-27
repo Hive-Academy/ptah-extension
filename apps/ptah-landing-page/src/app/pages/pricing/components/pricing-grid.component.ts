@@ -21,7 +21,12 @@ import { PaddleCheckoutService } from '../../../services/paddle-checkout.service
 import { AuthService } from '../../../services/auth.service';
 import { environment } from '../../../../environments/environment';
 import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
-import { LucideAngularModule, TriangleAlert, CircleX, ExternalLink } from 'lucide-angular';
+import {
+  LucideAngularModule,
+  TriangleAlert,
+  CircleX,
+  ExternalLink,
+} from 'lucide-angular';
 
 /**
  * PricingGridComponent - Grid of pricing plan cards

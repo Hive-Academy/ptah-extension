@@ -90,7 +90,10 @@ export class EventsService {
       this.connectedClients.set(email, count - 1);
     }
     this.logger.log(
-      `Client disconnected: ${email} (${Math.max(0, count - 1)} active connections)`
+      `Client disconnected: ${email} (${Math.max(
+        0,
+        count - 1
+      )} active connections)`
     );
   }
 

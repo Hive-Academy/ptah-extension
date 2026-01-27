@@ -219,14 +219,20 @@ export class PaddleCheckoutService {
 
       if (!response.canCheckout) {
         // User has an existing subscription - show error with portal link
-        const errorMessage = response.message ||
-          `You already have an active ${response.existingPlan || 'subscription'}. ` +
-          'Please manage your existing subscription first.';
+        const errorMessage =
+          response.message ||
+          `You already have an active ${
+            response.existingPlan || 'subscription'
+          }. ` + 'Please manage your existing subscription first.';
 
         this._validationError.set(errorMessage);
         this._customerPortalUrl.set(response.customerPortalUrl || null);
 
-        console.log('[Paddle] Checkout blocked:', response.reason, errorMessage);
+        console.log(
+          '[Paddle] Checkout blocked:',
+          response.reason,
+          errorMessage
+        );
         return false;
       }
 
@@ -236,7 +242,10 @@ export class PaddleCheckoutService {
 
       // If validation API fails, log but allow checkout to proceed
       // (fail-open approach - don't block checkout on validation API issues)
-      console.error('[Paddle] Checkout validation failed, proceeding anyway:', error);
+      console.error(
+        '[Paddle] Checkout validation failed, proceeding anyway:',
+        error
+      );
       return true;
     }
   }
@@ -294,8 +303,14 @@ export class PaddleCheckoutService {
     };
 
     // Debug: log checkout options in development
-    if (!this.paddleConfig.environment || this.paddleConfig.environment === 'sandbox') {
-      console.log('[Paddle] Opening checkout with options:', JSON.stringify(checkoutOptions, null, 2));
+    if (
+      !this.paddleConfig.environment ||
+      this.paddleConfig.environment === 'sandbox'
+    ) {
+      console.log(
+        '[Paddle] Opening checkout with options:',
+        JSON.stringify(checkoutOptions, null, 2)
+      );
     }
 
     this.paddleInstance.Checkout.open(checkoutOptions);
@@ -500,7 +515,9 @@ export class PaddleCheckoutService {
             } else {
               // License might not be ready yet (webhook delay) - navigate anyway
               // The profile page will show trial/pending status
-              console.log('[Paddle] License not yet active, navigating to profile anyway');
+              console.log(
+                '[Paddle] License not yet active, navigating to profile anyway'
+              );
               this.router.navigate(['/profile']);
             }
           });

@@ -54,9 +54,10 @@ export class SubscriptionService {
    * Get subscription status for a user
    *
    * Strategy (Paddle is source of truth):
-   * 1. Query Paddle API by user email first
-   * 2. On timeout/error, fall back to local database
-   * 3. Compare Paddle vs local, set requiresSync if different
+   * 1. If we have a stored paddleCustomerId, query by customer ID (1 API call)
+   * 2. Otherwise, query by email (2 API calls: customer lookup + subscription)
+   * 3. On timeout/error, fall back to local database
+   * 4. Compare Paddle vs local, set requiresSync if different
    */
   async getStatus(userId: string): Promise<SubscriptionStatusResponseDto> {
     this.logger.debug(`Getting subscription status for user: ${userId}`);
@@ -71,10 +72,13 @@ export class SubscriptionService {
 
     const localSubscription = userData.subscription;
 
-    // Step 2: Query Paddle by email (source of truth)
-    const paddleResult = await this.paddleSync.findSubscriptionByEmail(
-      userData.email.toLowerCase()
-    );
+    // Step 2: Query Paddle - use stored customerId if available (saves 1 API call)
+    // Otherwise fall back to email lookup
+    const paddleResult = localSubscription?.paddleCustomerId
+      ? await this.paddleSync.findSubscriptionByCustomerId(
+          localSubscription.paddleCustomerId
+        )
+      : await this.paddleSync.findSubscriptionByEmail(userData.email);
 
     // Step 3: Handle Paddle result
     if (paddleResult.status === 'found') {
@@ -192,7 +196,6 @@ export class SubscriptionService {
     email: string
   ): Promise<ReconcileResponseDto> {
     this.logger.log(`Starting reconciliation for user: ${userId}`);
-    const normalizedEmail = email.toLowerCase();
 
     // Step 1: Get user and local data
     const userData = await this.dbService.findUserWithSubscriptionAndLicense(
@@ -217,10 +220,13 @@ export class SubscriptionService {
     const statusBefore = localSubscription?.status || 'none';
     const planBefore = localLicense?.plan;
 
-    // Step 2: Query Paddle by email (source of truth)
-    const paddleResult = await this.paddleSync.findSubscriptionByEmail(
-      normalizedEmail
-    );
+    // Step 2: Query Paddle - use stored customerId if available (saves 1 API call)
+    // Otherwise fall back to email lookup
+    const paddleResult = localSubscription?.paddleCustomerId
+      ? await this.paddleSync.findSubscriptionByCustomerId(
+          localSubscription.paddleCustomerId
+        )
+      : await this.paddleSync.findSubscriptionByEmail(email);
 
     if (paddleResult.status === 'error') {
       return {
@@ -346,7 +352,7 @@ export class SubscriptionService {
     // Step 5: Emit events asynchronously (don't block response)
     if (subscriptionUpdated || licenseUpdated) {
       this.emitReconciliationEvents(
-        normalizedEmail,
+        userData.email.toLowerCase(),
         userId,
         paddleData.id,
         licensePlan,

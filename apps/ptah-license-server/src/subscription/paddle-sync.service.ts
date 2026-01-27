@@ -61,20 +61,24 @@ export class PaddleSyncService {
    * Find Paddle subscription by customer email
    *
    * Flow:
-   * 1. Query Paddle customers by email
+   * 1. Query Paddle customers by email (normalized to lowercase)
    * 2. If customer found, query their subscriptions
    * 3. Return the most recent subscription (any status)
    *
-   * @param email - User's email address
+   * @param email - User's email address (will be normalized to lowercase)
    * @returns Discriminated result: found/not_found/error
    */
   async findSubscriptionByEmail(
     email: string
   ): Promise<PaddleSubscriptionResult> {
-    this.logger.debug(`Finding Paddle subscription for email: ${email}`);
+    // Normalize email to lowercase for consistent lookups
+    const normalizedEmail = email.toLowerCase();
+    this.logger.debug(
+      `Finding Paddle subscription for email: ${normalizedEmail}`
+    );
 
     // Step 1: Find customer by email
-    const customerResult = await this.findCustomerByEmail(email);
+    const customerResult = await this.findCustomerByEmail(normalizedEmail);
 
     if (customerResult.status === 'error') {
       return { status: 'error', reason: customerResult.reason };
