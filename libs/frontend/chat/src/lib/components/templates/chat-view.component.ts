@@ -115,6 +115,9 @@ export class ChatViewComponent {
    * TASK_2025_100 FIX: Include pendingStats from streamingState so stats display
    * during/after streaming before finalization. Stats may arrive before finalization
    * and should be shown immediately.
+   *
+   * DEDUPLICATION FIX: Finalized messages use tree.id (event id) NOT messageId,
+   * so we can properly match and filter out already-finalized trees.
    */
   readonly streamingMessages = computed((): ExecutionChatMessage[] => {
     const trees = this.chatStore.currentExecutionTrees();
@@ -124,9 +127,9 @@ export class ChatViewComponent {
     const activeTab = this.chatStore.activeTab();
     const pendingStats = activeTab?.streamingState?.pendingStats;
 
-    // DEDUPLICATION: Get IDs of already finalized messages to filter out
-    // This prevents duplicate rendering when a message is both in finalized
-    // messages AND still in currentExecutionTrees (race condition window)
+    // DEDUPLICATION: Get IDs of already finalized messages to filter out.
+    // CRITICAL: Finalized messages now use tree.id (message_start event id),
+    // not messageId, so IDs match between streaming trees and finalized messages.
     const finalizedMessageIds = new Set(
       this.chatStore.messages().map((msg) => msg.id)
     );

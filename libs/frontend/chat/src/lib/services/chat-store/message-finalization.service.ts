@@ -106,8 +106,13 @@ export class MessageFinalizationService {
     const finalDuration =
       duration ?? (pendingStats ? pendingStats.duration : undefined);
 
+    // DEDUPLICATION FIX: Use tree node ID (message_start event id) NOT messageId.
+    // This ensures the finalized message ID matches the streaming tree ID,
+    // allowing streamingMessages computed signal to properly filter duplicates.
+    const treeNodeId = finalTree[0]?.id ?? messageId;
+
     const assistantMessage = createExecutionChatMessage({
-      id: messageId,
+      id: treeNodeId,
       role: 'assistant',
       streamingState: finalTree[0] || null, // Single root message
       sessionId: targetTab?.claudeSessionId ?? undefined,
@@ -119,8 +124,12 @@ export class MessageFinalizationService {
     // DEDUPLICATION: Check if message already exists to prevent duplicates
     // This can happen if finalizeCurrentMessage is called multiple times
     // (e.g., from multiple event handlers or re-entrancy)
+    // Check by BOTH messageId and tree node ID to catch all cases
     const existingMessages = targetTab?.messages ?? [];
-    const messageExists = existingMessages.some((msg) => msg.id === messageId);
+    const treeNodeIdForCheck = finalTree[0]?.id ?? messageId;
+    const messageExists = existingMessages.some(
+      (msg) => msg.id === messageId || msg.id === treeNodeIdForCheck
+    );
 
     if (messageExists) {
       // Message already finalized - just clear streaming state
@@ -192,6 +201,12 @@ export class MessageFinalizationService {
 
     const messages: ExecutionChatMessage[] = [];
 
+    // DEDUPLICATION FIX: Track which tree nodes have been used.
+    // The tree builder MERGES consecutive assistant messages into ONE tree node.
+    // Without this tracking, we'd create multiple messages pointing to the same tree,
+    // or orphan messages with null streamingState when their tree was merged.
+    const usedTreeNodeIds = new Set<string>();
+
     // Process each messageId to create appropriate message type
     for (const messageId of stateCopy.messageEventIds) {
       // Find message_start event to determine role
@@ -251,11 +266,27 @@ export class MessageFinalizationService {
         );
       } else {
         // Assistant message: use execution tree
+        // DEDUPLICATION FIX: Skip if this message's tree was already used
+        // (happens when tree builder merges consecutive assistant messages)
+        if (!treeNode) {
+          // No tree node - this message was merged into another.
+          // Skip to avoid creating an empty/duplicate message.
+          continue;
+        }
+
+        if (usedTreeNodeIds.has(treeNode.id)) {
+          // This tree was already used for another message. Skip.
+          continue;
+        }
+
+        usedTreeNodeIds.add(treeNode.id);
+
+        // Use tree node ID (event id) to match streamingMessages deduplication
         messages.push(
           createExecutionChatMessage({
-            id: messageId,
+            id: treeNode.id,
             role: 'assistant',
-            streamingState: treeNode || null,
+            streamingState: treeNode,
             sessionId: targetTab?.claudeSessionId ?? undefined,
             tokens,
             cost,
