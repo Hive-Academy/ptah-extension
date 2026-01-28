@@ -4,7 +4,10 @@ import { InjectionToken } from '@angular/core';
  * Paddle configuration interface
  *
  * Defines all configuration parameters needed for Paddle SDK initialization
- * and checkout operations. Supports two-tier pricing (Basic + Pro).
+ * and checkout operations.
+ *
+ * TASK_2025_128: Freemium model - only Pro plan uses Paddle checkout.
+ * Community tier is FREE with no Paddle integration.
  */
 export interface PaddleConfig {
   /**
@@ -21,18 +24,6 @@ export interface PaddleConfig {
    * @see https://developer.paddle.com/getting-started/client-side-token
    */
   token: string;
-
-  /**
-   * Basic plan monthly subscription price ID from Paddle dashboard
-   * Example: 'pri_01htxv8fqjyj5r3qj5t4qj5t4q'
-   */
-  basicPriceIdMonthly: string;
-
-  /**
-   * Basic plan yearly subscription price ID from Paddle dashboard
-   * Example: 'pri_01htxv8fqjyj5r3qj5t4qj5t4r'
-   */
-  basicPriceIdYearly: string;
 
   /**
    * Pro plan monthly subscription price ID from Paddle dashboard
@@ -104,8 +95,7 @@ export const PADDLE_CONFIG = new InjectionToken<PaddleConfig>('PADDLE_CONFIG');
  *   providers: [
  *     providePaddleConfig({
  *       environment: environment.paddle.environment,
- *       basicPriceIdMonthly: environment.paddle.basicPriceIdMonthly,
- *       basicPriceIdYearly: environment.paddle.basicPriceIdYearly,
+ *       token: environment.paddle.token,
  *       proPriceIdMonthly: environment.paddle.proPriceIdMonthly,
  *       proPriceIdYearly: environment.paddle.proPriceIdYearly,
  *       maxRetries: 3,

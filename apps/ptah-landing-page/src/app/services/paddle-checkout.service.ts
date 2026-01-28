@@ -411,8 +411,6 @@ export class PaddleCheckoutService {
     const {
       environment,
       token,
-      basicPriceIdMonthly,
-      basicPriceIdYearly,
       proPriceIdMonthly,
       proPriceIdYearly,
     } = this.paddleConfig;
@@ -455,10 +453,8 @@ export class PaddleCheckoutService {
           !priceId || priceId.toLowerCase().includes(pattern.toLowerCase())
       );
 
-    // Check all 4 price IDs (Basic monthly/yearly, Pro monthly/yearly)
+    // TASK_2025_128: Only Pro plan price IDs (Community is free, no Paddle)
     const hasPlaceholders =
-      isPlaceholder(basicPriceIdMonthly) ||
-      isPlaceholder(basicPriceIdYearly) ||
       isPlaceholder(proPriceIdMonthly) ||
       isPlaceholder(proPriceIdYearly);
 

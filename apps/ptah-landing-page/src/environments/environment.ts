@@ -20,9 +20,11 @@ export const environment = {
    * Paddle configuration (sandbox for development)
    * @see docs/PADDLE_SETUP_SIMPLIFIED.md for pricing model details
    *
-   * New Pricing Model (TASK_2025_121):
-   * - Basic: $3/month, $30/year (14-day trial)
+   * TASK_2025_128: Freemium Model Conversion
+   * - Community: FREE forever (no Paddle integration)
    * - Pro: $5/month, $50/year (14-day trial)
+   *
+   * NOTE: Basic price IDs removed - Community tier is FREE with no checkout.
    */
   paddle: {
     /** Paddle environment: 'sandbox' for testing, 'production' for live */
@@ -30,11 +32,6 @@ export const environment = {
 
     /** Client-side token for Paddle.js SDK (sandbox) */
     token: 'test_4cc7e17dbf1a71a998fa7e12e31',
-
-    /** Price ID for Basic Monthly ($3/month with 14-day trial) - Paddle sandbox */
-    basicPriceIdMonthly: 'pri_01kfxq4wv28cj0p5h57qevhj1n',
-    /** Price ID for Basic Yearly ($30/year with 14-day trial) - Paddle sandbox */
-    basicPriceIdYearly: 'pri_01kfxq67q4sd3zsh6fc20a0een',
 
     /** Price ID for Pro Monthly ($5/month with 14-day trial) - Paddle sandbox */
     proPriceIdMonthly: 'pri_01kfr72reygmkapd0vtynrswm4',

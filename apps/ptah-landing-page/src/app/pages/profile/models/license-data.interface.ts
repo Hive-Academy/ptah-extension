@@ -43,8 +43,18 @@ export interface LicenseData {
   /** User profile information */
   user: UserInfo;
 
-  /** License plan identifier (Basic or Pro, with optional trial prefix) */
-  plan: 'basic' | 'pro' | 'trial_basic' | 'trial_pro';
+  /**
+   * License plan identifier (Community or Pro, with optional trial prefix)
+   *
+   * TASK_2025_128: Freemium model conversion
+   * - 'community': Free tier (always valid, no subscription)
+   * - 'pro': Paid Pro tier (active subscription)
+   * - 'trial_pro': Pro plan during 14-day trial
+   *
+   * Note: Legacy 'basic' and 'trial_basic' values may still exist in
+   * database records and are mapped to 'community' by the backend.
+   */
+  plan: 'community' | 'pro' | 'trial_pro';
 
   /** Human-readable plan name */
   planName: string;

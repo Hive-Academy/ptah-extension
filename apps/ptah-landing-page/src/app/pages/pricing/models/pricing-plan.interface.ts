@@ -2,27 +2,31 @@
  * PricingPlan Interface
  *
  * Data model for pricing plan cards.
- * Updated for new pricing model: Basic + Pro (both paid with 14-day trial)
+ *
+ * TASK_2025_128: Freemium Model Conversion
+ * - Community: FREE forever (no Paddle, install from VS Code marketplace)
+ * - Pro: $5/month, $50/year (14-day trial, Paddle checkout)
  *
  * Evidence: TASK_2025_121 - Two-Tier Paid Extension Model
+ * Evidence: TASK_2025_128 - Freemium Model Conversion
  */
 export interface PricingPlan {
-  /** Display name (e.g., "Basic", "Pro") */
+  /** Display name (e.g., "Community", "Pro") */
   name: string;
 
   /** Tier identifier for programmatic use */
-  tier: 'basic' | 'pro';
+  tier: 'community' | 'pro';
 
-  /** Display price (e.g., "$3", "$5", "$30", "$50") */
+  /** Display price (e.g., "Free", "$5", "$50") */
   price: string;
 
-  /** Optional price subtext (e.g., "per month", "per year") */
+  /** Optional price subtext (e.g., "per month", "per year", "forever") */
   priceSubtext?: string;
 
   /** Optional savings badge (e.g., "Save ~17% vs monthly") */
   savings?: string;
 
-  /** Paddle price ID for checkout integration (required for all plans) */
+  /** Paddle price ID for checkout integration (undefined for free Community tier) */
   priceId?: string;
 
   /** List of feature descriptions */
@@ -31,14 +35,18 @@ export interface PricingPlan {
   /** Standout features shown in separate section */
   standoutFeatures?: string[];
 
-  /** "Ideal for" description (e.g., "Perfect for individual developers") */
+  /** "Ideal for" description (e.g., "Perfect for getting started") */
   idealFor?: string;
 
   /** Call-to-action button text */
   ctaText: string;
 
-  /** CTA action type - always checkout since both plans are paid */
-  ctaAction: 'checkout';
+  /**
+   * CTA action type
+   * - 'checkout': Opens Paddle checkout flow (Pro plan)
+   * - 'download': Opens VS Code marketplace (Community plan)
+   */
+  ctaAction: 'checkout' | 'download';
 
   /** Whether this plan should be highlighted (default: false) */
   highlight?: boolean;
@@ -46,7 +54,7 @@ export interface PricingPlan {
   /** Badge asset filename (e.g., "plan_badge_pro.png") */
   badge?: string;
 
-  /** Trial period in days (e.g., 14) */
+  /** Trial period in days (e.g., 14) - only for Pro plan */
   trialDays?: number;
 }
 
@@ -79,8 +87,12 @@ export type ValidSubscriptionStatus =
  * Provides subscription state information to plan card components
  * for determining CTA button state and visual styling.
  *
+ * TASK_2025_128: Updated for freemium model
+ * - Community tier is FREE (no subscription required)
+ * - Pro tier requires Paddle subscription
+ *
  * @remarks
- * Used by: BasicPlanCardComponent, ProPlanCardComponent
+ * Used by: CommunityPlanCardComponent, ProPlanCardComponent
  * Source: SubscriptionStateService computed signals
  */
 export interface PlanSubscriptionContext {
@@ -91,10 +103,14 @@ export interface PlanSubscriptionContext {
   isAuthenticated: boolean;
 
   /**
-   * User's current plan tier (null if no subscription).
-   * Normalized from trial_basic/trial_pro to basic/pro.
+   * User's current plan tier (null if unknown/loading).
+   *
+   * TASK_2025_128: Freemium model
+   * - 'community': Free tier (no subscription, or legacy basic migrated)
+   * - 'pro': Active Pro subscription
+   * - null: Unknown/loading state
    */
-  currentPlanTier: 'basic' | 'pro' | null;
+  currentPlanTier: 'community' | 'pro' | null;
 
   /**
    * Whether user is on trial.
@@ -167,7 +183,7 @@ export type PlanCtaVariant =
    */
   | 'resume'
   /**
-   * Pro user viewing Basic plan (disabled - Basic is included)
+   * Pro user viewing Community plan (disabled - Community is included in Pro)
    */
   | 'included';
 
@@ -216,6 +232,6 @@ export type PlanBadgeVariant =
    */
   | 'popular'
   /**
-   * Pro user viewing Basic (muted) - "Included in Pro"
+   * Pro user viewing Community (muted) - "Included in Pro"
    */
   | 'included';

@@ -13,7 +13,7 @@ import {
 import { HttpClient } from '@angular/common/http';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
-import { BasicPlanCardComponent } from './basic-plan-card.component';
+import { CommunityPlanCardComponent } from './community-plan-card.component';
 import { ProPlanCardComponent } from './pro-plan-card.component';
 import {
   PricingPlan,
@@ -40,20 +40,21 @@ import {
 /**
  * PricingGridComponent - Grid of pricing plan cards
  *
- * Ptah Pricing Model (TASK_2025_121 - Two-Tier Paid Model):
- * - Basic: $3/month, $30/year (14-day trial) - Core visual editor features
- * - Pro: $5/month, $50/year (14-day trial) - Basic + MCP server + all premium features
+ * TASK_2025_128: Freemium Model Conversion
+ * - Community: FREE forever - Core visual editor features (no Paddle)
+ * - Pro: $5/month, $50/year (14-day trial) - Community + MCP server + all premium features
  *
- * Both plans have their own monthly/yearly toggle.
- * FREE tier has been removed entirely.
+ * Community tier has no billing toggle (always free).
+ * Pro plan has monthly/yearly toggle.
  *
  * Evidence: TASK_2025_121 - Two-Tier Paid Extension Model
+ * Evidence: TASK_2025_128 - Freemium Model Conversion
  */
 @Component({
   selector: 'ptah-pricing-grid',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    BasicPlanCardComponent,
+    CommunityPlanCardComponent,
     ProPlanCardComponent,
     ViewportAnimationDirective,
     LucideAngularModule,
@@ -141,20 +142,15 @@ import {
       </div>
       }
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8 items-stretch">
-        <!-- Basic Plan Card with integrated billing toggle -->
+        <!-- Community Plan Card (FREE - no billing toggle) -->
         <div
           class="h-full"
           viewportAnimation
           [viewportConfig]="getCardAnimationConfig(0)"
         >
-          <ptah-basic-plan-card
-            [monthlyPlan]="basicMonthlyPlan"
-            [yearlyPlan]="basicYearlyPlan"
-            [isLoading]="isPlanLoading('Basic')"
+          <ptah-community-plan-card
+            [plan]="communityPlan"
             [subscriptionContext]="subscriptionContext()"
-            [isLoadingContext]="isLoadingSubscription()"
-            (ctaClick)="handleCtaClick($event)"
-            (manageSubscription)="handleManageSubscription()"
           />
         </div>
 
@@ -233,7 +229,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    * Computed subscription context for plan cards
    *
    * Builds a PlanSubscriptionContext from SubscriptionStateService signals.
-   * This is passed to BasicPlanCardComponent and ProPlanCardComponent
+   * This is passed to CommunityPlanCardComponent and ProPlanCardComponent
    * to enable subscription-aware UI rendering.
    *
    * Includes runtime validation for subscriptionStatus to ensure type safety.
@@ -328,16 +324,20 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Basic Monthly plan data
+   * Community plan data (FREE - no Paddle checkout)
+   *
+   * TASK_2025_128: Freemium model conversion
+   * - Free forever, no trial period needed
+   * - CTA opens VS Code marketplace instead of checkout
    */
-  public readonly basicMonthlyPlan: PricingPlan = {
-    name: 'Basic',
-    tier: 'basic',
-    price: '$3',
-    priceSubtext: 'per month',
-    priceId: this.paddleConfig.basicPriceIdMonthly,
-    idealFor: 'Perfect for individual developers',
-    trialDays: 14,
+  public readonly communityPlan: PricingPlan = {
+    name: 'Community',
+    tier: 'community',
+    price: 'Free',
+    priceSubtext: 'forever',
+    priceId: undefined, // No checkout - it's free
+    idealFor: 'Perfect for getting started',
+    trialDays: undefined, // No trial - always free
     features: [],
     standoutFeatures: [
       'Beautiful visual interface',
@@ -347,33 +347,8 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       'Session history & management',
       'Basic workspace context',
     ],
-    ctaText: 'Start 14-Day Free Trial',
-    ctaAction: 'checkout',
-  };
-
-  /**
-   * Basic Yearly plan data
-   */
-  public readonly basicYearlyPlan: PricingPlan = {
-    name: 'Basic',
-    tier: 'basic',
-    price: '$30',
-    priceSubtext: 'per year',
-    priceId: this.paddleConfig.basicPriceIdYearly,
-    idealFor: 'Perfect for individual developers',
-    savings: 'Save ~17% vs monthly',
-    trialDays: 14,
-    features: [],
-    standoutFeatures: [
-      'Beautiful visual interface',
-      'Use your Claude Pro/Max subscription',
-      'Native VS Code integration',
-      'Real-time streaming responses',
-      'Session history & management',
-      'Basic workspace context',
-    ],
-    ctaText: 'Start 14-Day Free Trial',
-    ctaAction: 'checkout',
+    ctaText: 'Install Free',
+    ctaAction: 'download', // Opens VS Code marketplace
   };
 
   /**
@@ -389,7 +364,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     trialDays: 14,
     features: [],
     standoutFeatures: [
-      'All Basic features included',
+      'All Community features included',
       'Intelligent Setup Wizard',
       'Code Execution MCP Server',
       'Workspace Intelligence (13+ project types)',
@@ -415,7 +390,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     trialDays: 14,
     features: [],
     standoutFeatures: [
-      'All Basic features included',
+      'All Community features included',
       'Intelligent Setup Wizard',
       'Code Execution MCP Server',
       'Workspace Intelligence (13+ project types)',
@@ -468,15 +443,12 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   /**
    * Trigger auto-checkout after returning from login
    * Waits for Paddle to be ready, then opens checkout for the specified plan
+   *
+   * TASK_2025_128: Removed basic plan keys - Community is free with no checkout
    */
   private triggerAutoCheckout(planKey: string): void {
-    // Validate plan key - only allow known values
-    const validPlanKeys = [
-      'basic-monthly',
-      'basic-yearly',
-      'pro-monthly',
-      'pro-yearly',
-    ];
+    // Validate plan key - only allow Pro plans (Community is free, no checkout)
+    const validPlanKeys = ['pro-monthly', 'pro-yearly'];
     if (!validPlanKeys.includes(planKey)) {
       this.autoCheckoutError.set(
         'Invalid checkout plan. Please select a plan manually.'
@@ -487,15 +459,9 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     // Clear any previous error
     this.autoCheckoutError.set(null);
 
-    // Determine which plan to checkout based on key
+    // Determine which Pro plan to checkout based on key
     let plan: PricingPlan;
     switch (planKey) {
-      case 'basic-monthly':
-        plan = this.basicMonthlyPlan;
-        break;
-      case 'basic-yearly':
-        plan = this.basicYearlyPlan;
-        break;
       case 'pro-yearly':
         plan = this.proYearlyPlan;
         break;
@@ -511,10 +477,11 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       if (this.isPaddleReady()) {
         this.clearAutoCheckoutInterval();
 
-        // Check if user already has a subscription - skip auto-checkout if so
+        // Check if user already has a Pro subscription - skip auto-checkout if so
+        // TASK_2025_128: Community users should still be able to auto-checkout Pro
         const ctx = this.subscriptionContext();
-        if (ctx.isAuthenticated && ctx.currentPlanTier) {
-          // User already has subscription, clear the query param and skip
+        if (ctx.isAuthenticated && ctx.currentPlanTier === 'pro') {
+          // User already has Pro subscription, clear the query param and skip
           this.router.navigate([], {
             relativeTo: this.route,
             queryParams: { autoCheckout: null },
@@ -549,9 +516,13 @@ export class PricingGridComponent implements OnInit, OnDestroy {
 
   /**
    * Handle CTA button click from plan card
+   *
+   * TASK_2025_128: Community plan uses 'download' action (opens VS Code marketplace).
+   * Pro plan uses 'checkout' action (opens Paddle checkout).
    */
   public handleCtaClick(plan: PricingPlan): void {
-    // All plans now use checkout action (no more download or signup)
+    // Community plan: download action handled by CommunityPlanCardComponent directly
+    // Pro plan: checkout action
     if (plan.ctaAction === 'checkout') {
       // Validate price ID first
       if (isPriceIdPlaceholder(plan.priceId)) {
@@ -598,14 +569,11 @@ export class PricingGridComponent implements OnInit, OnDestroy {
 
   /**
    * Get the plan key for auto-checkout redirect
+   *
+   * TASK_2025_128: Only Pro plans have checkout (Community is free)
    */
   private getPlanKey(plan: PricingPlan): string {
     const isYearly = plan.priceSubtext === 'per year';
-    const isBasic = plan.tier === 'basic';
-
-    if (isBasic) {
-      return isYearly ? 'basic-yearly' : 'basic-monthly';
-    }
     return isYearly ? 'pro-yearly' : 'pro-monthly';
   }
 

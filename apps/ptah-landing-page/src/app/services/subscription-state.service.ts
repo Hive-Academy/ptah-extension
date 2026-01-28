@@ -41,20 +41,29 @@ export class SubscriptionStateService {
   /**
    * Computed: Current plan tier (normalized)
    *
-   * Normalizes trial plans to their base tier:
-   * - trial_basic -> basic
-   * - trial_pro -> pro
+   * TASK_2025_128: Freemium model conversion
+   * - Maps trial_pro -> pro
+   * - Maps basic, trial_basic -> community (migration compatibility)
+   * - No subscription = community (free tier)
    *
-   * @returns 'basic' | 'pro' | null
+   * @returns 'community' | 'pro' | null
    */
-  public readonly currentPlanTier = computed<'basic' | 'pro' | null>(() => {
+  public readonly currentPlanTier = computed<'community' | 'pro' | null>(() => {
     const data = this._licenseData();
-    if (!data?.plan) return null;
 
-    // Normalize trial_basic -> basic, trial_pro -> pro
-    if (data.plan.includes('basic')) return 'basic';
+    // No subscription = Community (free tier)
+    if (!data?.plan) return 'community';
+
+    // Pro tier (including trial)
     if (data.plan.includes('pro')) return 'pro';
-    return null;
+
+    // Community tier (including migrated basic plans)
+    if (data.plan.includes('basic') || data.plan.includes('community')) {
+      return 'community';
+    }
+
+    // Default to community for unknown plans
+    return 'community';
   });
 
   /**
@@ -65,7 +74,7 @@ export class SubscriptionStateService {
    * 2. Subscription status is NOT 'active' (active = paying customer)
    *
    * This prevents showing trial UI for users who have an active paid subscription
-   * even if their plan name wasn't updated from 'trial_basic' to 'basic'.
+   * even if their plan name wasn't updated from 'trial_pro' to 'pro'.
    */
   public readonly isOnTrial = computed(() => {
     const data = this._licenseData();
