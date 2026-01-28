@@ -117,6 +117,7 @@ export class App implements OnInit, OnDestroy {
     const rawInitialView = ptahConfig?.initialView;
 
     // CRITICAL: Validate initialView at runtime with graceful degradation
+    // TASK_2025_126: Added 'welcome' for embedded welcome page
     const VALID_VIEWS: ViewType[] = [
       'chat',
       'command-builder',
@@ -124,6 +125,7 @@ export class App implements OnInit, OnDestroy {
       'context-tree',
       'settings',
       'setup-wizard',
+      'welcome',
     ];
     const isValidView =
       rawInitialView && VALID_VIEWS.includes(rawInitialView as ViewType);
