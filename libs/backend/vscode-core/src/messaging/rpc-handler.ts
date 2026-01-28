@@ -59,6 +59,7 @@ const ALLOWED_METHOD_PREFIXES = [
   'license:', // TASK_2025_079: License status for premium feature gating
   'openrouter:', // TASK_2025_091: OpenRouter model selection
   'wizard:', // TASK_2025_124: Setup wizard deep analysis and agent recommendations
+  'command:', // TASK_2025_126: Webview command execution (ptah.* commands only)
 ] as const;
 
 /**
@@ -98,6 +99,7 @@ const PRO_ONLY_METHOD_PREFIXES = [
 const LICENSE_EXEMPT_PREFIXES = [
   'license:', // Must work to show license status and enter keys
   'auth:', // Must work for login/authentication flow
+  'command:', // TASK_2025_126: Must work for unlicensed users (welcome page actions)
 ] as const;
 
 /**
