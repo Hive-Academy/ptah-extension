@@ -2,23 +2,29 @@ import {
   Component,
   ChangeDetectionStrategy,
   signal,
+  computed,
   inject,
   OnInit,
   effect,
   OnDestroy,
   DestroyRef,
 } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { BasicPlanCardComponent } from './basic-plan-card.component';
 import { ProPlanCardComponent } from './pro-plan-card.component';
-import { PricingPlan } from '../models/pricing-plan.interface';
+import {
+  PricingPlan,
+  PlanSubscriptionContext,
+} from '../models/pricing-plan.interface';
 import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
 } from '@hive-academy/angular-gsap';
 import { PaddleCheckoutService } from '../../../services/paddle-checkout.service';
 import { AuthService } from '../../../services/auth.service';
+import { SubscriptionStateService } from '../../../services/subscription-state.service';
 import { environment } from '../../../../environments/environment';
 import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
 import {
@@ -130,7 +136,10 @@ import {
             [monthlyPlan]="basicMonthlyPlan"
             [yearlyPlan]="basicYearlyPlan"
             [isLoading]="isPlanLoading('Basic')"
+            [subscriptionContext]="subscriptionContext()"
+            [isLoadingContext]="isLoadingSubscription()"
             (ctaClick)="handleCtaClick($event)"
+            (manageSubscription)="handleManageSubscription()"
           />
         </div>
 
@@ -144,7 +153,10 @@ import {
             [monthlyPlan]="proMonthlyPlan"
             [yearlyPlan]="proYearlyPlan"
             [isLoading]="isPlanLoading('Pro')"
+            [subscriptionContext]="subscriptionContext()"
+            [isLoadingContext]="isLoadingSubscription()"
             (ctaClick)="handleCtaClick($event)"
+            (manageSubscription)="handleManageSubscription()"
           />
         </div>
       </div>
@@ -168,6 +180,8 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly paddleService = inject(PaddleCheckoutService);
   private readonly authService = inject(AuthService);
+  private readonly subscriptionService = inject(SubscriptionStateService);
+  private readonly http = inject(HttpClient);
   private readonly destroyRef = inject(DestroyRef);
   private readonly STAGGER_DELAY = 0.15;
   private readonly CHECKOUT_TIMEOUT = 30000; // 30 seconds
@@ -190,6 +204,40 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   public readonly validationError = this.paddleService.validationError;
   public readonly customerPortalUrl = this.paddleService.customerPortalUrl;
   public readonly isValidating = this.paddleService.isValidating;
+
+  /**
+   * Computed subscription context for plan cards
+   *
+   * Builds a PlanSubscriptionContext from SubscriptionStateService signals.
+   * This is passed to BasicPlanCardComponent and ProPlanCardComponent
+   * to enable subscription-aware UI rendering.
+   */
+  public readonly subscriptionContext = computed<PlanSubscriptionContext>(
+    () => ({
+      isAuthenticated:
+        this.subscriptionService.isFetched() &&
+        this.subscriptionService.licenseData() !== null,
+      currentPlanTier: this.subscriptionService.currentPlanTier(),
+      isOnTrial: this.subscriptionService.isOnTrial(),
+      trialDaysRemaining: this.subscriptionService.trialDaysRemaining(),
+      subscriptionStatus: this.subscriptionService.subscriptionStatus() as
+        | 'active'
+        | 'trialing'
+        | 'canceled'
+        | 'past_due'
+        | 'paused'
+        | null,
+      periodEndDate: this.subscriptionService.periodEndDate(),
+    })
+  );
+
+  /**
+   * Loading state for subscription context
+   *
+   * Exposed for template to show loading indicators on plan cards
+   * while subscription state is being fetched.
+   */
+  public readonly isLoadingSubscription = this.subscriptionService.isLoading;
 
   public constructor() {
     // Sync loading state with paddle service
@@ -320,6 +368,9 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    */
   public ngOnInit(): void {
     this.paddleService.initialize();
+
+    // Fetch subscription state for authenticated users
+    this.subscriptionService.fetchSubscriptionState();
 
     // Check for auto-checkout param from login redirect
     const planKey = this.route.snapshot.queryParamMap.get('autoCheckout');
@@ -543,5 +594,32 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    */
   public dismissValidationError(): void {
     this.paddleService.clearValidationError();
+  }
+
+  /**
+   * Handle manage subscription action from plan cards
+   *
+   * Opens Paddle customer portal in a new tab for subscription management.
+   * Called when user clicks "Manage Subscription", "Reactivate", or "Update Payment".
+   *
+   * Pattern source: profile-page.component.ts:360-386
+   */
+  public handleManageSubscription(): void {
+    this.http
+      .post<{ url: string; expiresAt: string }>(
+        '/api/v1/subscriptions/portal-session',
+        {}
+      )
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          window.open(response.url, '_blank', 'noopener,noreferrer');
+        },
+        error: (error) => {
+          this.configError.set(
+            error.error?.message || 'Failed to open subscription management.'
+          );
+        },
+      });
   }
 }
