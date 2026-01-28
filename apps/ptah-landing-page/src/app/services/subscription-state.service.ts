@@ -1,0 +1,203 @@
+import { Injectable, signal, computed, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { LicenseData } from '../pages/profile/models/license-data.interface';
+import { AuthService } from './auth.service';
+
+/**
+ * SubscriptionStateService - Manages subscription state for pricing page
+ *
+ * Pattern: Signal-based state (matches PaddleCheckoutService)
+ * Evidence: paddle-checkout.service.ts:77-96
+ *
+ * Responsibilities:
+ * 1. Fetch subscription status from /api/v1/licenses/me on demand
+ * 2. Cache subscription state using signals for reactive updates
+ * 3. Provide computed helpers for subscription state queries
+ * 4. Handle loading and error states gracefully
+ *
+ * Usage:
+ * - Inject into PricingGridComponent
+ * - Call fetchSubscriptionState() in ngOnInit
+ * - Use computed signals (currentPlanTier, isOnTrial, etc.) for UI logic
+ */
+@Injectable({ providedIn: 'root' })
+export class SubscriptionStateService {
+  private readonly http = inject(HttpClient);
+  private readonly authService = inject(AuthService);
+
+  // Private writable signals
+  private readonly _licenseData = signal<LicenseData | null>(null);
+  private readonly _isLoading = signal(false);
+  private readonly _error = signal<string | null>(null);
+  private readonly _isFetched = signal(false);
+
+  // Public readonly signals
+  public readonly licenseData = this._licenseData.asReadonly();
+  public readonly isLoading = this._isLoading.asReadonly();
+  public readonly error = this._error.asReadonly();
+  public readonly isFetched = this._isFetched.asReadonly();
+
+  /**
+   * Computed: Current plan tier (normalized)
+   *
+   * Normalizes trial plans to their base tier:
+   * - trial_basic -> basic
+   * - trial_pro -> pro
+   *
+   * @returns 'basic' | 'pro' | null
+   */
+  public readonly currentPlanTier = computed<'basic' | 'pro' | null>(() => {
+    const data = this._licenseData();
+    if (!data?.plan) return null;
+
+    // Normalize trial_basic -> basic, trial_pro -> pro
+    if (data.plan.includes('basic')) return 'basic';
+    if (data.plan.includes('pro')) return 'pro';
+    return null;
+  });
+
+  /**
+   * Computed: Is user on trial
+   *
+   * Returns true if user's plan starts with 'trial_'
+   */
+  public readonly isOnTrial = computed(() => {
+    const data = this._licenseData();
+    return data?.plan?.startsWith('trial_') ?? false;
+  });
+
+  /**
+   * Computed: Days remaining in trial
+   *
+   * Returns the number of days remaining in the trial period,
+   * or null if user is not on trial.
+   */
+  public readonly trialDaysRemaining = computed<number | null>(() => {
+    const data = this._licenseData();
+    if (!this.isOnTrial()) return null;
+    return data?.daysRemaining ?? null;
+  });
+
+  /**
+   * Computed: Subscription status
+   *
+   * Returns the raw subscription status from the API:
+   * 'active' | 'paused' | 'canceled' | 'past_due' | null
+   */
+  public readonly subscriptionStatus = computed<string | null>(() => {
+    return this._licenseData()?.subscription?.status ?? null;
+  });
+
+  /**
+   * Computed: Has active subscription (not trial)
+   *
+   * Returns true if user has an active paid subscription (not on trial).
+   */
+  public readonly hasActiveSubscription = computed(() => {
+    const data = this._licenseData();
+    return data?.subscription?.status === 'active' && !this.isOnTrial();
+  });
+
+  /**
+   * Computed: Is subscription canceled but still active
+   *
+   * Returns true if user canceled but subscription is still active
+   * until the period end date.
+   */
+  public readonly isCanceled = computed(() => {
+    return this._licenseData()?.subscription?.status === 'canceled';
+  });
+
+  /**
+   * Computed: Is subscription past due
+   *
+   * Returns true if subscription has payment issues (past_due status).
+   */
+  public readonly isPastDue = computed(() => {
+    return this._licenseData()?.subscription?.status === 'past_due';
+  });
+
+  /**
+   * Computed: Subscription period end date
+   *
+   * Returns the current period end date for display in UI.
+   */
+  public readonly periodEndDate = computed<string | null>(() => {
+    return this._licenseData()?.subscription?.currentPeriodEnd ?? null;
+  });
+
+  /**
+   * Fetch subscription state (only if authenticated)
+   *
+   * Pattern source: profile-page.component.ts:206-226
+   *
+   * Flow:
+   * 1. Skip if already fetched or currently loading
+   * 2. Check authentication via AuthService.isAuthenticated()
+   * 3. If authenticated, fetch license data from API
+   * 4. Update signals with response or error
+   */
+  public fetchSubscriptionState(): void {
+    // Skip if already fetched or currently loading
+    if (this._isFetched() || this._isLoading()) return;
+
+    this._isLoading.set(true);
+    this._error.set(null);
+
+    // First check authentication
+    this.authService.isAuthenticated().subscribe({
+      next: (isAuth) => {
+        if (!isAuth) {
+          // Not authenticated - skip API call, mark as fetched
+          this._isLoading.set(false);
+          this._isFetched.set(true);
+          return;
+        }
+
+        // Fetch license data from backend
+        this.http.get<LicenseData>('/api/v1/licenses/me').subscribe({
+          next: (data) => {
+            this._licenseData.set(data);
+            this._isLoading.set(false);
+            this._isFetched.set(true);
+          },
+          error: (err) => {
+            console.error('[SubscriptionState] Failed to fetch:', err);
+            this._error.set('Unable to load subscription status');
+            this._isLoading.set(false);
+            this._isFetched.set(true);
+          },
+        });
+      },
+      error: () => {
+        // Auth check failed - mark as fetched without data
+        this._isLoading.set(false);
+        this._isFetched.set(true);
+      },
+    });
+  }
+
+  /**
+   * Reset state (for logout or refresh scenarios)
+   *
+   * Clears all cached data and resets flags.
+   * Call this when user logs out to ensure fresh state on next login.
+   */
+  public reset(): void {
+    this._licenseData.set(null);
+    this._isLoading.set(false);
+    this._error.set(null);
+    this._isFetched.set(false);
+  }
+
+  /**
+   * Force refresh subscription state
+   *
+   * Resets the fetched flag and re-fetches data from the API.
+   * Useful after checkout completion or subscription changes.
+   */
+  public refresh(): void {
+    this._isFetched.set(false);
+    this.fetchSubscriptionState();
+  }
+}
