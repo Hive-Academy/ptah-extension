@@ -146,14 +146,15 @@ export class WelcomeComponent implements OnInit {
 
   /**
    * Get contextual subheadline based on license reason
+   * TASK_2025_128: Updated messaging to mention Community (free) as fallback option
    */
   getSubheadline(): string {
     const reason = this.licenseReason();
     switch (reason) {
       case 'expired':
-        return "Renew your subscription to continue using Ptah's powerful AI-assisted development features.";
+        return "Renew your subscription to continue using Ptah's premium features, or downgrade to Community (free).";
       case 'trial_ended':
-        return 'Subscribe now to unlock the full potential of AI-assisted development.';
+        return 'Subscribe to Pro for premium features, or continue with Community (free).';
       default:
         return 'Transform your Claude Code experience with a native VS Code interface.';
     }
