@@ -552,17 +552,15 @@ export type LicenseGetStatusParams = Record<string, never>;
 /**
  * License tier values for RPC communication
  *
- * TASK_2025_121: Two-tier paid model
- * - 'basic': Active Basic subscription ($3/month)
+ * TASK_2025_128: Freemium model conversion
+ * - 'community': FREE forever - always valid, no license required
  * - 'pro': Active Pro subscription ($5/month)
- * - 'trial_basic': Basic plan during 14-day trial
  * - 'trial_pro': Pro plan during 14-day trial
- * - 'expired': No valid subscription (extension blocked)
+ * - 'expired': Revoked or payment failed only (NOT for unlicensed users)
  */
 export type LicenseTier =
-  | 'basic'
+  | 'community'
   | 'pro'
-  | 'trial_basic'
   | 'trial_pro'
   | 'expired';
 
@@ -571,16 +569,17 @@ export type LicenseTier =
  *
  * TASK_2025_121: Updated for two-tier paid model with trial support
  * TASK_2025_126: Added 'reason' field for context-aware welcome messaging
+ * TASK_2025_128: Freemium model - renamed isBasic to isCommunity
  */
 export interface LicenseGetStatusResponse {
-  /** Whether the license is valid */
+  /** Whether the license is valid (Community = always true) */
   valid: boolean;
-  /** License tier (basic, pro, trial_basic, trial_pro, or expired) */
+  /** License tier (community, pro, trial_pro, or expired) */
   tier: LicenseTier;
   /** Whether the user has premium features enabled (Pro tier) */
   isPremium: boolean;
-  /** Whether the user has Basic tier features (convenience flag) */
-  isBasic: boolean;
+  /** Whether the user has Community tier (convenience flag) */
+  isCommunity: boolean;
   /** Days remaining before subscription expires (null if not applicable) */
   daysRemaining: number | null;
   /** Whether user is currently in trial period */
