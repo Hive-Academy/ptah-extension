@@ -1,19 +1,20 @@
 /**
  * Plan Configuration for Ptah License Server
  *
- * TASK_2025_121: Two-Tier Paid Model
+ * TASK_2025_128: Freemium Model Conversion
  *
  * Pricing Model:
- * - basic: $3/month or $30/year - Core visual editor features (14-day trial)
+ * - community: FREE forever - no subscription required, core visual editor features
  * - pro: $5/month or $50/year - All premium features (14-day trial)
  *
  * Plans are hardcoded (not stored in database) to simplify the architecture.
- * Paddle manages billing cycles, trials, and promotional pricing.
+ * Paddle manages billing cycles, trials, and promotional pricing for Pro plan.
+ * Community tier has no Paddle integration - it's always free.
  */
 
 export const PLANS = {
-  basic: {
-    name: 'Basic',
+  community: {
+    name: 'Community',
     features: [
       'basic_cli_wrapper',
       'session_history',
@@ -22,16 +23,16 @@ export const PLANS = {
       'real_time_streaming',
       'basic_workspace_context',
     ],
-    expiresAfterDays: null, // Subscription-based (managed by Paddle)
-    monthlyPrice: 3, // USD/month
-    yearlyPrice: 30, // USD/year (~17% discount)
+    expiresAfterDays: null, // Never expires - FREE forever
+    monthlyPrice: 0, // FREE
+    yearlyPrice: 0, // FREE
     isPremium: false,
-    description: 'Core visual editor for Claude Code',
+    description: 'Free visual editor for Claude Code',
   },
   pro: {
     name: 'Pro',
     features: [
-      'all_basic_features',
+      'all_community_features',
       'mcp_server',
       'workspace_intelligence',
       'openrouter_proxy',
@@ -56,7 +57,7 @@ export type PlanName = keyof typeof PLANS;
 /**
  * Get plan configuration by plan name
  *
- * @param plan - The plan name ('basic' | 'pro')
+ * @param plan - The plan name ('community' | 'pro')
  * @returns The plan configuration object
  */
 export function getPlanConfig(plan: PlanName): (typeof PLANS)[PlanName] {
@@ -66,15 +67,16 @@ export function getPlanConfig(plan: PlanName): (typeof PLANS)[PlanName] {
 /**
  * Calculate expiration date for a plan
  *
- * TASK_2025_121: Both Basic and Pro are subscription-based (managed by Paddle).
- * This function always returns null since there are no time-limited plans.
- * Expiration is determined by subscription billing cycle, not plan type.
+ * TASK_2025_128: Community is FREE forever, Pro is subscription-based (Paddle).
+ * This function always returns null since:
+ * - Community tier never expires (FREE forever)
+ * - Pro tier expiration is determined by subscription billing cycle
  *
- * @param plan - The plan name ('basic' | 'pro')
- * @returns Always null (subscription managed by Paddle)
+ * @param plan - The plan name ('community' | 'pro')
+ * @returns Always null (Community never expires, Pro managed by Paddle)
  *
  * @example
- * calculateExpirationDate('basic') // null (subscription managed by Paddle)
+ * calculateExpirationDate('community') // null (FREE forever)
  * calculateExpirationDate('pro') // null (subscription managed by Paddle)
  */
 export function calculateExpirationDate(plan: PlanName): Date | null {

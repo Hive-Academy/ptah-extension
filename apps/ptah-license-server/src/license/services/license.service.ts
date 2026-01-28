@@ -4,19 +4,20 @@ import { PLANS, getPlanConfig, PlanName } from '../../config/plans.config';
 import { randomBytes } from 'crypto';
 
 /**
- * License Tier type for TASK_2025_121
+ * License Tier type for TASK_2025_128: Freemium Model
  *
  * Tier values:
- * - 'basic': Paid Basic plan (active subscription)
+ * - 'community': FREE forever - no subscription required
  * - 'pro': Paid Pro plan (active subscription)
- * - 'trial_basic': Basic plan in trial period
  * - 'trial_pro': Pro plan in trial period
- * - 'expired': License expired, revoked, or not found
+ * - 'expired': License expired, revoked, or payment failed
+ *
+ * Note: Community tier has no trial - it's always free.
+ * 'trial_basic' is removed since Community doesn't need trials.
  */
 export type LicenseTier =
-  | 'basic'
+  | 'community'
   | 'pro'
-  | 'trial_basic'
   | 'trial_pro'
   | 'expired';
 
@@ -37,22 +38,41 @@ export interface LicenseVerificationResponse {
 /**
  * Map database plan to tier value with trial support
  *
- * @param dbPlan - Plan value from database ('basic' | 'pro')
+ * TASK_2025_128: Freemium model conversion with migration compatibility
+ *
+ * Migration compatibility:
+ * - 'basic' -> 'community' (legacy paid Basic users become Community)
+ * - 'trial_basic' -> 'community' (legacy trial users become Community)
+ * - 'community' -> 'community' (new Community tier)
+ * - 'pro' -> 'pro' or 'trial_pro' (unchanged)
+ *
+ * @param dbPlan - Plan value from database ('community' | 'pro' | 'basic' | 'trial_basic' | 'trial_pro')
  * @param isInTrial - Whether subscription is in trial period
  * @returns LicenseTier value
  */
 function mapPlanToTier(dbPlan: string, isInTrial: boolean): LicenseTier {
   switch (dbPlan) {
-    case 'basic':
-      return isInTrial ? 'trial_basic' : 'basic';
-
+    // Pro plan - supports trial
     case 'pro':
       return isInTrial ? 'trial_pro' : 'pro';
 
-    case 'trial_basic':
+    // Already trial_pro - pass through
     case 'trial_pro':
-      // Already trial-prefixed plans pass through
-      return dbPlan as LicenseTier;
+      return 'trial_pro';
+
+    // Community tier (new freemium model)
+    case 'community':
+      return 'community';
+
+    // Migration: Legacy 'basic' becomes 'community' (FREE)
+    // These users had paid Basic subscriptions, now get Community for free
+    case 'basic':
+      return 'community';
+
+    // Migration: Legacy 'trial_basic' becomes 'community' (FREE)
+    // These users were trialing Basic, now get Community for free
+    case 'trial_basic':
+      return 'community';
 
     default:
       // Unknown plan values are treated as expired
@@ -63,14 +83,15 @@ function mapPlanToTier(dbPlan: string, isInTrial: boolean): LicenseTier {
 /**
  * LicenseService - Core license management logic
  *
- * TASK_2025_121: Two-tier paid model with trial support
+ * TASK_2025_128: Freemium model with Community + Pro tiers
  *
  * Responsibilities:
  * - Verify license key validity and return plan details
- * - Support tier values: basic, pro, trial_basic, trial_pro, expired
+ * - Support tier values: community, pro, trial_pro, expired
  * - Detect trial status from subscription.status === 'trialing'
  * - Create new licenses with proper expiration
  * - Generate cryptographically secure license keys
+ * - Handle migration from legacy 'basic' and 'trial_basic' database values
  */
 @Injectable()
 export class LicenseService {
@@ -81,7 +102,7 @@ export class LicenseService {
   /**
    * Verify a license key's validity and return plan details
    *
-   * TASK_2025_121: Enhanced with trial detection and legacy tier mapping
+   * TASK_2025_128: Freemium model with migration compatibility
    *
    * @param licenseKey - The license key to verify (format: ptah_lic_{64-hex} or PTAH-XXXX-XXXX-XXXX)
    * @returns License status with validity, tier, plan details, trial info, and expiration
@@ -92,6 +113,8 @@ export class LicenseService {
    * - Revoked: { valid: false, tier: "expired", reason: "revoked" }
    * - Not found: { valid: false, tier: "expired", reason: "not_found" }
    * - Trial ended: { valid: false, tier: "expired", reason: "trial_ended" }
+   *
+   * Migration: Legacy 'basic' and 'trial_basic' database values map to 'community' tier
    */
   async verifyLicense(
     licenseKey: string
@@ -196,9 +219,10 @@ export class LicenseService {
         : undefined;
 
     // Step 9: Get plan configuration - extract base plan from tier
-    // Safe extraction: tier could be 'basic', 'pro', 'trial_basic', 'trial_pro', or 'expired'
+    // TASK_2025_128: tier could be 'community', 'pro', 'trial_pro', or 'expired'
+    // For trial_pro, extract base plan 'pro'. For community, use 'community'.
     const basePlan = tier.replace('trial_', '');
-    const isValidPlan = basePlan === 'basic' || basePlan === 'pro';
+    const isValidPlan = basePlan === 'community' || basePlan === 'pro';
     const planConfig = isValidPlan
       ? getPlanConfig(basePlan as PlanName)
       : undefined;

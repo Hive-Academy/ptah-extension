@@ -14,9 +14,12 @@ import { PADDLE_CLIENT, PaddleClient } from './providers/paddle.provider';
 /**
  * PaddleService - Paddle business logic and license provisioning
  *
+ * TASK_2025_128: Freemium model - only Pro plan uses Paddle
+ * Community tier is FREE and has no Paddle integration.
+ *
  * Responsibilities:
  * - Handle subscription lifecycle events with SDK-typed data
- * - Provision licenses for new subscriptions
+ * - Provision licenses for new Pro subscriptions
  * - Update licenses on plan changes or cancellations
  * - Send license key emails to customers
  * - Fetch customer details from Paddle API
@@ -26,10 +29,10 @@ import { PADDLE_CLIENT, PaddleClient } from './providers/paddle.provider';
  *
  * Configuration (environment variables):
  * - PADDLE_API_KEY: Paddle API key (required)
- * - PADDLE_PRICE_ID_BASIC_MONTHLY: Price ID for basic monthly plan
- * - PADDLE_PRICE_ID_BASIC_YEARLY: Price ID for basic yearly plan
  * - PADDLE_PRICE_ID_PRO_MONTHLY: Price ID for pro monthly plan
  * - PADDLE_PRICE_ID_PRO_YEARLY: Price ID for pro yearly plan
+ * - PADDLE_PRICE_ID_BASIC_MONTHLY: Legacy - kept for migration compatibility
+ * - PADDLE_PRICE_ID_BASIC_YEARLY: Legacy - kept for migration compatibility
  */
 @Injectable()
 export class PaddleService {
@@ -791,10 +794,15 @@ export class PaddleService {
   /**
    * Map Paddle price ID to internal plan name
    *
-   * Supports 4 price IDs for Basic and Pro plans (monthly/yearly each).
+   * TASK_2025_128: Freemium model - only Pro plan has price IDs
+   * Community tier is FREE and has no Paddle integration.
+   *
+   * Migration: Legacy Basic price IDs are handled gracefully - they log a warning
+   * and return 'expired' since Basic subscriptions should no longer exist.
+   * Former Basic subscribers automatically become Community tier users (FREE).
    *
    * @param priceId - Paddle price ID from SDK notification
-   * @returns Internal plan name ('basic' | 'pro' | 'expired')
+   * @returns Internal plan name ('pro' | 'expired')
    */
   private mapPriceIdToPlan(priceId: string | undefined): string {
     if (!priceId) {
@@ -802,15 +810,7 @@ export class PaddleService {
       return 'expired';
     }
 
-    // Basic plan price IDs
-    const basicMonthlyPriceId = this.configService.get<string>(
-      'PADDLE_PRICE_ID_BASIC_MONTHLY'
-    );
-    const basicYearlyPriceId = this.configService.get<string>(
-      'PADDLE_PRICE_ID_BASIC_YEARLY'
-    );
-
-    // Pro plan price IDs
+    // Pro plan price IDs (only paid plan in freemium model)
     const proMonthlyPriceId = this.configService.get<string>(
       'PADDLE_PRICE_ID_PRO_MONTHLY'
     );
@@ -818,27 +818,35 @@ export class PaddleService {
       'PADDLE_PRICE_ID_PRO_YEARLY'
     );
 
-    // Map to basic plan
-    if (priceId === basicMonthlyPriceId || priceId === basicYearlyPriceId) {
-      return 'basic';
-    }
-
     // Map to pro plan
     if (priceId === proMonthlyPriceId || priceId === proYearlyPriceId) {
       return 'pro';
     }
 
+    // MIGRATION: Handle legacy Basic price IDs gracefully
+    // These should not appear in new subscriptions, but may exist in old webhooks
+    // or from subscription modifications on legacy accounts.
+    const basicMonthlyPriceId = this.configService.get<string>(
+      'PADDLE_PRICE_ID_BASIC_MONTHLY'
+    );
+    const basicYearlyPriceId = this.configService.get<string>(
+      'PADDLE_PRICE_ID_BASIC_YEARLY'
+    );
+
+    if (priceId === basicMonthlyPriceId || priceId === basicYearlyPriceId) {
+      this.logger.warn(
+        `Received legacy Basic price ID: ${priceId}. ` +
+          `Basic plan is now free Community tier (no Paddle subscription required). ` +
+          `Returning 'expired' - user should be migrated to Community tier.`
+      );
+      return 'expired';
+    }
+
     this.logger.warn(
       `Unknown price ID: ${priceId} - returning 'expired'. ` +
-        `Expected one of: ${
-          [
-            basicMonthlyPriceId,
-            basicYearlyPriceId,
-            proMonthlyPriceId,
-            proYearlyPriceId,
-          ]
-            .filter(Boolean)
-            .join(', ') || 'no price IDs configured'
+        `Expected Pro price IDs: ${
+          [proMonthlyPriceId, proYearlyPriceId].filter(Boolean).join(', ') ||
+          'no Pro price IDs configured'
         }`
     );
     return 'expired';
