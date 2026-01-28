@@ -6,7 +6,7 @@ import {
   signal,
   computed,
 } from '@angular/core';
-import { NgClass, DatePipe } from '@angular/common';
+import { NgClass } from '@angular/common';
 import {
   LucideAngularModule,
   Check,
@@ -51,7 +51,7 @@ import {
 @Component({
   selector: 'ptah-pro-plan-card',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgClass, DatePipe, LucideAngularModule],
+  imports: [NgClass, LucideAngularModule],
   template: `
     <div
       class="relative rounded-2xl p-6 lg:p-8 h-full flex flex-col
@@ -425,7 +425,7 @@ export class ProPlanCardComponent {
    */
   public readonly trialDaysDisplay = computed(() => {
     const ctx = this.subscriptionContext();
-    const days = ctx?.trialDaysRemaining;
+    const days = ctx?.trialDaysRemaining ?? null;
     return formatTrialDaysText(days) ?? 'days left';
   });
 
