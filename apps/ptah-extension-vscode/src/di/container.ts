@@ -49,6 +49,7 @@ import {
   LlmRpcHandlers as AppLlmRpcHandlers,
   OpenRouterRpcHandlers,
   SubagentRpcHandlers,
+  CommandRpcHandlers, // TASK_2025_126: Webview command execution
 } from '../services/rpc';
 
 // Import agent-sdk services (TASK_2025_044 Batch 3)
@@ -221,6 +222,9 @@ export class DIContainer {
     // TASK_2025_103: Subagent RPC handlers for subagent resumption
     container.registerSingleton(SubagentRpcHandlers);
 
+    // TASK_2025_126: Command RPC handlers for webview command execution
+    container.registerSingleton(CommandRpcHandlers);
+
     // RPC Method Registration Service (orchestrator - requires container instance)
     // TASK_2025_074: Refactored to use domain-specific handler classes
     // TASK_2025_079: Added LicenseRpcHandlers for premium feature gating
@@ -247,6 +251,7 @@ export class DIContainer {
           c.resolve(AppLlmRpcHandlers),
           c.resolve(OpenRouterRpcHandlers),
           c.resolve(SubagentRpcHandlers),
+          c.resolve(CommandRpcHandlers), // TASK_2025_126
           c // Pass container instance
         );
       },
