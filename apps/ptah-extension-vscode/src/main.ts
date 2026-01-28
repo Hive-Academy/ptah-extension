@@ -404,8 +404,8 @@ export async function activate(
         `[Activate] Step 12: Pro MCP Server started (port ${mcpPort})`
       );
     } else {
-      // BASIC USER: Skip MCP Server (Pro-only feature)
-      logger.info('Skipping MCP server (Basic tier - Pro feature only)', {
+      // COMMUNITY USER: Skip MCP Server (Pro-only feature)
+      logger.info('Skipping MCP server (Community tier - Pro feature only)', {
         tier: licenseStatus.tier,
       });
       console.log(

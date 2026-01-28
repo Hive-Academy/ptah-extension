@@ -238,7 +238,7 @@ import {
         <h4
           class="text-xs font-semibold text-base-content/40 uppercase tracking-wider mb-3"
         >
-          Everything in Basic, plus:
+          Everything in Community, plus:
         </h4>
         <ul class="space-y-2.5">
           @for (feature of proFeatures; track feature) {

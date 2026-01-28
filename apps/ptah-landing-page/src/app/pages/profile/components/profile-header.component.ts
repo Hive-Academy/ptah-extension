@@ -236,7 +236,7 @@ export class ProfileHeaderComponent {
   public getPlanBadgeClass(): string {
     const plan = this.license()?.plan;
     if (plan === 'pro' || plan === 'trial_pro') return 'badge-primary';
-    if (plan === 'basic' || plan === 'trial_basic') return 'badge-secondary';
+    if (plan === 'community') return 'badge-secondary';
     return 'badge-ghost';
   }
 

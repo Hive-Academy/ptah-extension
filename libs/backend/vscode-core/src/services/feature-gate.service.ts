@@ -18,7 +18,7 @@ import type { LicenseService, LicenseStatus } from './license.service';
 /**
  * Pro-only features that require Pro tier subscription
  *
- * These features are NOT available to Basic tier users:
+ * These features are NOT available to Community tier users:
  * - mcp_server: Code Execution MCP server
  * - workspace_intelligence: Advanced workspace analysis (13+ project types)
  * - openrouter_proxy: OpenRouter proxy for 200+ models
@@ -200,7 +200,7 @@ export class FeatureGateService {
   /**
    * Check if user has Pro tier subscription (or Pro trial)
    *
-   * Pro tier includes all Basic features plus:
+   * Pro tier includes all Community features plus:
    * - MCP Server
    * - Workspace Intelligence
    * - OpenRouter Proxy

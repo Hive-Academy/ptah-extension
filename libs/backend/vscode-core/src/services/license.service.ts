@@ -167,15 +167,18 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
   /**
    * Verify license key with server (or return cached result).
    *
-   * TASK_2025_121: Updated for two-tier paid model
+   * TASK_2025_128: Freemium model with Community fallback
    *
    * Flow:
    * 1. Check cache validity (1-hour TTL)
    * 2. Get license key from SecretStorage
-   * 3. If no key: return expired tier status (extension blocked)
+   * 3. If no key: return Community tier (FREE, valid)
    * 4. POST to server /api/v1/licenses/verify
-   * 5. Cache result and emit events
-   * 6. On error: return cached status or expired tier
+   * 5. If server says invalid (expired/trial_ended/not_found):
+   *    auto-clear key and fall back to Community tier
+   * 6. ONLY admin revocation returns valid: false (blocks extension)
+   * 7. Cache result and emit events
+   * 8. On error: return cached status or Community tier
    *
    * @returns License status with tier, plan details, expiration
    *
@@ -255,6 +258,32 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
         }
 
         const status: LicenseStatus = await response.json();
+
+        // TASK_2025_128: Community fallback for expired Pro users
+        // When server says license is invalid (expired/trial_ended/not_found),
+        // automatically fall back to Community tier instead of blocking.
+        // ONLY explicit revocation by admin should block the user.
+        if (!status.valid && status.reason !== 'revoked') {
+          this.logger.info(
+            '[LicenseService.verifyLicense] License invalid (non-revoked), falling back to Community tier',
+            {
+              originalTier: status.tier,
+              reason: status.reason,
+            }
+          );
+
+          // Clear the expired/invalid license key so user gets Community tier
+          await this.context.secrets.delete(LicenseService.SECRET_KEY);
+          await this.clearPersistedCache();
+
+          const communityFallback: LicenseStatus = {
+            valid: true,
+            tier: 'community',
+          };
+          this.updateCache(communityFallback);
+          this.emit('license:updated', communityFallback);
+          return communityFallback;
+        }
 
         // Step 4: Update cache and emit events
         this.updateCache(status);

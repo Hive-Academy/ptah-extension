@@ -615,8 +615,14 @@ export class SubscriptionService {
       'PADDLE_PRICE_ID_PRO_YEARLY'
     );
 
-    if (priceId === basicMonthlyPriceId || priceId === basicYearlyPriceId)
-      return 'basic';
+    if (priceId === basicMonthlyPriceId || priceId === basicYearlyPriceId) {
+      // TASK_2025_128: Basic plan no longer exists in freemium model.
+      // Legacy Basic price IDs are treated as expired (match paddle.service.ts behavior).
+      this.logger.warn(
+        `Legacy Basic price ID detected: ${priceId}. Basic plan discontinued in freemium model. Returning 'expired'.`
+      );
+      return 'expired';
+    }
     if (priceId === proMonthlyPriceId || priceId === proYearlyPriceId)
       return 'pro';
 

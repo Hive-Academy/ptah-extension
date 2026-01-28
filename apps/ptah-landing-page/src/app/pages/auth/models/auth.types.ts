@@ -21,9 +21,14 @@ export type OAuthProvider = 'github' | 'google';
 
 /**
  * User tier levels (matches backend tier system)
- * Updated for two-tier paid model: Basic ($3/mo) + Pro ($5/mo)
+ *
+ * TASK_2025_128: Freemium model conversion
+ * - 'community': Free tier (replaces 'basic')
+ * - 'pro': Paid Pro tier ($5/mo or $50/year)
+ * - 'trial_pro': Pro trial period (14 days)
+ * - 'expired': Subscription expired
  */
-export type UserTier = 'trial' | 'basic' | 'pro' | 'enterprise';
+export type UserTier = 'community' | 'pro' | 'trial_pro' | 'expired';
 
 /**
  * User response from authentication endpoints

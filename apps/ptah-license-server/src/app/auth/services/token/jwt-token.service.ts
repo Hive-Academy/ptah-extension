@@ -150,13 +150,18 @@ export class JwtTokenService {
 
   /**
    * Determine subscription tier
-   * NOTE: No free tier - users must have active subscription
+   *
+   * TASK_2025_128: Freemium model (Community + Pro)
+   * - 'community': Free tier (always valid)
+   * - 'pro': Active Pro subscription
+   * - 'trial_pro': Pro plan during 14-day trial
+   * - 'expired': Revoked or payment failed
    */
   private determineTier(
     organizationId?: string
-  ): 'basic' | 'pro' | 'trial_basic' | 'trial_pro' | 'expired' {
+  ): 'community' | 'pro' | 'trial_pro' | 'expired' {
     // TODO: Implement tier lookup from database based on user's subscription
-    // For now, default to 'expired' - actual tier should come from license lookup
-    return organizationId ? 'pro' : 'expired';
+    // For now, default to 'community' - actual tier should come from license lookup
+    return organizationId ? 'pro' : 'community';
   }
 }

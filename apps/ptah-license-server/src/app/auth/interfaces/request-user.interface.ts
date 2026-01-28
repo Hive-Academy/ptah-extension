@@ -35,9 +35,14 @@ export interface RequestUser {
   /**
    * Subscription tier for the tenant
    * Used for feature gating and resource limits
-   * NOTE: 'basic' and 'pro' are the two paid plans (no free tier)
+   *
+   * TASK_2025_128: Freemium model (Community + Pro)
+   * - 'community': Free tier (always valid, no license required)
+   * - 'pro': Active Pro subscription
+   * - 'trial_pro': Pro plan during 14-day trial
+   * - 'expired': Revoked or payment failed
    */
-  tier: 'basic' | 'pro' | 'trial_basic' | 'trial_pro' | 'expired';
+  tier: 'community' | 'pro' | 'trial_pro' | 'expired';
 }
 
 /**
@@ -77,9 +82,14 @@ export interface JWTPayload {
 
   /**
    * Subscription tier
-   * NOTE: 'basic' and 'pro' are the two paid plans (no free tier)
+   *
+   * TASK_2025_128: Freemium model (Community + Pro)
+   * - 'community': Free tier (always valid)
+   * - 'pro': Active Pro subscription
+   * - 'trial_pro': Pro plan during 14-day trial
+   * - 'expired': Revoked or payment failed
    */
-  tier: 'basic' | 'pro' | 'trial_basic' | 'trial_pro' | 'expired';
+  tier: 'community' | 'pro' | 'trial_pro' | 'expired';
 
   /**
    * Issued at timestamp

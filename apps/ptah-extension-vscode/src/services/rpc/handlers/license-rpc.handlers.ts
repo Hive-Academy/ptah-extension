@@ -100,7 +100,24 @@ export class LicenseRpcHandlers {
           error instanceof Error ? error : new Error(String(error))
         );
 
-        // TASK_2025_128: Return expired tier on error (only for truly expired)
+        // TASK_2025_128: On error, check cached status to determine fallback.
+        // If user was on Community tier (or no cached status exists, meaning
+        // no license key), return Community instead of expired to avoid
+        // blocking free-tier users due to transient errors.
+        const cachedStatus = this.licenseService.getCachedStatus();
+        if (!cachedStatus || cachedStatus.tier === 'community') {
+          return {
+            valid: true,
+            tier: 'community' as LicenseTier,
+            isPremium: false,
+            isCommunity: true,
+            daysRemaining: null,
+            trialActive: false,
+            trialDaysRemaining: null,
+          };
+        }
+
+        // User had a Pro/trial license - return expired for real license holders
         return {
           valid: false,
           tier: 'expired' as LicenseTier,

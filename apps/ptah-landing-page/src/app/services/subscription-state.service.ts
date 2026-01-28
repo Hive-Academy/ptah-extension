@@ -44,14 +44,19 @@ export class SubscriptionStateService {
    * TASK_2025_128: Freemium model conversion
    * - Maps trial_pro -> pro
    * - Maps basic, trial_basic -> community (migration compatibility)
-   * - No subscription = community (free tier)
+   * - Returns null when data hasn't been fetched yet (loading/unknown state)
+   * - Returns 'community' only when explicitly determined (no subscription after auth check)
    *
    * @returns 'community' | 'pro' | null
    */
   public readonly currentPlanTier = computed<'community' | 'pro' | null>(() => {
+    // Return null when data hasn't been fetched yet - loading/unknown state
+    if (!this._isFetched()) return null;
+
     const data = this._licenseData();
 
-    // No subscription = Community (free tier)
+    // No license data after fetch = Community (free tier)
+    // This means user is either unauthenticated or has no subscription
     if (!data?.plan) return 'community';
 
     // Pro tier (including trial)

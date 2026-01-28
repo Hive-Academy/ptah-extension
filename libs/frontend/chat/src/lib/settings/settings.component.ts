@@ -63,9 +63,9 @@ export class SettingsComponent implements OnInit {
 
   // License status signals
   readonly isPremium = signal(false);
-  readonly licenseTier = signal<
-    'basic' | 'pro' | 'trial_basic' | 'trial_pro' | 'expired'
-  >('expired');
+  readonly licenseTier = signal<'community' | 'pro' | 'trial_pro' | 'expired'>(
+    'expired'
+  );
   readonly isLoadingLicenseStatus = signal(true);
 
   /**
