@@ -152,8 +152,11 @@ async function handleLicenseBlocking(
       // Setup minimal message listener for RPC calls (license status, command execution)
       webviewView.webview.onDidReceiveMessage(async (message) => {
         // Handle RPC calls - minimal handler for unlicensed state
+        // Note: RPC messages have structure { type: 'rpc:call', payload: { method, params, correlationId } }
         if (message.type === 'rpc:call' || message.type === 'rpc:request') {
-          if (message.method === 'license:getStatus') {
+          const { method, params, correlationId } = message.payload || {};
+
+          if (method === 'license:getStatus') {
             // Return license status for context-aware welcome messaging
             const response = {
               success: true,
@@ -167,27 +170,27 @@ async function handleLicenseBlocking(
                 trialDaysRemaining: null,
                 reason: frontendReason,
               },
-              correlationId: message.correlationId,
+              correlationId,
             };
             webviewView.webview.postMessage({ type: 'rpc:response', ...response });
-          } else if (message.method === 'command:execute') {
+          } else if (method === 'command:execute') {
             // Execute ptah.* commands only (security: same check as CommandRpcHandlers)
             try {
-              const command = message.params?.command;
+              const command = params?.command;
               if (command && typeof command === 'string' && command.startsWith('ptah.')) {
-                await vscode.commands.executeCommand(command, ...(message.params?.args || []));
+                await vscode.commands.executeCommand(command, ...(params?.args || []));
                 webviewView.webview.postMessage({
                   type: 'rpc:response',
                   success: true,
                   data: { success: true },
-                  correlationId: message.correlationId,
+                  correlationId,
                 });
               } else {
                 webviewView.webview.postMessage({
                   type: 'rpc:response',
                   success: false,
                   data: { success: false, error: 'Only ptah.* commands are allowed' },
-                  correlationId: message.correlationId,
+                  correlationId,
                 });
               }
             } catch (error) {
@@ -198,7 +201,7 @@ async function handleLicenseBlocking(
                   success: false,
                   error: error instanceof Error ? error.message : String(error),
                 },
-                correlationId: message.correlationId,
+                correlationId,
               });
             }
           }
