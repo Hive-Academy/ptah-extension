@@ -124,7 +124,21 @@ export class ChatViewComponent {
     const activeTab = this.chatStore.activeTab();
     const pendingStats = activeTab?.streamingState?.pendingStats;
 
-    return trees.map((tree) =>
+    // DEDUPLICATION: Get IDs of already finalized messages to filter out
+    // This prevents duplicate rendering when a message is both in finalized
+    // messages AND still in currentExecutionTrees (race condition window)
+    const finalizedMessageIds = new Set(
+      this.chatStore.messages().map((msg) => msg.id)
+    );
+
+    // Filter out trees that are already finalized
+    const nonFinalizedTrees = trees.filter(
+      (tree) => !finalizedMessageIds.has(tree.id)
+    );
+
+    if (nonFinalizedTrees.length === 0) return [];
+
+    return nonFinalizedTrees.map((tree) =>
       createExecutionChatMessage({
         id: tree.id,
         role: 'assistant',

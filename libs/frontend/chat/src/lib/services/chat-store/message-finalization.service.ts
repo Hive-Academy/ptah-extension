@@ -116,9 +116,25 @@ export class MessageFinalizationService {
       duration: finalDuration,
     });
 
+    // DEDUPLICATION: Check if message already exists to prevent duplicates
+    // This can happen if finalizeCurrentMessage is called multiple times
+    // (e.g., from multiple event handlers or re-entrancy)
+    const existingMessages = targetTab?.messages ?? [];
+    const messageExists = existingMessages.some((msg) => msg.id === messageId);
+
+    if (messageExists) {
+      // Message already finalized - just clear streaming state
+      this.tabManager.updateTab(targetTabId, {
+        streamingState: null,
+        status: 'loaded',
+        currentMessageId: null,
+      });
+      return;
+    }
+
     // Add to target tab's messages and clear streaming state
     this.tabManager.updateTab(targetTabId, {
-      messages: [...(targetTab?.messages ?? []), assistantMessage],
+      messages: [...existingMessages, assistantMessage],
       streamingState: null,
       status: 'loaded',
       currentMessageId: null,
