@@ -60,11 +60,20 @@ export class SubscriptionStateService {
   /**
    * Computed: Is user on trial
    *
-   * Returns true if user's plan starts with 'trial_'
+   * Returns true if user is actually on a trial, meaning:
+   * 1. Plan name starts with 'trial_' AND
+   * 2. Subscription status is NOT 'active' (active = paying customer)
+   *
+   * This prevents showing trial UI for users who have an active paid subscription
+   * even if their plan name wasn't updated from 'trial_basic' to 'basic'.
    */
   public readonly isOnTrial = computed(() => {
     const data = this._licenseData();
-    return data?.plan?.startsWith('trial_') ?? false;
+    const hasTrial = data?.plan?.startsWith('trial_') ?? false;
+    const isActiveSubscription = data?.subscription?.status === 'active';
+
+    // If subscription is active (paying), they're not on trial
+    return hasTrial && !isActiveSubscription;
   });
 
   /**
