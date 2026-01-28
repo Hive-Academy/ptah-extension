@@ -8,6 +8,7 @@ import {
   effect,
   OnDestroy,
   DestroyRef,
+  HostListener,
 } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -17,6 +18,8 @@ import { ProPlanCardComponent } from './pro-plan-card.component';
 import {
   PricingPlan,
   PlanSubscriptionContext,
+  VALID_SUBSCRIPTION_STATUSES,
+  ValidSubscriptionStatus,
 } from '../models/pricing-plan.interface';
 import {
   ViewportAnimationDirective,
@@ -80,6 +83,18 @@ import {
         />
         <span>{{ configError() }}</span>
         <button class="btn btn-sm" (click)="configError.set(null)">
+          Dismiss
+        </button>
+      </div>
+      } @if (portalError()) {
+      <div class="alert alert-error mb-8 max-w-xl mx-auto">
+        <lucide-angular
+          [img]="CircleXIcon"
+          class="stroke-current shrink-0 h-6 w-6"
+          aria-hidden="true"
+        />
+        <span>{{ portalError() }}</span>
+        <button class="btn btn-sm" (click)="portalError.set(null)">
           Dismiss
         </button>
       </div>
@@ -191,8 +206,17 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   private loadingTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private autoCheckoutIntervalId: ReturnType<typeof setInterval> | null = null;
 
+  // Track if portal was opened to refresh on return
+  private portalWasOpened = false;
+
   // Configuration error state (for placeholder detection)
   public readonly configError = signal<string | null>(null);
+
+  // Portal session error state (separate from config errors)
+  public readonly portalError = signal<string | null>(null);
+
+  // Portal loading state
+  public readonly isPortalLoading = signal(false);
 
   // Auto-checkout error state (for timeout handling)
   public readonly autoCheckoutError = signal<string | null>(null);
@@ -211,25 +235,50 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    * Builds a PlanSubscriptionContext from SubscriptionStateService signals.
    * This is passed to BasicPlanCardComponent and ProPlanCardComponent
    * to enable subscription-aware UI rendering.
+   *
+   * Includes runtime validation for subscriptionStatus to ensure type safety.
    */
   public readonly subscriptionContext = computed<PlanSubscriptionContext>(
-    () => ({
-      isAuthenticated:
-        this.subscriptionService.isFetched() &&
-        this.subscriptionService.licenseData() !== null,
-      currentPlanTier: this.subscriptionService.currentPlanTier(),
-      isOnTrial: this.subscriptionService.isOnTrial(),
-      trialDaysRemaining: this.subscriptionService.trialDaysRemaining(),
-      subscriptionStatus: this.subscriptionService.subscriptionStatus() as
-        | 'active'
-        | 'trialing'
-        | 'canceled'
-        | 'past_due'
-        | 'paused'
-        | null,
-      periodEndDate: this.subscriptionService.periodEndDate(),
-    })
+    () => {
+      // Runtime validation for subscription status
+      const rawStatus = this.subscriptionService.subscriptionStatus();
+      const validatedStatus = this.validateSubscriptionStatus(rawStatus);
+
+      return {
+        isAuthenticated:
+          this.subscriptionService.isFetched() &&
+          this.subscriptionService.licenseData() !== null,
+        currentPlanTier: this.subscriptionService.currentPlanTier(),
+        isOnTrial: this.subscriptionService.isOnTrial(),
+        trialDaysRemaining: this.subscriptionService.trialDaysRemaining(),
+        subscriptionStatus: validatedStatus,
+        periodEndDate: this.subscriptionService.periodEndDate(),
+      };
+    }
   );
+
+  /**
+   * Validate subscription status against known valid values.
+   * Returns null for unknown statuses to prevent runtime errors.
+   *
+   * @param status - Raw status string from API
+   * @returns Validated status or null
+   */
+  private validateSubscriptionStatus(
+    status: string | null
+  ): ValidSubscriptionStatus | null {
+    if (status === null) return null;
+    if (
+      VALID_SUBSCRIPTION_STATUSES.includes(status as ValidSubscriptionStatus)
+    ) {
+      return status as ValidSubscriptionStatus;
+    }
+    // Log unexpected status for debugging but don't crash
+    console.warn(
+      `[PricingGrid] Unexpected subscription status: "${status}". Treating as null.`
+    );
+    return null;
+  }
 
   /**
    * Loading state for subscription context
@@ -247,6 +296,22 @@ export class PricingGridComponent implements OnInit, OnDestroy {
         this.paddleService.setLoadingPlan(null);
       }
     });
+  }
+
+  /**
+   * Handle window focus to refresh subscription state after portal return.
+   * Only refreshes if portal was opened previously.
+   */
+  @HostListener('window:focus')
+  public onWindowFocus(): void {
+    if (this.portalWasOpened) {
+      this.portalWasOpened = false;
+      // Refresh subscription state when returning from portal
+      this.subscriptionService
+        .refresh()
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe();
+    }
   }
 
   /**
@@ -370,7 +435,10 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     this.paddleService.initialize();
 
     // Fetch subscription state for authenticated users
-    this.subscriptionService.fetchSubscriptionState();
+    this.subscriptionService
+      .fetchSubscriptionState()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe();
 
     // Check for auto-checkout param from login redirect
     const planKey = this.route.snapshot.queryParamMap.get('autoCheckout');
@@ -442,6 +510,19 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     this.autoCheckoutIntervalId = setInterval(() => {
       if (this.isPaddleReady()) {
         this.clearAutoCheckoutInterval();
+
+        // Check if user already has a subscription - skip auto-checkout if so
+        const ctx = this.subscriptionContext();
+        if (ctx.isAuthenticated && ctx.currentPlanTier) {
+          // User already has subscription, clear the query param and skip
+          this.router.navigate([], {
+            relativeTo: this.route,
+            queryParams: { autoCheckout: null },
+            queryParamsHandling: 'merge',
+          });
+          return;
+        }
+
         // Small delay to ensure UI is fully rendered
         setTimeout(() => {
           this.proceedWithCheckout(plan);
@@ -600,11 +681,53 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    * Handle manage subscription action from plan cards
    *
    * Opens Paddle customer portal in a new tab for subscription management.
-   * Called when user clicks "Manage Subscription", "Reactivate", or "Update Payment".
+   * Called when user clicks "Manage Subscription", "Reactivate", "Update Payment", or "Resume".
+   *
+   * Includes:
+   * - Auth check before API call (Issue 11)
+   * - Loading state for button feedback (Issue 21)
+   * - Debounce via loading check (Issue 19)
+   * - Separate error signal (Issue 20)
    *
    * Pattern source: profile-page.component.ts:360-386
    */
   public handleManageSubscription(): void {
+    // Prevent double-click while loading
+    if (this.isPortalLoading()) return;
+
+    // Check auth before making API call
+    this.authService
+      .isAuthenticated()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (isAuth) => {
+          if (!isAuth) {
+            // Auth expired - redirect to login
+            this.router.navigate(['/login'], {
+              queryParams: { returnUrl: '/pricing' },
+            });
+            return;
+          }
+
+          // Auth valid - proceed with portal session
+          this.openPortalSession();
+        },
+        error: () => {
+          // Auth check failed - redirect to login as fallback
+          this.router.navigate(['/login'], {
+            queryParams: { returnUrl: '/pricing' },
+          });
+        },
+      });
+  }
+
+  /**
+   * Open portal session after auth is verified
+   */
+  private openPortalSession(): void {
+    this.isPortalLoading.set(true);
+    this.portalError.set(null);
+
     this.http
       .post<{ url: string; expiresAt: string }>(
         '/api/v1/subscriptions/portal-session',
@@ -613,12 +736,16 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (response) => {
+          this.isPortalLoading.set(false);
+          // Track that portal was opened for refresh on return
+          this.portalWasOpened = true;
           window.open(response.url, '_blank', 'noopener,noreferrer');
         },
         error: (error) => {
-          this.configError.set(
-            error.error?.message || 'Failed to open subscription management.'
-          );
+          this.isPortalLoading.set(false);
+          const message =
+            error.error?.message || 'Failed to open subscription management.';
+          this.portalError.set(message);
         },
       });
   }

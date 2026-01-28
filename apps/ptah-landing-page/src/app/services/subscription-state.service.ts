@@ -1,5 +1,6 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { Observable, of, catchError, tap, map, switchMap } from 'rxjs';
 import { LicenseData } from '../pages/profile/models/license-data.interface';
 import { AuthService } from './auth.service';
 
@@ -17,7 +18,7 @@ import { AuthService } from './auth.service';
  *
  * Usage:
  * - Inject into PricingGridComponent
- * - Call fetchSubscriptionState() in ngOnInit
+ * - Call fetchSubscriptionState() and subscribe with takeUntilDestroyed
  * - Use computed signals (currentPlanTier, isOnTrial, etc.) for UI logic
  */
 @Injectable({ providedIn: 'root' })
@@ -118,6 +119,15 @@ export class SubscriptionStateService {
   });
 
   /**
+   * Computed: Is subscription paused
+   *
+   * Returns true if subscription is in paused state (Paddle feature).
+   */
+  public readonly isPaused = computed(() => {
+    return this._licenseData()?.subscription?.status === 'paused';
+  });
+
+  /**
    * Computed: Subscription period end date
    *
    * Returns the current period end date for display in UI.
@@ -129,52 +139,67 @@ export class SubscriptionStateService {
   /**
    * Fetch subscription state (only if authenticated)
    *
-   * Pattern source: profile-page.component.ts:206-226
+   * Pattern: Returns Observable for proper lifecycle management with takeUntilDestroyed.
+   * Uses switchMap to ensure proper cancellation of in-flight requests.
    *
    * Flow:
-   * 1. Skip if already fetched or currently loading
+   * 1. Skip if already fetched or currently loading (returns of(null))
    * 2. Check authentication via AuthService.isAuthenticated()
    * 3. If authenticated, fetch license data from API
    * 4. Update signals with response or error
+   *
+   * @returns Observable<LicenseData | null> - License data or null if not authenticated
    */
-  public fetchSubscriptionState(): void {
+  public fetchSubscriptionState(): Observable<LicenseData | null> {
     // Skip if already fetched or currently loading
-    if (this._isFetched() || this._isLoading()) return;
+    if (this._isFetched() || this._isLoading()) {
+      return of(this._licenseData());
+    }
 
     this._isLoading.set(true);
     this._error.set(null);
 
-    // First check authentication
-    this.authService.isAuthenticated().subscribe({
-      next: (isAuth) => {
+    // Use switchMap to chain observables properly for cleanup
+    return this.authService.isAuthenticated().pipe(
+      switchMap((isAuth) => {
         if (!isAuth) {
           // Not authenticated - skip API call, mark as fetched
           this._isLoading.set(false);
           this._isFetched.set(true);
-          return;
+          return of(null);
         }
 
         // Fetch license data from backend
-        this.http.get<LicenseData>('/api/v1/licenses/me').subscribe({
-          next: (data) => {
+        return this.http.get<LicenseData>('/api/v1/licenses/me').pipe(
+          tap((data) => {
             this._licenseData.set(data);
             this._isLoading.set(false);
             this._isFetched.set(true);
-          },
-          error: (err) => {
-            console.error('[SubscriptionState] Failed to fetch:', err);
+          }),
+          catchError((err) => {
+            console.error(
+              '[SubscriptionState] Failed to fetch license data:',
+              err.message || err,
+              err.status ? `(HTTP ${err.status})` : ''
+            );
             this._error.set('Unable to load subscription status');
             this._isLoading.set(false);
             this._isFetched.set(true);
-          },
-        });
-      },
-      error: () => {
+            return of(null);
+          })
+        );
+      }),
+      catchError((err) => {
         // Auth check failed - mark as fetched without data
+        console.error(
+          '[SubscriptionState] Auth check failed:',
+          err.message || err
+        );
         this._isLoading.set(false);
         this._isFetched.set(true);
-      },
-    });
+        return of(null);
+      })
+    );
   }
 
   /**
@@ -195,9 +220,11 @@ export class SubscriptionStateService {
    *
    * Resets the fetched flag and re-fetches data from the API.
    * Useful after checkout completion or subscription changes.
+   *
+   * @returns Observable<LicenseData | null> - Fresh license data
    */
-  public refresh(): void {
+  public refresh(): Observable<LicenseData | null> {
     this._isFetched.set(false);
-    this.fetchSubscriptionState();
+    return this.fetchSubscriptionState();
   }
 }

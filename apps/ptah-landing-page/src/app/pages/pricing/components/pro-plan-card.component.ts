@@ -7,14 +7,30 @@ import {
   computed,
 } from '@angular/core';
 import { NgClass, DatePipe } from '@angular/common';
-import { LucideAngularModule, Check, ArrowRight, Settings, Crown } from 'lucide-angular';
+import {
+  LucideAngularModule,
+  Check,
+  ArrowRight,
+  Settings,
+  Crown,
+  Pause,
+} from 'lucide-angular';
 import {
   PricingPlan,
   PlanSubscriptionContext,
   PlanCtaVariant,
   PlanBadgeVariant,
+  TRIAL_WARNING_THRESHOLD_DAYS,
 } from '../models/pricing-plan.interface';
 import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
+import {
+  computeBadgeVariant,
+  computeCtaVariant,
+  computeCtaText,
+  computeCtaButtonClass,
+  formatTrialDaysText,
+  isPortalAction,
+} from '../utils/plan-card-state.utils';
 
 /**
  * ProPlanCardComponent - Pro plan card with subscription awareness
@@ -25,8 +41,9 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
  * Subscription-Aware Features:
  * - Shows "Current Plan" badge for active Pro subscribers
  * - Shows "Trial - X days left" for Pro trial users
+ * - Shows "Subscription Paused" for paused subscriptions
  * - Shows "Upgrade to Pro" for Basic subscribers
- * - CTA is NEVER disabled (Pro is highest tier, no "included" state)
+ * - CTA is NEVER disabled due to "included" (Pro is highest tier)
  *
  * Evidence: TASK_2025_121 - Two-Tier Paid Extension Model
  * Evidence: TASK_2025_127 - Subscription State Awareness
@@ -42,74 +59,95 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
              border shadow-xl transition-all duration-500 group"
       [ngClass]="cardBorderClass()"
     >
-      <!-- Subscription-Aware Badge (left side) -->
-      @switch (badgeVariant()) {
-        @case ('current') {
-          <div
-            class="absolute -top-3 left-4 px-4 py-1
-                   bg-success rounded-full
-                   text-xs font-bold text-success-content uppercase tracking-wider
-                   shadow-lg shadow-success/30 flex items-center gap-1.5"
-          >
-            <lucide-angular [img]="CrownIcon" class="w-3 h-3" aria-hidden="true" />
-            Current Plan
-          </div>
+      <!-- Subscription-Aware Badge with aria-live for accessibility -->
+      <div aria-live="polite" aria-atomic="true">
+        @switch (badgeVariant()) {
+          @case ('current') {
+            <div
+              class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+                     bg-success rounded-full
+                     text-xs font-bold text-success-content uppercase tracking-wider
+                     shadow-lg shadow-success/30 flex items-center gap-1.5"
+            >
+              <lucide-angular
+                [img]="CrownIcon"
+                class="w-3 h-3"
+                aria-hidden="true"
+              />
+              Current Plan
+            </div>
+          }
+          @case ('paused') {
+            <div
+              class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+                     bg-warning rounded-full
+                     text-xs font-bold text-warning-content uppercase tracking-wider
+                     shadow-lg shadow-warning/30 flex items-center gap-1.5"
+            >
+              <lucide-angular
+                [img]="PauseIcon"
+                class="w-3 h-3"
+                aria-hidden="true"
+              />
+              Subscription Paused
+            </div>
+          }
+          @case ('trial-active') {
+            <div
+              class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+                     bg-info rounded-full
+                     text-xs font-bold text-info-content uppercase tracking-wider
+                     shadow-lg shadow-info/30"
+            >
+              Trial - {{ trialDaysDisplay() }}
+            </div>
+          }
+          @case ('trial-ending') {
+            <div
+              class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+                     bg-warning rounded-full
+                     text-xs font-bold text-warning-content uppercase tracking-wider
+                     shadow-lg shadow-warning/30"
+            >
+              {{ trialEndingDisplay() }}
+            </div>
+          }
+          @case ('canceling') {
+            <div
+              class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+                     bg-warning rounded-full
+                     text-xs font-bold text-warning-content uppercase tracking-wider
+                     shadow-lg shadow-warning/30"
+            >
+              {{ cancelingDisplay() }}
+            </div>
+          }
+          @case ('past-due') {
+            <div
+              class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+                     bg-error rounded-full
+                     text-xs font-bold text-error-content uppercase tracking-wider
+                     shadow-lg shadow-error/30"
+            >
+              Payment Issue
+            </div>
+          }
+          @default {
+            <!-- Popular Badge (center) for non-subscribed users -->
+            <div
+              class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+                     bg-gradient-to-r from-amber-500 to-secondary rounded-full
+                     text-xs font-bold text-base-100 uppercase tracking-wider
+                     shadow-lg shadow-amber-500/30"
+            >
+              Most Popular
+            </div>
+          }
         }
-        @case ('trial-active') {
-          <div
-            class="absolute -top-3 left-4 px-4 py-1
-                   bg-info rounded-full
-                   text-xs font-bold text-info-content uppercase tracking-wider
-                   shadow-lg shadow-info/30"
-          >
-            Trial - {{ subscriptionContext()?.trialDaysRemaining }} days left
-          </div>
-        }
-        @case ('trial-ending') {
-          <div
-            class="absolute -top-3 left-4 px-4 py-1
-                   bg-warning rounded-full
-                   text-xs font-bold text-warning-content uppercase tracking-wider
-                   shadow-lg shadow-warning/30"
-          >
-            Trial ends in {{ subscriptionContext()?.trialDaysRemaining }} days
-          </div>
-        }
-        @case ('canceling') {
-          <div
-            class="absolute -top-3 left-4 px-4 py-1
-                   bg-warning rounded-full
-                   text-xs font-bold text-warning-content uppercase tracking-wider
-                   shadow-lg shadow-warning/30"
-          >
-            Ends {{ subscriptionContext()?.periodEndDate | date:'MMM d, y' }}
-          </div>
-        }
-        @case ('past-due') {
-          <div
-            class="absolute -top-3 left-4 px-4 py-1
-                   bg-error rounded-full
-                   text-xs font-bold text-error-content uppercase tracking-wider
-                   shadow-lg shadow-error/30"
-          >
-            Payment Issue
-          </div>
-        }
-        @default {
-          <!-- Popular Badge (center) for non-subscribed users -->
-          <div
-            class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
-                   bg-gradient-to-r from-amber-500 to-secondary rounded-full
-                   text-xs font-bold text-base-100 uppercase tracking-wider
-                   shadow-lg shadow-amber-500/30"
-          >
-            Most Popular
-          </div>
-        }
-      }
+      </div>
 
       <!-- Trial Badge on right side (only for non-current-plan states) -->
-      @if (badgeVariant() !== 'current' && badgeVariant() !== 'trial-active' && badgeVariant() !== 'trial-ending' && badgeVariant() !== 'canceling' && badgeVariant() !== 'past-due' && activePlan().trialDays) {
+      @if (showTrialBadge()) {
         <div
           class="absolute -top-3 right-4 px-3 py-1
                  bg-gradient-to-r from-sky-500 to-cyan-500 rounded-full
@@ -144,7 +182,7 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
               'text-base-content/60 hover:text-base-content':
                 billingPeriod() !== 'monthly'
             }"
-            (click)="billingPeriod.set('monthly')"
+            (click)="setBillingPeriod('monthly')"
           >
             Monthly
           </button>
@@ -157,7 +195,7 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
               'text-base-content/60 hover:text-base-content':
                 billingPeriod() !== 'yearly'
             }"
-            (click)="billingPeriod.set('yearly')"
+            (click)="setBillingPeriod('yearly')"
           >
             Yearly
             <span
@@ -183,12 +221,12 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
           </span>
         </div>
         @if (activePlan().savings) {
-        <div
-          class="inline-block mt-2 px-3 py-1 rounded-full text-xs font-semibold
-                 bg-success/20 text-success"
-        >
-          {{ activePlan().savings }}
-        </div>
+          <div
+            class="inline-block mt-2 px-3 py-1 rounded-full text-xs font-semibold
+                   bg-success/20 text-success"
+          >
+            {{ activePlan().savings }}
+          </div>
         }
       </div>
 
@@ -204,13 +242,13 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
         </h4>
         <ul class="space-y-2.5">
           @for (feature of proFeatures; track feature) {
-          <li class="flex items-start gap-2.5">
-            <lucide-angular
-              [img]="CheckIcon"
-              class="flex-shrink-0 w-4 h-4 text-amber-400 mt-0.5"
-            />
-            <span class="text-sm text-base-content/80">{{ feature }}</span>
-          </li>
+            <li class="flex items-start gap-2.5">
+              <lucide-angular
+                [img]="CheckIcon"
+                class="flex-shrink-0 w-4 h-4 text-amber-400 mt-0.5"
+              />
+              <span class="text-sm text-base-content/80">{{ feature }}</span>
+            </li>
           }
         </ul>
       </div>
@@ -230,7 +268,11 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
           <span>Loading...</span>
         } @else {
           @if (ctaVariant() === 'current-plan') {
-            <lucide-angular [img]="SettingsIcon" class="w-4 h-4" aria-hidden="true" />
+            <lucide-angular
+              [img]="SettingsIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
           }
           <span>{{ ctaText() }}</span>
           @if (ctaVariant() !== 'current-plan') {
@@ -266,6 +308,7 @@ export class ProPlanCardComponent {
   public readonly ArrowRightIcon = ArrowRight;
   public readonly SettingsIcon = Settings;
   public readonly CrownIcon = Crown;
+  public readonly PauseIcon = Pause;
 
   /** Monthly plan data */
   public readonly monthlyPlan = input.required<PricingPlan>();
@@ -277,7 +320,8 @@ export class ProPlanCardComponent {
   public readonly isLoading = input<boolean>(false);
 
   /** Subscription context from parent (null for unauthenticated users) */
-  public readonly subscriptionContext = input<PlanSubscriptionContext | null>(null);
+  public readonly subscriptionContext =
+    input<PlanSubscriptionContext | null>(null);
 
   /** Whether subscription context is being loaded */
   public readonly isLoadingContext = input<boolean>(false);
@@ -288,12 +332,20 @@ export class ProPlanCardComponent {
   /** Manage subscription event - emits for portal navigation */
   public readonly manageSubscription = output<void>();
 
-  /** Internal billing period state */
-  public readonly billingPeriod = signal<'monthly' | 'yearly'>('monthly');
+  /** Internal billing period state (private with setter) */
+  private readonly _billingPeriod = signal<'monthly' | 'yearly'>('monthly');
+
+  /** Public readonly billing period for template */
+  public readonly billingPeriod = this._billingPeriod.asReadonly();
+
+  /** Set billing period */
+  public setBillingPeriod(period: 'monthly' | 'yearly'): void {
+    this._billingPeriod.set(period);
+  }
 
   /** Computed active plan based on billing period */
   public readonly activePlan = computed(() =>
-    this.billingPeriod() === 'yearly' ? this.yearlyPlan() : this.monthlyPlan()
+    this._billingPeriod() === 'yearly' ? this.yearlyPlan() : this.monthlyPlan()
   );
 
   /** Pro features list (same for both monthly and yearly) */
@@ -325,110 +377,89 @@ export class ProPlanCardComponent {
   });
 
   /**
-   * Computed: Badge variant based on subscription state
-   *
-   * Priority order:
-   * 1. Current active plan -> 'current'
-   * 2. Trial ending soon (<=3 days) -> 'trial-ending'
-   * 3. Active trial -> 'trial-active'
-   * 4. Canceled subscription -> 'canceling'
-   * 5. Past due subscription -> 'past-due'
-   * 6. Default -> 'popular' (marketing badge)
-   *
-   * Note: Pro has no 'included' state since it's the highest tier
+   * Computed: Whether to show the trial badge on the right side
+   * Only shows for non-subscription states
+   */
+  public readonly showTrialBadge = computed(() => {
+    const badge = this.badgeVariant();
+    const hasTrialDays = !!this.activePlan().trialDays;
+    const subscriptionBadges = [
+      'current',
+      'trial-active',
+      'trial-ending',
+      'canceling',
+      'past-due',
+      'paused',
+    ];
+    return hasTrialDays && !subscriptionBadges.includes(badge);
+  });
+
+  /**
+   * Computed: Badge variant using shared utility
    */
   public readonly badgeVariant = computed<PlanBadgeVariant>(() => {
-    const ctx = this.subscriptionContext();
-
-    // No context = unauthenticated user, show popular badge
-    if (!ctx) return 'popular';
-
-    // Active Pro subscription (not trial)
-    if (this.isCurrentPlan()) {
-      return 'current';
-    }
-
-    // Pro trial user
-    if (this.isTrialPlan()) {
-      const days = ctx.trialDaysRemaining ?? 0;
-      return days <= 3 ? 'trial-ending' : 'trial-active';
-    }
-
-    // Canceled Pro subscription (still in grace period)
-    if (ctx.subscriptionStatus === 'canceled' && ctx.currentPlanTier === 'pro') {
-      return 'canceling';
-    }
-
-    // Past due Pro subscription
-    if (ctx.subscriptionStatus === 'past_due' && ctx.currentPlanTier === 'pro') {
-      return 'past-due';
-    }
-
-    // Default for non-Pro users (including Basic subscribers)
-    return 'popular';
+    return computeBadgeVariant(
+      this.subscriptionContext(),
+      'pro',
+      this.isCurrentPlan(),
+      this.isTrialPlan()
+    );
   });
 
   /**
-   * Computed: CTA variant based on subscription state
-   *
-   * Determines button action and appearance:
-   * - 'start-trial': Opens checkout for unauthenticated/new users
-   * - 'current-plan': Opens subscription management portal
-   * - 'upgrade': Opens checkout for Basic subscribers to upgrade
-   * - 'upgrade-now': Opens checkout for Pro trial conversion
-   * - 'reactivate': Opens portal for canceled subscriptions
-   * - 'update-payment': Opens portal for past due subscriptions
-   *
-   * Note: Pro card NEVER has 'included' or 'downgrade' variants
+   * Computed: CTA variant using shared utility
    */
   public readonly ctaVariant = computed<PlanCtaVariant>(() => {
-    const ctx = this.subscriptionContext();
-
-    // Not authenticated or no context -> start trial
-    if (!ctx?.isAuthenticated) return 'start-trial';
-    if (!ctx.currentPlanTier) return 'start-trial';
-
-    // User has Pro subscription
-    if (ctx.currentPlanTier === 'pro') {
-      // Trial user -> encourage conversion
-      if (ctx.isOnTrial) return 'upgrade-now';
-      // Canceled -> offer reactivation
-      if (ctx.subscriptionStatus === 'canceled') return 'reactivate';
-      // Past due -> prompt payment update
-      if (ctx.subscriptionStatus === 'past_due') return 'update-payment';
-      // Active subscription -> manage
-      return 'current-plan';
-    }
-
-    // User has Basic subscription - show upgrade option
-    if (ctx.currentPlanTier === 'basic') {
-      return 'upgrade';
-    }
-
-    return 'start-trial';
+    return computeCtaVariant(this.subscriptionContext(), 'pro');
   });
 
   /**
-   * Computed: CTA button text based on variant
+   * Computed: CTA button text using shared utility
    */
   public readonly ctaText = computed(() => {
-    const variant = this.ctaVariant();
-    switch (variant) {
-      case 'start-trial':
-        return 'Start 14-Day Free Trial';
-      case 'current-plan':
-        return 'Manage Subscription';
-      case 'upgrade':
-        return 'Upgrade to Pro';
-      case 'upgrade-now':
-        return 'Upgrade Now';
-      case 'reactivate':
-        return 'Reactivate';
-      case 'update-payment':
-        return 'Update Payment';
-      default:
-        return 'Start 14-Day Free Trial';
+    return computeCtaText(this.ctaVariant());
+  });
+
+  /**
+   * Computed: Trial days display with proper formatting
+   */
+  public readonly trialDaysDisplay = computed(() => {
+    const ctx = this.subscriptionContext();
+    const days = ctx?.trialDaysRemaining;
+    return formatTrialDaysText(days) ?? 'days left';
+  });
+
+  /**
+   * Computed: Trial ending display with edge case handling
+   */
+  public readonly trialEndingDisplay = computed(() => {
+    const ctx = this.subscriptionContext();
+    const days = ctx?.trialDaysRemaining ?? 0;
+    if (days <= 0) {
+      return 'Trial expiring today';
     }
+    if (days === 1) {
+      return 'Trial ends in 1 day';
+    }
+    return `Trial ends in ${days} days`;
+  });
+
+  /**
+   * Computed: Canceling badge display with null handling
+   */
+  public readonly cancelingDisplay = computed(() => {
+    const ctx = this.subscriptionContext();
+    if (!ctx?.periodEndDate) {
+      return 'Ending soon';
+    }
+    // Use Intl for date formatting
+    const date = new Date(ctx.periodEndDate);
+    const options: Intl.DateTimeFormatOptions = {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    };
+    return `Ends ${date.toLocaleDateString('en-US', options)}`;
   });
 
   /**
@@ -463,37 +494,21 @@ export class ProPlanCardComponent {
   });
 
   /**
-   * Computed: CTA button styling based on variant
+   * Computed: CTA button styling using shared utility
    */
   protected readonly ctaButtonClass = computed(() => {
-    const variant = this.ctaVariant();
-    const isDisabled = this.isCtaDisabled();
-
-    // Base disabled state
-    if (isDisabled) {
-      return 'bg-amber-500/50 text-base-100/60 cursor-not-allowed opacity-50';
-    }
-
-    switch (variant) {
-      case 'current-plan':
-        return 'bg-success/20 text-success border border-success/30 hover:bg-success/30 cursor-pointer';
-      case 'reactivate':
-        return 'bg-warning/20 text-warning border border-warning/30 hover:bg-warning/30 cursor-pointer';
-      case 'update-payment':
-        return 'bg-error/20 text-error border border-error/30 hover:bg-error/30 cursor-pointer';
-      case 'upgrade':
-      case 'upgrade-now':
-      case 'start-trial':
-      default:
-        return 'bg-gradient-to-r from-amber-500 to-secondary text-base-100 shadow-lg shadow-amber-500/25 hover:shadow-amber-500/40 cursor-pointer';
-    }
+    return computeCtaButtonClass(
+      this.ctaVariant(),
+      this.isCtaDisabled(),
+      'pro'
+    );
   });
 
   /**
    * Handle CTA click
    *
    * Routes to appropriate action based on CTA variant:
-   * - Portal actions (current-plan, reactivate, update-payment) -> manageSubscription
+   * - Portal actions (current-plan, reactivate, update-payment, resume) -> manageSubscription
    * - Checkout actions (start-trial, upgrade-now, upgrade) -> ctaClick
    */
   protected handleClick(): void {
@@ -502,7 +517,7 @@ export class ProPlanCardComponent {
     const variant = this.ctaVariant();
 
     // Actions that go to Paddle portal
-    if (['current-plan', 'reactivate', 'update-payment'].includes(variant)) {
+    if (isPortalAction(variant)) {
       this.manageSubscription.emit();
       return;
     }

@@ -51,37 +51,74 @@ export interface PricingPlan {
 }
 
 /**
+ * Threshold in days for showing "trial ending" warning badge.
+ * When trial days remaining is at or below this value, show warning.
+ */
+export const TRIAL_WARNING_THRESHOLD_DAYS = 3;
+
+/**
+ * Valid subscription statuses from Paddle API.
+ * Used for runtime validation of subscription status values.
+ */
+export const VALID_SUBSCRIPTION_STATUSES = [
+  'active',
+  'canceled',
+  'past_due',
+  'paused',
+] as const;
+
+/**
+ * Valid subscription status type derived from the constant array.
+ */
+export type ValidSubscriptionStatus =
+  (typeof VALID_SUBSCRIPTION_STATUSES)[number];
+
+/**
  * Subscription context for plan cards
  *
  * Provides subscription state information to plan card components
  * for determining CTA button state and visual styling.
  *
+ * @remarks
  * Used by: BasicPlanCardComponent, ProPlanCardComponent
  * Source: SubscriptionStateService computed signals
  */
 export interface PlanSubscriptionContext {
-  /** Whether user is authenticated */
+  /**
+   * Whether user is authenticated.
+   * True if user has successfully logged in and we have fetched their data.
+   */
   isAuthenticated: boolean;
 
-  /** User's current plan tier (null if no subscription) */
+  /**
+   * User's current plan tier (null if no subscription).
+   * Normalized from trial_basic/trial_pro to basic/pro.
+   */
   currentPlanTier: 'basic' | 'pro' | null;
 
-  /** Whether user is on trial */
+  /**
+   * Whether user is on trial.
+   * True if plan starts with 'trial_' prefix.
+   */
   isOnTrial: boolean;
 
-  /** Days remaining in trial (null if not on trial) */
+  /**
+   * Days remaining in trial (null if not on trial).
+   * Can be 0 or negative if trial has expired but data not yet updated.
+   */
   trialDaysRemaining: number | null;
 
-  /** Subscription status from Paddle */
-  subscriptionStatus:
-    | 'active'
-    | 'trialing'
-    | 'canceled'
-    | 'past_due'
-    | 'paused'
-    | null;
+  /**
+   * Subscription status from Paddle.
+   * Note: 'trialing' is a Paddle status but we detect trials via plan prefix instead.
+   * Validated at runtime to ensure only known statuses are used.
+   */
+  subscriptionStatus: ValidSubscriptionStatus | null;
 
-  /** Cancellation period end date (for canceled subscriptions) */
+  /**
+   * Cancellation period end date (for canceled subscriptions).
+   * ISO date string or null if not applicable.
+   */
   periodEndDate: string | null;
 }
 
@@ -91,24 +128,47 @@ export interface PlanSubscriptionContext {
  * Determines the appearance and behavior of the plan card's
  * call-to-action button based on subscription state.
  *
- * Variants:
- * - 'start-trial': Default for unauthenticated users -> opens checkout
- * - 'current-plan': User has this plan active -> opens subscription management
- * - 'upgrade': Lower tier user viewing higher tier -> opens checkout
- * - 'downgrade': Higher tier user viewing lower tier (disabled or muted)
- * - 'upgrade-now': Trial user -> opens checkout to convert
- * - 'reactivate': Canceled subscription -> opens portal to reactivate
- * - 'update-payment': Past due subscription -> opens portal to update payment
- * - 'included': Pro user viewing Basic plan (disabled)
+ * @example
+ * ```typescript
+ * const variant: PlanCtaVariant = 'start-trial';
+ * ```
  */
 export type PlanCtaVariant =
+  /**
+   * Default for unauthenticated users - opens checkout flow
+   */
   | 'start-trial'
+  /**
+   * User has this plan active - opens subscription management portal
+   */
   | 'current-plan'
+  /**
+   * Lower tier user viewing higher tier - opens checkout for upgrade
+   */
   | 'upgrade'
+  /**
+   * Higher tier user viewing lower tier (disabled or muted)
+   */
   | 'downgrade'
+  /**
+   * Trial user - opens checkout to convert trial to paid
+   */
   | 'upgrade-now'
+  /**
+   * Canceled subscription - opens portal to reactivate
+   */
   | 'reactivate'
+  /**
+   * Past due subscription - opens portal to update payment method
+   */
   | 'update-payment'
+  /**
+   * Paused subscription - opens portal to resume subscription
+   */
+  | 'resume'
+  /**
+   * Pro user viewing Basic plan (disabled - Basic is included)
+   */
   | 'included';
 
 /**
@@ -117,22 +177,45 @@ export type PlanCtaVariant =
  * Determines the appearance of the badge displayed on plan cards
  * based on subscription state and user context.
  *
- * Variants:
- * - 'trial': Default trial badge (cyan) - "14-Day Free Trial"
- * - 'current': User's current plan (green) - "Current Plan"
- * - 'trial-active': Active trial with days left (blue) - "Trial - X days left"
- * - 'trial-ending': Trial ending soon <= 3 days (amber) - "Trial ends in X days"
- * - 'canceling': Canceled but still active (amber) - "Ends [date]"
- * - 'past-due': Payment issues (red) - "Payment Issue"
- * - 'popular': Marketing badge (amber gradient) - "Most Popular"
- * - 'included': Pro user viewing Basic (muted) - "Included in Pro"
+ * @example
+ * ```typescript
+ * const badge: PlanBadgeVariant = 'current';
+ * ```
  */
 export type PlanBadgeVariant =
+  /**
+   * Default trial badge (cyan) - "14-Day Free Trial"
+   */
   | 'trial'
+  /**
+   * User's current plan (green) - "Current Plan"
+   */
   | 'current'
+  /**
+   * Active trial with days left (blue) - "Trial - X days left"
+   */
   | 'trial-active'
+  /**
+   * Trial ending soon <= TRIAL_WARNING_THRESHOLD_DAYS (amber) - "Trial ends in X days"
+   */
   | 'trial-ending'
+  /**
+   * Canceled but still active (amber) - "Ends [date]"
+   */
   | 'canceling'
+  /**
+   * Subscription is paused (amber) - "Subscription Paused"
+   */
+  | 'paused'
+  /**
+   * Payment issues (red) - "Payment Issue"
+   */
   | 'past-due'
+  /**
+   * Marketing badge (amber gradient) - "Most Popular"
+   */
   | 'popular'
+  /**
+   * Pro user viewing Basic (muted) - "Included in Pro"
+   */
   | 'included';
