@@ -158,13 +158,14 @@ async function handleLicenseBlocking(
 
           if (method === 'license:getStatus') {
             // Return license status for context-aware welcome messaging
+            // TASK_2025_128: Renamed isBasic to isCommunity for freemium model
             const response = {
               success: true,
               data: {
                 valid: false,
                 tier: status.tier || 'expired',
                 isPremium: false,
-                isBasic: false,
+                isCommunity: false,  // RENAMED from isBasic
                 daysRemaining: null,
                 trialActive: false,
                 trialDaysRemaining: null,
@@ -248,8 +249,11 @@ export async function activate(
     );
     const licenseStatus: LicenseStatus = await licenseService.verifyLicense();
 
+    // TASK_2025_128: Freemium model - Community tier has valid: true
+    // This check only blocks users with explicitly expired/revoked licenses (payment failures)
+    // Community users (no license key) have valid: true and bypass this block
     if (!licenseStatus.valid) {
-      // BLOCK EXTENSION - License is invalid
+      // BLOCK EXTENSION - Only for revoked/payment-failed licenses
       console.log(
         `[Activate] BLOCKED: License invalid (reason: ${
           licenseStatus.reason || 'unknown'
@@ -264,6 +268,7 @@ export async function activate(
       return;
     }
 
+    // Community and Pro users both reach here
     console.log(
       `[Activate] Step 2: License verified (tier: ${licenseStatus.tier})`
     );

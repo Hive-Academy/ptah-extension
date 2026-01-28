@@ -38,31 +38,31 @@ interface PersistedLicenseCache {
 }
 
 /**
- * License tier values for the two-tier paid model
+ * License tier values for the freemium model
  *
- * TASK_2025_121: New tier system
- * - 'basic': Active Basic subscription ($3/month)
+ * TASK_2025_128: Freemium model conversion
+ * - 'community': FREE forever, always valid, no license required
  * - 'pro': Active Pro subscription ($5/month)
- * - 'trial_basic': Basic plan during 14-day trial
  * - 'trial_pro': Pro plan during 14-day trial
- * - 'expired': No valid subscription (extension blocked)
+ * - 'expired': Revoked or payment failed only (NOT for unlicensed users)
  */
 export type LicenseTierValue =
-  | 'basic'
+  | 'community'   // FREE tier, always valid
   | 'pro'
-  | 'trial_basic'
   | 'trial_pro'
-  | 'expired';
+  | 'expired';    // Only for revoked/explicitly expired
 
 /**
  * License verification status returned by the server
  *
- * TASK_2025_121: Updated for two-tier paid model with trial support
+ * TASK_2025_128: Updated for freemium model
+ * - Community tier (no license key) has valid: true
+ * - Only expired/revoked licenses have valid: false
  */
 export interface LicenseStatus {
-  /** Whether the license is currently valid */
+  /** Whether the license is valid (Community = always true) */
   valid: boolean;
-  /** Current license tier (basic, pro, trial_basic, trial_pro, or expired) */
+  /** Current license tier (community, pro, trial_pro, or expired) */
   tier: LicenseTierValue;
   /** Plan details (if applicable) */
   plan?: {
@@ -114,8 +114,7 @@ export interface LicenseEvents {
 export class LicenseService extends EventEmitter<LicenseEvents> {
   private static readonly SECRET_KEY = 'ptah.licenseKey';
   private static readonly PERSISTED_CACHE_KEY = 'ptah.licenseCache';
-  private static readonly LICENSE_SERVER_URL =
-    process.env['PTAH_LICENSE_SERVER_URL'] || 'https://api.ptah.dev';
+  private static readonly LICENSE_SERVER_URL = 'http://localhost:3000'; // || 'https://api.ptah.dev';
   private static readonly CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
   private static readonly NETWORK_TIMEOUT_MS = 5000; // 5 seconds
 
@@ -209,17 +208,17 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
       );
 
       if (!licenseKey) {
-        // TASK_2025_121: No license key = expired (extension blocked)
-        const expiredStatus: LicenseStatus = {
-          valid: false,
-          tier: 'expired',
-          reason: 'not_found',
+        // TASK_2025_128: No license key = Community tier (FREE, valid)
+        const communityStatus: LicenseStatus = {
+          valid: true,           // CHANGED from false - Community is valid
+          tier: 'community',     // CHANGED from 'expired' - Community tier
+          // No reason field - Community is a valid state, not an error
         };
-        this.updateCache(expiredStatus);
+        this.updateCache(communityStatus);
         this.logger.info(
-          '[LicenseService.verifyLicense] No license key found, returning expired tier'
+          '[LicenseService.verifyLicense] No license key found, returning Community tier'
         );
-        return expiredStatus;
+        return communityStatus;
       }
 
       // Step 3: Verify with server
@@ -322,13 +321,13 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
         return this.cache.status;
       }
 
-      // TASK_2025_121: No cache and outside grace period = expired (extension blocked)
-      const expiredStatus: LicenseStatus = {
-        valid: false,
-        tier: 'expired',
-        reason: 'not_found',
+      // TASK_2025_128: No cache and outside grace period = Community tier (FREE, valid)
+      // Users without a license key still get the free Community tier
+      const communityStatus: LicenseStatus = {
+        valid: true,
+        tier: 'community',
       };
-      return expiredStatus;
+      return communityStatus;
     }
   }
 
@@ -364,17 +363,17 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
   /**
    * Remove license key from SecretStorage.
    *
-   * TASK_2025_121: Updated for two-tier paid model
+   * TASK_2025_128: Updated for freemium model
    *
    * Flow:
    * 1. Delete key from SecretStorage
-   * 2. Update cache to expired tier (extension blocked)
+   * 2. Update cache to Community tier (FREE, valid)
    * 3. Emit license:updated event
    *
    * @example
    * ```typescript
    * await licenseService.clearLicenseKey();
-   * // License key removed, tier set to expired
+   * // License key removed, downgraded to Community tier
    * ```
    */
   async clearLicenseKey(): Promise<void> {
@@ -384,14 +383,13 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
     // TASK_2025_121: Clear persisted cache as well (no grace period for manual removal)
     await this.clearPersistedCache();
 
-    // TASK_2025_121: Update to expired tier (extension blocked)
-    const expiredStatus: LicenseStatus = {
-      valid: false,
-      tier: 'expired',
-      reason: 'not_found',
+    // TASK_2025_128: Downgrade to Community tier (not expired)
+    const communityStatus: LicenseStatus = {
+      valid: true,           // CHANGED from false - Community is valid
+      tier: 'community',     // CHANGED from 'expired' - Community tier
     };
-    this.updateCache(expiredStatus);
-    this.emit('license:updated', expiredStatus);
+    this.updateCache(communityStatus);
+    this.emit('license:updated', communityStatus);
   }
 
   /**

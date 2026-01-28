@@ -5,6 +5,7 @@
  *
  * TASK_2025_079: License status exposure for frontend premium feature gating
  * TASK_2025_121: Updated for two-tier paid model (Basic + Pro)
+ * TASK_2025_128: Freemium model conversion (Community + Pro)
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -24,12 +25,12 @@ import type {
 /**
  * RPC handlers for license operations
  *
- * TASK_2025_121: Two-tier paid model
+ * TASK_2025_128: Freemium model (Community + Pro)
  *
  * Exposes license status to the frontend for:
  * - Conditional settings visibility (premium sections)
  * - Feature gating (MCP port, LLM configurations)
- * - UI indicators for license tier (Basic vs Pro)
+ * - UI indicators for license tier (Community vs Pro)
  * - Trial status display
  *
  * Security:
@@ -59,16 +60,16 @@ export class LicenseRpcHandlers {
   /**
    * license:getStatus - Get current license status
    *
-   * TASK_2025_121: Updated for two-tier paid model
+   * TASK_2025_128: Updated for freemium model
    *
    * Returns tier, validity, and feature flags for frontend gating.
    * Uses cached status (1-hour TTL) to minimize API calls.
    *
    * Response:
-   * - valid: boolean - Whether license is valid
-   * - tier: LicenseTier - Current tier (basic, pro, trial_basic, trial_pro, expired)
+   * - valid: boolean - Whether license is valid (Community = always true)
+   * - tier: LicenseTier - Current tier (community, pro, trial_pro, expired)
    * - isPremium: boolean - Convenience flag (Pro tier or Pro trial)
-   * - isBasic: boolean - Convenience flag (Basic tier or Basic trial)
+   * - isCommunity: boolean - Convenience flag (Community tier)
    * - daysRemaining: number | null - Days until subscription expires
    * - trialActive: boolean - Whether in trial period
    * - trialDaysRemaining: number | null - Days remaining in trial
@@ -88,7 +89,7 @@ export class LicenseRpcHandlers {
         this.logger.debug('RPC: license:getStatus success', {
           tier: response.tier,
           isPremium: response.isPremium,
-          isBasic: response.isBasic,
+          isCommunity: response.isCommunity,
           trialActive: response.trialActive,
         });
 
@@ -99,12 +100,12 @@ export class LicenseRpcHandlers {
           error instanceof Error ? error : new Error(String(error))
         );
 
-        // Return expired tier on error (extension blocked)
+        // TASK_2025_128: Return expired tier on error (only for truly expired)
         return {
           valid: false,
           tier: 'expired' as LicenseTier,
           isPremium: false,
-          isBasic: false,
+          isCommunity: false,
           daysRemaining: null,
           trialActive: false,
           trialDaysRemaining: null,
@@ -116,12 +117,12 @@ export class LicenseRpcHandlers {
   /**
    * Map internal LicenseStatus to RPC response format
    *
-   * TASK_2025_121: Maps the internal LicenseStatus from LicenseService
+   * TASK_2025_128: Maps the internal LicenseStatus from LicenseService
    * to the LicenseGetStatusResponse format expected by the frontend.
    *
    * Tier mapping for convenience flags:
    * - isPremium: true for 'pro' and 'trial_pro' (has Pro features)
-   * - isBasic: true for 'basic' and 'trial_basic' (has Basic features only)
+   * - isCommunity: true for 'community' (free tier)
    *
    * @param status - Internal license status from LicenseService
    * @returns RPC response format for frontend
@@ -133,14 +134,12 @@ export class LicenseRpcHandlers {
     // Pro tier and Pro trial both have premium features
     const isPremium = status.tier === 'pro' || status.tier === 'trial_pro';
 
-    // Determine if user has basic features only
-    // Basic tier and Basic trial have basic features
-    const isBasic = status.tier === 'basic' || status.tier === 'trial_basic';
+    // Determine if user has Community tier (free tier)
+    const isCommunity = status.tier === 'community';
 
-    // Determine trial status from tier
+    // Determine trial status from tier (only Pro has trial)
     const trialActive =
-      status.trialActive ??
-      (status.tier === 'trial_basic' || status.tier === 'trial_pro');
+      status.trialActive ?? status.tier === 'trial_pro';
 
     // TASK_2025_126: Map reason field for context-aware welcome messaging
     // Backend uses: 'expired' | 'revoked' | 'not_found' | 'trial_ended'
@@ -165,7 +164,7 @@ export class LicenseRpcHandlers {
       valid: status.valid,
       tier: status.tier as LicenseTier,
       isPremium,
-      isBasic,
+      isCommunity,  // RENAMED from isBasic
       daysRemaining: status.daysRemaining ?? null,
       trialActive,
       trialDaysRemaining: status.trialDaysRemaining ?? null,

@@ -5,6 +5,7 @@
  * Available via VS Code Command Palette
  *
  * TASK_2025_075 Batch 6: Command palette integration for license management
+ * TASK_2025_128: Freemium model conversion - updated messaging for Community tier
  *
  * @packageDocumentation
  */
@@ -105,10 +106,12 @@ export class LicenseCommands {
   /**
    * Remove License Key Command
    *
+   * TASK_2025_128: Updated for freemium model
+   *
    * Flow:
    * 1. Show confirmation warning
    * 2. Delete license key from SecretStorage
-   * 3. Downgrade to free tier
+   * 3. Downgrade to Community tier (free, still valid)
    * 4. Prompt user to reload window
    *
    * Security:
@@ -120,7 +123,8 @@ export class LicenseCommands {
    */
   async removeLicenseKey(): Promise<void> {
     const confirm = await vscode.window.showWarningMessage(
-      'Remove your license key? Premium features will be disabled.',
+      'Remove your license key? You will be downgraded to the Community tier. ' +
+        'Core features will remain available.',
       'Remove',
       'Cancel'
     );
@@ -133,7 +137,8 @@ export class LicenseCommands {
     await this.licenseService.clearLicenseKey();
 
     const action = await vscode.window.showInformationMessage(
-      'License key removed. Reload window to apply changes.',
+      'License key removed. You are now on the Community tier. ' +
+        'Reload window to apply changes.',
       'Reload Window'
     );
     if (action === 'Reload Window') {
@@ -144,6 +149,8 @@ export class LicenseCommands {
   /**
    * Check License Status Command
    *
+   * TASK_2025_128: Updated for freemium model
+   *
    * Flow:
    * 1. Verify license with server (or use cache)
    * 2. Display license information in info message
@@ -152,7 +159,7 @@ export class LicenseCommands {
    * - Plan name and tier
    * - Expiration date (if applicable)
    * - Days remaining (if applicable)
-   * - Upgrade link for free tier users
+   * - Upgrade link for Community tier users
    *
    * @example
    * Command Palette > Ptah: Check License Status
@@ -161,21 +168,38 @@ export class LicenseCommands {
     const status = await this.licenseService.verifyLicense();
 
     if (status.valid) {
+      // TASK_2025_128: Format tier names for display
+      const tierName =
+        status.tier === 'community'
+          ? 'Community (Free)'
+          : status.tier === 'trial_pro'
+            ? 'Pro (Trial)'
+            : 'Pro';
+
+      // Community tier: show "Never" expires and "Unlimited" days
       const expiresText = status.expiresAt
         ? new Date(status.expiresAt).toLocaleDateString()
-        : 'Never';
+        : status.tier === 'community'
+          ? 'Never'
+          : 'N/A';
       const daysText = status.daysRemaining
         ? `${status.daysRemaining} days`
-        : 'Unlimited';
+        : status.tier === 'community'
+          ? 'Unlimited'
+          : 'N/A';
 
       vscode.window.showInformationMessage(
-        `Plan: ${status.plan?.name} (${status.tier})\nExpires: ${expiresText}\nDays Remaining: ${daysText}`
+        `Plan: ${status.plan?.name || tierName}\n` +
+          `Tier: ${tierName}\n` +
+          `Expires: ${expiresText}\n` +
+          `Days Remaining: ${daysText}`
       );
     } else {
-      vscode.window.showInformationMessage(
-        `License Status: Free Tier\nReason: ${
-          status.reason || 'No license key'
-        }\n\nUpgrade at https://ptah.dev/pricing`
+      // Only expired/revoked users reach here
+      vscode.window.showWarningMessage(
+        `License Status: Expired\n` +
+          `Reason: ${status.reason || 'License revoked or payment failed'}\n\n` +
+          'Renew at https://ptah.dev/pricing'
       );
     }
   }

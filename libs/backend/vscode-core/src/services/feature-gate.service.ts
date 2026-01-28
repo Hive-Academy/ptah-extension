@@ -5,6 +5,7 @@
  * Determines which features are available to users based on their subscription level.
  *
  * TASK_2025_121 Batch 3: Two-tier paid model enforcement
+ * TASK_2025_128: Freemium model (Community + Pro)
  *
  * @packageDocumentation
  */
@@ -34,9 +35,10 @@ export type ProOnlyFeature =
   | 'cost_tracking';
 
 /**
- * All gated features (both Basic and Pro tiers)
+ * All gated features (both Community and Pro tiers)
  *
- * Basic tier features are available to all licensed users.
+ * TASK_2025_128: Freemium model
+ * Community tier features are available to all users (free).
  * Pro tier features require Pro or trial_pro subscription.
  */
 export type Feature =
@@ -118,9 +120,9 @@ export class FeatureGateService {
   /**
    * Check if a feature is enabled for the current license tier
    *
-   * Feature access rules:
-   * - No valid license: All features disabled
-   * - Basic tier (basic, trial_basic): Basic features only
+   * TASK_2025_128: Freemium model feature access rules:
+   * - No valid license (expired): All features disabled
+   * - Community tier: Community features only (free)
    * - Pro tier (pro, trial_pro): All features enabled
    *
    * @param feature - Feature identifier to check
@@ -136,7 +138,7 @@ export class FeatureGateService {
   async isFeatureEnabled(feature: Feature): Promise<boolean> {
     const status = await this.getLicenseStatus();
 
-    // No valid license = no features
+    // No valid license (expired) = no features
     if (!status.valid) {
       this.logger.debug(
         '[FeatureGateService.isFeatureEnabled] License invalid, feature disabled',
@@ -162,9 +164,9 @@ export class FeatureGateService {
       return isEnabled;
     }
 
-    // All other features are available to any valid license (Basic or Pro)
+    // All other features are available to any valid license (Community or Pro)
     this.logger.debug(
-      '[FeatureGateService.isFeatureEnabled] Basic feature enabled',
+      '[FeatureGateService.isFeatureEnabled] Community feature enabled',
       {
         feature,
         tier: status.tier,
@@ -174,8 +176,9 @@ export class FeatureGateService {
   }
 
   /**
-   * Check if user has any valid license (Basic or Pro)
+   * Check if user has any valid license (Community or Pro)
    *
+   * TASK_2025_128: Freemium model - Community users always have valid: true
    * Use this for hard blocking (e.g., extension activation).
    * For feature-specific checks, use isFeatureEnabled().
    *
@@ -220,9 +223,11 @@ export class FeatureGateService {
   }
 
   /**
-   * Check if user has Basic tier subscription (or Basic trial)
+   * Check if user has Community tier (free tier)
    *
-   * Basic tier includes core features:
+   * TASK_2025_128: Replaces isBasicTier
+   *
+   * Community tier includes core features:
    * - Visual chat interface
    * - Session history
    * - Permission management
@@ -230,21 +235,23 @@ export class FeatureGateService {
    * - Real-time streaming
    * - Basic workspace context
    *
-   * @returns true if user has Basic tier, false otherwise
+   * @returns true if user has Community tier, false otherwise
    */
-  async isBasicTier(): Promise<boolean> {
+  async isCommunityTier(): Promise<boolean> {
     const status = await this.getLicenseStatus();
-    return status.tier === 'basic' || status.tier === 'trial_basic';
+    return status.tier === 'community';
   }
 
   /**
-   * Check if user is in trial period (either Basic or Pro trial)
+   * Check if user is in trial period (Pro trial only)
+   *
+   * TASK_2025_128: Community has no trial (it's always free)
    *
    * @returns true if user is in trial, false otherwise
    */
   async isTrialActive(): Promise<boolean> {
     const status = await this.getLicenseStatus();
-    return status.tier === 'trial_basic' || status.tier === 'trial_pro';
+    return status.tier === 'trial_pro';  // Only Pro has trial
   }
 
   /**
