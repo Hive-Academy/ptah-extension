@@ -23,6 +23,8 @@ export interface AppState {
   statusMessage: string;
   workspaceInfo: WorkspaceInfo | null;
   isConnected: boolean;
+  /** Whether the user has a valid license */
+  isLicensed: boolean;
 }
 
 /**
@@ -37,6 +39,8 @@ export class AppStateManager {
   private readonly _statusMessage = signal('Ready');
   private readonly _workspaceInfo = signal<WorkspaceInfo | null>(null);
   private readonly _isConnected = signal(true);
+  /** License status - controls access to premium features and RPC calls */
+  private readonly _isLicensed = signal(true);
 
   constructor() {
     this.initializeState();
@@ -48,6 +52,8 @@ export class AppStateManager {
   readonly statusMessage = this._statusMessage.asReadonly();
   readonly workspaceInfo = this._workspaceInfo.asReadonly();
   readonly isConnected = this._isConnected.asReadonly();
+  /** Whether the user has a valid license - controls RPC access */
+  readonly isLicensed = this._isLicensed.asReadonly();
 
   // Computed signals
   // TASK_2025_126: Added welcome view check to prevent license bypass
@@ -98,9 +104,19 @@ export class AppStateManager {
    * @private
    */
   private initializeState(): void {
-    const windowWithState = window as Window & { initialView?: ViewType };
+    const windowWithState = window as Window & {
+      initialView?: ViewType;
+      ptahConfig?: { isLicensed?: boolean; initialView?: string };
+    };
+
+    // Read license status from ptahConfig (set by backend)
+    const isLicensed = windowWithState.ptahConfig?.isLicensed ?? true;
+    this._isLicensed.set(isLicensed);
+
     const initialView = windowWithState.initialView || 'chat';
-    console.log(`[AppStateManager] Initializing with view: ${initialView}`);
+    console.log(
+      `[AppStateManager] Initializing with view: ${initialView}, isLicensed: ${isLicensed}`
+    );
     this._currentView.set(initialView);
   }
 
@@ -157,6 +173,7 @@ export class AppStateManager {
       statusMessage: this._statusMessage(),
       workspaceInfo: this._workspaceInfo(),
       isConnected: this._isConnected(),
+      isLicensed: this._isLicensed(),
     };
   }
 }

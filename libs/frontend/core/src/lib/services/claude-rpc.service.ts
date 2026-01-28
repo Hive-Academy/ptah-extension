@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { VSCodeService } from './vscode.service';
+import { AppStateManager } from './app-state.service';
 import {
   SessionId,
   CorrelationId,
@@ -101,9 +102,19 @@ interface RpcResponse<T = unknown> {
  *   // Using typed method wrappers
  *   const result = await claudeRpc.listSessions(workspacePath);
  */
+/**
+ * RPC methods allowed for unlicensed users.
+ * All other methods will be blocked when isLicensed=false.
+ */
+const UNLICENSED_ALLOWED_METHODS: readonly string[] = [
+  'license:getStatus',
+  'command:execute',
+] as const;
+
 @Injectable({ providedIn: 'root' })
 export class ClaudeRpcService {
   private readonly vscode = inject(VSCodeService);
+  private readonly appState = inject(AppStateManager);
   private pendingCalls = new Map<
     string,
     (response: RpcResponse<unknown>) => void
@@ -115,6 +126,17 @@ export class ClaudeRpcService {
     console.log(
       '[ClaudeRpcService] Registered with VSCodeService for RPC routing'
     );
+  }
+
+  /**
+   * Check if the given RPC method is allowed based on license status.
+   * Unlicensed users can only call methods in UNLICENSED_ALLOWED_METHODS.
+   */
+  private isMethodAllowed(method: string): boolean {
+    if (this.appState.isLicensed()) {
+      return true; // Licensed users can call any method
+    }
+    return UNLICENSED_ALLOWED_METHODS.includes(method);
   }
 
   /**
@@ -146,6 +168,19 @@ export class ClaudeRpcService {
     params: RpcMethodParams<T>,
     options?: RpcCallOptions
   ): Promise<RpcResult<RpcMethodResult<T>>> {
+    // Check license before making RPC call
+    if (!this.isMethodAllowed(method)) {
+      console.warn(
+        `[ClaudeRpcService] RPC blocked - method "${method}" requires license`
+      );
+      return new RpcResult<RpcMethodResult<T>>(
+        false,
+        undefined,
+        `License required: ${method}`,
+        'LICENSE_REQUIRED'
+      );
+    }
+
     const correlationId = CorrelationId.create();
     const timeout = options?.timeout ?? 30000;
 

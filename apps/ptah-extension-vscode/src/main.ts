@@ -146,7 +146,7 @@ async function handleLicenseBlocking(
 
       webviewView.webview.html = htmlGenerator.generateAngularWebviewContent(
         webviewView.webview,
-        { workspaceInfo, initialView: 'welcome' }
+        { workspaceInfo, initialView: 'welcome', isLicensed: false }
       );
 
       // Setup minimal message listener for RPC calls (license status, command execution)

@@ -10,6 +10,8 @@ export interface WebviewHtmlOptions {
   workspaceInfo?: Record<string, unknown>;
   /** Initial view to navigate to (e.g., 'chat', 'setup-wizard') */
   initialView?: string;
+  /** Whether the user has a valid license (default: true for licensed activation) */
+  isLicensed?: boolean;
 }
 
 /**
@@ -31,21 +33,23 @@ export class WebviewHtmlGenerator {
   generateAngularWebviewContent(
     webview: vscode.Webview,
     options?:
-      | { workspaceInfo?: Record<string, unknown>; initialView?: string }
+      | { workspaceInfo?: Record<string, unknown>; initialView?: string; isLicensed?: boolean }
       | Record<string, unknown>
   ): string {
     try {
       // Support both new options object and legacy workspaceInfo object
       let workspaceInfo: Record<string, unknown> | undefined;
       let initialView: string | undefined;
+      let isLicensed = true; // Default to licensed for normal activation
 
       if (options) {
-        if ('initialView' in options || 'workspaceInfo' in options) {
+        if ('initialView' in options || 'workspaceInfo' in options || 'isLicensed' in options) {
           // New format with explicit options
           workspaceInfo = (
             options as { workspaceInfo?: Record<string, unknown> }
           ).workspaceInfo;
           initialView = (options as { initialView?: string }).initialView;
+          isLicensed = (options as { isLicensed?: boolean }).isLicensed ?? true;
         } else {
           // Legacy format - treat as workspaceInfo directly
           workspaceInfo = options as Record<string, unknown>;
@@ -55,7 +59,8 @@ export class WebviewHtmlGenerator {
       const htmlContent = this._getHtmlForWebview(
         webview,
         workspaceInfo,
-        initialView
+        initialView,
+        isLicensed
       );
       return htmlContent;
     } catch (error) {
@@ -75,7 +80,8 @@ export class WebviewHtmlGenerator {
   private _getHtmlForWebview(
     webview: vscode.Webview,
     workspaceInfo?: Record<string, unknown>,
-    initialView?: string
+    initialView?: string,
+    isLicensed = true
   ): string {
     // CRITICAL: Validate initialView to prevent invalid views from crashing navigation
     const VALID_VIEWS = [
@@ -137,7 +143,8 @@ export class WebviewHtmlGenerator {
       theme,
       workspaceInfo,
       webview,
-      initialView
+      initialView,
+      isLicensed
     );
     const themeStyles = this.getThemeStyles();
 
@@ -396,7 +403,8 @@ export class WebviewHtmlGenerator {
     theme: vscode.ColorThemeKind,
     workspaceInfo?: Record<string, unknown>,
     webview?: vscode.Webview,
-    initialView?: string
+    initialView?: string,
+    isLicensed = true
   ): string {
     // Generate proper webview URIs for assets
     const appDistPath = path.join(
@@ -427,6 +435,7 @@ export class WebviewHtmlGenerator {
       window.vscode = vscode;
       window.ptahConfig = {
         isVSCode: true,
+        isLicensed: ${isLicensed},
         theme: '${this.getThemeString(theme)}',
         workspaceRoot: '${this.escapeJsString(
           String(workspaceInfo?.['path'] || '')
