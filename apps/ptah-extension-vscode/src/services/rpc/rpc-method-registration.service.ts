@@ -49,6 +49,7 @@ import { CommandRpcHandlers } from './handlers/command-rpc.handlers';
 
 interface WebviewManager {
   sendMessage(viewType: string, type: string, payload: unknown): Promise<void>;
+  broadcastMessage(type: string, payload: unknown): Promise<void>;
 }
 
 /**
@@ -148,7 +149,7 @@ export class RpcMethodRegistrationService {
         // tabId: used to find the tab directly (no temp ID lookup needed)
         // realSessionId: the actual SDK UUID to store on the tab
         this.webviewManager
-          .sendMessage('ptah.main', MESSAGE_TYPES.SESSION_ID_RESOLVED, {
+          .broadcastMessage(MESSAGE_TYPES.SESSION_ID_RESOLVED, {
             tabId,
             realSessionId: realSessionId,
           })
@@ -206,7 +207,7 @@ export class RpcMethodRegistrationService {
       // Route through CHAT_CHUNK (same path as all other streaming events)
       // Frontend will process this through StreamingHandlerService
       this.webviewManager
-        .sendMessage('ptah.main', MESSAGE_TYPES.CHAT_CHUNK, {
+        .broadcastMessage(MESSAGE_TYPES.CHAT_CHUNK, {
           sessionId: data.sessionId,
           event: compactionEvent,
         })
@@ -244,8 +245,7 @@ export class RpcMethodRegistrationService {
     try {
       await retryWithBackoff(
         () =>
-          this.webviewManager.sendMessage(
-            'ptah.main',
+          this.webviewManager.broadcastMessage(
             MESSAGE_TYPES.SESSION_STATS,
             {
               sessionId: stats.sessionId,
@@ -313,7 +313,7 @@ export class RpcMethodRegistrationService {
 
       // TASK_2025_099: Forward entire chunk including agentId for stable lookup
       this.webviewManager
-        .sendMessage('ptah.main', MESSAGE_TYPES.AGENT_SUMMARY_CHUNK, chunk)
+        .broadcastMessage(MESSAGE_TYPES.AGENT_SUMMARY_CHUNK, chunk)
         .then(() => {
           this.logger.info(
             '[RpcMethodRegistrationService] Summary-chunk sent to webview successfully',
@@ -365,7 +365,7 @@ export class RpcMethodRegistrationService {
       };
 
       this.webviewManager
-        .sendMessage('ptah.main', MESSAGE_TYPES.CHAT_CHUNK, {
+        .broadcastMessage(MESSAGE_TYPES.CHAT_CHUNK, {
           // TASK_2025_100: No tabId available from hook - frontend will resolve from sessionId
           sessionId: agentStartEvent.sessionId,
           event: streamingEvent,

@@ -304,6 +304,42 @@ export class WebviewManager {
   }
 
   /**
+   * Broadcast a message to ALL registered webviews (both panels and sidebar views).
+   * Used for push events (CHAT_CHUNK, CHAT_COMPLETE, etc.) that must reach every
+   * active Angular instance. Each frontend instance filters by tabId/sessionId.
+   *
+   * @param type - The message type to broadcast
+   * @param payload - The message payload
+   */
+  async broadcastMessage<T extends StrictMessageType>(
+    type: T,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    payload: any
+  ): Promise<void> {
+    const panelPromises: Promise<boolean>[] = [];
+
+    // Send to all panels via existing sendMessage (handles lookup and error logging)
+    for (const viewType of this.activeWebviews.keys()) {
+      panelPromises.push(this.sendMessage(viewType, type, payload));
+    }
+
+    // Send to all sidebar views directly
+    for (const [viewType, view] of this.activeWebviewViews) {
+      try {
+        await view.webview.postMessage({ type, payload });
+      } catch (error) {
+        this.logger.warn(
+          `[WebviewManager] Broadcast failed for view ${viewType}`,
+          error instanceof Error ? error : new Error(String(error))
+        );
+      }
+    }
+
+    // Wait for all panel sends to settle (don't throw on individual failures)
+    await Promise.allSettled(panelPromises);
+  }
+
+  /**
    * Dispose a specific webview
    *
    * @param viewType - The webview to dispose

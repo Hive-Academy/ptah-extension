@@ -41,6 +41,7 @@ import {
 
 interface WebviewManager {
   sendMessage(viewType: string, type: string, payload: unknown): Promise<void>;
+  broadcastMessage(type: string, payload: unknown): Promise<void>;
 }
 
 /**
@@ -498,8 +499,7 @@ IMPORTANT INSTRUCTIONS:
 
         // Include tabId for frontend routing
         // sessionId in event is the real SDK UUID
-        await this.webviewManager.sendMessage(
-          'ptah.main',
+        await this.webviewManager.broadcastMessage(
           MESSAGE_TYPES.CHAT_CHUNK,
           {
             tabId, // For frontend tab routing
@@ -520,8 +520,7 @@ IMPORTANT INSTRUCTIONS:
             `[RPC] Turn complete - sending chat:complete for session ${sessionId}, tabId ${tabId}`,
             { eventCount }
           );
-          await this.webviewManager.sendMessage(
-            'ptah.main',
+          await this.webviewManager.broadcastMessage(
             MESSAGE_TYPES.CHAT_COMPLETE,
             {
               tabId,
@@ -533,8 +532,7 @@ IMPORTANT INSTRUCTIONS:
       }
 
       if (!turnCompleteSent) {
-        await this.webviewManager.sendMessage(
-          'ptah.main',
+        await this.webviewManager.broadcastMessage(
           MESSAGE_TYPES.CHAT_COMPLETE,
           {
             tabId,
@@ -569,8 +567,7 @@ IMPORTANT INSTRUCTIONS:
       }
 
       // Send error to webview (frontend handles abort vs error display)
-      await this.webviewManager.sendMessage(
-        'ptah.main',
+      await this.webviewManager.broadcastMessage(
         MESSAGE_TYPES.CHAT_ERROR,
         {
           tabId,
